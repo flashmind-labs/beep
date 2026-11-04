@@ -1,6 +1,6 @@
 //! Keys that sign into an account: the phone that made it and linked computers.
 
-use super::Store;
+use super::{Store, machine_removal::remove_machine_rows, project_removal::RemovedProject};
 use crate::{
     account::user::UserKey,
     protocol::{DeviceKind, names::username},
@@ -169,8 +169,12 @@ impl Store {
         Ok(rows.into_iter().map(account_key).collect())
     }
 
-    /// Revokes a linked key and its push tokens; false if missing. The primary key cannot be revoked.
-    pub(crate) async fn revoke_key(&self, user: &UserKey, endpoint_id: &str) -> Result<bool> {
+    /// Revokes a linked key with its push tokens and what its machine left; `None` if missing. The primary key cannot be revoked.
+    pub(crate) async fn revoke_key(
+        &self,
+        user: &UserKey,
+        endpoint_id: &str,
+    ) -> Result<Option<RemovedProject>> {
         let mut tx = self.pool.begin().await?;
         let revoked = sqlx::query(
             "UPDATE user_keys SET revoked_at=now()
@@ -183,7 +187,7 @@ impl Store {
         .rows_affected();
         if revoked == 0 {
             tx.rollback().await?;
-            return Ok(false);
+            return Ok(None);
         }
         sqlx::query("DELETE FROM devices WHERE user_id=$1 AND endpoint_id=$2")
             .bind(user.as_str())
@@ -196,14 +200,15 @@ impl Store {
             .bind(endpoint_id)
             .execute(&mut *tx)
             .await?;
-        // Nor one that syncs projects; its peers drop it on the next push.
-        sqlx::query("DELETE FROM project_sync WHERE user_id=$1 AND endpoint_id=$2")
-            .bind(user.as_str())
-            .bind(endpoint_id)
-            .execute(&mut *tx)
-            .await?;
+        // Nor one with sessions or project folders; its peers drop it on the next push.
+        let gone = remove_machine_rows(&mut tx, user, endpoint_id).await?;
         tx.commit().await?;
-        Ok(true)
+        self.announce(&gone.bumped);
+        // The key is revoked: leftover bytes must not stop dropping its connection.
+        if let Err(e) = self.blobs.delete(&gone.files).await {
+            log::warn!("files of a removed machine not deleted: {e:#}");
+        }
+        Ok(Some(gone.removed))
     }
 
     /// Records what kind of device `endpoint` is.
@@ -357,7 +362,13 @@ mod tests {
         }
 
         // Nor can the primary key be removed.
-        assert!(!store.revoke_key(&owner, &phone.to_string()).await.unwrap());
+        assert!(
+            store
+                .revoke_key(&owner, &phone.to_string())
+                .await
+                .unwrap()
+                .is_none()
+        );
         // A removed machine stops being one the agent can use.
         store
             .node_connected(
@@ -386,6 +397,7 @@ mod tests {
                 .revoke_key(&owner, &desktop.to_string())
                 .await
                 .unwrap()
+                .is_some()
         );
         assert!(store.nodes(&owner).await.unwrap().is_empty());
         // Nor one that syncs projects.
@@ -399,10 +411,11 @@ mod tests {
             }]
         );
         assert!(
-            !store
+            store
                 .revoke_key(&owner, &desktop.to_string())
                 .await
                 .unwrap()
+                .is_none()
         );
     }
 }

@@ -337,6 +337,7 @@ mod tests {
                 .revoke_key(&alice, &machine.to_string())
                 .await
                 .unwrap()
+                .is_some()
         );
         assert_eq!(store.sign_in(&machine).await.unwrap(), SignIn::Revoked);
 

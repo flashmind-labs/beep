@@ -1,6 +1,6 @@
 //! The machines running beep-node, for the app's Machines screen.
 
-use super::{Reply, devices::unlink, ssh::owned_online};
+use super::{Reply, devices::unlink, machine_search::owned_online};
 use crate::{
     api::router::Cx,
     nodes::{self, Sampled, TokenRefusal},
@@ -58,6 +58,22 @@ pub(super) async fn remove_machine(
         return Err(ApiError::NotFound {});
     }
     unlink(&cx, key).await
+}
+
+/// Adding a machine over ssh was removed; released apps still ask.
+pub(super) async fn list_ssh_hosts(_: Cx, _: ListSshHosts) -> Reply<Vec<String>> {
+    Ok(Vec::new())
+}
+
+/// Adding a machine over ssh was removed; released apps still ask.
+pub(super) async fn add_machine_over_ssh(_: Cx, _: AddMachineOverSsh) -> Reply<SshAdd> {
+    Ok(SshAdd {
+        machine_id: None,
+        system: String::new(),
+        error: "Adding a machine over SSH was removed. Run the setup command on the machine."
+            .into(),
+        output: Vec::new(),
+    })
 }
 
 /// Has one of the caller's online machines update its beep-node. Another
