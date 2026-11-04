@@ -319,6 +319,10 @@ async fn main() -> Result<()> {
                 // A fresh machine has no node yet: start it in the background,
                 // as `setup` does, before the ticket is sent.
                 if !peers::is_running(&dir) {
+                    // A service for another folder is not replaced.
+                    service::ensure_joinable(&dir)?;
+                    // The service needs the folder and the key to exist.
+                    state::State::load_or_start(&dir, &setup::host_name().await)?;
                     let described = in_background(&dir, cli.workspace.as_deref()).context(
                         "no node is running and the service could not be started; run \
                          `beep-node run` in another terminal, then join again",

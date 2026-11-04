@@ -9,6 +9,7 @@ use std::{
     process::{Command, Stdio},
 };
 
+mod existing;
 mod launchd;
 pub mod logs;
 #[cfg(windows)]
@@ -276,6 +277,16 @@ impl Manager {
             Self::TaskScheduler => "schtasks /Run /TN \"Beep node\"",
         }
     }
+}
+
+/// Fails when a service for another folder than `dir` is installed, so a
+/// join there does not replace it. Nothing is changed. Where no service
+/// manager is usable there is nothing to replace.
+pub fn ensure_joinable(dir: &Path) -> Result<()> {
+    let Ok(manager) = manager() else {
+        return Ok(());
+    };
+    existing::decide(&existing::installed(manager)?, dir)
 }
 
 /// `beep-node service install`.

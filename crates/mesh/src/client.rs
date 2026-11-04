@@ -109,11 +109,37 @@ impl PeerClient {
     /// Over the network the whole exchange, from opening the stream to the
     /// node's answer, gets `OPEN_TIMEOUT`.
     pub async fn open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
+        let (tx, mut rx) = self.begin(protocol).await?;
+        self.confirmed(&mut rx, protocol).await?;
+        Ok((tx, rx))
+    }
+
+    /// Like `open`, with `first` sent right behind `Open`, before the node's
+    /// answer is read: a stream whose first message decides everything
+    /// (start a session, follow one) costs one round trip. A refusal is
+    /// reported in place of a failure to send.
+    pub async fn open_sending<Q: Serialize>(
+        &self,
+        protocol: &str,
+        first: &Q,
+    ) -> Result<(LinkTx, LinkRx), MeshError> {
+        let (mut tx, mut rx) = self.begin(protocol).await?;
+        let sent = tx.send(first).await;
+        self.confirmed(&mut rx, protocol).await?;
+        sent.map_err(MeshError::Link)?;
+        Ok((tx, rx))
+    }
+
+    /// Opens the stream and sends `Open`, without waiting for the node's
+    /// answer. What the caller sends next follows `Open` at once, so a call
+    /// costs one round trip instead of two. `confirmed` reads the answer.
+    async fn begin(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
         match &self.via {
             Via::Peer(open_bi) => timeout(OPEN_TIMEOUT, async {
                 let (send, recv) = open_bi().await?;
-                let (tx, rx) = link(send, recv);
-                handshake(tx, rx, protocol).await
+                let (mut tx, rx) = link(send, recv);
+                send_open(&mut tx, protocol).await?;
+                Ok((tx, rx))
             })
             .await
             .map_err(|e| {
@@ -125,9 +151,25 @@ impl PeerClient {
                 // The session task ends when either side drops its half of
                 // the pipes, so nothing outlives the call or the stream.
                 spawn(session(node_tx, node_rx));
-                let (tx, rx) = pair.caller;
-                handshake(tx, rx, protocol).await
+                let (mut tx, rx) = pair.caller;
+                send_open(&mut tx, protocol).await?;
+                Ok((tx, rx))
             }
+        }
+    }
+
+    /// Reads the node's answer to `Open`. Over the network it gets
+    /// `OPEN_TIMEOUT`.
+    async fn confirmed(&self, rx: &mut LinkRx, protocol: &str) -> Result<(), MeshError> {
+        match &self.via {
+            Via::Peer(_) => timeout(OPEN_TIMEOUT, answer(rx, protocol))
+                .await
+                .map_err(|e| {
+                    MeshError::Link(
+                        anyhow::Error::new(e).context("the node did not open the stream"),
+                    )
+                })?,
+            Via::Local(_) => answer(rx, protocol).await,
         }
     }
 
@@ -149,8 +191,7 @@ impl PeerClient {
         request: &Q,
     ) -> Result<R, MeshError> {
         timeout(limit, async {
-            let (mut tx, mut rx) = self.open(protocol).await?;
-            tx.send(request).await.map_err(MeshError::Link)?;
+            let (_tx, mut rx) = self.open_sending(protocol, request).await?;
             rx.recv()
                 .await
                 .map_err(MeshError::Link)?
@@ -167,8 +208,7 @@ impl PeerClient {
         protocol: &str,
         request: &Q,
     ) -> Result<impl Stream<Item = Result<R, MeshError>> + use<Q, R>, MeshError> {
-        let (mut tx, rx) = self.open(protocol).await?;
-        tx.send(request).await.map_err(MeshError::Link)?;
+        let (tx, rx) = self.open_sending(protocol, request).await?;
         // `tx` rides along: finishing our half would read as a cancel.
         Ok(unfold(Some((tx, rx)), |state| async move {
             let (tx, mut rx) = state?;
@@ -181,23 +221,23 @@ impl PeerClient {
     }
 }
 
-/// Sends `Open` and reads the node's answer.
-async fn handshake(
-    mut tx: LinkTx,
-    mut rx: LinkRx,
-    protocol: &str,
-) -> Result<(LinkTx, LinkRx), MeshError> {
+/// Sends `Open`.
+async fn send_open(tx: &mut LinkTx, protocol: &str) -> Result<(), MeshError> {
     let open = Open {
         protocol: protocol.to_owned(),
     };
-    tx.send(&open).await.map_err(MeshError::Link)?;
+    tx.send(&open).await.map_err(MeshError::Link)
+}
+
+/// Reads the node's answer to `Open`.
+async fn answer(rx: &mut LinkRx, protocol: &str) -> Result<(), MeshError> {
     let opened = rx
         .recv::<Opened>()
         .await
         .map_err(MeshError::Link)?
         .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))?;
     match opened {
-        Opened::Ready {} => Ok((tx, rx)),
+        Opened::Ready {} => Ok(()),
         Opened::Refused { reason } => Err(MeshError::Declined {
             protocol: protocol.to_owned(),
             reason,
@@ -366,5 +406,41 @@ mod tests {
         eprintln!("fastest local call: {fastest:?}");
         // The fastest of 200 is steady on a loaded box; 5 ms is far above it.
         assert!(fastest < Duration::from_millis(5), "{fastest:?}");
+    }
+
+    /// A node that answers `Open` only after it read the request, as a slow
+    /// link makes it look: a call that waits for the answer before sending
+    /// the request never finishes.
+    async fn eager(mut tx: LinkTx, mut rx: LinkRx) {
+        let Ok(Some(_)) = rx.recv::<Open>().await else {
+            return;
+        };
+        let Ok(Some(n)) = rx.recv::<u32>().await else {
+            return;
+        };
+        tx.send(&Opened::Ready {}).await.ok();
+        tx.send(&(n + 1)).await.ok();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_sends_its_request_right_behind_open() {
+        let client = PeerClient::local(Arc::new(|tx, rx| Box::pin(eager(tx, rx))));
+        let reply = client
+            .call_within::<u32, u32>(Duration::from_secs(5), "eager/1", &41)
+            .await;
+        assert_eq!(reply.expect("answered"), 42);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_call_says_why() {
+        let client = PeerClient::local(session());
+        let err = client
+            .call_within::<u32, u32>(Duration::from_secs(5), "nope/1", &1)
+            .await
+            .expect_err("refused");
+        assert_eq!(
+            err.to_string(),
+            "the node refused nope/1: this node does not offer nope/1"
+        );
     }
 }
