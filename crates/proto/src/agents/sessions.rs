@@ -119,6 +119,24 @@ ffi_structs! {
         pub cost_usd: Option<f64>,
     }
 
+    /// The modes a session Beep runs can be switched between, as
+    /// `GetAgentSessionModes` gives them. Empty from a node too old to say.
+    #[derive(Default)]
+    pub struct AgentSessionModes {
+        /// The id of the mode it is in, once the agent said.
+        pub current: Option<String>,
+        /// In the order a switch goes through them.
+        pub modes: Vec<AgentMode>,
+        /// The plan waiting for approval in the session's question, in Markdown.
+        pub plan: Option<String>,
+    }
+
+    /// One mode of a coding-agent session.
+    pub struct AgentMode {
+        pub id: String,
+        pub name: String,
+    }
+
     /// How full a coding agent's context window is.
     #[derive(Copy, Default, Eq)]
     pub struct AgentContext {
@@ -185,7 +203,9 @@ ffi_enum! {
     /// once the agent's current tool call finishes rather than after the
     /// whole turn, and like `Prompt` when no turn runs. A server older than
     /// `Feature::AGENT_STEER` refuses it. `DropSteers` takes back the steers
-    /// not yet delivered.
+    /// not yet delivered. `SetMode` switches the running session to `mode`, one
+    /// `GetAgentSessionModes` lists; a server older than `Feature::AGENT_MODES`
+    /// refuses it.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum AgentSteer {
         0 Prompt { text: String }
@@ -195,6 +215,7 @@ ffi_enum! {
         4 Configure { model: Option<ModelId>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
         5 Steer { text: String, images: Vec<Upload> } since AGENT_STEER
         6 DropSteers {} since AGENT_STEER
+        7 SetMode { mode: String } since AGENT_MODES
     }
 }
 

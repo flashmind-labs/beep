@@ -46,7 +46,8 @@ pub(super) struct Known {
     /// environment sets them.
     pub(super) thinking_env: &'static [(&'static str, &'static str)],
     /// The session mode that asks no permission, for an agent whose
-    /// launch cannot set it, set once the session exists.
+    /// launch cannot set it, set once the session exists. Switching modes
+    /// shows it as Full access, first.
     pub(super) bypass_mode: Option<&'static str>,
     /// It starts on a model given as `--model` on its command line; the
     /// others switch over ACP once the session exists.

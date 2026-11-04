@@ -1244,6 +1244,9 @@ requests! {
     /// `NotFound` when the machine is not the caller's; `BadRequest` saying
     /// why when it is offline, too old or has no log to read.
     411 GetMachineLog { machine_id: String, lines: u32 } => Call<String>
+    /// The modes of a session Beep runs, the one it is in, and the plan it
+    /// waits on approval of. `NotFound` as for `GetAgentSessionUsage`.
+    412 GetAgentSessionModes { machine_id: String, agent: String, session: String } => Call<AgentSessionModes>
 }
 
 #[cfg(test)]

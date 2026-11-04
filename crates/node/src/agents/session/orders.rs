@@ -1,7 +1,7 @@
 //! What streams order a session to do, and the questions it asks.
 
 use super::{
-    Answered, Command, MAX_ASKED, MAX_QUEUED, MAX_QUEUED_BYTES,
+    Answered, Command, MAX_ASKED, MAX_PLAN, MAX_QUEUED, MAX_QUEUED_BYTES,
     actor::{Actor, Asked, Reply, Waiting, agent_title},
 };
 use crate::agents::{
@@ -10,12 +10,16 @@ use crate::agents::{
 };
 use agent_client_protocol::{
     Agent, ConnectionTo, Responder,
-    schema::v1::{CancelNotification, RequestPermissionRequest, RequestPermissionResponse},
+    schema::v1::{
+        CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
+        SetSessionModeRequest,
+    },
 };
 use anyhow::Result;
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    Alert, AlertKind, AnswerOption, Effort, EntryKind, OptionKind, Question, Status,
+    Alert, AlertKind, AnswerOption, Effort, EntryKind, MAX_QUESTION_LINE, OptionKind, Question,
+    Status,
 };
 
 impl Actor {
@@ -83,11 +87,99 @@ impl Actor {
                     detail: question.detail.map(|detail| cut(&detail, MAX_ASKED)),
                     options: question.options,
                 };
-                self.put(question, Waiting::Node(reply));
+                self.put(question, Waiting::Node(reply), None);
                 Ok(Ok(()))
             }
             Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
+            Command::SetMode(mode) => Ok(self.set_mode(cx, mode)),
         }
+    }
+
+    /// Switches the session to `mode`, one it offers. It shows at once, and
+    /// goes back if the agent refuses.
+    fn set_mode(&mut self, cx: &ConnectionTo<Agent>, mode: String) -> Result<(), String> {
+        let Some(session) = self.acp_session.clone() else {
+            return Err("the agent is still starting; switch once it is ready".into());
+        };
+        let live = self.live.borrow();
+        if !live.info.modes.iter().any(|offered| offered.id == mode) {
+            return Err(format!(
+                "{} here has no mode {mode}",
+                agent_title(&self.agent)
+            ));
+        }
+        let was = live.info.mode.clone();
+        drop(live);
+        let request = SetSessionModeRequest::new(session, mode.clone());
+        self.send(cx, request, move |result| Reply::ModeSet {
+            was,
+            result: result.map(drop),
+        });
+        self.mode_is(cx, mode);
+        Ok(())
+    }
+
+    /// The session is in `mode` now. Once an approved plan took it out of plan
+    /// mode, a mode other than the one it left plan mode for is switched back.
+    pub(super) fn mode_is(&mut self, cx: &ConnectionTo<Agent>, mode: String) {
+        let mut back = None;
+        if mode != acp::PLAN_MODE {
+            self.left_plan_for = Some(mode.clone());
+            back = self.returning.take().filter(|back| *back != mode);
+        }
+        self.live.send_if_modified(|live| {
+            let changed = live.info.mode.as_deref() != Some(mode.as_str());
+            live.info.mode = Some(mode);
+            changed
+        });
+        if let Some(back) = back
+            && let Err(e) = self.set_mode(cx, back)
+        {
+            log::warn!("the session did not go back after its plan: {e}");
+        }
+    }
+
+    /// Puts a plan the agent wants to go ahead with to the user, as a question
+    /// with two answers an app of any age can show, while the session is in
+    /// plan mode. Gives the responder back for any other request.
+    pub(super) fn plan_ready(
+        &mut self,
+        request: &RequestPermissionRequest,
+        responder: Responder<RequestPermissionResponse>,
+    ) -> Option<Responder<RequestPermissionResponse>> {
+        if self.live.borrow().info.mode.as_deref() != Some(acp::PLAN_MODE) {
+            return Some(responder);
+        }
+        let Some(plan) = acp::plan_of(request) else {
+            return Some(responder);
+        };
+        let question = self.live.borrow().question(0, request);
+        let answers = acp::allow_option(&question.options)
+            .zip(question.options.iter().find(|option| option.kind.rejects()));
+        let Some((allow, reject)) = answers else {
+            return Some(responder);
+        };
+        let answer = |option: &AnswerOption, name: &str, kind| AnswerOption {
+            id: option.id.clone(),
+            name: name.to_owned(),
+            kind,
+        };
+        let options = vec![
+            answer(allow, "Approve and start", OptionKind::AllowOnce),
+            answer(reject, "Keep planning", OptionKind::RejectOnce),
+        ];
+        let question = Question {
+            id: 0,
+            text: "Plan ready".to_owned(),
+            detail: Some(cut(&plan, MAX_QUESTION_LINE)).filter(|detail| !detail.is_empty()),
+            options,
+        };
+        self.put(
+            question,
+            Waiting::Agent(responder),
+            Some(cut(&plan, MAX_PLAN)),
+        );
+        None
     }
 
     /// Switches the running session to `model` and `effort`, which the
@@ -178,11 +270,11 @@ impl Actor {
         responder: Responder<RequestPermissionResponse>,
     ) {
         let question = self.live.borrow().question(0, request);
-        self.put(question, Waiting::Agent(responder));
+        self.put(question, Waiting::Agent(responder), None);
     }
 
     /// Shows `question` once those before it are answered, numbered next.
-    fn put(&mut self, mut question: Question, waiting: Waiting) {
+    fn put(&mut self, mut question: Question, waiting: Waiting, plan: Option<String>) {
         question.id = self.next_question;
         self.next_question += 1;
         self.live.send_modify(|live| {
@@ -196,7 +288,11 @@ impl Actor {
                 &format!("Asked: {}{detail}", question.text),
             );
         });
-        self.asked.push_back(Asked { question, waiting });
+        self.asked.push_back(Asked {
+            question,
+            waiting,
+            plan,
+        });
         self.show_question();
     }
 
@@ -246,6 +342,7 @@ impl Actor {
                 Some(reply.to_owned()),
             ),
         };
+        let approves_plan = asked.plan.is_some() && chosen.is_some_and(|o| !o.kind.rejects());
         let follow_up = follow_up.map(Prompt::from);
         if let Some(prompt) = &follow_up
             && let Err(full) = queue_room(&self.queued, prompt)
@@ -266,6 +363,12 @@ impl Actor {
         {
             responder.respond(answer)?;
         }
+        if approves_plan {
+            self.returning = self
+                .left_plan_for
+                .clone()
+                .or_else(|| self.bypass_mode.map(str::to_owned));
+        }
         if let Some(prompt) = follow_up {
             self.queued.push_front(prompt);
             self.show_queued();
@@ -280,6 +383,7 @@ impl Actor {
     /// Shows the first waiting question, or none, in the state.
     fn show_question(&mut self) {
         let question = self.asked.front().map(|asked| asked.question.clone());
+        let plan = self.asked.front().and_then(|asked| asked.plan.clone());
         let shown = self.live.borrow().info.question.as_ref().map(|q| q.id);
         if let Some(asks) = question.as_ref().filter(|q| Some(q.id) != shown) {
             self.alert(AlertKind::Asks {
@@ -294,6 +398,7 @@ impl Actor {
             };
             let changed = live.info.question != question || live.info.state.status != status;
             live.info.question = question;
+            live.info.plan_ready = plan;
             live.info.state.status = status;
             changed
         });

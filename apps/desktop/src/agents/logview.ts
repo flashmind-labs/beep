@@ -11,6 +11,7 @@ import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agen
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { fillAgentPics, gonePic } from "./images.ts";
 import { drawModelPill } from "./modelpill.ts";
+import { drawModes } from "./modepill.ts";
 import { drawQueue } from "./messages.ts";
 
 /// A step's mark: done, failed, running or did not finish.
@@ -416,7 +417,8 @@ export function drawAgentBody(keep?: string) {
   const child = AG.child != null && AG.log && p.entries[AG.child - p.earlier] ? AG.child : null;
   if (child == null) AG.child = null;
   const mark = (x: string) => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--hot)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
-  const question = q ? questionCard(q) : "";
+  // A plan waiting for approval shows above the field instead.
+  const question = q && AG.modes?.plan == null ? questionCard(q) : "";
   const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
   const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
   // Steers sent from here show above the field; this counts the others.
@@ -442,6 +444,7 @@ export function drawAgentBody(keep?: string) {
   fillAgentPics(b);
   attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
   drawModelPill();
+  drawModes();
   drawQueue();
   tickTurns();
   redrawAgentHints();
