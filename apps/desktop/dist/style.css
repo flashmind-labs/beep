@@ -806,7 +806,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dthink > button { all: unset; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 1px 0; font-size: 12.5px; color: var(--muted); cursor: pointer }
 .dthink > button:hover { color: var(--fg) } .dthink > button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: 4px }
 .dthink .lb { flex: none; font-size: 12.5px; color: var(--muted) }
-.dthink.live .lb i { font-style: normal; color: var(--dim); animation: dthinkletter 1.5s ease-in-out infinite; animation-delay: calc(var(--i) * 125ms - var(--ph, 0ms)) }
+.dthink.live .lb i { font-style: normal; color: var(--dim); animation: dthinkletter 1.5s ease-in-out infinite; animation-delay: calc(var(--i) * 125ms) }
 @keyframes dthinkletter { 0%, 30%, 100% { color: var(--dim) } 6% { color: var(--fg) } }
 .dthink .cv { display: grid; flex: none; color: var(--dim); transition: transform .2s var(--ease, ease) }
 .dthink .cv svg { width: 12px; height: 12px }
