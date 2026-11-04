@@ -410,8 +410,8 @@ function machinePage(m: Machine) {
   }
   if (env?.tools.length) {
     const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
-    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td>${toolVersion(m, t)}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
-    html += `<div class="dset-h">Tools</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(bareVersion(t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
+    html += `<div class="dset-hrow"><div class="dset-h">Tools</div>${tools.map(t => toolUpdate(m, t)).join("")}</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
     html += [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([, up]) => errLine(up.error)).join("");
   }
   html += trafficTable(m) + logSection(m);
@@ -428,14 +428,12 @@ function trafficTable(m: Machine) {
     + (relay ? `<div class="dmuted">Through a relay: ${relay}.</div>` : "");
 }
 
-/// A tool's version on a machine's page, with "to <latest>" and Update
-/// when a newer release is out.
-function toolVersion(m: Machine, t: MachineEnv["tools"][number]) {
-  const version = `<span class="dmono">${esc(bareVersion(t.name, t.version) ?? "")}</span>`;
+/// Update above a machine's Tools table, when a newer release of `t` is out.
+function toolUpdate(m: Machine, t: MachineEnv["tools"][number]) {
   const up = MC.tools.find(u => u.machine_id === m.id && u.tool === t.name);
-  if (!up || !m.online) return version;
+  if (!up || !m.online) return "";
   const busy = MC.toolUps.get(`${m.id} ${t.name}`)?.busy;
-  return `${version} <span class="dmuted">to</span> <span class="dmono">${esc(up.latest)}</span> <button class="dbtn" data-toolup="${esc(t.name)}" data-id="${esc(m.id)}"${busy ? " disabled" : ""}>${busy ? "Updating…" : "Update"}</button>`;
+  return `<button class="dbtn small" data-toolup="${esc(t.name)}" data-id="${esc(m.id)}"${busy ? " disabled" : ""}>${busy ? `Updating ${esc(t.name)}…` : `Update ${esc(t.name)} to ${esc(up.latest)}`}</button>`;
 }
 
 /// Add a machine, which opens the same sheet as the window's Home; the
