@@ -6,22 +6,20 @@
 //! tasks, with nothing to wait on from outside, so the tests poll the
 //! folders with a time limit.
 
-use beep_node::{files::Folders, syncthing::Syncthing, transfer::Transfers};
+use beep_node::files::{Folders, syncthing::Syncthing, transfer::Transfers};
 use beep_proto::node::sync::{Keep, Project, ProjectStatus, Refused, Rule, State};
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
     time::{Duration, UNIX_EPOCH},
 };
 use tempfile::TempDir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
+    sync::watch,
+    task::JoinSet,
     time::{sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -632,12 +630,28 @@ async fn a_node_restarting_on_a_folder_syncthing_took_holds_it() {
     );
 }
 
-/// A fake Syncthing GUI listing one folder at `path`, paused while `paused`
-/// holds, and the `config.xml` in `home` that points a node at it.
+/// What a fake Syncthing says of its one folder: paused or not, and the
+/// number of its last event.
+#[derive(Clone, Copy)]
+struct FakeFolder {
+    paused: bool,
+    event: u64,
+}
+
+fn set_paused(folder: &watch::Sender<FakeFolder>, paused: bool) {
+    folder.send_modify(|folder| {
+        folder.paused = paused;
+        folder.event += 1;
+    });
+}
+
+/// A fake Syncthing GUI listing one folder at `path`, with `/rest/events`
+/// held open until the folder changes, and the `config.xml` in `home` that
+/// points a node at it.
 async fn fake_syncthing(
     home: &Path,
     path: &Path,
-    paused: Arc<AtomicBool>,
+    folder: watch::Sender<FakeFolder>,
 ) -> AbortOnDropHandle<()> {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -648,35 +662,70 @@ async fn fake_syncthing(
     fs::write(home.join("config.xml"), config).unwrap();
     let path = serde_json::to_string(&path.to_string_lossy()).unwrap();
     let task = tokio::spawn(async move {
-        while let Ok((mut stream, _)) = listener.accept().await {
-            let mut request = Vec::new();
-            let mut buf = [0; 1024];
-            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-                match stream.read(&mut buf).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => request.extend_from_slice(&buf[..n]),
-                }
-            }
-            let body = format!(
-                r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{}}}]"#,
-                paused.load(Ordering::Relaxed)
-            );
-            let reply = format!(
-                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            let _ = stream.write_all(reply.as_bytes()).await;
+        let mut answering = JoinSet::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            answering.spawn(fake_answer(stream, folder.subscribe(), path.clone()));
         }
     });
     AbortOnDropHandle::new(task)
 }
 
+async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFolder>, path: String) {
+    let mut request = Vec::new();
+    let mut buf = [0; 1024];
+    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+        match stream.read(&mut buf).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => request.extend_from_slice(&buf[..n]),
+        }
+    }
+    let text = String::from_utf8_lossy(&request);
+    let line = text.lines().next().unwrap_or_default();
+    let body = if let Some((_, query)) = line.split_once("since=") {
+        let since: u64 = query.split('&').next().unwrap().parse().unwrap();
+        let event = folder
+            .wait_for(|folder| folder.event > since)
+            .await
+            .unwrap()
+            .event;
+        format!(r#"[{{"id":{event},"type":"FolderResumed"}}]"#)
+    } else {
+        let paused = folder.borrow().paused;
+        format!(r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{paused}}}]"#)
+    };
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(reply.as_bytes()).await.unwrap();
+}
+
+/// Waits for the error on the project to be `want`.
+/// The limit is well under the check's one minute: only the event can do it.
+async fn settles_on(node: &Node, want: Option<&str>) {
+    let settled = timeout(
+        Duration::from_secs(10),
+        eventually("the check to follow Syncthing", || {
+            let status = node.running().transfers.syncs().status();
+            status.len() == 1 && status[0].error.as_deref() == want
+        }),
+    )
+    .await;
+    assert!(settled.is_ok(), "the check did not follow the event");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_paused_in_syncthing_syncs_through_beep_until_resumed() {
-    let a = Node::new().await;
+    let mut a = Node::new().await;
     let b = Node::new().await;
-    let paused = Arc::new(AtomicBool::new(true));
-    let _api = fake_syncthing(&a.syncthing_home(), &a.folder(), paused.clone()).await;
+    let (folder, _) = watch::channel(FakeFolder {
+        paused: true,
+        event: 0,
+    });
+    let _api = fake_syncthing(&a.syncthing_home(), &a.folder(), folder.clone()).await;
+    // Started again to find the config, as a node started after Syncthing.
+    a.stop().await;
+    a.start().await;
     // Syncthing's marker, which must not reach the peer.
     write(&a.path(".stfolder/syncthing-folder-1.txt"), "game-1");
     a.sync_with(&b).await;
@@ -684,21 +733,18 @@ async fn a_folder_paused_in_syncthing_syncs_through_beep_until_resumed() {
     synced_file(&a, &b).await;
     assert!(!b.path(".stfolder").exists());
 
-    // Resumed: Syncthing has the folder again and Beep lets go.
-    paused.store(false, Ordering::Relaxed);
-    a.running().transfers.syncs().check_syncthing().await;
-    assert_eq!(
-        a.status().error.as_deref(),
-        Some("Already synced by Syncthing (Game)")
-    );
+    // Resumed: Beep's sync stops as soon as Syncthing says so.
+    set_paused(&folder, false);
+    settles_on(&a, Some("Already synced by Syncthing (Game)")).await;
+    write(&a.path("meanwhile.txt"), "Syncthing's to carry");
 
-    // Paused again: Beep takes it back.
-    paused.store(true, Ordering::Relaxed);
-    a.running().transfers.syncs().check_syncthing().await;
-    assert_eq!(a.status().error, None);
+    // Paused again: Beep takes it back, and what changed meanwhile arrives.
+    set_paused(&folder, true);
+    settles_on(&a, None).await;
     write(&a.path("later.txt"), "while paused");
-    eventually("the file written while paused to arrive", || {
+    eventually("the files written since to arrive", || {
         read(&b.path("later.txt")).as_deref() == Some(b"while paused".as_slice())
+            && read(&b.path("meanwhile.txt")).is_some()
     })
     .await;
 }

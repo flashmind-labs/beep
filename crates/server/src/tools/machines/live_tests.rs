@@ -40,7 +40,8 @@ async fn start_node(
     let bin = std::env::var("BEEP_LIVE_NODE_BIN").expect("BEEP_LIVE_NODE_BIN is a beep-node");
     let bin = std::fs::canonicalize(bin).expect("the beep-node binary exists");
     let dir = state_root.join(name);
-    let state = beep_node::state::State::create(&dir, server, name).expect("the node's state");
+    let state =
+        beep_node::link::state::State::create(&dir, server, name).expect("the node's state");
     harness
         .alice
         .link_key(NewKey {

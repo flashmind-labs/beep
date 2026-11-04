@@ -1,11 +1,8 @@
-//! The pictures in sessions' transcripts, kept by `image_key` so the server
-//! can ask for one by its `[image: image-<key>]` line. Kept in memory,
-//! bounded per session and overall; one evicted, or lost when the node
-//! restarted, is found again in the agent's own session file.
-//!
-//! A picture a running session shows for the first time also waits in an
-//! outbox for the server's `FollowImages` stream, which keeps a copy.
+//! The pictures in sessions' transcripts (`Images`), kept by `image_key` so
+//! the server can ask for one by its `[image: image-<key>]` line, and queued
+//! for the server's `FollowImages` stream.
 
+use crate::lock;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::image_key;
 use serde_json::Value;
@@ -14,7 +11,7 @@ use std::{
     fs::File,
     io::{self, BufRead, BufReader, Read},
     path::Path,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex},
 };
 use tokio::sync::Notify;
 
@@ -50,7 +47,9 @@ pub(crate) fn image_line(data: &[u8]) -> String {
     format!("[image: image-{}]", image_key(data))
 }
 
-/// The pictures kept, oldest first.
+/// The pictures kept, oldest first, bounded per session and overall. One
+/// evicted, or lost when the node restarted, is found again in the agent's
+/// own session file (`find_in_file`).
 #[derive(Debug, Default)]
 pub(crate) struct Images {
     kept: Mutex<Kept>,
@@ -99,7 +98,7 @@ impl Images {
         let Some(picture) = self.hold(session, picture) else {
             return;
         };
-        let mut outbox = self.outbox();
+        let mut outbox = lock(&self.unsent);
         outbox.bytes += picture.data.len();
         outbox.waiting.push_back(Unsent {
             session: session.to_owned(),
@@ -120,7 +119,7 @@ impl Images {
         loop {
             let arrived = self.arrived.notified();
             let next = {
-                let mut outbox = self.outbox();
+                let mut outbox = lock(&self.unsent);
                 let next = outbox.waiting.pop_front();
                 if let Some(next) = &next {
                     outbox.bytes -= next.picture.data.len();
@@ -141,7 +140,7 @@ impl Images {
         }
         let key = image_key(&picture.data);
         let picture = Arc::new(picture);
-        let mut kept = self.lock();
+        let mut kept = lock(&self.kept);
         let had = kept.take(session, &key).is_some();
         kept.bytes += picture.data.len();
         kept.held.push_back(Held {
@@ -164,20 +163,12 @@ impl Images {
 
     /// The picture `key` of `session`, when kept; it is then the newest.
     pub(crate) fn get(&self, session: &str, key: &str) -> Option<Arc<Picture>> {
-        let mut kept = self.lock();
+        let mut kept = lock(&self.kept);
         let held = kept.take(session, key)?;
         let picture = held.picture.clone();
         kept.bytes += picture.data.len();
         kept.held.push_back(held);
         Some(picture)
-    }
-
-    fn lock(&self) -> MutexGuard<'_, Kept> {
-        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn outbox(&self) -> MutexGuard<'_, Outbox> {
-        self.unsent.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -218,6 +209,11 @@ impl Kept {
 pub(crate) fn data_url(url: &str) -> Option<Picture> {
     let rest = url.strip_prefix("data:")?;
     let (mime, data) = rest.split_once(";base64,")?;
+    picture_of(mime, data)
+}
+
+/// The picture `data`, in base64, holds when `mime` is an image type.
+pub(crate) fn picture_of(mime: &str, data: &str) -> Option<Picture> {
     if !mime.starts_with("image/") {
         return None;
     }
@@ -349,7 +345,7 @@ mod tests {
             images.keep(&format!("s{n}"), png(1, 64 + n));
         }
         assert_eq!(images.get("s0", &image_key(&first.data)), None);
-        assert_eq!(images.lock().held.len(), MAX_IMAGES);
+        assert_eq!(lock(&images.kept).held.len(), MAX_IMAGES);
         let big = png(2, SESSION_BYTES + 1);
         images.keep("s0", big.clone());
         assert_eq!(images.get("s0", &image_key(&big.data)), None, "too big");
