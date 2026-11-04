@@ -1267,6 +1267,13 @@ requests! {
     /// picture as it is when it is already small or cannot be read. Never
     /// for saving or a viewer. Fails as `GetAgentImage` does.
     417 GetAgentThumb { machine_id: String, session: String, key: String } => Call<AgentImageData>
+    /// Records that a desktop imported `project` (`org/repo`) into `folder`
+    /// on its own machine `machine_id`, for the caller, as `ImportProject`
+    /// would have: phones and the project agent then see it. Nothing is
+    /// cloned and no machine is contacted. `url` is the repository's web
+    /// page, empty for a local project. Sending it again changes nothing.
+    /// `NotFound` when `machine_id` is not one of the caller's machines.
+    418 MirrorImport { project: String, machine_id: String, folder: String, url: String } => Call<()>
 }
 
 #[cfg(test)]
