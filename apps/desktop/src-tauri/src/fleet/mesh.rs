@@ -11,7 +11,7 @@ use beep_node::{
 };
 use beep_proto::{
     client::PushHandler,
-    node::{files, sync, transfer},
+    node::{sync, transfer},
     wire::PUSH_ALPN,
 };
 use iroh::{Endpoint, protocol::Router};
@@ -134,7 +134,6 @@ impl Serving {
                     if let Err(e) = transfers.shutdown().await {
                         log::warn!("transfers did not stop cleanly: {e:#}");
                     }
-                    return;
                 }
             }
             Err(e) => log::warn!("not offering transfers: {e:#}"),
