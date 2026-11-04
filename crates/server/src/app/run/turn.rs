@@ -1,26 +1,20 @@
 //! One turn of the assistant: tools, context, the model loop and its checks.
 
-use super::super::{
-    App, Message,
-    auto::Prompt,
-    device::Parked,
-    learning::{
-        MEMORY_THRESHOLD, ServerCall, TurnState, add_server_calls, drop_follow_ups,
-        drop_text_since, earlier_turns,
+use super::{
+    super::{
+        App, Message,
+        auto::Prompt,
+        device::Parked,
+        learning::{
+            MEMORY_THRESHOLD, ServerCall, TurnState, add_server_calls, drop_follow_ups,
+            drop_text_since, earlier_turns,
+        },
+        memory_context, research,
     },
-    memory_context, research,
+    IDLE_TIMEOUT, MAX_CONTINUES, MAX_RUN, MEMORY_RECALL_TIMEOUT, SCHEDULED_TASK_CHARS,
+    TOOL_IDLE_TIMEOUT, failure_message, keep_stopped, languages_line, register_web_tools,
+    system_prompt,
 };
-use super::IDLE_TIMEOUT;
-use super::MAX_CONTINUES;
-use super::MAX_RUN;
-use super::MEMORY_RECALL_TIMEOUT;
-use super::SCHEDULED_TASK_CHARS;
-use super::TOOL_IDLE_TIMEOUT;
-use super::failure_message;
-use super::keep_stopped;
-use super::languages_line;
-use super::register_web_tools;
-use super::system_prompt;
 use crate::{
     account::user::User,
     agent::followups,

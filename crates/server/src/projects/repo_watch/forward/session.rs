@@ -34,7 +34,6 @@ pub(super) enum Ended {
     Closed,
 }
 
-/// What one session is for.
 pub(super) struct Session<'a> {
     pub(super) app: Weak<App>,
     pub(super) user: &'a Arc<User>,

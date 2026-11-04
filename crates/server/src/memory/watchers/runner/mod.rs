@@ -38,7 +38,6 @@ const WOKEN_MAX: usize = 256;
 /// The most messages one review loads.
 const MAX_MESSAGES: i64 = 400;
 
-/// One watcher's job.
 #[async_trait]
 pub(crate) trait Watcher: Send + Sync {
     fn kind(&self) -> WatcherKind;
@@ -75,7 +74,6 @@ pub struct Settings {
     pub watchers: Vec<WatcherSettings>,
 }
 
-/// The waits of [`Settings`].
 #[derive(Debug, Clone, Copy)]
 pub struct TimingSettings {
     pub quiet: Duration,

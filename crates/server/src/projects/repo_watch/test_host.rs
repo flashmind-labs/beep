@@ -6,7 +6,6 @@ use tokio::{
     net::TcpListener,
 };
 
-/// One reply.
 pub(super) struct Reply {
     pub(super) status: &'static str,
     pub(super) headers: Vec<(&'static str, String)>,

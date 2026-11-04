@@ -1,18 +1,10 @@
 //! A project's tasks: creating, tracking and moving them through their states.
 
-use super::super::Store;
-use super::MAX_SLUG_SUFFIX;
-use super::TASK_COLUMNS;
-use super::end;
-use super::task_from;
-use crate::store::After;
-use crate::store::IssueAuthor;
-use crate::store::NewTask;
-use crate::store::TaskRow;
-use crate::store::TrackedIssue;
+use super::{super::Store, MAX_SLUG_SUFFIX, TASK_COLUMNS, end, task_from};
 use crate::{
     account::user::UserKey,
     projects::model::{IssueHost, IssueRef, ProjectId, StartRequest, TaskId, TaskSlug, TaskState},
+    store::{After, IssueAuthor, NewTask, TaskRow, TrackedIssue},
 };
 use anyhow::{Context, Result, bail};
 use sqlx::PgConnection;

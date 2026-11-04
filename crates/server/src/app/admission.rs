@@ -1,8 +1,6 @@
 //! Admitting a key: sign-in, linking, the instance owner and the bundled node.
 
-use super::Admission;
-use super::App;
-use super::SignedIn;
+use super::{Admission, App, SignedIn};
 use crate::{
     account::instance::Instance,
     protocol::DeviceKind,

@@ -1,9 +1,8 @@
 //! What agent sessions spent per their logs, and daily spend this month including watched turns no log covers.
 
-use super::agent_usage::name;
 use super::{
     Store,
-    agent_usage::{agent_of, endpoint_of},
+    agent_usage::{agent_of, endpoint_of, name},
 };
 use crate::{
     account::user::UserKey,

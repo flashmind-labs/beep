@@ -1,7 +1,9 @@
-use super::actions::{MAX_ACTION_VALUE_CHARS, describe_action};
-use super::guard::{READ_ONLY, classify};
-use super::records::*;
-use super::*;
+use super::{
+    actions::{MAX_ACTION_VALUE_CHARS, describe_action},
+    guard::{READ_ONLY, classify},
+    records::*,
+    *,
+};
 use crate::{
     apps::catalog_app,
     protocol::{HistoryEntry, PermissionLevel},
@@ -15,8 +17,7 @@ use flashmind::{
         tool::{Tool, ToolContext, ToolResult},
     },
 };
-use serde_json::Value;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{collections::HashSet, sync::Arc};
 
 #[test]

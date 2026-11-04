@@ -136,7 +136,6 @@ struct Mirror {
 }
 
 impl Projects {
-    /// The worker running in `session` on `machine`.
     pub(crate) fn worker_of(&self, machine: &EndpointId, session: &str) -> Option<WorkerId> {
         lock(&self.sessions)
             .get(&(*machine, session.to_owned()))

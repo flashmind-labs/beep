@@ -1,10 +1,6 @@
 //! What an approval card shows: the call's fields and the records its IDs name.
 
-use super::MAX_FIELDS;
-use super::MAX_RECORDS;
-use super::MAX_VALUE_CHARS;
-use super::ToolSlug;
-use super::capitalize;
+use super::{MAX_FIELDS, MAX_RECORDS, MAX_VALUE_CHARS, ToolSlug, capitalize};
 use crate::{account::user::User, protocol::ApprovalField};
 use anyhow::Result;
 use flashmind::{
@@ -21,7 +17,6 @@ pub(crate) fn describe_records(call_id: &str, conversation: &Conversation) -> Ve
         .unwrap_or_default()
 }
 
-/// The call `call_id` in `conversation`.
 pub(super) fn find_call<'a>(call_id: &str, conversation: &'a Conversation) -> Option<&'a ToolCall> {
     conversation
         .entries()

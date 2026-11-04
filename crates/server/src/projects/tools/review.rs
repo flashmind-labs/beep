@@ -140,11 +140,7 @@ impl Tool for ReviewTool {
             Ok(args) => args,
             Err(error) => return Ok(ToolResult::failure(id, error.to_string())),
         };
-        Ok(match self.run(id, &args).await? {
-            Planned::Done(text) => ToolResult::success(id, text),
-            Planned::Refused(text) => ToolResult::failure(id, text),
-            Planned::Gated(result) => result,
-        })
+        Ok(self.run(id, &args).await?.into_result(id))
     }
 
     fn humanize(&self, args: &Value) -> String {

@@ -97,7 +97,6 @@ pub(crate) fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) 
     )
 }
 
-/// Prints the commit the checkout is at.
 pub(crate) fn head_commit(checkout: &MachinePath) -> String {
     format!("git -C {} rev-parse HEAD", quote(checkout.as_str()))
 }

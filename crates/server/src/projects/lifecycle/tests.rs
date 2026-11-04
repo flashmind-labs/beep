@@ -1,26 +1,24 @@
-use super::super::{
-    model::{IssueHost, TaskState, WorkerState},
-    schedule::Due,
-    turn::{CHECK_LABEL, REPLAN_LABEL, WORKER_LABEL},
+use super::{
+    super::{
+        model::{IssueHost, TaskState, WorkerState},
+        schedule::Due,
+        turn::{CHECK_LABEL, REPLAN_LABEL, WORKER_LABEL},
+    },
+    *,
 };
-use super::*;
-use crate::projects::lifecycle::checks::check;
-use crate::projects::lifecycle::turns::TurnDone;
-use crate::projects::lifecycle::turns::asked;
-use crate::projects::lifecycle::turns::ended;
-use crate::projects::lifecycle::turns::turn_done;
-use crate::projects::lifecycle::workers::reattach;
 use crate::{
     account::user::User,
-    protocol::node::agent::{OptionKind, Question, Request as AgentRequest, Status},
-    store::{ProjectRow, TaskRow, WorkerRow},
-};
-use crate::{
     projects::{
+        lifecycle::{
+            checks::check,
+            turns::{TurnDone, asked, ended, turn_done},
+            workers::reattach,
+        },
         model::{IssueRef, MachinePath, RepoName, Roles, StartRequest, Visibility, WorkerAgent},
         testing::{FakeAttach, FakeFleet, FakeShell},
     },
-    store::{CheckoutRow, NewTask, NewWorker, TestDb},
+    protocol::node::agent::{OptionKind, Question, Request as AgentRequest, Status},
+    store::{CheckoutRow, NewTask, NewWorker, ProjectRow, TaskRow, TestDb, WorkerRow},
 };
 use chrono::{DateTime, TimeDelta, Utc};
 use iroh::EndpointId;

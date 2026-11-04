@@ -334,7 +334,6 @@ impl Rules {
         )
     }
 
-    /// The level of `app`.
     pub(crate) fn level(&self, app: &str) -> PermissionLevel {
         self.0
             .get(app)

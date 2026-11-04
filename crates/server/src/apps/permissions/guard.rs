@@ -1,21 +1,12 @@
 //! Wraps acting tools so a call asks first, runs or is refused by the app's level.
 
-use super::Approved;
-use super::Rules;
-use super::ToolApp;
-use super::ToolSlug;
-use super::action_name;
-use super::approval_for;
-use super::call_fields;
-use super::lookup;
-use super::lookup_in;
-use super::records;
-use super::row;
-use super::went_through;
-use crate::apps::Acts;
+use super::{
+    Approved, Rules, ToolApp, ToolSlug, action_name, approval_for, call_fields, lookup, lookup_in,
+    records, row, went_through,
+};
 use crate::{
     account::user::User,
-    apps::grants::RoutineGrants,
+    apps::{Acts, grants::RoutineGrants},
     protocol::{Approval, HistoryEntry, PermissionLevel},
     store::{AppPermissionRow, ChatAllow},
 };

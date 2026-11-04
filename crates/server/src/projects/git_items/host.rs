@@ -42,7 +42,6 @@ pub struct Label {
     pub name: String,
 }
 
-/// The names of `labels`.
 pub fn label_names(labels: &[Label]) -> Vec<String> {
     labels.iter().map(|label| label.name.clone()).collect()
 }

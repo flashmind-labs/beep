@@ -1,12 +1,13 @@
 //! Files tools hand the model: only the newest `SHOWN` are sent, and none are saved.
 
-use async_trait::async_trait;
-use flashmind::core::{Conversation, EntryKind};
-use flashmind::types::{
-    CompletionRequest, CompletionStream, ContentPart, ImageGenRequest, LlmProvider, Message, Model,
-    ModelCapabilities, ModelInfo, Provider, Role, SttRequest, TtsRequest, VideoGenRequest, Voice,
+use super::forward::forward_llm;
+use flashmind::{
+    core::{Conversation, EntryKind},
+    types::{
+        CompletionRequest, CompletionStream, ContentPart, LlmProvider, Message, ModelInfo, Role,
+    },
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 /// The most tool attachments one model call gets.
 const SHOWN: usize = 3;
@@ -89,24 +90,7 @@ impl RecentAttachments {
     }
 }
 
-#[async_trait]
-impl LlmProvider for RecentAttachments {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn provider(&self) -> Provider {
-        self.inner.provider()
-    }
-
-    async fn context_window(&self, model: &Model) -> Option<u32> {
-        self.inner.context_window(model).await
-    }
-
-    async fn capabilities(&self, model: &Model) -> ModelCapabilities {
-        self.inner.capabilities(model).await
-    }
-
+forward_llm!(RecentAttachments {
     async fn list_models(&self) -> Option<Vec<ModelInfo>> {
         self.inner.list_models().await
     }
@@ -115,31 +99,7 @@ impl LlmProvider for RecentAttachments {
         keep_recent(&mut request.messages);
         self.inner.complete(request)
     }
-
-    fn text_to_speech(&self, request: TtsRequest) -> CompletionStream {
-        self.inner.text_to_speech(request)
-    }
-
-    fn transcribe(&self, request: SttRequest) -> CompletionStream {
-        self.inner.transcribe(request)
-    }
-
-    async fn list_voices(&self, model: &str) -> Option<Vec<Voice>> {
-        self.inner.list_voices(model).await
-    }
-
-    fn generate_image(&self, request: ImageGenRequest) -> CompletionStream {
-        self.inner.generate_image(request)
-    }
-
-    fn generate_video(&self, request: VideoGenRequest) -> CompletionStream {
-        self.inner.generate_video(request)
-    }
-
-    fn update_routing(&self, routing: &HashMap<String, String>) {
-        self.inner.update_routing(routing)
-    }
-}
+});
 
 #[cfg(test)]
 mod tests {

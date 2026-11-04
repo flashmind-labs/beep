@@ -66,7 +66,6 @@ impl WebhookOwner<'_> {
     }
 }
 
-/// The key credentials are sealed with.
 pub struct CredentialKey(SecretBox<[u8; 32]>);
 
 impl CredentialKey {

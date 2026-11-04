@@ -1,7 +1,6 @@
 //! Chats and runs: sending a message, following its events and answering approvals.
 
-use super::Reply;
-use super::owned_run;
+use super::{Reply, owned_run};
 use crate::{
     agent::images::{MAX_IMAGE_BYTES, MAX_IMAGES},
     agent::live::Subscription,

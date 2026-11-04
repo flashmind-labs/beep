@@ -214,7 +214,6 @@ impl User {
             .map_err(internal("finish MCP OAuth"))
     }
 
-    /// Disconnects an app from the user.
     pub async fn disconnect_app(&self, slug: &str) -> Result<(), ApiError> {
         if catalog_app(slug).is_some_and(|app| app.kind == (AppKind::Fastmail {})) {
             let removed = self

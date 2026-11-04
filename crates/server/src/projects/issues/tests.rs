@@ -1,17 +1,23 @@
-use super::*;
-use crate::projects::{
-    lifecycle::{fill_slots, finish_task},
-    tools::{drop_task, reopen_task},
-    turn::REPLAN_LABEL,
+use super::{
+    super::{commands::ViewedIssue, turn::ISSUE_LABEL},
+    track::issue_task_body,
+    *,
 };
+use crate::projects::testing::widget_project;
 use crate::{
+    account::user::User,
     projects::{
-        model::{MachinePath, RepoName, Roles, Visibility},
+        Arc,
+        lifecycle::{fill_slots, finish_task},
+        model::{RepoName, Roles, Visibility, WorkerAgent},
         testing::FakeFleet,
+        tools::{drop_task, reopen_task},
+        turn::REPLAN_LABEL,
     },
-    store::{CheckoutRow, NewImport, NewTask, TestDb},
+    store::{NewImport, NewTask, TestDb},
 };
 use chrono::{TimeZone, Utc};
+use iroh::EndpointId;
 
 fn open_issue(number: u64, day: u32) -> OpenIssue {
     OpenIssue {
@@ -65,28 +71,16 @@ async fn github_project(
     Arc<crate::projects::testing::FakeShell>,
 ) {
     let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
-    let project = user
-        .ensure_project(&RepoName::parse("acme/widget").unwrap())
-        .await
-        .unwrap();
-    user.add_checkout(
-        project.id,
-        &CheckoutRow {
-            machine: home,
-            path: MachinePath::parse("/srv/widget").unwrap(),
-            home: true,
+    let project = widget_project(
+        user,
+        home,
+        Roles {
+            issues: Some(IssueHost::Github),
+            prs: Some(IssueHost::Github),
         },
+        Visibility::Public,
     )
-    .await
-    .unwrap();
-    let roles = Roles {
-        issues: Some(IssueHost::Github),
-        prs: Some(IssueHost::Github),
-    };
-    user.set_project_setup(project.id, &roles, Visibility::Public, "main")
-        .await
-        .unwrap();
-    let project = user.project(project.id).await.unwrap().unwrap();
+    .await;
     (project, home, shell)
 }
 
@@ -393,28 +387,16 @@ async fn missing_issues_are_filed_at_most_five_a_wake() {
         0,
         "https://github.com/acme/widget/issues/3\n",
     );
-    let project = user
-        .ensure_project(&RepoName::parse("acme/widget").unwrap())
-        .await
-        .unwrap();
-    user.add_checkout(
-        project.id,
-        &CheckoutRow {
-            machine: home,
-            path: MachinePath::parse("/srv/widget").unwrap(),
-            home: true,
+    let project = widget_project(
+        &user,
+        home,
+        Roles {
+            issues: Some(IssueHost::Github),
+            prs: None,
         },
+        Visibility::Private,
     )
-    .await
-    .unwrap();
-    let roles = Roles {
-        issues: Some(IssueHost::Github),
-        prs: None,
-    };
-    user.set_project_setup(project.id, &roles, Visibility::Private, "main")
-        .await
-        .unwrap();
-    let project = user.project(project.id).await.unwrap().unwrap();
+    .await;
     let tasks: Vec<NewTask> = (1..=6).map(|n| task(&format!("Task {n}"))).collect();
     user.create_tasks(project.id, &tasks).await.unwrap();
     assert_eq!(mirror_missing(&fleet, &user, &project).await.unwrap(), 5);
@@ -429,28 +411,16 @@ async fn an_issue_already_filed_is_found_not_filed_again() {
     let user = User::for_test(db.store().await.unwrap(), "alice");
     let mut fleet = FakeFleet::default();
     let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
-    let project = user
-        .ensure_project(&RepoName::parse("acme/widget").unwrap())
-        .await
-        .unwrap();
-    user.add_checkout(
-        project.id,
-        &CheckoutRow {
-            machine: home,
-            path: MachinePath::parse("/srv/widget").unwrap(),
-            home: true,
+    let project = widget_project(
+        &user,
+        home,
+        Roles {
+            issues: Some(IssueHost::Github),
+            prs: None,
         },
+        Visibility::Private,
     )
-    .await
-    .unwrap();
-    let roles = Roles {
-        issues: Some(IssueHost::Github),
-        prs: None,
-    };
-    user.set_project_setup(project.id, &roles, Visibility::Private, "main")
-        .await
-        .unwrap();
-    let project = user.project(project.id).await.unwrap().unwrap();
+    .await;
     let made = user
         .create_tasks(project.id, &[task("Found"), task("New")])
         .await

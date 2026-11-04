@@ -1,10 +1,12 @@
 //! Picks the machine a coding agent starts on when the user did not.
 
-use super::super::{
-    agent_auto::{self, Candidate, Wants},
-    agent_sessions::{IN_FLIGHT, NODE_LIMIT, limited},
+use super::{
+    super::{
+        agent_auto::{self, Candidate, Wants},
+        agent_sessions::{IN_FLIGHT, NODE_LIMIT, limited},
+    },
+    Live,
 };
-use super::Live;
 use crate::{
     nodes::{Online, agent_name},
     protocol::{

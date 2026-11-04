@@ -287,7 +287,6 @@ impl Tool for MemoryTool {
     }
 }
 
-/// The `action` of a call.
 fn action(args: &Value) -> Result<Action> {
     let name = arg(args, "action")?;
     name.parse().map_err(|_| {

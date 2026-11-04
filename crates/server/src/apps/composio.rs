@@ -1,7 +1,6 @@
 //! The Composio client: toolkits, connected accounts and logos.
 
-use super::CATALOG;
-use super::catalog_app;
+use super::{CATALOG, catalog_app};
 use crate::{
     AsyncMutex,
     protocol::{ApiError, AppKind},

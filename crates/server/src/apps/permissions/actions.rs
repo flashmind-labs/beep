@@ -1,16 +1,9 @@
 //! The actions a turn took, as one line each for memory and the actions log.
 
-use super::DENIED;
-use super::SKIPPED;
-use super::ToolApp;
-use super::ToolSlug;
-use super::action_name;
-use super::fields;
-use super::guard::READ_ONLY;
-use super::lookup;
-use super::parse_output;
-use super::records;
-use super::shorten;
+use super::{
+    DENIED, SKIPPED, ToolApp, ToolSlug, action_name, fields, guard::READ_ONLY, lookup,
+    parse_output, records, shorten,
+};
 use crate::protocol::ApprovalField;
 use chrono::{DateTime, Utc};
 use flashmind::{

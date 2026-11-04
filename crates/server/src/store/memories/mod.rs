@@ -1,23 +1,25 @@
 //! Memories in a flashmind `MemoryStore`, filtered by the `user` metadata key on every call, each with a `Scope`.
 
+mod meta;
+mod scope;
+use meta::{Meta, expiry, from_record, from_result, meta_map, now_text, owned_by, row_from};
+pub use scope::Scope;
+
+mod search;
+
 mod curation;
 mod history;
 
 pub use history::Superseded;
 
-use super::{
-    MEMORY_CATEGORIES, MemoryRow, Origin, Store, UNFILED, Validity, format_date, parse_date,
-};
+use super::{MEMORY_CATEGORIES, MemoryRow, Origin, Store, UNFILED, Validity, format_date};
 use crate::{
     account::user::UserKey,
     protocol::{Memory, MemorySource},
 };
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, bail};
 use async_trait::async_trait;
-use chrono::{Days, Utc};
-use flashmind::memory::{EmbeddingProvider, MemoryRecord, MemorySearchResult};
-use iroh::EndpointId;
-use std::collections::HashMap;
+use flashmind::memory::{EmbeddingProvider, MemoryRecord};
 
 /// Memories whose days are over are kept this long, then deleted.
 const ENDED_KEPT_DAYS: u64 = 30;
@@ -43,72 +45,6 @@ const SCOPE: &str = "scope";
 const CLOSEST_CANDIDATES: usize = 8;
 /// Longest project or account name in a scope.
 const MAX_SCOPE_NAME: usize = 100;
-
-/// What a memory is about; pre-scope memories are about the user.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub enum Scope {
-    #[default]
-    User,
-    /// A beep-node machine by key, so renaming keeps its memories.
-    Machine(EndpointId),
-    /// A project, such as a repository, by the name Beep knows it by.
-    Project(String),
-    /// One of the user's accounts, by app, such as `github`.
-    Account(String),
-}
-
-impl Scope {
-    /// A project scope, its name trimmed and lowercased so "Beep" and "beep" are one.
-    pub fn project(name: &str) -> Result<Self> {
-        Ok(Self::Project(scope_name(name)?))
-    }
-
-    pub fn account(app: &str) -> Result<Self> {
-        Ok(Self::Account(scope_name(app)?))
-    }
-
-    /// What kind of scope it is, safe to log where its name is not.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Machine(_) => "machine",
-            Self::Project(_) => "project",
-            Self::Account(_) => "account",
-        }
-    }
-
-    /// The value kept in the `scope` metadata key, `None` for the user.
-    fn stored(&self) -> Option<String> {
-        match self {
-            Self::User => None,
-            Self::Machine(node) => Some(format!("machine:{node}")),
-            Self::Project(name) => Some(format!("project:{name}")),
-            Self::Account(app) => Some(format!("account:{app}")),
-        }
-    }
-
-    /// A stored scope; an unreadable one counts as the user's, the widest.
-    fn from_stored(text: Option<&str>) -> Self {
-        let Some((kind, name)) = text.and_then(|text| text.split_once(':')) else {
-            return Self::User;
-        };
-        match kind {
-            "machine" => name.parse().map_or(Self::User, Self::Machine),
-            "project" => Self::Project(name.to_owned()),
-            "account" => Self::Account(name.to_owned()),
-            _ => Self::User,
-        }
-    }
-}
-
-fn scope_name(name: &str) -> Result<String> {
-    let name = name.trim().to_lowercase();
-    ensure!(
-        !name.is_empty() && name.chars().count() <= MAX_SCOPE_NAME && !name.contains(':'),
-        "a scope name has 1 to {MAX_SCOPE_NAME} characters and no colon"
-    );
-    Ok(name)
-}
 
 /// A fact to store or to replace a memory's text with.
 #[derive(Clone)]
@@ -149,118 +85,6 @@ fn validate_category(category: Option<&str>) -> Result<String> {
             MEMORY_CATEGORIES.join(", ")
         );
     }
-}
-
-const UPDATED_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
-
-fn now_text() -> String {
-    Utc::now().format(UPDATED_FORMAT).to_string()
-}
-
-/// When the store may delete a memory: a while after its days are over.
-fn expiry(valid: &Validity) -> Option<i64> {
-    let kept = valid
-        .until?
-        .checked_add_days(Days::new(ENDED_KEPT_DAYS + 1))?;
-    Some(kept.and_hms_opt(0, 0, 0)?.and_utc().timestamp())
-}
-
-/// The stored metadata of a memory.
-struct Meta<'a> {
-    user: &'a str,
-    category: &'a str,
-    source: MemorySource,
-    valid: Validity,
-    origin: Option<&'a Origin>,
-    core: bool,
-    updated: &'a str,
-    scope: &'a Scope,
-}
-
-impl<'a> Meta<'a> {
-    /// The metadata of `row`, kept by `user` and last changed at `updated`.
-    fn of(user: &'a UserKey, row: &'a MemoryRow, updated: &'a str) -> Self {
-        Self {
-            user: user.as_str(),
-            category: &row.category,
-            source: row.source,
-            valid: row.valid,
-            origin: row.origin.as_ref(),
-            core: row.core,
-            updated,
-            scope: &row.scope,
-        }
-    }
-
-    fn pairs(&self) -> Vec<(&'static str, String)> {
-        let mut pairs = vec![
-            (USER, self.user.to_owned()),
-            (CATEGORY, self.category.to_owned()),
-            (SOURCE, self.source.as_str().to_owned()),
-            (UPDATED, self.updated.to_owned()),
-        ];
-        if let Some(from) = format_date(self.valid.from) {
-            pairs.push((VALID_FROM, from));
-        }
-        if let Some(until) = format_date(self.valid.until) {
-            pairs.push((VALID_UNTIL, until));
-        }
-        if self.core {
-            pairs.push((CORE, "1".to_owned()));
-        }
-        if let Some(scope) = self.scope.stored() {
-            pairs.push((SCOPE, scope));
-        }
-        if let Some(origin) = self.origin {
-            pairs.push((ORIGIN, origin.reference.clone()));
-            if let Some(quote) = &origin.quote {
-                pairs.push((QUOTE, quote.chars().take(MAX_QUOTE_CHARS).collect()));
-            }
-        }
-        pairs
-    }
-}
-
-/// A record's metadata by key.
-fn meta_map(meta: &[(String, String)]) -> HashMap<&str, &str> {
-    meta.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
-}
-
-fn row_from(id: String, content: String, meta: &[(String, String)]) -> MemoryRow {
-    let meta = meta_map(meta);
-    let date = |key| parse_date(meta.get(key).copied());
-    MemoryRow {
-        id,
-        content,
-        category: meta.get(CATEGORY).unwrap_or(&UNFILED).to_string(),
-        source: MemorySource::parse(meta.get(SOURCE).unwrap_or(&"user")),
-        updated_at: meta.get(UPDATED).unwrap_or(&"").to_string(),
-        valid: Validity {
-            from: date(VALID_FROM),
-            until: date(VALID_UNTIL),
-        },
-        origin: meta.get(ORIGIN).map(|reference| Origin {
-            reference: reference.to_string(),
-            quote: meta.get(QUOTE).map(|quote| quote.to_string()),
-        }),
-        core: meta.get(CORE) == Some(&"1"),
-        scope: Scope::from_stored(meta.get(SCOPE).copied()),
-    }
-}
-
-fn from_record(record: MemoryRecord) -> MemoryRow {
-    row_from(record.id, record.content, &record.meta)
-}
-
-fn from_result(result: MemorySearchResult) -> Option<Scored> {
-    Some(Scored {
-        score: result.score,
-        row: row_from(result.id?, result.content, &result.meta),
-    })
-}
-
-fn owned_by(record: &MemoryRecord, user: &UserKey) -> bool {
-    meta_map(&record.meta).get(USER) == Some(&user.as_str())
 }
 
 /// Hashed bag-of-words embedder so tests get meaning-like closeness offline.
@@ -433,87 +257,6 @@ impl Store {
         let mut rows: Vec<MemoryRow> = records.into_iter().map(from_record).collect();
         rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(rows)
-    }
-
-    /// The user's memories best matching `query` by meaning and words, in `scope` when given.
-    /// User-scoped memories have no scope key, so extra rows are read and filtered.
-    pub(crate) async fn search_memories(
-        &self,
-        user: &UserKey,
-        query: &str,
-        category: Option<&str>,
-        scope: Option<&Scope>,
-        limit: usize,
-    ) -> Result<Vec<Scored>> {
-        let stored = scope.and_then(Scope::stored);
-        let read = if scope == Some(&Scope::User) {
-            limit * 3
-        } else {
-            limit
-        };
-        let mut search = self
-            .memories
-            .search(query)
-            .filter(USER, user.as_str())
-            .limit(read);
-        if let Some(category) = category {
-            search = search.filter(CATEGORY, category);
-        }
-        if let Some(stored) = &stored {
-            search = search.filter(SCOPE, stored);
-        }
-        Ok(search
-            .await?
-            .into_iter()
-            .filter_map(from_result)
-            .filter(|found| scope.is_none_or(|scope| found.row.scope == *scope))
-            .take(limit)
-            .collect())
-    }
-
-    /// Vector-only candidates for automatic recall, scoped to one user.
-    pub(crate) async fn similar_memories(
-        &self,
-        user: &UserKey,
-        query: &str,
-        threshold: f32,
-        limit: usize,
-    ) -> Result<Vec<Scored>> {
-        Ok(self
-            .memories
-            .similar(query)
-            .filter(USER, user.as_str())
-            .threshold(threshold)
-            .limit(limit)
-            .await?
-            .into_iter()
-            .filter_map(from_result)
-            .collect())
-    }
-
-    /// The user's memory in `scope` closest to `text` scoring at least `threshold`, with its score.
-    pub(crate) async fn closest_memory(
-        &self,
-        user: &UserKey,
-        text: &str,
-        scope: &Scope,
-        threshold: f32,
-    ) -> Result<Option<Scored>> {
-        let mut similar = self
-            .memories
-            .similar(text)
-            .filter(USER, user.as_str())
-            .threshold(threshold)
-            .limit(CLOSEST_CANDIDATES);
-        let stored = scope.stored();
-        if let Some(stored) = &stored {
-            similar = similar.filter(SCOPE, stored);
-        }
-        Ok(similar
-            .await?
-            .into_iter()
-            .filter_map(from_result)
-            .find(|found| found.row.scope == *scope))
     }
 
     /// Puts a memory in or out of the profile, keeping its change date; returns whether it changed.

@@ -236,7 +236,6 @@ impl ModelChoices {
             .map_or_else(|| self.default_model(), |(_, model)| model)
     }
 
-    /// The offered model with `id`.
     pub fn find(&self, id: &str) -> Option<&Model> {
         self.choices
             .iter()

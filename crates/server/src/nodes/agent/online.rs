@@ -1,35 +1,25 @@
 //! The coding-agent requests a server makes of one online node.
 
-use super::super::{Follower, Online, RECONNECT_WAIT, retry::Unsent};
-use super::DIFF_TIMEOUT;
-use super::Failed;
-use super::Failure;
-use super::MODELS_TIMEOUT;
-use super::NodeImage;
-use super::ORDERS;
-use super::Opening;
-use super::Retry;
-use super::follow;
-use super::wake::Reporter;
-use crate::nodes::AgentLink;
-use crate::nodes::NodeFile;
-use crate::nodes::NodeWork;
-use crate::nodes::SessionRefused;
-use crate::nodes::StartOn;
-use crate::nodes::Watched;
-use crate::nodes::WorkRead;
-use crate::nodes::WorkWrite;
+use super::{
+    super::{Follower, Online, RECONNECT_WAIT, retry::Unsent},
+    DIFF_TIMEOUT, Failed, Failure, MODELS_TIMEOUT, NodeImage, ORDERS, Opening, Retry, follow,
+    wake::Reporter,
+};
 use crate::{
     api::transport::READ_TIMEOUT,
-    protocol::node::{
-        LinkRx, LinkTx, Open, Opened,
-        agent::{
-            self, Entry, Event, ExternalSession, LiveStatus, ModelList, Request, SESSIONS_PROTOCOL,
-            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer,
+    nodes::{AgentLink, NodeFile, NodeWork, SessionRefused, StartOn, Watched, WorkRead, WorkWrite},
+    protocol::{
+        CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
+        node::{
+            LinkRx, LinkTx, Open, Opened,
+            agent::{
+                self, DiffAsk, Entry, Event, ExternalSession, LiveStatus, ModelList, Request,
+                SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest,
+                Steer,
+            },
+            link,
         },
-        link,
     },
-    protocol::{CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree, node::agent::DiffAsk},
 };
 use anyhow::{Context, Result, bail};
 use std::{

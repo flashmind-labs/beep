@@ -171,7 +171,6 @@ pub(crate) fn review_script(folder: &str, branch: &str, default: &str) -> String
     )
 }
 
-/// One changed file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Changed {
     pub(crate) path: String,

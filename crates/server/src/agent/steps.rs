@@ -25,7 +25,6 @@ pub type TurnsByTime = HashMap<i64, TurnRecord>;
 /// What a run knew of its tool calls that the conversation does not keep, by call id.
 #[derive(Debug, Default)]
 pub struct CallNotes {
-    /// The calls that failed.
     pub failed: HashSet<String>,
     /// What each call showed while it ran, such as "Recalling memories".
     pub descriptions: HashMap<String, String>,

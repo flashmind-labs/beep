@@ -40,7 +40,6 @@ pub struct Origin {
     pub quote: Option<String>,
 }
 
-/// A stored memory.
 #[derive(Debug, Clone)]
 pub struct MemoryRow {
     pub id: String,

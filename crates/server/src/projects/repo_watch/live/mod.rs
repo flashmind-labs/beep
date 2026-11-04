@@ -1,30 +1,30 @@
 //! The copy of a project's workflow runs on each host, and live job progress: read at most every
 //! 10 seconds while a run is going and the page is open, and not while the rate limit is low.
 
+mod runs_copy;
+pub(crate) use runs_copy::RunsCopy;
+use runs_copy::{HostCopy, HostSlot, KeptLog};
+
+mod detail;
+
 use super::{
-    actions::{ListedRun, MirrorHead, PrHeadRef, mirror_checks, pr_checks, progress},
-    hosts::{self, RepoOnHost, Tokens, host_name},
-    http::{HostCalls, Who},
+    hosts::{self, Tokens},
     runs::{self, Target, credentials, target},
     timing::AskRead,
-    watch::{Entry, OpenHead, RepoWatch},
+    watch::{Entry, RepoWatch},
 };
 use crate::{
     account::credentials::host_client,
     account::user::User,
     app::App,
+    projects::fleet::NodeFleet,
     projects::git_items::HostError,
-    projects::{fleet::NodeFleet, model::IssueHost},
-    protocol::{
-        HostedChecks, HostedRun, HostedRuns, ProjectRunDetail, ProjectRuns, RunJob, RunLog,
-        RunState, RunsHost, WorkflowRun,
-    },
+    protocol::{HostedRuns, ProjectRuns},
     store::ProjectRow,
 };
 use futures::future::join_all;
 use reqwest::Client;
 use std::{
-    collections::{HashMap, VecDeque},
     sync::Arc,
     time::{Instant, SystemTime},
 };
@@ -36,226 +36,6 @@ const MAX_LIVE: usize = 4;
 const MAX_LOGS: usize = 8;
 /// What a project with no host says.
 const NO_HOST: &str = "This project has no GitHub or Forgejo host to read runs from.";
-
-/// One host's last runs, each run's jobs, and why the last read failed.
-#[derive(Default)]
-struct HostCopy {
-    runs: Vec<ListedRun>,
-    /// By run id; `None` when the host has no API for jobs.
-    jobs: HashMap<u64, Option<Vec<RunJob>>>,
-    error: Option<String>,
-    synced_at: Option<SystemTime>,
-    /// Whose rate limit the last reads used, to check it without the target.
-    who: Option<Who>,
-}
-
-impl HostCopy {
-    fn limited(&self, calls: &HostCalls) -> Option<SystemTime> {
-        calls.limited_until(self.who.as_ref()?, SystemTime::now())
-    }
-
-    fn going(&self) -> bool {
-        self.runs.iter().any(|listed| listed.run.state.going())
-    }
-
-    /// The runs with the progress of each running one.
-    fn shown(&self) -> Vec<WorkflowRun> {
-        self.runs
-            .iter()
-            .map(|listed| {
-                let mut run = listed.run.clone();
-                if run.state.going()
-                    && let Some(Some(jobs)) = self.jobs.get(&run.id)
-                {
-                    run.progress = progress(jobs);
-                }
-                run
-            })
-            .collect()
-    }
-}
-
-/// A host the project's repository is on and its copy.
-struct HostSlot {
-    place: RepoOnHost,
-    copy: HostCopy,
-}
-
-/// A failed job's log, by host and job.
-struct KeptLog {
-    host: IssueHost,
-    job: u64,
-    log: RunLog,
-}
-
-/// Every host's runs and the logs read.
-#[derive(Default)]
-pub(crate) struct RunsCopy {
-    /// The primary host first.
-    hosts: Vec<HostSlot>,
-    /// Why no host could be read at all.
-    error: Option<String>,
-    /// Oldest first.
-    logs: VecDeque<KeptLog>,
-}
-
-impl RunsCopy {
-    /// Whether some host's runs were read once.
-    fn read_once(&self) -> bool {
-        self.hosts.iter().any(|slot| slot.copy.synced_at.is_some())
-    }
-
-    /// Takes the hosts found, keeping what was read of the ones still there.
-    fn set_places(&mut self, places: Vec<RepoOnHost>) {
-        let mut old = std::mem::take(&mut self.hosts);
-        self.hosts = places
-            .into_iter()
-            .map(|place| {
-                let copy = old
-                    .iter()
-                    .position(|slot| slot.place.host == place.host && slot.place.repo == place.repo)
-                    .map(|at| old.swap_remove(at).copy)
-                    .unwrap_or_default();
-                HostSlot { place, copy }
-            })
-            .collect();
-    }
-
-    fn primary(&self) -> Option<&HostSlot> {
-        self.hosts.iter().find(|slot| slot.place.primary)
-    }
-
-    /// Which slot `host` names: the primary one for `None`.
-    fn slot_of(&self, host: Option<&IssueHost>) -> Option<usize> {
-        self.hosts.iter().position(|slot| match host {
-            None => slot.place.primary,
-            Some(host) => slot.place.host == *host,
-        })
-    }
-
-    fn any_going(&self, calls: &HostCalls) -> bool {
-        self.hosts
-            .iter()
-            .any(|slot| slot.copy.going() && slot.copy.limited(calls).is_none())
-    }
-
-    /// What `ListProjectRuns` gives: the primary host's runs alone.
-    fn primary_view(&self, calls: &HostCalls, heads: &[OpenHead]) -> ProjectRuns {
-        let Some(slot) = self.primary() else {
-            return ProjectRuns {
-                runs: Vec::new(),
-                checks: Vec::new(),
-                synced_at: None,
-                error: Some(self.error.clone().unwrap_or_else(|| NO_HOST.to_owned())),
-                rate_limited_until: None,
-            };
-        };
-        let shown = slot.copy.shown();
-        ProjectRuns {
-            checks: pr_checks(&shown, &head_refs(heads)),
-            runs: shown,
-            synced_at: slot.copy.synced_at,
-            error: self.error.clone().or_else(|| slot.copy.error.clone()),
-            rate_limited_until: slot.copy.limited(calls),
-        }
-    }
-
-    /// What `ListProjectRunsAll` gives: every host's runs newest first, and PR checks per host.
-    fn hosted_view(&self, calls: &HostCalls, heads: &[OpenHead]) -> HostedRuns {
-        let mut runs = Vec::new();
-        let mut checks = Vec::new();
-        let mut primary_checks = Vec::new();
-        if let Some(slot) = self.primary() {
-            let shown = slot.copy.shown();
-            primary_checks = pr_checks(&shown, &head_refs(heads));
-        }
-        let sha_of = |run_id: u64| {
-            self.primary()
-                .and_then(|slot| slot.copy.runs.iter().find(|l| l.run.id == run_id))
-                .map(|listed| listed.sha.as_str())
-                .unwrap_or_default()
-        };
-        let mirrored: Vec<MirrorHead<'_>> = heads
-            .iter()
-            .map(|head| MirrorHead {
-                number: head.number,
-                branch: &head.branch,
-                sha: primary_checks
-                    .iter()
-                    .find(|checks| checks.number == head.number)
-                    .map(|checks| sha_of(checks.run_id))
-                    .unwrap_or_default(),
-            })
-            .collect();
-        for slot in &self.hosts {
-            let host = slot.place.name();
-            let shown = slot.copy.shown();
-            let found = if slot.place.primary {
-                primary_checks.clone()
-            } else {
-                let listed: Vec<ListedRun> = slot
-                    .copy
-                    .runs
-                    .iter()
-                    .zip(&shown)
-                    .map(|(listed, run)| ListedRun {
-                        run: run.clone(),
-                        sha: listed.sha.clone(),
-                    })
-                    .collect();
-                mirror_checks(&listed, &mirrored)
-            };
-            checks.extend(found.into_iter().map(|found| HostedChecks {
-                host: host.clone(),
-                checks: found,
-            }));
-            runs.extend(shown.into_iter().map(|run| HostedRun {
-                host: host.clone(),
-                run,
-            }));
-        }
-        newest_first(&mut runs);
-        HostedRuns {
-            runs,
-            checks,
-            hosts: self
-                .hosts
-                .iter()
-                .map(|slot| RunsHost {
-                    host: slot.place.name(),
-                    kind: slot.place.kind(),
-                    repo: slot.place.repo.to_string(),
-                    primary: slot.place.primary,
-                    synced_at: slot.copy.synced_at,
-                    error: slot.copy.error.clone(),
-                    rate_limited_until: slot.copy.limited(calls),
-                })
-                .collect(),
-            error: self
-                .error
-                .clone()
-                .or_else(|| self.hosts.is_empty().then(|| NO_HOST.to_owned())),
-        }
-    }
-}
-
-fn head_refs(heads: &[OpenHead]) -> Vec<PrHeadRef<'_>> {
-    heads
-        .iter()
-        .map(|head| PrHeadRef {
-            number: head.number,
-            head: &head.branch,
-        })
-        .collect()
-}
-
-/// Sorts runs newest first by start, unstarted first; ties keep their order.
-fn newest_first(runs: &mut [HostedRun]) {
-    runs.sort_by(|a, b| {
-        let key = |r: &HostedRun| (r.run.started_at.is_none(), r.run.started_at);
-        key(b).cmp(&key(a))
-    });
-}
 
 /// What one read of the hosts does.
 #[derive(Debug, Clone, Copy)]
@@ -467,167 +247,6 @@ impl RepoWatch {
                 Err(e) => log::info!("repo watch: jobs of a run did not read: {e}"),
             }
         }
-    }
-
-    /// One run on `host` (`None` is primary) with its jobs and, if failed, the failing job's log.
-    pub(crate) async fn run_detail(
-        &self,
-        app: &Arc<App>,
-        user: &Arc<User>,
-        project: &ProjectRow,
-        host: Option<&IssueHost>,
-        id: u64,
-    ) -> Result<ProjectRunDetail, String> {
-        let entry = self.entry(user.id(), project.id);
-        entry.runs.ask(Instant::now(), false);
-        let mut copy = entry.runs.copy.lock().await;
-        if copy.slot_of(host).is_none() {
-            // Not read yet, or a host found since: look again.
-            self.find_hosts(app, user, project, &entry, &mut copy)
-                .await?;
-        }
-        let Some(at) = copy.slot_of(host) else {
-            return Err(match host {
-                None => NO_HOST.to_owned(),
-                Some(host) => format!("This project's repository is not on {}.", host_name(host)),
-            });
-        };
-        let opened = credentials(app, user).await?;
-        let target = target(user.id(), &opened, &copy.hosts[at].place).await?;
-        let client = host_client().map_err(|e| {
-            log::warn!("repo watch: no client for the host: {e:#}");
-            HostError::Internal(target.host.clone()).to_string()
-        })?;
-        let RunsCopy { hosts, logs, .. } = &mut *copy;
-        let slot = &mut hosts[at];
-        slot.copy.who = Some(target.who.clone());
-        let polled =
-            slot.copy.limited(&self.calls).is_none() && entry.runs.timing().poll(Instant::now());
-        let read = DetailRead {
-            calls: app.git_items.calls(),
-            client: &client,
-            target: &target,
-            polled,
-        };
-        self.detail_on(&read, slot, logs, id).await
-    }
-
-    /// Run `id` of `slot`, read as `read` says.
-    async fn detail_on(
-        &self,
-        read: &DetailRead<'_>,
-        slot: &mut HostSlot,
-        logs: &mut VecDeque<KeptLog>,
-        id: u64,
-    ) -> Result<ProjectRunDetail, String> {
-        let target = read.target;
-        let caller = target.caller(read.calls, read.client);
-        let copy = &mut slot.copy;
-        let limited = copy.limited(&self.calls);
-        let mut problems = Vec::new();
-
-        let known = copy
-            .runs
-            .iter()
-            .find(|listed| listed.run.id == id)
-            .map(|listed| listed.run.clone());
-        let run = match known {
-            Some(run) if !(run.state.going() && read.polled) => run,
-            known => match runs::one(&self.calls, &caller, target, id).await {
-                Ok(run) => {
-                    if let Some(at) = copy.runs.iter_mut().find(|l| l.run.id == id) {
-                        at.run = run.clone();
-                    }
-                    run
-                }
-                Err(e) => match known {
-                    Some(run) => {
-                        problems.push(e.to_string());
-                        run
-                    }
-                    None => return Err(e.to_string()),
-                },
-            },
-        };
-
-        let cached = copy.jobs.get(&id).cloned();
-        let stale_jobs = |jobs: &Option<Vec<RunJob>>| {
-            jobs.as_ref()
-                .is_some_and(|jobs| jobs.iter().any(|job| job.state.going()))
-        };
-        let read_jobs = match &cached {
-            None => limited.is_none(),
-            Some(jobs) => {
-                stale_jobs(jobs) && (read.polled || run.state.finished()) && limited.is_none()
-            }
-        };
-        let jobs = if read_jobs {
-            match runs::jobs(&self.calls, &caller, target, id).await {
-                Ok(jobs) => {
-                    copy.jobs.insert(id, jobs.clone());
-                    jobs
-                }
-                Err(e) => {
-                    problems.push(e.to_string());
-                    cached.flatten()
-                }
-            }
-        } else {
-            cached.flatten()
-        };
-        let jobs = jobs.unwrap_or_default();
-
-        let host = &slot.place.host;
-        let log = match jobs.iter().find(|job| job.state == RunState::Failed {}) {
-            Some(job) if run.state == (RunState::Failed {}) => {
-                match logs
-                    .iter()
-                    .find(|kept| kept.host == *host && kept.job == job.id)
-                {
-                    Some(kept) => Some(kept.log.clone()),
-                    None if limited.is_some() => None,
-                    None => {
-                        let step = job
-                            .steps
-                            .iter()
-                            .find(|step| step.state == RunState::Failed {})
-                            .map(|step| step.name.clone());
-                        match runs::log(&self.calls, &caller, target, job, step).await {
-                            Ok(log) => {
-                                if logs.len() >= MAX_LOGS {
-                                    logs.pop_front();
-                                }
-                                logs.push_back(KeptLog {
-                                    host: host.clone(),
-                                    job: job.id,
-                                    log: log.clone(),
-                                });
-                                Some(log)
-                            }
-                            Err(e) => {
-                                problems.push(format!("The log did not read: {e}"));
-                                None
-                            }
-                        }
-                    }
-                }
-            }
-            _ => None,
-        };
-
-        let mut run = run;
-        run.progress = if run.state.going() {
-            progress(&jobs)
-        } else {
-            None
-        };
-        Ok(ProjectRunDetail {
-            run,
-            jobs,
-            log,
-            error: (!problems.is_empty()).then(|| problems.join(" ")),
-            rate_limited_until: copy.limited(&self.calls),
-        })
     }
 }
 

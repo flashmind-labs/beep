@@ -1,13 +1,12 @@
 //! Follows a node's agent events, reopening the stream after failures.
 
-use super::LinkOrder;
-use super::MAX_BAD_MESSAGES;
-use super::wake::Reporter;
-use crate::nodes::News;
-use crate::nodes::Watched;
-use crate::protocol::node::{
-    LinkRx, LinkTx,
-    agent::{Event, Status},
+use super::{LinkOrder, MAX_BAD_MESSAGES, wake::Reporter};
+use crate::{
+    nodes::{News, Watched},
+    protocol::node::{
+        LinkRx, LinkTx,
+        agent::{Event, Status},
+    },
 };
 use anyhow::Result;
 use std::collections::VecDeque;

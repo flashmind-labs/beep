@@ -72,7 +72,6 @@ impl Workspace {
         self.write(&name, &fetched.data, fetched.content_type).await
     }
 
-    /// Saves `data` as `name` in the workspace.
     pub(crate) async fn save(&self, name: &str, data: &[u8]) -> Result<Saved> {
         self.write(&fetch::clean_file_name(name), data, None).await
     }

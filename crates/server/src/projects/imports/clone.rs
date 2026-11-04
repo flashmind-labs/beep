@@ -137,7 +137,6 @@ pub(crate) struct Link<'a> {
     pub(crate) folder: &'a str,
     pub(crate) token: Option<&'a SecretString>,
     pub(crate) github: bool,
-    /// Remotes to add.
     pub(crate) add: &'a [NewRemote],
     /// The remote that is the fork, which the branches track.
     pub(crate) fork_remote: &'a str,

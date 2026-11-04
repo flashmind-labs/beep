@@ -55,7 +55,6 @@ pub struct SkillRow {
     pub can_undo: bool,
 }
 
-/// A skill to add.
 #[derive(Debug, Clone, Copy)]
 pub struct NewSkill<'a> {
     pub name: &'a str,

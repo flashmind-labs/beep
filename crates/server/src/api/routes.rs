@@ -1,42 +1,45 @@
 //! Which handler answers each request.
 
-use super::crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron};
-use super::devices::{
-    invite_device, join_account, link_device, list_devices, peek_invite, register_device,
-    remove_device, unregister_device,
+use super::{
+    crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron},
+    devices::{
+        invite_device, join_account, link_device, list_devices, peek_invite, register_device,
+        remove_device, unregister_device,
+    },
+    grants::{list_grants, revoke_grant},
+    groups::{
+        answer_group_approval, create_group, delete_group_reminder, get_group, get_group_images,
+        group_invite, join_group, leave_group, list_group_reminders, list_groups, peek_group,
+        pin_group, send_to_group, share_group_apps,
+    },
+    location::{
+        cross_place, delete_place, list_places, set_timezone, update_location, update_place,
+    },
+    machines::{
+        create_node_token, get_node_token, list_machine_details, list_machine_stats, list_machines,
+        list_updatable_machines, remove_machine, revoke_node_token, update_machine,
+    },
+    memories::{
+        clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
+        list_memory_scopes, list_skills, undo_skill, update_memory, update_skill,
+    },
+    research::{get_research, get_research_pdf, list_researches, stop_research},
+    sessions::{
+        copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from,
+        existing_sessions, get_file, get_route, get_route_card, get_session, get_session_agents,
+        get_session_files, get_session_images, get_session_sources, get_share, get_tool_labels,
+        list_sessions, pin_session, rename_session, search_sessions, share_session,
+        unshare_session,
+    },
+    settings::{
+        add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
+        finish_app_auth, finish_mcp_auth, get_agents, get_app_permissions, get_models,
+        list_app_accounts, list_apps, list_mcp_servers, list_mcp_tools, remove_app_account,
+        remove_mcp_server, set_agents, set_app_permissions, set_auto_model, set_mcp_tool,
+        set_model, set_thinking, start_app_auth,
+    },
+    *,
 };
-use super::grants::{list_grants, revoke_grant};
-use super::groups::{
-    answer_group_approval, create_group, delete_group_reminder, get_group, get_group_images,
-    group_invite, join_group, leave_group, list_group_reminders, list_groups, peek_group,
-    pin_group, send_to_group, share_group_apps,
-};
-use super::location::{
-    cross_place, delete_place, list_places, set_timezone, update_location, update_place,
-};
-use super::machines::{
-    create_node_token, get_node_token, list_machine_details, list_machine_stats, list_machines,
-    list_updatable_machines, remove_machine, revoke_node_token, update_machine,
-};
-use super::memories::{
-    clear_memories, delete_memory, delete_skill, list_memories, list_memory_reads,
-    list_memory_scopes, list_skills, undo_skill, update_memory, update_skill,
-};
-use super::research::{get_research, get_research_pdf, list_researches, stop_research};
-use super::sessions::{
-    copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from, existing_sessions,
-    get_file, get_route, get_route_card, get_session, get_session_agents, get_session_files,
-    get_session_images, get_session_sources, get_share, get_tool_labels, list_sessions,
-    pin_session, rename_session, search_sessions, share_session, unshare_session,
-};
-use super::settings::{
-    add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
-    finish_app_auth, finish_mcp_auth, get_agents, get_app_permissions, get_models,
-    list_app_accounts, list_apps, list_mcp_servers, list_mcp_tools, remove_app_account,
-    remove_mcp_server, set_agents, set_app_permissions, set_auto_model, set_mcp_tool, set_model,
-    set_thinking, start_app_auth,
-};
-use super::*;
 use crate::api::router::Router;
 
 pub fn router() -> Router {

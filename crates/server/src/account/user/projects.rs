@@ -12,7 +12,6 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 impl User {
-    /// The machines that sync each project, by project.
     pub async fn project_syncs(&self) -> Result<Vec<SyncRow>> {
         self.store.project_syncs(&self.key).await
     }
@@ -67,7 +66,6 @@ impl User {
         self.store.webhook_made(&self.key, id, hook).await
     }
 
-    /// See `Store::orphan_webhooks`.
     pub(crate) async fn orphan_webhooks(&self) -> Result<Vec<crate::store::OrphanWebhooks>> {
         self.store.orphan_webhooks(&self.key).await
     }

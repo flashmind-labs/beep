@@ -1,23 +1,16 @@
 //! `project_tasks`: lists, updates, drops, reopens, merges and comments on tasks.
 
-use super::super::{
-    commands::{ChecksState, HostCommand, parse_pr},
-    fleet::{self, Fleet},
-    gate::{Asks, Gate},
-    issues::{self, run_host},
-    model::{IssueHost, TaskId, TaskState, pr_number},
+use super::{
+    super::{
+        commands::{ChecksState, HostCommand, parse_pr},
+        fleet::{self, Fleet},
+        gate::{Asks, Gate},
+        issues::{self, run_host},
+        model::{IssueHost, TaskId, TaskState, pr_number},
+    },
+    COMMENT_SLUG, DROP_SLUG, MERGE_SLUG, Planned, ProjectTools, REOPEN_SLUG, TASKS, UPDATE_SLUG,
+    card, field, leaked,
 };
-use super::COMMENT_SLUG;
-use super::DROP_SLUG;
-use super::MERGE_SLUG;
-use super::Planned;
-use super::ProjectTools;
-use super::REOPEN_SLUG;
-use super::TASKS;
-use super::UPDATE_SLUG;
-use super::card;
-use super::field;
-use super::leaked;
 use crate::{
     account::user::User,
     store::{ProjectRow, TaskRow},
@@ -117,11 +110,7 @@ impl Tool for TasksTool {
             TasksAction::Merge => self.merge(id, &project, task).await?,
             TasksAction::Comment => self.comment(id, &project, task, &args).await?,
         };
-        Ok(match done {
-            Planned::Done(text) => ToolResult::success(id, text),
-            Planned::Refused(text) => ToolResult::failure(id, text),
-            Planned::Gated(result) => result,
-        })
+        Ok(done.into_result(id))
     }
 
     fn humanize(&self, args: &Value) -> String {

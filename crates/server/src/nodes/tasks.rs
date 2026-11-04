@@ -1,10 +1,10 @@
 //! Background commands on a node (`process/1`), one stream per call.
 
-use super::{NODE_BACK, Online, Repeat, retry::Unsent};
+use super::{Online, Repeat, retry::Unsent};
 use crate::protocol::node::process::{PROTOCOL, Reply, Request, TaskId};
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
-use tokio::time::{Instant, timeout};
+use tokio::time::timeout;
 
 /// How long one request may take; a stop waits for the group to end.
 const LIMIT: Duration = Duration::from_secs(20);
@@ -21,18 +21,8 @@ impl Online {
             );
         }
         let repeat = Repeat::when(!matches!(request, Request::Start { .. }));
-        let until = Instant::now() + NODE_BACK;
-        let mut on = self.clone();
-        loop {
-            let error = match on.tasks_once(request).await {
-                Ok(reply) => return Ok(reply),
-                Err(error) => error,
-            };
-            match on.again(&error, repeat, until).await {
-                Some(back) => on = back,
-                None => return Err(error),
-            }
-        }
+        self.retrying(repeat, |on| async move { on.tasks_once(request).await })
+            .await
     }
 
     async fn tasks_once(&self, request: &Request) -> Result<Reply> {

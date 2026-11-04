@@ -37,7 +37,6 @@ impl User {
         self.store.today_models(&self.key).await
     }
 
-    /// Each agent's plan usage.
     pub(crate) async fn plan_usages(&self) -> Result<Vec<PlanRow>> {
         self.store.plan_usages(&self.key).await
     }

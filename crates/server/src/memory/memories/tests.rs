@@ -1,7 +1,6 @@
-use super::curation::*;
-use super::*;
-use crate::memory::memories::curation::NewText;
+use super::{curation::*, *};
 use crate::{
+    memory::memories::curation::NewText,
     protocol::MemorySource,
     store::{MemoryRow, Scope, Validity},
 };

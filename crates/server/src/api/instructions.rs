@@ -14,7 +14,6 @@ use std::time::Duration;
 
 /// The longest instructions, in bytes.
 const MAX_TEXT: usize = 16 * 1024;
-/// The longest note.
 const MAX_NOTE: usize = 200;
 /// The most bytes of one agent file read back; longer is refused, never cut.
 const MAX_FILE: usize = 256 * 1024;

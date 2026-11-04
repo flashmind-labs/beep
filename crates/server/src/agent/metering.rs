@@ -1,11 +1,10 @@
 //! Counts every model call's tokens and cost against the user it ran for.
 
+use super::forward::forward_llm;
 use crate::store::Store;
-use async_trait::async_trait;
 use flashmind::types::{
-    CompletionRequest, CompletionStream, ImageGenRequest, LlmProvider, Model, ModelCapabilities,
-    ModelInfo, ModelPricing, Provider, StreamEvent, SttRequest, TokenUsage, TtsRequest,
-    VideoGenRequest, Voice,
+    CompletionRequest, CompletionStream, LlmProvider, ModelInfo, ModelPricing, StreamEvent,
+    TokenUsage,
 };
 use futures::StreamExt;
 use rust_decimal::prelude::ToPrimitive;
@@ -70,24 +69,7 @@ impl Metered {
     }
 }
 
-#[async_trait]
-impl LlmProvider for Metered {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn provider(&self) -> Provider {
-        self.inner.provider()
-    }
-
-    async fn context_window(&self, model: &Model) -> Option<u32> {
-        self.inner.context_window(model).await
-    }
-
-    async fn capabilities(&self, model: &Model) -> ModelCapabilities {
-        self.inner.capabilities(model).await
-    }
-
+forward_llm!(Metered {
     async fn list_models(&self) -> Option<Vec<ModelInfo>> {
         self.models.clone()
     }
@@ -143,37 +125,15 @@ impl LlmProvider for Metered {
             });
         Box::pin(stream)
     }
-
-    fn text_to_speech(&self, request: TtsRequest) -> CompletionStream {
-        self.inner.text_to_speech(request)
-    }
-
-    fn transcribe(&self, request: SttRequest) -> CompletionStream {
-        self.inner.transcribe(request)
-    }
-
-    async fn list_voices(&self, model: &str) -> Option<Vec<Voice>> {
-        self.inner.list_voices(model).await
-    }
-
-    fn generate_image(&self, request: ImageGenRequest) -> CompletionStream {
-        self.inner.generate_image(request)
-    }
-
-    fn generate_video(&self, request: VideoGenRequest) -> CompletionStream {
-        self.inner.generate_video(request)
-    }
-
-    fn update_routing(&self, routing: &HashMap<String, String>) {
-        self.inner.update_routing(routing)
-    }
-}
+});
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::TestDb;
+    use async_trait::async_trait;
     use flashmind::types::{FinishReason, Message, ModelCategory, ReasoningLevel, SamplingParams};
+    use flashmind::types::{ModelCapabilities, Provider};
     use rust_decimal::Decimal;
     use sqlx::Row;
     use std::time::Duration;

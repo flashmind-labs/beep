@@ -1,8 +1,10 @@
 //! Turns Composio trigger payloads and polls into [`AppEvent`]s, keyed so both paths dedupe.
 
 use super::model::{AppEvent, DedupeKey, EventApp, EventKind, Source};
-use crate::apps::feeds::mail::{BULK_LABELS, Email, Mailbox, timestamp};
-use crate::memory::memories::clip;
+use crate::{
+    apps::feeds::mail::{BULK_LABELS, Email, Mailbox, timestamp},
+    memory::memories::clip,
+};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 

@@ -26,7 +26,6 @@ pub struct Sighting<'a> {
     pub last_seq: i64,
 }
 
-/// A stored finding.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FindingRow {
     pub id: Uuid,

@@ -1,12 +1,11 @@
 //! One OpenRouter session per model for the whole server, so calls share the provider's prompt cache.
 
-use async_trait::async_trait;
+use super::forward::forward_llm;
 use flashmind::types::{
-    CompletionRequest, CompletionStream, ImageGenRequest, LlmProvider, Model, ModelCapabilities,
-    ModelInfo, Provider, SessionId, SttRequest, TtsRequest, VideoGenRequest, Voice,
+    CompletionRequest, CompletionStream, LlmProvider, Model, ModelInfo, SessionId,
 };
 use iroh::EndpointId;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// A provider that sends every completion with its model's session id.
@@ -30,24 +29,7 @@ impl SharedCacheSessions {
     }
 }
 
-#[async_trait]
-impl LlmProvider for SharedCacheSessions {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn provider(&self) -> Provider {
-        self.inner.provider()
-    }
-
-    async fn context_window(&self, model: &Model) -> Option<u32> {
-        self.inner.context_window(model).await
-    }
-
-    async fn capabilities(&self, model: &Model) -> ModelCapabilities {
-        self.inner.capabilities(model).await
-    }
-
+forward_llm!(SharedCacheSessions {
     async fn list_models(&self) -> Option<Vec<ModelInfo>> {
         self.inner.list_models().await
     }
@@ -58,35 +40,13 @@ impl LlmProvider for SharedCacheSessions {
         request.session_id = Some(self.session(&request.model));
         self.inner.complete(request)
     }
-
-    fn text_to_speech(&self, request: TtsRequest) -> CompletionStream {
-        self.inner.text_to_speech(request)
-    }
-
-    fn transcribe(&self, request: SttRequest) -> CompletionStream {
-        self.inner.transcribe(request)
-    }
-
-    async fn list_voices(&self, model: &str) -> Option<Vec<Voice>> {
-        self.inner.list_voices(model).await
-    }
-
-    fn generate_image(&self, request: ImageGenRequest) -> CompletionStream {
-        self.inner.generate_image(request)
-    }
-
-    fn generate_video(&self, request: VideoGenRequest) -> CompletionStream {
-        self.inner.generate_video(request)
-    }
-
-    fn update_routing(&self, routing: &HashMap<String, String>) {
-        self.inner.update_routing(routing)
-    }
-}
+});
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use flashmind::types::Provider;
     use flashmind::types::{FinishReason, Message, StreamEvent};
     use futures::StreamExt;
     use iroh::SecretKey;

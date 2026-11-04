@@ -2,9 +2,13 @@
 use crate::agent::models::AutoModel;
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
-use flashmind::llm::{JEV_LATEST_MODEL, JevQuestion, JevRequest, JevResponse, OpenRouterProvider};
-use flashmind::types::tool::{Tool, ToolContext, ToolResult};
-use flashmind::types::{LlmError, LlmErrorKind, ReasoningLevel};
+use flashmind::{
+    llm::{JEV_LATEST_MODEL, JevQuestion, JevRequest, JevResponse, OpenRouterProvider},
+    types::{
+        LlmError, LlmErrorKind, ReasoningLevel,
+        tool::{Tool, ToolContext, ToolResult},
+    },
+};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::{Value, json};

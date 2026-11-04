@@ -5,6 +5,7 @@ pub mod cache_session;
 pub mod compaction;
 pub mod decision;
 pub mod followups;
+mod forward;
 pub mod gates;
 pub mod images;
 pub mod live;

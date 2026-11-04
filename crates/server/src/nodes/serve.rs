@@ -1,10 +1,6 @@
 //! Serves one node connection: the hello, the claim on a token and the request loop.
 
-use super::CLOSE_UNAVAILABLE;
-use super::MAX_TOOL_CALLS;
-use super::Online;
-use super::push_sync;
-use super::stats;
+use super::{CLOSE_UNAVAILABLE, MAX_TOOL_CALLS, Online, push_sync, stats};
 use crate::{
     account::user::User,
     app::App,

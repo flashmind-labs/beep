@@ -109,7 +109,6 @@ impl User {
         self.store.list_habits(&self.key).await
     }
 
-    /// Logs one entry for a habit.
     pub async fn log_habit(&self, habit_name: &str, value: f64, note: Option<&str>) -> Result<()> {
         self.store
             .log_habit(&self.key, habit_name, value, note)

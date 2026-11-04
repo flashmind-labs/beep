@@ -1,18 +1,28 @@
 use super::*;
 use crate::{
-    apps::permissions::Approved,
+    account::user::User,
+    apps::permissions::{ApprovalPayload, Approved},
     protocol::PermissionLevel,
     routines::cron::BeepCronStore,
     store::{AppPermissionRow, Store, TestDb},
 };
+use anyhow::Result;
+use async_trait::async_trait;
+use chrono::{Duration, Utc};
 use flashmind::{
     core::CancellationToken,
     cron::{CronRegistry, JobSchedule},
+    types::tool::{Tool, ToolContext, ToolResult},
 };
+use serde_json::{Map, Value, json};
 use std::{
     collections::HashSet,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
+use uuid::Uuid;
 
 const REPLY: &str = "GMAIL_REPLY_TO_THREAD";
 const THREAD: &str = "18c2a9f0d4e5b6a7";

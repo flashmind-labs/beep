@@ -14,7 +14,6 @@ use uuid::Uuid;
 /// How old the phone's location may be for "I'm here" to mean it.
 const FRESH_MINUTES: i64 = 15;
 
-/// Which of the place tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlaceToolKind {
     Save,

@@ -1,8 +1,8 @@
 //! Moves reviews on in the background: collects and dedupes findings, verifies each once, and
 //! removes done worktrees. Only this loop writes progress; every step is safe to repeat.
 
-use super::super::issues::head as clip;
 use super::{
+    super::issues::head as clip,
     git::remove_review_worktree,
     report::{
         MAX_CONTEXT, Reported, Subject, VERIFIER_SYSTEM, context_script, new_findings,

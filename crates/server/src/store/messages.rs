@@ -4,10 +4,12 @@ use super::{
     RunStatus, Store,
     updates::{Bumped, Readers, UpdateOp, log_messages},
 };
-use crate::account::user::UserKey;
-use crate::protocol::{
-    Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, PendingApproval,
-    ToolLabel, TurnInfo,
+use crate::{
+    account::user::UserKey,
+    protocol::{
+        Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, PendingApproval,
+        ToolLabel, TurnInfo,
+    },
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};

@@ -1,15 +1,13 @@
-use super::super::Store;
-use super::*;
-use crate::store::TestDb;
+use super::{super::Store, *};
 use crate::{
     account::user::UserKey,
     projects::model::{
         MachinePath, ProjectId, RepoName, TaskId, TaskState, Visibility, WorkerAgent, WorkerState,
     },
+    store::TestDb,
 };
 use anyhow::Result;
-use iroh::EndpointId;
-use iroh::SecretKey;
+use iroh::{EndpointId, SecretKey};
 
 fn machine() -> EndpointId {
     SecretKey::generate().public()
@@ -33,7 +31,6 @@ fn new_task(title: &str) -> NewTask {
     }
 }
 
-/// Makes `count` tasks in `project`.
 async fn tasks_in(store: &Store, project: ProjectId, count: usize) -> Vec<TaskId> {
     let titles: Vec<NewTask> = (0..count).map(|n| new_task(&format!("Task {n}"))).collect();
     store
@@ -119,6 +116,7 @@ async fn slugs_stay_unique() {
         .ensure_project(&user, &repo("acme/widget"))
         .await
         .unwrap();
+
     let made = store
         .create_tasks(project.id, &[new_task("Fix it"), new_task("Fix it")])
         .await
@@ -148,6 +146,7 @@ async fn tasks_wait_for_earlier_ones_of_the_same_call() {
         .ensure_project(&user, &repo("acme/widget"))
         .await
         .unwrap();
+
     let second = NewTask {
         depends_on: Some(After::Earlier(0)),
         ..new_task("Render")
@@ -412,6 +411,7 @@ async fn a_task_of_another_user_does_not_start() {
         .ensure_project(&user, &repo("acme/widget"))
         .await
         .unwrap();
+
     let tasks = tasks_in(&store, project.id, 1).await;
     let bob = UserKey::for_test("bob");
     assert!(

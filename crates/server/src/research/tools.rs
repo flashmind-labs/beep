@@ -14,7 +14,6 @@ use uuid::Uuid;
 const ROOM_READ: usize = 40;
 /// The longest message, note or quote a member may write.
 const MAX_TEXT: usize = 4000;
-/// The longest draft.
 const MAX_DRAFT: usize = 60_000;
 
 /// Who is calling, in which research.

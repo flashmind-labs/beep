@@ -37,7 +37,6 @@ const MAX_EMAILS: usize = 40;
 /// What the digest shows of an unflagged email.
 const EMAIL_CHARS: usize = 800;
 
-/// The digest routine for `user_id`.
 fn routine(user_id: &str) -> CronJob {
     CronJob {
         id: Uuid::new_v4(),

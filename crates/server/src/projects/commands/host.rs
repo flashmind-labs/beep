@@ -1,9 +1,10 @@
 //! `gh` and `tea` command lines for one host operation.
 
-use super::super::model::{IssueHost, RepoName};
-use super::gh_account;
-use crate::memory::leak::PublicText;
-use crate::projects::quote;
+use super::{
+    super::model::{IssueHost, RepoName},
+    gh_account,
+};
+use crate::{memory::leak::PublicText, projects::quote};
 use serde_json::{Value, json};
 
 /// The label every issue Beep files carries.
@@ -65,7 +66,6 @@ pub(crate) enum HostCommand<'a> {
     ViewPrHead {
         number: u64,
     },
-    /// One comment on an issue.
     CommentIssue {
         number: u64,
         body: &'a str,
@@ -90,7 +90,6 @@ pub(crate) enum HostCommand<'a> {
     /// One review that comments, with an inline comment per entry.
     PostReview {
         number: u64,
-        /// The commit the comments are on.
         commit: &'a str,
         body: &'a str,
         comments: &'a [InlineComment],

@@ -6,11 +6,11 @@ use super::{
     own_nodes::{machine_names, online},
     projects::task_view,
 };
-use crate::projects::branches::tail;
 use crate::{
     api::router::Cx,
     nodes::{Online, StartOn},
     projects::{
+        branches::tail,
         model::{RepoName, WorkerAgent},
         review::{
             Fix,

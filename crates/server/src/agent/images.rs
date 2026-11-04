@@ -4,13 +4,14 @@ use crate::nodes::attachments;
 use anyhow::{Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
-use flashmind::core::{Conversation, EntryKind};
-use flashmind::types::{
-    CompletionRequest, ContentPart, LlmProvider, Message, Model, ReasoningLevel, SamplingParams,
-    StreamEvent,
+use flashmind::{
+    core::{Conversation, EntryKind},
+    types::{
+        CompletionRequest, ContentPart, LlmProvider, Message, Model, ReasoningLevel,
+        SamplingParams, StreamEvent,
+    },
 };
-use futures::StreamExt;
-use futures::future::join_all;
+use futures::{StreamExt, future::join_all};
 use std::sync::Arc;
 
 /// Most images one message may carry.
