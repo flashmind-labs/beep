@@ -3,7 +3,7 @@
 import { harnessEl } from "../agents/harnessicon.ts";
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts";
-import { runningKey, runningAt, runningLine, byRecent, type RunningAgent } from "../center/home-state.ts";
+import { runningKey, runningLine, runningWhen, byRecent, type RunningAgent } from "../center/home-state.ts";
 import { pastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { agentFor, tasksSection, workersSection, cardsSection } from "./agent.ts";
@@ -129,7 +129,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   }
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
-    right: r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r)), open: () => go("pane", { agent: r }),
+    right: r.status === "asking" ? tag("wait", "needs you") : runningWhen(r), open: () => go("pane", { agent: r }),
   }));
   if (runItems.length) groups.push({ title: "Running", items: runItems });
   groups.push({ title: "Project", items: project });

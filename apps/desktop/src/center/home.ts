@@ -6,7 +6,7 @@ import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "../u
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
-import { machineDisk, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow, type HomeView, type MachineCard, type NeedsYou, type RunningAgent, type RunningRow, type UpdateRow, type CronRow } from "./home-state.ts";
+import { machineDisk, needsLine, runningKey, runningLine, runningWhen, byRecent, thisMacRow, type HomeView, type MachineCard, type NeedsYou, type RunningAgent, type RunningRow, type UpdateRow, type CronRow } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { waitingFirst } from "./openitems-state.ts";
 import { ALL } from "../terminals/terminals.ts";
@@ -22,7 +22,7 @@ import { loading, refresh, fresh } from "./refresh.ts";
 
 export function runningRow(r: RunningRow) {
   const { title, sub } = runningLine(r, state.home?.projects || []);
-  const right = [r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r))];
+  const right = [r.status === "asking" ? tag("wait", "needs you") : runningWhen(r)];
   const row = r.kind === "research"
     ? line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {}))
     // The pane's agent view follows and answers it.

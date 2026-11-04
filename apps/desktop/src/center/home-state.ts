@@ -1,5 +1,6 @@
 // What Home's rows say and how its sections are laid out, apart from the DOM
 // so it can be tested.
+import { ago } from "../ui/format.ts";
 import type { ApprovalField } from "../chat/chat.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 import { conflictCount, machineMeta, rowDetail, stateChip, syncPct, type SyncDetail } from "../project/filesync.ts";
@@ -291,10 +292,15 @@ export function runningLine(
   return { title: r.title || project || agentName(r.agent), sub: [project, r.machine_name].filter(Boolean).join(" · ") };
 }
 
-/// When a Running now row last moved: an agent's last step or reply (its
-/// end, once it stopped), a research's start.
-export const runningAt = (r: Pick<RunningAgent, "kind" | "started_at" | "last_activity"> | Pick<RunningResearch, "kind" | "started_at">) =>
-  r.kind === "agent" ? r.last_activity || r.started_at : r.started_at;
+/// When a Running now row last moved: now for an agent in a turn, else its
+/// last step or reply (its end, once it stopped), a research's start.
+export const runningAt = (r: (Pick<RunningAgent, "kind" | "started_at" | "last_activity"> & { status?: string }) | Pick<RunningResearch, "kind" | "started_at">) =>
+  r.kind !== "agent" ? r.started_at : r.status === "working" ? Date.now() : r.last_activity || r.started_at;
+
+/// What a Running now row says for its time. A session Beep started reports
+/// only its start, so one between turns says idle, not how long ago it began.
+export const runningWhen = (r: Parameters<typeof runningAt>[0]) =>
+  r.kind === "agent" && r.status === "idle" ? "idle" : ago(runningAt(r));
 
 /// Running now rows, the one that moved last first.
 export function byRecent<T extends Parameters<typeof runningAt>[0]>(rows: readonly T[]) {

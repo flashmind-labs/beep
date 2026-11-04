@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { MacControl } from "../src/center/home-state.ts";
-import { byRecent, machineProjects, remotePath, runningKey, runningLine, thisMacRow } from "../src/center/home-state.ts";
+import { byRecent, runningWhen, machineProjects, remotePath, runningKey, runningLine, thisMacRow } from "../src/center/home-state.ts";
 
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
   const row = (project: string, machine_id: string, status: string) => ({ project, machine_id, status, files: 90, pending: 10, error: null });
@@ -61,4 +61,10 @@ test("This Mac gets a row until the server lists it", () => {
   assert.equal(failed!.state, "connect timed out");
   assert.match(failed!.title, /connect timed out/);
   assert.equal(thisMacRow(mac({ status: "connected" }), [])!.state, "Connecting");
+});
+
+test("a Running row says now in a turn and idle between turns, not when it began", () => {
+  const agent = (status: string) => ({ kind: "agent" as const, status, started_at: 1000, last_activity: 1000 });
+  assert.equal(runningWhen(agent("working")), "now");
+  assert.equal(runningWhen(agent("idle")), "idle");
 });
