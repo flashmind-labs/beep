@@ -16,7 +16,6 @@ use crate::{
     machines::list::{self as machine_list, Outside},
     projects::{ProjectRow, known},
 };
-use beep_fleet::Session;
 use beep_proto::{
     AgentNoticeKey, AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate,
     ChatApproval, Cron, DismissUpdates, ImportedProject, ListCrons, ListImportedProjects,
@@ -272,7 +271,7 @@ pub async fn center_home(
 
 /// The projects the mesh holds, one row per machine of it that has one; none while the mesh is
 /// not open, so Home never waits for it.
-async fn mesh_imports(fleet: &Fleet, session: &Arc<Session>) -> Vec<ImportedProject> {
+async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec<ImportedProject> {
     if fleet.mesh().is_none() {
         return Vec::new();
     }
