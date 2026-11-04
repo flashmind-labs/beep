@@ -125,6 +125,10 @@ enum Command {
         #[arg(long)]
         session: String,
     },
+    /// Started by the node: keeps its terminals running while it restarts.
+    #[cfg(unix)]
+    #[command(hide = true)]
+    PtyHost,
     /// Lists the Claude Code sessions on this machine started outside Beep.
     Sessions {
         #[arg(long, default_value_t = 20)]
@@ -325,6 +329,8 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Mcp { session } => mcp::pipe(&dir, &session).await,
+        #[cfg(unix)]
+        Command::PtyHost => beep_node::run_terminal_host(&dir).await,
         Command::Hook { event: _ } => {
             hooks::forward(&dir).await;
             Ok(())

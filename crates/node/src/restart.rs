@@ -4,7 +4,8 @@
 //! agent sessions and terminals it has open, rewritten as they open and
 //! close and once more as it stops, and the next start opens them again,
 //! after a crash too: sessions resumed by the agent's own id, terminals as
-//! new shells in their folders.
+//! new shells in their folders. On Unix terminals live in a host process of
+//! their own, which outlives the node and keeps its own note.
 
 use crate::{
     agents::{Agents, OpenSession},

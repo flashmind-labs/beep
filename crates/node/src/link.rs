@@ -171,7 +171,7 @@ pub async fn serve(
     // Only then is the note kept to what is open, so a start that dies
     // before leaves it as it was.
     let reopen = Reopen::read(&state.dir);
-    terminal::reopen(reopen.terminals);
+    terminal::reopen(&state.dir, reopen.terminals).await;
     let agents = offers.agents.clone();
     let note_dir = state.dir.clone();
     let mut keeping = AbortOnDropHandle::new(tokio::spawn(async move {
