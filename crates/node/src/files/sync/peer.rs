@@ -55,6 +55,11 @@ enum Reply {
     /// Sent first: the commit the peer's checkout is at, if it has one.
     Head {
         commit: Option<Oid>,
+        /// The peer's last change the puller lacks, if any: the puller has
+        /// all the peer had once its changes reach it. Peers before this
+        /// field leave it out.
+        #[serde(default)]
+        behind: Option<u64>,
     },
     /// Changes of `replica` up to its change `upto`.
     Changes {
@@ -134,17 +139,18 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
         return tx.send(&Reply::Refused { message }).await;
     };
     let _serving = syncs.serving();
-    tx.send(&Reply::Head {
-        commit: shared.head().await?,
-    })
-    .await?;
-    let mut seq = shared.subscribe();
-    let mut peers = shared.watch_peers();
     let mut since = if replica == shared.replica() {
         since
     } else {
         0
     };
+    tx.send(&Reply::Head {
+        commit: shared.head().await?,
+        behind: shared.last_change_after(since),
+    })
+    .await?;
+    let mut seq = shared.subscribe();
+    let mut peers = shared.watch_peers();
     loop {
         let changes = shared.changes(since, BATCH);
         if !changes.entries.is_empty() {
@@ -185,6 +191,7 @@ pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: Endpoint
             Ok(()) => wait = FIRST_RETRY,
             Err(e) => log::debug!("pulling {} from {}: {e:#}", shared.name(), peer.id),
         }
+        shared.heard(&peer.id);
         tokio::select! {
             () = sleep(wait) => {}
             () = shared.stopped() => return,
@@ -212,9 +219,10 @@ async fn pull_once(
         since: cursor.seq,
     })
     .await?;
+    let mut last = None;
     while let Some(reply) = rx.recv::<Reply>().await? {
         match reply {
-            Reply::Head { commit } => {
+            Reply::Head { commit, behind } => {
                 // A connection that worked: losing it is no reason to wait long.
                 *wait = FIRST_RETRY;
                 log::debug!(
@@ -224,14 +232,56 @@ async fn pull_once(
                     started.elapsed()
                 );
                 shared.first_contact(&peer.id, commit).await?;
+                last = behind;
+                if last.is_none() {
+                    shared.heard(&peer.id);
+                }
             }
             Reply::Changes {
                 replica,
                 entries,
                 upto,
-            } => shared.merge_from(&peer.id, &entries, Cursor { replica, seq: upto }),
+            } => {
+                shared.merge_from(&peer.id, &entries, Cursor { replica, seq: upto });
+                if last.is_some_and(|last| upto >= last) {
+                    last = None;
+                    shared.heard(&peer.id);
+                }
+            }
             Reply::Refused { message } => bail!("the peer refused: {message}"),
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Reply::Head` as peers from before `behind` have it.
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    enum OldReply {
+        Head { commit: Option<Oid> },
+    }
+
+    #[test]
+    fn head_stays_readable_both_ways_within_the_alpn() {
+        let new = rmp_serde::to_vec_named(&Reply::Head {
+            commit: None,
+            behind: Some(7),
+        })
+        .unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<OldReply>(&new).unwrap(),
+            OldReply::Head { commit: None }
+        );
+        let old = rmp_serde::to_vec_named(&OldReply::Head { commit: None }).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<Reply>(&old).unwrap(),
+            Reply::Head {
+                commit: None,
+                behind: None
+            }
+        );
+    }
 }
