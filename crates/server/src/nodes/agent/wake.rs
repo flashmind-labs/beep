@@ -90,13 +90,15 @@ impl Reporter {
                 if nobody_waits {
                     let text =
                         turn_report(&owner.node, &self.agent, &self.session, turn, &last_message);
-                    deliveries.post(&app, self.post(owner, text));
+                    let label = format!("{} finished", agent_name(&self.agent));
+                    deliveries.post(&app, self.post(owner, label, text));
                 }
             }
             News::Question(question) => {
                 if nobody_waits {
                     let text = question_report(&owner.node, &self.agent, &self.session, &question);
-                    deliveries.post(&app, self.post(owner.clone(), text));
+                    let label = format!("{} has a question", agent_name(&self.agent));
+                    deliveries.post(&app, self.post(owner.clone(), label, text));
                 }
                 deliveries.ask(&app, self.ask(owner, question));
             }
@@ -104,9 +106,9 @@ impl Reporter {
         }
     }
 
-    fn post(&self, follower: Follower, text: String) -> Post {
+    fn post(&self, follower: Follower, label: String, text: String) -> Post {
         Post {
-            label: agent_name(&self.agent).to_owned(),
+            label,
             user: follower.user,
             chat: follower.chat,
             text,

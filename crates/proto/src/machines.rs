@@ -235,6 +235,27 @@ pub struct MachineStats {
     pub load: Option<f64>,
 }
 
+/// What a machine moved over iroh since it first reported, as
+/// `ListMachineTraffic` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineTraffic {
+    /// The `Machine::id` it describes.
+    pub id: String,
+    /// When the server last got a report.
+    pub updated_at: SystemTime,
+    /// Key and value, so a new counter needs no new shape.
+    pub counters: Vec<TrafficCounter>,
+}
+
+/// One lifetime total, such as `alpn.beep-sync/1.tx` or `endpoint.relay.rx`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrafficCounter {
+    pub key: String,
+    pub bytes: u64,
+}
+
 /// How full the volume holding one folder is.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

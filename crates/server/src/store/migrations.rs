@@ -417,6 +417,11 @@ pub(super) const MIGRATIONS: &[(i64, &str, &str)] = &[
         "agent session starts",
         include_str!("../../migrations/0098_agent_session_starts.sql"),
     ),
+    (
+        99,
+        "node traffic",
+        include_str!("../../migrations/0099_node_traffic.sql"),
+    ),
 ];
 
 /// The last migration before the transcript backfill runs.

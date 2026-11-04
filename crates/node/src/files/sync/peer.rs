@@ -4,6 +4,7 @@
 
 use super::{
     Syncs,
+    gitdir::Oid,
     map::{Entry, Replica},
     project::{Cursor, Shared},
 };
@@ -21,7 +22,10 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-pub(crate) const ALPN: &[u8] = b"beep-sync/1";
+/// `beep-sync/1` nodes leave `.git` and tracked files out and would write
+/// tracked files into a checkout git owns there, so the two do not sync with
+/// each other: a node syncs again once both run this version.
+pub(crate) const ALPN: &[u8] = b"beep-sync/2";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
@@ -48,6 +52,10 @@ enum Request {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 enum Reply {
+    /// Sent first: the commit the peer's checkout is at, if it has one.
+    Head {
+        commit: Option<Oid>,
+    },
     /// Changes of `replica` up to its change `upto`.
     Changes {
         replica: Replica,
@@ -126,6 +134,10 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
         return tx.send(&Reply::Refused { message }).await;
     };
     let _serving = syncs.serving();
+    tx.send(&Reply::Head {
+        commit: shared.head().await?,
+    })
+    .await?;
     let mut seq = shared.subscribe();
     let mut peers = shared.watch_peers();
     let mut since = if replica == shared.replica() {
@@ -196,6 +208,7 @@ async fn pull_once(shared: &Shared, endpoint: &Endpoint, peer: &EndpointAddr) ->
     .await?;
     while let Some(reply) = rx.recv::<Reply>().await? {
         match reply {
+            Reply::Head { commit } => shared.first_contact(&peer.id, commit).await?,
             Reply::Changes {
                 replica,
                 entries,

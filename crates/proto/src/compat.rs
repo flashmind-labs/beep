@@ -151,6 +151,8 @@ sample_struct! {
     MachineGpu { vendor, model, vram_mb, driver }
     MachineStats { id, sampled_at, disks, memory_used_mb, memory_total_mb, load }
     MachineDisk { path, free_bytes, total_bytes }
+    MachineTraffic { id, updated_at, counters }
+    TrafficCounter { key, bytes }
     MachineSession { machine_id, machine_name, id, agent, title, cwd, status, doing, started_at, last_activity, external, question }
     AgentQuestion { id, text, detail, options }
     AgentOption { id, name, allow }

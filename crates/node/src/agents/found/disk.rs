@@ -1,6 +1,7 @@
 //! The main git checkouts under the search folder (`search` in `node.toml`,
-//! home by default), found on disk so a checkout no agent ran in still counts
-//! (`saved_checkouts`).
+//! home by default), found on disk so a checkout no agent ran in still counts.
+//! The last walk's list is saved and served from `saved_checkouts` while the
+//! next start's `walk` looks again.
 
 use super::git::{self, Checkout};
 use crate::{link::note, lock};
@@ -10,7 +11,10 @@ use std::{
     fs,
     io::ErrorKind,
     path::Path,
-    sync::{Mutex, PoisonError},
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -18,15 +22,24 @@ use std::{
 const MAX_DEPTH: usize = 4;
 /// The most checkouts one walk gives.
 const MAX_CHECKOUTS: usize = 400;
-/// How long the walk, with its remote lookups, may take. It runs once, in
-/// the background, and a large home takes minutes to walk.
+/// How long the walk, with its remote lookups, may take. It runs in the
+/// background, and a large home takes minutes to walk.
 const WALK_FOR: Duration = Duration::from_secs(5 * 60);
 /// Folders never worth walking into.
 const PRUNED: &[&str] = &["node_modules", "target", "Library"];
-/// The checkouts the first walk found, in the node's folder.
+/// The checkouts the last whole walk found, in the node's folder.
 const FILE: &str = "checkouts.json";
 
-/// Drops the checkouts saved in `dir`, so the next start walks again.
+/// What one walk found.
+pub(crate) struct Walk {
+    pub(crate) found: Vec<Checkout>,
+    /// False when it stopped at `WALK_FOR` or `MAX_CHECKOUTS`: checkouts may
+    /// be missing, so it is not saved.
+    pub(crate) whole: bool,
+}
+
+/// Drops the checkouts saved in `dir`, so nothing stands for them until the
+/// next walk ends.
 pub(crate) fn forget_checkouts(dir: &Path) -> Result<()> {
     let path = dir.join(FILE);
     match fs::remove_file(&path) {
@@ -37,29 +50,32 @@ pub(crate) fn forget_checkouts(dir: &Path) -> Result<()> {
     }
 }
 
-/// The checkouts saved in `dir`. When none are saved yet, as on the first
-/// start, walks `root` for them and saves what it found. Later checkouts
-/// come from the agents' logs.
-pub(crate) fn saved_checkouts(root: &Path, dir: &Path) -> Vec<Checkout> {
+/// The checkouts saved in `dir`; `None` when none can be read, as on the
+/// first start.
+pub(crate) fn saved_checkouts(dir: &Path) -> Option<Vec<Checkout>> {
     let path = dir.join(FILE);
-    match fs::read_to_string(&path) {
-        Ok(text) => {
-            return serde_json::from_str(&text).unwrap_or_else(|e| {
-                log::warn!("ignored {}: {e}", path.display());
-                Vec::new()
-            });
-        }
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => return None,
         Err(e) => {
             log::warn!("could not read {}: {e}", path.display());
-            return Vec::new();
+            return None;
         }
-    }
-    let found = checkouts(root);
-    if let Err(e) = save(dir, &found) {
+    };
+    serde_json::from_str(&text)
+        .inspect_err(|e| log::warn!("ignored {}: {e}", path.display()))
+        .ok()
+}
+
+/// Walks `root` for checkouts and saves them in `dir` when the walk was whole.
+pub(crate) fn walk(root: &Path, dir: &Path) -> Walk {
+    let walk = checkouts(root);
+    if walk.whole
+        && let Err(e) = save(dir, &walk.found)
+    {
         log::warn!("the checkouts found were not saved: {e:#}");
     }
-    found
+    walk
 }
 
 /// Writes `found` down in `dir`, whole or not at all.
@@ -70,9 +86,10 @@ fn save(dir: &Path, found: &[Checkout]) -> Result<()> {
 /// The main checkouts under `home`, with their `origin` remotes, walked
 /// on several threads: a large home takes minutes on one. A worktree
 /// outside its checkout, whose `.git` is a file, is left out.
-fn checkouts(home: &Path) -> Vec<Checkout> {
+fn checkouts(home: &Path) -> Walk {
     let deadline = Instant::now() + WALK_FOR;
     let found = Mutex::new(Vec::new());
+    let cut = AtomicBool::new(false);
     WalkBuilder::new(home)
         .max_depth(Some(MAX_DEPTH))
         .parents(false)
@@ -81,6 +98,7 @@ fn checkouts(home: &Path) -> Vec<Checkout> {
         .run(|| {
             Box::new(|entry| {
                 if Instant::now() > deadline {
+                    cut.store(true, Ordering::Relaxed);
                     return WalkState::Quit;
                 }
                 let Ok(entry) = entry else {
@@ -97,6 +115,7 @@ fn checkouts(home: &Path) -> Vec<Checkout> {
                 let mut found = lock(&found);
                 found.push(checkout);
                 if found.len() >= MAX_CHECKOUTS {
+                    cut.store(true, Ordering::Relaxed);
                     WalkState::Quit
                 } else {
                     // Nothing below a checkout's top is looked at.
@@ -104,7 +123,10 @@ fn checkouts(home: &Path) -> Vec<Checkout> {
                 }
             })
         });
-    found.into_inner().unwrap_or_else(PoisonError::into_inner)
+    Walk {
+        found: found.into_inner().unwrap_or_else(PoisonError::into_inner),
+        whole: !cut.into_inner(),
+    }
 }
 
 /// Whether the walk goes into `entry`: a folder, not pruned, and not
@@ -161,7 +183,7 @@ mod tests {
         repo(".config/plugin");
         repo("a/b/c/d/too-deep");
 
-        let mut found = checkouts(&home);
+        let mut found = checkouts(&home).found;
         found.sort_by(|a, b| a.root.cmp(&b.root));
         let roots: Vec<&Path> = found.iter().map(|one| one.root.as_path()).collect();
         assert_eq!(roots, [nasty.as_path(), notes.as_path()]);
@@ -170,17 +192,19 @@ mod tests {
     }
 
     #[test]
-    fn a_later_start_reads_the_saved_checkouts_without_walking() {
+    fn a_whole_walk_is_saved_for_the_next_start() {
         let temp = tempfile::tempdir().expect("a temp folder");
         let (home, dir) = (temp.path().join("home"), temp.path().join("node"));
         let repo = home.join("code/app");
         fs::create_dir_all(repo.join(".git")).expect("a checkout");
         fs::create_dir_all(&dir).expect("the node's folder");
 
-        let first = saved_checkouts(&home, &dir);
-        assert_eq!(first.len(), 1);
-        assert_eq!(first[0].root, repo);
+        assert_eq!(saved_checkouts(&dir), None);
+        let first = walk(&home, &dir);
+        assert!(first.whole);
+        assert_eq!(first.found.len(), 1);
+        assert_eq!(first.found[0].root, repo);
         fs::remove_dir_all(&home).expect("home gone");
-        assert_eq!(saved_checkouts(&home, &dir), first);
+        assert_eq!(saved_checkouts(&dir), Some(first.found));
     }
 }

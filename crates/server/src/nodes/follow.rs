@@ -1,7 +1,7 @@
 //! Following agent sessions started outside Beep, posting what they do to the chat that follows.
 //! Follows live in memory: a server restart forgets them.
 
-use super::{Online, Post};
+use super::{Online, Post, deliver::agent_name};
 use crate::{
     account::user::User,
     app::App,
@@ -21,9 +21,6 @@ use uuid::Uuid;
 
 /// The most sessions followed on one node.
 pub const MAX_FOLLOWED: usize = 16;
-/// The label of a turn that reports a followed session.
-const LABEL: &str = "Claude Code";
-
 /// Who follows a session: the chat that asked.
 #[derive(Clone)]
 pub struct Follower {
@@ -155,10 +152,11 @@ async fn read_watch(
                 };
                 if let Some(follower) = app.nodes.follows.follower(node, &activity.session) {
                     let text = report(&follower.node, &follower.agent, &activity);
+                    let label = label(&follower.agent, activity.kind);
                     let post = Post {
                         user: follower.user,
                         chat: follower.chat,
-                        label: LABEL.to_owned(),
+                        label,
                         text,
                     };
                     app.nodes.deliveries.post(&app, post);
@@ -176,6 +174,15 @@ fn worth_telling(activity: &Activity) -> bool {
         activity.kind,
         ActivityKind::TurnDone | ActivityKind::NeedsInput
     )
+}
+
+/// The label of a turn that reports a followed session.
+fn label(agent: &str, kind: ActivityKind) -> String {
+    let name = agent_name(agent);
+    match kind {
+        ActivityKind::NeedsInput => format!("{name} is waiting for you"),
+        _ => format!("{name} finished"),
+    }
 }
 
 /// The turn's message: what the session did, and what Beep can do.

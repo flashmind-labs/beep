@@ -1039,21 +1039,11 @@ private fun DayMarker(day: LocalDate, modifier: Modifier = Modifier) {
         color = TextDim, textAlign = TextAlign.Center)
 }
 
-/** Where a routine woke Beep: its prompt is the routine's, not something the user said. */
-/** The label of the turn that hands background work's results back to the chat. */
-private const val BACKGROUND_WORK = "Background work"
-
+/** A turn the server started, such as a routine or an agent reporting back: not something the user said. */
 @Composable
 private fun ScheduledMarker(label: String, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Schedule, null, Modifier.size(13.dp), tint = TextDim)
-        Spacer(Modifier.width(6.dp))
-        Text(when (label) {
-            "" -> "Scheduled"
-            // The results of sub-agents and jobs coming back, not a routine.
-            BACKGROUND_WORK -> label
-            else -> "Scheduled · $label"
-        }, fontSize = 11.sp, color = TextDim,
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Text(label.ifEmpty { "Scheduled" }, fontSize = 11.sp, color = TextDim,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

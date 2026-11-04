@@ -6,6 +6,7 @@ use super::{
 };
 use crate::files::sync::{
     disk::{self},
+    gitdir::{self, Oid, Repo},
     map::{Changes, Entry, Replica, is_conflict, original_of, valid_path},
     rules::Rules,
     scan::{MAX_FILES, Stat},
@@ -17,6 +18,7 @@ use beep_proto::node::sync::{Keep, ProjectStatus};
 use iroh::{EndpointAddr, EndpointId};
 use iroh_blobs::Hash;
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
     time::Duration,
@@ -52,6 +54,8 @@ pub(in crate::files::sync) struct Shared {
     /// Paused by the server: no scans, fetches or pulls.
     pub(super) paused: watch::Sender<bool>,
     pub(super) stop: CancellationToken,
+    /// Why this node will not merge with a peer yet (`first_contact`).
+    holds: Mutex<BTreeMap<EndpointId, String>>,
 }
 
 /// What is needed to start a project.
@@ -94,6 +98,7 @@ impl Shared {
             rescans: watch::Sender::new(0),
             paused: watch::Sender::new(start.paused),
             stop: CancellationToken::new(),
+            holds: Mutex::default(),
         }))
     }
 
@@ -176,6 +181,60 @@ impl Shared {
             .unwrap_or_default()
     }
 
+    /// The commit this checkout is at, if `.git` syncs and has one.
+    pub(in crate::files::sync) async fn head(&self) -> Result<Option<Oid>> {
+        if !crate::read_lock(&self.rules).syncs_git() {
+            return Ok(None);
+        }
+        let root = self.root().to_owned();
+        let head = spawn_blocking(move || Repo::open(&root).and_then(|repo| repo.head())).await?;
+        Ok(head)
+    }
+
+    /// Fails while this checkout and a peer's, never merged before, are at
+    /// different commits. Merging them would mix two working trees file by
+    /// file and pick a winner per branch, on machines that may have been
+    /// apart for months. Neither changes until they are at one commit, which
+    /// the user gets them to with git. A side with no commit yet takes the
+    /// other's, and from then on it is ordinary concurrent editing.
+    pub(in crate::files::sync) async fn first_contact(
+        &self,
+        peer: &EndpointId,
+        theirs: Option<Oid>,
+    ) -> Result<()> {
+        if self.lock().saved.matched.contains(&peer.to_string()) {
+            return Ok(());
+        }
+        let ours = self.head().await?;
+        if let (Some(ours), Some(theirs)) = (ours, theirs)
+            && ours != theirs
+        {
+            let message = format!(
+                "this checkout is at {} and another machine's at {}: nothing syncs with it \
+                 until both are at one commit",
+                ours.hex(),
+                theirs.hex()
+            );
+            log::warn!("{}: {message}", self.name);
+            crate::lock(&self.holds).insert(*peer, message.clone());
+            self.publish(|status| status.error = Some(message.clone()));
+            bail!(message);
+        }
+        crate::lock(&self.holds).remove(peer);
+        let mut state = self.lock();
+        state.saved.matched.insert(peer.to_string());
+        state.unsaved = true;
+        drop(state);
+        // Publishes the status again, without the hold.
+        self.merged.notify_one();
+        Ok(())
+    }
+
+    /// Why the project does not merge with some peer, if so.
+    pub(super) fn hold(&self) -> Option<String> {
+        crate::lock(&self.holds).values().next().cloned()
+    }
+
     /// Merges what a peer sent, and where it got to.
     pub(in crate::files::sync) fn merge_from(
         &self,
@@ -251,6 +310,9 @@ impl Shared {
         }
         let original =
             original_of(path).with_context(|| format!("{path} is not a conflict copy"))?;
+        if gitdir::in_git(path) {
+            return self.resolve_ref(path, &original, keep).await;
+        }
         let (copy, beside) = {
             let state = self.lock();
             let stat = |p: &str| state.saved.seen.get(p).map(|seen| seen.stat);
@@ -260,6 +322,45 @@ impl Shared {
         let (root, path) = (self.root.clone(), path.to_owned());
         let settle_it = Settle { copy, beside, keep };
         spawn_blocking(move || settle(&root, &path, &original, settle_it)).await??;
+        self.touched.notify_one();
+        Ok(())
+    }
+}
+
+impl Shared {
+    /// Settles the ref that kept the losing side of two commits to
+    /// `original`: drops it, or moves `original` to it. The working tree
+    /// stays as it is, and `git status` says how it differs.
+    async fn resolve_ref(&self, path: &str, original: &str, keep: Keep) -> Result<()> {
+        let (copy, beside) = {
+            let state = self.lock();
+            let hash = |p: &str| {
+                state
+                    .saved
+                    .seen
+                    .get(p)
+                    .map(|seen| Oid::from_bytes(seen.hash))
+            };
+            (hash(path), hash(original))
+        };
+        let copy = copy.with_context(|| format!("{path} is not on this machine yet"))?;
+        let root = self.root().to_owned();
+        let (path, original) = (path.to_owned(), original.to_owned());
+        let moved = spawn_blocking(move || -> Result<bool> {
+            let repo = Repo::open(&root).context("the repository is not here")?;
+            let moved = keep == Keep::Copy;
+            if moved {
+                repo.set_ref(gitdir::ref_name(&original), copy, beside)?;
+            }
+            repo.delete_ref(gitdir::ref_name(&path), copy)?;
+            Ok(moved)
+        })
+        .await??;
+        if moved {
+            let mut state = self.lock();
+            state.saved.index_stale = true;
+            state.unsaved = true;
+        }
         self.touched.notify_one();
         Ok(())
     }

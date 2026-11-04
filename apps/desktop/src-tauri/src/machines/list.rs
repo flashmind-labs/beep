@@ -7,8 +7,8 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    ListMachines, ListUpdatableMachines, Machine, MachineEnv, MachineUpdate, RemoveMachine,
-    UpdatableMachine, UpdateMachine,
+    ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineEnv, MachineTraffic,
+    MachineUpdate, RemoveMachine, TrafficCounter, UpdatableMachine, UpdateMachine,
 };
 use serde::Serialize;
 use std::time::Duration;
@@ -40,24 +40,32 @@ impl From<Machine> for MachineView {
     }
 }
 
-impl MachineView {
-    pub(crate) fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub(crate) fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub(crate) fn online(&self) -> bool {
-        self.online
-    }
-}
-
 #[tauri::command]
 pub async fn list_machines(beep: Service<'_>) -> Result<Vec<MachineView>> {
     let machines = beep.call(ListMachines {}).await?;
     Ok(machines.into_iter().map(MachineView::from).collect())
+}
+
+/// What a machine moved over iroh, as the Machines screens read it.
+#[derive(Debug, Serialize)]
+pub struct TrafficView {
+    id: String,
+    counters: Vec<TrafficCounter>,
+}
+
+impl From<MachineTraffic> for TrafficView {
+    fn from(traffic: MachineTraffic) -> Self {
+        Self {
+            id: traffic.id,
+            counters: traffic.counters,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn machine_traffic(beep: Service<'_>) -> Result<Vec<TrafficView>> {
+    let traffic = beep.call(ListMachineTraffic {}).await?;
+    Ok(traffic.into_iter().map(TrafficView::from).collect())
 }
 
 /// Unlinks one of the account's machines, online or not. The server drops

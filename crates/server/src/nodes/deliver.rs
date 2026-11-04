@@ -39,7 +39,7 @@ const QUESTION_TOOL: &str = "node_agent_question";
 pub struct Post {
     pub user: Arc<User>,
     pub chat: Uuid,
-    /// The turn's label, such as "Claude Code".
+    /// The turn's label, such as "Claude Code finished".
     pub label: String,
     pub text: String,
 }

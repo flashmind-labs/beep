@@ -23,7 +23,7 @@ use tokio::time::timeout;
 /// The longest asking one machine for its checkouts may take.
 const FOUND_LIMIT: Duration = Duration::from_secs(20);
 /// The most checkouts one machine names.
-const FOUND_FOLDERS: u32 = 200;
+const FOUND_FOLDERS: u32 = 800;
 /// The most folders one machine's remotes are read in.
 const MAX_CANDIDATES: usize = 20;
 
