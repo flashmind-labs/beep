@@ -41,7 +41,7 @@ pub(super) fn tools() -> Value {
                 "required": ["machine"],
                 "additionalProperties": false
             },
-            "annotations": { "title": "Run on a machine", "destructiveHint": true, "openWorldHint": true }
+            "annotations": { "title": "Run on a machine", "destructiveHint": false, "openWorldHint": false }
         },
         {
             "name": "sync_project",
