@@ -10,14 +10,12 @@ use super::{
     DetailRead, HostSlot, KeptLog, MAX_LOGS, NO_HOST, RunsCopy,
 };
 use crate::{
-    account::credentials::host_client,
-    account::user::User,
+    account::{credentials::host_client, user::User},
     app::App,
-    projects::git_items::HostError,
-    projects::model::IssueHost,
     protocol::{ProjectRunDetail, RunJob, RunState},
     store::ProjectRow,
 };
+use beep_projects::{git_items::HostError, model::IssueHost};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 
 impl RepoWatch {

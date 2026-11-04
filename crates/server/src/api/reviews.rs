@@ -11,7 +11,7 @@ use crate::{
     nodes::{Online, StartOn},
     projects::{
         branches::tail,
-        model::{RepoName, WorkerAgent},
+        model::WorkerAgent,
         review::{
             Fix,
             drive::{close_session, doing, running},
@@ -32,6 +32,7 @@ use crate::{
     tools::machines::command_name,
 };
 use anyhow::{Result, bail};
+use beep_projects::model::RepoName;
 use chrono::{DateTime, Utc};
 use std::{
     collections::{HashMap, HashSet},

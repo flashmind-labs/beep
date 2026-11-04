@@ -5,13 +5,17 @@ use super::{
     http::{HostCalls, TailLimits, Who},
 };
 use crate::{
-    account::credentials::{Opened, Slot, github_for, is_public},
-    account::user::User,
+    account::{
+        credentials::{Opened, Slot, github_for, is_public},
+        user::User,
+    },
     app::App,
-    projects::git_items::{Caller, HostError, forks::Api, github},
-    projects::model::{IssueHost, RepoName},
     projects::repo_watch::hosts::RepoOnHost,
     protocol::{RunJob, RunLog, WorkflowRun},
+};
+use beep_projects::{
+    git_items::{Caller, HostError, forks::Api, github},
+    model::{IssueHost, RepoName},
 };
 use reqwest::{Client, StatusCode};
 use secrecy::SecretString;

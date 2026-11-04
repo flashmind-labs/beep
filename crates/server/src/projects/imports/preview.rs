@@ -1,21 +1,21 @@
 //! What importing a repository would find: its checkouts on online machines and branches with work.
 
-use super::{
-    ImportError,
-    checks::forgejo_servers,
-    place::{self, Folders},
-    repo::{Host, RepoRef},
-};
+use super::checks::forgejo_servers;
 use crate::{
     account::user::User,
     app::App,
     nodes::{Online, SHELL},
-    projects::branches::{
-        READ_LIMIT, branches_with_work, my_prs, quote, read_branches, run_script,
-    },
+    projects::branches::{READ_LIMIT, branches_with_work, my_prs, read_branches, run_script},
     protocol::{ImportCheckout, ImportPreview, node::agent::SESSIONS_PROTOCOL},
     store::{NewImport, NodeRow},
 };
+use beep_projects::imports::place;
+use beep_projects::imports::{
+    ImportError,
+    place::Folders,
+    repo::{Host, RepoRef},
+};
+use beep_projects::quote;
 use futures::future::join_all;
 use std::{collections::HashSet, time::Duration};
 use tokio::time::timeout;

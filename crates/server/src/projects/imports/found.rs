@@ -1,11 +1,11 @@
 //! Checkouts the user's coding agents worked in, one row per repository, excluding imported ones.
 
-use super::repo::{RepoRef, remote_key};
 use crate::{
-    account::credentials::ForgejoUrl,
     protocol::{FoundAgent, FoundPlace, FoundProject, node::agent::SessionFolder},
     store::ImportRow,
 };
+use beep_projects::imports::repo::{RepoRef, remote_key};
+use beep_projects::model::ForgejoUrl;
 use std::{
     cmp::Reverse,
     collections::HashMap,

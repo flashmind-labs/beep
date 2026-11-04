@@ -9,12 +9,10 @@ use super::{
     },
     NO_HOST,
 };
-use crate::{
-    projects::model::IssueHost,
-    protocol::{
-        HostedChecks, HostedRun, HostedRuns, ProjectRuns, RunJob, RunLog, RunsHost, WorkflowRun,
-    },
+use crate::protocol::{
+    HostedChecks, HostedRun, HostedRuns, ProjectRuns, RunJob, RunLog, RunsHost, WorkflowRun,
 };
+use beep_projects::model::IssueHost;
 use std::{
     collections::{HashMap, VecDeque},
     time::SystemTime,

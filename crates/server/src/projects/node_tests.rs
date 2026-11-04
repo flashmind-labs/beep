@@ -1,10 +1,7 @@
 //! Workers on real `beep-node`s over iroh, in a real git checkout, with a scripted agent.
 
 use super::{
-    model::{
-        InputFile, IssueHost, MachinePath, RepoName, Roles, StartRequest, TaskState, Visibility,
-        WorkerState,
-    },
+    model::{InputFile, StartRequest, TaskState, WorkerState},
     turn::{REPLAN_LABEL, WORKER_LABEL},
     worker::{Started, start_task, stop_worker},
 };
@@ -31,6 +28,7 @@ use beep_node::{
     files::Folders,
     link::{Offers, Protocol, Session as LinkSession},
 };
+use beep_projects::model::{IssueHost, MachinePath, RepoName, Roles, Visibility};
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, ContentPart, LlmProvider, Model,
     ModelCapabilities, Provider,

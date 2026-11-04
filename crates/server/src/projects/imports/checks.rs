@@ -3,18 +3,15 @@
 //! in the background under [`Checkouts`], bounded per machine, server-wide and in queue.
 
 use super::{
-    folder::FolderPath,
     preview::{parse_remotes, remotes_script},
     remove,
-    repo::same_repo,
 };
 use crate::{
-    account::credentials::ForgejoUrl,
     account::user::User,
     app::App,
     lock,
     nodes::SHELL,
-    projects::{branches::run_script, commands::Shell},
+    projects::branches::run_script,
     protocol::{
         ProjectMachine,
         node::agent::{SESSIONS_PROTOCOL, SessionFolder},
@@ -22,6 +19,8 @@ use crate::{
     store::{ImportRow, NewImport, NodeRow},
 };
 use anyhow::Context;
+use beep_projects::imports::{folder::FolderPath, repo::same_repo};
+use beep_projects::{Shell, model::ForgejoUrl};
 use chrono::{DateTime, TimeDelta, Utc};
 use std::{
     cmp::Reverse,
@@ -474,11 +473,11 @@ mod tests {
     use super::*;
     use crate::{
         memory::watchers::testing::{Harness, Scripted},
-        projects::commands::CommandOutput,
         protocol::node::{EnvReport, agent::AgentSessions},
         store::NewNode,
     };
     use async_trait::async_trait;
+    use beep_projects::ShellOutput;
     use iroh::SecretKey;
     use std::{path::Path, process::Command};
 
@@ -626,11 +625,12 @@ mod tests {
 
     #[async_trait]
     impl Shell for Local {
-        async fn run(&self, command: &str, _limit: Duration) -> anyhow::Result<CommandOutput> {
+        async fn run(&self, command: &str, _limit: Duration) -> anyhow::Result<ShellOutput> {
             let ran = Command::new("sh").arg("-c").arg(command).output()?;
-            Ok(CommandOutput {
-                code: ran.status.code(),
-                out: String::from_utf8_lossy(&ran.stdout).into_owned(),
+            Ok(ShellOutput {
+                exit_code: ran.status.code(),
+                timed_out: false,
+                output: String::from_utf8_lossy(&ran.stdout).into_owned(),
             })
         }
     }

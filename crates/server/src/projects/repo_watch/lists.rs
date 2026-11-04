@@ -7,12 +7,10 @@ use super::{
 use crate::{
     account::user::User,
     app::App,
-    projects::{
-        fleet::NodeFleet,
-        issues::{self, HostIssues, IssueError, ListedPr},
-    },
+    projects::{fleet::NodeFleet, stored::StoredProject},
     store::ProjectRow,
 };
+use beep_projects::issues::{HostIssues, ListedPr, SourceError, list_open_prs, read_open};
 use std::{
     sync::Arc,
     time::{Instant, SystemTime},
@@ -52,9 +50,9 @@ impl RepoWatch {
 }
 
 /// What the user reads of why a list failed; store errors are logged instead.
-fn message(error: IssueError) -> String {
+fn message(error: SourceError) -> String {
     match error {
-        IssueError::Store(e) => {
+        SourceError::Store(e) => {
             log::warn!("repo watch: a list did not read: {e:#}");
             "Beep could not read this project.".to_owned()
         }
@@ -74,10 +72,8 @@ async fn read(
         app: app.clone(),
         user: user.clone(),
     };
-    let (prs, open) = tokio::join!(
-        issues::list_open_prs(&fleet, user, project),
-        issues::read_open(&fleet, user, project),
-    );
+    let store = StoredProject::new(user, project);
+    let (prs, open) = tokio::join!(list_open_prs(&store, &fleet), read_open(&store, &fleet),);
     let mut any = false;
     match prs {
         Ok(prs) => {

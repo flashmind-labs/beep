@@ -1,6 +1,7 @@
 //! Folders the user picks on a machine, read through the node's shell so any readable folder works.
 
-use super::{ImportError, clone::quote};
+use super::ImportError;
+use crate::quote;
 use beep_proto::MachineFolder;
 
 /// What the listing script prints before each line it means.
@@ -209,7 +210,13 @@ mod tests {
     #[test]
     fn the_path_stays_one_shell_word() {
         let path = FolderPath::Absolute("/srv/it's $(rm -rf ~)".into());
-        assert_eq!(path.shell_word(), r#"'/srv/it'\''s $(rm -rf ~)'"#);
+        // The shell reads it back as the one path, running nothing.
+        let read = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("printf %s {}", path.shell_word()))
+            .output()
+            .expect("sh runs");
+        assert_eq!(read.stdout, b"/srv/it's $(rm -rf ~)");
         assert_eq!(FolderPath::Home(String::new()).shell_word(), "\"$HOME\"");
         assert_eq!(
             FolderPath::Home("a b".into()).shell_word(),

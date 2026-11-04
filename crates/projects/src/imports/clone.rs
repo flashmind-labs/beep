@@ -8,7 +8,7 @@ use super::{
     ImportError,
     repo::{Host, RepoRef},
 };
-use crate::{git_items::forks::Fork, shell::MachineShell};
+use crate::{Shell, git_items::forks::Fork, quote};
 use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
@@ -42,11 +42,6 @@ pub struct ForkSetup<'a> {
     pub default_branch: &'a str,
     /// The user's pull request heads from the fork, made local branches tracking `origin`.
     pub branches: &'a [String],
-}
-
-/// Quotes `text` for sh.
-pub fn quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 /// The git helper that answers with `$BEEP_GIT_TOKEN`, and nothing when it is empty.
@@ -317,7 +312,7 @@ pub struct UsedFork {
 /// Clones on `shell`'s machine, named `machine`, the fork when there is one; `false` when a
 /// checkout was there already.
 pub async fn run_clone(
-    shell: &dyn MachineShell,
+    shell: &dyn Shell,
     machine: &str,
     repo: &RepoRef,
     fork: Option<&UsedFork>,
@@ -339,11 +334,11 @@ pub async fn run_clone(
         }),
     });
     let ran = shell
-        .run(&script, CLONE_LIMIT)
+        .run(script.expose_secret(), CLONE_LIMIT)
         .await
         .map_err(|e| ImportError::Link {
             machine: machine.to_owned(),
-            detail: e.to_string(),
+            detail: format!("{e:#}"),
         })?;
     match outcome(&ran.output, ran.exit_code, ran.timed_out) {
         Outcome::Cloned => Ok(true),
@@ -394,9 +389,12 @@ mod tests {
             fork: None,
         });
         let text = script.expose_secret();
-        assert!(text.contains(r"BEEP_GIT_TOKEN='tok_abc'\''123' git -c credential.helper= -c"));
-        assert!(text.contains("u='https://git.example.com/o/r.git'"));
-        assert!(text.contains("t='/w/projects/o/.r.importing'"));
+        assert!(text.contains(&format!(
+            "BEEP_GIT_TOKEN={} git -c credential.helper= -c",
+            quote("tok_abc'123")
+        )));
+        assert!(text.contains(&format!("u={}", quote("https://git.example.com/o/r.git"))));
+        assert!(text.contains(&format!("t={}", quote("/w/projects/o/.r.importing"))));
     }
 
     /// Runs the script against real git as a node's shell does: `exec 2>&1`, then `eval`.
@@ -664,7 +662,7 @@ mod tests {
         assert!(!root.path().join("ws/projects/org/.gone.importing").exists());
     }
 
-    use crate::{MachineShell, ShellError, ShellOutput};
+    use crate::ShellOutput;
     use async_trait::async_trait;
     use std::sync::Mutex;
 
@@ -677,23 +675,19 @@ mod tests {
     impl FakeShell {
         fn prints(output: &str, exit_code: i32) -> FakeShell {
             FakeShell {
-                said: ShellOutput {
-                    exit_code: Some(exit_code),
-                    timed_out: false,
-                    output: output.to_owned(),
-                },
+                said: ShellOutput::exited(exit_code, output),
                 scripts: Mutex::new(Vec::new()),
             }
         }
     }
 
     #[async_trait]
-    impl MachineShell for FakeShell {
-        async fn run(&self, script: &SecretString, _: Duration) -> Result<ShellOutput, ShellError> {
+    impl Shell for FakeShell {
+        async fn run(&self, script: &str, _: Duration) -> anyhow::Result<ShellOutput> {
             self.scripts
                 .lock()
                 .expect("the log is not poisoned")
-                .push(script.expose_secret().to_owned());
+                .push(script.to_owned());
             Ok(self.said.clone())
         }
     }
@@ -718,8 +712,11 @@ mod tests {
         assert_eq!(cloned, Ok(true));
         let scripts = shell.scripts.lock().expect("the log is not poisoned");
         assert_eq!(scripts.len(), 1);
-        assert!(scripts[0].contains("u='https://github.com/acme/widget.git'"));
-        assert!(scripts[0].contains("d='/srv/projects/acme/widget'"));
+        assert!(scripts[0].contains(&format!(
+            "u={}",
+            quote("https://github.com/acme/widget.git")
+        )));
+        assert!(scripts[0].contains(&format!("d={}", quote("/srv/projects/acme/widget"))));
     }
 
     #[tokio::test]

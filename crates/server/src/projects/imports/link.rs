@@ -1,15 +1,15 @@
 //! Links an existing checkout of the repo or fork instead of cloning: adds missing remotes and PR branches.
 
-use super::{
-    clone::{self, Link, NewRemote},
-    fork::UsedFork,
-    preview::{FolderRemotes, parse_remotes, remotes_script, repo_remote},
-    repo::{Host, RepoRef},
-};
+use super::preview::{FolderRemotes, parse_remotes, remotes_script, repo_remote};
 use crate::{
     nodes::Online,
     projects::branches::{READ_LIMIT, run_script},
     store::NodeRow,
+};
+use beep_projects::imports::clone;
+use beep_projects::imports::{
+    clone::{Link, NewRemote, UsedFork},
+    repo::{Host, RepoRef},
 };
 use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
@@ -109,7 +109,7 @@ pub(super) async fn link_fork(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::model::RepoName;
+    use beep_projects::model::RepoName;
 
     fn folder(remotes: &[(&str, &str)]) -> FolderRemotes {
         FolderRemotes {

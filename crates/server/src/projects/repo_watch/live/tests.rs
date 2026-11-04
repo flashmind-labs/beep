@@ -1,15 +1,15 @@
 use super::{super::http::Who, *};
 use crate::{
-    projects::{
-        git_items::forks::Api,
-        model::{ForgejoHost, IssueHost, RepoName},
-        repo_watch::{
-            hosts::RepoOnHost,
-            test_host::{Reply, TestHost},
-            watch::OpenHead,
-        },
+    projects::repo_watch::{
+        hosts::RepoOnHost,
+        test_host::{Reply, TestHost},
+        watch::OpenHead,
     },
     protocol::{GitHostKind, RunState},
+};
+use beep_projects::{
+    git_items::forks::Api,
+    model::{ForgejoHost, IssueHost, RepoName},
 };
 use secrecy::SecretString;
 

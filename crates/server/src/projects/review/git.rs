@@ -1,8 +1,8 @@
 //! Git scripts for a project's branches and one branch's diff, and parsing their output.
 
-use super::super::commands::quote;
 use crate::protocol::ProjectBranch;
 use anyhow::{Result, bail};
+use beep_projects::quote;
 use std::{
     collections::{BTreeMap, HashMap},
     time::{Duration, SystemTime, UNIX_EPOCH},

@@ -11,7 +11,6 @@ pub(crate) use workers::{
 };
 
 use super::{
-    commands::{LABEL_BLOCKED, LABEL_RUNNING},
     fleet::{Fleet, NodeFleet},
     model::{CHECK_EVERY, IDLE_CLOSE, TaskState, WorkerId},
     schedule::Due,
@@ -19,6 +18,7 @@ use super::{
 };
 use crate::app::App;
 use anyhow::Result;
+use beep_projects::commands::{LABEL_BLOCKED, LABEL_RUNNING};
 use chrono::{DateTime, TimeDelta, Utc};
 use std::{sync::Arc, time::Duration};
 

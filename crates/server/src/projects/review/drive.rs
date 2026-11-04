@@ -2,7 +2,6 @@
 //! removes done worktrees. Only this loop writes progress; every step is safe to repeat.
 
 use super::{
-    super::issues::head as clip,
     git::remove_review_worktree,
     report::{
         MAX_CONTEXT, Reported, Subject, VERIFIER_SYSTEM, context_script, new_findings,
@@ -13,11 +12,12 @@ use crate::{
     account::user::User,
     app::App,
     nodes::Online,
-    projects::commands::Shell,
     protocol::node::agent::{EntryKind, Request as AgentRequest, SessionInfo, Status},
     store::{Judged, ReviewFindingRow, ReviewRow, ShardRow, ShardState, Verdict},
 };
 use anyhow::Result;
+use beep_projects::Shell;
+use beep_projects::issues::head as clip;
 use chrono::Utc;
 use flashmind::types::AgentLlmConfig;
 use futures::future::join_all;
@@ -240,7 +240,7 @@ pub(crate) async fn advance(app: &Arc<App>, user: &Arc<User>, review: &ReviewRow
             )
             .await?;
         // 3: the checkout itself is gone, and the worktree with it.
-        if matches!(removed.code, Some(0 | 3)) {
+        if matches!(removed.exit_code, Some(0 | 3)) {
             app.store.clear_review_worktree(review.id).await?;
         }
     }
@@ -362,11 +362,11 @@ async fn verify(
 ) -> Option<Judged> {
     let script = context_script(&review.folder, subject, &finding.file, finding.line);
     let context = match node.run(&script, CONTEXT_LIMIT).await {
-        Ok(out) if out.code == Some(0) => out.out,
+        Ok(out) if out.exit_code == Some(0) => out.output,
         Ok(out) => {
             log::info!(
                 "reviews: a finding's code was not read: exit {:?}",
-                out.code
+                out.exit_code
             );
             return None;
         }

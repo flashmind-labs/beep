@@ -175,9 +175,9 @@ mod tests {
     use super::*;
     use crate::{
         memory::watchers::testing::{Harness, Scripted},
-        projects::model::RepoName,
         store::NewImport,
     };
+    use beep_projects::model::RepoName;
 
     const NAME: &str = "acme/widget";
 

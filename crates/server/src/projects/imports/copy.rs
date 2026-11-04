@@ -2,12 +2,7 @@
 //! iroh-blobs, `.git` included, and keeps the two in step from then on.
 
 use super::{
-    ImportError,
-    clone::quote,
-    folder::FolderPath,
-    place::{self, Folders},
     preview::existing_checkout,
-    repo::RepoRef,
     service::{Chosen, choose_machine, forgejo_of, look},
 };
 use crate::{
@@ -20,6 +15,11 @@ use crate::{
         node::files::{Reply, Request},
     },
     store::{ImportRow, NewImport, SyncRow},
+};
+use beep_projects::imports::place;
+use beep_projects::{
+    imports::{ImportError, folder::FolderPath, place::Folders, repo::RepoRef},
+    quote,
 };
 use std::{path::Path, sync::Arc};
 

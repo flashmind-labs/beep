@@ -1,7 +1,7 @@
 //! Rate-limit-friendly Actions API calls: replies are cached by ETag (a 304 is free on GitHub),
 //! and each token's reported rate limit pauses polling while low.
 
-use crate::projects::git_items::{Caller, HostError, send_error, status_error};
+use beep_projects::git_items::{Caller, HostError, send_error, status_error};
 use bytes::Bytes;
 use reqwest::{StatusCode, Url, header, header::HeaderMap};
 use secrecy::ExposeSecret;

@@ -13,7 +13,7 @@ use crate::protocol::{
     node::{EnvSecret, ForgejoLogin, MachineCredentials},
 };
 
-pub use beep_projects::{
+use beep_projects::{
     github_owner_var,
     model::{ForgejoUrl, ForgejoUrlError},
 };

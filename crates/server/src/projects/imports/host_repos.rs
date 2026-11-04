@@ -3,19 +3,14 @@
 
 use super::checks::forgejo_servers;
 use crate::{
-    account::credentials::ForgejoUrl,
     account::user::User,
     app::App,
-    projects::{
-        Shell,
-        fleet::{Fleet, NodeFleet},
-        issues::run_rendered,
-        quote,
-    },
+    projects::fleet::{Fleet, NodeFleet},
     protocol::{GitHostKind, HostRepo, HostRepos},
     store::NodeRow,
 };
 use anyhow::{Result, anyhow};
+use beep_projects::{Shell, issues::run_rendered, model::ForgejoUrl, quote};
 use chrono::{DateTime, FixedOffset};
 use futures::future::join_all;
 use iroh::EndpointId;

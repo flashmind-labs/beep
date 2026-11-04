@@ -2,9 +2,7 @@
 
 use super::{
     super::{
-        commands::{HostCommand, worktree_remove},
         fleet::{self, Fleet, NodeFleet},
-        issues::run_host,
         model::{IDLE_CLOSE, TaskState, WorkerId, WorkerState},
         schedule::Due,
         turn::{REPLAN_LABEL, WORKER_LABEL},
@@ -21,6 +19,10 @@ use crate::{
     store::{ProjectRow, StartRefused, TaskRow, WorkerRow},
 };
 use anyhow::Result;
+use beep_projects::{
+    commands::{HostCommand, worktree_remove},
+    issues::run_host,
+};
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use std::sync::Arc;
@@ -257,7 +259,7 @@ pub(crate) async fn finish_task(
         };
         match fleet::home_shell(fleet, user, project).await {
             Ok(home) => {
-                if let Err(error) = run_host(home.as_ref(), host, project, command).await {
+                if let Err(error) = run_host(home.as_ref(), host, &project.name, command).await {
                     log::warn!("projects: unable to close a done task's issue: {error:#}");
                 }
             }
@@ -301,13 +303,13 @@ pub(super) async fn remove_worktree(
             let out = shell
                 .run(
                     &worktree_remove(&checkout.path, &task.slug),
-                    super::super::issues::HOST_LIMIT,
+                    beep_projects::issues::HOST_LIMIT,
                 )
                 .await?;
-            if out.code != Some(0) {
+            if out.exit_code != Some(0) {
                 log::warn!(
                     "projects: unable to remove a done task's worktree: {}",
-                    out.out
+                    out.output
                 );
             }
         }

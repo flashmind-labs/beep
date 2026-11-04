@@ -1,11 +1,9 @@
 //! `import_project`: clones a repository onto a user's machine and lists it, like the import sheet.
 
-use super::{
-    ImportError,
-    service::{self, Import},
-};
+use super::service::{self, Import};
 use crate::tools::machines::{Machines, find, in_parameter};
 use async_trait::async_trait;
+use beep_projects::imports::ImportError;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};

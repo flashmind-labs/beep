@@ -14,14 +14,13 @@ use super::{
     watch::{Entry, RepoWatch},
 };
 use crate::{
-    account::credentials::host_client,
-    account::user::User,
+    account::{credentials::host_client, user::User},
     app::App,
     projects::fleet::NodeFleet,
-    projects::git_items::HostError,
     protocol::{HostedRuns, ProjectRuns},
     store::ProjectRow,
 };
+use beep_projects::git_items::HostError;
 use futures::future::join_all;
 use reqwest::Client;
 use std::{
@@ -207,7 +206,7 @@ impl RepoWatch {
 
     async fn read_list(
         &self,
-        caller: &crate::projects::git_items::Caller<'_>,
+        caller: &beep_projects::git_items::Caller<'_>,
         target: &Target,
         copy: &mut HostCopy,
     ) {
@@ -226,7 +225,7 @@ impl RepoWatch {
     /// The jobs of the running runs, the newest few.
     async fn read_running(
         &self,
-        caller: &crate::projects::git_items::Caller<'_>,
+        caller: &beep_projects::git_items::Caller<'_>,
         target: &Target,
         copy: &mut HostCopy,
     ) {

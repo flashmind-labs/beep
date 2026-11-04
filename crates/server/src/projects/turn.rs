@@ -1,10 +1,9 @@
 //! A project chat's turn: its prompt, its kind and the context block.
 
 use super::{
-    commands::{HostCommand, OwnedIssue, parse_owned_issues},
     fleet::{self, Fleet, Machine, NodeFleet},
     issues,
-    model::{IssueHost, MachinePath, Visibility, memory_scope},
+    model::memory_scope,
     personas::{self, PersonaFileError, ProjectPersona},
     threads,
 };
@@ -13,6 +12,10 @@ use crate::{
     app::{App, Message},
     protocol::node::files::{FileKind, Reply, Request},
     store::{CheckoutRow, ProjectRow, TaskRow, ThreadChatRow},
+};
+use beep_projects::{
+    commands::{HostCommand, OwnedIssue, parse_owned_issues},
+    model::{IssueHost, MachinePath, Visibility},
 };
 use std::{fmt::Write, sync::Arc, time::Duration};
 use tokio::time::timeout;
@@ -418,14 +421,14 @@ async fn owned_issues(
             .run(&command, ISSUES_LIMIT)
             .await
             .map_err(|error| format!("{error:#}"))?;
-        if out.code != Some(0) {
+        if out.exit_code != Some(0) {
             return Err(format!(
                 "the host command exited with {}",
-                out.code
+                out.exit_code
                     .map_or("no code".to_owned(), |code| code.to_string())
             ));
         }
-        parse_owned_issues(host, &out.out).map_err(|error| format!("{error:#}"))
+        parse_owned_issues(host, &out.output).map_err(|error| format!("{error:#}"))
     };
     let issues: Vec<OwnedIssue> = match timeout(ISSUES_LIMIT, read).await {
         Ok(Ok(issues)) => issues,
@@ -461,13 +464,11 @@ mod tests {
     use super::*;
     use crate::projects::testing::widget_project;
     use crate::{
-        projects::{
-            model::{IssueHost, Roles},
-            testing::FakeFleet,
-        },
+        projects::testing::FakeFleet,
         protocol::node::Capability,
         store::{NewTask, TestDb},
     };
+    use beep_projects::model::{IssueHost, Roles};
 
     #[tokio::test]
     async fn context_lists_tasks_machines_and_issues() {

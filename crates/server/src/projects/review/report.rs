@@ -1,7 +1,8 @@
 //! Reviewer and verifier prompts, and parsing their replies.
 
-use super::{super::commands::quote, git::Changed, shard::Shard};
+use super::{git::Changed, shard::Shard};
 use crate::{protocol::ReviewSeverity, store::ReviewFindingRow};
+use beep_projects::quote;
 use serde::Deserialize;
 use serde_json::Value;
 use std::fmt::Write;

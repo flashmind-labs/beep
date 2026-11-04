@@ -15,12 +15,11 @@ use super::watch::Key;
 use crate::{
     app::App,
     nodes::Online,
-    projects::{
-        issues::{HostAndMachines, host_and_machines},
-        model::{IssueHost, ProjectId},
-    },
+    projects::{model::ProjectId, stored::StoredProject},
     protocol::node::webhook::PollReason,
 };
+use beep_projects::issues::host_and_machines;
+use beep_projects::{issues::HostAndMachines, model::IssueHost};
 use iroh::EndpointId;
 use owner::Candidate;
 use session::{Ended, Session};
@@ -357,19 +356,20 @@ async fn attempt(app: &Weak<App>, key: &Key, slot: &Slot) -> Step {
             return Step::Wait(RETRY);
         }
     };
-    let HostAndMachines { host, machines, .. } = match host_and_machines(&user, &project).await {
-        Ok(Some(found)) => found,
-        Ok(None) => {
-            slot.set(LiveState::polling(
-                "This project has no GitHub or Forgejo host.".to_owned(),
-            ));
-            return Step::Wait(NOT_ADMIN_RETRY);
-        }
-        Err(e) => {
-            log::warn!("webhooks: the project's host is unknown: {e}");
-            return Step::Wait(RETRY);
-        }
-    };
+    let HostAndMachines { host, machines, .. } =
+        match host_and_machines(&StoredProject::new(&user, &project)).await {
+            Ok(Some(found)) => found,
+            Ok(None) => {
+                slot.set(LiveState::polling(
+                    "This project has no GitHub or Forgejo host.".to_owned(),
+                ));
+                return Step::Wait(NOT_ADMIN_RETRY);
+            }
+            Err(e) => {
+                log::warn!("webhooks: the project's host is unknown: {e}");
+                return Step::Wait(RETRY);
+            }
+        };
     let online: Vec<Online> = strong
         .nodes
         .of_user(user.id())

@@ -7,10 +7,10 @@ use super::{
 };
 use crate::{
     api::router::Cx,
-    projects::branches::{add_worktree, branch_name},
-    projects::imports::checkout_for_worktree,
+    projects::{branches::add_worktree, imports::checkout_for_worktree},
     protocol::{AddBranchWorktree, ApiError, BranchPlace, ImportedProject, ProjectBranch},
 };
+use beep_projects::model::branch_name;
 
 /// The most worktrees one import adds.
 const MAX_IMPORT_WORKTREES: usize = 20;
