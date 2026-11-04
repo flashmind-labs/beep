@@ -11,7 +11,7 @@ use crate::{
     projects::unknown_op,
 };
 use beep_proto::{
-    AgentHost, Call, FoundProject, GetMachineLog, ListMachineDetails, ListMachineStats,
+    AgentHost, ApiError, Call, FoundProject, GetMachineLog, ListMachineDetails, ListMachineStats,
     ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineDetails, MachineEnv,
     MachineSession, MachineStats, MachineTraffic, MachineUpdate, RemoveMachine, Terminal,
     TrafficCounter, UpdatableMachine, UpdateMachine, node::logs::MAX_LINES,
@@ -303,9 +303,10 @@ pub async fn mesh_remove(fleet: State<'_, Arc<Fleet>>, id: EndpointId) -> Result
     fleet.remove(id).await
 }
 
-/// Removes one of the account's machines, online or not: from the mesh when
-/// it is a member, else from the server, which drops its connection and
-/// refuses its node from then on.
+/// Removes one of the account's machines, online or not. A member leaves the
+/// mesh; and when the app is linked, the server drops the machine too, so it
+/// gets no more credentials and cannot be run on. A server that cannot be
+/// reached now is asked again at launch.
 #[tauri::command]
 pub async fn remove_machine(
     beep: Service<'_>,
@@ -315,7 +316,19 @@ pub async fn remove_machine(
     if let Ok(machine) = id.parse::<EndpointId>()
         && fleet.machines().iter().any(|m| m.device.id == machine)
     {
-        return fleet.remove(machine).await;
+        fleet.remove(machine).await?;
+        if !beep.linked() {
+            return Ok(());
+        }
+        beep.owe_unlink(&id);
+        return unlink(&beep, &id).await.map_err(|e| {
+            log::warn!("the server still lists a removed machine: {e}");
+            DesktopError::BadRequest(
+                "Removed from the mesh, but the server still lists this machine. \
+                 It will try again at launch."
+                    .into(),
+            )
+        });
     }
     if beep.server().is_none() {
         return Err(DesktopError::BadRequest("that is not a machine".into()));
@@ -325,6 +338,38 @@ pub async fn remove_machine(
             "The server needs an update before machines can be removed here.".into(),
         )),
         done => done,
+    }
+}
+
+/// Asks the server to drop `id`. Done once it has: a machine it does not
+/// list, such as one that only joined by ticket, is as good as dropped.
+async fn unlink(beep: &Beep, id: &str) -> Result<()> {
+    let done = beep
+        .call(RemoveMachine {
+            machine_id: id.to_owned(),
+        })
+        .await;
+    if dropped(&done) {
+        beep.settle_unlink(id);
+        return Ok(());
+    }
+    done
+}
+
+/// Whether the server no longer has the machine after `reply`.
+fn dropped(reply: &Result<()>) -> bool {
+    matches!(reply, Ok(()) | Err(DesktopError::Api(ApiError::NotFound {})))
+}
+
+/// Asks the server again for each removal it did not take earlier.
+pub(crate) async fn retry_unlinks(beep: Arc<Beep>) {
+    if !beep.linked() {
+        return;
+    }
+    for id in beep.owed_unlinks() {
+        if let Err(e) = unlink(&beep, &id).await {
+            log::warn!("the server still lists a removed machine: {e}");
+        }
     }
 }
 
@@ -461,5 +506,13 @@ mod tests {
             outside(vec!["studio".to_owned()], &held.last(), |id| id),
             ["studio"]
         );
+    }
+
+    #[test]
+    fn a_machine_the_server_does_not_list_counts_as_dropped() {
+        assert!(dropped(&Ok(())));
+        assert!(dropped(&Err(DesktopError::Api(ApiError::NotFound {}))));
+        assert!(!dropped(&Err(DesktopError::BadRequest("took too long".into()))));
+        assert!(!dropped(&Err(DesktopError::NoServer)));
     }
 }
