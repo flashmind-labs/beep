@@ -6,11 +6,7 @@ use super::{
     content::{cut, image_picture, push_cut, replayed, thought_line},
     tools::ToolCall,
 };
-use crate::agents::{
-    compaction::{COMPACTED_ENTRY, Usage},
-    image_files,
-    images::Picture,
-};
+use crate::agents::{compaction::COMPACTED_ENTRY, image_files, images::Picture};
 use agent_client_protocol::schema::{
     MaybeUndefined,
     v1::{
@@ -19,8 +15,14 @@ use agent_client_protocol::schema::{
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::node::agent::{EntryKind, PlanEntry, PlanStatus, Status};
-use std::{path::PathBuf, time::Instant};
+use beep_proto::{
+    AgentContext,
+    node::agent::{EntryKind, PlanEntry, PlanStatus, Status},
+};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant, SystemTime},
+};
 
 impl Live {
     pub(super) fn apply_at(&mut self, update: &SessionUpdate, now: Instant) -> bool {
@@ -100,7 +102,7 @@ impl Live {
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
-                self.context = Some(Usage {
+                self.info.context = Some(AgentContext {
                     used: usage.used,
                     size: usage.size,
                 });
@@ -159,7 +161,7 @@ impl Live {
             return;
         }
         self.push(EntryKind::Other, COMPACTED_ENTRY);
-        self.context = None;
+        self.info.context = None;
         self.compacted = true;
     }
 
@@ -235,10 +237,11 @@ impl Live {
     }
 
     /// The image files the turn that just ended named: in the agent's
-    /// messages, its links, the files its finished edits wrote, and the
-    /// ones its finished reads looked at without showing them. Files a
-    /// read showed as pictures are left out, and so is the room those
-    /// pictures took. `None` when there are none.
+    /// messages, its links, the files its finished edits wrote, the ones
+    /// its finished reads looked at without showing them, and those its
+    /// finished commands named, such as a plot one saved. Files a read
+    /// showed as pictures are left out, and so is the room those pictures
+    /// took. `None` when there are none.
     pub(crate) fn turn_files(&mut self) -> Option<TurnFiles> {
         let cwd = PathBuf::from(&self.info.cwd);
         let start = self.turn_start;
@@ -258,6 +261,7 @@ impl Live {
             .collect();
         done.sort_by_key(|tool| tool.entry);
         let mut shown: Vec<PathBuf> = Vec::new();
+        let mut ran: Vec<&str> = Vec::new();
         for tool in done {
             let read = tool.kind == ToolKind::Read;
             if read && !tool.pictures.is_empty() {
@@ -268,6 +272,9 @@ impl Live {
                 );
             } else if read || EDIT_KINDS.contains(&tool.kind) {
                 named.extend(tool.paths.iter().cloned());
+            } else if tool.kind == ToolKind::Execute {
+                ran.extend(image_files::named_in(&tool.title));
+                ran.extend(image_files::named_in(&tool.output));
             }
         }
         let room = image_files::MAX_PER_TURN.saturating_sub(self.turn_images.len());
@@ -283,7 +290,28 @@ impl Live {
                 paths.push(path);
             }
         }
-        (!paths.is_empty()).then_some(TurnFiles { cwd, paths, entry })
+        let mut made: Vec<PathBuf> = Vec::new();
+        for path in ran
+            .into_iter()
+            .filter_map(|name| image_files::resolve(&cwd, name))
+        {
+            if paths.len() + made.len() >= room {
+                break;
+            }
+            if !paths.contains(&path) && !made.contains(&path) && !shown.contains(&path) {
+                made.push(path);
+            }
+        }
+        // Some file systems stamp to the second.
+        let began = self.turn_began.unwrap_or_else(SystemTime::now);
+        let since = began.checked_sub(Duration::from_secs(2)).unwrap_or(began);
+        (!paths.is_empty() || !made.is_empty()).then_some(TurnFiles {
+            cwd,
+            paths,
+            made,
+            since,
+            entry,
+        })
     }
 
     /// Shows `pictures`, read from the files `turn_files` gave, after the

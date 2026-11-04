@@ -1,9 +1,9 @@
-//! Installs `gh` and `teacli` in the node's own `bin` folder: `Pinned::install`
-//! for machines that lack them, `install_release` for a release the server
-//! asks for.
+//! Installs `gh`, `teacli` and `flsh` in the node's own `bin` folder:
+//! `Pinned::install` and `install_newest` for machines that lack them,
+//! `install_release` for a release the server asks for.
 
-use anyhow::{Context, Result, bail, ensure};
-use beep_proto::node::tool_update::Tool;
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use beep_proto::node::tool_update::{Releases, Tool};
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
@@ -103,6 +103,13 @@ const TEACLI: Pinned = Pinned {
             sha256: "e196e7ccb04b4bca1ad9d1b227bef081e5e45c05a2b36881ff59cdcd87a906de",
             member: None,
         },
+        Asset {
+            os: "windows",
+            arch: "x86_64",
+            url: "https://github.com/rayfish/teacli/releases/download/v1.0.3/teacli-windows-amd64.exe",
+            sha256: "ab4e92027941d6df94aba163889d78be2defda65eba07767d5ab57ff79ccdc96",
+            member: None,
+        },
     ],
 };
 
@@ -136,6 +143,17 @@ impl Pinned {
     }
 }
 
+/// Installs the newest release of `tool`, as its channel's `latest.txt`
+/// names it.
+pub(super) async fn install_newest(tool: Tool, bin: &Path) -> Result<PathBuf> {
+    let Releases::Channel(base) = tool.releases() else {
+        bail!("{tool} has no release channel");
+    };
+    let version = curl(&format!("{base}/latest.txt"), None).await?;
+    let version = String::from_utf8(version).context("reading the newest version")?;
+    install_release(tool, version.trim(), bin).await
+}
+
 /// Installs release `version` of `tool` as `bin/<name>`, checked against
 /// the checksums the release publishes.
 pub(super) async fn install_release(tool: Tool, version: &str, bin: &Path) -> Result<PathBuf> {
@@ -153,21 +171,23 @@ pub(super) async fn install_release(tool: Tool, version: &str, bin: &Path) -> Re
 
 /// Where release `version` of `tool` for `os` and `arch` is.
 fn release(tool: Tool, version: &str, os: &str, arch: &str) -> Result<Download> {
-    let base = format!(
-        "https://github.com/{}/releases/download/v{version}",
-        tool.repo()
-    );
-    let arch = match arch {
-        "x86_64" => "amd64",
-        "aarch64" => "arm64",
-        other => bail!("no {tool} release for {other}"),
+    let base = match tool.releases() {
+        Releases::GitHub(repo) => format!("https://github.com/{repo}/releases/download/v{version}"),
+        Releases::Channel(base) => format!("{base}/{version}"),
+    };
+    let none = || anyhow!("no {tool} release for {os} {arch}");
+    let go_arch = match arch {
+        "x86_64" => Some("amd64"),
+        "aarch64" => Some("arm64"),
+        _ => None,
     };
     Ok(match tool {
         Tool::Gh => {
+            let arch = go_arch.ok_or_else(none)?;
             let (os, ext) = match os {
                 "linux" => ("linux", "tar.gz"),
                 "macos" => ("macOS", "zip"),
-                other => bail!("no gh release for {other}"),
+                _ => return Err(none()),
             };
             let stem = format!("gh_{version}_{os}_{arch}");
             Download {
@@ -178,19 +198,42 @@ fn release(tool: Tool, version: &str, os: &str, arch: &str) -> Result<Download> 
             }
         }
         Tool::Teacli => {
-            let os = match os {
-                "linux" => "linux",
-                "macos" => "darwin",
-                other => bail!("no teacli release for {other}"),
+            let arch = go_arch.ok_or_else(none)?;
+            let (os, ext) = match os {
+                "linux" => ("linux", ""),
+                "macos" => ("darwin", ""),
+                "windows" => ("windows", ".exe"),
+                _ => return Err(none()),
             };
             Download {
                 name: "teacli",
-                url: format!("{base}/teacli-{os}-{arch}"),
+                url: format!("{base}/teacli-{os}-{arch}{ext}"),
                 sha256: Sha256Of::Listed(format!("{base}/checksums.txt")),
                 member: None,
             }
         }
+        Tool::Flsh => {
+            let target = flsh_target(os, arch).ok_or_else(none)?;
+            let url = format!("{base}/flsh-{target}");
+            Download {
+                name: "flsh",
+                sha256: Sha256Of::Alone(format!("{url}.sha256")),
+                url,
+                member: None,
+            }
+        }
     })
+}
+
+/// The target flsh is built for on `os` and `arch`; there is no Windows
+/// build.
+pub(super) fn flsh_target(os: &str, arch: &str) -> Option<String> {
+    let os = match os {
+        "linux" => "unknown-linux-gnu",
+        "macos" => "apple-darwin",
+        _ => return None,
+    };
+    matches!(arch, "x86_64" | "aarch64").then(|| format!("{arch}-{os}"))
 }
 
 /// One release file of a tool, to install.
@@ -208,6 +251,8 @@ enum Sha256Of {
     Pinned(&'static str),
     /// The release's checksums file at this URL, as `sha256sum` prints it.
     Listed(String),
+    /// A file at this URL holding only the download's SHA-256.
+    Alone(String),
 }
 
 impl Download {
@@ -232,7 +277,7 @@ impl Download {
             Sha256Of::Pinned(sha256) => (*sha256).to_owned(),
             Sha256Of::Listed(url) => {
                 let sums = work.join("checksums.txt");
-                fetch(url, &sums).await?;
+                curl(url, Some(&sums)).await?;
                 let text = tokio::fs::read_to_string(&sums)
                     .await
                     .context("reading the release's checksums")?;
@@ -240,9 +285,14 @@ impl Download {
                     .with_context(|| format!("{file_name} is not in the release's checksums"))?
                     .to_owned()
             }
+            Sha256Of::Alone(url) => {
+                let sum = String::from_utf8(curl(url, None).await?)
+                    .context("reading the release's checksum")?;
+                sum.trim().to_owned()
+            }
         };
         let download = work.join(file_name);
-        fetch(&self.url, &download).await?;
+        curl(&self.url, Some(&download)).await?;
         let file = download.clone();
         tokio::task::spawn_blocking(move || verify(&file, &sha256)).await??;
         let program = match &self.member {
@@ -255,7 +305,7 @@ impl Download {
         let executable = program.clone();
         tokio::task::spawn_blocking(move || crate::files::fsat::set_mode(&executable, 0o755))
             .await??;
-        let target = bin.join(self.name);
+        let target = bin.join(format!("{}{}", self.name, env::consts::EXE_SUFFIX));
         tokio::fs::rename(&program, &target)
             .await
             .with_context(|| format!("moving {} into place", self.name))?;
@@ -294,14 +344,18 @@ pub(super) fn verify(path: &Path, expected: &str) -> Result<()> {
     Ok(())
 }
 
-/// Downloads `url` to `to` with curl, which every supported system has.
-async fn fetch(url: &str, to: &Path) -> Result<()> {
-    let run = Command::new("curl")
-        .args(["-fsSL", "--proto", "=https", "--retry", "2", "-o"])
-        .arg(to)
+/// Downloads `url` with curl, which every supported system has: to `to`,
+/// or else into what it returns.
+async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
+    let mut command = Command::new("curl");
+    command.args(["-fsSL", "--proto", "=https", "--retry", "2"]);
+    if let Some(to) = to {
+        command.arg("-o").arg(to);
+    }
+    let run = command
         .arg(url)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .output();
@@ -315,7 +369,7 @@ async fn fetch(url: &str, to: &Path) -> Result<()> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    Ok(())
+    Ok(out.stdout)
 }
 
 /// Unpacks `member` of the archive at `archive` into `into`.
@@ -411,5 +465,17 @@ mod tests {
             "{}",
             teacli.url
         );
+        let teacli = release(Tool::Teacli, "1.0.8", "windows", "x86_64").unwrap();
+        assert!(
+            teacli.url.ends_with("/v1.0.8/teacli-windows-amd64.exe"),
+            "{}",
+            teacli.url
+        );
+        let flsh = release(Tool::Flsh, "0.2.0", "macos", "aarch64").unwrap();
+        assert_eq!(
+            flsh.url,
+            "https://releases.flashmind.com/flashmind/cli/0.2.0/flsh-aarch64-apple-darwin"
+        );
+        assert!(release(Tool::Flsh, "0.2.0", "windows", "x86_64").is_err());
     }
 }

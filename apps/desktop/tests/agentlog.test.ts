@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, imageLines, linkImagePaths, parseTool, subagent, tailLines } from "../src/agentlog.ts";
+import { answeredQuestions, imageLines, linkImagePaths, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";

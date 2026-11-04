@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { barPlace, sessionIn, targetCheckout, targetFolders, targetPlan } from "../src/projectbar.ts";
+import { barPlace, sessionIn, targetCheckout, targetFolders, targetPlan } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },

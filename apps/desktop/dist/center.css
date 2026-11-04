@@ -866,7 +866,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
    height once the rows are drawn; this is the fallback. */
 .pj-scroll { max-height: 250px; overflow-y: auto; overscroll-behavior: contain }
 
-/* A project window (projectwindow.ts): no sidebar, the traffic lights over the header, and the
+/* A project window (project/projectwindow.ts): no sidebar, the traffic lights over the header, and the
    project's sections as tabs. The board's own back row gives way to the tabs. */
 .pw .cwin { grid-template-columns: minmax(0, 1fr) }
 .pw #side, .pw #side-grip { display: none }

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { MacControl } from "../src/home.ts";
-import { byRecent, remotePath, runningKey, runningLine, thisMacRow } from "../src/home.ts";
+import type { MacControl } from "../src/center/home-state.ts";
+import { byRecent, remotePath, runningKey, runningLine, thisMacRow } from "../src/center/home-state.ts";
 
 test("Running now puts the session that moved last first", () => {
   const agent = (id: string, started_at: number, last_activity: number) => ({ kind: "agent" as const, machine_id: "m", id, started_at, last_activity });

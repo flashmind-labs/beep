@@ -8,8 +8,8 @@ use crate::agents::{
 };
 use agent_client_protocol::schema::v1::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::image_key;
 use beep_proto::node::agent::EntryKind;
+use beep_proto::{AgentContext, image_key};
 use futures::FutureExt;
 use serde_json::Value;
 use serde_json::json;
@@ -416,6 +416,7 @@ async fn a_running_cost_is_counted_per_turn() {
     });
     let last = usage.next_turn().await;
     assert_eq!((last.tokens, last.cost_usd), (5, None));
+    assert_eq!((live.info.tokens, live.info.cost_usd), (905, Some(1.5)));
 }
 
 #[test]
@@ -425,8 +426,8 @@ fn usage_commands_and_compactions_are_kept() {
         json!({"sessionUpdate": "usage_update", "used": 900, "size": 1000})
     )));
     assert_eq!(
-        live.context,
-        Some(Usage {
+        live.info.context,
+        Some(AgentContext {
             used: 900,
             size: 1000
         })
@@ -448,7 +449,7 @@ fn usage_commands_and_compactions_are_kept() {
     assert_eq!(entries.len(), 1, "shown once");
     assert_eq!(entries[0].kind, EntryKind::Other);
     assert_eq!(entries[0].text, COMPACTED_ENTRY);
-    assert_eq!(live.context, None, "the usage before no longer holds");
+    assert_eq!(live.info.context, None, "the usage before no longer holds");
     assert!(live.take_compacted());
     assert!(!live.take_compacted());
 }

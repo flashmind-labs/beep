@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/providers-state.ts";
+import { draftChanged, draftOf, envProblem, hasUpdate, isNewer, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/settings/providers-state.ts";
 
 const settings = { enabled: true, program: "", home: "", args: [], env: [] };
 const harness = (agent: string, more: Partial<HarnessView> = {}): HarnessView => ({

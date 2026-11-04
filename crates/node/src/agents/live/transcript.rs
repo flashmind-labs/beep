@@ -22,7 +22,10 @@ use beep_proto::{
     },
 };
 use serde_json::Value;
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Instant, SystemTime},
+};
 
 impl Live {
     pub(crate) fn new(info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
@@ -40,6 +43,10 @@ impl Live {
         let cost_usd = self.unbilled.take();
         if tokens.total == 0 && tokens.models.is_empty() && cost_usd.is_none() {
             return;
+        }
+        self.info.tokens = self.info.tokens.saturating_add(tokens.total);
+        if let Some(cost) = cost_usd {
+            *self.info.cost_usd.get_or_insert(0.0) += cost;
         }
         self.usage.record(TurnUsage {
             session: self.info.id.clone(),
@@ -153,6 +160,7 @@ impl Live {
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
         self.turn_images.clear();
+        self.turn_began = Some(SystemTime::now());
         // A tool whose entry left the transcript has nothing left to show.
         let dropped = self.dropped;
         self.tools.retain(|_, tool| tool.entry >= dropped);

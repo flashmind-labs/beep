@@ -47,6 +47,7 @@ log = "0.4"
 notify = "8"
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
 portable-pty = "0.9"
+rand = "0.9"
 # `beep-node update` downloads releases with ring and webpki roots, as iroh does.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
 rmp-serde = "1"

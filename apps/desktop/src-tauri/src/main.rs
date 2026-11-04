@@ -200,6 +200,7 @@ fn main() {
             agents::agent_preview,
             agents::agent_models,
             agents::agent_view,
+            agents::agent_usage,
             agents::agent_image,
             agents::agent_file,
             agents::agent_file_open,

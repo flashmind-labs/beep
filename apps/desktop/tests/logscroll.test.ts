@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { keptScrollTop, logScroll } from "../src/logscroll.ts";
+import { keptScrollTop, logScroll } from "../src/agents/logscroll.ts";
 
 test("opening or folding a row never jumps to the bottom", () => {
   // The regression: expanding Worked at the bottom of the log scrolled

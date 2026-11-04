@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { newChatProject } from "../src/project.ts";
+import { newChatProject } from "../src/project/agent.ts";
 
 test("new chat goes to the project on screen, else a general chat", () => {
   const agents = [{ name: "acme/widget", chat_id: "c1" }];

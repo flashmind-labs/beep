@@ -1,7 +1,7 @@
 import { bar } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enqueue, popQueued } from "../src/bar/chat.ts";
+import { enqueue, popQueued } from "../src/chat/chat.ts";
 import { queued, S } from "../src/bar/core.ts";
 
 const SESSION = "00000000-0000-4000-8000-000000000002";

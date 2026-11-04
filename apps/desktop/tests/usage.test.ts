@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { harnessLine, harnessName, projectExtra, planUsed, windowUsed } from "../src/usage.ts";
+import { harnessLine, harnessName, projectExtra, planUsed, windowUsed } from "../src/center/usage.ts";
 
 test("a plan has used what its tightest window has used", () => {
   const plan = { windows: [{ used_percent: 38 }, { used_percent: 76.4 }] };

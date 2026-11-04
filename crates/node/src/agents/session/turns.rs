@@ -150,7 +150,7 @@ impl Actor {
         }
         let live = self.live.borrow();
         self.compactor.turn_ended(TurnEnd {
-            usage: live.context,
+            usage: live.info.context,
             commands: &live.commands,
         });
         drop(live);
@@ -160,8 +160,18 @@ impl Actor {
     /// Reads the image files a turn named off the async workers; they show
     /// once read.
     fn read_files(&mut self, files: TurnFiles) {
-        let TurnFiles { cwd, paths, entry } = files;
-        let read = spawn_blocking(move || image_files::read(&cwd, &paths));
+        let TurnFiles {
+            cwd,
+            paths,
+            made,
+            since,
+            entry,
+        } = files;
+        let read = spawn_blocking(move || {
+            let mut pictures = image_files::read(&cwd, &paths);
+            pictures.extend(image_files::read_since(&cwd, &made, since));
+            pictures
+        });
         self.replies.push(
             async move {
                 let pictures = read.await.unwrap_or_else(|e| {
@@ -180,7 +190,7 @@ impl Actor {
         self.send(cx, acp::prompt(session, &prompt, None), Reply::Compacted);
         self.live.send_modify(|live| {
             // What it said before no longer holds once compacted.
-            live.context = None;
+            live.info.context = None;
             live.take_compacted();
             let state = &mut live.info.state;
             state.status = Status::Working;

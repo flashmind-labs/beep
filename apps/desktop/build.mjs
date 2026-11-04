@@ -15,7 +15,13 @@ for (const f of readdirSync(dist)) if (/-[A-Z0-9]{8}\.js$/.test(f)) rmSync(new U
 
 const options = {
   absWorkingDir: import.meta.dirname,
-  entryPoints: ["src/app.ts", "src/center.ts", "src/orb.ts", "src/research.ts"],
+  // One bundle per window, named for the HTML page that loads it.
+  entryPoints: {
+    app: "src/bar/app.ts",
+    center: "src/center/center.ts",
+    orb: "src/orb/orb.ts",
+    research: "src/research/research.ts",
+  },
   outdir: "dist",
   bundle: true,
   format: "esm",
