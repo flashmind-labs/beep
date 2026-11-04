@@ -118,6 +118,8 @@ pub struct App {
     pub credential_key: CredentialKey,
     /// Each user's open PRs and issues on their git hosts, cached a few minutes.
     pub git_items: crate::git_items::GitBoard,
+    /// Each user's repositories on their git hosts, cached a few minutes.
+    pub host_repos: crate::imports::HostRepoCache,
     /// Each project's PRs, issues and workflow runs, refreshed while someone looks.
     pub repo_watch: crate::repo_watch::RepoWatch,
 }
@@ -389,6 +391,7 @@ impl App {
             watchers: crate::watchers::Hub::default(),
             credential_key: credential_key.unwrap_or_else(CredentialKey::random),
             git_items: crate::git_items::GitBoard::new(),
+            host_repos: crate::imports::HostRepoCache::default(),
             repo_watch: crate::repo_watch::RepoWatch::default(),
         })
     }

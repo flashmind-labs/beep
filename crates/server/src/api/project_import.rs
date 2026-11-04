@@ -4,9 +4,9 @@ use super::{Reply, branch_work::add_import_worktrees};
 use crate::{
     imports::{self, Import, ImportError},
     protocol::{
-        ApiError, FindImportFork, ImportFork, ImportPreview, ImportProject, ImportedProject,
-        ListImportedProjects, ListMachineFolder, ListProjectMachines, MachineFolder, PreviewImport,
-        ProjectMachine, RemoveProject,
+        ApiError, FindImportFork, HostRepos, ImportFork, ImportPreview, ImportProject,
+        ImportedProject, ListHostRepos, ListImportedProjects, ListMachineFolder,
+        ListProjectMachines, MachineFolder, PreviewImport, ProjectMachine, RemoveProject,
     },
     router::Cx,
 };
@@ -23,6 +23,7 @@ pub(super) async fn import_project(cx: Cx, request: ImportProject) -> Reply<Impo
         repo: &request.repo,
         machine_id: request.machine_id.as_deref(),
         folder: request.folder.as_deref(),
+        parent: request.parent.as_deref(),
     };
     let imported = imports::import(&cx.app, &cx.user, job)
         .await
@@ -84,4 +85,9 @@ pub(super) async fn list_project_machines(
     imports::project_machines(&cx.app, &cx.user, &request.project)
         .await?
         .ok_or(ApiError::NotFound {})
+}
+
+/// The caller's repositories to clone, per git host.
+pub(super) async fn list_host_repos(cx: Cx, _: ListHostRepos) -> Reply<Vec<HostRepos>> {
+    Ok(imports::host_repos(&cx.app, &cx.user).await?)
 }

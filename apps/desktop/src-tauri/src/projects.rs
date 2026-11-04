@@ -11,7 +11,7 @@ use crate::{
 };
 use beep_proto::{
     ApiError, BranchPlace, ChatApproval, FoundAgent, FoundPlace, FoundProject, GetProjectAgent,
-    ImportProject, ImportedProject, ListFoundFolders, ListMachineFolder, ListPendingApprovals,
+    GitHostKind, HostRepos, ImportProject, ImportedProject, ListFoundFolders, ListHostRepos, ListMachineFolder, ListPendingApprovals,
     ListProjectMachines, ListProjectSessions, ListProjectSyncthing, ListProjectTasks,
     ListProjectWorkers, ListProjects, ListProjectsOnTop, MachineFolder, PendingApproval,
     PinProjectToTop, ProjectAgent, ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker,
@@ -105,6 +105,56 @@ impl From<FoundProject> for FoundRow {
 pub async fn found_projects(beep: Service<'_>) -> Result<Vec<FoundRow>> {
     match beep.call(ListFoundFolders {}).await {
         Ok(found) => Ok(found.into_iter().map(FoundRow::from).collect()),
+        Err(e) if unknown_op(&e) => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// One git host's repositories to clone, as the Add a project sheet lists
+/// them.
+#[derive(Debug, Serialize)]
+pub struct HostReposRow {
+    host: String,
+    github: bool,
+    repos: Vec<HostRepoRow>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HostRepoRow {
+    /// `org/repo`.
+    name: String,
+    /// What `import_project` takes as the repository.
+    url: String,
+    /// In milliseconds since the Unix epoch.
+    updated_at: u64,
+}
+
+impl From<HostRepos> for HostReposRow {
+    fn from(h: HostRepos) -> Self {
+        Self {
+            github: matches!(h.kind, GitHostKind::GitHub {}),
+            host: h.host,
+            repos: h
+                .repos
+                .into_iter()
+                .map(|r| HostRepoRow {
+                    name: r.name,
+                    url: r.url,
+                    updated_at: epoch_ms(r.updated_at),
+                })
+                .collect(),
+            error: h.error,
+        }
+    }
+}
+
+/// The user's repositories on their git hosts, to clone; none from a
+/// server too old to list them.
+#[tauri::command]
+pub async fn host_repos(beep: Service<'_>) -> Result<Vec<HostReposRow>> {
+    match beep.call(ListHostRepos {}).await {
+        Ok(hosts) => Ok(hosts.into_iter().map(HostReposRow::from).collect()),
         Err(e) if unknown_op(&e) => Ok(Vec::new()),
         Err(e) => Err(e),
     }
@@ -211,9 +261,11 @@ pub async fn import_project(
     machine_id: Option<String>,
     folder: Option<String>,
     worktrees: Option<Vec<WorktreeArg>>,
+    parent: Option<String>,
 ) -> Result<ProjectRow> {
     let machine_id = machine_id.filter(|id| !id.is_empty());
     let folder = folder.filter(|folder| !folder.trim().is_empty());
+    let parent = parent.filter(|parent| !parent.trim().is_empty());
     let worktrees = worktrees
         .unwrap_or_default()
         .into_iter()
@@ -228,6 +280,7 @@ pub async fn import_project(
             machine_id,
             folder,
             worktrees,
+            parent,
         },
         IMPORT_TIMEOUT,
     )

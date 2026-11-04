@@ -307,6 +307,7 @@ pub fn router() -> Router {
         .call(project_import::find_import_fork)
         .call(branch_work::add_branch_worktree)
         .call(agent_found::list_found_folders)
+        .call(project_import::list_host_repos)
         .call(agent_found::list_project_sessions)
         .call(agent_control::resume_agent_session)
         .call(git_items::list_git_items)

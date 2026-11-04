@@ -759,10 +759,13 @@ requests! {
     /// `worktrees` are branches to give a worktree once it is in, as
     /// `AddBranchWorktree` does; one that fails is logged and the import
     /// still stands. Apps from before it send none.
+    /// `parent` is the folder a clone goes under, as `<parent>/<org>/<repo>`,
+    /// absolute or under the home folder; `folder` wins when both are
+    /// given. Apps from before it send none.
     /// `BadRequest` saying why: the repo is malformed or on an unknown host,
     /// the folder is not one Beep takes, it is not found or the token has
     /// no access, the machine is offline, or the clone failed.
-    166 ImportProject { repo: String, machine_id: Option<String>, #[serde(default)] folder: Option<String>, #[serde(default)] worktrees: Vec<BranchPlace> } => Call<ImportedProject>
+    166 ImportProject { repo: String, machine_id: Option<String>, #[serde(default)] folder: Option<String>, #[serde(default)] worktrees: Vec<BranchPlace>, #[serde(default)] parent: Option<String> } => Call<ImportedProject>
     /// The projects the caller imported, by name, then machine; those on
     /// machines no longer linked are left out. `cloned` is always false.
     167 ListImportedProjects {} => Call<Vec<ImportedProject>>
@@ -1383,6 +1386,14 @@ requests! {
     /// `NotFound` when the caller has no such project; `BadRequest` saying
     /// why when the project has no host or the host cannot be read.
     392 GetThreadDetail { project_id: Uuid, number: u64 } => Call<ThreadDetail>
+    /// The caller's repositories to clone, for the Add a project sheet: one
+    /// list per git host, GitHub and each Forgejo server in their
+    /// credentials, newest update first, at most 100 each. Archived ones
+    /// and those the caller imported are left out. Read with `gh` and
+    /// `teacli` on an online machine that has them, kept for a few
+    /// minutes. A host that cannot be read is listed with why; GitHub is
+    /// left out when no machine has `gh`.
+    393 ListHostRepos {} => Call<Vec<HostRepos>>
     /// The tools on the caller's online machines that have a newer
     /// release `UpdateMachineTool` can install (`gh`, `teacli`), checked
     /// against the newest release every few hours.
@@ -2861,7 +2872,33 @@ pub struct FoundProject {
     pub places: Vec<FoundPlace>,
     /// Sessions per agent, on all of its machines, most first.
     pub agents: Vec<FoundAgent>,
+    /// When a session there last changed or its checked-out commit was
+    /// made, whichever is newer.
     pub last_activity: SystemTime,
+}
+
+/// One git host's repositories, as `ListHostRepos` lists them.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostRepos {
+    /// `github.com`, or a Forgejo server's host, such as `git.example.com`.
+    pub host: String,
+    pub kind: GitHostKind,
+    /// Newest update first.
+    pub repos: Vec<HostRepo>,
+    /// Why `repos` is empty, for the user; `None` when the host answered.
+    pub error: Option<String>,
+}
+
+/// A repository on a git host, as `ListHostRepos` lists it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostRepo {
+    /// `org/repo`.
+    pub name: String,
+    /// Its web page, what `ImportProject::repo` takes.
+    pub url: String,
+    pub updated_at: SystemTime,
 }
 
 /// One machine's checkout of a `FoundProject`.
