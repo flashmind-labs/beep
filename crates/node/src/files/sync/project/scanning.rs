@@ -75,6 +75,12 @@ impl Task {
             .watcher
             .set_dirs(self.shared.key, walked.dirs.clone())
             .await;
+        // A file made in a new folder after the walk read it and before its
+        // watch was set shows in nothing but another walk.
+        if walked.dirs.iter().any(|dir| !self.dirs.contains(dir)) {
+            self.shared.touched.notify_one();
+        }
+        self.dirs = walked.dirs.iter().cloned().collect();
         let prior: Vec<Option<Seen>> = {
             let state = self.shared.lock();
             walked
