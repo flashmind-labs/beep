@@ -453,6 +453,15 @@ impl Offers {
         }
     }
 
+    /// Only `extra`, no agents or provisioning: a host that serves its own
+    /// protocols, as tests do.
+    pub fn with_protocols(extra: Vec<Arc<dyn Protocol>>) -> Self {
+        Self {
+            extra,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn names(&self) -> Vec<String> {
         [
             shell::PROTOCOL.to_owned(),
