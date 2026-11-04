@@ -41,7 +41,7 @@ pub struct Device {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum OpBody {
+pub(crate) enum OpBody {
     Genesis(Device),
     Add(Device),
     Remove { id: EndpointId, at_ms: u64 },
@@ -62,7 +62,7 @@ impl DeviceOp {
         Ok(msg)
     }
 
-    fn sign(key: &SecretKey, mesh: EndpointId, body: OpBody) -> Result<Self, MeshError> {
+    pub(crate) fn sign(key: &SecretKey, mesh: EndpointId, body: OpBody) -> Result<Self, MeshError> {
         let sig = key.sign(&Self::message(mesh, &body)?);
         Ok(Self {
             author: key.public(),
@@ -113,6 +113,15 @@ pub enum MeshError {
     Clock,
     #[error("record is too large")]
     TooLarge,
+    /// A desktop declined a join. The text is meant for the person joining.
+    #[error("refused: {0}")]
+    Refused(String),
+    #[error("this directory already belongs to a mesh")]
+    AlreadyMember,
+    #[error("network: {0}")]
+    Net(String),
+    #[error("the mesh is closed")]
+    Closed,
 }
 
 /// How far a device's replicated writes are accepted.
@@ -230,6 +239,11 @@ impl Devices {
 
     pub fn is_member(&self, id: EndpointId) -> bool {
         self.added.contains_key(&id) && !self.removed.contains_key(&id)
+    }
+
+    /// A key that was removed and can never rejoin.
+    pub fn is_removed(&self, id: EndpointId) -> bool {
+        self.removed.contains_key(&id)
     }
 
     pub fn is_desktop(&self, id: EndpointId) -> bool {

@@ -130,7 +130,7 @@ impl Entry {
         Ok(msg)
     }
 
-    fn sign(
+    pub(crate) fn sign(
         secret: &SecretKey,
         mesh: EndpointId,
         key: Key,
@@ -211,14 +211,15 @@ impl fmt::Debug for State {
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     let since = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis());
     u64::try_from(since).unwrap_or(u64::MAX)
 }
 
-fn private_options() -> OpenOptions {
+pub(crate) fn private_options() -> OpenOptions {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut options = OpenOptions::new();
     #[cfg(unix)]
     {
@@ -228,7 +229,7 @@ fn private_options() -> OpenOptions {
     options
 }
 
-fn private_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -276,7 +277,7 @@ fn decode(bytes: &[u8]) -> (Vec<Record>, usize) {
     (out, at)
 }
 
-fn sync_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
     #[cfg(not(unix))]
