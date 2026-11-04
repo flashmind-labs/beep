@@ -7,7 +7,7 @@ type Esc = (s: unknown) => string;
 type Ago = (ms: number) => string;
 
 /// A saved token or key (TokenView).
-export interface AgentToken {
+interface AgentToken {
   last4: string;
   /// Milliseconds since the Unix epoch.
   created_at: number;
@@ -15,7 +15,7 @@ export interface AgentToken {
 }
 
 /// One machine with Claude Code or Codex (agent_accounts' MachineView).
-export interface AgentMachine {
+interface AgentMachine {
   id: string;
   name: string;
   online: boolean;
@@ -58,7 +58,6 @@ export type CodexFlow =
   | (CodexLogin & { copied?: boolean; starting?: undefined; error?: undefined })
   | { error: string; starting?: undefined; task?: undefined; code?: undefined };
 
-/// The section's state.
 export interface AgentAccountsState {
   data: AgentAccounts | null | false | undefined;
   edit?: string | null;
@@ -77,7 +76,7 @@ const none = (text: string) => `<div style="font-size:12px;color:var(--muted);pa
 
 /// "2 sessions now", "idle", or "offline · gets it when back": how a
 /// machine with Claude Code stands with the token.
-export function usedOn(machine: AgentMachine) {
+function usedOn(machine: AgentMachine) {
   if (!machine.online) return "offline · gets it when back";
   const n = machine.claude_sessions || 0;
   if (!n) return "idle";
@@ -86,20 +85,20 @@ export function usedOn(machine: AgentMachine) {
 
 /// How a machine's own Claude Code sign-in stands: "signed in as you@example.com",
 /// "not signed in", or "not checked" when it never said.
-export function ownLogin(login: CliLogin | null | undefined) {
+function ownLogin(login: CliLogin | null | undefined) {
   if (!login) return "not checked";
   if (!login.signed_in) return "not signed in";
   return login.account ? `signed in as ${login.account}` : "signed in";
 }
 
 /// "14:32 left" until `expiresAt` (ms), or "expired".
-export function timeLeft(expiresAt: number, now: number) {
+function timeLeft(expiresAt: number, now: number) {
   const s = Math.floor((expiresAt - now) / 1000);
   if (!(s > 0)) return "expired";
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} left`;
 }
 
-export type TokenDraft = { error: string; agent?: undefined; secret?: undefined } | { agent: "claude" | "codex"; secret: string; error?: undefined };
+type TokenDraft = { error: string; agent?: undefined; secret?: undefined } | { agent: "claude" | "codex"; secret: string; error?: undefined };
 
 /// What Save sends for the token being typed, or an error to show.
 export function tokenDraft(agent: string | null | undefined, secret: string | undefined): TokenDraft {
@@ -109,11 +108,6 @@ export function tokenDraft(agent: string | null | undefined, secret: string | un
   if (/\s/.test(secret)) return { error: "That does not look like a token: it has spaces in it." };
   if (agent === "claude" && secret.startsWith("sk-ant-api")) return { error: "That is an Anthropic API key. Paste the token claude setup-token prints." };
   return { agent, secret };
-}
-
-/// The machines with `tool` ("claude" or "codex"), by name.
-export function machinesWith(machines: AgentMachine[] | null | undefined, tool: "claude" | "codex") {
-  return (machines ?? []).filter(m => m[tool]);
 }
 
 /// The paste form for `agent`, when it is the one being edited.
@@ -132,7 +126,7 @@ function form(state: AgentAccountsState, esc: Esc, agent: "claude" | "codex") {
 
 function claudeHtml(state: AgentAccountsState, data: AgentAccounts, esc: Esc, ago: Ago) {
   const token = data.claude;
-  const on = machinesWith(data.machines, "claude");
+  const on = (data.machines ?? []).filter(m => m.claude);
   const head = (sub: string) => `<div style="display:flex;align-items:center;gap:10px">${harnessTile("claude")}<span style="display:grid;gap:2px;min-width:0"><b style="font-size:13.5px">Claude Code</b>${sub ? `<span style="font-size:11.5px;color:var(--muted)">${sub}</span>` : ""}</span>`;
   const err = state.claudeError ? `<div class="derr" style="margin-top:6px">${esc(state.claudeError)}</div>` : "";
   if (state.claudeFlow) {
@@ -175,7 +169,7 @@ function codexRow(state: AgentAccountsState, esc: Esc, m: AgentMachine, now: num
 
 function codexHtml(state: AgentAccountsState, data: AgentAccounts, esc: Esc, ago: Ago, now: number) {
   const key = data.codex_key;
-  const on = machinesWith(data.machines, "codex");
+  const on = (data.machines ?? []).filter(m => m.codex);
   const sub = key && !key.unreadable
     ? `API key <code style="font-size:11px">…${esc(key.last4)}</code> on every machine · added ${esc(ago(key.created_at))}`
     : key ? "Beep can no longer read the saved API key" : "signs in on each machine";

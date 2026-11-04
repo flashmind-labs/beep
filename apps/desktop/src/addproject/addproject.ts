@@ -1,3 +1,5 @@
+// addproject/: the Add a project and Import a project sheets. Entry:
+// openAddProject here, openImportProject in importproject.ts.
 // The "Add a project" sheet: the git checkouts your coding agents worked in
 // (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds),
 // each with Import, then the user's repositories on GitHub and Forgejo that no
@@ -131,20 +133,12 @@ function rowEls() {
 
 function onKey(e: KeyboardEvent) {
   const stop = () => { e.preventDefault(); e.stopPropagation(); };
-  if (e.key === "Escape") {
-    stop();
-    if (!busy()) closeAddProject();
-    return;
-  }
+  if (e.key === "Escape") { stop(); if (!busy()) closeAddProject(); return; }
   if (e.isComposing || !search) return;
   if (e.metaKey && e.key === "Enter") { stop(); importPicked(); return; }
   const at = document.activeElement;
   const row = at instanceof HTMLElement && at.classList.contains("ap-row") ? at : null;
-  if (e.key === " " && row) {
-    stop();
-    toggle(row.dataset.name || "");
-    return;
-  }
+  if (e.key === " " && row) { stop(); toggle(row.dataset.name || ""); return; }
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     const rows = rowEls();
     if (!rows.length || (!row && at !== search)) return;
@@ -227,18 +221,11 @@ function build() {
   bar = el("div", "ap-bar");
   listBox = el("div", "ap-box");
   remoteBox = el("div", "ap-remote");
-  const head = el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc"));
   const ways = el("div", "ap-ways",
     way("Choose a folder…", "Anywhere on this Mac, or browse another machine", () => { closeAddProject(); opts.onChoose?.(); }),
     way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }));
-  sheet!.replaceChildren(
-    head,
-    el("div", "am-label", "Found on your machines"),
-    search,
-    bar,
-    listBox,
-    remoteBox,
-    ways);
+  sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),
+    el("div", "am-label", "Found on your machines"), search, bar, listBox, remoteBox, ways);
 }
 
 function draw() {
@@ -329,12 +316,8 @@ export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (ro
   });
   const agents = el("span", "m", ...row.agents.map(a => el("span", "ap-ag", `${agentLabel(a.agent)} ${a.sessions}`)),
     row.last_activity ? el("span", "", ago(row.last_activity)) : null);
-  const out = el("div", `ap-row${state.pick ? " ap-pick" : ""}`,
-    el("span", "n", row.name),
-    ...places,
-    agents,
-    why ? el("span", "m bad", why) : null,
-    el("span", "acts", act));
+  const out = el("div", `ap-row${state.pick ? " ap-pick" : ""}`, el("span", "n", row.name), ...places, agents,
+    why ? el("span", "m bad", why) : null, el("span", "acts", act));
   if (state.pick) {
     const pick = state.pick;
     const box = el("input");
@@ -353,7 +336,7 @@ export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (ro
 }
 
 /// "12 min ago", "yesterday", "3 days ago".
-export function ago(ms: number, now = Date.now()) {
+function ago(ms: number, now = Date.now()) {
   const s = Math.max(0, Math.round((now - ms) / 1000));
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;

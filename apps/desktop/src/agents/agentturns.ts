@@ -45,12 +45,6 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
   return turns;
 }
 
-/// Whether a turn shows its steps as one line: only a finished turn with
-/// steps that the user has not opened. The running turn always shows them.
-export function folded(t: Turn, running: boolean, opened: boolean) {
-  return !running && !opened && t.steps.length > 0;
-}
-
 export type ToolKind = "command" | "edit" | "read" | "search" | "web" | "beep" | "mcp" | "other";
 
 /// A call to the session's own Beep tools, read from the title the node
@@ -156,10 +150,9 @@ export function rowParts(text: string, running = false): RowParts {
   const { title, status, output } = parseTool(imageLines(text).text);
   const kind = toolKind(text), failed = status === "failed";
   const exit = failed ? /(?:exit(?:ed with)?(?: code)?|status) (\d+)/i.exec(output)?.[1] : undefined;
-  const bad = failed;
   let detail = failed ? (exit ? `exit ${exit}` : "failed") : "";
   const mcp = MCP.exec(title.trim());
-  if (mcp) return { kind, verb: mcp[1], target: (mcp[2] + mcp[3]).trim(), detail: detail || "MCP", bad };
+  if (mcp) return { kind, verb: mcp[1], target: (mcp[2] + mcp[3]).trim(), detail: detail || "MCP", bad: failed };
   const label = stepLabel(text, running).replace(/ …$/, "");
   const first = /^(\S+)\s+([\s\S]*)$/.exec(label);
   const known = first ? VERBS[first[1].toLowerCase()] : undefined;
@@ -178,7 +171,7 @@ export function rowParts(text: string, running = false): RowParts {
     const r = RANGE.exec(target);
     if (r) { detail = detail || `L${r[1] ?? r[3]}${(r[2] ?? r[4]) ? `-${r[2] ?? r[4]}` : ""}`; target = target.slice(0, r.index); }
   }
-  return { kind, verb, target: target.trim(), detail, bad };
+  return { kind, verb, target: target.trim(), detail, bad: failed };
 }
 
 /// One file's change as the node words it under an edit: `[diff] path +2
@@ -233,7 +226,7 @@ export function toolRuns(entries: LogEntry[], ats: number[], offset = 0): number
     return k === "beep" ? null : k;
   };
   let run: number[] = [], runKind: ToolKind | null = null;
-  const flush = () => { if (run.length) out.push(...(run.length > 1 ? [run] : [[run[0]]])); run = []; runKind = null; };
+  const flush = () => { if (run.length) out.push(run); run = []; runKind = null; };
   for (const at of ats) {
     const k = kindOf(at);
     if (k && k === runKind) { run.push(at); continue; }
@@ -267,7 +260,6 @@ export function turnStats(entries: LogEntry[], t: Turn, offset = 0) {
 function target(text: string) {
   return parseTool(text).title.trim().replace(/^[A-Za-z]+:? /, "");
 }
-
 
 /// A turn's steps as one line, naming at most two kinds, commands and edits
 /// first, and counting the rest: "Ran 3 commands (1 failed), edited 2 files,
@@ -318,8 +310,7 @@ export function stepLabel(text: string, running = false, whole = false) {
   const v = verb[kind];
   // A live title already starts with its verb ("Read src/x.rs"), except a
   // command, which is the command itself.
-  if (!named && kind !== "command") return line;
-  if (!v) return line;
+  if (!v || (!named && kind !== "command")) return line;
   return `${v[running ? 1 : 0]} ${what}`;
 }
 

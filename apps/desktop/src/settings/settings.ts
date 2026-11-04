@@ -1,3 +1,5 @@
+// settings/: the Settings pages (apps, accounts, credentials, coding agents,
+// instructions, model) and the window's sheet (sheet.ts). Entry: this file.
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
@@ -8,15 +10,13 @@ import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../ma
 import { harnessTile } from "../agents/harnessicon.ts";
 import { harnessName } from "./providers-state.ts";
 import { SKINS, setSkin, skinId } from "../ui/skin.ts";
-import { agentSubs, back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
+import { back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "../chat/tools.ts";
 import { show } from "../bar/views.ts";
 
-// ---------- Settings ----------
-
 /// What a new notice does while you are at this Mac (NoticeVoice).
-export type NoticeVoice = "ask" | "aloud" | "off";
+type NoticeVoice = "ask" | "aloud" | "off";
 
 /// This Mac's own settings (`settings`).
 interface MacSettings {
@@ -228,6 +228,12 @@ async function thenRedraw(change: Promise<unknown>) {
 function bindSettings(el: Element) {
   const $in = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel);
   const each = (attr: string, fn: (b: HTMLButtonElement) => void) => el.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach(fn);
+  /// A switch that waits, disabled, for `command` to flip it, then redraws.
+  const flip = (sel: string, command: string) => $in(sel)?.addEventListener("click", e => {
+    const sw = e.currentTarget as HTMLButtonElement;
+    sw.disabled = true;
+    thenRedraw(invoke(command, { enabled: sw.getAttribute("aria-checked") !== "true" }));
+  });
   $in("#link")?.addEventListener("click", () => setAway("link", renderLink));
   $in("#invite")?.addEventListener("click", () => setAway("invite", renderInvitePhone));
   $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
@@ -260,20 +266,12 @@ function bindSettings(el: Element) {
       if (err) err.textContent = String(e);
     }
   });
-  $in("#usemac")?.addEventListener("click", e => {
-    const sw = e.currentTarget as HTMLButtonElement;
-    sw.disabled = true;
-    thenRedraw(invoke("set_mac_control", { enabled: sw.getAttribute("aria-checked") !== "true" }));
-  });
+  flip("#usemac", "set_mac_control");
   each("data-allow", b => b.addEventListener("click", () =>
     invoke("allow_mac_permission", { permission: b.dataset.allow }).catch(e => console.warn(e))));
   each("data-vn", b => b.addEventListener("click", () => thenRedraw(invoke("set_notice_voice", { choice: b.dataset.vn }))));
   each("data-pause", b => b.addEventListener("click", () => thenRedraw(invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }))));
-  $in("#agentNotices")?.addEventListener("click", e => {
-    const sw = e.currentTarget as HTMLButtonElement;
-    sw.disabled = true;
-    thenRedraw(invoke("set_agent_notices", { enabled: sw.getAttribute("aria-checked") !== "true" }));
-  });
+  flip("#agentNotices", "set_agent_notices");
   bindCreds(el);
   bindAgents(el);
   $in("#autostart")?.addEventListener("click", async e => {
@@ -356,7 +354,6 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
 
 /// The coding agents Settings lists under Agent accounts, each opening its
 /// versions, switch, binary path, launch arguments and env vars.
-
 function codingAgentsHtml() {
   const row = (agent: string) => `<div class="dset-row" data-sub="${esc(subKey({ kind: "agent", id: agent }))}" role="button" tabindex="0">${harnessTile(agent)}
     <span class="tt"><b>${esc(harnessName(agent))}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span>${ICON.chev}</div>`;
@@ -387,7 +384,7 @@ function subExists(sub: SettingsSub) {
 function subEntries(page: SettingsPage): SettingsSub[] {
   if (page === "apps") return (A.apps ?? []).filter(a => a.connected).map(a => ({ kind: "app", id: a.slug }));
   if (page === "machines") return (SET.machines ?? MC.list ?? []).map(m => ({ kind: "machine", id: m.id }));
-  if (page === "agents") return agentSubs();
+  if (page === "agents") return CODING_AGENTS.map(id => ({ kind: "agent", id }));
   return [];
 }
 

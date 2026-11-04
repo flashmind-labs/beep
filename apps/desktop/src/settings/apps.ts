@@ -19,7 +19,7 @@ export interface App {
 }
 
 /// One account of an app that connects several, such as Fastmail.
-export interface AppAccount {
+interface AppAccount {
   id: string;
   /// Its email address, once the server has read it.
   address: string | null;
@@ -37,7 +37,7 @@ export interface McpServer {
 }
 
 /// Every tool a server lists, and how many Beep works well with.
-export interface McpTools {
+interface McpTools {
   tools: { name: string; description: string; enabled: boolean; usable: boolean }[];
   limit: number;
 }
@@ -45,7 +45,7 @@ export interface McpTools {
 type Level = "ask" | "allow" | "read";
 
 /// What Beep may do in one app.
-export interface AppPermissions {
+interface AppPermissions {
   level: Level;
   actions: { tool: string; label: string; allowed: boolean }[];
 }
@@ -89,7 +89,7 @@ export const A: AppsState = { apps: null, error: "", connecting: null, poll: und
   server: null, tools: null, asking: null, unadd: false,
   accounts: {}, removing: null, accountsError: "" };
 
-export const APP_LEVELS: [Level, string, string][] = [
+const APP_LEVELS: [Level, string, string][] = [
   ["ask", "Ask first", "Beep shows what it is about to do and waits for you."],
   ["allow", "Always allow", "Beep sends, changes and deletes without asking."],
   ["read", "Read only", "Beep can search and read, never change anything."],
@@ -102,14 +102,14 @@ const SPIN = '<span class="dmuted"><span class="dspin"></span></span>';
 /// Logos shipped with the app, for apps Composio has no logo for.
 const BUNDLED_LOGOS: Record<string, string> = { fastmail: "fastmail.svg" };
 
-export function appLogo(app: App) {
+function appLogo(app: App) {
   const bundled = BUNDLED_LOGOS[app.slug];
   if (bundled) return `<img class="dalogo" src="${bundled}" alt="">`;
   if (!app.logo_url) return letterLogo(app.name);
   return `<img class="dalogo" src="${esc(app.logo_url)}" alt="" data-letter="${esc(app.name.slice(0, 1).toUpperCase())}">`;
 }
 /// A logo that does not load becomes the app's first letter.
-export function logoFallbacks(root: ParentNode) {
+function logoFallbacks(root: ParentNode) {
   root.querySelectorAll<HTMLImageElement>("img.dalogo[data-letter]").forEach(img => img.addEventListener("error", () => img.replaceWith(h(`<span class="dalogo">${esc(img.dataset.letter)}</span>`)), { once: true }));
 }
 
@@ -192,14 +192,14 @@ export async function loadApps() {
   if (viewIs("apps")) drawApps();
 }
 
-export async function loadAccounts(app: App) {
+async function loadAccounts(app: App) {
   const accounts = app.connected ? await invoke<AppAccount[]>("list_app_accounts", { slug: app.slug }).catch(() => null) : [];
   if (accounts) A.accounts[app.slug] = accounts;
   else delete A.accounts[app.slug];
 }
 
 /// The addresses of a connected app's accounts, for its row in Apps.
-export function accountList(app: App) {
+function accountList(app: App) {
   const accounts = A.accounts[app.slug];
   return accounts?.length ? accounts.map(a => a.address ?? `${app.name} account`).join(", ") : null;
 }
@@ -238,10 +238,10 @@ export function hostOf(url: string) {
 }
 
 /// A sign-in open in the browser, with the Cancel that `attr` marks.
-export const waitingFor = (attr: string) => `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" ${attr}>Cancel</button>`;
+const waitingFor = (attr: string) => `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" ${attr}>Cancel</button>`;
 
 /// The servers the user added, then the add form or its button.
-export function drawServers(servers: McpServer[]) {
+function drawServers(servers: McpServer[]) {
   const row = (m: McpServer) => {
     const end = A.waiting === m.id ? waitingFor("data-mcancel")
       : A.busy === m.id ? SPIN
@@ -283,7 +283,7 @@ export async function addServer() {
   if (A.adding) q("#murl")?.focus();
 }
 
-export async function serverAction(kind: "connect" | "remove", id: string) {
+async function serverAction(kind: "connect" | "remove", id: string) {
   A.busy = id;
   A.error = "";
   drawApps();
@@ -308,7 +308,7 @@ listen<string | null>("mcp-signed-in", e => {
   if (viewIs("apps")) loadApps();
 });
 
-export async function appsClick(e: MouseEvent) {
+async function appsClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const d = target.closest<HTMLElement>("[data-mnew],[data-mclose],[data-madd],[data-mcancel],[data-mconnect],[data-mremove],[data-mopen]")?.dataset;
   if (d) {
@@ -342,7 +342,7 @@ async function signIn(app: App, add: boolean) {
   }
 }
 
-export async function connectApp(app: App | undefined) {
+async function connectApp(app: App | undefined) {
   if (!app || A.connecting) return;
   A.connecting = app.slug;
   A.error = "";
@@ -358,7 +358,7 @@ export async function connectApp(app: App | undefined) {
   }, 3000);
 }
 
-export function stopConnecting() {
+function stopConnecting() {
   clearInterval(A.poll);
   A.poll = undefined;
   A.connecting = null;
@@ -386,7 +386,7 @@ export async function renderMcpServer(server: McpServer | undefined) {
 }
 
 /// "search_pages" reads as "Search pages", as on the phone.
-export const mcpToolLabel = (name: string) => name.replace(/[_-]/g, " ").trim().replace(/^./, c => c.toUpperCase());
+const mcpToolLabel = (name: string) => name.replace(/[_-]/g, " ").trim().replace(/^./, c => c.toUpperCase());
 
 export function drawMcpTools() {
   const list = q("#tlist"), t = A.tools;
@@ -409,7 +409,7 @@ export function drawMcpTools() {
   list.innerHTML = html;
 }
 
-export async function setTool(name: string, enabled: boolean) {
+async function setTool(name: string, enabled: boolean) {
   const server = A.server!;
   A.asking = null;
   try {
@@ -421,7 +421,7 @@ export async function setTool(name: string, enabled: boolean) {
   if (viewIs("mcp") && A.server === server) drawMcpTools();
 }
 
-export async function mcpClick(e: MouseEvent) {
+async function mcpClick(e: MouseEvent) {
   const d = (e.target as HTMLElement).closest<HTMLElement>("[data-ttool],[data-tyes],[data-tno],[data-mremoving],[data-unremove],[data-mremove]")?.dataset;
   if (!d || !A.tools && d.ttool) return;
   if (d.ttool) {
@@ -484,7 +484,7 @@ async function loadPageAccounts(app: App) {
 }
 
 /// Each connected account with Remove, and a button that signs in another.
-export function drawAccounts(app: App, accounts: AppAccount[]) {
+function drawAccounts(app: App, accounts: AppAccount[]) {
   let html = '<div class="dsec">Accounts</div>' + accounts.map((a, i) => {
     const name = esc(a.address ?? `${app.name} account`);
     const first = i === 0 && accounts.length > 1 ? ' <small class="dmuted" style="display:inline">Default</small>' : "";
@@ -500,7 +500,7 @@ export function drawAccounts(app: App, accounts: AppAccount[]) {
   return html + `<div class="dmuted" style="padding:6px 10px;display:block">Beep uses the first account unless you name another, like "check my work inbox". To add a different account, sign out of ${esc(app.name)} in the browser first.</div>`;
 }
 
-export async function addAccount(app: App) {
+async function addAccount(app: App) {
   if (A.connecting) return;
   A.connecting = app.slug;
   A.error = "";
@@ -511,7 +511,7 @@ export async function addAccount(app: App) {
   if (permsOn(app)) drawPerms();
 }
 
-export async function removeAccount(app: App, id: string) {
+async function removeAccount(app: App, id: string) {
   A.busy = "account:" + id;
   A.removing = null;
   drawPerms();
@@ -529,7 +529,7 @@ export async function removeAccount(app: App, id: string) {
   drawPerms();
 }
 
-export function drawPerms() {
+function drawPerms() {
   const list = q("#plist"), app = A.open, p = A.perms;
   if (!list || !app) return;
   const accounts = A.accounts[app.slug];
@@ -555,7 +555,7 @@ export function drawPerms() {
   list.innerHTML = html;
 }
 
-export async function permsClick(e: MouseEvent) {
+async function permsClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const app = A.open!, p = A.perms;
   if (target.closest("[data-cancel]")) {

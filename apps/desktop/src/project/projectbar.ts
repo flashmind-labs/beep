@@ -46,8 +46,6 @@ export function barCheckout(pick: CheckoutPick, base: string | null): { label: s
   return { label: pick.worktree.split("/").pop() || pick.worktree, sub: "worktree" };
 }
 
-/// The line under the bar.
-
 /// What Work on it, Continue or Fix this put in the bar: a new worktree on
 /// `branch` (editable) from `base` for an issue, a pull request's own
 /// branch, or the branch a failed workflow run ran on.

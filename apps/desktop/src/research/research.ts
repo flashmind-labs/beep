@@ -1,11 +1,12 @@
+// research/: the research window, and research in the bar and the command
+// center. Entry: this file (dist/research.js).
 // A research window: the lead's chat on the left, the team's workspace in the
 // middle and its agents on the right.
 import { followSkin } from "../ui/skin.ts";
 followSkin();
 import { invoke, Channel } from "../ui/tauri.ts";
 import { esc } from "../ui/format.ts";
-
-type Status = "planning" | "researching" | "reviewing" | "writing" | "done" | "failed" | "stopped" | "interrupted";
+import type { ResearchStatus as Status } from "./research-list.ts";
 
 /// A member of the team (Rust's `AgentView`).
 interface Agent {
@@ -156,11 +157,7 @@ function doing(id: string): Doing {
   if (!RUNNING.has(st)) return mine.length ? [summary.replace("Done: ", ""), ""] : ["", ""];
   if (earlier(id)) return [summary, "ok"];
   const order = ["researching", "reviewing", "writing"];
-  const active = PHASE[st].includes(kind(id));
-  if (active) {
-    const step = mine.findLast(e => e.kind === "step");
-    return [step?.label ?? "Starting", "run"];
-  }
+  if (PHASE[st].includes(kind(id))) return [mine.findLast(e => e.kind === "step")?.label ?? "Starting", "run"];
   const starts = ({ critic: "reviewing", writer: "writing", scout: "researching" } as Record<string, string>)[kind(id)];
   if (order.indexOf(starts) > order.indexOf(st)) return [kind(id) === "critic" ? "Starts after the scouts" : "Starts after review", ""];
   return [summary, "ok"];
@@ -210,12 +207,8 @@ function drawChat() {
     else if (t.role === "scheduled") html += `<div class="dmuted">${esc(t.label || "Research finished")}</div>`;
     else if (t.role === "assistant" && t.html) {
       html += leadSays(t.html);
-      if (i === last && st === "planning" && R.sending === null) {
-        html += `<div class="racts"><button class="dbtn pri" data-act="go">Start<kbd>⌘${ICON.ret}</kbd></button></div>`;
-      }
-      if (i === last && st === "done" && R.sending === null) {
-        html += `<div class="racts"><button class="dbtn" data-act="tab:draft">Open the paper</button>${exportButton("dbtn")}</div>`;
-      }
+      if (i === last && st === "planning" && R.sending === null) html += `<div class="racts"><button class="dbtn pri" data-act="go">Start<kbd>⌘${ICON.ret}</kbd></button></div>`;
+      if (i === last && st === "done" && R.sending === null) html += `<div class="racts"><button class="dbtn" data-act="tab:draft">Open the paper</button>${exportButton("dbtn")}</div>`;
     }
   });
   if (R.sending !== null) html += leadSays(`${R.sending}<span class="caret"></span>`);
@@ -400,9 +393,7 @@ function drawSide() {
     const said = R.entries.filter(e => e.kind === "said");
     side.innerHTML = `<div class="rthead"><b>Room</b><small>where the agents talk</small>${BACK}</div>
       <div class="rpane thread">${said.map(msg).join("") || '<div class="dmuted">Nobody has said anything yet.</div>'}</div>`;
-  } else {
-    side.innerHTML = agentsHtml();
-  }
+  } else side.innerHTML = agentsHtml();
   const pane = side.querySelector(".thread");
   if (pane) pane.scrollTop = pane.scrollHeight;
 }

@@ -27,8 +27,8 @@ export function tabDown(e: PointerEvent) {
   tab.setPointerCapture(e.pointerId);
   tab.addEventListener("pointermove", tabMove);
   tab.addEventListener("pointerup", tabUp);
-  tab.addEventListener("pointercancel", tabCancel);
-  tab.addEventListener("lostpointercapture", tabCancel);
+  tab.addEventListener("pointercancel", endDrag);
+  tab.addEventListener("lostpointercapture", endDrag);
 }
 
 function tabMove(e: PointerEvent) {
@@ -83,8 +83,6 @@ function tabUp(e: PointerEvent) {
   if (to) moveTo(d.id, to);
 }
 
-function tabCancel() { endDrag(); }
-
 function dragKey(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   e.preventDefault();
@@ -98,8 +96,8 @@ function endDrag() {
   drag = null;
   d.tab.removeEventListener("pointermove", tabMove);
   d.tab.removeEventListener("pointerup", tabUp);
-  d.tab.removeEventListener("pointercancel", tabCancel);
-  d.tab.removeEventListener("lostpointercapture", tabCancel);
+  d.tab.removeEventListener("pointercancel", endDrag);
+  d.tab.removeEventListener("lostpointercapture", endDrag);
   if (d.tab.hasPointerCapture(d.pointer)) d.tab.releasePointerCapture(d.pointer);
   document.removeEventListener("keydown", dragKey, true);
   if (!d.ghost) return;

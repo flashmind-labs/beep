@@ -6,7 +6,7 @@ import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts
 import { runningKey, runningAt, runningLine, byRecent, type RunningAgent } from "../center/home-state.ts";
 import { pastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
-import { agentFor, tasksSection, workersSection, cardsSection, type ProjectView } from "./agent.ts";
+import { agentFor, tasksSection, workersSection, cardsSection } from "./agent.ts";
 import { terminalTile } from "../terminals/terminals.ts";
 import { branchTile } from "../review/review.ts";
 import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
@@ -53,10 +53,10 @@ interface SplitItem {
   detail?: () => Node[];
 }
 
-/// A group of the list: its title, rows, and a note in place of rows.
 /// A list's label filter: the labels its items carry, the one picked, and
 /// what picking one does.
 export type LabelFilter = { all: string[]; on?: string; pick: (label: string) => void };
+/// A group of the list: its title, rows, and a note in place of rows.
 type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter };
 
 /// The label each list is filtered to, by list key.
@@ -103,7 +103,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   thr.ensure(pid);
   const acts = repoActs(p);
   const sync = state.sync.filter(s => s.project === p.name);
-  const cards = cardsSection(view, chatActs(p));
+  const cards = cardsSection(view, { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) });
   const groups: SplitGroup[] = [];
   if (cards) groups.push({ title: "Needs you", items: [{ key: "needs", title: "The project agent waits on you", sub: plural(view.cards.length, "card", "cards"), detail: () => [cards] }] });
   const runItems: SplitItem[] = byRecent(running).map(r => ({
@@ -113,7 +113,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   if (runItems.length) groups.push({ title: "Running", items: runItems });
   const past = sessions ? pastSessions(sessions, running) : [];
   groups.push({ title: "Work", items: [
-    { key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [taskColumns(view)] },
+    { key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] },
     { key: "agents", title: "Agents", sub: agentTile(running, past).count || "None running", detail: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)] },
     { key: "branches", title: "Branches", sub: branchTile(revs.branches(p.name), revs.reviews(p.name), ago).count || "", detail: () => revs.branchesPanel(p.name) },
   ] });
@@ -195,15 +195,4 @@ function projectOverview(p: Project, run: SplitItem[], prs: SplitItem[], issues:
   ].filter(b => b !== null);
   const sub = [run.length ? `${run.length} running` : "", prs.length ? plural(prs.length, "PR", "PRs") : "", issues.length ? plural(issues.length, "issue", "issues") : ""].filter(Boolean).join(" · ");
   return { sub, body: boxes.length ? h("div", "cc-hgrid", ...boxes) : emptyPanel(h("span", "", "Nothing running or open here.")) };
-}
-
-/// What the project chat's cards do.
-function chatActs(p: Project) {
-  const agent = agentFor(state.agents, p.name);
-  return { ...agentActs, answer: (c: { query_id: string }, decision: string, said: string) => answerCard(agent!, c, decision, said) };
-}
-
-/// Tasks beside Workers.
-function taskColumns(view: ProjectView) {
-  return h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat));
 }

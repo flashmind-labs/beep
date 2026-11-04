@@ -47,8 +47,7 @@ export function baseName(path: string) {
 /// path is the session folder's `cwd`; `.` and `..` are taken out.
 export function resolvePath(cwd: string, path: string) {
   if (path === "~" || path.startsWith("~/")) return normalize(path);
-  const full = path.startsWith("/") ? path : `${cwd.replace(/\/+$/, "")}/${path}`;
-  return normalize(full);
+  return normalize(path.startsWith("/") ? path : `${cwd.replace(/\/+$/, "")}/${path}`);
 }
 
 function normalize(path: string) {
@@ -137,8 +136,7 @@ export function moveTab(l: PaneLayout, id: string, to: Dock): PaneLayout {
   delete out.tabs[id];
   if (keepable(id)) out.tabs[id] = to;
   out.hidden[to] = false;
-  const ids = Object.keys(out.tabs);
-  out.tabs = Object.fromEntries(ids.slice(-KEPT_TABS).map(k => [k, out.tabs[k]]));
+  out.tabs = Object.fromEntries(Object.entries(out.tabs).slice(-KEPT_TABS));
   return out;
 }
 

@@ -42,19 +42,16 @@ let searchInput: HTMLInputElement | null = null;
 /// A dialog over the window: the dimmed scrim holding the sheet, not yet
 /// on the page.
 export function sheetShell(label: string, cls: string) {
-  const scrim = el("div", "am-scrim");
   const box = el("div", cls);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", label);
-  scrim.append(box);
-  return { root: scrim, sheet: box };
+  return { root: el("div", "am-scrim", box), sheet: box };
 }
 
 /// Gives focus back to what had it before a sheet opened.
 export function focusBack(was: Element | null) {
-  const f = was as HTMLElement | null;
-  if (f && f.focus) f.focus();
+  (was as HTMLElement | null)?.focus?.();
 }
 
 /// Loads the sheets' shared styles once, so the window only has to import
@@ -324,10 +321,7 @@ function sshBlock() {
     }))
     : el("div", "am-label", `No hosts in ~/.ssh/config or known_hosts on ${from ? from.name : "it"}.`);
   sshInput.disabled = !!sshBusy;
-  return el("div", "am-mac am-ssh",
-    el("div", "am-ssh-head", el("span", "am-other", "Over SSH"), el("span", "am-from-label", "from"), pick),
-    hosts,
-    sshInput);
+  return el("div", "am-mac am-ssh", el("div", "am-ssh-head", el("span", "am-other", "Over SSH"), el("span", "am-from-label", "from"), pick), hosts, sshInput);
 }
 
 /// Where the sheet says how it goes: an SSH add running or failed, else
@@ -374,7 +368,7 @@ function update(event: AddEvent) {
   if (!root) return;
   // A tick only moves the countdown.
   if (state === was && event.type === "tick") return tickOnly();
-  if (state !== was || event.type !== "tick") draw();
+  draw();
 }
 
 function tickOnly() {
@@ -384,10 +378,9 @@ function tickOnly() {
 
 function draw() {
   const box = sheet!;
-  const head = el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc"));
   const mine = macBlock();
   const other = mine && state.step !== "linked" ? el("div", "am-label am-other", "Another machine") : null;
-  box.replaceChildren(head, ...present([mine, other, ...body()]));
+  box.replaceChildren(el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc")), ...present([mine, other, ...body()]));
   // The target field first: a focused host button would install on Enter.
   const first = box.querySelector<HTMLElement>(".am-target:not(:disabled)") || box.querySelector("button");
   if (first && !box.contains(document.activeElement)) first.focus();
@@ -417,15 +410,9 @@ function body() {
       ];
     }
     case "expired":
-      return [
-        el("div", "am-msg", "This token expired. Tokens last 10 minutes and work once."),
-        button("New token", "dbtn pri", start),
-      ];
+      return [el("div", "am-msg", "This token expired. Tokens last 10 minutes and work once."), button("New token", "dbtn pri", start)];
     case "outdated":
-      return [
-        el("div", "am-msg", "The server needs an update before machines can be added from here."),
-        button("Close", "dbtn", closeAddMachine),
-      ];
+      return [el("div", "am-msg", "The server needs an update before machines can be added from here."), button("Close", "dbtn", closeAddMachine)];
     default:
       return [
         el("div", "am-msg bad", state.message || "Could not make a setup token."),

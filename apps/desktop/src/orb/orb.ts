@@ -1,3 +1,4 @@
+// orb/: the orb window. Entry: this file (dist/orb.js).
 // The orb window: live mode while the bar is hidden.
 import { followSkin } from "../ui/skin.ts";
 followSkin();
@@ -6,18 +7,12 @@ import { OrbAsks } from "../chat/approvals.ts";
 import { appTile, fillAppTiles } from "../chat/applogo.ts";
 import { esc } from "../ui/format.ts";
 
-/// A field of an approval card.
-interface Field {
-  label: string;
-  value: string;
-}
-
 /// An action the reply waits on an OK for (Rust's `Asking`).
 interface Asking {
   query_id: string;
   app: string;
   action: string;
-  fields: Field[];
+  fields: { label: string; value: string }[];
 }
 
 /// An approval waiting while live mode is on, and its chat (Rust's `Waiting`).
@@ -248,24 +243,16 @@ function noticeAct(act: string) {
 
 noticeEl.addEventListener("click", () => noticeAct("open"));
 // The pointer on the card keeps it up; leaving it starts the 20 seconds again.
-noticeEl.addEventListener("mouseenter", () => {
-  if (notice) invoke("hold_notice", { id: notice.id, held: true }).catch(ignore);
-});
+noticeEl.addEventListener("mouseenter", () => { if (notice) invoke("hold_notice", { id: notice.id, held: true }).catch(ignore); });
 noticeEl.addEventListener("mouseleave", () => {
   if (!notice) return;
   invoke("hold_notice", { id: notice.id, held: false }).catch(ignore);
   const life = noticeEl.querySelector(".life");
   if (life) life.innerHTML = "<i></i>";
 });
-listen<NoticeCard>("notice-card", e => {
-  notice = e.payload;
-  drawNotice();
-});
+listen<NoticeCard>("notice-card", e => { notice = e.payload; drawNotice(); });
 
-card.addEventListener("click", () => {
-  const waiting = asks.shown;
-  if (waiting) invoke("open_approval", { session: waiting.session }).catch(ignore);
-});
+card.addEventListener("click", () => { if (asks.shown) invoke("open_approval", { session: asks.shown.session }).catch(ignore); });
 
 listen<LiveEvent>("live", e => {
   const v = e.payload;

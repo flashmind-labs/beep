@@ -17,9 +17,6 @@ export function failBanner(message: string, onDismiss: () => void): HTMLElement 
   close.setAttribute("aria-label", "Dismiss");
   const box = el("div", "fb-err", el("div", "fb-line", el("span", "", line), close));
   box.setAttribute("role", "alert");
-  if (details) {
-    const more = el("details", "fb-more", el("summary", "", "Details"), el("pre", "", details));
-    box.append(more);
-  }
+  if (details) box.append(el("details", "fb-more", el("summary", "", "Details"), el("pre", "", details)));
   return box;
 }

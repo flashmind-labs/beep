@@ -3,44 +3,30 @@
 import type { DiffView } from "./diff-state.ts";
 import { diffView } from "./diff.ts";
 import { invoke } from "../ui/tauri.ts";
+import { button, el } from "../ui/dom.ts";
 
 let open: HTMLElement | null = null;
 
 export function openBranchDiff(project: string, branch: string) {
   open?.remove();
   const back = document.activeElement as HTMLElement | null;
-  const sheet = document.createElement("div");
-  sheet.className = "dv-sheet";
+  const sheet = el("div", "dv-sheet");
   sheet.setAttribute("role", "dialog");
   sheet.setAttribute("aria-modal", "true");
   sheet.setAttribute("aria-label", `Changes on ${branch}`);
-  const box = document.createElement("div");
-  box.className = "box";
-  const top = document.createElement("div");
-  top.className = "top";
-  const title = document.createElement("h3");
-  title.textContent = branch;
-  const sub = document.createElement("small");
-  sub.textContent = `${project}, against its default branch`;
-  const gap = document.createElement("span");
+  const gap = el("span");
   gap.style.flex = "1";
-  const close = document.createElement("button");
-  close.className = "dv-btn";
-  close.type = "button";
-  close.textContent = "Close";
+  const close = button("Close", "dv-btn", () => done());
   close.title = "Close (esc)";
-  top.append(title, sub, gap, close);
   const view = diffView({
     load: (only, lockfiles) => invoke<DiffView>("branch_diff", { project, branch, only, lockfiles }),
   });
-  box.append(top, view.el);
-  sheet.append(box);
+  sheet.append(el("div", "box", el("div", "top", el("h3", "", branch), el("small", "", `${project}, against its default branch`), gap, close), view.el));
   const done = () => {
     sheet.remove();
     if (open === sheet) open = null;
     back?.focus?.({ preventScroll: true });
   };
-  close.addEventListener("click", done);
   sheet.addEventListener("click", e => { if (e.target === sheet) done(); });
   sheet.addEventListener("keydown", e => {
     if (e.key !== "Escape" || e.defaultPrevented) return;

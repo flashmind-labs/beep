@@ -11,7 +11,7 @@ import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "../agents/agents.ts";
-import { issueBranch, issuePrompt, prPrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
+import { issueBranch, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.ts";
 import { type Started, state } from "../center/state.ts";
 import { shown, go } from "../center/views.ts";
@@ -241,7 +241,8 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
 /// branch, with the issue's prompt.
 export function workOnIssue(name: string, issue: IssueRow) {
   const base = baseFor(null, pc.branches.get(name));
-  fillBar(name, issuePrompt(issue), { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base });
+  const prompt = `Work on issue #${issue.number}: ${issue.title} (${issue.url}). Read the issue and its comments first, then propose and implement a fix.`;
+  fillBar(name, prompt, { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base });
 }
 
 /// Continue: reads the pull request's branch, then fills the bar to start
@@ -251,7 +252,7 @@ export async function continuePr(name: string, pr: PullRequestRow) {
   if (!agent) return;
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
-  fillBar(name, prPrompt(pr), { kind: "pr", number: pr.number, branch: head.branch });
+  fillBar(name, `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, { kind: "pr", number: pr.number, branch: head.branch });
 }
 
 /// Fix this: the bar on the failed run's branch (a new branch when it ran
@@ -343,7 +344,3 @@ async function resumeFromBar(s: AgentSession, text: string) {
     redrawProjects();
   }
 }
-
-/// Each project's tasks, workers and chat, read one at a time per project
-/// and kept under the project they were asked for, so an answer for the
-/// project left behind never draws over the one opened since.

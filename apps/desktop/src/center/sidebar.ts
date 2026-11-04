@@ -11,7 +11,7 @@ import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound } from "../addproject/addproject.ts";
 import { mergeProjects, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type Placed, type Project } from "../project/projects-state.ts";
-import { el as h, type Kid } from "../ui/dom.ts";
+import { button, el as h, type Kid } from "../ui/dom.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminals.ts";
@@ -100,7 +100,7 @@ export function drawSide() {
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
-      const h3 = h("h3", "", g.onTitle ? titleButton(g.title, g.onTitle) : g.title);
+      const h3 = h("h3", "", g.onTitle ? button(g.title, "cc-gt", g.onTitle) : g.title);
       if (g.action) h3.append(g.action());
       grp.append(h3);
     }
@@ -132,14 +132,6 @@ export function drawSide() {
   list.replaceChildren(...side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
-}
-
-/// A group title that opens what the group lists.
-function titleButton(title: string, on: () => void) {
-  const b = h("button", "cc-gt", title);
-  b.type = "button";
-  b.addEventListener("click", on);
-  return b;
 }
 
 function footer(machines: MachineCard[] | null | undefined): Kid[] {
@@ -215,11 +207,9 @@ function redrawProjectPins() {
 
 /// The pin button of a sidebar row: pins it to the top, or unpins it.
 function pinToggle(id: string, pinned: boolean, on: () => void) {
-  const toggle = h("button", "pa", icon(IC.pin));
-  toggle.type = "button";
+  const toggle = button(icon(IC.pin)!, "pa", e => { e.stopPropagation(); on(); });
   toggle.dataset.id = id;
   toggle.setAttribute("aria-label", pinned ? "Unpin" : "Pin to top");
-  toggle.addEventListener("click", e => { e.stopPropagation(); on(); });
   return toggle;
 }
 
@@ -336,12 +326,8 @@ export function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string
 /// the server's to remove).
 function openProjectMenu(e: MouseEvent, name: string) {
   const items: MenuItem[] = [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }];
-  if (isImported(name)) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
+  if (projectRows()?.some(p => p.name === name && p.imported)) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
   openMenu(e, name, items);
-}
-
-function isImported(name: string) {
-  return !!projectRows()?.some(p => p.name === name && p.imported);
 }
 
 /// Asks, then removes project `name` from Beep. Its files stay on every
@@ -388,10 +374,8 @@ registerSidebarGroup<SideChat>("chats", {
   onTitle: () => go("pane", "chats"),
   empty: () => (chatList.length ? "" : "No chats yet"),
   action() {
-    const b = h("button", "", icon(IC.plus));
-    b.type = "button";
+    const b = button(icon(IC.plus)!, "", () => go("pane", { chat: { session: null } }));
     b.setAttribute("aria-label", "New chat");
-    b.addEventListener("click", () => go("pane", { chat: { session: null } }));
     return b;
   },
   async load() {
@@ -425,11 +409,9 @@ export function projectRows() {
 
 /// A small + button for a group's heading or the footer.
 export function plusButton(label: string, on: () => void) {
-  const b = h("button", "", icon(IC.plus));
-  b.type = "button";
+  const b = button(icon(IC.plus)!, "", e => { e.stopPropagation(); on(); });
   b.title = label;
   b.setAttribute("aria-label", label);
-  b.addEventListener("click", e => { e.stopPropagation(); on(); });
   return b;
 }
 

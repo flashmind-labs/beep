@@ -1,10 +1,9 @@
 import "./keys.ts";
 import { chartClick } from "../chat/charts.ts";
 import { answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
-import type { ApprovalField } from "../chat/chat.ts";
 import { copy, loadChats } from "../chat/chats.ts";
 import { bar, COPY_ICON, G, h, here, ICON, invoke, listen, live, type LinkState, PANE, S, type Turn } from "./core.ts";
-import { drawGroup, loadGroup } from "../chat/groups.ts";
+import { drawGroup, type GroupApproval, loadGroup } from "../chat/groups.ts";
 import { learnedHotkey, refreshHints } from "./hints.ts";
 import { refreshSession } from "../chat/history.ts";
 import { drawLink, renderLink, renderRevoked } from "./link.ts";
@@ -14,15 +13,6 @@ import { closeRerunMenu, rerun, rerunClick, rerunMenu } from "../chat/rerun.ts";
 import { routeClick } from "../chat/routes.ts";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
-
-/// An action in a group waiting for an OK (GroupApproval).
-interface GroupApprovalEvent {
-  group_id: string;
-  query_id: string;
-  app: string;
-  action: string;
-  fields: ApprovalField[];
-}
 
 /// A button that says what it did for a moment, then goes back.
 interface UndoButton extends HTMLElement {
@@ -47,7 +37,7 @@ listen<string>("group-changed", e => {
   if (G.id === e.payload && (S.view === "group" || S.view === "ginfo")) loadGroup();
   else if (listIdle()) loadChats("");
 });
-listen<GroupApprovalEvent>("group-approval", e => {
+listen<GroupApproval>("group-approval", e => {
   const a = e.payload;
   if (!G.approvals.has(a.group_id)) G.approvals.set(a.group_id, new Map());
   G.approvals.get(a.group_id)!.set(a.query_id, a);

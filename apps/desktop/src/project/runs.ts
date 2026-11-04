@@ -487,8 +487,7 @@ export function makeRuns(deps: RunDeps) {
       return box;
     }
     if (why) box.append(h("div", "cc-err", why));
-    const panel = h("div", "cc-panel pj-runbox", fitRows(d.runs.map(r => row(id, s, r)), SHOWN));
-    box.append(panel);
+    box.append(h("div", "cc-panel pj-runbox", fitRows(d.runs.map(r => row(id, s, r)), SHOWN)));
     return box;
   }
 
@@ -504,8 +503,6 @@ export function makeRuns(deps: RunDeps) {
       return runTile(s.data, s.error);
     },
     ensure,
-    loading: (id: string) => of(id).loading,
-    at: (id: string) => kept.at(id),
     /// Each open pull request's checks, once the runs are read.
     checks: (id: string) => of(id).data?.checks ?? null,
     /// Opens run `run` of project `id` on `host`, as a PR row's checks
@@ -514,7 +511,5 @@ export function makeRuns(deps: RunDeps) {
       const r = { id: run, host: host ?? null };
       if (of(id).open !== runKey(r)) toggle(id, r);
     },
-    /// The hosts the runs are read from, once read.
-    hosts: (id: string) => of(id).data?.hosts ?? [],
   };
 }

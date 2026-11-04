@@ -82,7 +82,7 @@ export function routineWhen(s: string) {
   const p = cronParts(s);
   if (!p) return s;
   const min = Number(p[0]), days = p[4];
-  if (p[1] === "*" && days === "*") return min ? `Every hour at :${String(min).padStart(2, "0")}` : "Every hour";
+  if (p[1] === "*" && days === "*") return min ? `Every hour at :${pad2(min)}` : "Every hour";
   if (!/^\d+$/.test(p[1])) return s;
   const at = clock(Number(p[1]), min);
   if (days === "*") return `Every day at ${at}`;
@@ -179,22 +179,11 @@ export async function routineAction(a: RoutineAction) {
 
 export function routineKeys(e: KeyboardEvent, cmd: boolean) {
   if (R.mode === "delete") return confirmKey(e, () => routineAction("delete-yes"));
-  if (arrowKey(e, R)) {
-    R.mode = "list";
-    drawRoutines();
-  } else if (e.key === "Tab" && R.list.length) {
-    e.preventDefault();
-    routineAction(R.mode === "actions" ? "list" : "actions");
-  } else if (e.key === " " && R.mode === "list" && R.list.length) {
-    e.preventDefault();
-    routineAction("toggle");
-  } else if (cmd && e.key === "Backspace" && R.list.length) {
-    e.preventDefault();
-    routineAction("delete");
-  } else if (e.key === "Enter" && R.mode === "actions") {
-    e.preventDefault();
-    routineAction("run");
-  }
+  if (arrowKey(e, R)) { R.mode = "list"; return drawRoutines(); }
+  if (e.key === "Tab" && R.list.length) { e.preventDefault(); return routineAction(R.mode === "actions" ? "list" : "actions"); }
+  if (e.key === " " && R.mode === "list" && R.list.length) { e.preventDefault(); return routineAction("toggle"); }
+  if (cmd && e.key === "Backspace" && R.list.length) { e.preventDefault(); return routineAction("delete"); }
+  if (e.key === "Enter" && R.mode === "actions") { e.preventDefault(); return routineAction("run"); }
 }
 
 /// The schedule the form describes, or "" when it is not complete.
@@ -215,15 +204,11 @@ export function routineSchedule() {
 }
 
 /// Opens the form on `edit`, or empty for a new routine.
-function openForm(edit: Cron | null, fields: Partial<RoutineForm>) {
+export function renderRoutineNew(edit: Cron | null = null, fields: Partial<RoutineForm> = {}) {
   S.view = "rnew";
   Object.assign(NR, { edit, label: "", prompt: "", repeat: "day", days: [1], time: "08:00", cron: "", error: "", busy: false, date: dateValue(new Date()) }, fields);
   drawRoutineNew();
   $$("#nrlabel").focus();
-}
-
-export function renderRoutineNew() {
-  openForm(null, {});
 }
 
 /// The form fields for `schedule`, the shapes routineSchedule writes read
@@ -248,7 +233,7 @@ export function routineFields(schedule: string): Partial<RoutineForm> {
 
 /// Edits routine `c`'s name and schedule. What it does stays as it is.
 export function renderRoutineEdit(c: Cron) {
-  openForm(c, { label: c.label, prompt: c.prompt, ...routineFields(c.schedule) });
+  renderRoutineNew(c, { label: c.label, prompt: c.prompt, ...routineFields(c.schedule) });
 }
 
 export function drawRoutineNew() {
@@ -456,10 +441,6 @@ export async function grantAction(a: string) {
 
 export function grantKeys(e: KeyboardEvent, cmd: boolean) {
   if (GR.mode === "confirm") return confirmKey(e, () => grantAction("revoke-yes"));
-  if (arrowKey(e, GR)) {
-    drawGrants();
-  } else if (cmd && e.key === "Backspace" && GR.list.length) {
-    e.preventDefault();
-    grantAction("revoke");
-  }
+  if (arrowKey(e, GR)) return drawGrants();
+  if (cmd && e.key === "Backspace" && GR.list.length) { e.preventDefault(); return grantAction("revoke"); }
 }

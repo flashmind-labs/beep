@@ -132,11 +132,8 @@ export function macOption(mac: MacSeen | null | undefined, asked: boolean): MacO
   const name = mac.name || "This Mac";
   if (!mac.enabled) return { text: `Let Beep run commands and use the screen on ${name}.`, button: "Use this Mac" };
   switch (mac.status) {
-    case "connected":
-      return asked ? { text: `${name} is linked. It shows under Machines.`, done: true } : null;
-    case "failed":
-      return { text: `Couldn't connect: ${mac.error || "unknown error"}. Beep tries again on its own.`, bad: true };
-    default:
-      return { text: `Connecting ${name}`, busy: true };
+    case "connected": return asked ? { text: `${name} is linked. It shows under Machines.`, done: true } : null;
+    case "failed": return { text: `Couldn't connect: ${mac.error || "unknown error"}. Beep tries again on its own.`, bad: true };
+    default: return { text: `Connecting ${name}`, busy: true };
   }
 }

@@ -54,7 +54,11 @@ export async function loadText(t: MediaTab) {
   } catch (e) {
     t.error = readError(e);
   }
-  if (!P.tabs.includes(t)) return;
+  if (P.tabs.includes(t)) redraw(t);
+}
+
+/// Draws tab `t` again, from scratch.
+function redraw(t: MediaTab) {
   t.el?.remove();
   t.el = null;
   draw();
@@ -79,9 +83,7 @@ export async function startTerminal(t: MediaTab) {
     if (!P.tabs.includes(t)) return;
     t.error = readError(e);
   }
-  t.el?.remove();
-  t.el = null;
-  draw();
+  redraw(t);
 }
 
 export function drawTermStatus(t: MediaTab) {
@@ -110,7 +112,5 @@ export async function load(t: MediaTab) {
     t.error = readError(e);
   }
   // Drawn again now its bytes are here.
-  t.el?.remove();
-  t.el = null;
-  draw();
+  redraw(t);
 }

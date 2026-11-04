@@ -25,10 +25,8 @@ const F = {
   open: new Set<string>(),
   filter: "",
   ignored: false,
-  git: false,
   picked: null as string | null,
   el: null as HTMLElement | null,
-  note: "",
   /// A path to scroll into view once its row is drawn.
   reveal: null as string | null,
 };
@@ -52,18 +50,11 @@ export function filesView() {
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (F.el && F.key === key) return F.el;
   F.el?.remove();
-  F.key = key;
-  F.listings = new Map();
-  F.roots = new Set();
-  F.reading = new Set();
-  F.flat = false;
   clearInterval(F.timer);
-  F.timer = setInterval(() => { if (F.el?.isConnected && !document.hidden) refresh(); }, REFRESH_MS);
-  F.open = new Set();
-  F.filter = "";
-  F.picked = null;
-  F.note = "";
-  F.reveal = null;
+  Object.assign(F, {
+    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, open: new Set(), filter: "", picked: null, reveal: null,
+    timer: setInterval(() => { if (F.el?.isConnected && !document.hidden) refresh(); }, REFRESH_MS),
+  });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
     + `<button class="agpbtn" data-frefresh="1" title="Read the folders again">&#8635;</button></div>`
@@ -130,7 +121,6 @@ async function load(dir: string) {
     mergeTree(F.listings, got);
     F.roots.add(dir);
     const top = got.folders[0];
-    if (!dir && top) F.git = top.git;
     F.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
   } catch (e) {
     if (F.key !== key) return;

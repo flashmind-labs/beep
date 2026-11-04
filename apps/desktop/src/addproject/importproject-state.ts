@@ -173,8 +173,7 @@ export function reason(e: unknown) {
 
 /// The server's sentence, without what the bridge puts before it.
 export function cleanError(message: string | null | undefined) {
-  const m = String(message || "").replace(/^(bad request|error):\s*/i, "").trim();
-  return m || "The import failed.";
+  return reason(message || "").trim() || "The import failed.";
 }
 
 /// What shows while it clones: "Cloning org/repo onto build-box…", or

@@ -31,12 +31,7 @@ export interface Skill {
 }
 
 /// The changes `update_skill` takes; a field left out stays as it is.
-interface SkillChange {
-  name?: string;
-  description?: string;
-  body?: string;
-  enabled?: boolean;
-}
+type SkillChange = Partial<Pick<Skill, "name" | "description" | "body" | "enabled">>;
 
 type SkillMode = "list" | "actions" | "delete" | "view" | "edit" | "vdelete";
 type SkillAction = SkillMode | "toggle" | "undo" | "save" | "delete-yes";
@@ -215,14 +210,7 @@ export function skillKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter") { e.preventDefault(); skillAction("edit"); }
     return;
   }
-  if (arrowKey(e, K)) {
-    K.mode = "list";
-    drawSkills();
-  } else if (e.key === "Tab") {
-    e.preventDefault();
-    skillAction(K.mode === "actions" ? "list" : "actions");
-  } else if (e.key === "Enter") {
-    e.preventDefault();
-    skillAction("view");
-  }
+  if (arrowKey(e, K)) { K.mode = "list"; return drawSkills(); }
+  if (e.key === "Tab") { e.preventDefault(); return skillAction(K.mode === "actions" ? "list" : "actions"); }
+  if (e.key === "Enter") { e.preventDefault(); return skillAction("view"); }
 }

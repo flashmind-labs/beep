@@ -123,13 +123,8 @@ export function attach(t: PaneTerm) {
 function retry(t: PaneTerm) {
   t.tries += 1;
   t.screen.setInput(false);
-  if (t.tries > MAX_TRIES) {
-    t.link = "detached";
-    t.onLink();
-    return;
-  }
-  t.link = "attaching";
-  t.timer = setTimeout(() => attach(t), retryDelay(t.tries));
+  t.link = t.tries > MAX_TRIES ? "detached" : "attaching";
+  if (t.link === "attaching") t.timer = setTimeout(() => attach(t), retryDelay(t.tries));
   t.onLink();
 }
 

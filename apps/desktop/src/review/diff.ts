@@ -6,6 +6,7 @@ import {
   type DiffFile, type DiffView, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
   inView, matchesFilter, numberWidth, splitPath, stepFile, withLoaded,
 } from "./diff-state.ts";
+import { el, type Kid } from "../ui/dom.ts";
 
 /// Where a diff comes from and what its files can open in.
 export interface DiffSource {
@@ -32,15 +33,6 @@ const SVG = {
   refresh: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>',
 };
 
-type Kid = Node | string | null | undefined | false;
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", ...kids: Kid[]): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  for (const k of kids) if (k != null && k !== false) e.append(k);
-  return e;
-}
-
 /// An icon from the fixed markup above, never from a diff.
 function icon(svg: string) {
   const s = el("span");
@@ -58,10 +50,6 @@ function btn(label: Kid, cls: string, title: string, run: () => void) {
 }
 
 const counts = (a: number, d: number) => [a ? el("i", "dv-plus", `+${a.toLocaleString("en-US")}`) : null, d ? el("i", "dv-minus", `-${d.toLocaleString("en-US")}`) : null];
-
-function reducedMotion() {
-  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
 
 export function diffView(src: DiffSource): DiffViewHandle {
   const root = el("div", "dv");
@@ -277,9 +265,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!held || !inView(held.offsetTop, held.offsetTop + held.offsetHeight, files.scrollTop, files.clientHeight)) {
       st.cur = list[currentFile(tops(), files.scrollTop)]?.path ?? null;
     }
-    const path = st.cur;
-    for (const [p, s] of sections) s.classList.toggle("cur", p === path);
-    for (const row of tree.querySelectorAll<HTMLElement>(".dv-tr")) row.classList.toggle("on", row.dataset.path === path);
+    for (const [p, s] of sections) s.classList.toggle("cur", p === st.cur);
+    for (const row of tree.querySelectorAll<HTMLElement>(".dv-tr")) row.classList.toggle("on", row.dataset.path === st.cur);
   }
 
   function jump(path: string) {
@@ -287,7 +274,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!section) return;
     st.cur = path;
     markCurrent();
-    files.scrollTo({ top: section.offsetTop - 10, behavior: reducedMotion() ? "auto" : "smooth" });
+    files.scrollTo({ top: section.offsetTop - 10, behavior: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
 
   function onKey(e: KeyboardEvent) {

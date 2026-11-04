@@ -96,9 +96,6 @@ export function chartTime(ms: number, span: number, full = false) {
   if (span < 400 * 86400e3) return d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(full ? { year: "numeric" } : {}) });
   return d.toLocaleDateString(undefined, { month: "short", year: "numeric", ...(full ? { day: "numeric" } : {}) });
 }
-export function xLabel(chart: Chart, x: number, span: number, full: boolean) {
-  return chart.x === "time" ? chartTime(x, span, full) : chart.categories[Math.round(x)] ?? "";
-}
 
 export function drawChart(card: ChartCard) {
   const c = card.chart, st = c.stock, many = c.series.length > 1;
@@ -208,7 +205,8 @@ export function hoverPlot(plot: Plot, e: MouseEvent) {
     : `<line x1="${hx}" x2="${hx}" y1="0" y2="${g.plotH}" class="cross"/>` + hits.map(({ i, p }) => `<circle cx="${g.X(p.x)}" cy="${g.Y(p.y)}" r="3.5" fill="${CHART_COLORS[i]}" stroke="#121916" stroke-width="2"/>`).join("");
   const tip = plot.querySelector<HTMLElement>(".tipc")!;
   const values = hits.map(({ s, p }) => hits.length > 1 ? `${esc(s.name)} ${esc(chartValue(c, p.y, c.unit === "%"))}` : esc(chartValue(c, p.y))).join(" <span>·</span> ");
-  tip.innerHTML = `${esc(xLabel(c, at, g.span, true))} <span>·</span> ${values}`;
+  const label = c.x === "time" ? chartTime(at, g.span, true) : c.categories[Math.round(at)] ?? "";
+  tip.innerHTML = `${esc(label)} <span>·</span> ${values}`;
   tip.hidden = false;
   const half = tip.offsetWidth / 2;
   tip.style.left = Math.max(half, Math.min(g.plotW - half, hx)) + "px";

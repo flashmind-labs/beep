@@ -9,8 +9,6 @@ import { noAgentImages, redrawAgentHints } from "./session.ts";
 
 let pastedCount = 0;
 
-// ----- Images for the agent -----
-
 /// A name for an image, unique among those waiting; a pasted one is
 /// named "Pasted image 1.png" and so on rather than "image.png".
 export function agentImageName(f: File) {
@@ -117,6 +115,3 @@ export function keepAgentPics(o: OpenAgent, images: Attached[]) {
   }
   while (agentPics.size > AGENT_PICS_KEPT) agentPics.delete(agentPics.keys().next().value!);
 }
-
-/// A session's folder as the header shows it: the repository and its
-/// worktree (`widget · fix-login`), else the folder's name.

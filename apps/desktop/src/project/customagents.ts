@@ -10,9 +10,6 @@ import { el } from "../ui/dom.ts";
 import { present, reason } from "../addproject/importproject-state.ts";
 import { type AgentsPlace, type CustomAgentRow, agentColor, agentMeta } from "./customagents-state.ts";
 
-export { agentPrompt, agentsPlace } from "./customagents-state.ts";
-export type { AgentsPlace, CustomAgentRow } from "./customagents-state.ts";
-
 interface Listed {
   rows?: CustomAgentRow[];
   error: string;
@@ -79,19 +76,18 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     return r;
   }
 
-  /// The list's body and its note, for the section around it.
-  function view(place: AgentsPlace | null): { body: Node; note: string; count: number } {
-    if (!place) return { body: emptyPanel(el("span", "", "No machine has this project's folder to read its custom agents from.")), note: "", count: 0 };
+  /// The list's body and its count, for the section around it.
+  function view(place: AgentsPlace | null): { body: Node; count: number } {
+    if (!place) return { body: emptyPanel(el("span", "", "No machine has this project's folder to read its custom agents from.")), count: 0 };
     const s = listed(place);
     if (!s?.rows) {
       const text = s?.error ? `Could not read the custom agents on ${place.name}: ${s.error}` : `Reading the custom agents on ${place.name}…`;
-      return { body: emptyPanel(el("span", s?.error ? "cc-err" : "", text)), note: "", count: 0 };
+      return { body: emptyPanel(el("span", s?.error ? "cc-err" : "", text)), count: 0 };
     }
-    const note = "";
     if (!s.rows.length) {
-      return { body: emptyPanel(el("span", "", "No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.")), note, count: 0 };
+      return { body: emptyPanel(el("span", "", "No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.")), count: 0 };
     }
-    return { body: el("div", "cc-panel pv-scroll", ...s.rows.map(a => row(a, place))), note, count: s.rows.length };
+    return { body: el("div", "cc-panel pv-scroll", ...s.rows.map(a => row(a, place))), count: s.rows.length };
   }
 
   /// The agent's prompt, read-only, over the window.
@@ -127,10 +123,5 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     prompt.focus();
   }
 
-  /// Reads `place` again.
-  function reload(place: AgentsPlace | null) {
-    if (place) load(place);
-  }
-
-  return { view, reload };
+  return { view, reload: load };
 }

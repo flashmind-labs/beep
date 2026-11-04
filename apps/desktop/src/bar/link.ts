@@ -16,12 +16,7 @@ interface LinkView {
 }
 
 /// A code another device scans or types to join this Mac's account (PhoneInvite).
-interface PhoneInvite {
-  code: string;
-  qr_svg: string;
-  /// Seconds.
-  expires_in: number;
-}
+type PhoneInvite = Omit<LinkView, "uri">;
 
 /// What the link view shows: waiting for the phone, linked, or the code ran out.
 export type LinkState = "waiting" | "linked" | "expired";

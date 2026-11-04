@@ -269,8 +269,7 @@ if (!PANE) listen<LiveEvent>("live", e => {
         // What was typed in the prompt comes back when live mode ends.
         const ask = S.view === "chat" ? $<HTMLTextAreaElement>("#ask") : null, typed = ask?.value.trim();
         if (typed) {
-          const key = S.session ?? "";
-          const kept = VN.drafts.get(key);
+          const key = S.session ?? "", kept = VN.drafts.get(key);
           VN.drafts.set(key, kept ? `${typed} ${kept}` : typed);
           ask!.value = "";
         }
@@ -300,28 +299,22 @@ if (!PANE) listen<LiveEvent>("live", e => {
       LIVE_CHATS.add(v.session);
       touch(v.session, v.text);
       return liveTurn(v.session, v.text, v.run);
-    case "left":
+    case "left": {
       LV.on = false;
       LV.view = null;
       LV.soon = null;
       LV.toast = "";
       // The bar, if Rust shows it next, opens on the chat live mode was in.
       if (v.session) S.session = v.session;
-      {
-        const key = v.session ?? "";
-        if (v.draft) {
-          // The chat takes the draft the next time it opens.
-          // A second draft for the same chat joins the first instead of
-          // replacing it.
-          const kept = VN.drafts.get(key);
-          VN.drafts.set(key, kept ? `${kept} ${v.draft}` : v.draft);
-        }
-        // A failure or the quiet timeout is said even with no words kept.
-        const kept = v.draft ? " Your words are kept here." : "";
-        const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet." : VN.typed ? "Left live mode to type." : v.draft ? "Left live mode." : "");
-        if (why) VN.note = why + kept;
-      }
+      // The chat takes the draft the next time it opens. A second draft for
+      // the same chat joins the first instead of replacing it.
+      const key = v.session ?? "", kept = VN.drafts.get(key);
+      if (v.draft) VN.drafts.set(key, kept ? `${kept} ${v.draft}` : v.draft);
+      // A failure or the quiet timeout is said even with no words kept.
+      const why = v.failure ?? (v.quiet ? "Live mode ended after 2 minutes quiet." : VN.typed ? "Left live mode to type." : v.draft ? "Left live mode." : "");
+      if (why) VN.note = why + (v.draft ? " Your words are kept here." : "");
       return renderLeft();
+    }
   }
 });
 

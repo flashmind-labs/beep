@@ -19,17 +19,16 @@ test("a thinking level carries over only to a harness that takes it", () => {
   assert.equal(keepEffort("claude", null), null);
 });
 
-const session = (machine_id: string, cwd: string, status = "working", external = false, last_activity = 0) =>
-  ({ machine_id, cwd, status, external, last_activity });
+const session = (machine_id: string, cwd: string, last_activity: number) => ({ machine_id, cwd, last_activity });
 
 test("a checkout's worktrees come from where sessions ran, newest first", () => {
   const root = "/srv/project/widget";
   const sessions = [
-    session("m1", `${root}/.worktrees/old`, "ended", false, 1),
-    session("m1", `${root}/.worktrees/new/src`, "ended", false, 3),
-    session("m1", `${root}/.worktrees/old`, "ended", false, 2),
-    session("m2", `${root}/.worktrees/elsewhere`, "ended", false, 9),
-    session("m1", root, "ended", false, 5),
+    session("m1", `${root}/.worktrees/old`, 1),
+    session("m1", `${root}/.worktrees/new/src`, 3),
+    session("m1", `${root}/.worktrees/old`, 2),
+    session("m2", `${root}/.worktrees/elsewhere`, 9),
+    session("m1", root, 5),
   ];
   assert.deepEqual(knownWorktrees(sessions, "m1", `${root}/`), [`${root}/.worktrees/new`, `${root}/.worktrees/old`]);
   assert.deepEqual(knownWorktrees(sessions, null, root), []);

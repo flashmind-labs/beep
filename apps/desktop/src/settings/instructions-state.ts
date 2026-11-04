@@ -61,8 +61,7 @@ export function sizeLabel(text: string) {
 export function linesLabel(text: string | null | undefined) {
   const t = String(text || "").replace(/\s+$/, "");
   if (!t) return "empty";
-  const n = t.split("\n").length;
-  return plural(n, "line", "lines");
+  return plural(t.split("\n").length, "line", "lines");
 }
 
 /// An agent file without the block Beep wrote into it, so importing it

@@ -4,7 +4,7 @@
 import { harnessEl } from "../agents/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
-import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
 import { emptyPanel } from "../ui/parts.ts";
 import { flshPanel } from "./flsh.ts";
@@ -14,7 +14,7 @@ import { failBanner } from "../ui/failbanner.ts";
 interface MachineRow { id: string; name: string; online: boolean }
 
 /// What the window hands `registerProviders`.
-export interface ProvidersDeps {
+interface ProvidersDeps {
   registerView: (name: string, view: { title: () => { title: string; sub: string; tools: Node[] }; mount(root: HTMLElement, arg?: unknown): void }) => void;
   invoke: typeof Invoke;
   h: MakeEl;
@@ -203,10 +203,6 @@ export function registerProviders(deps: ProvidersDeps) {
     return b;
   }
 
-  function avatar(agent: string) {
-    return harnessEl(agent);
-  }
-
   /// The name, version and update chip on one line; the version gives way
   /// first when the line runs out of room.
   function nameLine(name: string, version: string, latest: string | null) {
@@ -226,7 +222,7 @@ export function registerProviders(deps: ProvidersDeps) {
     const rows = listRows(v).map(r => {
       const hv = v.harnesses.find(x => x.agent === r.agent)!;
       const name = h("span", "hv-name", nameLine(r.name, r.version ? `v${r.version}` : "", r.update ? hv.latest : null), statusSmall(r.status, r.bad));
-      const row = h("div", `hv-it${r.on || !r.switchable ? "" : " off"}`, avatar(r.agent), name, r.switchable ? toggle(hv, r.on) : h("span", ""));
+      const row = h("div", `hv-it${r.on || !r.switchable ? "" : " off"}`, harnessEl(r.agent), name, r.switchable ? toggle(hv, r.on) : h("span", ""));
       row.setAttribute("role", "button");
       row.tabIndex = 0;
       row.setAttribute("aria-current", String(r.agent === st.picked));
@@ -252,7 +248,7 @@ export function registerProviders(deps: ProvidersDeps) {
     const name = h("span", "hv-name", nameLine(harnessName(hv.agent), hv.installed && hv.version ? `v${hv.version}` : "", hasUpdate(hv) ? hv.latest : null), statusSmall(s.text, s.bad));
     const on = hv.installed && hv.settings.enabled;
     const end = hv.installed ? [h("span", "on", `${on ? "On" : "Off"} for ${m}`), toggle(hv, on)] : [h("span", ""), h("span", "")];
-    return h("div", `hv-sum${hv.installed && !on ? " off" : ""}`, avatar(hv.agent), name, ...end);
+    return h("div", `hv-sum${hv.installed && !on ? " off" : ""}`, harnessEl(hv.agent), name, ...end);
   }
 
   function input(value: string, placeholder: string, onInput: (v: string) => void, label: string) {
@@ -290,8 +286,7 @@ export function registerProviders(deps: ProvidersDeps) {
     const out: (Node | null)[] = [];
     const s = hv.sign_in;
     if (s.state === "signed_in") {
-      const plan = s.plan ? ` · ${s.plan[0].toUpperCase()}${s.plan.slice(1)} plan` : "";
-      out.push(row(h("span", "ddot"), s.account ? `Signed in as ${s.account}${plan}` : `Signed in${plan}`));
+      out.push(row(h("span", "ddot"), `Signed in${s.account ? ` as ${s.account}` : ""}${planOf(s)}`));
     } else if (s.state === "beep_token") {
       out.push(row(h("span", "ddot"), `Signs in with the token in Agent accounts (…${s.last4 ?? ""})`),
         acts(button("Agent accounts", "", () => deps.openSettings("agents"))));
@@ -326,7 +321,7 @@ export function registerProviders(deps: ProvidersDeps) {
     const m = machineName(), name = harnessName(hv.agent);
     const box = inSettings
       ? h("div", "hv-d", ...statusBlock(hv))
-      : h("div", "hv-d", h("h3", "", avatar(hv.agent), name, h("span", "ver", versionLine(hv))), h("h4", "", "Status"), ...statusBlock(hv));
+      : h("div", "hv-d", h("h3", "", harnessEl(hv.agent), name, h("span", "ver", versionLine(hv))), h("h4", "", "Status"), ...statusBlock(hv));
     if (!hv.installed) return box;
 
     const homeVar = hv.home_var ?? "Home folder";

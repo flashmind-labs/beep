@@ -1,3 +1,5 @@
+// project/: the Projects page and one project's page (tasks, threads, runs,
+// file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, svgEl as icon } from "../ui/parts.ts";
@@ -121,9 +123,7 @@ registerView("projects", {
     refresh();
     prefetchRecentSoon();
   },
-  unmount() {
-    openTile(null, false);
-  },
+  unmount: () => openTile(null, false),
 });
 
 /// A project's row on Home: its dot, `name` (its full name by default),

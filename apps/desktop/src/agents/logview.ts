@@ -86,13 +86,11 @@ function toolBody(output: string) {
   return diffs + (rest ? `<pre class="out box">${esc(rest)}</pre>` : "");
 }
 
-const BEEP_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="7" rx="1.5"/><rect x="13" y="13" width="9" height="7" rx="1.5"/><path d="M6.5 11v4.5a2 2 0 0 0 2 2H13"/></svg>';
-
 /// A call to the session's Beep tools: what it did, the machine as a chip,
 /// the first line of its command or prompt, then the file count and how it
 /// stands on the right.
 function beepHead(beep: BeepCall, title: string, state: string, live: boolean) {
-  return `<span class="tt bp" title="${esc(beepLine(title) ?? title)}"><span class="bi">${BEEP_ICON}</span><span class="v">${esc(live ? beep.doing : beep.done)}</span>`
+  return `<span class="tt bp" title="${esc(beepLine(title) ?? title)}"><span class="bi">${KIND_ICONS.beep}</span><span class="v">${esc(live ? beep.doing : beep.done)}</span>`
     + (beep.machine ? `<span class="mc">${esc(beep.machine)}</span>` : "")
     + (beep.detail ? `<code>${esc(beep.detail.split("\n")[0])}</code>` : "") + "</span>"
     + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}</span>`;

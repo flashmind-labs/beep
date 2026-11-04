@@ -59,12 +59,6 @@ export interface OpenRow<P = OpenProject> {
   items: GitItemRow[];
 }
 
-/// A state chip: its text and class.
-export interface Chip {
-  text: string;
-  cls: string;
-}
-
 /// Items a project shows before "Show all".
 export const ITEMS_SHOWN = 3;
 
@@ -112,16 +106,14 @@ export function projectsWithOpen<P extends OpenProject>(
 
 /// The state chips of an item.
 export function itemChips(item: Item & Pick<GitItemRow, "draft" | "assigned">) {
-  const out: Chip[] = [];
+  const out: { text: string; cls: string }[] = [];
   if (item.kind === "pull_request") {
     if (item.review_requested) out.push({ text: "your review", cls: "wait" });
     if (item.draft) out.push({ text: "draft", cls: "" });
     if (item.review === "changes_requested") out.push({ text: "changes requested", cls: "wait" });
     else if (item.review === "approved") out.push({ text: "approved", cls: "run" });
     if (item.checks_failing) out.push({ text: "checks failing", cls: "bad" });
-  } else if (item.assigned) {
-    out.push({ text: "assigned", cls: "" });
-  }
+  } else if (item.assigned) out.push({ text: "assigned", cls: "" });
   return out;
 }
 
@@ -138,9 +130,4 @@ export function reviewStart(
   const at = project?.machines?.find(m => online.has(m.id) && m.folder) || null;
   const places = (project?.machines || []).filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
   return { prompt, at: at ? { machine: at.id, cwd: at.folder, places, ...(project?.name ? { project: project.name } : {}) } : null };
-}
-
-/// The first message of the chat Reply opens.
-export function replyPrompt(item: Pick<GitItemRow, "url">) {
-  return `Help me reply to ${item.url}`;
 }

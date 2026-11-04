@@ -1,6 +1,5 @@
 // Sending to a coding agent: messages queued while a turn runs, steers,
 // answers to its questions, and interrupting it.
-// ----- Messages typed while a turn runs -----
 import { type Attached, batches, dropDelivered, steersToQueue, type Waiting } from "./agentqueue.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { $, esc, h, ICON, invoke } from "../bar/core.ts";
@@ -32,6 +31,10 @@ export function drawQueue() {
   if (old) el ? old.replaceWith(el) : old.remove();
   else if (el) ($("#agatt") ?? field).before(el);
 }
+
+/// A message as `agent_steer` takes it, its images without what only the
+/// field shows.
+const outgoing = (text: string, images: Attached[]) => images.length ? { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } : { text };
 
 /// Takes what waits in the field for a message: the words, the paths it
 /// mentions and the images.
@@ -105,8 +108,7 @@ async function sendSteer(q: Waiting) {
   drawQueue();
   redrawAgentHints();
   if (q.images.length) keepAgentPics(o, q.images);
-  const images = q.images.map(({ name, mime, data }) => ({ name, mime, data }));
-  const ok = await steerAgent({ steer: images.length ? { text: q.text, images } : { text: q.text } });
+  const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
   if (!isOpen(o)) return;
   if (q.how !== "steer") {
     // Esc made it a queued message while it was on its way.
@@ -150,9 +152,7 @@ export function flushQueue() {
       page.entries.push({ kind: "user", text: [part.text, ...part.images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") });
       drawAgentBody();
       if (part.images.length) keepAgentPics(o, part.images);
-      const images = part.images.map(({ name, mime, data }) => ({ name, mime, data }));
-      const ok = await steerAgent({ prompt: images.length ? { text: part.text, images } : { text: part.text } });
-      if (!ok) {
+      if (!await steerAgent({ prompt: outgoing(part.text, part.images) })) {
         // What did not go waits again, ahead of anything queued since.
         if (isOpen(o)) {
           const left = parts.slice(n).map(b => ({ how: "queue" as const, typed: b.text, text: b.text, paths: [], images: b.images, state: null, after: 0 }));
@@ -246,7 +246,7 @@ export async function sendAgentMessage() {
   const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
   page.entries.push(mine);
   drawAgentBody();
-  const sent = await steerAgent({ prompt: images.length ? { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } : { text } });
+  const sent = await steerAgent({ prompt: outgoing(text, images) });
   if (sent || !isOpen(o)) return;
   // Nothing went: the message and its images wait in the field again,
   // before anything typed since, under the note that says why.

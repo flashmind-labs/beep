@@ -1,5 +1,5 @@
 // What a row of the Machines list shows, as pure functions so they can be
-// tested without Tauri. bar/machines.ts draws it.
+// tested without Tauri. machines.ts draws it.
 import { isNewer } from "../settings/providers-state.ts";
 
 /// A tool a machine reported, with what its version command printed.

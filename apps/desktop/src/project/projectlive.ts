@@ -64,7 +64,6 @@ export function makeProjectLive(deps: LiveDeps) {
   return {
     follow,
     heard,
-    mode: (id: string) => modes.get(id),
     chip: (id: string) => modeChip(h, modes.get(id)),
   };
 }

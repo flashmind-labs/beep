@@ -50,7 +50,6 @@ export function terminalLine(t: TerminalRow, open: () => void) {
   return row;
 }
 
-
 /// The Terminals page into its view, keeping the list's scroll.
 function drawTerminals() {
   const el = views.get("terminals")?.el;

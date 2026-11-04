@@ -96,16 +96,14 @@ export function planUsed(plan: { windows: Pick<UsageWindow, "used_percent">[] })
 
 /// "Claude" and "Codex" in the pill, where space is short.
 export function shortName(agent: string) {
-  if (agent === "claude") return "Claude";
-  return agentLabel(agent);
+  return agent === "claude" ? "Claude" : agentLabel(agent);
 }
 
 /// "Max plan" for Claude's `max`, "ChatGPT Pro" for Codex's `pro`.
 export function planName(agent: string, plan: string | null) {
   if (!plan) return "";
   const word = plan.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  if (agent === "codex") return `ChatGPT ${word}`;
-  return `${word} plan`;
+  return agent === "codex" ? `ChatGPT ${word}` : `${word} plan`;
 }
 
 /// "5 hours", "This week", "This week, Opus".
@@ -122,9 +120,7 @@ export function windowName(w: Pick<UsageWindow, "minutes" | "scope">) {
 /// "14:30" for a reset within a day, else the weekday ("Mon").
 export function resetName(at: number, now: number) {
   const d = new Date(at);
-  if (at - now < DAY * 60_000) {
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  }
+  if (at - now < DAY * 60_000) return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   return d.toLocaleDateString("en-US", { weekday: "short" });
 }
 
@@ -183,11 +179,6 @@ export function hasUsage(view: UsageView | null): view is UsageView {
   return view.limits.some(p => p.windows.length) || spent(view.today) || spent(view.week) || spent(view.month);
 }
 
-/// The periods the popover offers: the month only when the server keeps it.
-export function periods(view: UsageView) {
-  return PERIODS.filter(p => p.key !== "month" || view.month != null);
-}
-
 function bar(used: number, cls: string) {
   const i = h("i", used > WARN_USED ? "warn" : "");
   i.style.width = `${used}%`;
@@ -226,7 +217,8 @@ function spendRow(name: Node | string, cost: string, extra: string, strong = fal
 function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void) {
   const period = view[key] ?? view.today;
   const metered = !!view.metered;
-  const seg = h("div", "us-seg", ...periods(view).map(p => {
+  // The month only when the server keeps it.
+  const seg = h("div", "us-seg", ...PERIODS.filter(p => p.key !== "month" || view.month != null).map(p => {
     const b = h("button", p.key === key ? "on" : "", p.label);
     b.type = "button";
     b.setAttribute("aria-pressed", String(p.key === key));
@@ -288,12 +280,8 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
   const pick = (key: PeriodKey) => { period = key; draw(); };
 
   const draw = () => {
-    if (!hasUsage(view)) {
-      host.hidden = true;
-      host.replaceChildren();
-      return;
-    }
-    host.hidden = false;
+    host.hidden = !hasUsage(view);
+    if (!hasUsage(view)) return host.replaceChildren();
     const button = h("button", "us-pill", ...pill(view));
     button.type = "button";
     button.title = "Plan usage and cost today";
@@ -322,12 +310,8 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
     setTimeout(() => { if (open) void load(false); }, REFRESH_WAIT_MS);
   };
 
-  document.addEventListener("click", e => {
-    if (open && !e.composedPath().includes(host)) toggle(false);
-  });
-  document.addEventListener("keydown", e => {
-    if (open && e.key === "Escape") toggle(false);
-  });
+  document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
+  document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
   setInterval(() => { if (document.visibilityState === "visible") void load(false); }, POLL_MS);
   void load(false);
 }

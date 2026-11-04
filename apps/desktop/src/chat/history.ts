@@ -32,11 +32,6 @@ export interface WebSource {
   title: string;
 }
 
-/// What the server lists for each user turn of a session, by its `at`.
-interface ByTurn {
-  message: number;
-}
-
 export async function openSession(id: string) {
   S.session = id;
   loadQuestions(id);
@@ -249,9 +244,9 @@ export function drawChatTop() {
   if (b.firstElementChild !== top) b.prepend(top);
 }
 
-/// Calls `draw` with each turn of session `id` that `list` names, once the
-/// server lists them. The chat may have been left or redrawn meanwhile.
-async function eachTurn<T extends ByTurn>(id: string, b: ChatBody, list: Promise<T[]>, draw: (turn: Turn, item: T) => void) {
+/// Calls `draw` with each turn of session `id` that `list` names by its
+/// `at`, once the server lists them. The chat may have been left or redrawn meanwhile.
+async function eachTurn<T extends { message: number }>(id: string, b: ChatBody, list: Promise<T[]>, draw: (turn: Turn, item: T) => void) {
   const items = await list.catch(() => []);
   if (S.session !== id || body() !== b) return;
   for (const item of items) {

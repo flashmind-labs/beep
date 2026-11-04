@@ -92,24 +92,20 @@ interface Removable {
   online?: boolean;
 }
 
-/// Right-clicking `els` opens the menu for machine `m`, offline or not.
+/// Right-clicking `els` opens the menu for machine `m`, offline or not; none
+/// for this Mac.
 export function machineMenu(m: Removable, ...els: Element[]) {
-  for (const el of els) el.addEventListener("contextmenu", e => openMachineMenu(e as MouseEvent, m));
-}
-
-/// The menu for machine `m` where `e` was clicked; none for this Mac.
-function openMachineMenu(e: MouseEvent, m: Removable) {
-  if (!m.id || m.id === state.mac?.id) return;
-  openMenu(e, m.name, [{ label: "Remove…", warn: true, on: () => removeMachine(m) }]);
+  for (const el of els) el.addEventListener("contextmenu", e => {
+    if (!m.id || m.id === state.mac?.id) return;
+    openMenu(e as MouseEvent, m.name, [{ label: "Remove…", warn: true, on: () => removeMachine(m) }]);
+  });
 }
 
 /// Asks, then unlinks `m` from the account.
 function removeMachine(m: Removable) {
   confirmSheet({
     title: `Remove ${m.name}?`,
-    text: m.online === false
-      ? "It is unlinked from your account."
-      : "It is unlinked and agents running there stop.",
+    text: m.online === false ? "It is unlinked from your account." : "It is unlinked and agents running there stop.",
     note: "Its files stay on the machine.",
     action: "Remove",
     run: async () => {

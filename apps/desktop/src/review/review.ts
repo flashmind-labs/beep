@@ -1,3 +1,5 @@
+// review/: a project's branches, reviews and the diff viewer. Entry:
+// makeReviews here, openBranchDiff in diffsheet.ts.
 // A project's branches and the review of one before a merge.
 import { harnessEl } from "../agents/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
@@ -8,7 +10,7 @@ import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "../project/board.ts";
 import { plural } from "../ui/format.ts";
-import { emptyPanel, errorNote, freshNote, note, stateChip } from "../ui/parts.ts";
+import { emptyPanel, errorNote, freshNote, note, stateChip, svgEl } from "../ui/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../project/pagecache.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
@@ -167,7 +169,6 @@ export function reviewState(r: Pick<ReviewView, "merge" | "pr" | "shards" | "fin
 /// The pill's words for each state.
 export const STATE_LABEL: Record<ReviewState, string> = { running: "Reviewing", blocked: "Blocked", changes: "Needs changes", ready: "Ready" };
 
-
 /// What to say when the branch moved since the review, from what
 /// `CheckBranchReview` gave; "" when it did not, or is not known yet.
 export function staleText(r: Pick<ReviewView, "branch">, now: ReviewHead | null | undefined) {
@@ -210,11 +211,6 @@ export function reviewFacts(r: Mergeable & Pick<ReviewView, "changed_lines" | "s
   const when = isRunning(r) ? `started ${since(r.started_at)}` : since(r.head_at);
   out.push({ code: r.head.slice(0, 7), text: ` · ${when}`, pre: "head " });
   return out;
-}
-
-/// "file:18", or the file alone.
-export function findingPlace(f: Pick<FindingView, "file" | "line">) {
-  return f.line ? `${f.file}:${f.line}` : f.file;
 }
 
 /// A shard's second line: "268 lines · 6 files · Claude Code on build-box".
@@ -457,8 +453,7 @@ export function makeReviews(deps: ReviewDeps) {
     t.note = "";
     redraw();
     try {
-      const out = await call();
-      done(out);
+      done(await call());
     } catch (e) {
       t.error = reason(e);
     } finally {
@@ -560,19 +555,13 @@ export function makeReviews(deps: ReviewDeps) {
     return box;
   }
 
-  function tick() {
-    const s = h("span");
-    s.innerHTML = TICK; // fixed markup from this file, no server text
-    return s.firstChild;
-  }
-
   function findingRow(name: string, r: ReviewView, f: FindingView) {
     const dropped = f.verdict === "dropped";
     const ver = dropped ? h("span", "")
       : f.verdict === "waiting" ? h("span", "rv-ver wait", h("span", "dspin"), "verifying")
-      : f.verdict === "verified" ? h("span", "rv-ver", tick(), "Verified")
+      : f.verdict === "verified" ? h("span", "rv-ver", svgEl(TICK), "Verified")
       : h("span", "rv-ver wait", "Not verified");
-    const text = h("span", "t", h("b", "", f.title), dropped ? null : h("code", "", findingPlace(f)),
+    const text = h("span", "t", h("b", "", f.title), dropped ? null : h("code", "", f.line ? `${f.file}:${f.line}` : f.file),
       h("span", "", dropped ? `Not real: ${f.dropped_why || "the verifier found no problem"}` : f.why));
     const right = h("span", "rv-side", ver);
     if (!dropped && !isRunning(r)) {
@@ -673,8 +662,6 @@ export function makeReviews(deps: ReviewDeps) {
   return {
     load,
     ensure,
-    loading: (name: string) => reading.has(name),
-    at: (name: string) => kept.at(name),
     branches: (name: string) => of(name).branches,
     reviews: (name: string) => of(name).reviews,
     openBranch,

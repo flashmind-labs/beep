@@ -31,15 +31,11 @@ import { drawProjects } from "./page.ts";
 import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 
 /// What the agent sections are doing: `busy` and `errors` by task or worker
-/// id, `outcomes` of answered cards by query id, and `starting` the project
-/// whose agent the prompt bar is making.
-/// `tile` is the row of the project's list picked, null for the first.
+/// id, `outcomes` of answered cards by query id. `tile` is the row of the
+/// project's list picked, null for the first.
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
-/// The project's terminals.
 export const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
-
-/// The project's file sync.
 export const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects(), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the
@@ -75,7 +71,6 @@ export const thr = makeThreads({
   openChat: (chat: string) => { ownChats.add(chat); go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
   kept: keptSection("threads"),
-  mode: liveMode.chip,
 });
 
 /// A pull request or issue read in full, in the split's right column.
@@ -98,7 +93,6 @@ export function tickRepo(name: string) {
   if (agent) runs.tick(agent.project_id);
 }
 
-/// The Projects page's element.
 export function projectsEl() { return views.get("projects")!.el; }
 
 export function redrawProjects() {
@@ -214,4 +208,3 @@ export const pc = {
   target: null as BarTarget | null,
 };
 
-/// The tallest the bar's field grows before it scrolls, in pixels.

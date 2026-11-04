@@ -85,8 +85,7 @@ export function timeLeft(secs: number | null | undefined) {
   if (secs < 45) return "under a minute";
   if (secs < 90) return "about 1 min";
   if (secs < 3600) return `about ${Math.round(secs / 60)} min`;
-  const h = Math.round(secs / 3600);
-  return `about ${h} h`;
+  return `about ${Math.round(secs / 3600)} h`;
 }
 
 /// How far a machine is, 0 to 100, or null while it is not moving files.
@@ -107,8 +106,7 @@ export function stateChip(m: Pick<MachineDetail, "status" | "paused" | "progress
   if (m.status === "failed") return { text: "failed", wait: true };
   if (m.status === "scanning") return { text: "scanning", wait: false };
   if (m.status === "syncing") return { text: `syncing ${syncPct(m)}%`, wait: false };
-  if (m.conflicts.length) return { text: "in sync", wait: true };
-  return { text: "in sync", wait: false };
+  return { text: "in sync", wait: m.conflicts.length > 0 };
 }
 
 /// "1 change waiting", "3 changes waiting".
@@ -327,14 +325,8 @@ export function makeFileSync(deps: FileSyncDeps) {
     const d = s.detail;
     const out: HTMLElement[] = [];
     if (s.error) out.push(h("div", "cc-err", s.error));
-    if (d === null) {
-      out.push(h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it shows file sync in detail.")));
-      return out;
-    }
-    if (d === undefined) {
-      out.push(h("div", "cc-panel cc-empty", h("span", "", "Loading…")));
-      return out;
-    }
+    if (d === null) return [...out, h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it shows file sync in detail."))];
+    if (d === undefined) return [...out, h("div", "cc-panel cc-empty", h("span", "", "Loading…"))];
     const toggle = button(s.busy === "pause" ? (d.paused ? "Resuming…" : "Pausing…") : d.paused ? "Resume" : "Pause", d.paused ? "pri" : "", () => pause(name, !d.paused));
     toggle.disabled = !!s.busy || d.pinned || !d.machines.length;
     toggle.title = d.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are";
@@ -361,9 +353,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   }
 
   return {
-    load,
     ensure,
-    detail: (name: string) => of(name).detail,
     forTile,
     panel,
     stop: () => watch(null),

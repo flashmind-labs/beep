@@ -83,15 +83,9 @@ export function wireMentionChips(el: HTMLElement) {
     MN.ask = null;
     MN.redraw();
     if (!a || b.dataset.agup === "cancel") return;
-    uploadAll(a.files, b.dataset.agup === "there" ? a.folder : UPLOAD_FOLDER);
+    uploadDropped(a.files, b.dataset.agup === "there" ? a.folder : UPLOAD_FOLDER);
   }));
   if (MN.ask) queueMicrotask(() => el.querySelector<HTMLElement>('[data-agup="there"]')?.focus());
-}
-
-/// Files dropped or pasted on the session, other than the pictures the
-/// agent takes: uploaded into `.beep/uploads/`.
-export function uploadDropped(files: File[]) {
-  uploadAll(files, UPLOAD_FOLDER);
 }
 
 /// Files dropped on the folder `folder` of the Files tab: asked first.
@@ -101,7 +95,9 @@ export function askUpload(files: File[], folder: string) {
   MN.redraw();
 }
 
-async function uploadAll(files: File[], folder: string) {
+/// Files dropped or pasted on the session, other than the pictures the
+/// agent takes: uploaded into `folder`, by default `.beep/uploads/`.
+export async function uploadDropped(files: File[], folder = UPLOAD_FOLDER) {
   for (const f of files) {
     const why = uploadRefusal(f);
     if (why) { MN.error(why); continue; }

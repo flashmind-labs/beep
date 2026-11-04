@@ -43,14 +43,7 @@ function syncSession() {
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (A.key === key) return;
   A.el?.remove();
-  A.el = null;
-  A.key = key;
-  A.list = [];
-  A.drawn = "";
-  A.picked = null;
-  A.version = "";
-  A.seen = new Map();
-  A.primed = false;
+  Object.assign(A, { el: null, key, list: [], drawn: "", picked: null, version: "", seen: new Map(), primed: false });
 }
 
 /// The Artifacts view of the pane's session, made once per session.
@@ -216,8 +209,7 @@ function shownHtml(a: Artifact, got: Shown) {
 
 function drawShown(html: string | null) {
   const box = A.el?.querySelector<HTMLElement>(".agartshow");
-  if (!box) return;
-  box.innerHTML = html ?? "";
+  if (box) box.innerHTML = html ?? "";
 }
 
 function action(act: string) {

@@ -1,3 +1,5 @@
+// agentpane/: a coding agent session's side pane and its tabs (media,
+// files, changes, artifacts, terminal). Entry: this file.
 // The media pane of a coding agent session: pictures, videos, 3D models and
 // PDFs the agent made or looked at, its files, artifacts, terminals and
 // subagents, each a tab.
@@ -106,7 +108,7 @@ export function saveLayout() {
 type Fixed = "subagents" | "files" | "changes" | "artifacts";
 
 const ICONS: Record<TabKind | Fixed, string> = {
-  // filespane.ts imports this module, so its folder icon is repeated here
+  // files.ts imports this module, so its folder icon is repeated here
   // rather than read before that module has run.
   files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
   changes: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v8M8 8h8M8 18h8"/></svg>',
@@ -485,7 +487,6 @@ export function saveWorkFile(rel: string, note: (text: string) => void) {
     .then(to => { note(`Saved to Downloads as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
     .catch(e => note(readError(e)));
 }
-
 
 /// Opens a terminal tab on the session's machine, in its folder (⌃`), in
 /// dock `d`, else where the newest terminal sits.

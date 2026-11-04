@@ -61,11 +61,6 @@ export interface GroupChat {
   messages: GroupMessage[];
 }
 
-/// A message sent from here the server has not confirmed yet.
-export interface PendingMessage {
-  text: string;
-}
-
 /// The @ picker open under the composer: where the typed mention starts
 /// and ends, who it offers and which is picked.
 export interface Mention {
@@ -100,7 +95,8 @@ interface GroupReminder {
 export interface GroupState {
   id: string | null;
   chat: GroupChat | null;
-  pending: PendingMessage[];
+  /// Messages sent from here the server has not confirmed yet.
+  pending: { text: string }[];
   error: string;
   mention: Mention | null;
   poll: ReturnType<typeof setTimeout> | undefined;
@@ -151,8 +147,7 @@ function groupHead() {
     <button class="dbtn" id="ginvite">Invite</button><button class="dbtn" id="ginfo">Info<kbd>⌘I</kbd></button></div>`;
 }
 function wireHead() {
-  $("#gtitle")?.addEventListener("click", () => renderGroupInfo());
-  $("#ginfo")?.addEventListener("click", () => renderGroupInfo());
+  for (const id of ["#gtitle", "#ginfo"]) $(id)?.addEventListener("click", () => renderGroupInfo());
   $("#ginvite")?.addEventListener("click", () => renderInvite(G.id!, G.chat?.group.name));
 }
 function redrawHead() {
@@ -284,7 +279,7 @@ export async function sendGroup() {
   const ask = $$<HTMLTextAreaElement>("#gask"), text = ask.value.trim();
   if (!text || !G.chat) return;
   if (new TextEncoder().encode(text).length > GROUP_LIMIT) { G.error = "This message is too long to send."; return drawGroup(); }
-  const id = G.id, p: PendingMessage = { text };
+  const id = G.id, p = { text };
   G.error = "";
   G.pending.push(p);
   G.drafts.delete(id);
@@ -461,24 +456,21 @@ interface GroupInvite {
   qr_svg: string;
 }
 
-/// The group the invite on screen is for, by name.
-const invite = { name: "" };
-
 export async function renderInvite(id: string, name?: string | null, reset = false) {
   S.view = "invite";
   setGroup(id);
-  invite.name = name ?? G.chat?.group.name ?? "the group";
+  const title = name ?? G.chat?.group.name ?? "the group";
   bar.innerHTML = `<div class="dwin"><h4>Invite people</h4><p>They scan it with Beep on their phone, or enter the code under New group, Join with a code.</p><div class="dmuted"><span class="dspin"></span>Making a code…</div></div>`;
   try {
     const link = await invoke<GroupInvite>("group_invite", { id, reset });
     if (S.view !== "invite" || G.id !== id) return;
-    bar.innerHTML = `<div class="dwin"><h4>Invite to ${esc(invite.name)}</h4><p>They scan it with Beep on their phone, or enter the code under New group, Join with a code.</p>
+    bar.innerHTML = `<div class="dwin"><h4>Invite to ${esc(title)}</h4><p>They scan it with Beep on their phone, or enter the code under New group, Join with a code.</p>
       <div class="qr">${link.qr_svg}</div><div class="code" style="font-size:22px;font-weight:600">${esc(link.code)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="dbtn pri" id="icode">Copy code</button><button class="dbtn" id="ilink">Copy link</button><button class="dbtn warn" id="ireset">Reset code</button></div>
       <p style="font-size:12px">${reset ? "New code made. The old one no longer works. " : ""}Everyone who joins sees the whole chat. Beep never shows one person's memories to the others.</p></div>`;
     $$("#icode").addEventListener("click", e => copy(link.code, e.currentTarget as HTMLElement));
     $$("#ilink").addEventListener("click", e => copy(link.url, e.currentTarget as HTMLElement));
-    $$("#ireset").addEventListener("click", () => renderInvite(id, invite.name, true));
+    $$("#ireset").addEventListener("click", () => renderInvite(id, title, true));
   } catch (e) {
     if (S.view === "invite") bar.innerHTML = `<div class="dwin"><h4>Invite people</h4><p class="derr">${esc(e)}</p></div>`;
   }

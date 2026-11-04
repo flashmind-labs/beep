@@ -83,9 +83,9 @@ export interface AppLogo {
 /// The logo of the app an approval names, by name or slug, ignoring case.
 /// Null when the app has none.
 export function logoFor(apps: AppLogo[], app: string): string | null {
-  const key = app.trim().toLowerCase().replace(/[\s_-]+/g, "");
-  if (!key) return null;
   const norm = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, "");
+  const key = norm(app);
+  if (!key) return null;
   const found = apps.find(a => norm(a.name) === key) ?? apps.find(a => norm(a.slug) === key);
   return found?.logo_url || null;
 }
