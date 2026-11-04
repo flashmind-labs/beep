@@ -6,6 +6,7 @@ mod beep;
 mod center;
 mod chat;
 mod error;
+mod fleet;
 mod machines;
 mod notices;
 mod palette;
