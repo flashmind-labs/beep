@@ -118,6 +118,30 @@ pub struct AgentSessionView {
     pub earlier: u32,
 }
 
+/// What a session Beep runs has used, as `GetAgentSessionUsage` gives it.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionUsage {
+    /// How full its context window is, as the agent last said; `None`
+    /// before it says and right after it compacts.
+    pub context: Option<AgentContext>,
+    /// Every token its finished turns used.
+    pub tokens: u64,
+    /// What its finished turns cost at API prices, in US dollars; `None`
+    /// for an agent that reports no cost, as Codex and Gemini do.
+    pub cost_usd: Option<f64>,
+}
+
+/// How full a coding agent's context window is.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentContext {
+    /// Tokens in the context.
+    pub used: u64,
+    /// The window's size in tokens.
+    pub size: u64,
+}
+
 /// One step of a session's plan.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

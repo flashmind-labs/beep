@@ -4,7 +4,7 @@
 
 use super::{
     acp::{Prompt, wire_name},
-    compaction::{COMPACTED_ENTRY, Usage},
+    compaction::COMPACTED_ENTRY,
     image_files,
     images::{Images, Picture, data_url},
     subagent::{Activity, Run, Subagent},
@@ -24,7 +24,7 @@ use agent_client_protocol::schema::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentSlug,
+    AgentContext, AgentSlug,
     node::{
         agent::{
             AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question,
@@ -84,9 +84,6 @@ pub(crate) struct Live {
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,
-    /// How full the context window is, as the agent last said. Kept on
-    /// the node: the server is not told.
-    pub(crate) context: Option<Usage>,
     /// The names of the slash commands the agent advertises, such as
     /// `compact`.
     pub(crate) commands: Vec<String>,
@@ -217,6 +214,10 @@ impl Live {
         let cost_usd = self.unbilled.take();
         if tokens.total == 0 && tokens.models.is_empty() && cost_usd.is_none() {
             return;
+        }
+        self.info.tokens = self.info.tokens.saturating_add(tokens.total);
+        if let Some(cost) = cost_usd {
+            *self.info.cost_usd.get_or_insert(0.0) += cost;
         }
         self.usage.record(TurnUsage {
             session: self.info.id.clone(),
@@ -472,7 +473,7 @@ impl Live {
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
-                self.context = Some(Usage {
+                self.info.context = Some(AgentContext {
                     used: usage.used,
                     size: usage.size,
                 });
@@ -531,7 +532,7 @@ impl Live {
             return;
         }
         self.push(EntryKind::Other, COMPACTED_ENTRY);
-        self.context = None;
+        self.info.context = None;
         self.compacted = true;
     }
 
@@ -1681,6 +1682,7 @@ mod tests {
         });
         let last = usage.next_turn().await;
         assert_eq!((last.tokens, last.cost_usd), (5, None));
+        assert_eq!((live.info.tokens, live.info.cost_usd), (905, Some(1.5)));
     }
 
     #[test]
@@ -1690,8 +1692,8 @@ mod tests {
             json!({"sessionUpdate": "usage_update", "used": 900, "size": 1000})
         )));
         assert_eq!(
-            live.context,
-            Some(Usage {
+            live.info.context,
+            Some(AgentContext {
                 used: 900,
                 size: 1000
             })
@@ -1713,7 +1715,7 @@ mod tests {
         assert_eq!(entries.len(), 1, "shown once");
         assert_eq!(entries[0].kind, EntryKind::Other);
         assert_eq!(entries[0].text, COMPACTED_ENTRY);
-        assert_eq!(live.context, None, "the usage before no longer holds");
+        assert_eq!(live.info.context, None, "the usage before no longer holds");
         assert!(live.take_compacted());
         assert!(!live.take_compacted());
     }
