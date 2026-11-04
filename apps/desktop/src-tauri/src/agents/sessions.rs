@@ -3,6 +3,7 @@
 //! reading one in full. `steer` steers it, `media` reads its files.
 
 use crate::{
+    agents::work_copy,
     beep::{Service, epoch_ms},
     center::AgentsShown,
     chat::markdown,
@@ -375,6 +376,18 @@ pub async fn agent_view(
         })
         .await?;
     Ok(view.into())
+}
+
+/// The folder on this Mac for a session's folder, to open in an editor; `None`
+/// when this Mac does not have it.
+#[tauri::command]
+pub async fn session_folder_here(
+    beep: Service<'_>,
+    machine_id: String,
+    cwd: String,
+) -> Result<Option<String>> {
+    let folder = work_copy::folder_here(&beep, &machine_id, &cwd).await;
+    Ok(folder.map(|f| f.to_string_lossy().into_owned()))
 }
 
 /// How full a Beep session's context is and what its finished turns

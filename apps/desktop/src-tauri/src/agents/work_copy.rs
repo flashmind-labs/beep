@@ -240,6 +240,29 @@ async fn copy_of(beep: &Beep, machine_id: &str, dir: &str) -> Option<LocalCopy> 
     }
 }
 
+/// Where to open `rel` of the copy at `local`: its top when `rel` is not
+/// here, as a linked worktree stays on its machine.
+fn place_or_top(local: PathBuf, rel: &str) -> PathBuf {
+    let place = local.join(rel);
+    if stays_inside(&local, &place) {
+        place
+    } else {
+        local
+    }
+}
+
+/// The folder on this Mac for `dir` on `machine_id`, when this Mac has it.
+pub(crate) async fn folder_here(beep: &Beep, machine_id: &str, dir: &str) -> Option<PathBuf> {
+    if beep.id().to_string() == machine_id {
+        return Some(PathBuf::from(dir));
+    }
+    let copy = copy_of(beep, machine_id, dir).await?;
+    let rel = under(dir, &copy.remote)?.to_owned();
+    spawn_blocking(move || place_or_top(copy.local, &rel))
+        .await
+        .ok()
+}
+
 /// The folder holding `path`, `""` when it has none.
 fn parent(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(dir, _)| dir)
@@ -476,6 +499,17 @@ mod tests {
         assert!(!stays_inside(&root, &root.join("../outside")));
         // What a doubled slash in a session's path would join to.
         assert!(!stays_inside(&root, &root.join(&outside)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_folder_that_did_not_sync_opens_the_top_of_the_copy() {
+        let dir = env::temp_dir().join(format!("beep-work-copy-top-{}", process::id()));
+        let local = dir.join("widget");
+        fs::create_dir_all(local.join("sdk")).unwrap();
+        assert_eq!(place_or_top(local.clone(), "sdk"), local.join("sdk"));
+        assert_eq!(place_or_top(local.clone(), ".worktrees/fix"), local);
+        assert_eq!(place_or_top(local.clone(), "../other"), local);
         fs::remove_dir_all(&dir).unwrap();
     }
 

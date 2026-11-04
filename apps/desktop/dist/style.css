@@ -175,6 +175,13 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .agproj:hover { text-decoration: underline }
 .dhead .aguse { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap }
 .dhead .aguse:empty { display: none }
+.dhead .agedit { flex: none; display: flex; gap: 2px }
+.dhead .agedit:empty { display: none }
+.cc-menu { position: fixed; z-index: 40; min-width: 150px; padding: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
+.cc-menu button { all: unset; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--fg); cursor: default }
+.cc-menu button:hover, .cc-menu button:focus-visible { background: color-mix(in srgb, var(--fg) 7%, transparent) }
+.cc-menu button.warn { color: var(--err) }
+.cc-menu .lbl { padding: 4px 10px 3px; font-size: 11px; color: var(--dim); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dtyping { display: inline-flex; gap: 3px } .dtyping i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted) }
 .dmlist { flex: none; margin: 0 12px 8px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); display: grid; gap: 1px }
 .dmlist button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; color: var(--fg); padding: 6px 8px; border-radius: var(--radius-sm); text-align: left; font-size: 13px }
