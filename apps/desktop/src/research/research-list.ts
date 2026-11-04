@@ -34,9 +34,26 @@ export const STATE_LABEL: Record<ResearchState, string> = {
   running: "Running", waiting: "Waiting for your go", done: "Done", failed: "Failed", stopped: "Stopped",
 };
 
+/// A status in words, where the exact phase matters.
+export const STATUS_LABEL: Record<ResearchStatus, string> = {
+  planning: "Waiting for your go", researching: "Researching", reviewing: "Reviewing",
+  writing: "Writing", done: "Done", failed: "Failed", stopped: "Stopped", interrupted: "Interrupted",
+};
+
+/// The class of a research's status chip.
+export function chipClass(status: ResearchStatus) {
+  const state = researchState(status);
+  return state === "running" ? "run" : state === "waiting" ? "wait" : state === "failed" ? "bad" : "";
+}
+
+/// A status chip as HTML, for the views drawn from strings; `label` is trusted.
+export function chipHtml(status: ResearchStatus, label: string) {
+  const spin = researchState(status) === "running" ? '<span class="dspin"></span>' : "";
+  return `<span class="chip ${chipClass(status)}">${spin}${label}</span>`;
+}
+
 /// A running round's steps, in order.
 export const PHASES = ["researching", "reviewing", "writing"] as const;
-const PHASE_LABEL: Record<(typeof PHASES)[number], string> = { researching: "Researching", reviewing: "Reviewing", writing: "Writing" };
 
 /// The step a running research is on, from 1 to `PHASES.length`; 0 when it is not running.
 export function phaseStep(status: ResearchStatus) {
@@ -53,7 +70,7 @@ export function newestFirst(list: readonly ResearchRow[]): ResearchRow[] {
 export function progressLine(r: ResearchRow) {
   const round = r.round > 1 ? `Round ${r.round} · ` : "";
   const state = researchState(r.status);
-  if (state === "running") return round + PHASE_LABEL[r.status as (typeof PHASES)[number]];
+  if (state === "running") return round + STATUS_LABEL[r.status];
   if (state === "waiting") return r.round > 1 ? `Round ${r.round} planned` : "Plan ready";
   if (state === "done") {
     const rounds = r.round > 1 ? `${r.round} rounds · ` : "";
