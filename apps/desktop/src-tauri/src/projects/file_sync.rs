@@ -7,7 +7,7 @@ use crate::{
     center::kept,
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
-    projects::unknown_op,
+    projects::{needs_update, unknown_op},
 };
 use beep_proto::{
     ConflictKeep, GetProjectSyncDetail, ListProjectSync, MachineSync, MachineSyncDetail,
@@ -148,13 +148,7 @@ impl From<ProjectSyncDetail> for SyncDetailView {
 }
 
 fn outdated(e: DesktopError) -> DesktopError {
-    if unknown_op(&e) {
-        DesktopError::BadRequest(
-            "The server needs an update before it pauses sync or settles conflicts.".into(),
-        )
-    } else {
-        e
-    }
+    needs_update(e, "before it pauses sync or settles conflicts")
 }
 
 /// `project`'s sync in detail; `None` from a server too old to give it.

@@ -5,7 +5,7 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
-    projects::unknown_op,
+    projects::{needs_update, unknown_op},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -77,11 +77,7 @@ pub struct OutputView {
 }
 
 fn outdated(e: DesktopError) -> DesktopError {
-    if unknown_op(&e) {
-        DesktopError::BadRequest("The server needs an update before it keeps terminals.".into())
-    } else {
-        e
-    }
+    needs_update(e, "before it keeps terminals")
 }
 
 /// `project`'s terminals; `None` from a server too old to keep them.

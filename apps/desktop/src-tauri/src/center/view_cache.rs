@@ -1,9 +1,11 @@
-//! The views the window last drew from the server, kept in one file so a
-//! window that opens shows them at once and updates them in place once the
-//! server answers. Only what the server lists goes in, never a key or a
-//! token. A file of another format or app version, or one that does not
-//! parse, is dropped and written again.
+//! The views the window last drew from the server, in one file, so a new
+//! window shows them at once. Only what the server lists goes in, never a
+//! key; a file of another format or app version is dropped and rewritten.
 
+use crate::{
+    beep::{Beep, state::LinkState},
+    error::{self, DesktopError},
+};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,10 +15,11 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::{
-        Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicUsize, Ordering},
     },
 };
+use tauri::State;
 
 /// Raised whenever the file's own layout changes.
 const FORMAT: u32 = 1;
@@ -182,6 +185,78 @@ fn read(path: &Path, app: &str) -> anyhow::Result<BTreeMap<View, Value>> {
         );
     }
     Ok(file.views)
+}
+
+/// `result`, kept as the latest `view` when it is an answer.
+pub(crate) fn kept<T: Serialize>(
+    cache: &Arc<ViewCache>,
+    view: View,
+    result: error::Result<T>,
+) -> error::Result<T> {
+    if let Ok(value) = &result {
+        cache_view(cache, view, value);
+    }
+    result
+}
+
+/// Keeps `value` as the latest `view` for the next window that opens. The
+/// file is written on a blocking thread, one write at a time.
+pub(crate) fn cache_view<T: Serialize>(cache: &Arc<ViewCache>, view: View, value: &T) {
+    let value = match serde_json::to_value(value) {
+        Ok(value) => value,
+        Err(e) => {
+            log::warn!("keeping the {view:?} view: {e}");
+            return;
+        }
+    };
+    if cache.put(view, value) {
+        let cache = cache.clone();
+        tauri::async_runtime::spawn_blocking(move || cache.write_unsaved());
+    }
+}
+
+/// What the window last drew from the server, by view, for a window that
+/// opens to show before the server answers; `None` until this Mac is linked.
+#[tauri::command]
+pub fn center_cached(
+    beep: State<'_, Arc<Beep>>,
+    cache: State<'_, Arc<ViewCache>>,
+) -> Option<BTreeMap<View, Value>> {
+    if beep.link_state() != LinkState::Linked {
+        return None;
+    }
+    let mut views = cache.views();
+    // Home's own head start, not the page's.
+    views.remove(&View::AgentSessions);
+    Some(views)
+}
+
+/// The most a project page cache may take, in bytes of JSON. The page caps
+/// it lower; this only stops a runaway one filling the disk.
+const MAX_PAGES: usize = 4 * 1024 * 1024;
+
+/// Keeps what the project pages last read, so the next window, even after
+/// a restart, draws them at once. Only while linked: the file goes with
+/// the account on Start over.
+#[tauri::command]
+pub fn center_keep_pages(
+    beep: State<'_, Arc<Beep>>,
+    cache: State<'_, Arc<ViewCache>>,
+    pages: Value,
+) -> error::Result<()> {
+    if beep.link_state() != LinkState::Linked {
+        return Err(DesktopError::Unlinked);
+    }
+    let size = serde_json::to_vec(&pages)
+        .map_err(anyhow::Error::from)?
+        .len();
+    if size > MAX_PAGES {
+        return Err(DesktopError::BadRequest(format!(
+            "the page cache is {size} bytes, over the {MAX_PAGES} kept"
+        )));
+    }
+    cache_view(&cache, View::Pages, &pages);
+    Ok(())
 }
 
 #[cfg(test)]

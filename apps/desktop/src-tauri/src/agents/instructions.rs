@@ -5,7 +5,7 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
-    projects::unknown_op,
+    projects::{needs_update, unknown_op},
 };
 use beep_proto::{
     GetInstructions, InstructionsVersion, ListInstructionsVersions, MachineAgentFiles,
@@ -40,11 +40,7 @@ impl From<InstructionsVersion> for VersionRow {
 
 /// A server from before instructions answers with an unknown op.
 fn outdated(e: DesktopError) -> DesktopError {
-    if unknown_op(&e) {
-        DesktopError::BadRequest("The server needs an update before it keeps instructions.".into())
-    } else {
-        e
-    }
+    needs_update(e, "before it keeps instructions")
 }
 
 /// The newest version, or `None` before the first save.

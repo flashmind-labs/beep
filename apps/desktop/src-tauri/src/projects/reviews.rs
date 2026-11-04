@@ -5,7 +5,7 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
-    projects::unknown_op,
+    projects::{needs_update, unknown_op},
 };
 use beep_proto::{
     BranchReview, CheckBranchReview, DismissReviewFinding, FixReviewFindings, GetBranchReview,
@@ -235,11 +235,7 @@ impl From<ProjectTask> for FixView {
 }
 
 fn outdated(e: DesktopError) -> DesktopError {
-    if unknown_op(&e) {
-        DesktopError::BadRequest("The server needs an update before it reviews branches.".into())
-    } else {
-        e
-    }
+    needs_update(e, "before it reviews branches")
 }
 
 /// `project`'s branches; `None` from a server too old to list them.

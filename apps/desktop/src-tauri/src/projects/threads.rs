@@ -6,7 +6,7 @@ use crate::{
     beep::{Beep, epoch_ms},
     chat::markdown::untrusted_html,
     error::{DesktopError, Result},
-    projects::unknown_op,
+    projects::{needs_update, unknown_op},
 };
 use beep_proto::{
     GetProjectThread, GetPullRequestHead, GetThreadDetail, GitItemKind, IssueStart,
@@ -22,11 +22,7 @@ use uuid::Uuid;
 type Service<'a> = State<'a, Arc<Beep>>;
 
 fn outdated(e: DesktopError) -> DesktopError {
-    if unknown_op(&e) {
-        DesktopError::BadRequest("The server needs an update for this.".into())
-    } else {
-        e
-    }
+    needs_update(e, "for this")
 }
 
 /// An open issue no task tracks yet.

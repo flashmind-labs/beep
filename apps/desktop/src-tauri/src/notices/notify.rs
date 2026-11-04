@@ -5,9 +5,9 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use crate::{
-    bar::commands::{self, ChatAnswer},
     beep::{Beep, Decision},
     center::{self, AgentTarget, CenterTarget},
+    chat::approvals::{self, ChatAnswer},
     error::{DesktopError, Result},
     notices::work,
     tray::waiting::WaitingList,
@@ -145,7 +145,7 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
                 query_id,
                 decision,
             };
-            commands::answer_chat(app, answer, None).await
+            approvals::answer_chat(app, answer, None).await
         }
         // A withdrawn question is fine too: the work stopped or someone
         // answered it, and its resolved notice clears the card.

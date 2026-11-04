@@ -4,7 +4,7 @@
 //! sign-in" saves it.
 
 use crate::{
-    bar::commands::open_url,
+    bar::app::open_url,
     beep::Beep,
     error::Result,
     settings::cli_login::{find_tool, refused, save_gh_login},

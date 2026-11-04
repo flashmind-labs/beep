@@ -11,7 +11,7 @@
 
 use crate::{
     bar,
-    bar::commands::open_url,
+    bar::app::open_url,
     beep::Beep,
     error::{DesktopError, Result},
 };
