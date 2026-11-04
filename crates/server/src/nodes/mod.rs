@@ -48,13 +48,13 @@ mod update;
 mod usage;
 mod webhook;
 
+pub(crate) use crate::protocol::agent_name;
 pub use crate::protocol::node::{
     NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
     sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
 pub use agent::{AgentLink, Mark, StartOn, Watched};
 pub(crate) use agent::{News, NodeFile, NodeImage, NodeWork, SessionRefused, WorkRead, WorkWrite};
-pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};
 pub(crate) use retry::{NODE_BACK, Repeat};

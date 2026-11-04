@@ -11,6 +11,7 @@ use beep_proto::node::{
     usage::{PlanUsage, SessionSpend},
 };
 use futures::future::BoxFuture;
+use iroh::EndpointId;
 use std::{fmt::Display, path::PathBuf, sync::Arc};
 use tokio::{
     task::{JoinHandle, spawn_blocking},
@@ -68,7 +69,13 @@ fn shown_entries(mut entries: Vec<agent::Entry>, thoughts: bool) -> Vec<agent::E
 }
 
 /// Serves one `agents/1` request.
-pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
+/// `caller` is the key of whoever opened the stream.
+pub async fn serve_sessions(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    agents: Arc<Agents>,
+    caller: EndpointId,
+) -> Result<()> {
     let Some(request) = rx.recv::<SessionsRequest>().await? else {
         return Ok(());
     };
@@ -112,7 +119,9 @@ pub async fn serve_sessions(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>)
             return agents.external.watch(tx, rx, sessions).await;
         }
         SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
-        SessionsRequest::FollowAlerts {} => return send_alerts(tx, rx, &agents.alerts).await,
+        SessionsRequest::FollowAlerts {} => {
+            return send_alerts(tx, rx, &agents.alerts, caller).await;
+        }
         SessionsRequest::FollowUsage { history } => {
             return send_usage(tx, rx, &agents, history).await;
         }
@@ -301,20 +310,27 @@ async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<
                 })
                 .await?;
             }
-            // The server sends nothing more; anything is its goodbye.
+            // The caller sends nothing more; anything is its goodbye.
             _ = rx.recv::<SessionsRequest>() => return Ok(()),
         }
     }
 }
 
-/// Sends the server each alert as it comes, until it closes the stream.
-async fn send_alerts(mut tx: LinkTx, mut rx: LinkRx, alerts: &AlertHub) -> Result<()> {
+/// Sends each alert as it comes, until the caller closes the stream.
+async fn send_alerts(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    alerts: &AlertHub,
+    caller: EndpointId,
+) -> Result<()> {
+    let follow = alerts.follow(caller);
     loop {
         tokio::select! {
-            alert = alerts.next() => {
+            alert = follow.next() => {
                 tx.send(&SessionsReply::Alert { alert }).await?;
+                follow.sent();
             }
-            // The server sends nothing more; anything is its goodbye.
+            // The caller sends nothing more; anything is its goodbye.
             _ = rx.recv::<SessionsRequest>() => return Ok(()),
         }
     }

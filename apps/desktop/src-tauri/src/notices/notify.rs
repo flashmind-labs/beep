@@ -9,7 +9,7 @@ use crate::{
     center::{self, AgentTarget, CenterTarget},
     chat::approvals::{self, ChatAnswer},
     error::{DesktopError, Result},
-    fleet::{Fleet, agents as direct},
+    fleet::{Fleet, alerts},
     notices::work,
     tray::waiting::WaitingList,
 };
@@ -139,6 +139,7 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
         Decision::Deny
     };
     let beep = app.state::<Arc<Beep>>().inner().clone();
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
     match ask {
         Ask::Turn { session, query_id } => {
             let answer = ChatAnswer {
@@ -160,24 +161,24 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
             }
             Ok(())
         }
-        // The server refuses an answer to a question the session no longer
-        // asks, as a conflict.
+        // A machine of the mesh is asked directly; any other through the
+        // server. Both refuse an answer to a question the session no
+        // longer asks, as a conflict.
         Ask::Agent(key) => {
             let Some(question) = key.question else {
                 return Ok(());
             };
-            let answer = AnswerAgentQuestion {
+            if alerts::reaches(&fleet, &key.machine_id) {
+                return alerts::answer(&fleet, &key, agent_reply(allow)).await;
+            }
+            beep.call(AnswerAgentQuestion {
                 machine_id: key.machine_id,
                 agent: key.agent,
                 session: key.session,
                 question,
                 reply: agent_reply(allow).into(),
-            };
-            let fleet = app.state::<Arc<Fleet>>().inner().clone();
-            match fleet.member(&answer.machine_id) {
-                Some(machine) => direct::answer(&fleet, machine, answer).await,
-                None => beep.call(answer).await,
-            }
+            })
+            .await
         }
     }
 }

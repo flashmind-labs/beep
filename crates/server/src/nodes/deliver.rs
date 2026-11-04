@@ -6,7 +6,7 @@ use crate::{
     account::user::User,
     app::{App, Draws, Message},
     protocol::{
-        Approval, ApprovalField, DeviceKind,
+        Approval, ApprovalField, DeviceKind, agent_name,
         node::agent::{OptionKind, Question, Request},
     },
     store::CreateRun,
@@ -244,8 +244,6 @@ fn approval(node: &str, agent: &str, task: Option<&str>, question: &Question) ->
         fields,
     }
 }
-
-pub(crate) use beep_mesh::machine::agent_name;
 
 /// The agent's allow or reject option for the card's answer; `None` when it offers neither.
 fn reply(question: &Question, answer: &GateAnswer) -> Option<Request> {
