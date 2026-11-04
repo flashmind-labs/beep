@@ -1,6 +1,7 @@
 //! `Mesh`: one device's membership. An owner task keeps a dialer per other
 //! member; `link` runs each connection; `join` handles tickets.
 
+use crate::frame;
 use crate::state::now_ms;
 use crate::store::{Core, SharedView, Store, View};
 use crate::{Device, DeviceKind, JoinTicket, Key, MeshError, link};
@@ -39,10 +40,14 @@ const CHANGES: usize = 256;
 const GRACE: Duration = Duration::from_secs(3);
 /// The larger id lets the smaller dial first, so one dial does the work.
 const HEAD_START: Duration = Duration::from_millis(300);
+/// How far ahead of our clock a relayed address counter may be.
+const MAX_AHEAD_MS: u64 = 60_000;
 const KEEP_ALIVE: Duration = Duration::from_secs(3);
 const IDLE_MS: u32 = 10_000;
 /// Further streams one peer may have open at once.
 pub(crate) const MAX_STREAMS: usize = 64;
+/// Times `open_bi` goes on to a newer connection.
+const OPEN_RETRIES: u32 = 2;
 /// Addresses taken from one message.
 const MAX_ADDRS: usize = 256;
 
@@ -73,9 +78,12 @@ pub struct PeerStream {
 }
 
 /// The transport settings a mesh endpoint should be built with: idle links
-/// are pinged and a dead one is given up on after ten seconds.
+/// are pinged and a dead one is given up on after ten seconds. Datagrams go
+/// singly, as `beep_proto::port::transport` has it, because sync shares the
+/// endpoint.
 pub fn transport_config() -> QuicTransportConfig {
     QuicTransportConfig::builder()
+        .enable_segmentation_offload(false)
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(IDLE_MS))))
         .build()
@@ -181,10 +189,14 @@ impl Inner {
         list
     }
 
-    /// Remembers where members were last reached. A note replaces what we
-    /// hold only with a higher counter, so two peers that hold different
-    /// notes for a third settle on the newest instead of trading them.
-    pub async fn learn(&self, list: Vec<AddrNote>) {
+    /// Remembers where members were last reached. `from` is the peer whose
+    /// authenticated link carried the notes. Its own note replaces ours
+    /// whatever its counter. A relayed note needs a higher counter than what
+    /// we hold, so peers holding different notes for a third settle on the
+    /// newest, and one stamped more than a minute ahead of our clock is
+    /// dropped, so no relay can pin a victim's address.
+    pub async fn learn(&self, list: Vec<AddrNote>, from: Option<EndpointId>) {
+        let ceiling = now_ms().saturating_add(MAX_AHEAD_MS);
         let view = self.view();
         let mut changed = false;
         {
@@ -194,10 +206,15 @@ impl Inner {
                 if id == self.me || !view.devices.is_member(id) {
                     continue;
                 }
-                if known
+                let first_hand = from == Some(id);
+                if !first_hand && note.generation > ceiling {
+                    continue;
+                }
+                let newer = known
                     .get(&id)
-                    .is_none_or(|old| note.generation > old.generation)
-                {
+                    .is_none_or(|old| note.generation > old.generation);
+                let differs = known.get(&id).is_none_or(|old| old.addr != note.addr);
+                if (first_hand && differs) || (!first_hand && newer) {
                     known.insert(id, note);
                     changed = true;
                 }
@@ -462,7 +479,9 @@ impl Mesh {
     /// itself, such as one found on the local network. Higher `generation`
     /// wins.
     pub async fn hint_addr(&self, addr: EndpointAddr, generation: u64) {
-        self.inner.learn(vec![AddrNote { addr, generation }]).await;
+        self.inner
+            .learn(vec![AddrNote { addr, generation }], None)
+            .await;
     }
 
     /// How many times the address table has changed.
@@ -477,6 +496,44 @@ impl Mesh {
 
     pub fn peer(&self, id: EndpointId) -> Option<Connection> {
         self.inner.live(id)
+    }
+
+    /// Opens a bi stream to `peer` on the current connection. When that
+    /// connection is closed because a newer link replaced it (two members
+    /// dialing at once keep one), the newer one is tried, twice at most.
+    pub async fn open_bi(&self, peer: EndpointId) -> Result<(SendStream, RecvStream), MeshError> {
+        let first = self
+            .inner
+            .live(peer)
+            .ok_or_else(|| frame::net("not connected"))?;
+        self.open_from(peer, first).await
+    }
+
+    pub(crate) async fn open_from(
+        &self,
+        peer: EndpointId,
+        first: Connection,
+    ) -> Result<(SendStream, RecvStream), MeshError> {
+        let mut conn = first;
+        let mut retries = OPEN_RETRIES;
+        loop {
+            match conn.open_bi().await {
+                Ok(streams) => return Ok(streams),
+                Err(e) => {
+                    let newer = self
+                        .inner
+                        .live(peer)
+                        .filter(|live| live.stable_id() != conn.stable_id());
+                    match newer {
+                        Some(live) if retries > 0 => {
+                            retries -= 1;
+                            conn = live;
+                        }
+                        _ => return Err(frame::net(e)),
+                    }
+                }
+            }
+        }
     }
 
     pub fn protocols(&self) -> (MeshProtocol, JoinProtocol) {

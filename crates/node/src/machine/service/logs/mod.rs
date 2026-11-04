@@ -50,7 +50,7 @@ pub fn show(options: &LogOptions) -> Result<()> {
 
 /// The last `lines` lines of the service's log, or of the log file `file`,
 /// cut to `MAX_LINES` and `MAX_BYTES`.
-fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
+pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
     let options = LogOptions {
         since: RECENT,
         follow: false,

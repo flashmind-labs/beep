@@ -159,7 +159,7 @@ async fn run(
     else {
         return Err(frame::net("the first frame was not a hello"));
     };
-    inner.learn(addrs).await;
+    inner.learn(addrs, Some(peer)).await;
     // Only now can a caller reach the connection through `peer()`, so no
     // stream of theirs can be taken for the sync stream.
     if !register(inner, conn, peer, Dialed(dialer), session) {
@@ -168,7 +168,7 @@ async fn run(
     }
     let known: Known = Arc::new(Mutex::new(heads));
     let mut tasks: JoinSet<Result<(), MeshError>> = JoinSet::new();
-    tasks.spawn(read(inner.clone(), conn.clone(), recv, known.clone()));
+    tasks.spawn(read(inner.clone(), conn.clone(), peer, recv, known.clone()));
     tasks.spawn(write(inner.clone(), conn.clone(), peer, send, known, first));
     tasks.spawn(streams(inner.clone(), conn.clone(), peer));
     // The first task to end ends the link; dropping the set stops the rest.
@@ -182,6 +182,7 @@ async fn run(
 async fn read(
     inner: Arc<Inner>,
     conn: Connection,
+    peer: EndpointId,
     mut recv: RecvStream,
     known: Known,
 ) -> Result<(), MeshError> {
@@ -189,7 +190,7 @@ async fn read(
     while let Some(frame) = frame::recv::<Frame>(&mut recv, MAX_FRAME).await? {
         match frame {
             Frame::Hello { .. } => return Err(frame::net("a second hello")),
-            Frame::Addrs(addrs) => inner.learn(addrs).await,
+            Frame::Addrs(addrs) => inner.learn(addrs, Some(peer)).await,
             Frame::Ops(ops) => {
                 let merged = inner.store.run(move |core| core.merge(&ops)).await?;
                 if !merged.rejected.is_empty() {
@@ -211,6 +212,7 @@ async fn read(
                         "refused entries from a peer in {} batches",
                         applied.refused.len()
                     );
+                    refused += applied.refused.len();
                 }
                 for key in applied.changed {
                     // No receiver is a normal state.

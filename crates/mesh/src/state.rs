@@ -219,6 +219,7 @@ pub(crate) fn now_ms() -> u64 {
 }
 
 pub(crate) fn private_options() -> OpenOptions {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut options = OpenOptions::new();
     #[cfg(unix)]
     {

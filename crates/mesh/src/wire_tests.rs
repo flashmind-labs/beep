@@ -215,3 +215,139 @@ async fn a_removed_peer_that_stops_reading_is_closed() {
     assert!(why.to_string().contains("closed"), "{why}");
     drop((raw.send, raw.recv));
 }
+
+fn at(id: iroh::EndpointId, port: u16) -> EndpointAddr {
+    EndpointAddr::new(id).with_ip_addr(SocketAddr::from(([127, 0, 0, 1], port)))
+}
+
+fn known_addr(mesh: &Mesh, id: iroh::EndpointId) -> Option<EndpointAddr> {
+    mesh.devices()
+        .into_iter()
+        .find(|d| d.device.id == id)
+        .and_then(|d| d.addr)
+}
+
+async fn until_addr(mesh: &Mesh, id: iroh::EndpointId, want: &EndpointAddr) {
+    let mut updates = mesh.updates();
+    timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            if known_addr(mesh, id).as_ref() == Some(want) {
+                return;
+            }
+            updates.changed().await.expect("alive");
+        }
+    })
+    .await
+    .expect("the address arrived");
+}
+
+fn in_a_minute(ms: u64) -> u64 {
+    crate::state::now_ms() + ms
+}
+
+#[tokio::test]
+async fn a_poisoned_relayed_address_is_dropped_and_a_first_hand_one_wins() {
+    let a = create().await;
+    let relay = member_key(&a, DeviceKind::Desktop).await;
+    let victim = member_key(&a, DeviceKind::Desktop).await;
+    let mut hostile = raw(&a, &relay).await;
+    // Far in the future: dropped.
+    let poison = at(victim.public(), 1);
+    let note = AddrNote {
+        addr: poison.clone(),
+        generation: u64::MAX,
+    };
+    frame::send(&mut hostile.send, &Frame::Addrs(vec![note]))
+        .await
+        .expect("send");
+    // Plausible: kept, as relayed news.
+    let near = at(victim.public(), 2);
+    let note = AddrNote {
+        addr: near.clone(),
+        generation: in_a_minute(30_000),
+    };
+    frame::send(&mut hostile.send, &Frame::Addrs(vec![note]))
+        .await
+        .expect("send");
+    until_addr(&a.mesh, victim.public(), &near).await;
+    assert_ne!(known_addr(&a.mesh, victim.public()), Some(poison));
+    // The victim's own link beats any relayed counter.
+    let mut own = raw(&a, &victim).await;
+    let first_hand = at(victim.public(), 3);
+    let note = AddrNote {
+        addr: first_hand.clone(),
+        generation: 1,
+    };
+    frame::send(&mut own.send, &Frame::Addrs(vec![note]))
+        .await
+        .expect("send");
+    until_addr(&a.mesh, victim.public(), &first_hand).await;
+}
+
+#[tokio::test]
+async fn a_node_flooding_forged_entries_is_closed() {
+    let a = create().await;
+    let n = member_key(&a, DeviceKind::Node).await;
+    let mut raw = raw(&a, &n).await;
+    let mesh = a.key.public();
+    for seq in 1..=20 {
+        let mut forged = Entry::sign(&n, mesh, Key::Flsh, Some(vec![1]), 5, seq).expect("signs");
+        forged.origin = a.key.public();
+        frame::send(&mut raw.send, &Frame::Entries(vec![forged]))
+            .await
+            .expect("send");
+    }
+    timeout(LIMIT, raw.conn.closed())
+        .await
+        .expect("the flooding peer was dropped");
+}
+
+#[tokio::test]
+async fn open_bi_goes_on_to_the_link_that_replaced_a_closed_one() {
+    let a = create().await;
+    let ticket = a
+        .mesh
+        .invite(DeviceKind::Node, Duration::from_secs(60))
+        .await
+        .expect("ticket");
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("temp dir");
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::join(dir.path(), endpoint.clone(), &ticket, "b")
+        .await
+        .expect("joins");
+    let _b = serve(endpoint, &mesh);
+    let peer = key.public();
+    let mut updates = a.mesh.updates();
+    let live = |mesh: &Mesh| mesh.peer(peer);
+    let stale = timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            if let Some(conn) = live(&a.mesh) {
+                return conn;
+            }
+            updates.changed().await.expect("alive");
+        }
+    })
+    .await
+    .expect("the peer connects");
+    // The link is replaced: the old one closes, a new one takes its place.
+    stale.close(3u32.into(), b"duplicate");
+    timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+            if live(&a.mesh).is_some_and(|c| c.stable_id() != stale.stable_id()) {
+                return;
+            }
+            updates.changed().await.expect("alive");
+        }
+    })
+    .await
+    .expect("the link comes back");
+    assert!(stale.open_bi().await.is_err());
+    a.mesh
+        .open_from(peer, stale)
+        .await
+        .expect("the newer link opens the stream");
+}
