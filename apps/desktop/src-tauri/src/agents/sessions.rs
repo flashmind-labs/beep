@@ -10,11 +10,10 @@ use crate::{
     projects::{known, unknown_op},
 };
 use beep_proto::{
-    AgentEntry, AgentEntryKind, AgentHost, AgentModel, AgentModels, AgentQuestion,
-    AgentMode, AgentSessionModes, AgentSessionUsage, AgentSessionView, GetAgentSession,
-    GetAgentSessionModes, GetAgentSessionUsage, ListAgentHosts,
-    ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
-    ResumeAgentSession, StartAgentSession,
+    AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
+    AgentSessionModes, AgentSessionUsage, AgentSessionView, GetAgentSession, GetAgentSessionModes,
+    GetAgentSessionUsage, ListAgentHosts, ListAgentModels, ListAgentSessions, MachinePick,
+    MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession,
     node::agent::{CheckoutPlan, Effort},
 };
 use serde::Serialize;
