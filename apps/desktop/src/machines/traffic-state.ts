@@ -42,11 +42,13 @@ export function relayLine(t: MachineTraffic | undefined) {
   return sent || received ? `${bytes(sent)} sent, ${bytes(received)} received` : null;
 }
 
-/// The Machines table's sub-row: each protocol's bytes over the totals.
+/// The Machines table's cell: sent / received, with each protocol's bytes for
+/// its tooltip. Null until the machine has reported.
 export function trafficSummary(rows: TrafficRow[]) {
+  if (!rows.length) return null;
   const sum = (of: (r: TrafficRow) => number) => rows.reduce((n, r) => n + of(r), 0);
   return {
     each: rows.map(r => `${r.label} ${bytes(r.sent + r.received)}`).join(" · "),
-    total: `${bytes(sum(r => r.sent))} sent · ${bytes(sum(r => r.received))} received`,
+    both: `${bytes(sum(r => r.sent))} / ${bytes(sum(r => r.received))}`,
   };
 }

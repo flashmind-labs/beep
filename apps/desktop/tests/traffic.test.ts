@@ -25,9 +25,10 @@ test("rows name the protocols, known ones first", () => {
 });
 
 test("the summary adds each protocol up and totals each way", () => {
-  const { each, total } = trafficSummary(trafficRows(machine));
-  assert.equal(each, "Link 508 MB · Transfers 17 GB · other/2 5 B");
-  assert.equal(total, "14 GB sent · 3.2 GB received");
+  const summary = trafficSummary(trafficRows(machine));
+  assert.equal(summary?.each, "Link 508 MB · Transfers 17 GB · other/2 5 B");
+  assert.equal(summary?.both, "14 GB / 3.2 GB");
+  assert.equal(trafficSummary([]), null);
 });
 
 test("the relay line shows only when a relay carried bytes", () => {

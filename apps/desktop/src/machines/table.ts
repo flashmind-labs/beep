@@ -23,12 +23,12 @@ export const addMachineButton = (cls: string) => plusLabel("Add a machine", cls,
 /// How old the table lets a moving project's detail get.
 const MOVING_MAX_AGE_MS = 5000;
 
-/// One machine per row: name and OS, agents, free disk, memory in use, what
-/// it can run, what it is doing now and New terminal, with its terminals and
-/// synced projects indented under it. Right-click a machine to remove it.
+/// One machine per row: name and OS, agents, free disk, memory in use, bytes
+/// sent and received, what it can run, what it is doing now and New terminal,
+/// with its terminals and synced projects indented under it. Right-click a machine to remove it.
 function machineTable(machines: MachineCard[]) {
   readSyncDetails();
-  const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Can run", "Now", ""].map(t => h("span", "th", t)));
+  const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", ""].map(t => h("span", "th", t)));
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
   for (const m of machines) {
     const off = m.online ? "" : " off";
@@ -45,16 +45,17 @@ function machineTable(machines: MachineCard[]) {
     if (d.title) disk.title = d.title;
     const memory = h("span", `num${off}`, mem.text);
     if (mem.title) memory.title = mem.title;
+    const moved = trafficSummary(trafficRows(state.traffic.find(t => t.id === m.id)));
+    const traffic = h("span", `num${off}`, moved?.both ?? "–");
+    if (moved) traffic.title = moved.each;
     const agents = h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–");
     const add = button("New terminal", "small", () => openTerminals({ newOn: m.id }));
     add.disabled = !m.online;
     const act = h("span", "act", add);
-    table.append(name, agents, disk, memory, can, now, act);
-    machineMenu(m, name, agents, disk, memory, can, now, act);
+    table.append(name, agents, disk, memory, traffic, can, now, act);
+    machineMenu(m, name, agents, disk, memory, traffic, can, now, act);
     for (const t of terms.find(x => x.id === m.id)?.terms || []) table.append(terminalRow(t, m.online));
     for (const p of machineProjects(m.id, state.sync, fsync.detail)) table.append(projectRow(p));
-    const traffic = trafficRow(m.id);
-    if (traffic) table.append(traffic);
   }
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
@@ -90,14 +91,6 @@ function projectRow(p: MachineProject) {
     openTile("sync");
   });
   return row;
-}
-
-/// What machine `id` moved, per protocol, once it has reported.
-function trafficRow(id: string) {
-  const rows = trafficRows(state.traffic.find(t => t.id === id));
-  if (!rows.length) return null;
-  const { each, total } = trafficSummary(rows);
-  return h("div", "cc-row tl-row", h("span", "ddot off"), h("span", "t", h("b", "", "Traffic"), h("span", "", each)), h("span", "r", total));
 }
 
 /// This Mac's row while the server does not list it: its state across the
