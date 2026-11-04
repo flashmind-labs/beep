@@ -2,7 +2,12 @@
 //! over ACP (`Agents`) and the streams the server follows them on; sessions
 //! started outside Beep (`claude`, `found`) and the Beep MCP server (`mcp`).
 
-use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
+use crate::{
+    AsyncMutex,
+    agents::claude::External,
+    agents::found::Stores,
+    agents::mcp::{Launch, Upstream},
+};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -135,7 +140,7 @@ pub struct Agents {
     /// requests may reach beside the sessions' folders.
     folders: OnceLock<Vec<PathBuf>>,
     /// How sessions start the Beep MCP server, once the node serves it.
-    mcp: OnceLock<Arc<Launch>>,
+    mcp: OnceLock<(Arc<Launch>, Upstream)>,
     /// Set once the node is stopping.
     stopping: Arc<AtomicBool>,
     /// True while an update waits for the sessions to be idle: prompts

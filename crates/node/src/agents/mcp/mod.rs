@@ -1,6 +1,7 @@
 //! The Beep MCP server, whose tools let this node's coding agents work across
-//! the user's machines: `start` serves it, and `Launch` names it in each
-//! session's `session/new` as `beep-node mcp --session <id>`.
+//! the user's machines and share what the user told them: `start` serves it,
+//! and `Launch` names it in each session's `session/new` as
+//! `beep-node mcp --session <id>`.
 
 use crate::{
     agents::{Agents, Answered, Asking},
@@ -11,7 +12,7 @@ use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     Open, Opened, link,
-    tools::{PROTOCOL, Reply, Request},
+    tools::{Approved, PROTOCOL, Reply, Request, Tool},
 };
 use iroh::endpoint::Connection;
 use serde::Deserialize;
@@ -53,6 +54,8 @@ const OPEN_LIMIT: Duration = Duration::from_secs(15);
 /// How long one call may run on the server: a command runs at most half
 /// an hour, and a sync waits a minute and a half.
 const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
+/// How long a starting session waits for the user's standing rules.
+const RULES_LIMIT: Duration = Duration::from_secs(3);
 
 /// What the agent hears ahead of its first prompt when it has the server.
 pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
@@ -63,7 +66,9 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     coding agent there with a prompt; job_status and cancel follow what it started. \
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. machine_log reads a machine's beep-node log. ask_user asks the user a question and waits \
-    for the answer. Running and sending may wait for the user to allow it.";
+    for the answer. Running and sending may wait for the user to allow it. remember saves a \
+    lasting instruction or preference the user states, for every agent on every machine; recall \
+    looks up what they said, before a decision it may speak to.";
 
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {
@@ -202,8 +207,36 @@ impl Upstream {
         self.0.send_replace(connection);
     }
 
+    /// The user's standing rules for the first prompt of `session`. `None`
+    /// when there are none or they cannot be read in time, as from a server
+    /// too old to know them: a session starts without them. Their text stays
+    /// out of the log.
+    pub async fn standing_rules(&self, session: &str) -> Option<String> {
+        let request = Request {
+            session: session.to_owned(),
+            tool: Tool::StandingRules,
+            args: "{}".to_owned(),
+            approved: Approved::No,
+        };
+        match timeout(RULES_LIMIT, self.call(&request)).await {
+            Ok(Ok(Reply::Done {
+                text,
+                failed: false,
+            })) if !text.is_empty() => Some(text),
+            Ok(Ok(_)) => None,
+            Ok(Err(e)) => {
+                log::debug!("no standing rules for session {session}: {e:#}");
+                None
+            }
+            Err(_) => {
+                log::debug!("no standing rules for session {session}: the server took too long");
+                None
+            }
+        }
+    }
+
     /// Runs `request` on the server.
-    pub(crate) async fn call(&self, request: &Request) -> Result<Reply> {
+    pub async fn call(&self, request: &Request) -> Result<Reply> {
         let connection = self.0.borrow().clone().context(
             "this machine is not connected to Beep's server now, or the server is too old \
              for these tools",
@@ -267,7 +300,7 @@ pub async fn listen(launch: Arc<Launch>, agents: Arc<Agents>, upstream: Upstream
         "serving the Beep MCP server on {}",
         local_socket::shown(socket)
     );
-    agents.serve_mcp(launch.clone());
+    agents.serve_mcp(launch.clone(), upstream.clone());
     let node = Arc::new(Node { agents, upstream });
     let mut connections = JoinSet::new();
     loop {

@@ -5,7 +5,7 @@ use super::{
     checkout, harnesses, models, plans,
 };
 use crate::{
-    agents::mcp::Launch,
+    agents::mcp::{Launch, Upstream},
     machine::provision::spawn_env::{self, Scope},
     run::process,
 };
@@ -27,10 +27,11 @@ use tokio::{sync::oneshot, task::spawn_blocking};
 
 impl Agents {
     /// Gives the sessions started from now on the Beep MCP server, as
-    /// `launch` starts it. Only the first call counts.
-    pub fn serve_mcp(&self, launch: Arc<Launch>) {
+    /// `launch` starts it, and the user's standing rules from `upstream`.
+    /// Only the first call counts.
+    pub fn serve_mcp(&self, launch: Arc<Launch>, upstream: Upstream) {
         // A second launch would give the same server.
-        let _ = self.mcp.set(launch);
+        let _ = self.mcp.set((launch, upstream));
     }
 
     /// Whether `session` is one of this node's and still runs.
@@ -315,7 +316,8 @@ impl Agents {
             effort: begin.effort,
             note: begin.note,
             brief: begin.brief,
-            mcp: self.mcp.get().map(|launch| launch.server(&id)),
+            mcp: self.mcp.get().map(|(launch, _)| launch.server(&id)),
+            rules: self.mcp.get().map(|(_, upstream)| upstream.clone()),
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),

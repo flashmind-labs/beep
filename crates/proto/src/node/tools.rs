@@ -4,7 +4,8 @@
 //! when the welcome said the server takes them (`Down::Welcome::tools`).
 //! Each stream starts with `Open`, then carries one `Request` and its
 //! `Reply`. The server runs the call on the machine it names, so the
-//! user's rules for their machines apply as for Beep's own tools.
+//! user's rules for their machines apply as for Beep's own tools. The memory
+//! tools work on the memories of the node's owner.
 
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
@@ -26,6 +27,13 @@ pub enum Tool {
     JobStatus,
     Cancel,
     MachineLog,
+    Remember,
+    Recall,
+    UpdateMemory,
+    Forget,
+    /// Not a tool agents see: the node reads it for a session's first prompt.
+    /// `Done` with the text, empty when there are none.
+    StandingRules,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,
