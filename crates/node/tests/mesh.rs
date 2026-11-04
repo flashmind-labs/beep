@@ -126,8 +126,8 @@ impl Member {
             .expect("a ticket is minted")
     }
 
-    /// Waits until `id` is online here, then returns the connection to it.
-    async fn reach(&self, id: EndpointId) -> Connection {
+    /// Waits until `id` is online here, then returns the way to open streams to it.
+    async fn reach(&self, id: EndpointId) -> Link {
         let mut updates = self.mesh.updates();
         timeout(LIMIT, async {
             loop {
@@ -137,9 +137,12 @@ impl Member {
                     .devices()
                     .iter()
                     .any(|d| d.device.id == id && d.online)
-                    && let Some(conn) = self.mesh.peer(id)
+                    && self.mesh.peer(id).is_some()
                 {
-                    return conn;
+                    return Link {
+                        mesh: self.mesh.clone(),
+                        id,
+                    };
                 }
                 updates.changed().await.expect("the mesh is alive");
             }
@@ -147,6 +150,13 @@ impl Member {
         .await
         .expect("the node came online in time")
     }
+}
+
+/// A member of the mesh, reached through `Mesh::open_bi`, which follows a
+/// link that replaced the one it was handed.
+struct Link {
+    mesh: Mesh,
+    id: EndpointId,
 }
 
 /// A `beep-node run` process: its folder, its fake home and its log lines.
@@ -284,8 +294,8 @@ struct Stream {
 }
 
 /// Opens `protocol` on `conn`; the node's answer comes with the stream.
-async fn open(conn: &Connection, protocol: &str) -> (Stream, Opened) {
-    let (send, recv) = conn.open_bi().await.expect("a stream opens");
+async fn open(conn: &Link, protocol: &str) -> (Stream, Opened) {
+    let (send, recv) = conn.mesh.open_bi(conn.id).await.expect("a stream opens");
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
         protocol: protocol.to_owned(),
@@ -300,14 +310,14 @@ async fn open(conn: &Connection, protocol: &str) -> (Stream, Opened) {
     (Stream { tx, rx }, opened)
 }
 
-async fn ready(conn: &Connection, protocol: &str) -> Stream {
+async fn ready(conn: &Link, protocol: &str) -> Stream {
     match open(conn, protocol).await {
         (stream, Opened::Ready {}) => stream,
         (_, other) => panic!("{protocol} was not opened: {other:?}"),
     }
 }
 
-async fn tool(conn: &Connection, tool: Tool, args: serde_json::Value) -> Reply {
+async fn tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Reply {
     let mut stream = ready(conn, TOOLS).await;
     stream
         .tx
@@ -553,7 +563,7 @@ fn job_id(text: &str) -> String {
     rest.chars().take_while(char::is_ascii_digit).collect()
 }
 
-async fn run_background(conn: &Connection, command: &str) -> Reply {
+async fn run_background(conn: &Link, command: &str) -> Reply {
     tool(
         conn,
         Tool::RunOn,
