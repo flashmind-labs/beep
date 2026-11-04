@@ -751,6 +751,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_join_waits_for_a_handle_that_is_about_to_drop() {
+        let studio = start("Studio").await;
+        let ticket = ticket(&studio).await;
+        let laptop = start("Laptop").await;
+        let held = laptop.fleet.mesh().expect("the mesh is open");
+        // A call that ends a moment after the join began.
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            drop(held);
+        });
+        laptop.fleet.join(&ticket, "Laptop").await.expect("joins");
+        assert_eq!(laptop.fleet.machines().len(), 2);
+    }
+
+    #[tokio::test]
     async fn settings_a_join_was_carrying_are_set_at_the_next_start() {
         let dir = TempDir::new().expect("a temp dir");
         carry::save(dir.path(), &[(Key::Flsh, b"keep".to_vec())]).expect("saved");
