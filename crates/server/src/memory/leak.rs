@@ -6,8 +6,6 @@ use crate::{
 };
 use std::{collections::HashSet, fmt::Write};
 
-pub use beep_projects::leak::PublicText;
-
 /// Jev's probability from which a reply leaks; low, since a miss exposes someone.
 pub const LEAK_THRESHOLD: f64 = 0.3;
 

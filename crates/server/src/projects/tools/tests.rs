@@ -2,23 +2,22 @@ use super::{
     super::{
         gate::{GatedExec, GatedProcess, ProjectGate},
         issues,
-        model::{IssueHost, MachinePath, TaskState, Visibility},
+        model::TaskState,
     },
     *,
 };
 use crate::{
     account::user::User,
     apps::permissions::{ApprovalPayload, Rules},
-    projects::{
-        model::{IssueRef, RepoName, Roles},
-        testing::{FakeFleet, FakeShell, RecordingTool},
-    },
+    projects::testing::{FakeFleet, FakeShell, RecordingTool},
     protocol::{Approval, PermissionLevel, node::Capability},
     store::{
         AppPermissionRow, CheckoutRow, IssueAuthor, NewTask, ProjectRow, TaskRow, TestDb,
         TrackedIssue,
     },
 };
+use beep_projects::model::{IssueHost, MachinePath, Visibility};
+use beep_projects::model::{IssueRef, RepoName, Roles};
 use flashmind::{
     core::CancellationToken,
     types::tool::{Tool, ToolContext, ToolResult},

@@ -1,6 +1,7 @@
 //! Checks a token with its host before it is saved, and learns its login.
 
-use super::{ForgejoUrl, net::PublicOnly};
+use super::net::PublicOnly;
+use beep_projects::model::ForgejoUrl;
 use reqwest::{Client, StatusCode, header, redirect::Policy};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;

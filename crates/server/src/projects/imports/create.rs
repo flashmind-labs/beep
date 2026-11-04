@@ -2,12 +2,8 @@
 //! on one machine. Nothing here deletes a repository; a clone that fails leaves it for another try.
 
 use super::{
-    ImportError,
-    clone::{quote, tail},
     credential_of,
     fork::target_of,
-    place::{Folders, project_folder},
-    repo::{Host, RepoRef, valid_part},
     service::{Chosen, Import, choose_machine, forgejo_of, import, project},
 };
 use crate::{
@@ -17,15 +13,25 @@ use crate::{
     },
     app::App,
     nodes::{Online, push_sync},
-    projects::git_items::{
-        Caller, HostError,
-        new_repo::{self, CreateError, Forge, NewRepo},
-    },
     protocol::{
         CheckoutFailure, CreateProject, CreatedProject, GitHostKind, ImportedProject,
         NewRepository, ProjectForge,
     },
     store::{NewImport, NodeRow, SyncRow},
+};
+use beep_projects::git_items::new_repo;
+use beep_projects::git_items::{
+    Caller, HostError,
+    new_repo::{CreateError, Forge, NewRepo},
+};
+use beep_projects::{
+    imports::{
+        ImportError,
+        clone::tail,
+        place::{Folders, project_folder},
+        repo::{Host, RepoRef, valid_part},
+    },
+    quote,
 };
 use futures::{StreamExt, future::join_all, stream};
 use reqwest::Client;
@@ -435,10 +441,10 @@ fn init_script(folder: &str) -> String {
 mod tests {
     use super::*;
     use crate::{
-        account::credentials::ForgejoUrl,
         projects::node_tests::{TestNode, World},
         store::NewCredential,
     };
+    use beep_projects::model::ForgejoUrl;
     use secrecy::SecretString;
     use std::{fs, path::Path, process::Command};
     use tempfile::TempDir;

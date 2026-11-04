@@ -11,4 +11,4 @@ mod owner_var;
 mod shell;
 
 pub use owner_var::github_owner_var;
-pub use shell::{CommandOutput, MachineShell, Shell, ShellError, ShellOutput, quote};
+pub use shell::{Clip, Shell, ShellOutput, quote};

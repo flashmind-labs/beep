@@ -1,8 +1,9 @@
 //! Projects a user imported onto their machines (see `crate::projects::imports`).
 
 use super::Store;
-use crate::{account::user::UserKey, projects::model::RepoName};
+use crate::account::user::UserKey;
 use anyhow::Result;
+use beep_projects::model::RepoName;
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row};
 use std::collections::HashMap;

@@ -4,11 +4,12 @@ use crate::{
     api::work::pending_approvals,
     memory::watchers::testing::{Harness, Scripted},
     projects::{
-        model::{MachinePath, WorkerAgent, WorkerState},
+        model::{WorkerAgent, WorkerState},
         testing::machine_id,
     },
     store::{CreateRun, FinishedTurn, NewTask, NewWorker, RunStatus, Step, StepBody, TurnRecord},
 };
+use beep_projects::model::MachinePath;
 use flashmind::core::{Conversation, ConversationEntry};
 
 async fn harness() -> Harness {

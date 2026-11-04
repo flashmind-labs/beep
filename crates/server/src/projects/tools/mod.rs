@@ -11,19 +11,20 @@ pub(crate) use tasks::{drop_task, reopen_task};
 use super::{
     fleet::{self, Fleet, Machine, NodeFleet},
     gate::{self, Asks, GatedExec, GatedProcess, ProjectGate},
-    model::{ProjectId, Visibility},
+    model::ProjectId,
 };
 use crate::{
     account::user::User,
     app::App,
     apps::permissions::PROJECT_APP,
-    memory::leak::PublicText,
     nodes::SHELL,
     protocol::{Approval, ApprovalField},
     store::ProjectRow,
     tools::machines::{Machines, command_name, exec::ExecTool, process::ProcessTool},
 };
 use anyhow::Result;
+use beep_projects::leak::PublicText;
+use beep_projects::model::Visibility;
 use flashmind::types::ToolRegistry;
 use serde_json::Value;
 use std::sync::Arc;

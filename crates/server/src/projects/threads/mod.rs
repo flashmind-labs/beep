@@ -2,23 +2,28 @@
 
 mod chat;
 mod parse;
+use crate::projects::stored::StoredProject;
+use beep_projects::issues::SourceError;
+use beep_projects::issues::issue_source;
 use chat::card;
 pub(crate) use chat::{ask_for_reply, chat_context, open_chat};
 pub(crate) use parse::{ListedThread, Thread, needs_reply, parse_thread};
 use parse::{is_me, last_other, parse_threads};
 
-use super::{
-    commands::{HostCommand, Shell, gh_account, parse_login, quote},
-    fleet::Fleet,
-    issues::{self, IssueError, head, run_host, run_rendered},
-    model::{IssueHost, RepoName},
-};
+use super::{fleet::Fleet, issues::IssueError};
 use crate::{
     account::user::User,
     protocol::{GitItemKind, ThreadView},
     store::ProjectRow,
 };
 use anyhow::Result;
+use beep_projects::{
+    Shell,
+    commands::{HostCommand, gh_account, parse_login},
+    issues::{head, run_host, run_rendered},
+    model::{IssueHost, RepoName},
+    quote,
+};
 use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 
@@ -141,7 +146,9 @@ impl ThreadCommand<'_> {
 // ---- reading ----
 
 fn host_failed(error: &anyhow::Error) -> IssueError {
-    IssueError::Refused(format!("Could not read the host: {error:#}"))
+    IssueError::from(SourceError::Refused(format!(
+        "Could not read the host: {error:#}"
+    )))
 }
 
 /// A shell on a machine with the project; `None` when its host is not GitHub.
@@ -150,7 +157,7 @@ async fn github_shell(
     user: &User,
     project: &ProjectRow,
 ) -> Result<Option<Arc<dyn Shell>>, IssueError> {
-    Ok(issues::issue_source(fleet, user, project)
+    Ok(issue_source(&StoredProject::new(user, project), fleet)
         .await?
         .filter(|source| source.host == IssueHost::Github)
         .map(|source| source.shell))
@@ -158,9 +165,14 @@ async fn github_shell(
 
 /// The login `gh` is signed in as, or empty when unknown.
 async fn whoami(shell: &dyn Shell, project: &ProjectRow) -> String {
-    let login = run_host(shell, &IssueHost::Github, project, HostCommand::WhoAmI)
-        .await
-        .and_then(|out| parse_login(&out));
+    let login = run_host(
+        shell,
+        &IssueHost::Github,
+        &project.name,
+        HostCommand::WhoAmI,
+    )
+    .await
+    .and_then(|out| parse_login(&out));
     login.unwrap_or_else(|error| {
         log::info!("projects: the host's account is unknown: {error:#}");
         String::new()
@@ -212,13 +224,17 @@ pub(crate) async fn list(
 pub(crate) fn project_repo(project: &ProjectRow, repo: &str) -> Result<String, IssueError> {
     let name = project.name.to_string().to_ascii_lowercase();
     let asked = RepoName::parse(repo.trim())
-        .map_err(|_| IssueError::Refused(format!("{repo} is not an org/repo name.")))?
+        .map_err(|_| {
+            IssueError::from(SourceError::Refused(format!(
+                "{repo} is not an org/repo name."
+            )))
+        })?
         .to_string()
         .to_ascii_lowercase();
     if asked != name {
-        return Err(IssueError::Refused(format!(
+        return Err(IssueError::from(SourceError::Refused(format!(
             "{repo} is not this project's repository; Beep reads and replies on {name} only."
-        )));
+        ))));
     }
     Ok(name)
 }
@@ -261,9 +277,9 @@ pub(crate) async fn read(
     number: u64,
 ) -> Result<ReadThread, IssueError> {
     let Some(shell) = github_shell(fleet, user, project).await? else {
-        return Err(IssueError::Refused(
+        return Err(IssueError::from(SourceError::Refused(
             "Beep reads pull requests and issues on GitHub only for now.".to_owned(),
-        ));
+        )));
     };
     let repo = project.name.to_string();
     let printed = run_rendered(
@@ -274,10 +290,10 @@ pub(crate) async fn read(
     .map_err(|error| host_failed(&error))?;
     let thread = parse_thread(&printed).map_err(|error| host_failed(&error))?;
     if thread.number != number {
-        return Err(IssueError::Refused(format!(
+        return Err(IssueError::from(SourceError::Refused(format!(
             "The host gave #{} for #{number}.",
             thread.number
-        )));
+        ))));
     }
     let me = whoami(shell.as_ref(), project).await;
     Ok(ReadThread {

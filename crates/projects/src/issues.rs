@@ -3,7 +3,10 @@
 
 use crate::{
     Shell,
-    commands::HostCommand,
+    commands::{
+        HostCommand, OpenIssue, OpenPr, PrHead, parse_login, parse_open_issues, parse_open_prs,
+        parse_pr_head,
+    },
     model::{IssueHost, RepoName},
 };
 use anyhow::{Result, anyhow};
@@ -40,14 +43,28 @@ pub trait ProjectStore: Send + Sync {
 
     /// The places the project was imported on, matched to it by name.
     async fn imports(&self) -> Result<Vec<ImportedPlace>>;
+
+    /// The numbers of the issues on `host` that tasks of the project track.
+    async fn tracked_issues(&self, host: &IssueHost) -> Result<Vec<u64>>;
+}
+
+/// The user's machines, for reading a host through one of them.
+#[async_trait]
+pub trait Machines: Send + Sync {
+    /// A shell on `machine`, while it is online and offers one.
+    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>>;
+
+    /// Every machine's name, for messages; empty when they are unknown.
+    async fn names(&self) -> Vec<MachineName>;
 }
 
 /// A machine the project was imported on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedPlace {
-    /// The repository's web page.
+    /// The repository's web page, which names its host.
     pub url: String,
-    pub machine: EndpointId,
+    /// `None` when the machine is not known by an endpoint id; the page still names the host.
+    pub machine: Option<EndpointId>,
 }
 
 /// A machine's id and the name its user gave it.
@@ -94,16 +111,31 @@ pub async fn host_and_machines(store: &dyn ProjectStore) -> Result<Option<HostAn
         .find_map(|import| host_of_url(&import.url))
         .map(|host| HostAndMachines {
             host,
-            machines: imports.iter().map(|import| import.machine).collect(),
+            machines: imports.iter().filter_map(|import| import.machine).collect(),
             home: false,
         }))
+}
+
+/// The project's issues host, if it has one.
+pub async fn issue_host(store: &dyn ProjectStore) -> Result<Option<IssueHost>> {
+    Ok(host_and_machines(store).await?.map(|found| found.host))
+}
+
+/// The first online place to read the project's issues (see [`issue_sources`]).
+pub async fn issue_source(
+    store: &dyn ProjectStore,
+    machines: &dyn Machines,
+) -> Result<Option<IssueSource>, SourceError> {
+    Ok(issue_sources(store, machines)
+        .await?
+        .and_then(|sources| sources.into_iter().next()))
 }
 
 /// Every online place to read the project's issues: the home machine, else import machines by
 /// id. `None` without a GitHub or Forgejo host; refused when none is online.
 pub async fn issue_sources(
     store: &dyn ProjectStore,
-    shell: impl Fn(&EndpointId) -> Option<Arc<dyn Shell>>,
+    machines: &dyn Machines,
 ) -> Result<Option<Vec<IssueSource>>, SourceError> {
     let Some(found) = host_and_machines(store).await? else {
         return Ok(None);
@@ -118,7 +150,7 @@ pub async fn issue_sources(
             new
         })
         .filter_map(|machine| {
-            shell(machine).map(|shell| IssueSource {
+            machines.shell(machine).map(|shell| IssueSource {
                 host: found.host.clone(),
                 machine: *machine,
                 shell,
@@ -148,11 +180,11 @@ pub async fn run_host(
 /// Runs the host command `rendered`, failing unless it exits 0.
 pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
     let out = shell.run(rendered, HOST_LIMIT).await?;
-    match out.code {
-        Some(0) => Ok(out.out),
+    match out.exit_code {
+        Some(0) => Ok(out.output),
         code => {
             let tail: String = out
-                .out
+                .output
                 .chars()
                 .rev()
                 .take(400)
@@ -169,28 +201,51 @@ pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
     }
 }
 
-/// Tries `command` on each source in turn so one broken CLI does not hide the list. Gives the
-/// source that answered; when all fail, every machine's error.
-pub async fn read_any<'s, T>(
-    sources: &'s [IssueSource],
-    repo: &RepoName,
-    command: HostCommand<'_>,
+/// Runs a host command on each of `items`' shells in turn, so one broken CLI does not hide the
+/// answer. `command` renders the script for an item and `parse` reads what it printed. Gives the
+/// item that answered; when none does, every error, in order.
+pub async fn read_first<S, T>(
+    items: &[S],
+    shell_of: impl Fn(&S) -> &dyn Shell,
+    command: impl Fn(&S) -> String,
     parse: impl Fn(&str) -> Result<T>,
-    names: impl AsyncFnOnce() -> Vec<MachineName>,
-) -> Result<(&'s IssueSource, T), SourceError> {
+) -> Result<(&S, T), Vec<anyhow::Error>> {
     let mut failures = Vec::new();
-    for source in sources {
-        let read = run_host(source.shell.as_ref(), &source.host, repo, command)
+    for item in items {
+        let read = run_rendered(shell_of(item), &command(item))
             .await
             .and_then(|out| parse(&out));
         match read {
-            Ok(value) => return Ok((source, value)),
+            Ok(value) => return Ok((item, value)),
             Err(error) => {
-                log::info!("projects: reading the host failed on one machine: {error:#}");
+                log::info!("projects: reading failed on one machine: {error:#}");
                 failures.push(error);
             }
         }
     }
+    Err(failures)
+}
+
+/// Tries `command` on each source in turn so one broken CLI does not hide the list. Gives the
+/// source that answered; when all fail, every machine's error.
+pub async fn read_any<'s, T>(
+    machines: &dyn Machines,
+    sources: &'s [IssueSource],
+    repo: &RepoName,
+    command: HostCommand<'_>,
+    parse: impl Fn(&str) -> Result<T>,
+) -> Result<(&'s IssueSource, T), SourceError> {
+    let read = read_first(
+        sources,
+        |source| source.shell.as_ref(),
+        |source| command.render(&source.host, repo),
+        parse,
+    )
+    .await;
+    let mut failures = match read {
+        Ok(answered) => return Ok(answered),
+        Err(failures) => failures,
+    };
     if failures.len() < 2 {
         let error = failures
             .pop()
@@ -198,12 +253,12 @@ pub async fn read_any<'s, T>(
         return Err(host_failed(&error));
     }
     // Names only make the message clearer: without them it still says why.
-    let machines = names().await;
+    let names = machines.names().await;
     let tried: Vec<String> = sources
         .iter()
         .zip(&failures)
         .map(|(source, error)| {
-            let name = machines
+            let name = names
                 .iter()
                 .find(|machine| machine.id == source.machine)
                 .map_or("a machine", |machine| machine.name.as_str());
@@ -229,26 +284,165 @@ pub fn head(text: &str, max: usize) -> &str {
     &text[..end]
 }
 
+/// Every open issue on a project's host, as it was read.
+#[derive(Debug, Clone)]
+pub struct HostIssues {
+    pub host: IssueHost,
+    pub open: Vec<OpenIssue>,
+}
+
+/// Every open issue on the project's host, tracked or not; `None` without a host.
+pub async fn read_open(
+    store: &dyn ProjectStore,
+    machines: &dyn Machines,
+) -> Result<Option<HostIssues>, SourceError> {
+    let Some(sources) = issue_sources(store, machines).await? else {
+        return Ok(None);
+    };
+    let (source, open) = read_any(
+        machines,
+        &sources,
+        store.name(),
+        HostCommand::ListOpenIssues,
+        parse_open_issues,
+    )
+    .await?;
+    Ok(Some(HostIssues {
+        host: source.host.clone(),
+        open,
+    }))
+}
+
+/// The issues of `open` that no task tracks, newest first.
+pub fn untracked(open: Vec<OpenIssue>, tracked: &[u64]) -> Vec<OpenIssue> {
+    let mut left: Vec<OpenIssue> = open
+        .into_iter()
+        .filter(|issue| !tracked.contains(&issue.number))
+        .collect();
+    left.sort_by(|a, b| {
+        b.opened_at
+            .cmp(&a.opened_at)
+            .then_with(|| b.number.cmp(&a.number))
+    });
+    left
+}
+
+/// The issues of `read` that no task of the project tracks now, newest first.
+pub async fn untracked_now(
+    store: &dyn ProjectStore,
+    read: &HostIssues,
+) -> Result<Vec<OpenIssue>, SourceError> {
+    let tracked = store.tracked_issues(&read.host).await?;
+    Ok(untracked(read.open.clone(), &tracked))
+}
+
+/// Open issues on the project's host no task tracks, newest first; empty without a host.
+pub async fn list_open(
+    store: &dyn ProjectStore,
+    machines: &dyn Machines,
+) -> Result<Vec<OpenIssue>, SourceError> {
+    match read_open(store, machines).await? {
+        Some(read) => untracked_now(store, &read).await,
+        None => Ok(Vec::new()),
+    }
+}
+
+/// An open pull request on a project's host, and whether it is the user's.
+#[derive(Debug, Clone)]
+pub struct ListedPr {
+    pub pr: OpenPr,
+    /// Opened by the CLI's signed-in account; false when that is unknown.
+    pub mine: bool,
+}
+
+/// Open pull requests on the project's host, any author, newest first; empty without a host.
+pub async fn list_open_prs(
+    store: &dyn ProjectStore,
+    machines: &dyn Machines,
+) -> Result<Vec<ListedPr>, SourceError> {
+    let Some(sources) = issue_sources(store, machines).await? else {
+        return Ok(Vec::new());
+    };
+    let (source, mut prs) = read_any(
+        machines,
+        &sources,
+        store.name(),
+        HostCommand::ListOpenPrs,
+        parse_open_prs,
+    )
+    .await?;
+    // Asked on the machine that listed them, whose CLI is known to work.
+    let whoami = run_host(
+        source.shell.as_ref(),
+        &source.host,
+        store.name(),
+        HostCommand::WhoAmI,
+    )
+    .await;
+    let login = match whoami.and_then(|out| parse_login(&out)) {
+        Ok(login) => Some(login),
+        Err(error) => {
+            log::info!(
+                "projects: the host's account is unknown, so no PR counts as mine: {error:#}"
+            );
+            None
+        }
+    };
+    prs.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.number.cmp(&a.number))
+    });
+    Ok(prs
+        .into_iter()
+        .map(|pr| ListedPr {
+            mine: login.as_deref().is_some_and(|login| {
+                !pr.author.is_empty() && login.eq_ignore_ascii_case(&pr.author)
+            }),
+            pr,
+        })
+        .collect())
+}
+
+/// The branch pull request `number` is made from, read from the host now.
+pub async fn pull_request_head(
+    store: &dyn ProjectStore,
+    machines: &dyn Machines,
+    number: u64,
+) -> Result<PrHead, SourceError> {
+    let Some(sources) = issue_sources(store, machines).await? else {
+        return Err(SourceError::Refused(
+            "The project has no GitHub or Forgejo host to read pull requests from.".into(),
+        ));
+    };
+    let (_, head) = read_any(
+        machines,
+        &sources,
+        store.name(),
+        HostCommand::ViewPrHead { number },
+        parse_pr_head,
+    )
+    .await?;
+    Ok(head)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CommandOutput;
+    use crate::ShellOutput;
     use iroh::SecretKey;
     use std::sync::Mutex;
 
     /// Answers every command the same way and counts them.
     struct FixedShell {
-        answer: CommandOutput,
+        answer: ShellOutput,
         ran: Mutex<usize>,
     }
 
     impl FixedShell {
         fn exits(code: i32, out: &str) -> Arc<FixedShell> {
             Arc::new(FixedShell {
-                answer: CommandOutput {
-                    code: Some(code),
-                    out: out.to_owned(),
-                },
+                answer: ShellOutput::exited(code, out),
                 ran: Mutex::new(0),
             })
         }
@@ -256,7 +450,7 @@ mod tests {
 
     #[async_trait]
     impl Shell for FixedShell {
-        async fn run(&self, _: &str, _: Duration) -> Result<CommandOutput> {
+        async fn run(&self, _: &str, _: Duration) -> Result<ShellOutput> {
             *self.ran.lock().expect("the counter is not poisoned") += 1;
             Ok(self.answer.clone())
         }
@@ -282,6 +476,9 @@ mod tests {
         async fn imports(&self) -> Result<Vec<ImportedPlace>> {
             Ok(self.imports.clone())
         }
+        async fn tracked_issues(&self, _: &IssueHost) -> Result<Vec<u64>> {
+            Ok(Vec::new())
+        }
     }
 
     fn machine(seed: u8) -> EndpointId {
@@ -297,6 +494,23 @@ mod tests {
             host: IssueHost::Github,
             machine,
             shell,
+        }
+    }
+
+    /// Machines by id: those in `online` have a shell.
+    struct Fleet {
+        online: Vec<(EndpointId, Arc<FixedShell>)>,
+    }
+
+    #[async_trait]
+    impl Machines for Fleet {
+        fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>> {
+            let (_, shell) = self.online.iter().find(|(id, _)| id == machine)?;
+            Some(shell.clone())
+        }
+
+        async fn names(&self) -> Vec<MachineName> {
+            names()
         }
     }
 
@@ -322,11 +536,11 @@ mod tests {
             source(machine(2), second.clone()),
         ];
         let read = read_any(
+            &Fleet { online: Vec::new() },
             &sources,
             &repo(),
             HostCommand::ListOpenIssues,
             |out| Ok(out.to_owned()),
-            async || names(),
         )
         .await;
         let Err(SourceError::Refused(why)) = read else {
@@ -348,11 +562,11 @@ mod tests {
             source(machine(2), working.clone()),
         ];
         let (answered, out) = read_any(
+            &Fleet { online: Vec::new() },
             &sources,
             &repo(),
             HostCommand::ListOpenIssues,
             |out| Ok(out.to_owned()),
-            async || panic!("a read that worked needs no names"),
         )
         .await
         .expect("the second machine answers");
@@ -368,20 +582,86 @@ mod tests {
             imports: [1, 1, 2]
                 .map(|seed| ImportedPlace {
                     url: "https://github.com/acme/widget".into(),
-                    machine: machine(seed),
+                    machine: Some(machine(seed)),
                 })
                 .to_vec(),
         };
         let online = FixedShell::exits(0, "");
-        let sources = issue_sources(&store, |id| {
-            (*id == machine(2)).then(|| online.clone() as Arc<dyn Shell>)
-        })
-        .await
-        .expect("a machine is online")
-        .expect("a GitHub host");
+        let fleet = Fleet {
+            online: vec![(machine(2), online)],
+        };
+        let sources = issue_sources(&store, &fleet)
+            .await
+            .expect("a machine is online")
+            .expect("a GitHub host");
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].machine, machine(2));
-        let offline = issue_sources(&store, |_| None).await;
+        let nobody = Fleet { online: Vec::new() };
+        let offline = issue_sources(&store, &nobody).await;
         assert!(matches!(offline, Err(SourceError::Refused(_))));
+    }
+
+    #[tokio::test]
+    async fn open_pull_requests_are_marked_when_the_account_opened_them() {
+        let prs = r#"[{"number":1,"title":"Mine","author":{"login":"Kim"},"url":"https://github.com/acme/widget/pull/1","createdAt":"2026-10-01T10:00:00Z","updatedAt":"2026-10-01T10:00:00Z","isDraft":false,"headRefName":"a","labels":[]},
+            {"number":2,"title":"Theirs","author":{"login":"sam"},"url":"https://github.com/acme/widget/pull/2","createdAt":"2026-10-02T10:00:00Z","updatedAt":"2026-10-02T10:00:00Z","isDraft":false,"headRefName":"b","labels":[]}]"#;
+        let shell = Arc::new(ByCommand(vec![
+            ("pr list", ShellOutput::exited(0, prs)),
+            ("api user", ShellOutput::exited(0, "kim\n")),
+        ]));
+        let fleet = Fleet2(shell);
+        let store = Store {
+            name: repo(),
+            home: Some(machine(1)),
+            imports: Vec::new(),
+        };
+        let listed = list_open_prs(&store, &fleet).await.expect("the list reads");
+        let marks: Vec<(u64, bool)> = listed.iter().map(|p| (p.pr.number, p.mine)).collect();
+        assert_eq!(marks, [(2, false), (1, true)]);
+    }
+
+    #[tokio::test]
+    async fn an_import_on_an_unknown_machine_still_names_the_host() {
+        let store = Store {
+            name: repo(),
+            home: None,
+            imports: vec![ImportedPlace {
+                url: "https://github.com/acme/widget".into(),
+                machine: None,
+            }],
+        };
+        let found = host_and_machines(&store)
+            .await
+            .expect("the store reads")
+            .expect("a host");
+        assert_eq!(found.host, IssueHost::Github);
+        assert!(found.machines.is_empty() && !found.home);
+    }
+
+    /// Answers by the first rule whose text the command holds.
+    struct ByCommand(Vec<(&'static str, ShellOutput)>);
+
+    #[async_trait]
+    impl Shell for ByCommand {
+        async fn run(&self, script: &str, _: Duration) -> Result<ShellOutput> {
+            Ok(self
+                .0
+                .iter()
+                .find(|(holds, _)| script.contains(holds))
+                .map_or_else(|| ShellOutput::exited(1, "no rule"), |(_, out)| out.clone()))
+        }
+    }
+
+    struct Fleet2(Arc<ByCommand>);
+
+    #[async_trait]
+    impl Machines for Fleet2 {
+        fn shell(&self, _: &EndpointId) -> Option<Arc<dyn Shell>> {
+            Some(self.0.clone())
+        }
+
+        async fn names(&self) -> Vec<MachineName> {
+            Vec::new()
+        }
     }
 }

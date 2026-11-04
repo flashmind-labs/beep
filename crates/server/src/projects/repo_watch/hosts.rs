@@ -2,18 +2,21 @@
 //! mirrored repository runs workflows on each.
 
 use super::watch::Entry;
+use crate::projects::stored::StoredProject;
 use crate::{
-    account::credentials::{Opened, Slot},
-    account::user::User,
-    projects::imports::{parse_remotes, remotes_script},
+    account::{
+        credentials::{Opened, Slot},
+        user::User,
+    },
     projects::{
         fleet::{Fleet, NodeFleet},
-        issues::issue_host,
-        model::{IssueHost, MachinePath, RepoName, remote_parts},
+        imports::{parse_remotes, remotes_script},
     },
     protocol::GitHostKind,
     store::ProjectRow,
 };
+use beep_projects::issues::issue_host;
+use beep_projects::model::{IssueHost, MachinePath, RepoName, remote_parts};
 use iroh::EndpointId;
 use std::time::{Duration, Instant};
 
@@ -197,7 +200,7 @@ async fn read_remotes(
         let ran = shell
             .run(&remotes_script(&[place.folder]), REMOTES_LIMIT)
             .await?;
-        let urls = parse_remotes(&ran.out)
+        let urls = parse_remotes(&ran.output)
             .into_iter()
             .flat_map(|folder| folder.remotes.into_iter().map(|(_, url)| url))
             .collect();
@@ -242,7 +245,9 @@ pub(super) async fn find(
         log::warn!("runs: the project's host is unknown: {e:#}");
         "Beep could not read where this project lives.".to_owned()
     };
-    let primary = issue_host(user, project).await.map_err(|e| unknown(&e))?;
+    let primary = issue_host(&StoredProject::new(user, project))
+        .await
+        .map_err(|e| unknown(&e))?;
     let name = project.name.to_string();
     let import_urls = user
         .imports()
@@ -267,10 +272,7 @@ pub(super) async fn find(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        account::credentials::ForgejoUrl,
-        projects::model::{ForgejoHost, Roles, Visibility},
-    };
+    use beep_projects::model::{ForgejoHost, ForgejoUrl, Roles, Visibility};
     use secrecy::SecretString;
 
     fn project(roles: Roles) -> ProjectRow {

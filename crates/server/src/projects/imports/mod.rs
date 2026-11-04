@@ -17,7 +17,6 @@ mod tool;
 pub use checks::Checkouts;
 pub(crate) use copy::copy_project;
 pub(crate) use create::{create_project, project_forges};
-pub(crate) use folder::FolderPath;
 pub(crate) use found::MachineFound;
 pub use host_repos::HostRepoCache;
 pub(crate) use host_repos::host_repos;
@@ -28,10 +27,8 @@ pub(crate) use service::{
 };
 pub(crate) use tool::ImportProjectTool;
 
-pub(crate) use beep_projects::imports::{ImportError, clone, folder, place, repo};
-
 use crate::account::credentials::{Opened, Slot, github_for};
-use repo::{Host, RepoRef};
+use beep_projects::imports::repo::{Host, RepoRef};
 use secrecy::ExposeSecret;
 
 /// The user's non-empty token for `repo`'s host (on GitHub, the owner's account).

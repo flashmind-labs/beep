@@ -1,17 +1,15 @@
 //! A project's branches with work, and giving one a worktree.
 
-pub(crate) use super::commands::quote;
-use super::{
-    commands::{CommandOutput, Shell, exclude_project_dirs},
-    model::MachinePath,
-    review::git::{branches_script, parse_branches},
-};
+use super::review::git::{branches_script, parse_branches};
 use crate::{
-    account::credentials::github_owner_var,
     nodes::Online,
     protocol::{ProjectBranch, WorkBranch, node::agent},
 };
 use anyhow::{Result, bail};
+use beep_projects::github_owner_var;
+use beep_projects::{
+    Shell, ShellOutput, commands::exclude_project_dirs, model::MachinePath, quote,
+};
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
@@ -21,8 +19,6 @@ const ADD_LIMIT: Duration = Duration::from_secs(120);
 pub(crate) const READ_LIMIT: Duration = Duration::from_secs(30);
 /// The most open pull requests read.
 const MAX_PRS: u32 = 50;
-
-pub(crate) use beep_projects::model::branch_name;
 
 /// The branch's worktree path: `.worktrees/` plus the name with `/` as `-`.
 pub(crate) fn worktree_path(branch: &str) -> String {
@@ -87,8 +83,8 @@ pub(crate) async fn add_worktree(
         .run(&add_worktree_script(folder, branch), ADD_LIMIT)
         .await
         .map_err(|e| format!("{}: {e:#}", node.name))?;
-    if ran.code != Some(0) {
-        return Err(add_failure(ran.code, branch, &ran.out));
+    if ran.exit_code != Some(0) {
+        return Err(add_failure(ran.exit_code, branch, &ran.output));
     }
     let fallback = || ProjectBranch {
         name: branch.to_owned(),
@@ -131,14 +127,14 @@ pub(crate) async fn read_branches(
 pub(crate) async fn run_script(node: &dyn Shell, script: &str, limit: Duration) -> Result<String> {
     let ran = node.run(script, limit).await?;
     ok(&ran)?;
-    Ok(ran.out)
+    Ok(ran.output)
 }
 
-fn ok(ran: &CommandOutput) -> Result<()> {
-    match ran.code {
+fn ok(ran: &ShellOutput) -> Result<()> {
+    match ran.exit_code {
         Some(0) => Ok(()),
         Some(3) => bail!("the project's folder is not there"),
-        Some(code) => bail!("exited with {code}: {}", tail(&ran.out)),
+        Some(code) => bail!("exited with {code}: {}", tail(&ran.output)),
         None => bail!("did not finish in time"),
     }
 }

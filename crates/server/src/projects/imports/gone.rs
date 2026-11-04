@@ -2,8 +2,8 @@
 //! answers in time that its path is empty while the parent exists and holds other things;
 //! an unmounted disk (empty, missing, or right under `/Volumes`, `/mnt` or `/media`) never counts.
 
-use super::clone::quote;
 use crate::store::{ImportRow, SyncRow};
+use beep_projects::quote;
 use std::collections::BTreeSet;
 
 /// What the script prints before each line it means.

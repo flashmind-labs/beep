@@ -1,20 +1,17 @@
 //! Picking the machine, running the clone there and recording the project.
 
 use super::{
-    ImportError,
     checks::{self, Machine, Page},
-    clone, credential_of,
-    folder::{self, FolderPath, Seen},
-    fork::{self, UsedFork},
+    credential_of, fork,
     found::{self, MachineFound},
     link::link_fork,
-    place::{self, Candidate, Folders},
     preview::existing_checkout,
-    repo::RepoRef,
 };
 use crate::{
-    account::credentials::{ForgejoUrl, Opened, Slot},
-    account::user::User,
+    account::{
+        credentials::{Opened, Slot},
+        user::User,
+    },
     app::App,
     nodes::{Online, SHELL},
     protocol::{
@@ -23,6 +20,17 @@ use crate::{
     },
     store::{ImportRow, NewImport, NodeRow},
 };
+use beep_projects::imports::clone;
+use beep_projects::imports::folder;
+use beep_projects::imports::place;
+use beep_projects::imports::{
+    ImportError,
+    clone::UsedFork,
+    folder::{FolderPath, Seen},
+    place::{Candidate, Folders},
+    repo::RepoRef,
+};
+use beep_projects::model::ForgejoUrl;
 use chrono::Utc;
 use secrecy::SecretString;
 use std::{

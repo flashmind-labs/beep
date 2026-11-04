@@ -8,11 +8,9 @@
 //! from a node older than that. A worker must not rely on this policy to
 //! keep it inside its worktree, which is why every start card asks.
 
-use super::model::{MachinePath, RepoName, Visibility};
-use crate::{
-    memory::leak::PublicText,
-    protocol::node::agent::{MAX_QUESTION_LINE, Question},
-};
+use crate::protocol::node::agent::{MAX_QUESTION_LINE, Question};
+use beep_projects::leak::PublicText;
+use beep_projects::model::{MachinePath, RepoName, Visibility};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Verdict {

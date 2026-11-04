@@ -254,12 +254,10 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{
-        projects::{
-            model::{IssueHost, MachinePath, RepoName, WorkerAgent},
-            threads::ThreadKind,
-        },
+        projects::{model::WorkerAgent, threads::ThreadKind},
         store::{CheckoutRow, NewImport, NewTask, NewThreadChat, NewWorker, SyncRow, TestDb},
     };
+    use beep_projects::model::{IssueHost, MachinePath, RepoName};
     use chrono::Utc;
     use iroh::{EndpointId, SecretKey};
 

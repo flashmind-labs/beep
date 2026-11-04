@@ -1,19 +1,23 @@
 //! The user's fork of an imported repository, so the import clones the fork with their PR branches.
 
-use super::{credential_of, repo::RepoRef};
+use super::credential_of;
 use crate::{
     account::credentials::{Opened, Slot, host_client, is_public},
     app::App,
-    projects::git_items::{
+};
+use beep_projects::git_items::forks;
+use beep_projects::imports::repo::RepoRef;
+use beep_projects::{
+    git_items::{
         Caller,
-        forks::{self, Api, Lookup},
+        forks::{Api, Lookup},
     },
-    projects::model::RepoName,
+    model::RepoName,
 };
 
 const GITHUB_API: &str = "https://api.github.com";
 
-pub(crate) use super::clone::UsedFork;
+pub(crate) use beep_projects::imports::clone::UsedFork;
 
 /// Where to reach a repository's host, and with which token.
 pub(super) struct Target<'a> {
