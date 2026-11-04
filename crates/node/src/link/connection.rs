@@ -32,8 +32,8 @@ use beep_proto::{
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
-        NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, harness::AgentSettings, link,
-        status, tool_update, tools, version,
+        NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
+        harness::AgentSettings, link, status, tool_update, tools, version,
     },
 };
 use iroh::{
@@ -47,7 +47,10 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tokio::{
@@ -433,9 +436,23 @@ pub struct Offers {
     pub(crate) mesh: Membership,
     /// The node's transfers and synced projects, when it shares folders.
     pub(crate) transfers: Option<Transfers>,
+    /// Set while the host does not lend this machine to other devices: they
+    /// get its status, but no shell, task or screen.
+    pub(crate) withheld: Arc<AtomicBool>,
 }
 
 impl Offers {
+    /// Whether other devices of the mesh may use this machine's shell,
+    /// tasks and screen. On unless the host turned it off; what runs here for
+    /// the person at this machine is not affected.
+    pub fn lend_to_peers(&self, lent: bool) {
+        self.withheld.store(!lent, Ordering::Relaxed);
+    }
+
+    pub(crate) fn lends_to_peers(&self) -> bool {
+        !self.withheld.load(Ordering::Relaxed)
+    }
+
     /// What every node serves, the CLI and the Mac app alike: the coding
     /// agents found on the PATH (with `agents` from `node.toml`) and their
     /// sessions, and `provision`. A host adds its own protocols to `extra`.
@@ -450,6 +467,7 @@ impl Offers {
             traffic: Traffic::default(),
             mesh: Membership::default(),
             transfers: None,
+            withheld: Arc::default(),
         }
     }
 
@@ -817,6 +835,19 @@ pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<Open> {
         .context("the session closed before its protocol")
 }
 
+/// Why a device of the mesh may not open `protocol` on a machine that does
+/// not lend itself to others, or `None`. Status stays open.
+pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
+    let shared = [
+        shell::PROTOCOL,
+        terminal::PROTOCOL,
+        tasks::PROTOCOL,
+        desktop::PROTOCOL,
+    ];
+    (!lent && shared.contains(&protocol))
+        .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
+}
+
 /// Serves a session stream that opened with `open`, if `who` may use it.
 pub(crate) async fn serve_open(
     mut tx: LinkTx,
@@ -908,6 +939,31 @@ pub(crate) fn changed(before: &EnvReport, now: &EnvReport) -> bool {
 mod tests {
     use super::*;
     use beep_proto::node::harness::HarnessConfig;
+
+    #[test]
+    fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(&[], Provision::new(dir.path()), false);
+        assert!(offers.lends_to_peers(), "lent until the host says not");
+        offers.lend_to_peers(false);
+        // Offers made earlier from this one share the setting.
+        let copy = offers.clone();
+        for protocol in ["shell/1", "terminal/1", "process/1", "desktop/1"] {
+            assert!(
+                withheld(protocol, copy.lends_to_peers()).is_some(),
+                "{protocol}"
+            );
+        }
+        for protocol in ["status/1", "version/1", "tools/1", "files/1"] {
+            assert_eq!(
+                withheld(protocol, copy.lends_to_peers()),
+                None,
+                "{protocol}"
+            );
+        }
+        offers.lend_to_peers(true);
+        assert_eq!(withheld("shell/1", copy.lends_to_peers()), None);
+    }
 
     /// A node with no mesh takes whatever the server pushes, as it always did.
     #[tokio::test]
