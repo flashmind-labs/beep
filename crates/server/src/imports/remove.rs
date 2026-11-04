@@ -9,6 +9,7 @@ use crate::{
         lifecycle::fill_slots,
         review::drive::close_session,
     },
+    repo_watch,
     store::RemovedProject,
     user::User,
 };
@@ -32,6 +33,10 @@ pub(crate) async fn remove_project(app: &Arc<App>, user: &Arc<User>, name: &str)
         removed.terminals.len()
     );
     wind_down(app, user, &removed).await;
+    // A node removes the webhooks Beep made on the repository; without one
+    // online they stay recorded until a node of the user connects.
+    app.repo_watch.forwards.stop(user.id(), &removed.projects);
+    repo_watch::sweep_any(app, user).await;
     if removed.synced {
         push_sync(&app.nodes, user, None).await?;
     }

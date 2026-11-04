@@ -45,7 +45,7 @@ pub(super) struct Session<'a> {
 }
 
 /// A secret for one webhook: 32 random bytes as hex.
-fn new_secret() -> SecretString {
+pub(super) fn new_secret() -> SecretString {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
     let mut hex = String::with_capacity(64);
@@ -57,7 +57,7 @@ fn new_secret() -> SecretString {
 }
 
 /// What the node is asked to watch.
-fn watch_host(host: &IssueHost, repo: &RepoName) -> WatchHost {
+pub(super) fn watch_host(host: &IssueHost, repo: &RepoName) -> WatchHost {
     match host {
         IssueHost::Github => WatchHost::GitHub {
             token_var: crate::credentials::github_owner_var(repo.owner()),
@@ -107,6 +107,7 @@ impl Session<'_> {
             repo: repo.clone(),
             secret: SecretText::new(secret.expose_secret()),
             stale,
+            remove_only: false,
         };
         // Held to the end: closing it ends the node's watch.
         let (_tx, mut rx) = online.watch_webhook(&watch).await?;

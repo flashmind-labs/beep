@@ -7,6 +7,9 @@
 
 mod owner;
 mod session;
+mod sweep;
+
+pub(crate) use sweep::{sweep, sweep_any};
 
 use super::watch::Key;
 use crate::{
@@ -269,6 +272,20 @@ impl Forwards {
             slots.remove(key);
         }
         true
+    }
+
+    /// Stops forwarding the removed `projects`; their nodes then remove the webhooks.
+    pub(crate) fn stop(&self, user: &str, projects: &[ProjectId]) {
+        for &project in projects {
+            let key = Key {
+                user: user.to_owned(),
+                project,
+            };
+            let slot = lock(&self.slots).remove(&key);
+            if let Some(slot) = slot {
+                lock(&slot.supervisor).take();
+            }
+        }
     }
 
     #[cfg(test)]

@@ -37,6 +37,11 @@ pub struct Watch {
     /// first, and no others.
     #[serde(default)]
     pub stale: Vec<u64>,
+    /// Only remove `stale`, as for a removed project, and end the session.
+    /// A node from before makes a webhook too, removed when the server
+    /// closes.
+    #[serde(default)]
+    pub remove_only: bool,
 }
 
 /// Where the repository is.
