@@ -232,3 +232,28 @@ async fn a_run_opened_on_the_mirror_is_read_from_the_mirror() {
     let other = IssueHost::Forgejo(ForgejoHost::parse("elsewhere.example.com").expect("a host"));
     assert_eq!(copy.slot_of(Some(&other)), None);
 }
+
+#[test]
+fn a_run_cancelled_before_it_started_sorts_by_when_it_ended() {
+    let reply: crate::projects::repo_watch::actions::RunsReply = serde_json::from_str(
+        r#"{"workflow_runs": [
+          {"id": 1, "status": "cancelled", "stopped": "2026-11-01T09:00:00Z"},
+          {"id": 2, "status": "running", "started": "2026-11-01T10:00:00Z"},
+          {"id": 3, "status": "waiting"},
+          {"id": 4, "status": "success", "started": "2026-11-01T08:00:00Z",
+           "stopped": "2026-11-01T08:05:00Z"}
+        ]}"#,
+    )
+    .unwrap();
+    let mut runs: Vec<crate::protocol::HostedRun> = reply
+        .runs()
+        .into_iter()
+        .map(|listed| crate::protocol::HostedRun {
+            host: String::new(),
+            run: listed.run,
+        })
+        .collect();
+    runs_copy::newest_first(&mut runs);
+    let order: Vec<u64> = runs.iter().map(|hosted| hosted.run.id).collect();
+    assert_eq!(order, [3, 2, 1, 4]);
+}

@@ -232,10 +232,14 @@ pub(super) fn head_refs(heads: &[OpenHead]) -> Vec<PrHeadRef<'_>> {
         .collect()
 }
 
-/// Sorts runs newest first by start, unstarted first; ties keep their order.
+/// Sorts runs newest first by start, or by finish for one cancelled before it
+/// started, with those still waiting to start first; ties keep their order.
 pub(super) fn newest_first(runs: &mut [HostedRun]) {
     runs.sort_by(|a, b| {
-        let key = |r: &HostedRun| (r.run.started_at.is_none(), r.run.started_at);
+        let key = |r: &HostedRun| {
+            let at = r.run.started_at.or(r.run.finished_at);
+            (at.is_none(), at)
+        };
         key(b).cmp(&key(a))
     });
 }
