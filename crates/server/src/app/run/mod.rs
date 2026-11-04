@@ -3,6 +3,7 @@
 mod turn;
 
 use super::research;
+use crate::store::RunStatus;
 use crate::{
     apps::permissions::{self},
     projects::turn::{self as project_turn},
@@ -31,6 +32,10 @@ const MAX_CONTINUES: usize = 6;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// The idle limit while a tool runs: crawls poll quietly for up to two minutes.
 const TOOL_IDLE_TIMEOUT: Duration = Duration::from_secs(150);
+/// What the user is told when the server gives up on a turn.
+pub(super) const STALLED: &str = "The model stopped responding.";
+pub(super) const TIMED_OUT: &str = "The run timed out.";
+pub(super) const LOOPED: &str = "The model got stuck repeating itself and was stopped.";
 /// A slow embedding must not hold up the conversation indefinitely.
 const MEMORY_RECALL_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -106,6 +111,16 @@ fn system_prompt(research: bool, project: bool) -> &'static str {
         (true, _) => research::LEAD_PROMPT,
         (false, true) => project_turn::PROJECT_PROMPT,
         (false, false) => ASSISTANT_PROMPT,
+    }
+}
+
+/// What the user is told when the server gave up on a turn itself.
+fn gave_up(status: RunStatus) -> Option<&'static str> {
+    match status {
+        RunStatus::Stalled => Some(STALLED),
+        RunStatus::TimedOut => Some(TIMED_OUT),
+        RunStatus::Looped => Some(LOOPED),
+        _ => None,
     }
 }
 

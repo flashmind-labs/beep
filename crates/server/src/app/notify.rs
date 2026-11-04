@@ -31,9 +31,9 @@ impl App {
             RunStatus::Completed => "Your request completed successfully.",
             RunStatus::Cancelled => "The run was cancelled.",
             RunStatus::Interrupted => "The server restarted before the run finished.",
-            RunStatus::TimedOut => "The run timed out.",
-            RunStatus::Stalled => "The model stopped responding.",
-            RunStatus::Looped => "The model got stuck repeating itself and was stopped.",
+            RunStatus::TimedOut => super::run::TIMED_OUT,
+            RunStatus::Stalled => super::run::STALLED,
+            RunStatus::Looped => super::run::LOOPED,
             RunStatus::Failed => "The run failed.",
             RunStatus::Waiting => "Waiting for your OK.",
         }

@@ -12,7 +12,7 @@ use super::{
         memory_context, research,
     },
     IDLE_TIMEOUT, MAX_CONTINUES, MAX_RUN, MEMORY_RECALL_TIMEOUT, SCHEDULED_TASK_CHARS,
-    TOOL_IDLE_TIMEOUT, failure_message, keep_stopped, languages_line, register_web_tools,
+    TOOL_IDLE_TIMEOUT, failure_message, gave_up, keep_stopped, languages_line, register_web_tools,
     system_prompt,
 };
 use crate::{
@@ -853,6 +853,12 @@ impl App {
                         }
                     }
                 };
+                // Nothing else tells a chat why the reply stopped.
+                if let Some(message) = gave_up(status) {
+                    live.push(RunEvent::Error {
+                        message: message.to_owned(),
+                    });
+                }
                 if matches!(status, RunStatus::Cancelled | RunStatus::Interrupted) {
                     let restarted = status == RunStatus::Interrupted;
                     failed_tools.extend(keep_stopped(&mut conversation, said, thought, restarted));
