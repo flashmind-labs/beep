@@ -1082,6 +1082,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_dropped_link_keeps_what_the_node_has() {
+        // Forgetting after the link clears the process-wide credentials.
+        let _env = crate::machine::provision::spawn_env::TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().expect("a temp folder");
         let (offers, mesh) = layered(dir.path()).await;
         let from_server = AgentSettings {

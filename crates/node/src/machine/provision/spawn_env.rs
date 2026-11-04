@@ -57,7 +57,7 @@ static SPAWN_ENV: RwLock<SpawnEnv> = RwLock::new(SpawnEnv {
 /// Held by tests that set the process-wide env, so they do not see each
 /// other's.
 #[cfg(test)]
-pub(super) static TEST_LOCK: crate::AsyncMutex<()> = crate::AsyncMutex::const_new(());
+pub(crate) static TEST_LOCK: crate::AsyncMutex<()> = crate::AsyncMutex::const_new(());
 
 /// Puts `dirs` before the inherited `PATH` of every process started from
 /// now on.
