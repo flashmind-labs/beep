@@ -5,7 +5,8 @@
 The Android workflow (`.forgejo/workflows/android.yml`) builds the signed
 bundle and uploads it to Play, and the phone updates from Play:
 
-- Every push to main goes to the internal track.
+- Only an `android-v` tag builds and uploads; a manual run of the workflow
+  goes to the internal track.
 - `just android-release 1.2.3` sets `versionName`, commits and tags
   `android-v1.2.3` (it needs a clean tree on main). Push it with
   `git push origin main android-v1.2.3`.
@@ -15,11 +16,15 @@ bundle and uploads it to Play, and the phone updates from Play:
 - Releases stay drafts until the repository variable `PLAY_RELEASE_STATUS` is
   `completed`.
 
-To release Android, the desktop app and beep-node together, run
+iOS works the same way: `just ios-release 1.2.3` sets `MARKETING_VERSION` in
+`apps/ios/project.yml`, commits and tags `ios-v1.2.3`. Pushing the tag uploads
+it to TestFlight.
+
+To release Android, the desktop app, beep-node and iOS together, run
 `just release`. It bumps each app's patch number from its latest tag, runs the
 release recipes and pushes main with the tags. Pass versions to pick them:
-`just release 0.2.0 0.4.0 0.1.1` (Android, desktop, then node). The node is
-left out until its first `node-v` tag exists.
+`just release 0.2.0 0.4.0 0.1.1 0.2.0` (Android, desktop, node, then iOS). The
+node and iOS are left out until their first `node-v` or `ios-v` tag exists.
 
 Only release an app when it gets a new version. Do not run a release recipe,
 tag or upload a build unless a new version number is being cut for that app.

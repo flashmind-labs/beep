@@ -1,8 +1,8 @@
-# Builds the release APK on every push to main and keeps it as a run artifact.
-# The same build goes to the Play internal track as an app bundle when the
-# PLAY_SERVICE_ACCOUNT_JSON secret is set. A tag android-vX.Y.Z (made by
-# `just android-release`) goes to the beta track when Z is not 0, and to
-# production for a minor or major release (X.Y.0). The repository variable
+# Builds the release APK for a tag android-vX.Y.Z (made by
+# `just android-release`) and keeps it as a run artifact. With the
+# PLAY_SERVICE_ACCOUNT_JSON secret it goes to Play as an app bundle: the beta
+# track when Z is not 0, production for a minor or major release (X.Y.0). A
+# manual run goes to the internal track. The repository variable
 # PLAY_BETA_TRACK picks another testing track, such as alpha for closed testing. Releases stay drafts until the
 # repository variable PLAY_RELEASE_STATUS says `completed`, which Play only
 # accepts once the app has been published.
@@ -16,7 +16,6 @@ name: android
 
 on:
   push:
-    branches: [main]
     tags: ["android-v*"]
   workflow_dispatch:
 
