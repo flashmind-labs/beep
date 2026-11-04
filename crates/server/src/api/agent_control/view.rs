@@ -3,17 +3,12 @@
 use super::{
     super::{
         Reply,
-        agent_sessions::{Host, NODE_LIMIT, beep_session, external_session, limited},
+        agent_sessions::{NODE_LIMIT, external_session, limited},
     },
     MAX_ENTRIES, live_host,
 };
-use crate::{
-    api::router::Cx,
-    protocol::{
-        node::agent::{self, PlanStatus, SessionInfo},
-        *,
-    },
-};
+use crate::{api::router::Cx, protocol::*};
+pub(super) use beep_mesh::machine::{beep_view, entries_for};
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
@@ -135,61 +130,4 @@ pub(in crate::api) async fn get_agent_session_modes(
             .collect(),
         plan: info.plan_ready,
     })
-}
-
-pub(super) fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
-    let state = info.state.clone();
-    let last_message = info.last_message.clone();
-    let turns = info.turns;
-    AgentSessionView {
-        session: beep_session(host, info),
-        plan: state
-            .plan
-            .into_iter()
-            .map(|step| AgentPlanStep {
-                content: step.content,
-                status: plan_status(step.status),
-            })
-            .collect(),
-        files: state.files_touched,
-        last_message,
-        error: state.error,
-        queued: state.queued,
-        turns,
-        entries: Vec::new(),
-        earlier: 0,
-    }
-}
-
-/// A status from a newer node reads as pending.
-pub(super) fn plan_status(status: PlanStatus) -> AgentPlanStatus {
-    match status {
-        PlanStatus::InProgress => AgentPlanStatus::InProgress {},
-        PlanStatus::Completed => AgentPlanStatus::Completed {},
-        _ => AgentPlanStatus::Pending {},
-    }
-}
-
-/// The entries an app reads: thoughts only for one that reads them.
-pub(super) fn entries_for(entries: Vec<agent::Entry>, thoughts: bool) -> Vec<AgentEntry> {
-    entries
-        .into_iter()
-        .filter(|entry| thoughts || entry.kind != agent::EntryKind::Thought)
-        .map(entry)
-        .collect()
-}
-
-pub(super) fn entry(entry: agent::Entry) -> AgentEntry {
-    let kind = match entry.kind {
-        agent::EntryKind::User => AgentEntryKind::User {},
-        agent::EntryKind::Agent => AgentEntryKind::Agent {},
-        agent::EntryKind::Tool => AgentEntryKind::Tool {},
-        agent::EntryKind::Question => AgentEntryKind::Question {},
-        agent::EntryKind::Thought => AgentEntryKind::Thought { ms: entry.ms },
-        _ => AgentEntryKind::Other {},
-    };
-    AgentEntry {
-        kind,
-        text: entry.text,
-    }
 }

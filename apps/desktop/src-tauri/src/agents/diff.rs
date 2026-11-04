@@ -1,10 +1,15 @@
 //! The diff viewer: what changed in a coding agent session's checkout, or
 //! on a project's branch, read by the node where the checkout is.
 
-use crate::{beep::Service, error::Result};
+use crate::{
+    beep::Service,
+    error::Result,
+    fleet::{Machines, files as direct},
+    projects::branches::places,
+};
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetBranchDiff,
-    GetWorkDiff, WorkDiff,
+    GetWorkDiff, WorkDiff, node::agent::DiffAsk,
 };
 use serde::Serialize;
 
@@ -127,21 +132,35 @@ fn view(diff: WorkDiff) -> DiffView {
 #[tauri::command]
 pub async fn work_diff(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     root: String,
     only: Vec<String>,
     lockfiles: bool,
 ) -> Result<DiffView> {
-    let diff = beep
-        .call(GetWorkDiff {
-            machine_id,
-            root,
-            base: String::new(),
-            head: String::new(),
-            only,
-            lockfiles,
-        })
-        .await?;
+    let diff = match fleet.member(&machine_id) {
+        Some(machine) => {
+            let ask = DiffAsk {
+                root,
+                base: String::new(),
+                head: String::new(),
+                only,
+                lockfiles,
+            };
+            direct::work_diff(&fleet, machine, ask).await?
+        }
+        None => {
+            beep.call(GetWorkDiff {
+                machine_id,
+                root,
+                base: String::new(),
+                head: String::new(),
+                only,
+                lockfiles,
+            })
+            .await?
+        }
+    };
     Ok(view(diff))
 }
 
@@ -149,11 +168,16 @@ pub async fn work_diff(
 #[tauri::command]
 pub async fn branch_diff(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     project: String,
     branch: String,
     only: Vec<String>,
     lockfiles: bool,
 ) -> Result<DiffView> {
+    if let Some(place) = places(&beep, &fleet, &project).await.into_iter().next() {
+        let diff = direct::branch_diff(&fleet, &place, &branch, only, lockfiles).await?;
+        return Ok(view(diff));
+    }
     let diff = beep
         .call(GetBranchDiff {
             project,
