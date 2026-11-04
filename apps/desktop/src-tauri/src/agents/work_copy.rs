@@ -1,16 +1,18 @@
-//! Reads of a machine's project folder served from this Mac when sync keeps
-//! a copy of the project here. Sync is trusted to carry the files, so nothing
-//! is compared with the machine. A project not synced here, or a file sync
-//! has not brought yet, goes to the node as if this were not here.
+//! Reads of a machine's project folder served from this Mac when the same
+//! project has a folder here. Sync, Syncthing's or Beep's, is trusted to carry
+//! the files, so nothing is compared with the machine and nothing asks whether
+//! sync is running. A project with no folder here, or a file not here yet, goes
+//! to the node as if this were not here. The log says why a folder has no copy.
 
-use crate::{beep::Beep, error::Result, projects::unknown_op};
-use beep_node::{
-    agents::{local_read, local_tree},
-    files::{sync::keeps, syncthing::Syncthing},
+use crate::{
+    beep::Beep,
+    error::{DesktopError, Result},
+    projects::unknown_op,
 };
+use beep_node::agents::{local_read, local_tree};
 use beep_proto::{
-    AgentFileChunk, GetProjectSyncDetail, ImportedProject, ListImportedProjects, ListProjectSync,
-    ListProjectSyncthing, ListWorkTree, ProjectSync, SyncthingPlace, WorkTree,
+    AgentFileChunk, ImportedProject, ListImportedProjects, ListProjectSync, ListWorkTree,
+    ProjectSync, WorkTree,
 };
 use std::{
     collections::HashMap,
@@ -50,6 +52,15 @@ struct LocalCopy {
     local: PathBuf,
 }
 
+/// Why a folder on a machine has no copy here.
+#[derive(Debug, PartialEq, thiserror::Error)]
+enum Miss {
+    #[error("no project holds it on that machine (removing a machine deletes its imports)")]
+    NoProject,
+    #[error("{project} has no folder on this Mac; its folders elsewhere: {tried:?}")]
+    NotHere { project: String, tried: Vec<String> },
+}
+
 impl Copies {
     fn kept(&self, asked: &Asked) -> Option<Option<LocalCopy>> {
         let known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
@@ -57,13 +68,19 @@ impl Copies {
         (found.at.elapsed() < FRESH).then(|| found.copy.clone())
     }
 
-    fn keep(&self, asked: Asked, copy: Option<LocalCopy>) {
+    /// Whether no answer about the folder was standing: reads running at
+    /// once all look, and their miss is logged once.
+    fn keep(&self, asked: Asked, copy: Option<LocalCopy>) -> bool {
         let mut known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
         if known.len() >= MAX_KEPT {
             known.clear();
         }
+        let first = known
+            .get(&asked)
+            .is_none_or(|found| found.at.elapsed() >= FRESH);
         let at = Instant::now();
         known.insert(asked, Known { at, copy });
+        first
     }
 }
 
@@ -115,99 +132,83 @@ fn holder<'a>(
         .max_by_key(|(_, folder)| folder.len())
 }
 
-/// The folders on other machines that sync keeps in step with `remote` on
-/// `machine_id`: Beep's sync of the project (`None` when paused), and the
-/// Syncthing folder of the same label.
-fn kept_with(
+/// The folders of `project` on machines other than `machine_id`.
+fn other_folders<'a>(
     machine_id: &str,
-    remote: &str,
-    synced: Option<&ProjectSync>,
-    places: &[SyncthingPlace],
-) -> Vec<String> {
-    let beep = synced
-        .filter(|p| {
-            p.machines
-                .iter()
-                .any(|m| m.machine_id == machine_id && m.folder == remote)
-        })
-        .into_iter()
+    project: &str,
+    imported: &'a [ImportedProject],
+    synced: &'a [ProjectSync],
+) -> Vec<&'a str> {
+    let imports = imported
+        .iter()
+        .filter(|row| row.machine_id != machine_id && row.project.eq_ignore_ascii_case(project))
+        .map(|row| row.folder.as_str());
+    let syncs = synced
+        .iter()
+        .filter(|p| p.project.eq_ignore_ascii_case(project))
         .flat_map(|p| &p.machines)
         .filter(|m| m.machine_id != machine_id)
-        .map(|m| m.folder.clone());
-    let label = places
-        .iter()
-        .find(|p| p.machine_id == machine_id && p.folder == remote)
-        .map(|p| p.label.as_str());
-    let syncthing = places
-        .iter()
-        .filter(|p| p.machine_id != machine_id && Some(p.label.as_str()) == label)
-        .map(|p| p.folder.clone());
-    beep.chain(syncthing).collect()
+        .map(|m| m.folder.as_str());
+    imports.chain(syncs).collect()
 }
 
-/// Sync keeps `folder` on this Mac.
-async fn is_here(folder: &Path, syncthing: &Syncthing) -> bool {
-    let at = folder.to_owned();
-    let found = spawn_blocking(move || (at.is_absolute() && at.is_dir(), keeps(&at))).await;
-    match found {
-        Ok((true, true)) => true,
-        Ok((true, false)) => syncthing.check(folder).await.is_some(),
-        Ok((false, _)) => false,
-        Err(e) => {
-            log::warn!("could not look for a synced copy: {e}");
-            false
-        }
-    }
+/// The project holding `dir` on `machine_id`, and the first of its other
+/// folders that `is_here` says this Mac has.
+fn find_copy(
+    machine_id: &str,
+    dir: &str,
+    imported: &[ImportedProject],
+    synced: &[ProjectSync],
+    is_here: impl Fn(&Path) -> bool,
+) -> Result<LocalCopy, Miss> {
+    let Some((project, remote)) = holder(machine_id, dir, imported, synced) else {
+        return Err(Miss::NoProject);
+    };
+    let tried = other_folders(machine_id, project, imported, synced);
+    let here = tried
+        .iter()
+        .copied()
+        .map(Path::new)
+        .find(|folder| is_here(folder));
+    let Some(local) = here else {
+        return Err(Miss::NotHere {
+            project: project.to_owned(),
+            tried: tried.into_iter().map(str::to_owned).collect(),
+        });
+    };
+    Ok(LocalCopy {
+        remote: remote.to_owned(),
+        local: local.to_owned(),
+    })
 }
 
-/// Asks the server how `dir` on `machine_id` is synced, and looks here.
-async fn look(beep: &Beep, machine_id: &str, dir: &str) -> Result<Option<LocalCopy>> {
+/// `folder` is a folder here, and inside `root` once links resolve.
+fn stays_inside(root: &Path, folder: &Path) -> bool {
+    let (Ok(root), Ok(folder)) = (root.canonicalize(), folder.canonicalize()) else {
+        return false;
+    };
+    folder.starts_with(root) && folder.is_dir()
+}
+
+/// Asks the server which projects are where, and looks here. The outer error
+/// is a failed request, which says nothing about the copy.
+async fn look(beep: &Beep, machine_id: &str, dir: &str) -> Result<Result<LocalCopy, Miss>> {
     let imported = beep.call(ListImportedProjects {}).await?;
     let synced = match beep.call(ListProjectSync {}).await {
         Err(e) if unknown_op(&e) => Vec::new(),
         other => other?,
     };
-    let Some((project, remote)) = holder(machine_id, dir, &imported, &synced) else {
-        return Ok(None);
-    };
-    let places = match beep
-        .call(ListProjectSyncthing {
-            project: project.to_owned(),
+    let (machine_id, dir) = (machine_id.to_owned(), dir.to_owned());
+    spawn_blocking(move || {
+        find_copy(&machine_id, &dir, &imported, &synced, |folder| {
+            folder.is_absolute() && folder.is_dir()
         })
-        .await
-    {
-        Err(e) if unknown_op(&e) => Vec::new(),
-        other => other?,
-    };
-    let sync = synced.iter().find(|p| p.project == project);
-    let paused = match sync {
-        Some(_) => match beep
-            .call(GetProjectSyncDetail {
-                project: project.to_owned(),
-            })
-            .await
-        {
-            Ok(detail) => detail.paused,
-            Err(e) if unknown_op(&e) => false,
-            Err(e) => return Err(e),
-        },
-        None => false,
-    };
-    let sync = sync.filter(|_| !paused);
-    let syncthing = Syncthing::local();
-    for folder in kept_with(machine_id, remote, sync, &places) {
-        let local = PathBuf::from(folder);
-        if is_here(&local, &syncthing).await {
-            return Ok(Some(LocalCopy {
-                remote: remote.to_owned(),
-                local,
-            }));
-        }
-    }
-    Ok(None)
+    })
+    .await
+    .map_err(|e| DesktopError::Other(e.into()))
 }
 
-/// The copy here of `dir` on `machine_id`, when sync keeps one.
+/// The copy here of `dir` on `machine_id`, when this Mac has the project.
 async fn copy_of(beep: &Beep, machine_id: &str, dir: &str) -> Option<LocalCopy> {
     // The Mac's own files are already here, through its own node.
     if beep.id().to_string() == machine_id {
@@ -221,10 +222,17 @@ async fn copy_of(beep: &Beep, machine_id: &str, dir: &str) -> Option<LocalCopy> 
         return copy;
     }
     match look(beep, machine_id, dir).await {
-        Ok(copy) => {
-            beep.copies().keep(asked, copy.clone());
-            copy
+        Ok(Ok(copy)) => {
+            beep.copies().keep(asked, Some(copy.clone()));
+            Some(copy)
         }
+        Ok(Err(miss)) => {
+            if beep.copies().keep(asked, None) {
+                log::info!("{dir} on {machine_id} reads from the node: {miss}");
+            }
+            None
+        }
+        // Not kept: the next read asks again.
         Err(e) => {
             log::warn!("could not tell whether {dir} is synced here: {e:#}");
             None
@@ -269,9 +277,15 @@ pub(crate) async fn tree(beep: &Beep, ask: &ListWorkTree) -> Option<WorkTree> {
     let copy = copy_of(beep, &ask.machine_id, root).await?;
     let local = copy.local.join(under(root, &copy.remote)?);
     let (path, ignored, depth) = (ask.path.clone(), ask.ignored, ask.depth);
-    let found = spawn_blocking(move || local_tree(&local, &path, ignored, depth)).await;
+    let found = spawn_blocking(move || {
+        if !stays_inside(&copy.local, &local) {
+            return Ok(None);
+        }
+        local_tree(&local, &path, ignored, depth).map(Some)
+    })
+    .await;
     match found {
-        Ok(Ok(tree)) => Some(tree),
+        Ok(Ok(tree)) => tree,
         Ok(Err(e)) => {
             log::debug!("listing {root} from the node: {e:#}");
             None
@@ -287,7 +301,7 @@ pub(crate) async fn tree(beep: &Beep, ask: &ListWorkTree) -> Option<WorkTree> {
 mod tests {
     use super::*;
     use beep_proto::{MachineSync, SyncStatus};
-    use std::time::UNIX_EPOCH;
+    use std::{env, fs, os::unix::fs::symlink, process, time::UNIX_EPOCH};
 
     fn machine(id: &str, folder: &str) -> MachineSync {
         MachineSync {
@@ -310,14 +324,6 @@ mod tests {
             project: "acme/widget".into(),
             pinned: false,
             machines,
-        }
-    }
-
-    fn place(id: &str, folder: &str, label: &str) -> SyncthingPlace {
-        SyncthingPlace {
-            machine_id: id.into(),
-            folder: folder.into(),
-            label: label.into(),
         }
     }
 
@@ -355,38 +361,135 @@ mod tests {
         assert_eq!(holder("box", "/opt/else", &imported, &[]), None);
     }
 
-    #[test]
-    fn beep_sync_keeps_the_other_machines_folders_unless_paused() {
-        let project = sync(vec![
-            machine("box", "/srv/widget"),
-            machine("mac", "/mac/widget"),
-        ]);
-        assert_eq!(
-            kept_with("box", "/srv/widget", Some(&project), &[]),
-            ["/mac/widget"]
-        );
-        // `look` passes no sync for a paused project.
-        assert!(kept_with("box", "/srv/widget", None, &[]).is_empty());
-        // The session's folder is not the one synced.
-        assert!(kept_with("box", "/srv/other", Some(&project), &[]).is_empty());
+    /// What `find_copy` finds when this Mac has only the folders `here`.
+    fn found(
+        dir: &str,
+        imported: &[ImportedProject],
+        synced: &[ProjectSync],
+        here: &[&str],
+    ) -> Result<LocalCopy, Miss> {
+        find_copy("box", dir, imported, synced, |folder| {
+            here.iter().any(|there| folder == Path::new(there))
+        })
+    }
+
+    fn copy(remote: &str, local: &str) -> LocalCopy {
+        LocalCopy {
+            remote: remote.into(),
+            local: local.into(),
+        }
     }
 
     #[test]
-    fn syncthing_keeps_only_a_folder_of_the_same_label() {
-        let places = [
-            place("box", "/srv/widget", "widget"),
-            place("mac", "/mac/widget", "widget"),
-            place("air", "/air/widget", "something else"),
+    fn a_project_imported_on_both_reads_here_whatever_the_case_or_slash() {
+        let imported = [
+            import("box", "Acme/Widget", "/srv/widget/"),
+            import("mac", "acme/widget", "/mac/code/widget"),
         ];
         assert_eq!(
-            kept_with("box", "/srv/widget", None, &places),
-            ["/mac/widget"]
+            found("/srv/widget", &imported, &[], &["/mac/code/widget"]),
+            Ok(copy("/srv/widget/", "/mac/code/widget"))
         );
     }
 
     #[test]
-    fn a_project_only_on_the_remote_machine_has_no_copy() {
-        let places = [place("mac", "/mac/widget", "widget")];
-        assert!(kept_with("box", "/srv/widget", None, &places).is_empty());
+    fn a_project_synced_by_beep_only_reads_here() {
+        let synced = [sync(vec![
+            machine("box", "/srv/widget"),
+            machine("mac", "/mac/widget"),
+        ])];
+        assert_eq!(
+            found("/srv/widget", &[], &synced, &["/mac/widget"]),
+            Ok(copy("/srv/widget", "/mac/widget"))
+        );
+    }
+
+    #[test]
+    fn another_project_of_the_same_folder_name_is_not_the_copy() {
+        let imported = [
+            import("box", "acme/widget", "/srv/widget"),
+            import("mac", "other/widget", "/mac/widget"),
+        ];
+        assert_eq!(
+            found("/srv/widget", &imported, &[], &["/mac/widget"]),
+            Err(Miss::NotHere {
+                project: "acme/widget".into(),
+                tried: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_session_in_a_subfolder_or_worktree_reads_under_the_projects_folder() {
+        let imported = [
+            import("box", "acme/widget", "/srv/widget"),
+            import("mac", "acme/widget", "/mac/widget"),
+        ];
+        for dir in ["/srv/widget/assets", "/srv/widget/.worktrees/fix/assets"] {
+            assert_eq!(
+                found(dir, &imported, &[], &["/mac/widget"]),
+                Ok(copy("/srv/widget", "/mac/widget")),
+                "{dir}"
+            );
+        }
+        assert_eq!(
+            under("/srv/widget/.worktrees/fix/a.glb", "/srv/widget"),
+            Some(".worktrees/fix/a.glb")
+        );
+    }
+
+    #[test]
+    fn a_folder_not_here_is_a_miss_that_names_where_it_looked() {
+        let imported = [
+            import("box", "acme/widget", "/srv/widget"),
+            import("mac", "acme/widget", "/mac/widget"),
+        ];
+        assert_eq!(
+            found("/srv/widget", &imported, &[], &[]),
+            Err(Miss::NotHere {
+                project: "acme/widget".into(),
+                tried: vec!["/mac/widget".into()],
+            })
+        );
+    }
+
+    #[test]
+    fn a_machine_that_lost_its_imports_holds_no_project() {
+        let imported = [import("mac", "acme/widget", "/mac/widget")];
+        assert_eq!(
+            found("/srv/widget", &imported, &[], &["/mac/widget"]),
+            Err(Miss::NoProject)
+        );
+    }
+
+    #[test]
+    fn nothing_outside_the_local_folder_counts_as_inside_it() {
+        let dir = env::temp_dir().join(format!("beep-work-copy-{}", process::id()));
+        let (root, outside) = (dir.join("widget"), dir.join("outside"));
+        fs::create_dir_all(root.join("assets")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("link")).unwrap();
+        assert!(stays_inside(&root, &root));
+        assert!(stays_inside(&root, &root.join("assets")));
+        assert!(!stays_inside(&root, &root.join("link")));
+        assert!(!stays_inside(&root, &root.join("missing")));
+        assert!(!stays_inside(&root, &root.join("../outside")));
+        // What a doubled slash in a session's path would join to.
+        assert!(!stays_inside(&root, &root.join(&outside)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_miss_counts_as_first_once_per_window() {
+        let copies = Copies::default();
+        let asked = || Asked {
+            machine_id: "box".into(),
+            folder: "/srv/widget".into(),
+        };
+        assert!(copies.keep(asked(), None));
+        assert!(!copies.keep(asked(), None));
+        let long_ago = Instant::now().checked_sub(FRESH).unwrap();
+        copies.known.lock().unwrap().get_mut(&asked()).unwrap().at = long_ago;
+        assert!(copies.keep(asked(), None));
     }
 }
