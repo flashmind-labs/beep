@@ -16,12 +16,11 @@ use beep_mesh::{
 };
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentHarness, AgentHarnesses, AgentHost, AgentImageData,
-    AgentModels, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentSteer,
-    AnswerAgentQuestion, ApiError, CodexLogin, CodexLoginState, CustomAgent, GetAgentFile,
-    GetAgentImage, GetAgentSession, GetAgentSessionModes, GetAgentSessionUsage, HarnessEnv,
-    HarnessSettings, HarnessSignIn, ListAgentModels, MachinePick, MachineSession,
-    PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
-    image_key, media_mime,
+    AgentModels, AgentSessionModes, AgentSessionUsage, AgentSessionView, AnswerAgentQuestion,
+    ApiError, CodexLogin, CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage,
+    GetAgentSession, GetAgentSessionModes, GetAgentSessionUsage, HarnessEnv, HarnessSettings,
+    HarnessSignIn, ListAgentModels, MachinePick, MachineSession, PreviewAgentMachine,
+    ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession, image_key, media_mime,
     node::{
         EnvReport,
         agent::{self, Request},

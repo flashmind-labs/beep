@@ -7,7 +7,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Machines, extra,
-        terminals::{self as direct, Attached},
+        terminals::{self as direct, Opened},
     },
     projects::{needs_update, unknown_op},
 };
@@ -368,8 +368,8 @@ pub async fn terminal_attach(
 ) -> Result<()> {
     if direct::has(&fleet, id) {
         let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
-            Attached::Live { tx, rx } => (tx, rx),
-            Attached::Over(event) => {
+            Opened::Live { tx, rx } => (tx, rx),
+            Opened::Over(event) => {
                 on_event.send(event.into())?;
                 return Ok(());
             }

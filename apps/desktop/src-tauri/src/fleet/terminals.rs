@@ -351,7 +351,7 @@ pub(crate) async fn close(fleet: &Fleet, id: Uuid) -> Result<()> {
 }
 
 /// A terminal followed live, or why it cannot be.
-pub(crate) enum Attached {
+pub(crate) enum Opened {
     /// The node's stream: keys go to `tx`, output comes from `rx`.
     Live { tx: LinkTx, rx: LinkRx },
     /// There is nothing to follow: the event says why.
@@ -365,12 +365,12 @@ pub(crate) async fn attach(
     from: u64,
     cols: u32,
     rows: u32,
-) -> Result<Attached> {
+) -> Result<Opened> {
     let row = fleet.terminals.find(id).ok_or_else(not_found)?;
     if !row.pty {
-        return Ok(Attached::Over(TerminalEvent::ViewOnly {}));
+        return Ok(Opened::Over(TerminalEvent::ViewOnly {}));
     }
-    let ended = |state| Ok(Attached::Over(TerminalEvent::Ended { state }));
+    let ended = |state| Ok(Opened::Over(TerminalEvent::Ended { state }));
     let Some(machine) = fleet.member(&row.machine) else {
         return ended(TerminalState::Offline {});
     };
@@ -389,5 +389,5 @@ pub(crate) async fn attach(
     let (tx, rx) = terminals::attach(&client, TaskId(row.task), from, size)
         .await
         .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(machine))))?;
-    Ok(Attached::Live { tx, rx })
+    Ok(Opened::Live { tx, rx })
 }

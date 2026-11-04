@@ -90,8 +90,5 @@ async fn latest_release(tool: Tool) -> Result<String> {
             let tag = release.tag_name;
             Ok(tag.strip_prefix('v').unwrap_or(&tag).to_owned())
         }
-        _ => Err(DesktopError::BadRequest(format!(
-            "Beep does not update {tool}."
-        ))),
     }
 }
