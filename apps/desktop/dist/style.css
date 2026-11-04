@@ -21,7 +21,7 @@ button { font: inherit; color: inherit; cursor: default }
 .dinput input::placeholder { color: var(--dim) }
 .dinput textarea { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; caret-color: var(--accent); padding: 0; resize: none; overflow-y: auto; scrollbar-width: none; align-self: center }
 .dinput textarea::placeholder { color: var(--dim) }
-.dinput .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dinput .txt, .agtr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dlogo { width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--hot); color: var(--on-accent); display: grid; place-items: center; flex: none;
   font-family: var(--display); font-weight: 800; font-size: 16px }
 
@@ -35,14 +35,13 @@ button { font: inherit; color: inherit; cursor: default }
 .dbody strong { font-weight: 600 }
 .dbody a { color: var(--accent); overflow-wrap: anywhere }
 .dbody code { font-family: var(--mono); font-size: 12.5px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
-.dbody pre { margin: 0 0 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); overflow: auto }
-.dbody pre code { border: 0; padding: 0; background: none }
-.dbody table { border-collapse: collapse; font-size: 13px }
+.dbody pre, .agartmd pre { margin: 0 0 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); overflow: auto }
+.dbody pre code, .agartmd pre code { border: 0; padding: 0; background: none }
+.dbody table { border-collapse: collapse; font-size: 13px; margin-bottom: 8px }
 .dbody th, .dbody td { border: 1px solid var(--border); padding: 3px 8px; text-align: left }
 .dbody h1, .dbody h2, .dbody h3, .dbody h4 { font-size: 15px; margin: 4px 0; font-weight: 600 }
-.dbody blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted) }
+.dbody blockquote, .agartmd blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted) }
 .dbody hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0 12px; width: 100% }
-.dbody table { margin-bottom: 8px }
 .reply img:not(.dprods img, .drecs img) { max-width: 100%; max-height: 60vh; height: auto; object-fit: contain }
 .reply img:not(a img, .dprods img, .drecs img) { cursor: zoom-in }
 
@@ -129,7 +128,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchat { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: var(--radius-sm); border: 0; background: transparent; text-align: left; width: 100%; color: var(--fg) }
 .dchat .t { flex: 1; min-width: 0; display: grid }
 .dchat .t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px }
-.dchat .t small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted) }
+.dchat .t small, .dappr .tt small, .dlevel .tt small, .dgit .acct { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted) }
 .dchat .pin { color: var(--hot); display: grid; flex: none }
 .dchat .run { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent); flex: none }
 .dchat .w { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none }
@@ -157,9 +156,9 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 /* Groups, file cards and chat actions, as in the desktop mock. */
 .dg { display: grid; gap: 2px; max-width: 78%; align-self: flex-start }
 .dg .who { font-size: 11.5px; font-weight: 600; line-height: 16px }
-.dg .b { background: var(--elev); border: 1px solid var(--border); border-radius: 12px 12px 12px 4px; padding: 6px 10px }
+.dg .b { background: var(--elev); border: 1px solid var(--border); border-radius: 12px 12px 12px 4px; padding: 6px 10px; white-space: pre-wrap; overflow-wrap: anywhere }
 .dg.me { align-self: flex-end } .dg.me .b { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: transparent; border-radius: 12px 12px 4px 12px }
-.dg.beep { max-width: none; align-self: stretch } .dg.beep .b { background: none; border: 0; padding: 0 }
+.dg.beep { max-width: none; align-self: stretch } .dg.beep .b { background: none; border: 0; padding: 0; white-space: normal }
 .dg.pending { opacity: .6 }
 .dday { text-align: center; font-size: 11px; color: var(--dim) }
 .dmention { color: var(--accent); font-weight: 600 }
@@ -167,7 +166,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dav { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: var(--ink); border: 1.5px solid var(--surface); margin-left: -6px }
 .davs .dav:first-child { margin-left: 0 }
 .dhead { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border) }
-.dhead .tt { flex: 1; min-width: 0; display: grid; line-height: 19px }
+.dhead .tt { flex: 1; min-width: 0; display: grid; line-height: 19px; border: 0; background: transparent; color: inherit; text-align: left; padding: 0 }
 .dhead .tt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dhead .tt small { font-size: 12px; color: var(--muted) }
 .agproj { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; cursor: pointer }
@@ -208,9 +207,6 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dinfo { display: grid; gap: 8px; font-size: 13px; line-height: 19px }
 .dinfo .row { display: flex; gap: 10px; align-items: center }
 .dinfo .row > svg { flex: none; color: var(--muted) }
-.dg .b { white-space: pre-wrap; overflow-wrap: anywhere }
-.dg.beep .b { white-space: normal }
-.dhead .tt { border: 0; background: transparent; color: inherit; text-align: left; padding: 0 }
 .dfield input { min-height: 34px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0; caret-color: var(--accent) }
 .dfield select { min-height: 34px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0 }
 .dfield input:focus, .dfield textarea:focus, .dfield select:focus { border-color: var(--accent) }
@@ -220,7 +216,6 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dform .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
 .dinfo .member { display: flex; gap: 10px; align-items: center }
 .dinfo .member .dav { width: 28px; height: 28px; font-size: 12px; margin: 0 }
-.dinfo .member > span:not(.dav) { flex: 1; min-width: 0; display: grid; line-height: 18px }
 .dinfo .member small { font-size: 12px; color: var(--muted) }
 .dinfo .member b { font-weight: 500 }
 .dtoggle { display: flex; gap: 12px; align-items: center }
@@ -284,15 +279,15 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dmem { display: grid; gap: 2px; padding: 6px 10px; border-radius: var(--radius-sm); color: var(--fg) }
 .dmem .top { display: flex; align-items: flex-start; gap: 10px }
 .dmem .c { flex: 1; min-width: 0; font-size: 14px; line-height: 20px }
-.dmem .m { font-size: 12px; color: var(--muted); line-height: 17px }
+.dmem .m, .dmach small { font-size: 12px; color: var(--muted); line-height: 17px }
 .dmem q { font-style: italic; color: var(--muted); font-size: 12px; line-height: 17px; quotes: "\201C" "\201D" }
 .dmem.ended .c, .dmem.ended q { opacity: .55 }
 .dmem textarea { flex: 1; min-width: 0; font: inherit; font-size: 14px; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 3px 6px; resize: none; outline: 0 }
 .drt { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: var(--radius-sm); color: var(--fg) }
 .drt .ic { width: 30px; height: 30px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); display: grid; place-items: center; flex: none }
 .drt.off .ic { background: var(--surface); color: var(--dim) } .drt.off .tt b { color: var(--muted) }
-.drt .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
-.drt .tt b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.drt .tt, .dover .vt .tt, .dchart .ch .tt, .dappr .tt, .dlevel .tt, .dinfo .member > span:not(.dav) { flex: 1; min-width: 0; display: grid; line-height: 18px }
+.drt .tt b, .dover .vt b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .drt .tt > span { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .drt .tt small { font-size: 12px; color: var(--dim) }
 .dchips { display: flex; flex-wrap: wrap; gap: 6px }
@@ -309,8 +304,6 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dover { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; background: var(--deep); animation: dover .16s var(--ease) }
 @keyframes dover { from { opacity: 0 } }
 .dover .vt { flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border) }
-.dover .vt .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
-.dover .vt b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dover .vt small { font-size: 12px; color: var(--muted) }
 .dover .dhints { margin-top: auto }
 
@@ -373,7 +366,6 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 /* Charts from show_chart and show_stock_chart. Hover reads a point; a stock's range buttons fetch it again. */
 .dchart { border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); padding: 12px 14px 10px; display: grid; gap: 8px; user-select: none }
 .dchart .ch { display: flex; align-items: flex-start; gap: 12px }
-.dchart .ch .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
 .dchart .ch b { font-size: 14px; font-weight: 600 }
 .dchart .ch small { font-size: 12px; color: var(--muted) }
 .dchart .px { text-align: right; display: grid; line-height: 20px; font-variant-numeric: tabular-nums }
@@ -426,9 +418,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dapps .dsec { border: 0; padding-left: 10px }
 .dalogo { width: 28px; height: 28px; border-radius: var(--radius-sm); flex: none; object-fit: contain; background: var(--elev); display: grid; place-items: center; font-weight: 600; font-size: 13px; color: var(--muted) }
 .dappr, .dlevel, .daction { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: var(--radius-sm); min-height: 42px }
-.dappr .tt, .dlevel .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
 .dappr .tt b, .dlevel .tt b { font-size: 13.5px; font-weight: 500 }
-.dappr .tt small, .dlevel .tt small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dappr.on { cursor: pointer }
 .dappr.on:hover, .dlevel:hover { background: var(--elev) }
 .dappr .dmuted { display: inline-flex; gap: 6px; align-items: center; font-size: 12px }
@@ -531,7 +521,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dmach { display: grid; gap: 1px; padding: 8px 10px }
 .dmach + .dmach { border-top: 1px solid var(--border) }
 .dmach .nm { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600 }
-.dmach small { font-size: 12px; color: var(--muted); line-height: 17px }
 .dmach .nm .dbtn { margin-left: auto; padding: 1px 9px; font-size: 11.5px; min-height: 0; font-weight: 400 }
 .dmach .ask { display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 12.5px }
 .dmach .ask .acts { display: flex; gap: 8px }
@@ -613,10 +602,9 @@ button.dachip:hover { border-color: var(--border-hi) }
    and the right dock beside both (dAgentSession in the mock). The log
    keeps a readable column in the middle of the conversation. */
 .agshell { flex: 1 1 auto; min-height: 0; display: flex; position: relative }
-.agmain { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column }
+.agmain, .agconv { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column }
 .agshell.resizing { user-select: none; cursor: col-resize } .agshell.resizing-bottom { cursor: row-resize }
 .agshell:is(.resizing, .tabdrag) .agpviews { pointer-events: none }
-.agconv { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column }
 #agbody { padding: 12px 20px 12px }
 .agdiv { flex: none; width: 7px; margin: 0 -3px; cursor: col-resize; position: relative; z-index: 2; outline: 0 }
 .agdiv::after { content: ""; position: absolute; inset: 0 3px; background: var(--border); transition: background .15s }
@@ -644,8 +632,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agtabghost { position: fixed; left: 0; top: 0; z-index: 50; pointer-events: none; background: var(--elev, var(--elev)); color: var(--fg); box-shadow: 0 6px 18px color-mix(in srgb, var(--shade) 45%, transparent) }
 .agdropzone { position: absolute; z-index: 4; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: var(--radius); border: 1px dashed var(--accent); background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--accent); font-size: 12px; pointer-events: none }
 .agdropzone[hidden] { display: none }
-.agpviews { flex: 1; min-height: 0; display: flex; flex-direction: column }
-.agpview { flex: 1; min-height: 0; display: flex; flex-direction: column }
+.agpviews, .agpview { flex: 1; min-height: 0; display: flex; flex-direction: column }
 .agpview[hidden] { display: none !important }
 .agpview.subs { overflow: auto; padding: 6px; gap: 2px; display: grid; align-content: start }
 .agpstage { flex: 1; min-height: 0; position: relative; overflow: hidden; display: grid; place-items: center; background: var(--deep) }
@@ -685,7 +672,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agtr.note { cursor: default; color: var(--dim); font-family: inherit; font-size: 11.5px } .agtr.note:hover { background: none } .agtr.note.derr { color: var(--hot) }
 .agtr .tw { width: 10px; display: grid; place-items: center } .agtr .tw.open svg { transform: rotate(90deg) }
 .agtr .tw .dspin { width: 8px; height: 8px }
-.agtr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .agtr .gm { font-size: 10.5px; font-weight: 600 }
 .gm.modified { color: var(--warn) } .gm.added { color: var(--accent) } .gm.untracked { color: #6FA8DC } .gm.conflicted { color: var(--hot) }
 .agctx { position: absolute; z-index: 5; min-width: 180px; padding: 4px; border-radius: var(--radius-sm); background: var(--elev, var(--elev)); border: 1px solid var(--border); box-shadow: 0 8px 24px color-mix(in srgb, var(--shade) 40%, transparent) }
@@ -716,11 +702,8 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agartmd :is(h1, h2) { font-size: 15px; margin: 12px 0 6px; font-weight: 600 } .agartmd :is(h3, h4, h5, h6) { font-size: 14px; margin: 10px 0 4px; font-weight: 600 }
 .agartmd p { margin: 0 0 8px } .agartmd :is(ul, ol) { margin: 0 0 8px; padding-left: 18px }
 .agartmd a { color: var(--accent) }
-.agartmd code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
-.agartmd pre { margin: 0 0 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); overflow: auto }
-.agartmd pre code { border: 0; padding: 0; background: none }
+.agartmd code, .agc-help code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
 .agartmd table { border-collapse: collapse; margin-bottom: 8px; font-size: 12.5px } .agartmd :is(th, td) { border: 1px solid var(--border); padding: 3px 8px; text-align: left }
-.agartmd blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted) }
 .agartmd img { max-width: 100% }
 .dcoderen.tool.artifact .tt { text-decoration: underline dotted var(--dim); text-underline-offset: 3px }
 /* A file of the Files tab as text, and a terminal tab. */
@@ -783,14 +766,14 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dtrun > button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .dtrun > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
 .dtrun .ki { display: grid; place-items: center; color: var(--dim) }
-.dtrun .sm { min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dtrun .sm, .dthink .ln { min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dtrun .cv { display: grid; place-items: center; color: var(--dim); transition: transform .2s var(--ease) }
 .dtrun .cv svg { width: 12px; height: 12px }
 .dtrun.open .cv { transform: rotate(90deg) }
-.dtrun .bd { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .22s ease, opacity .22s ease }
+.dtrun .bd, .dthink .bd { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .22s ease, opacity .22s ease }
 .dtrun.open .bd { grid-template-rows: 1fr; opacity: 1 }
 .dtrun .bd > div { overflow: hidden; min-height: 0 }
-.dtrun:not(.open) .bd { visibility: hidden; transition: grid-template-rows .22s ease, opacity .22s ease, visibility 0s .22s }
+.dtrun:not(.open) .bd, .dthink:not(.open) .bd { visibility: hidden; transition: grid-template-rows .22s ease, opacity .22s ease, visibility 0s .22s }
 .dtrun .in { display: flex; flex-direction: column; margin: 2px 0 2px 13px; padding-left: 8px; border-left: 1px solid var(--border) }
 .dtrun .in .dcoderen.tool + .dcoderen.tool { margin-top: 0 }
 @media (prefers-reduced-motion: reduce) { .dtrun .bd, .dtrun .cv { transition: none } }
@@ -820,14 +803,11 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dthink .lb { flex: none; font-size: 12.5px; color: var(--muted) }
 .dthink.live .lb i { font-style: normal; color: var(--dim); animation: dthinkletter 1.5s ease-in-out infinite; animation-delay: calc(var(--i) * 125ms - var(--ph, 0ms)) }
 @keyframes dthinkletter { 0%, 30%, 100% { color: var(--dim) } 6% { color: var(--fg) } }
-.dthink .ln { min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dthink .cv { display: grid; flex: none; color: var(--dim); transition: transform .2s var(--ease, ease) }
 .dthink .cv svg { width: 12px; height: 12px }
 .dthink.open .cv { transform: rotate(90deg) }
-.dthink .bd { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .22s ease, opacity .22s ease }
 .dthink.open .bd { grid-template-rows: 1fr; opacity: 1 }
 .dthink .bd > div { overflow: hidden; min-height: 0 }
-.dthink:not(.open) .bd { visibility: hidden; transition: grid-template-rows .22s ease, opacity .22s ease, visibility 0s .22s }
 .dthink .tx { margin: 4px 0 2px 5px; padding: 1px 0 1px 12px; border-left: 2px solid var(--border); font-size: 12.5px; line-height: 1.55; color: var(--muted); white-space: normal; overflow-wrap: anywhere }
 .dthink .tx > :first-child { margin-top: 0 } .dthink .tx > :last-child { margin-bottom: 0 }
 .dthink .tx p { margin: 0 0 6px } .dthink .tx :is(h1, h2, h3, h4) { font-size: 12.5px; margin: 6px 0 2px; color: var(--fg) }
@@ -840,7 +820,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dcoderen.qa { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); white-space: normal }
 .dcoderen.qa .q { font-size: 12.5px; color: var(--muted) } .dcoderen.qa .a { font-size: 13.5px }
 .dcoderen img.pic:not([src]) { width: 120px; height: 80px; background: var(--surface) }
-.ag-queue { display: grid; gap: 4px; padding: 8px 16px 0 }
+.ag-queue { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 8px 16px 0 }
 .ag-queue .it { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: var(--radius-sm); border: 1px dashed var(--border); font-size: 12.5px; color: var(--muted) }
 .ag-queue .lbl { font-size: 11px; font-weight: 600 }
 .ag-queue .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg); opacity: .7 }
@@ -948,7 +928,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agc-pill { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 13px; color: var(--fg); min-width: 0; white-space: nowrap }
 .agc-pill:hover, .agc-pill[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .agc-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
-.agc-pill[disabled] { color: var(--dim); cursor: default; background: transparent }
+.agc-pill[disabled], .agc-menu button[disabled] { color: var(--dim); cursor: default; background: transparent }
 .agc-pill small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis }
 .agc-pill svg { color: var(--muted); flex: none }
 .agc-pill .mono, .agc-menu .mono, .agc-list .mono { font-family: var(--mono); font-size: 12px }
@@ -971,7 +951,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agc-note { display: flex; gap: 8px; align-items: center; padding: 0 6px; font-size: 12.5px; color: var(--muted) }
 .agc-help { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; font-size: 13px }
 .agc-help ol { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 3px }
-.agc-help code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
 .agc-pick { position: fixed; top: 0; left: 0; z-index: 30; width: min(640px, calc(100vw - 16px)); box-sizing: border-box; display: grid; grid-template-columns: 58px minmax(0, 1fr) 184px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); --pick-h: 340px; max-height: var(--pick-h); overflow: hidden auto; scrollbar-width: thin }
 .agc-rail { display: grid; align-content: start; gap: 8px; padding: 12px 11px; border-right: 1px solid var(--border); box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: none }
 .agc-rail button { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: var(--radius-sm); display: grid; place-items: center; position: relative }
@@ -1004,7 +983,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agc-menu button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .agc-menu button small { color: var(--muted); font-size: 11.5px }
 .agc-menu button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
-.agc-menu button[disabled] { color: var(--dim); cursor: default; background: transparent }
 .agc-menu .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent) }
 .agc-menu .dot.off { background: var(--dim) }
 .agc-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0 }
@@ -1041,7 +1019,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dgit.off .ic { opacity: .45 }
 .dgit .l1 { display: flex; align-items: center; gap: 8px; min-width: 0 }
 .dgit .l1 b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.dgit .acct { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dgit .acts { margin-left: auto; display: flex; gap: 4px; align-items: center; flex: none }
 .dgit .l2 { display: flex; flex-wrap: wrap; gap: 4px }
 .dgchip { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; flex: none }
