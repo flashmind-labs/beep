@@ -1,5 +1,6 @@
 //! The machine's live resources, for `Up::Stats`: free disk where the
-//! user's files live, memory in use and the load average.
+//! user's files live and on its other disks, memory in use and the load
+//! average.
 
 use crate::files::fsat;
 use anyhow::{Context, Result};
@@ -8,11 +9,16 @@ use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
 
 /// Samples the machine. `folders` are measured in order, each volume once:
-/// the workspace, then the home folder.
-pub async fn sample(folders: Vec<PathBuf>) -> StatsReport {
+/// the workspace, then the home folder, then the machine's other disks.
+pub async fn sample(mut folders: Vec<PathBuf>) -> StatsReport {
     // statvfs can hang on a stuck network mount, so it stays off the
     // async workers.
-    let disks = match spawn_blocking(move || disks(&folders)).await {
+    let disks = match spawn_blocking(move || {
+        folders.extend(other_volumes());
+        disks(&folders)
+    })
+    .await
+    {
         Ok(disks) => disks,
         Err(e) => {
             log::warn!("measuring the disks failed: {e}");
@@ -59,6 +65,83 @@ fn disk(folder: &Path) -> Result<(u64, DiskUsage)> {
         total_bytes: volume.total,
     };
     Ok((volume.device, usage))
+}
+
+/// The machine's fixed drives.
+#[cfg(windows)]
+fn other_volumes() -> Vec<PathBuf> {
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+    use windows_sys::Win32::System::WindowsProgramming::DRIVE_FIXED;
+    // SAFETY: the call takes nothing and returns a bitmask of drive letters.
+    let drives = unsafe { GetLogicalDrives() };
+    (0u8..26)
+        .filter(|letter| drives & (1 << letter) != 0)
+        .map(|letter| PathBuf::from(format!("{}:\\", char::from(b'A' + letter))))
+        .filter(|root| {
+            let wide: Vec<u16> = root.as_os_str().encode_wide().chain(once(0)).collect();
+            // SAFETY: `wide` is a NUL-terminated path that outlives the call.
+            unsafe { GetDriveTypeW(wide.as_ptr()) == DRIVE_FIXED }
+        })
+        .collect()
+}
+
+/// The machine's mounted disks. Listing them reads no disk, so a stuck
+/// network mount cannot hold this up.
+#[cfg(unix)]
+fn other_volumes() -> Vec<PathBuf> {
+    use std::fs;
+    use std::process::Command;
+    let listed = if cfg!(target_os = "macos") {
+        Command::new("mount")
+            .output()
+            .map(|out| mac_volumes(&String::from_utf8_lossy(&out.stdout)))
+    } else {
+        fs::read_to_string("/proc/self/mounts").map(|mounts| linux_volumes(&mounts))
+    };
+    match listed {
+        // A container mounts single files too, such as /etc/hosts.
+        Ok(listed) => listed.into_iter().filter(|path| path.is_dir()).collect(),
+        Err(e) => {
+            log::debug!("listing the disks failed: {e}");
+            Vec::new()
+        }
+    }
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+/// The writable volumes in `/proc/self/mounts` that sit on a real device,
+/// without the boot partitions. Spaces in a mount point come escaped.
+fn linux_volumes(mounts: &str) -> Vec<PathBuf> {
+    mounts
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let (source, point) = (fields.next()?, fields.next()?);
+            let options = fields.nth(1)?;
+            let real = source.starts_with("/dev/") && !source.starts_with("/dev/loop");
+            let writable = !options.split(',').any(|option| option == "ro");
+            (real && writable && !point.starts_with("/boot"))
+                .then(|| PathBuf::from(point.replace("\\040", " ")))
+        })
+        .collect()
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+/// The local, writable volumes in `mount`'s output that are under
+/// `/Volumes`, which leaves out disk images and network shares.
+fn mac_volumes(mount: &str) -> Vec<PathBuf> {
+    mount
+        .lines()
+        .filter_map(|line| {
+            let (mounted, options) = line.rsplit_once(" (")?;
+            let (_, point) = mounted.split_once(" on ")?;
+            let has = |name: &str| options.trim_end_matches(')').split(", ").any(|o| o == name);
+            (point.starts_with("/Volumes/") && has("local") && !has("read-only"))
+                .then(|| PathBuf::from(point))
+        })
+        .collect()
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -173,5 +256,40 @@ mod tests {
         assert_eq!(disks[0].path, dir.path().display().to_string());
         assert!(disks[0].total_bytes > 0);
         assert!(disks[0].free_bytes <= disks[0].total_bytes);
+    }
+
+    #[test]
+    fn linux_lists_real_writable_disks() {
+        let mounts = "/dev/sda2 / ext4 rw,relatime 0 0\n\
+            proc /proc proc rw 0 0\n\
+            /dev/sda1 /boot/efi vfat rw 0 0\n\
+            /dev/loop3 /snap/core squashfs ro 0 0\n\
+            /dev/sdb1 /mnt/big\\040disk ext4 rw 0 0\n\
+            /dev/sdc1 /mnt/old ext4 ro 0 0\n";
+        assert_eq!(
+            linux_volumes(mounts),
+            [PathBuf::from("/"), PathBuf::from("/mnt/big disk")]
+        );
+    }
+
+    #[test]
+    fn mac_lists_local_writable_volumes() {
+        let mount = "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n\
+            /dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)\n\
+            /dev/disk5s1 on /Volumes/Big Disk (apfs, local, journaled)\n\
+            /dev/disk6s1 on /Volumes/Installer (hfs, local, read-only, noowners)\n\
+            //user@host/share on /Volumes/share (smbfs, nodev, nosuid)\n";
+        assert_eq!(mac_volumes(mount), [PathBuf::from("/Volumes/Big Disk")]);
+    }
+
+    /// Run on a Windows machine to see its drives measured.
+    #[cfg(windows)]
+    #[test]
+    fn windows_lists_fixed_drives() {
+        let drives = other_volumes();
+        assert!(drives.iter().any(|d| d == Path::new("C:\\")), "{drives:?}");
+        let measured = disks(&drives);
+        println!("{measured:?}");
+        assert_eq!(measured.len(), drives.len());
     }
 }

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { MacControl } from "../src/center/home-state.ts";
-import { byRecent, runningWhen, machineProjects, remotePath, runningKey, runningLine, thisMacRow } from "../src/center/home-state.ts";
+import { byRecent, machineDisk, runningWhen, machineProjects, remotePath, runningKey, runningLine, thisMacRow } from "../src/center/home-state.ts";
 
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
   const row = (project: string, machine_id: string, status: string) => ({ project, machine_id, status, files: 90, pending: 10, error: null });
@@ -67,4 +67,18 @@ test("a Running row says now in a turn and idle between turns, not when it began
   const agent = (status: string) => ({ kind: "agent" as const, status, started_at: 1000, last_activity: 1000 });
   assert.equal(runningWhen(agent("working")), "now");
   assert.equal(runningWhen(agent("idle")), "idle");
+});
+
+test("the disk column shows the other volume with the most free", () => {
+  const stats = { disks: [
+    { path: "C:\\Users\\someone", free_bytes: 2_500_000_000, total_bytes: 254_000_000_000 },
+    { path: "E:\\", free_bytes: 7_000_000_000, total_bytes: 100_000_000_000 },
+    { path: "D:\\", free_bytes: 512_000_000_000, total_bytes: 512_000_000_000 },
+  ] };
+  const d = machineDisk({ online: true, stats });
+  assert.equal(d.text, "2.5 GB free");
+  assert.equal(d.low, true);
+  assert.equal(d.other, "D: 512 GB free");
+  assert.equal(machineDisk({ online: true, stats: { disks: stats.disks.slice(0, 1) } }).other, "");
+  assert.equal(machineDisk({ online: true, stats: { disks: [stats.disks[0], { path: "/mnt/data", free_bytes: 1, total_bytes: 2 }] } }).other, "data 1 B free");
 });

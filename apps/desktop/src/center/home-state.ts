@@ -253,15 +253,24 @@ function gb(mb: number) {
   return n >= 10 ? String(Math.round(n)) : n.toFixed(1);
 }
 
+/// A volume's short name: its drive on Windows, otherwise its folder.
+function volumeName(path: string) {
+  if (/^[a-z]:\\?$/i.test(path)) return path.slice(0, 2);
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
 /// The Disk column: free space where the machine keeps the user's files,
-/// low under a tenth free. The title lists each volume measured.
+/// low under a tenth free, and the other volume with the most free. The
+/// title lists each volume measured.
 export function machineDisk(m: { online: boolean; stats?: { disks?: readonly MachineDisk[] } | null }) {
   const disks = (m.online && m.stats?.disks) || [];
   const d = disks[0];
-  if (!d || !d.total_bytes) return { text: "–", low: false, title: "" };
+  if (!d || !d.total_bytes) return { text: "–", low: false, title: "", other: "" };
+  const roomiest = disks.slice(1).reduce<MachineDisk | null>((best, v) => !best || v.free_bytes > best.free_bytes ? v : best, null);
   return {
     text: `${bytes(d.free_bytes)} free`,
     low: d.free_bytes / d.total_bytes < 0.1,
+    other: roomiest ? `${volumeName(roomiest.path)} ${bytes(roomiest.free_bytes)} free` : "",
     title: disks.map(d => `${d.path}: ${bytes(d.free_bytes)} free of ${bytes(d.total_bytes)}`).join("\n"),
   };
 }

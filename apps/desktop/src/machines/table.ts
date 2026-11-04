@@ -41,7 +41,7 @@ function machineTable(machines: MachineCard[]) {
     const now = h("span", `num${off}`, machineNow(m));
     if (!m.online) now.title = `Seen ${since(m.seen_at)}`;
     const d = machineDisk(m), mem = machineMemory(m);
-    const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
+    const disk = h("span", `num${off}${d.low ? " low" : ""}${d.other ? " two" : ""}`, d.text, ...(d.other ? [h("small", "", d.other)] : []));
     if (d.title) disk.title = d.title;
     const memory = h("span", `num${off}`, mem.text);
     if (mem.title) memory.title = mem.title;
