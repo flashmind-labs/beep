@@ -292,7 +292,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-gr.it.more + .cc-row { border-top: 1px solid var(--border) }
 .cc-open .cc-note { margin: 8px 10px 2px }
 /* Machines as a table: one row per machine, so a glance compares them. */
-.cc-mt { display: grid; grid-template-columns: minmax(110px, 1.2fr) 52px max-content max-content minmax(0, 1.5fr) minmax(0, 1fr) max-content; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); overflow: hidden }
+.cc-mt { display: grid; grid-template-columns: minmax(110px, 1.2fr) 52px max-content max-content max-content minmax(0, 1.5fr) minmax(0, 1fr) max-content; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); overflow: hidden }
 .cc-mt > * { padding: 6px 10px; display: flex; align-items: center; gap: 6px; min-width: 0; border-top: 1px solid color-mix(in srgb, var(--fg) 5%, transparent) }
 .cc-mt > .th { border-top: 0; padding-top: 7px; padding-bottom: 5px }
 .cc-mt .nm { flex-direction: column; align-items: flex-start; gap: 0; scroll-margin-top: 30px }
@@ -303,7 +303,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-mt .num.low { color: var(--hot) }
 .cc-mt .caps { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 30px }
 .cc-mt .off { opacity: .5 }
-.cc-mt .mac-state { grid-column: span 4 }
+.cc-mt .mac-state { grid-column: span 5 }
 .cc-mt .mac-state.bad, .cc-si .mac-state.bad { color: var(--hot) }
 .cc-mt .act { justify-content: flex-end }
 /* A machine's terminals, indented under its row across every column. */
