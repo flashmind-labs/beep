@@ -5,6 +5,6 @@ mod devices;
 mod state;
 mod ticket;
 
-pub use devices::{Device, DeviceKind, DeviceOp, Devices, Merged, MeshError};
-pub use state::{Entry, Heads, Key, State};
+pub use devices::{Device, DeviceKind, DeviceOp, Devices, Merged, MeshError, WriteLimit};
+pub use state::{Applied, Entry, Heads, Key, State};
 pub use ticket::{JoinSecret, JoinTicket};
