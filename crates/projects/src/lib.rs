@@ -3,6 +3,7 @@
 
 pub mod branches;
 pub mod commands;
+pub mod credential_check;
 pub mod credentials;
 pub mod git_items;
 pub mod imports;

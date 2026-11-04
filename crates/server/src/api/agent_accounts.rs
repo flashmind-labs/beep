@@ -8,7 +8,6 @@ use super::{
     own_nodes::{linked_keys, online},
 };
 use crate::{
-    account::credentials::last4,
     api::router::Cx,
     nodes::Online,
     protocol::{
@@ -22,6 +21,7 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use beep_projects::credentials::Slot;
+use beep_projects::credentials::last4;
 use futures::{StreamExt, stream};
 use reqwest::Url;
 use secrecy::ExposeSecret;

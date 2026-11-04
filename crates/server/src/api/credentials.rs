@@ -3,7 +3,7 @@
 use super::Reply;
 use crate::{
     account::credentials::{
-        Checked, Checker, is_public, last4,
+        host_client, is_public,
         machines::{MAX_MACHINES, Reach, check_from},
     },
     api::router::Cx,
@@ -15,7 +15,10 @@ use crate::{
     },
     store::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount},
 };
-use beep_projects::credentials::Slot;
+use beep_projects::{
+    credential_check::{Checked, Checker},
+    credentials::{Slot, last4},
+};
 use secrecy::{ExposeSecret, SecretString};
 use std::{sync::Arc, time::SystemTime};
 
@@ -94,7 +97,9 @@ pub(super) async fn check_credential(
         return Err(ApiError::NotFound {});
     };
     let from_server = if is_public(url).await {
-        Checker::new()?.forgejo(url, &login.secret).await
+        Checker::new(host_client()?)
+            .forgejo(url, &login.secret)
+            .await
     } else {
         Checked::Unreachable
     };
@@ -208,7 +213,7 @@ async fn save_github(
     secret: &SecretString,
     replace_default: bool,
 ) -> Reply<GitHubAccountRow> {
-    let checker = Checker::new()?;
+    let checker = Checker::new(host_client()?);
     let login = match check(&Slot::GitHub, secret).await? {
         Some(login) => login,
         None => {
@@ -240,10 +245,12 @@ async fn save_github(
 /// Forgejo, or unreachable OpenRouter, is saved unchecked: the server must not probe its network.
 async fn check(slot: &Slot, secret: &SecretString) -> Reply<Option<String>> {
     let checked = match slot {
-        Slot::GitHub => Checker::new()?.github(secret).await,
+        Slot::GitHub => Checker::new(host_client()?).github(secret).await,
         Slot::Forgejo(url) if !is_public(url).await => return Ok(None),
-        Slot::Forgejo(url) => Checker::new()?.forgejo(url, secret).await,
-        Slot::ApiKey(ApiProvider::OpenRouter) => Checker::new()?.openrouter(secret).await,
+        Slot::Forgejo(url) => Checker::new(host_client()?).forgejo(url, secret).await,
+        Slot::ApiKey(ApiProvider::OpenRouter) => {
+            Checker::new(host_client()?).openrouter(secret).await
+        }
         Slot::ApiKey(_) | Slot::AgentToken(_) => return Ok(None),
     };
     match checked {
