@@ -521,7 +521,7 @@ export function makeReviews(deps: ReviewDeps) {
       const r = byBranch.get(b.name);
       const isDefault = b.name === data.default_branch;
       const meta = [
-        isDefault ? "default" : `+${b.ahead} -${b.behind}`,
+        isDefault ? null : `+${b.ahead} -${b.behind}`,
         b.worktree ? `worktree ${b.worktree}` : null,
         b.pushed ? null : "not pushed",
         `${ago(b.committed_at)}: ${b.subject}`,
@@ -533,7 +533,7 @@ export function makeReviews(deps: ReviewDeps) {
       if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
       const title = h("span", "t", h("code", "", b.name));
       title.title = b.subject;
-      return h("div", "pj-task", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
+      return h("div", "pj-task pj-br", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
         h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
     });
     out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null,
