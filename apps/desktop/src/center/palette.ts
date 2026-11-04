@@ -1,29 +1,20 @@
 // The Cmd+K palette: one search over actions, settings, projects, pull
-// requests, coding agents, chats, memories, routines and machines.
-import { invoke } from "../ui/tauri.ts";
+// requests, coding agents, chats, memories, routines and machines. The
+// window holds the index, so a keystroke waits on nothing.
+import { invoke, listen } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { AgentRow } from "../agents/agents.ts";
 import { el, type Kid } from "../ui/dom.ts";
 import { svgEl as svg } from "../ui/parts.ts";
+import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";
 import { IC } from "./state.ts";
 
-/// The groups of hits (HitKind).
-type HitKind = "action" | "setting" | "code" | "branch" | "project" | "project_chat" | "folder" | "agent_session" | "chat" | "memory" | "routine" | "machine";
-
-/// One search result (Hit). A branch's id is its project and the branch,
-/// split by a space.
-interface Hit {
-  kind: HitKind;
-  id: string;
-  title: string;
-  detail: string;
-  /// The one best hit, listed first under Top hit.
-  top: boolean;
-  /// The session an agent_session hit opens.
-  session?: AgentRow;
-}
+/// One search result. A branch's id is its project and the branch, split by
+/// a space.
+type Hit = FoundHit<AgentRow>;
+type Index = PaletteIndex<AgentRow>;
 
 /// What the window lends the palette.
 export interface PaletteDeps {
@@ -63,10 +54,27 @@ const ACTION_VIEWS: Record<string, string> = { all_chats: "chats", memories: "me
 
 let deps: PaletteDeps | null = null;
 let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null, list: HTMLDivElement | null = null;
-let hits: Hit[] = [], sel = 0;
-let searching: PaletteSearch<Hit> | null = null, back: HTMLElement | null = null;
+let hits: Hit[] = [], sel = 0, drawnQuery = "";
+let searching: PaletteSearch<Entry<AgentRow>> | null = null, back: HTMLElement | null = null;
+/// What the palette finds, as of the app's last word. Empty until the first
+/// read answers.
+let index: Index = { actions: [], settings: [], code: [], projects: [], sessions: [], chats: [], memories: [], routines: [], machines: [] };
+/// The app has a newer index than this window read.
+let behind = false;
 
-export function initPalette(window_: PaletteDeps) { deps = window_; }
+function readIndex() {
+  behind = false;
+  invoke<Index>("center_palette_index")
+    .then(read => { index = read; searching?.refresh(); })
+    .catch(e => console.warn("reading the palette's index:", e));
+}
+
+export function initPalette(window_: PaletteDeps) {
+  deps = window_;
+  readIndex();
+  // A window with the palette shut reads it the next time it opens.
+  listen("palette-changed", () => { if (root) readIndex(); else behind = true; });
+}
 
 /// `text` with the first match of `q` wrapped in <mark>; never markup.
 function marked(text: string, q: string): Kid[] {
@@ -103,21 +111,22 @@ export function openPalette() {
   scrim.addEventListener("mousedown", e => { if (e.target === scrim) { e.preventDefault(); close(); } });
   document.querySelector(".cwin")!.append(scrim);
   input.focus();
-  // Hits come at once from what the app holds, the lists from the last
-  // time it opened included; each list read again searches again.
-  const search = searching = new PaletteSearch<Hit>(
-    (query, text) => invoke<Hit[]>("center_find", { query, text }),
-    (q, found) => { hits = projectFirst(found, deps?.scope()); sel = 0; draw(q.trim()); },
+  drawnQuery = "";
+  searching = new PaletteSearch<Entry<AgentRow>>(
+    query => invoke<Entry<AgentRow>[]>("center_find_text", { query }),
+    (q, text) => {
+      // A redraw of the same query keeps the row the user is on.
+      const on = q === drawnQuery ? hits[sel] : undefined;
+      hits = projectFirst(rank(q, index, text), deps?.scope());
+      sel = on ? Math.max(0, hits.findIndex(h => h.kind === on.kind && h.id === on.id)) : 0;
+      drawnQuery = q;
+      draw(q.trim());
+    },
   );
-  search.type("");
-  const read = (command: string, what: string) => invoke(command)
-    .then(() => { if (searching === search) search.refresh(); })
-    .catch(e => console.warn(`${what} for the palette:`, e));
-  // Branches are read for the projects this lists.
-  read("center_palette", "loading lists").then(() => read("center_palette_branches", "reading branches"));
-  // Pull requests come from the git hosts and sessions from every machine.
-  read("center_palette_prs", "reading pull requests");
-  read("center_palette_sessions", "listing coding agents");
+  searching.type("");
+  // Hits come from what this window holds; anything newer draws when it comes.
+  if (behind) readIndex();
+  invoke("center_palette_refresh").catch(e => console.warn("refreshing the palette:", e));
 }
 
 function close() {
