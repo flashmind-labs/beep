@@ -69,11 +69,11 @@ internal fun OnboardingScreen(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Box(Modifier.popIn("onboarding-logo").beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.user, pressableLook())) {
+            Box(Modifier.popIn("onboarding-logo").beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.user)) {
                 Icon(painterResource(R.drawable.ic_beep), null, tint = Color.Unspecified, modifier = Modifier.padding(12.dp).size(48.dp))
             }
             Spacer(Modifier.height(28.dp))
-            Text(displayText("Almost ready."), style = displayStyle(36.sp, 40.sp))
+            Text(displayText("Almost ready."), style = displayStyle(24.sp))
             Spacer(Modifier.height(8.dp))
             Text("A couple of permissions to make Beep more useful. You can skip any of these.", color = TextMuted, lineHeight = 22.sp)
             Spacer(Modifier.height(32.dp))

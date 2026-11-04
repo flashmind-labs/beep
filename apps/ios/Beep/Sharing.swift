@@ -15,9 +15,9 @@ struct ShareChatSheet: View {
             HStack(spacing: 12) {
                 Image(systemName: "link").font(.system(size: 22, weight: .semibold)).foregroundStyle(Mint.ink)
                     .frame(width: 52, height: 52)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Mint.tints[1]))
+                    .background(RoundedRectangle(cornerRadius: Mint.radius).fill(Mint.tints[1]))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Share this chat").font(.display(24)).foregroundStyle(Mint.ink)
+                    Text("Share this chat").font(.display(18)).foregroundStyle(Mint.ink)
                     Text(session.title.isEmpty ? "New conversation" : session.title)
                         .font(.body(13)).foregroundStyle(Mint.muted).lineLimit(1)
                 }
@@ -34,31 +34,31 @@ struct ShareChatSheet: View {
             }
             .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
             .padding(.horizontal, 14)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
             HStack(spacing: 10) {
                 Button {
                     UIPasteboard.general.string = link?.url
                     copied = true
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                        .font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                         .frame(maxWidth: .infinity, minHeight: 48)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 if let url = link.flatMap({ URL(string: $0.url) }) {
                     ShareLink(item: url, message: Text(session.title)) {
                         Label("Send", systemImage: "square.and.arrow.up")
-                            .font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                            .font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                             .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.accent))
+                            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.accent))
                     }
                     .buttonStyle(.plain)
                 } else {
                     Label("Send", systemImage: "square.and.arrow.up")
-                        .font(.body(15, .semibold)).foregroundStyle(Mint.ink.opacity(0.4))
+                        .font(.body(14, .semibold)).foregroundStyle(Mint.ink.opacity(0.4))
                         .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Mint.soft))
+                        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.soft))
                 }
             }
             .disabled(link == nil)
@@ -84,7 +84,7 @@ struct ShareChatSheet: View {
                 Button("Done") { dismiss() }.buttonStyle(TextAction())
             }
         }
-        .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 12)
+        .padding(.horizontal, Mint.pageInset).padding(.top, 24).padding(.bottom, 12)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Mint.surface)
         .presentationDetents([.height(440)])
@@ -111,7 +111,7 @@ struct SharedChatView: View {
             HStack(spacing: 4) {
                 BackArrow(action: back)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(shared?.title ?? "Shared chat").font(.display(20)).foregroundStyle(Mint.ink).lineLimit(1)
+                    Text(shared?.title ?? "Shared chat").font(.display(18)).foregroundStyle(Mint.ink).lineLimit(1)
                     if let shared {
                         Text("Shared " + Date(timeIntervalSince1970: Double(shared.sharedAt) / 1000)
                             .formatted(.relative(presentation: .named)))
@@ -123,8 +123,8 @@ struct SharedChatView: View {
             .padding(.leading, 6).padding(.trailing, 18).frame(minHeight: 56)
             if gone {
                 Text("Not found.\nThe owner stopped sharing this chat, or deleted it.")
-                    .font(.body(15)).foregroundStyle(Mint.muted).multilineTextAlignment(.center).lineSpacing(4)
-                    .padding(.horizontal, 20).padding(.vertical, 60)
+                    .font(.body(14)).foregroundStyle(Mint.muted).multilineTextAlignment(.center).lineSpacing(4)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 60)
                 Spacer()
             } else if let shared {
                 ScrollView {
@@ -133,7 +133,7 @@ struct SharedChatView: View {
                             MessageView(message: message, live: false)
                         }
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
                 }
                 VStack(spacing: 8) {
                     if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
@@ -155,7 +155,7 @@ struct SharedChatView: View {
                     .disabled(copying)
                     Text("Read only. Continuing makes your own copy.").font(.body(12)).foregroundStyle(Mint.muted)
                 }
-                .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 14)
+                .padding(.horizontal, Mint.pageInset).padding(.top, 10).padding(.bottom, 14)
             } else {
                 Spacer()
                 if error.isEmpty { ProgressView().tint(Mint.muted) } else {

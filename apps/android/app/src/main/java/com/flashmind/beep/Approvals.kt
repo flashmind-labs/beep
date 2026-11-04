@@ -66,7 +66,7 @@ fun ApprovalCard(prompt: ApprovalPrompt, onAnswer: (String) -> Unit, modifier: M
     }
     var always by remember(prompt.queryId) { mutableStateOf(false) }
     BeepCard(modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(BeepSpace.row), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AppLogo(approval.app.lowercase().replace(" ", ""), approval.app, size = 32.dp)
                 Spacer(Modifier.width(10.dp))

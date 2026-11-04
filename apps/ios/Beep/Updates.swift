@@ -46,7 +46,7 @@ struct UpdatesCard: View {
                     Text(update.appName.prefix(1).uppercased())
                         .font(.body(11, .semibold)).foregroundStyle(Mint.ink)
                         .frame(width: 26, height: 26)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Mint.tints[index % Mint.tints.count]))
+                        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[index % Mint.tints.count]))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(update.summary).font(.body(13)).foregroundStyle(Mint.ink)
                             .multilineTextAlignment(.leading)

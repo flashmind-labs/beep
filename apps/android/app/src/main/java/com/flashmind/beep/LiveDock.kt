@@ -7,12 +7,7 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -56,9 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -70,20 +63,17 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /** Live mode's own colors: mint while it listens, coral while Beep speaks. */
-private val Listen = Color(0xFF3B9B7A)
-private val Speak = Color(0xFFF07A6A)
-private val SpeakWord = Color(0xFFD9604F)
+private val Listen: Color @Composable get() = Beep.colors.ok
+private val Speak: Color @Composable get() = Beep.colors.accent
+private val SpeakWord: Color @Composable get() = Beep.colors.brand
 
 /** The hint under the caption for [state], or null for none. */
 internal fun liveHint(state: LiveState, sendOnPause: Boolean, waiting: Boolean): String? {
@@ -149,7 +139,7 @@ internal fun LiveDock(live: LiveVoice, compact: Boolean) {
     val hint = liveHint(state, live.sendOnPause, waiting)
     Box(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(top = if (compact) 4.dp else 8.dp, bottom = 10.dp)
         .graphicsLayer { val o = opening.value.coerceIn(0f, 1f); alpha = o; translationY = (1 - opening.value) * 28.dp.toPx() }) {
-        Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(24.dp), Beep.colors.surface, pressableLook())
+        Column(Modifier.fillMaxWidth().beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface)
             .padding(start = 8.dp, end = 10.dp, top = 10.dp, bottom = 10.dp).semantics { contentDescription = "Live voice" },
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -284,19 +274,14 @@ private fun SoonBar(soon: LiveSoon, modifier: Modifier = Modifier) {
 private fun Orb(state: LiveState, waiting: Boolean, level: () -> Float, still: Boolean, live: LiveVoice, modifier: Modifier = Modifier) {
     var away by remember { mutableStateOf(false) }
     var pressed by remember { mutableStateOf(false) }
-    val tones = when {
-        state.stage == LiveStage.Speaking -> listOf(Color(0xFFFFD0C7), Speak, Color(0xFF5A231C), Speak)
-        state.stage == LiveStage.Thinking -> listOf(Color(0xFF7FBFA6), Color(0xFF2E6F59), Color(0xFF0D2A20), Listen)
-        state.problem != null || waiting || state.stage == LiveStage.Connecting ->
-            listOf(Color(0xFF9FC2B2), Color(0xFF4F6E61), Color(0xFF1E2E27), Color(0xFF92A59A))
-        else -> listOf(Color(0xFFA6EBCF), Listen, Color(0xFF0F3B2C), Listen)
+    val tone = when {
+        state.stage == LiveStage.Speaking || state.stage == LiveStage.Thinking -> Beep.colors.accent
+        state.problem != null || waiting || state.stage == LiveStage.Connecting -> Beep.colors.muted
+        else -> Beep.colors.ok
     }
-    val breathing = state.stage == LiveStage.Thinking && !still
-    val breath by rememberInfiniteTransition(label = "orb-breath").animateFloat(1f, if (breathing) 1.06f else 1f,
-        infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "orb-breath-scale")
     val enabled = state.problem == null
     Canvas(modifier.size(48.dp)
-        .graphicsLayer { val s = breath * (if (pressed) 0.92f else 1f); scaleX = s; scaleY = s; alpha = if (away) 0.5f else 1f }
+        .graphicsLayer { val s = if (pressed) 0.96f else 1f; scaleX = s; scaleY = s; alpha = if (away) 0.5f else 1f }
         .semantics {
             role = Role.Button
             contentDescription = when (state.stage) {
@@ -332,11 +317,8 @@ private fun Orb(state: LiveState, waiting: Boolean, level: () -> Float, still: B
         val v = if (still) 0f else level()
         val r = 16.dp.toPx()
         val center = Offset(size.width / 2, size.height / 2)
-        val glow = tones[3]
-        val ring = Stroke(1.5.dp.toPx())
-        drawCircle(glow.copy(alpha = 0.07f + v * 0.2f), r * (1.18f + v * 0.55f), center, style = ring)
-        drawCircle(glow.copy(alpha = 0.16f + v * 0.35f), r * (1.05f + v * 0.35f), center, style = ring)
-        drawCircle(Brush.radialGradient(0f to tones[0], 0.46f to tones[1], 1f to tones[2],
-            center = Offset(center.x - r * 0.28f, center.y - r * 0.4f), radius = r * 1.5f), r, center)
+        drawCircle(tone.copy(alpha = 0.15f + v * 0.25f), r * (1.1f + v * 0.35f), center)
+        drawCircle(tone, r, center)
+
     }
 }

@@ -195,8 +195,8 @@ private fun RideLeg(leg: RouteLeg, key: String) {
     val bold = SpanStyle(fontWeight = FontWeight.SemiBold)
     var open by rememberSaveable(key) { mutableStateOf(false) }
     Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.widthIn(min = 34.dp).height(22.dp).background(color, RoundedCornerShape(6.dp))
-            .border(1.5.dp, t.colors.ledge, RoundedCornerShape(6.dp)).padding(horizontal = 5.dp),
+        Box(Modifier.widthIn(min = 34.dp).height(22.dp).background(color, RoundedCornerShape(Beep.shapes.smallRadius))
+            .border(1.5.dp, t.colors.ledge, RoundedCornerShape(Beep.shapes.smallRadius)).padding(horizontal = 5.dp),
             contentAlignment = Alignment.Center) {
             Text(badge, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = onColor, maxLines = 1)
         }

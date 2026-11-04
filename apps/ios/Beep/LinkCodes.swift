@@ -174,7 +174,7 @@ struct ComputerCard: View {
             .disabled(busy)
             Button { showingCode = true } label: {
                 Label("Show a code for a new device", systemImage: "iphone")
-                    .font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                    .font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .chunky(radius: 16)
             }
@@ -189,7 +189,7 @@ struct ComputerCard: View {
             HStack(spacing: 12) {
                 TintIcon(system: "laptopcomputer", tint: Mint.tints[1])
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(done?.title ?? "Using Beep on a computer?").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                    Text(done?.title ?? "Using Beep on a computer?").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                     Text(done?.text ?? "Scan the code Beep shows on your computer to use the same chats and memories here.")
                         .font(.body(13)).foregroundStyle(Mint.muted)
                 }
@@ -211,7 +211,7 @@ struct ComputerCard: View {
             }
             if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
         }
-        .padding(14)
+        .padding(Mint.spacing)
         .card()
     }
 
@@ -294,7 +294,7 @@ private struct ShowCodeSheet: View {
                     }
                     .frame(width: 156, height: 156)
                     .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
                     SwiftUI.Group {
                         if let invite {
                             Text(formatJoinCode(code: invite.code))
@@ -305,7 +305,7 @@ private struct ShowCodeSheet: View {
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 56)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
                     Text(expired ? "This code expired." : invite == nil ? "A code lasts ten minutes."
                         : "Works for \(left / 60):\(String(format: "%02d", left % 60)) more.")
                         .font(.body(12)).foregroundStyle(Mint.muted).monospacedDigit()
@@ -352,7 +352,7 @@ private struct LinkSheet: View {
     var body: some View {
         SheetBody {
             SheetHeader(icon: "laptopcomputer", tint: Mint.tints[0], title: "Link \(preview.name)?", subtitle: "Computer")
-            Text("It will see your chats and memories.").font(.body(15)).foregroundStyle(Mint.ink)
+            Text("It will see your chats and memories.").font(.body(14)).foregroundStyle(Mint.ink)
             VStack(alignment: .leading, spacing: 4) {
                 row("Code") { Text(preview.code).font(.system(size: 13, design: .monospaced)).tracking(1.3) }
                 row("Stays here") { Text("Contacts, alarms, location").font(.body(13)) }
@@ -360,7 +360,7 @@ private struct LinkSheet: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Mint.code))
+            .background(RoundedRectangle(cornerRadius: Mint.radius).fill(Mint.code))
             Text("Check that the code matches the one on the computer.").font(.body(12)).foregroundStyle(Mint.muted)
             HStack(spacing: 8) {
                 Spacer()
@@ -391,7 +391,7 @@ private struct JoinSheet: View {
                         subtitle: preview.kind == .desktop ? "Desktop" : "Phone")
             Text("This iPhone's chats, memories, routines and places move to \(preview.name)'s account, "
                 + "and from then on both show the same chats. Apps you connected on this iPhone may need connecting again.")
-                .font(.body(15)).foregroundStyle(Mint.ink)
+                .font(.body(14)).foregroundStyle(Mint.ink)
             HStack(spacing: 8) {
                 Spacer()
                 Button("Cancel", action: cancel).buttonStyle(TextAction(color: Mint.muted))

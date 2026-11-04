@@ -106,14 +106,14 @@ struct ReplyImage: View {
             case .ok(let image):
                 Image(uiImage: image).resizable().scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: 360, alignment: .leading)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: Mint.smallRadius))
                     .onTapGesture { viewing = true }
                     .accessibilityLabel(picture.alt.isEmpty ? "Image" : picture.alt)
                     .accessibilityAddTraits(.isButton)
                     .fullScreenCover(isPresented: $viewing) { ImageViewer(images: [Shown(picture: picture, image: image)], start: 0) }
                     .closesForLive { viewing = false }
             case .loading:
-                RoundedRectangle(cornerRadius: 12).fill(Mint.code).frame(maxWidth: .infinity, minHeight: 140)
+                RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.code).frame(maxWidth: .infinity, minHeight: 140)
             case .failed:
                 ImageLink(picture: picture)
             }
@@ -173,13 +173,13 @@ struct ReplyGallery: View {
         case .failed:
             EmptyView()
         case .loading:
-            RoundedRectangle(cornerRadius: 12).fill(Mint.code).frame(width: height * 1.3, height: height)
+            RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.code).frame(width: height * 1.3, height: height)
         case .ok(let image):
             let ratio = min(max(image.size.width / image.size.height, 0.5), 1.8)
             VStack(alignment: .leading, spacing: 4) {
                 Image(uiImage: image).resizable().scaledToFill()
                     .frame(width: height * ratio, height: height)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: Mint.smallRadius))
                     .contentShape(Rectangle())
                     .onTapGesture { viewing = shown.firstIndex { $0.picture == picture } }
                 if !picture.alt.isEmpty {
@@ -243,9 +243,9 @@ struct ImageViewer: View {
                 if images.count > 1 { Text("\(page + 1) of \(images.count)").font(.body(14)) }
                 Spacer()
                 if let current, current.web, let url = URL(string: current.url) {
-                    Button("Open") { openURL(url) }.font(.body(15, .semibold))
+                    Button("Open") { openURL(url) }.font(.body(14, .semibold))
                 }
-                if let file { ShareLink(item: file) { Text("Share").font(.body(15, .semibold)) } }
+                if let file { ShareLink(item: file) { Text("Share").font(.body(14, .semibold)) } }
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 8)
@@ -254,7 +254,7 @@ struct ImageViewer: View {
                     Spacer()
                     Text(current.alt).font(.body(14)).foregroundStyle(.white)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .padding(.horizontal, Mint.pageInset).padding(.vertical, 12)
                         .background(Color.black.opacity(0.5))
                 }
             }
@@ -311,7 +311,7 @@ struct AttachedFileChip: View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text").font(.system(size: 15)).foregroundStyle(Mint.ink)
                 .frame(width: 32, height: 32)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Mint.tints[0]))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[0]))
             VStack(alignment: .leading, spacing: 0) {
                 Text(file.name).font(.body(13, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                 Text(file.detail).font(.body(11)).foregroundStyle(Mint.muted).lineLimit(1)
@@ -339,7 +339,7 @@ struct FileCard: View {
                 HStack(spacing: 12) {
                     Image(systemName: "doc.text").font(.system(size: 18)).foregroundStyle(Mint.ink)
                         .frame(width: 40, height: 40)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Mint.tints[0]))
+                        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[0]))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.name).font(.body(14, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                         Text(detail).font(.body(12)).foregroundStyle(error.isEmpty ? Mint.muted : Mint.error).lineLimit(1)
@@ -362,8 +362,8 @@ struct FileCard: View {
             }
         }
         .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+        .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
         .opacity(gone ? 0.6 : 1)
         .quickLookPreview($preview)
         .sheet(item: Binding(get: { sharing.map(SheetURL.init) }, set: { sharing = $0?.url })) { item in

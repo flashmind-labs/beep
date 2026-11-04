@@ -217,10 +217,6 @@ final class AppModel {
     private var reportedTimezone: String?
     private let pictureCache = PictureCache()
     let replyImages = ReplyImageCache()
-    /// The in-app web view the browser screen shows, for links the user opens.
-    let browser = PageBrowser()
-    /// Whether the browser screen is up over the chat.
-    var browserOpen = false
     /// The APNs token iOS gave this install, in hex. The server gets it on every connect.
     var pushToken: String? {
         didSet { Task { await registerPush() } }
@@ -1288,7 +1284,7 @@ final class AppModel {
         chat.thinking = ""
     }
 
-    /// Questions about the phone. Beep no longer drives the browser, so `browser` is refused.
+    /// Questions about the phone. Beep has no browser, so `browser` is refused.
     private func answerDeviceQuery(runId: String, queryId: String, query: DeviceQuery) {
         Task {
             let answer: DeviceAnswer
@@ -1307,16 +1303,10 @@ final class AppModel {
         guard UIApplication.shared.applicationState == .active else { return }
         switch call.card {
         case .openedApp(let app): PhoneApps.open(app: app.app, uri: app.uri, fallback: app.fallback)
-        case .link(let url): openBrowser(url)
+        case .link(let url): UIApplication.shared.open(url)
         case .alarm(let alarm): Task { await PhoneAlarms.set(alarm) }
         default: break
         }
-    }
-
-    /// Shows `url` in the browser screen, over the chat.
-    func openBrowser(_ url: URL) {
-        browser.open(url)
-        browserOpen = true
     }
 
     /// The bytes to send for `files`, read from the attached copy or downloaded again.

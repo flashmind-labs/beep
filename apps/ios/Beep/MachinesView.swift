@@ -48,11 +48,11 @@ struct MachinesView: View {
                         ProgressView().frame(maxWidth: .infinity).padding(40)
                     }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
             .refreshable { await refresh() }
             ComputerCard(machine: true) { Task { await refresh() } }
-                .padding(.horizontal, 16).padding(.bottom, 8)
+                .padding(.horizontal, Mint.pageInset).padding(.bottom, 8)
         }
     }
 
@@ -164,7 +164,7 @@ private struct MachineCard: View {
         HStack(alignment: .top, spacing: 12) {
             TintIcon(system: "server.rack", tint: Mint.tints[machine.online ? 1 : 2])
             VStack(alignment: .leading, spacing: 3) {
-                Text(machine.name).font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                Text(machine.name).font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                 HStack(spacing: 6) {
                     StatusDot(online: machine.online)
                     Text(seen(machine)).font(.body(12)).foregroundStyle(Mint.muted)
@@ -193,7 +193,7 @@ private struct MachineCard: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(14)
+        .padding(Mint.spacing)
         .card()
         .contentShape(Rectangle())
     }
@@ -241,7 +241,7 @@ private struct MachineDetail: View {
                     Text("It has not reported what it has yet.").font(.body(13)).foregroundStyle(Mint.muted).padding(4)
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 8)
+            .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
         }
     }
 

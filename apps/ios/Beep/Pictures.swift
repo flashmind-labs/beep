@@ -88,7 +88,7 @@ struct PictureTile: View {
     @State private var status = Status.loading
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 14)
+        let shape = RoundedRectangle(cornerRadius: Mint.radius)
         ZStack {
             switch status {
             case .loading:

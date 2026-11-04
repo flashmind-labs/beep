@@ -3,6 +3,7 @@ package com.flashmind.beep
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.CalendarContract
@@ -85,6 +86,31 @@ class OutsideUriHandler(private val context: Context) : UriHandler {
             AppLauncher.start(context, Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
         } catch (e: ActivityNotFoundException) {
             throw IllegalArgumentException("Can't open $uri.", e)
+        }
+    }
+}
+
+/** The phone's default browser, outside the app. */
+internal object ExternalBrowser {
+    private fun view(url: String) = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
+
+    /** The default browser's package, or null when none is set and Android would ask. */
+    private fun defaultPackage(context: Context): String? {
+        val info = context.packageManager.resolveActivity(view("https://example.com"), PackageManager.MATCH_DEFAULT_ONLY)
+            ?.activityInfo ?: return null
+        // With no default, the resolver itself comes back.
+        if (info.packageName == "android" || info.name.endsWith("ResolverActivity")) return null
+        return info.packageName.takeIf { it != context.packageName }
+    }
+
+    /** Opens [url] in the default browser, or lets the user pick one when there is none. */
+    fun open(context: Context, url: String) {
+        if (url.isEmpty()) return
+        val pkg = defaultPackage(context)
+        val intent = if (pkg != null) view(url).setPackage(pkg) else Intent.createChooser(view(url), "Open in browser")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try { context.startActivity(intent) } catch (_: ActivityNotFoundException) {
+            context.startActivity(Intent.createChooser(view(url), "Open in browser").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 }

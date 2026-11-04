@@ -78,7 +78,7 @@ fun FileCard(card: ToolCard.File) {
         .clickable(enabled = !gone) { withFile { open(context, it, card.mime) } }
         .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(40.dp).background(t.colors.tints[0], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(40.dp).background(t.colors.tints[0], RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
             Icon(Icons.Outlined.Description, null, Modifier.size(20.dp), tint = t.colors.ink)
         }
         Column(Modifier.weight(1f)) {
@@ -102,10 +102,10 @@ fun FileCard(card: ToolCard.File) {
 fun AttachedFileChip(file: ToolCard.File, modifier: Modifier = Modifier) {
     val t = Beep
     val context = LocalContext.current
-    Row(modifier.widthIn(max = 220.dp).beepFrame(RoundedCornerShape(t.shapes.smallRadius), t.colors.surface, pressableLook())
+    Row(modifier.widthIn(max = 220.dp).beepFrame(RoundedCornerShape(t.shapes.smallRadius), t.colors.surface)
         .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(32.dp).background(t.colors.tints[0], RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(32.dp).background(t.colors.tints[0], RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
             Icon(Icons.Outlined.Description, null, Modifier.size(18.dp), tint = t.colors.ink)
         }
         Column {

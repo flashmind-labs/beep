@@ -544,7 +544,7 @@ private fun PlaceMapCard(card: ToolCard.Place, compact: Boolean) {
     val point = found ?: card.near
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
         MapSnippet(point, if (compact) 110 else 150) { openMaps(context, card.query, point, card.near) }
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(BeepSpace.row)) {
             Text(card.name, style = displayStyle(if (compact) 15.sp else 17.sp), color = t.colors.ink,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             val address = found?.address.orEmpty()
@@ -626,7 +626,7 @@ private fun SavedPlaceCard(card: ToolCard.SavedPlace, compact: Boolean, reposito
     }
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
         MapSnippet(point, if (compact) 110 else 140, ringMeters = radius) { openMaps(context, name, point) }
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(BeepSpace.row)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(name, Modifier.weight(1f, fill = false), style = displayStyle(if (compact) 15.sp else 17.sp), color = t.colors.ink,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -712,7 +712,7 @@ private fun ContactsCard(card: ToolCard.Contacts) {
         }
         if (card.people.size > 3 && !all) {
             Text("Show ${card.people.size - 3} more", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.colors.brand,
-                modifier = Modifier.fillMaxWidth().clickable { all = true }.padding(14.dp))
+                modifier = Modifier.fillMaxWidth().clickable { all = true }.padding(BeepSpace.row))
         }
     }
 }
@@ -724,7 +724,7 @@ private fun OpenedAppCard(card: ToolCard.OpenedApp) {
     val name = card.app.replaceFirstChar { it.uppercase() }
     BeepCard(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(34.dp).background(t.colors.tints[1], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(34.dp).background(t.colors.tints[1], RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
                 Icon(toolIconFor(card.app).takeUnless { it == toolIconFor("") } ?: Icons.AutoMirrored.Outlined.Launch, null,
                     Modifier.size(18.dp), tint = t.colors.ink)
             }
@@ -745,7 +745,7 @@ private fun AlarmCard(alarm: AlarmRequest) {
     val days = alarm.days.joinToString(", ") { java.text.DateFormatSymbols().shortWeekdays[it] }
     BeepCard(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(34.dp).background(t.colors.tints[1], RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(34.dp).background(t.colors.tints[1], RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Alarm, null, Modifier.size(18.dp), tint = t.colors.ink)
             }
             Spacer(Modifier.width(12.dp))
@@ -829,7 +829,7 @@ fun LinkPreview(url: String, onOpen: (String) -> Unit) {
         .border(1.dp, t.colors.softLine, RoundedCornerShape(t.shapes.smallRadius))
         .background(t.colors.surface).clickable { onOpen(url) }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(36.dp).background(t.colors.raised, RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(36.dp).background(t.colors.raised, RoundedCornerShape(Beep.shapes.smallRadius)), contentAlignment = Alignment.Center) {
             Text(host.take(1).uppercase(), fontWeight = FontWeight.Bold, color = t.colors.ink)
         }
         Spacer(Modifier.width(10.dp))

@@ -105,7 +105,7 @@ internal fun PromptMap(messages: List<ChatMessage>, list: LazyListState, modifie
             }
             held?.let { slot ->
                 val prompt = messages[prompts[slot]]
-                val shape = RoundedCornerShape(12.dp)
+                val shape = RoundedCornerShape(Beep.shapes.smallRadius)
                 Column(Modifier.align(Alignment.TopEnd).padding(end = 28.dp).widthIn(max = 250.dp)
                     // Centred on the tick, but kept inside the list.
                     .layout { measurable, constraints ->

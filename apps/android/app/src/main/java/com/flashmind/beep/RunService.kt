@@ -116,7 +116,7 @@ class RunService : Service() {
         return builder
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentIntent(open)
-            .setColor(0xFF3B9B7A.toInt())
+            .setColor(LINEAR_ACCENT.toInt())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()

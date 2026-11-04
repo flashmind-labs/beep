@@ -29,7 +29,7 @@ struct AppsView: View {
                     if !error.isEmpty { Text(error).font(.body(13)).foregroundStyle(Mint.error) }
                     if !apps.isEmpty, !apps.contains(where: { $0.kind == .composio && ($0.configured || $0.connected) }) {
                         Text("Connecting apps needs a Composio API key on the server.")
-                            .font(.body(13)).foregroundStyle(Color(hex: 0xB7791F))
+                            .font(.body(13)).foregroundStyle(Mint.warn)
                     }
                     if loading {
                         ProgressView().tint(Mint.ok).frame(maxWidth: .infinity).padding(40)
@@ -53,7 +53,7 @@ struct AppsView: View {
                         ForEach(servers, id: \.id) { serverRow($0) }
                         Button { adding = true } label: {
                             Text("+ Add MCP server").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
-                                .padding(.horizontal, 16).frame(minHeight: 40)
+                                .padding(.horizontal, Mint.pageInset).frame(minHeight: 40)
                         }
                         .buttonStyle(SinkButton())
                     }
@@ -96,7 +96,7 @@ struct AppsView: View {
             HStack(spacing: 14) {
                 AppLogo(slug: app.slug, name: app.name, logoUrl: app.logoUrl)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(app.name).font(.body(15, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
+                    Text(app.name).font(.body(14, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                     Text(addresses(app) ?? app.description).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
@@ -111,7 +111,7 @@ struct AppsView: View {
                     Button("Connect") { connect(app) }.buttonStyle(SmallAccentButton())
                 }
             }
-            .padding(14)
+            .padding(Mint.spacing)
             .frame(maxWidth: .infinity, alignment: .leading)
             .card()
             .contentShape(Rectangle())
@@ -124,7 +124,7 @@ struct AppsView: View {
             HStack(spacing: 14) {
                 AppLogo(slug: server.id, name: server.name)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(server.name).font(.body(15, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
+                    Text(server.name).font(.body(14, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                     Text(URL(string: server.url)?.host() ?? server.url).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
                 }
                 Spacer(minLength: 10)
@@ -140,7 +140,7 @@ struct AppsView: View {
                     Button(server.signIn ? "Sign in" : "Retry") { signIn(server) }.buttonStyle(SmallAccentButton())
                 }
             }
-            .padding(14)
+            .padding(Mint.spacing)
             .frame(maxWidth: .infinity, alignment: .leading)
             .card()
             .contentShape(Rectangle())
@@ -277,32 +277,28 @@ private struct ConnectedChip: View {
 /// The small coral Connect button.
 private struct SmallAccentButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 12)
-        let down: CGFloat = configuration.isPressed ? 3 : 0
+        let shape = RoundedRectangle(cornerRadius: Mint.smallRadius)
         configuration.label
             .font(.body(13, .semibold)).foregroundStyle(Mint.onAccent)
             .padding(.horizontal, 14).frame(minHeight: 34)
             .background(shape.fill(Mint.accent))
-            .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
-            .offset(x: down, y: down)
+            .overlay(shape.stroke(Mint.soft, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.7 : 1)
             .animation(.sink, value: configuration.isPressed)
-            .dropShadow(shape, fill: Mint.accent)
     }
 }
 
-/// Any label on a white chunky key that sinks while pressed.
+/// A bordered action with press feedback.
 private struct SinkButton: ButtonStyle {
     var fill: Color = Mint.surface
 
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 12)
-        let down: CGFloat = configuration.isPressed ? 3 : 0
+        let shape = RoundedRectangle(cornerRadius: Mint.smallRadius)
         configuration.label
             .background(shape.fill(fill))
-            .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
-            .offset(x: down, y: down)
+            .overlay(shape.stroke(Mint.soft, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.7 : 1)
             .animation(.sink, value: configuration.isPressed)
-            .dropShadow(shape, fill: fill)
     }
 }
 
@@ -315,7 +311,7 @@ struct AppLogo: View {
     var size: CGFloat = 42
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12)
+        let shape = RoundedRectangle(cornerRadius: Mint.smallRadius)
         SwiftUI.Group {
             if UIImage(named: "logo_" + slug) != nil {
                 Image("logo_" + slug).resizable().scaledToFit().frame(width: size * 0.6, height: size * 0.6)
@@ -339,7 +335,7 @@ struct AppLogo: View {
     private var initial: some View {
         Text(name.prefix(1).uppercased()).font(.body(size * 0.43, .bold)).foregroundStyle(Mint.ink)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.tint(for: name)))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tint(for: name)))
     }
 }
 
@@ -452,7 +448,7 @@ private struct AppPermissionsView: View {
             } else {
                 Button(action: addAccount) {
                     Text("+ Add another account").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
-                        .padding(.horizontal, 16).frame(minHeight: 40)
+                        .padding(.horizontal, Mint.pageInset).frame(minHeight: 40)
                 }
                 .buttonStyle(SinkButton())
             }
@@ -475,7 +471,7 @@ private struct AppPermissionsView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(14)
+            .padding(Mint.spacing)
             .card()
             .contentShape(Rectangle())
         }
@@ -692,7 +688,7 @@ private struct AddMcpServerSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add MCP server").font(.display(22)).foregroundStyle(Mint.ink)
+            Text("Add MCP server").font(.display(18)).foregroundStyle(Mint.ink)
             field("Name", "Team wiki", text: $name)
             field("Server URL", "https://example.com/mcp", text: $url, mono: true)
             if working {
@@ -726,14 +722,14 @@ private struct AddMcpServerSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label).font(.body(12, .semibold)).foregroundStyle(Mint.muted)
             TextField("", text: text, prompt: Text(placeholder).foregroundStyle(Mint.dim))
-                .font(mono ? .system(size: 13, design: .monospaced) : .body(15))
+                .font(mono ? .system(size: 13, design: .monospaced) : .body(14))
                 .foregroundStyle(Mint.ink)
                 .textInputAutocapitalization(mono ? .never : .sentences)
                 .autocorrectionDisabled(mono)
                 .keyboardType(mono ? .URL : .default)
                 .padding(.horizontal, 14).frame(minHeight: 48)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.page))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.page))
+                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
                 .disabled(working)
         }
     }

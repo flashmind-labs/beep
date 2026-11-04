@@ -94,7 +94,7 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
     val shown = machines?.firstOrNull { it.id == open }
     BackHandler(enabled = shown != null) { open = null }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText(shown?.name ?: "Machines"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText(shown?.name ?: "Machines"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = { if (shown != null) open = null else onBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
@@ -121,7 +121,7 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
                 }
             }
             Button(onClick = { codes.typing = true }, modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(Beep.shapes.radius),
                 colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                 Icon(Icons.Outlined.Dns, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                 Text("Link a machine", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -209,7 +209,7 @@ private fun MachineIcon(online: Boolean, size: Int) {
 @Composable
 private fun MachineCard(machine: Machine, stats: MachineStats?, onClick: () -> Unit) {
     BeepCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.Top) {
             MachineIcon(machine.online, 40)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

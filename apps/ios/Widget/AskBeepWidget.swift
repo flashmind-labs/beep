@@ -32,17 +32,6 @@ struct Still: TimelineProvider {
     }
 }
 
-/// The app's Mint Quiet colors, as `Mint` in the app.
-private enum Colors {
-    static let page = Color(red: 0xF4 / 255, green: 0xF8 / 255, blue: 0xF5 / 255)
-    static let surface = Color.white
-    static let ink = Color(red: 0x10 / 255, green: 0x20 / 255, blue: 0x1A / 255)
-    static let muted = Color(red: 0x5C / 255, green: 0x6E / 255, blue: 0x64 / 255)
-    static let dim = Color(red: 0x94 / 255, green: 0xA4 / 255, blue: 0x9B / 255)
-    static let ledge = Color(red: 0x1F / 255, green: 0x3A / 255, blue: 0x2E / 255)
-    static let accent = Color(red: 0xF0 / 255, green: 0x7A / 255, blue: 0x6A / 255)
-}
-
 struct AskBeepView: View {
     @Environment(\.widgetFamily) private var family
 
@@ -53,7 +42,7 @@ struct AskBeepView: View {
                 if family == .accessoryCircular || family == .accessoryRectangular {
                     AccessoryWidgetBackground()
                 } else {
-                    Colors.page
+                    Mint.page
                 }
             }
     }
@@ -61,7 +50,7 @@ struct AskBeepView: View {
     @ViewBuilder private var content: some View {
         switch family {
         case .accessoryCircular:
-            Text("b").font(.custom("BricolageGrotesque-96ptExtraBold", size: 26))
+            Image(systemName: "bubble.left").font(.system(size: 26, weight: .medium))
                 .widgetAccentable()
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 0) {
@@ -73,39 +62,30 @@ struct AskBeepView: View {
             HStack(spacing: 12) {
                 tile(40)
                 Text("Ask Beep...")
-                    .font(.custom("Rubik-Light", size: 15))
-                    .foregroundStyle(Colors.dim)
+                    .font(.body(14))
+                    .foregroundStyle(Mint.dim)
                     .padding(.horizontal, 14)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .chunky(Capsule(), fill: Colors.surface)
+                    .card(Mint.surface, radius: Mint.smallRadius)
             }
         default:
             VStack(alignment: .leading, spacing: 0) {
                 tile(44)
                 Spacer(minLength: 0)
-                Text("Beep").font(.custom("BricolageGrotesque-96ptExtraBold", size: 20)).foregroundStyle(Colors.ink)
-                Text("Ask anything").font(.custom("Rubik-Light", size: 13)).foregroundStyle(Colors.muted)
+                Text("Beep").font(.body(20)).foregroundStyle(Mint.ink)
+                Text("Ask anything").font(.body(13)).foregroundStyle(Mint.muted)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 
-    /// The coral "b" tile, the app's mark.
+    /// The app mark.
     private func tile(_ size: CGFloat) -> some View {
-        Text("b")
-            .font(.custom("BricolageGrotesque-96ptExtraBold", size: size * 0.5))
-            .foregroundStyle(Colors.ink)
+        Image(systemName: "bubble.left")
+            .font(.system(size: size * 0.5, weight: .medium))
+            .foregroundStyle(Mint.ink)
             .frame(width: size, height: size)
-            .chunky(RoundedRectangle(cornerRadius: size * 0.3), fill: Colors.accent)
-    }
-}
-
-private extension View {
-    /// The app's outline with a hard shadow, smaller to suit the widget.
-    func chunky<S: Shape>(_ shape: S, fill: Color) -> some View {
-        background(shape.fill(fill))
-            .overlay(shape.stroke(Colors.ledge, lineWidth: 1.5))
-            .background(shape.fill(Colors.ledge).offset(x: 2, y: 2))
+            .card(Mint.user, radius: Mint.smallRadius)
     }
 }
 

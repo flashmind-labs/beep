@@ -2,7 +2,6 @@ package com.flashmind.beep
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
@@ -18,14 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -113,9 +107,6 @@ internal fun price(amount: Double, currency: String): String? = runCatching {
     format.format(amount)
 }.getOrNull()
 
-/** What a tap on a card does: the built-in browser when the app gives one, else the phone's browser. */
-internal val LocalOpenLink = compositionLocalOf<((String) -> Unit)?> { null }
-
 /**
  * Products side by side in a row that scrolls and snaps; a lone product takes the full width.
  * [loading] adds a placeholder card for a block still streaming in.
@@ -134,28 +125,19 @@ internal fun ProductRow(products: List<Product>, loading: Boolean) {
 @Composable
 private fun ProductCard(product: Product, modifier: Modifier) {
     val context = LocalContext.current
-    val open = LocalOpenLink.current
-    val shape = RoundedCornerShape(16.dp)
-    Box(modifier) {
-        Column(Modifier.fillMaxWidth().beepFrame(shape, Beep.colors.surface)
-            .clickable(onClickLabel = "Open ${product.store}") { open?.invoke(product.url) ?: ExternalBrowser.open(context, product.url) }) {
-            ProductImage(product.image)
-            Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(product.store, color = Beep.colors.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(product.title, color = Beep.colors.ink, fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium,
-                    maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
-                if (product.price != null) Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(product.price, color = Beep.colors.ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                    product.was?.let { Text(it, color = Beep.colors.muted, fontSize = 12.sp, textDecoration = TextDecoration.LineThrough) }
-                } else Text("See price on the site", color = Beep.colors.muted, fontSize = 12.5.sp)
-                product.details?.let { Text(it, color = Beep.colors.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            }
-        }
-        Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(30.dp).clip(CircleShape)
-            .background(Beep.colors.surface).border(1.5.dp, Beep.colors.ledge, CircleShape)
-            .clickable(onClickLabel = "Open in your browser") { ExternalBrowser.open(context, product.url) },
-            contentAlignment = Alignment.Center) {
-            Icon(Icons.AutoMirrored.Outlined.OpenInNew, "Open in your browser", Modifier.size(16.dp), tint = Beep.colors.ink)
+    val shape = RoundedCornerShape(Beep.shapes.radius)
+    Column(modifier.fillMaxWidth().beepFrame(shape, Beep.colors.surface)
+        .clickable(onClickLabel = "Open ${product.store}") { ExternalBrowser.open(context, product.url) }) {
+        ProductImage(product.image)
+        Column(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(product.store, color = Beep.colors.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(product.title, color = Beep.colors.ink, fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium,
+                maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+            if (product.price != null) Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(product.price, color = Beep.colors.ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                product.was?.let { Text(it, color = Beep.colors.muted, fontSize = 12.sp, textDecoration = TextDecoration.LineThrough) }
+            } else Text("See price on the site", color = Beep.colors.muted, fontSize = 12.5.sp)
+            product.details?.let { Text(it, color = Beep.colors.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
@@ -173,7 +155,7 @@ private fun ProductImage(url: String?) {
 /** A card shaped like the others while its block is still coming in. */
 @Composable
 private fun LoadingCard(modifier: Modifier) {
-    Column(modifier.beepFrame(RoundedCornerShape(16.dp), Beep.colors.surface)) {
+    Column(modifier.beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface)) {
         Box(Modifier.fillMaxWidth().height(116.dp).background(Beep.colors.code))
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(0.4f, 0.9f, 0.6f, 0.3f).forEach { w ->

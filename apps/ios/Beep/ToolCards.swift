@@ -254,7 +254,7 @@ private struct MapSnippet: View {
 /// The frame around a chat card.
 private extension View {
     func cardFrame() -> some View {
-        background(Mint.surface).clipShape(RoundedRectangle(cornerRadius: 18)).card()
+        background(Mint.surface).clipShape(RoundedRectangle(cornerRadius: Mint.radius)).card()
     }
 }
 
@@ -457,7 +457,7 @@ private struct PlaceMapCard: View {
                 }
                 .padding(.top, 9)
             }
-            .padding(14)
+            .padding(Mint.spacing)
         }
         .cardFrame()
         .task(id: card) { found = await PlaceLookup.lookup(card.query, near: card.near) }
@@ -501,7 +501,7 @@ private struct ContactsCard: View {
             ForEach(Array(shown.enumerated()), id: \.offset) { index, person in
                 if index > 0 { Rectangle().fill(Mint.soft).frame(height: 1) }
                 HStack(spacing: 12) {
-                    Text(initial(person.name)).font(.body(15, .bold)).foregroundStyle(Mint.ink)
+                    Text(initial(person.name)).font(.body(14, .bold)).foregroundStyle(Mint.ink)
                         .frame(width: 36, height: 36).background(Circle().fill(Mint.tints[index % Mint.tints.count]))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(person.name).font(.body(14, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
@@ -521,7 +521,7 @@ private struct ContactsCard: View {
             if people.count > 3, !all {
                 Button { withAnimation(.snappy) { all = true } } label: {
                     Text("Show \(people.count - 3) more").font(.body(13, .semibold)).foregroundStyle(Mint.brand)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(Mint.spacing)
                 }
                 .buttonStyle(.plain)
             }
@@ -553,7 +553,7 @@ private struct ActionRowCard: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 16)).foregroundStyle(Mint.ink)
-                .frame(width: 34, height: 34).background(RoundedRectangle(cornerRadius: 10).fill(Mint.tints[1]))
+                .frame(width: 34, height: 34).background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[1]))
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                 if !detail.isEmpty { Text(detail).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1) }
@@ -712,8 +712,8 @@ struct LinkCard: View {
         let host = url.host()?.replacingOccurrences(of: "www.", with: "", options: .anchored) ?? ""
         Button { open(url) } label: {
             HStack(spacing: 10) {
-                Text(host.prefix(1).uppercased()).font(.body(15, .bold)).foregroundStyle(Mint.ink)
-                    .frame(width: 36, height: 36).background(RoundedRectangle(cornerRadius: 9).fill(Mint.code))
+                Text(host.prefix(1).uppercased()).font(.body(14, .bold)).foregroundStyle(Mint.ink)
+                    .frame(width: 36, height: 36).background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.code))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(info.flatMap { $0.title.isEmpty ? nil : $0.title } ?? host)
                         .font(.body(13, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
@@ -726,8 +726,8 @@ struct LinkCard: View {
                 Spacer(minLength: 0)
             }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+            .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -769,12 +769,12 @@ struct TaskProgressCard: View {
                 }
             }
         }
-        .padding(14)
+        .padding(Mint.spacing)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardFrame()
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { pulse = true }
+            pulse = false
         }
     }
 
@@ -809,7 +809,7 @@ struct SuggestedReplies: View {
                         Text(reply).font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .padding(.horizontal, Mint.pageInset).padding(.vertical, 12)
                             .chunky(Mint.tints[index % Mint.tints.count], radius: 12)
                     }
                     .buttonStyle(.plain)
@@ -823,7 +823,7 @@ struct SuggestedReplies: View {
                     Button { pick(reply) } label: {
                         Text(reply).font(.body(12, .medium)).foregroundStyle(Mint.ink).lineLimit(1)
                             .padding(.horizontal, 11).padding(.vertical, 6)
-                            .chunky(radius: 12, drop: 2)
+                            .chunky(radius: 12)
                     }
                     .buttonStyle(.plain)
                     .popIn(delay: 0.04 * Double(index))
