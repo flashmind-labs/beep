@@ -62,7 +62,7 @@ macro_rules! sample_each {
 
 /// `Sample` for a plain struct, listing all its fields.
 macro_rules! sample_struct {
-    ($($name:ident { $($field:ident),* $(,)? })*) => {$(
+    ($name:ident { $($field:ident),* $(,)? }) => {
         impl $crate::compat::Sample for $name {
             fn samples(wire: u32) -> Vec<Self> {
                 let mut out = Vec::new();
@@ -70,7 +70,7 @@ macro_rules! sample_struct {
                 out
             }
         }
-    )*};
+    };
 }
 
 macro_rules! sample_values {

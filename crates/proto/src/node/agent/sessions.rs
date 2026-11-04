@@ -7,6 +7,7 @@ use super::{
 use serde::{Deserialize, Serialize};
 
 /// What the server sends on an `agents/1` stream: one request, one reply.
+/// A node older than a request closes the stream or answers `Error`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum SessionsRequest {
@@ -38,9 +39,8 @@ pub enum SessionsRequest {
         sessions: Vec<String>,
     },
     /// The git checkouts coding agents worked in, from the sessions Claude
-    /// Code, Codex, pi, flsh and OpenCode keep: at most `limit`, newest activity
-    /// first. Answered with `Folders`. A node from before it answers
-    /// `Error` or closes the stream.
+    /// Code, Codex, pi, flsh and OpenCode keep: at most `limit`, newest
+    /// activity first. Answered with `Folders`.
     Folders {
         #[serde(default)]
         limit: u32,
@@ -55,22 +55,19 @@ pub enum SessionsRequest {
     },
     /// The picture of the `[image: image-<key>]` line in `session`'s
     /// transcript, `key` being its `image_key`. Answered with `Image`, or
-    /// `Error` when the node no longer has it. A node from before it
-    /// closes the stream.
+    /// `Error` when the node no longer has it.
     Image {
         session: String,
         key: String,
     },
-    /// The models the agent `agent` can run on here, for `Start`'s
-    /// `model`. Answered with `Models`, or `Error` for an agent the node
-    /// does not have. A node from before it closes the stream.
+    /// The models the agent `agent` can run on here, for `Start`'s `model`.
+    /// Answered with `Models`, or `Error` for an agent the node does not have.
     Models {
         agent: String,
     },
-    /// What the node finds of each coding agent harness it knows, answered
-    /// with `Harnesses`. `refresh` looks the newest versions up again
-    /// instead of using the ones found lately. A node from before it
-    /// answers `Error` or closes the stream.
+    /// What the node finds of each coding agent harness it knows, answered with
+    /// `Harnesses`. `refresh` looks the newest versions up again instead of
+    /// using the ones found lately.
     Harnesses {
         #[serde(default)]
         refresh: bool,
@@ -82,18 +79,16 @@ pub enum SessionsRequest {
         agent: String,
     },
     /// Sends each picture a running session's transcript newly shows, as
-    /// `SessionImage` replies, until the server closes the stream; the
-    /// server keeps them so they show while the node is offline. Pictures
-    /// that came while no stream was open wait, a bounded few. A node from
-    /// before it closes the stream.
+    /// `SessionImage` replies, until the server closes the stream; the server
+    /// keeps them so they show while the node is offline. Pictures that came
+    /// while no stream was open wait, a bounded few.
     FollowImages {},
-    /// Sends what each finished turn spent, as `TurnUsage` replies, and
-    /// how much of each agent's plan is left, as `PlanUsage` replies (all
-    /// of them first, then each time one changes), until the server closes
-    /// the stream. Turns that ended while no stream was open wait, a
-    /// bounded few. On this stream the server may later send
-    /// `RefreshPlanUsage`; anything else is its goodbye. A node from before
-    /// it closes the stream.
+    /// Sends what each finished turn spent, as `TurnUsage` replies, and how
+    /// much of each agent's plan is left, as `PlanUsage` replies (all of them
+    /// first, then each time one changes), until the server closes the stream.
+    /// Turns that ended while no stream was open wait, a bounded few. On this
+    /// stream the server may later send `RefreshPlanUsage`; anything else is
+    /// its goodbye.
     FollowUsage {
         /// Also sends what sessions spent as the agents' own logs on the
         /// node tell it, as `SessionSpend` replies: the last weeks first,
@@ -105,19 +100,17 @@ pub enum SessionsRequest {
     /// Sent on a `FollowUsage` stream: reads the plans' usage again now,
     /// rather than at the next check.
     RefreshPlanUsage {},
-    /// Up to `AGENT_FILE_CHUNK` bytes from `offset` of the media file
-    /// `path`, absolute or starting `~/` for the node's home. Answered with
-    /// `File`, `NoFile` when there is no such file, or `Error` saying why it
-    /// cannot be read. A node from before it answers `Error` or closes the
-    /// stream.
+    /// Up to `AGENT_FILE_CHUNK` bytes from `offset` of the media file `path`,
+    /// absolute or starting `~/` for the node's home. Answered with `File`,
+    /// `NoFile` when there is no such file, or `Error` saying why it cannot be
+    /// read.
     File {
         path: String,
         offset: u64,
     },
-    /// The folder `path` inside the working folder `root`, as
-    /// `ListWorkFolder` asks it. Answered with `Folder`, or `Error` saying
-    /// why, for a path outside `root` among others. A node from before it
-    /// closes the stream.
+    /// The folder `path` inside the working folder `root`, as `ListWorkFolder`
+    /// asks it. Answered with `Folder`, or `Error` saying why, for a path
+    /// outside `root` among others.
     Folder {
         root: String,
         path: String,
@@ -127,9 +120,8 @@ pub enum SessionsRequest {
         #[serde(default)]
         depth: u32,
     },
-    /// Up to `len` bytes of the file `path` inside `root` from `offset`,
-    /// as `ReadWorkFile` asks them. Answered with `File`, `NoFile` or
-    /// `Error`. A node from before it closes the stream.
+    /// Up to `len` bytes of the file `path` inside `root` from `offset`, as
+    /// `ReadWorkFile` asks them. Answered with `File`, `NoFile` or `Error`.
     ReadFile {
         root: String,
         path: String,
@@ -137,8 +129,7 @@ pub enum SessionsRequest {
         len: u32,
     },
     /// Part of a file written into `root`, as `WriteWorkFile` sends it.
-    /// Answered with `Written`, or `Error` saying why. A node from before
-    /// it closes the stream.
+    /// Answered with `Written`, or `Error` saying why.
     WriteFile {
         root: String,
         path: String,
@@ -147,36 +138,32 @@ pub enum SessionsRequest {
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },
-    /// The custom agents the harnesses define for the project folder
-    /// `folder` and in the node's home, as `ListCustomAgents` asks them.
-    /// Answered with `CustomAgents`, or `Error` saying why. A node from
-    /// before it closes the stream.
+    /// The custom agents the harnesses define for the project folder `folder`
+    /// and in the node's home, as `ListCustomAgents` asks them. Answered with
+    /// `CustomAgents`, or `Error` saying why.
     CustomAgents {
         folder: String,
     },
-    /// Sends what the user would want to hear about the node's sessions,
-    /// as `Alert` replies, until the server closes the stream: a question
-    /// a session asks, a turn that ended with no prompt queued behind it,
-    /// and a session that failed. Alerts that came while no stream was
-    /// open wait, a bounded few. A node from before it closes the stream.
+    /// Sends what the user would want to hear about the node's sessions, as
+    /// `Alert` replies, until the server closes the stream: a question a
+    /// session asks, a turn that ended with no prompt queued behind it, and a
+    /// session that failed. Alerts that came while no stream was open wait, a
+    /// bounded few.
     FollowAlerts {},
     /// What changed in the checkout `ask.root`, as `GetWorkDiff` asks it.
-    /// Answered with `Diff`, or `Error` saying why. A node from before it
-    /// closes the stream.
+    /// Answered with `Diff`, or `Error` saying why.
     Diff {
         ask: DiffAsk,
     },
-    /// How Claude Code session `session`, started outside Beep, is doing
-    /// now, as its hooks report it. Answered with `Live`, or `Error`. A
-    /// node from before it closes the stream.
+    /// How Claude Code session `session`, started outside Beep, is doing now,
+    /// as its hooks report it. Answered with `Live`, or `Error`.
     Live {
         session: String,
     },
-    /// Queues `steer` on the node for the next hook of `session` to
-    /// deliver: a message after the current tool call or at the turn's
-    /// end, a stop at the next tool call. Answered with `Live`, or `Error`
-    /// saying why it cannot, such as a session idle at its prompt. A node
-    /// from before it closes the stream.
+    /// Queues `steer` on the node for the next hook of `session` to deliver: a
+    /// message after the current tool call or at the turn's end, a stop at the
+    /// next tool call. Answered with `Live`, or `Error` saying why it cannot,
+    /// such as a session idle at its prompt.
     Steer {
         session: String,
         steer: Steer,

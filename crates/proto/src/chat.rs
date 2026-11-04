@@ -199,7 +199,7 @@ ffi_enum! {
     /// answers a folder's entries as a JSON list of `name`, `folder`, `size`
     /// and `modified`; `Find` the paths under `folder` whose name contains
     /// `name`, as a JSON list; `Read` a file as JSON with `name`, `mime`,
-    /// `size` and base64 `data`, up to `MAC_READ` bytes. Unused: kept for
+    /// `size` and base64 `data`, up to 5 MB. Unused: kept for
     /// wire compatibility with released apps, never sent.
     #[derive(Debug, Clone, PartialEq)]
     pub enum MacFileCommand {
@@ -208,10 +208,6 @@ ffi_enum! {
         2 Read { path: String }
     }
 }
-
-/// The largest file `MacFileCommand::Read` answers with, so its base64
-/// answer stays under a frame.
-pub const MAC_READ: u64 = 5 * 1024 * 1024;
 
 ffi_structs! {
     /// A tool call that waits for the user's OK, as the phone shows it.
