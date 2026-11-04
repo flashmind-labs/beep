@@ -7,8 +7,7 @@ use reqwest::{Client, StatusCode, header};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 
-const GITHUB_USER: &str = "https://api.github.com/user";
-const GITHUB_ORGS: &str = "https://api.github.com/user/orgs";
+const GITHUB_API: &str = "https://api.github.com";
 /// The most orgs kept per GitHub account: GitHub's largest page.
 pub const MAX_ORGS: usize = 100;
 const OPENROUTER_KEY: &str = "https://openrouter.ai/api/v1/key";
@@ -32,24 +31,36 @@ struct UserReply {
 /// Asks hosts about tokens.
 pub struct Checker {
     client: Client,
+    github_api: String,
 }
 
 impl Checker {
     /// A checker that asks through `client`, which the caller builds with the limits its place needs.
     pub fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            github_api: GITHUB_API.to_owned(),
+        }
+    }
+
+    /// Asks GitHub's API at `base` instead of `https://api.github.com`, for a GitHub Enterprise
+    /// server or a test.
+    pub fn github_at(mut self, base: &str) -> Self {
+        self.github_api = base.trim_end_matches('/').to_owned();
+        self
     }
 
     /// `GET https://api.github.com/user` with `token`.
     pub async fn github(&self, token: &SecretString) -> Checked {
-        self.user(GITHUB_USER, "GitHub", token).await
+        self.user(&format!("{}/user", self.github_api), "GitHub", token)
+            .await
     }
 
     /// The orgs `token` can see (one page, at most [`MAX_ORGS`]); empty when GitHub does not say.
     pub async fn github_orgs(&self, token: &SecretString) -> Vec<String> {
         let sent = self
             .client
-            .get(format!("{GITHUB_ORGS}?per_page={MAX_ORGS}"))
+            .get(format!("{}/user/orgs?per_page={MAX_ORGS}", self.github_api))
             .header(header::ACCEPT, "application/vnd.github+json")
             .header(
                 header::AUTHORIZATION,
