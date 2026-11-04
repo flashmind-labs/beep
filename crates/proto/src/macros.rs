@@ -90,7 +90,7 @@ macro_rules! requests {
 
         /// Hands `visit` every request type with its reply type, in op order.
         #[cfg(test)]
-        fn each_request(visit: &mut impl compat::Visit) {
+        pub(crate) fn each_request(visit: &mut impl $crate::compat::Visit) {
             $(visit.request::<$name, $reply>();)*
         }
 

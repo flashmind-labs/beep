@@ -9,7 +9,7 @@
 //! `BEEP_WIRE_BLESS=1` to write the ones a new request or a new `WIRE` lacks.
 //! It never overwrites a fixture.
 
-use crate::{each_request, link::LinkOffer, *};
+use crate::{link::LinkOffer, requests::each_request, *};
 use iroh::SecretKey;
 use serde::Serialize;
 use std::{
