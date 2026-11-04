@@ -1,6 +1,6 @@
 use super::{
     super::{
-        model::{IssueHost, TaskState, WorkerState},
+        model::{TaskState, WorkerState},
         schedule::Due,
         turn::{CHECK_LABEL, REPLAN_LABEL, WORKER_LABEL},
     },
@@ -14,12 +14,14 @@ use crate::{
             turns::{TurnDone, asked, ended, turn_done},
             workers::reattach,
         },
-        model::{IssueRef, MachinePath, RepoName, Roles, StartRequest, Visibility, WorkerAgent},
+        model::{StartRequest, WorkerAgent},
         testing::{FakeAttach, FakeFleet, FakeShell},
     },
     protocol::node::agent::{OptionKind, Question, Request as AgentRequest, Status},
     store::{CheckoutRow, NewTask, NewWorker, ProjectRow, TaskRow, TestDb, WorkerRow},
 };
+use beep_projects::model::IssueHost;
+use beep_projects::model::{IssueRef, MachinePath, RepoName, Roles, Visibility};
 use chrono::{DateTime, TimeDelta, Utc};
 use iroh::EndpointId;
 use std::sync::Arc;

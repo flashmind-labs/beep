@@ -7,13 +7,10 @@ pub mod repo_watch;
 use crate::app::App;
 use std::sync::Arc;
 
-pub(crate) use commands::{CommandOutput, Shell, parse_login, quote};
 pub(crate) use lifecycle::finish_task;
 pub(crate) use service::Handled;
 pub use service::Projects;
 
-pub(crate) mod branches;
-mod commands;
 pub(crate) mod fleet;
 pub(crate) mod gate;
 pub(crate) mod issues;
@@ -21,12 +18,14 @@ pub(crate) mod lifecycle;
 pub(crate) mod model;
 #[cfg(test)]
 mod node_tests;
+mod online_shell;
 mod personas;
 pub(crate) mod place;
 pub(crate) mod policy;
 pub(crate) mod review;
 mod schedule;
 mod service;
+pub(crate) mod stored;
 #[cfg(test)]
 pub(crate) mod testing;
 pub(crate) mod thread_detail;

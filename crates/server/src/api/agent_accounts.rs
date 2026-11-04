@@ -8,7 +8,7 @@ use super::{
     own_nodes::{linked_keys, online},
 };
 use crate::{
-    account::credentials::{Slot, last4},
+    account::credentials::last4,
     api::router::Cx,
     nodes::Online,
     protocol::{
@@ -21,6 +21,7 @@ use crate::{
     store::{AgentTokenRow, NewCredential},
 };
 use anyhow::{Result, bail};
+use beep_projects::credentials::Slot;
 use futures::{StreamExt, stream};
 use reqwest::Url;
 use secrecy::ExposeSecret;

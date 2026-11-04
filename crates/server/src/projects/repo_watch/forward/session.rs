@@ -2,11 +2,10 @@
 
 use super::{LiveState, Refresh, Slot};
 use crate::{
-    account::credentials::WebhookOwner,
-    account::user::User,
+    account::{credentials::WebhookOwner, user::User},
     app::App,
     nodes::Online,
-    projects::model::{IssueHost, ProjectId, RepoName},
+    projects::model::ProjectId,
     protocol::{
         SecretText,
         node::webhook::{PollReason, Watch, WatchHost, WatchReply},
@@ -14,6 +13,7 @@ use crate::{
     store::NewWebhook,
 };
 use anyhow::{Result, bail};
+use beep_projects::model::{IssueHost, RepoName};
 use chacha20poly1305::aead::{OsRng, rand_core::RngCore};
 use secrecy::{ExposeSecret, SecretString};
 use std::{
@@ -59,7 +59,7 @@ pub(super) fn new_secret() -> SecretString {
 pub(super) fn watch_host(host: &IssueHost, repo: &RepoName) -> WatchHost {
     match host {
         IssueHost::Github => WatchHost::GitHub {
-            token_var: crate::account::credentials::github_owner_var(repo.owner()),
+            token_var: beep_projects::github_owner_var(repo.owner()),
         },
         IssueHost::Forgejo(host) => WatchHost::Forgejo {
             host: host.as_str().to_owned(),

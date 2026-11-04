@@ -1,12 +1,11 @@
 use super::{super::Store, *};
 use crate::{
     account::user::UserKey,
-    projects::model::{
-        MachinePath, ProjectId, RepoName, TaskId, TaskState, Visibility, WorkerAgent, WorkerState,
-    },
+    projects::model::{ProjectId, TaskId, TaskState, WorkerAgent, WorkerState},
     store::TestDb,
 };
 use anyhow::Result;
+use beep_projects::model::{MachinePath, RepoName, Visibility};
 use iroh::{EndpointId, SecretKey};
 
 fn machine() -> EndpointId {

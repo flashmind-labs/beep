@@ -1,15 +1,13 @@
 //! When a project tool may act: the Project app's level, a saved "always" and the call just
 //! allowed. Unlike `permissions::guard`, each tool decides what its call asks for.
 
-use super::{
-    model::Visibility,
-    tools::{ProjectTools, leaked},
-};
+use super::tools::{ProjectTools, leaked};
 use crate::{
     apps::permissions::{ApprovalPayload, PROJECT_APP, Rules, ToolSlug},
     protocol::{Approval, ApprovalField, PermissionLevel},
 };
 use async_trait::async_trait;
+use beep_projects::model::Visibility;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::Value;
 use std::{mem, sync::Arc};

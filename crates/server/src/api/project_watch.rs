@@ -4,19 +4,20 @@ use super::{
     Reply, SEND_TIMEOUT,
     projects::{issue_view, project_of, pull_request_view},
 };
+use crate::projects::stored::StoredProject;
 use crate::{
     account::user::User,
     api::router::{Cx, Sink},
     app::App,
-    projects::repo_watch::ListsCopy,
-    projects::repo_watch::{Changed, LiveState},
     projects::{
-        issues,
-        model::{IssueHost, ProjectId},
+        model::ProjectId,
+        repo_watch::{Changed, ListsCopy, LiveState},
     },
     protocol::*,
     store::ProjectRow,
 };
+use beep_projects::issues::untracked_now;
+use beep_projects::model::IssueHost;
 use std::sync::Arc;
 use tokio::{sync::broadcast::error::RecvError, time::timeout};
 
@@ -165,9 +166,9 @@ async fn untracked(
     let Some(read) = &copy.issues else {
         return Ok(Vec::new());
     };
-    let open = issues::untracked_now(user, project, read)
+    let open = untracked_now(&StoredProject::new(user, project), read)
         .await
-        .map_err(super::projects::issue_refusal)?;
+        .map_err(|error| super::projects::issue_refusal(error.into()))?;
     Ok(open.into_iter().map(issue_view).collect())
 }
 

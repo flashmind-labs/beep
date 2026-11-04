@@ -4,10 +4,10 @@ use crate::{
     account::user::User,
     api::machine_sessions,
     app::App,
-    projects::model::RepoName,
     protocol::{AgentStatus, GitItem, GitItemKind, GitReview, MachineSession},
     store::TaskRow,
 };
+use beep_projects::model::RepoName;
 use std::collections::HashMap;
 
 /// Where a project is checked out.

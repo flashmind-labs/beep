@@ -5,8 +5,9 @@ mod render;
 use load::{Live, Place, Project, in_project, items_of, live, load, sessions_of, waits_on_user};
 use render::{render_list, render_show};
 
-use crate::{account::user::User, app::App, projects::model::RepoName};
+use crate::{account::user::User, app::App};
 use async_trait::async_trait;
+use beep_projects::model::RepoName;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};

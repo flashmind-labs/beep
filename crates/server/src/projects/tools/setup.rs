@@ -2,11 +2,8 @@
 
 use super::{
     super::{
-        commands::{HostCommand, exclude_project_dirs, parse_setup, parse_visibility, read_setup},
         fleet::{self, Machine},
         gate::{Asks, Gate},
-        issues::{HOST_LIMIT, run_host},
-        model::{IssueHost, MachinePath},
     },
     CHECKOUT_SLUG, ProjectTools, SETUP, card, field, machine_list,
 };
@@ -16,6 +13,11 @@ use crate::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use beep_projects::{
+    commands::{HostCommand, exclude_project_dirs, parse_setup, parse_visibility, read_setup},
+    issues::{HOST_LIMIT, run_host},
+    model::{IssueHost, MachinePath},
+};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -214,7 +216,7 @@ impl SetupTool {
             return Ok(Err(format!("{name} is offline or offers no shell.")));
         };
         let out = shell.run(&read_setup(path), HOST_LIMIT).await?;
-        let setup = match parse_setup(&out.out, &project.name) {
+        let setup = match parse_setup(&out.output, &project.name) {
             Ok(setup) => setup,
             Err(error) => return Ok(Err(error.to_string())),
         };
@@ -222,20 +224,25 @@ impl SetupTool {
             Some(host) => {
                 let command = HostCommand::Visibility.render(host, &project.name);
                 let out = shell.run(&command, HOST_LIMIT).await?;
-                parse_visibility(host, &out.out)
+                parse_visibility(host, &out.output)
             }
             None => project.visibility,
         };
         let excluded = shell.run(&exclude_project_dirs(path), HOST_LIMIT).await?;
-        if excluded.code != Some(0) {
+        if excluded.exit_code != Some(0) {
             return Ok(Err(format!(
                 "Could not keep .worktrees/ and .beep/ out of git there: {}",
-                excluded.out.trim()
+                excluded.output.trim()
             )));
         }
         if let Some(host) = &setup.roles.issues
-            && let Err(error) =
-                run_host(shell.as_ref(), host, project, HostCommand::EnsureLabels).await
+            && let Err(error) = run_host(
+                shell.as_ref(),
+                host,
+                &project.name,
+                HostCommand::EnsureLabels,
+            )
+            .await
         {
             return Ok(Err(format!(
                 "Could not make the beep labels on {}: {error:#}. Check that the CLI is \

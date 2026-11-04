@@ -1,19 +1,16 @@
 //! The runs last read for a project, per host, and the views built from them.
 
 use super::{
-    super::{
-        actions::{ListedRun, MirrorHead, PrHeadRef, mirror_checks, pr_checks, progress},
-        hosts::RepoOnHost,
-        http::{HostCalls, Who},
-        watch::OpenHead,
-    },
+    super::{hosts::RepoOnHost, watch::OpenHead},
     NO_HOST,
 };
-use crate::{
-    projects::model::IssueHost,
-    protocol::{
-        HostedChecks, HostedRun, HostedRuns, ProjectRuns, RunJob, RunLog, RunsHost, WorkflowRun,
-    },
+use crate::protocol::{
+    HostedChecks, HostedRun, HostedRuns, ProjectRuns, RunJob, RunLog, RunsHost, WorkflowRun,
+};
+use beep_projects::model::IssueHost;
+use beep_projects::repo_watch::{
+    actions::{ListedRun, MirrorHead, PrHeadRef, mirror_checks, pr_checks, progress},
+    http::{HostCalls, Who},
 };
 use std::{
     collections::{HashMap, VecDeque},

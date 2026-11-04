@@ -3,12 +3,14 @@
 use super::{
     forward::{Forwards, Refresh},
     hosts::RemotesRead,
-    http::HostCalls,
     lists::{self, ListsCopy},
     live::{self, RunsCopy},
-    timing::{AskRead, Timing},
 };
 use crate::{AsyncMutex, app::App, projects::model::ProjectId};
+use beep_projects::repo_watch::{
+    http::HostCalls,
+    timing::{AskRead, Timing},
+};
 use futures::{StreamExt, stream};
 use std::{
     collections::HashMap,
