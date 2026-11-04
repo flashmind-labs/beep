@@ -17,6 +17,7 @@ mod credentials;
 mod custom_agents;
 mod desktop;
 mod devices;
+mod editors;
 mod error;
 mod file_sync;
 mod flsh_settings;
@@ -184,6 +185,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             add_machine::create_node_token,
+            editors::editors,
+            editors::open_in_editor,
             add_machine::revoke_node_token,
             add_machine::node_token_machine,
             agents::agent_hosts,
