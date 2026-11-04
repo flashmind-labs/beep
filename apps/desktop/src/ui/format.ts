@@ -4,6 +4,18 @@ const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;"
 /// `s` as HTML text or an attribute value.
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESCAPES[c]);
 
+/// `s` as HTML text with its web addresses as links. Punctuation right after
+/// an address belongs to the sentence.
+export function linkified(s: string) {
+  let html = "", last = 0;
+  for (const m of s.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+    const url = m[0].replace(/[.,;:!?)\]]+$/, "");
+    html += `${esc(s.slice(last, m.index))}<a href="${esc(url)}">${esc(url)}</a>`;
+    last = m.index + url.length;
+  }
+  return html + esc(s.slice(last));
+}
+
 /// "12 min", "3 h", "2 d" or "now": how long ago `ms` was.
 export function ago(ms: number, now = Date.now()) {
   const s = Math.max(0, Math.round((now - ms) / 1000));
