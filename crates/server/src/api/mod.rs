@@ -36,6 +36,7 @@ mod harnesses;
 mod instructions;
 mod live;
 mod location;
+mod machine_tools;
 mod machines;
 mod memories;
 mod own_nodes;
@@ -287,6 +288,8 @@ pub fn router() -> Router {
         .call(update_machine)
         .call(list_updatable_machines)
         .call(get_node_token)
+        .call(machine_tools::list_tool_updates)
+        .call(machine_tools::update_machine_tool)
         .call(credentials::list_credentials)
         .call(credentials::save_credential)
         .call(credentials::remove_credential)

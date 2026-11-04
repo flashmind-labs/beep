@@ -20,7 +20,7 @@ use beep_proto::{
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
-        Open, Opened, StatsReport, Up, agent, link,
+        Open, Opened, StatsReport, Up, agent, link, tool_update,
     },
 };
 use iroh::{
@@ -340,6 +340,11 @@ impl Offers {
         ]
         .into_iter()
         .chain(self.agents.offers())
+        .chain(
+            self.provision
+                .is_some()
+                .then(|| tool_update::PROTOCOL.to_owned()),
+        )
         .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
         .collect()
     }
@@ -583,6 +588,10 @@ async fn session(send: SendStream, recv: RecvStream, offers: Offers) -> Result<(
         terminal::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             terminal::serve(tx, rx).await
+        }
+        tool_update::PROTOCOL if let Some(provision) = &offers.provision => {
+            tx.send(&Opened::Ready {}).await?;
+            provision.serve_updates(tx, rx).await
         }
         agent::SESSIONS_PROTOCOL if !offers.agents.offers().is_empty() => {
             tx.send(&Opened::Ready {}).await?;
