@@ -6,8 +6,8 @@ import { followSkin } from "../ui/skin.ts";
 import { writeClipboard } from "../ui/parts.ts";
 followSkin();
 import { invoke, Channel } from "../ui/tauri.ts";
-import { esc } from "../ui/format.ts";
-import type { ResearchStatus as Status } from "./research-list.ts";
+import { esc, plural } from "../ui/format.ts";
+import { chipHtml, phaseStep, PHASES, STATUS_LABEL, type ResearchStatus as Status } from "./research-list.ts";
 
 /// A member of the team (Rust's `AgentView`).
 interface Agent {
@@ -78,7 +78,7 @@ const POLL_BUSY = 2500, POLL_IDLE = 30000;
 /// every few polls, and whenever the research changes phase.
 const CHAT_EVERY = 4;
 const RUNNING: ReadonlySet<Status | undefined> = new Set<Status>(["researching", "reviewing", "writing"]);
-const SCOUT_COLORS = ["#5CC49C", "#8FB8E8", "#E8C46D", "#E89A6D", "#9AD0D8"];
+const SCOUT_COLORS = ["var(--ok)", "var(--link)", "var(--warn)", "color-mix(in srgb, var(--ok) 50%, var(--link))", "color-mix(in srgb, var(--warn) 50%, var(--hot))"];
 
 const ICON = {
   check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -91,7 +91,7 @@ const $ = <T extends Element = HTMLElement>(sel: string) => document.querySelect
 /// An element the page surely has.
 const $$ = <T extends Element = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 /// "1 scout", "2 scouts".
-const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const count = (n: number, word: string) => plural(n, word, `${word}s`);
 const ignore = () => {};
 
 const ask = $$<HTMLTextAreaElement>("#ask");
@@ -109,7 +109,6 @@ const R = {
   tab: null as string | null, // null follows the research: notes while it works, the draft once written
   sending: null as string | null, // the lead's reply streaming in, as HTML
   error: "",
-  note: "",
   exporting: false,
 };
 
@@ -117,12 +116,12 @@ const R = {
 
 function look(id: string) {
   if (id === "lead") return { ini: "L", c: "var(--hot)" };
-  if (id === "critic") return { ini: "R", c: "#C59AE8" };
+  if (id === "critic") return { ini: "R", c: "color-mix(in srgb, var(--accent) 60%, var(--fg))" };
   if (id === "writer") return { ini: "W", c: "var(--fg)" };
   const n = +id.replace("scout-", "") || 1;
   return { ini: String(n), c: SCOUT_COLORS[(n - 1) % SCOUT_COLORS.length] };
 }
-const rav = (id: string) => { const l = look(id); return `<span class="rav" style="background:${l.c}">${l.ini}</span>`; };
+const rav = (id: string) => { const l = look(id); return `<span class="rav" style="--c:${l.c}">${l.ini}</span>`; };
 const agent = (id: string): Agent => R.research?.agents.find(a => a.id === id) ?? { id, name: id, role: "", model: "" };
 const nameOf = (id: string) => agent(id).name;
 
@@ -147,7 +146,7 @@ function doing(id: string): Doing {
   const notes = mine.filter(e => e.kind === "note").length;
   const sources = R.research?.sources.filter(s => s.agent === id).length ?? 0;
   const said = mine.filter(e => e.kind === "said" && e.to).length;
-  const summary = ({ scout: `Done: ${notes} notes, ${sources} sources`, critic: `Done: ${said} challenges`, writer: "Done: the paper", lead: "Posted the result" } as Record<string, string>)[kind(id)];
+  const summary = ({ scout: `Done: ${count(notes, "note")}, ${count(sources, "source")}`, critic: `Done: ${count(said, "challenge")}`, writer: "Done: the paper", lead: "Posted the result" } as Record<string, string>)[kind(id)];
   if (id === "lead") {
     if (st === "planning") return ["Waiting for your go", "wait"];
     if (st === "reviewing") return [round() > 1 ? `Coordinating round ${round()}` : "Coordinating", "run"];
@@ -179,19 +178,17 @@ function drawBar() {
   const r = R.research, st = r?.status;
   $$("#name").textContent = r?.topic || "Research";
   document.title = r?.topic || "Research";
-  const working = r ? r.agents.filter(a => a.id !== "lead" && doing(a.id)[1] === "run").length : 0;
-  const lines: Record<Status, string> = {
-    planning: '<span class="ddot hot"></span>Waiting for your go',
-    researching: `<span class="dspin"></span>${round() > 1 ? `Round ${round()}` : "Researching"}, ${count(working, "agent")} working`,
-    reviewing: '<span class="dspin"></span>Reviewing the findings',
-    writing: '<span class="dspin"></span>Writing the paper',
-    done: `${ok()}Done in ${r ? minutes(roundStart(), r.finished_at) : ""}`,
-    failed: '<span class="ddot bad"></span>The team failed',
-    stopped: '<span class="ddot off"></span>Stopped',
-    interrupted: '<span class="ddot off"></span>Interrupted by a server restart',
-  };
-  $$("#stat").innerHTML = (st ? lines[st] : undefined) ?? (R.sending !== null ? '<span class="dspin"></span>Planning' : "");
-  $$("#stop").innerHTML = RUNNING.has(st) ? '<button class="dbtn warn" data-act="stop">Stop</button>' : "";
+  const step = st ? phaseStep(st) : 0;
+  const steps = step ? `<span class="cc-rsteps">${PHASES.map((_, i) => `<i class="${i + 1 < step ? "done" : i + 1 === step ? "now" : ""}"></i>`).join("")}</span>` : "";
+  const facts = [
+    st === "interrupted" && "Server restarted",
+    round() > 1 && `Round ${round()}`,
+    st === "done" && r && `took ${minutes(roundStart(), r.finished_at)}`,
+    r?.sources.length && count(r.sources.length, "source"),
+  ].filter(Boolean).join(" · ");
+  const chip = st ? chipHtml(st, STATUS_LABEL[st]) : R.sending !== null ? chipHtml("researching", "Planning") : "";
+  $$("#stat").innerHTML = chip + steps + (facts ? `<small>${esc(facts)}</small>` : "");
+  $$("#stop").innerHTML = RUNNING.has(st) ? '<button class="dbtn small warn" data-act="stop">Stop</button>' : "";
 }
 
 // ---------- The lead's chat ----------
@@ -214,10 +211,10 @@ function drawChat() {
   });
   if (R.sending !== null) html += leadSays(`${R.sending}<span class="caret"></span>`);
   if (RUNNING.has(st)) html += `<div class="rstatus"><span class="dspin"></span>${esc(progress())}</div>`;
-  if (R.note) html += `<div class="dmuted">${esc(R.note)}</div>`;
   if (R.error) html += `<div class="derr">${esc(R.error)}</div>`;
   chat.innerHTML = html;
   if (stuck) chat.scrollTop = chat.scrollHeight;
+  $$("#lead-model").textContent = agent("lead").model;
   ask.placeholder = st === "planning" ? "Say go, or what to change" : st === "done" ? "Ask a follow-up" : "Message the lead";
 }
 
@@ -248,7 +245,6 @@ async function send(text: string, start = false) {
   text = text.trim();
   if (!text || R.sending !== null) return;
   R.error = "";
-  R.note = "";
   R.turns.push({ role: "user", text });
   R.sending = "";
   drawChat();
@@ -299,27 +295,27 @@ function cite(html: string) {
 /// A note, headed `title`, with its citations.
 function noteHtml(n: Entry & Note, title: string) {
   const src = n.sources.length ? ` ${sup(n.sources)}` : "";
-  return `<div class="rnote" style="--c:${look(n.agent).c}"><b>${title}</b><span>${esc(n.content)}${src}</span></div>`;
+  return `<div class="rmsg">${rav(n.agent)}<b>${title}</b><p>${esc(n.content)}${src}</p></div>`;
 }
 
 function drawWork() {
   const r = R.research, st = r?.status ?? "planning", t = R.tab || (r?.draft ? "draft" : "notes");
   const notes = R.entries.filter(e => e.kind === "note");
-  const b = (id: string, label: string) => `<button role="tab" aria-selected="${t === id}" data-act="tab:${id}">${label}</button>`;
-  const sources = r?.sources.length ? ` ${r.sources.length}` : "";
-  $$("#tabs").innerHTML = b("draft", "Draft") + b("notes", "Notes") + b("sources", `Sources${sources}`) + '<span class="sp"></span>'
-    + (r?.draft ? '<button class="dbtn quiet" data-act="copy">Copy</button>' + exportButton("dbtn quiet") : "");
+  const b = (id: string, label: string, n = 0) => `<button role="tab" aria-selected="${t === id}" data-act="tab:${id}">${label}${n ? `<span class="n">${n}</span>` : ""}</button>`;
+  $$("#tabs").innerHTML = b("draft", "Draft") + b("notes", "Notes", notes.length) + b("sources", "Sources", r?.sources.length) + '<span class="sp"></span>'
+    + (r?.draft ? '<button class="dbtn quiet small" data-act="copy">Copy</button>' + exportButton("dbtn quiet small") : "");
+  const empty = (text: string) => `<div class="rbox rempty">${text}</div>`;
   let body;
-  if (!r || (st === "planning" && !notes.length)) body = '<div class="dmuted rempty">The workspace fills in once the team starts.</div>';
-  else if (t === "draft" && !r.draft) body = `<div class="dmuted rempty">${RUNNING.has(st) ? "The writer starts after the critic's review." : "No paper was written."}</div>`;
+  if (!r || (st === "planning" && !notes.length)) body = empty("The workspace fills in once the team starts.");
+  else if (t === "draft" && !r.draft) body = empty(RUNNING.has(st) ? "The writer starts after the critic's review." : "No paper was written.");
   else if (t === "draft") {
     const by = `Written by ${esc(nameOf("writer"))}, reviewed by ${esc(nameOf("critic"))}. ${r.sources.length} sources.`;
     body = `<div class="rdoc"><span class="by">${by}</span>${cite(r.draft_html)}</div>`;
   } else if (t === "notes") {
-    body = notes.length ? `<div class="rdoc">${notes.map(n => noteHtml(n, esc(nameOf(n.agent)))).join("")}</div>` : '<div class="dmuted rempty">No notes yet.</div>';
+    body = notes.length ? `<div class="rbox">${notes.map(n => noteHtml(n, esc(nameOf(n.agent)))).join("")}</div>` : empty("No notes yet.");
   } else {
-    body = r.sources.length ? r.sources.map(s => `<div class="rsrc"><span class="n">${s.number}</span><a href="${esc(s.url)}">${esc(s.title)}</a>
-      <small>${esc(host(s.url))}, kept by ${esc(nameOf(s.agent))}</small><q>${esc(s.quote)}</q></div>`).join("") : '<div class="dmuted rempty">No sources yet.</div>';
+    body = r.sources.length ? `<div class="rtbl" role="table"><span class="th">#</span><span class="th">Source</span><span class="th">Kept by</span>${r.sources.map(s =>
+      `<span class="n">${s.number}</span><span class="src"><a href="${esc(s.url)}">${esc(s.title)}</a><small>${esc(host(s.url))}</small><q>${esc(s.quote)}</q></span><span class="by">${rav(s.agent)}${esc(nameOf(s.agent))}</span>`).join("")}</div>` : empty("No sources yet.");
   }
   const work = $$("#work"), top = work.scrollTop;
   work.innerHTML = body;
@@ -337,7 +333,7 @@ function msg(e: Entry & Said) {
   return `<div class="rmsg">${rav(e.agent)}<b>${esc(nameOf(e.agent))}${to}</b><p>${esc(e.content)}</p></div>`;
 }
 
-const BACK = `<button data-act="back" aria-label="Back to agents">${ICON.x}</button>`;
+const BACK = `<button class="rx" data-act="back" aria-label="Back to agents">${ICON.x}</button>`;
 
 /// One agent's steps, notes and messages, and what it does now.
 function threadHtml(a: Agent) {
@@ -375,24 +371,23 @@ function agentsHtml() {
   const scouts = (n: number) => count(agents.filter(a => scoutOf(a) === n).length, "scout");
   const menu = R.rounds ? `<span class="dmenu" role="menu">${Array.from({ length: rounds }, (_, i) => rounds - i).map(n =>
     `<button class="mi" role="menuitemradio" aria-checked="${n === pick}" data-act="round:${n}"><b>Round ${n}</b>${n === pick ? `<span class="ok">${ICON.check}</span>` : ""}<small>${scouts(n)}</small></button>`).join("")}</span>` : "";
-  const picker = rounds > 1 ? `<span class="rround"><button class="dbtn" data-act="rounds" aria-haspopup="menu" aria-expanded="${R.rounds}">Round ${pick}${ICON.down}</button>${menu}</span>` : "";
+  const picker = rounds > 1 ? `<span class="rround"><button class="dbtn small" data-act="rounds" aria-haspopup="menu" aria-expanded="${R.rounds}">Round ${pick}${ICON.down}</button>${menu}</span>` : "";
   const said = R.entries.filter(e => e.kind === "said").length;
   const room = r && r.status !== "planning" ? count(said, "message") : "Opens when the team starts";
-  return `<div class="rpane"><div class="rsec rhead">Agents${picker}</div>${rows}<div class="rhr"></div>
-      <button class="rag" data-act="room"><span class="rav" style="background:var(--elev);color:var(--fg)">#</span><b>Room</b><span></span><small>${room}</small></button></div>`;
+  return `<div class="rhd"><h4>Agents</h4>${picker}</div><div class="rpane"><div class="rbox">${rows}</div>
+      <div class="rbox"><button class="rag" data-act="room"><span class="rav" style="--c:var(--muted)">#</span><b>Room</b><span></span><small>${room}</small></button></div></div>`;
 }
 
 function drawSide() {
   const side = $$("#side"), view = R.side.view;
   $$("#grid").classList.toggle("wide", view !== "agents");
-  side.classList.toggle("dim", view === "agents");
   if (R.side.view === "thread") {
     const a = agent(R.side.agent);
-    side.innerHTML = `<div class="rthead">${rav(a.id)}<span class="who"><b>${esc(a.name)}</b><small>${esc(a.role)} · ${esc(a.model)}</small></span>${BACK}</div>
+    side.innerHTML = `<div class="rhd">${rav(a.id)}<span class="who"><b>${esc(a.name)}</b><small>${esc(a.role)} · ${esc(a.model)}</small></span>${BACK}</div>
       <div class="rpane thread">${threadHtml(a) || '<div class="dmuted">Nothing yet.</div>'}</div>`;
   } else if (view === "room") {
     const said = R.entries.filter(e => e.kind === "said");
-    side.innerHTML = `<div class="rthead"><b>Room</b><small>where the agents talk</small>${BACK}</div>
+    side.innerHTML = `<div class="rhd"><b>Room</b><small>${count(said.length, "message")}</small>${BACK}</div>
       <div class="rpane thread">${said.map(msg).join("") || '<div class="dmuted">Nobody has said anything yet.</div>'}</div>`;
   } else side.innerHTML = agentsHtml();
   const pane = side.querySelector(".thread");
