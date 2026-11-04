@@ -1,9 +1,8 @@
-//! How each harness was installed, and updating it with that installer:
-//! Homebrew for a formula or cask, npm for a global npm package, else the
-//! harness's own updater. When that fails and another way applies, it is
-//! tried once. Nothing runs with sudo.
+//! How each harness was installed (`method`) and updating it that way (`plan`,
+//! `run`): Homebrew, a global npm package, else the harness's own updater.
+//! Nothing runs with sudo.
 
-use crate::provision::spawn_env::{self, Scope};
+use crate::machine::provision::spawn_env::{self, Scope};
 use anyhow::{Result, bail};
 use beep_proto::node::harness::{clean_output, failure_line, harness};
 use std::{
@@ -224,7 +223,7 @@ pub(super) struct Processes;
 
 impl Runner for Processes {
     async fn run(&self, step: &Step, limit: Duration) -> Ran {
-        let mut process = crate::process::command(&step.program);
+        let mut process = crate::run::process::command(&step.program);
         spawn_env::apply(&mut process, Scope::Probe);
         let run = process
             .args(&step.args)

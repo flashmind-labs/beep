@@ -1,4 +1,4 @@
-//! Newer `gh` and `teacli` for the caller's machines, and installing them.
+//! Newer `gh`, `teacli` and `flsh` for the caller's machines, and installing them.
 
 use super::Reply;
 use crate::{
@@ -19,10 +19,10 @@ pub(super) async fn list_tool_updates(cx: Cx, _: ListToolUpdates) -> Reply<Vec<T
     let mut updates = Vec::new();
     for node in cx.user.nodes().await? {
         let Some(env) = node.env else { continue };
-        if own_online(&cx, &node.endpoint).is_none_or(|online| !online.installs_tools()) {
+        let Some(online) = own_online(&cx, &node.endpoint) else {
             continue;
-        }
-        for tool in Tool::ALL {
+        };
+        for tool in Tool::ALL.into_iter().filter(|&tool| online.installs(tool)) {
             let name: &str = tool.into();
             let Some(version) = env
                 .tools
@@ -65,7 +65,7 @@ pub(super) async fn update_machine_tool(
         .ok_or(ApiError::NotFound {})?;
     let online = own_online(&cx, &machine_id)
         .ok_or_else(|| ApiError::bad_request(format!("{} is offline.", node.name)))?;
-    if !online.installs_tools() {
+    if !online.installs(tool) {
         return Err(ApiError::bad_request(format!(
             "Update beep-node on {} first.",
             node.name

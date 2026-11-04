@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectProblem } from "../src/connect.ts";
+import { connectProblem } from "../src/center/connect.ts";
 
 test("an unlinked or removed Mac says so and leads to the fix", () => {
   const unlinked = connectProblem("not linked to a phone yet")!;

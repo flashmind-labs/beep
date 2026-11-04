@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectsWithOpen, reviewStart, waitsOnYou } from "../src/openitems.ts";
-import type { GitItemRow } from "../src/openitems.ts";
+import { projectsWithOpen, reviewStart, waitsOnYou } from "../src/center/openitems-state.ts";
+import type { GitItemRow } from "../src/center/openitems-state.ts";
 
 const item = (over: Partial<GitItemRow> = {}): GitItemRow => ({
   host: "github.com", repo: "acme/widget", number: 1, kind: "pull_request", title: "A change",

@@ -300,10 +300,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-mt .num.low { color: var(--hot) }
 .cc-mt .caps { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 30px }
 .cc-mt .off { opacity: .5 }
-.cc-mt .sync { flex-direction: column; align-items: stretch; justify-content: center; gap: 3px }
-.cc-mt .sync .bar { display: block; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden }
-.cc-mt .sync .bar i { display: block; height: 100%; background: color-mix(in srgb, var(--ok) 60%, transparent) }
-.cc-mt .sync small { font-size: 10.5px; white-space: nowrap }
 .cc-mt .mac-state { grid-column: span 4 }
 .cc-mt .mac-state.bad, .cc-si .mac-state.bad { color: var(--hot) }
 .cc-mt .act { justify-content: flex-end }
@@ -594,6 +590,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .fs-h .pb-chip { margin-left: auto }
 .fs-bar { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden }
 .fs-bar i { display: block; height: 100%; background: color-mix(in srgb, var(--ok) 60%, transparent) }
+.fs-pct { display: flex; align-items: center; gap: 8px }
+.fs-pct .fs-bar { display: block; width: 120px }
 .fs-m { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: 11.5px }
 .fs-m code { font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100% }
 .fs-conflict { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 12.5px }
@@ -866,7 +864,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
    height once the rows are drawn; this is the fallback. */
 .pj-scroll { max-height: 250px; overflow-y: auto; overscroll-behavior: contain }
 
-/* A project window (projectwindow.ts): no sidebar, the traffic lights over the header, and the
+/* A project window (project/projectwindow.ts): no sidebar, the traffic lights over the header, and the
    project's sections as tabs. The board's own back row gives way to the tabs. */
 .pw .cwin { grid-template-columns: minmax(0, 1fr) }
 .pw #side, .pw #side-grip { display: none }

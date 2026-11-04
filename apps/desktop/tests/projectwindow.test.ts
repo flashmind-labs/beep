@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { route, type ProjectScope } from "../src/projectwindow.ts";
+import { route, type ProjectScope } from "../src/project/projectwindow.ts";
 
 const scope: ProjectScope = {
   project: "org/site",
@@ -19,12 +19,9 @@ test("a project window keeps its project and what opens from it", () => {
 
 test("a project window sends what is not its project to the main window", () => {
   assert.equal(route(scope, "home"), "main");
-  assert.equal(route(scope, "terminals"), "main");
-  assert.equal(route(scope, "research"), "main");
   assert.equal(route(scope, "projects", { project: "org/other" }), "main");
   assert.equal(route(scope, "projects", { project: null }), "main");
   assert.equal(route(scope, "pane", "settings"), "main");
-  assert.equal(route(scope, "pane", "memories"), "main");
   assert.equal(route(scope, "pane", { chat: { session: null } }), "main");
   assert.equal(route(scope, "pane", { chat: { session: "chat-other" } }), "main");
   assert.equal(route(scope, "pane", { group: { id: "g1" } }), "main");

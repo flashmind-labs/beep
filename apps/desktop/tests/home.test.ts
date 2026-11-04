@@ -1,7 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { MacControl } from "../src/home.ts";
-import { byRecent, remotePath, runningKey, runningLine, thisMacRow } from "../src/home.ts";
+import type { MacControl } from "../src/center/home-state.ts";
+import { byRecent, machineProjects, remotePath, runningKey, runningLine, thisMacRow } from "../src/center/home-state.ts";
+
+test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
+  const row = (project: string, machine_id: string, status: string) => ({ project, machine_id, status, files: 90, pending: 10, error: null });
+  const rows = [row("done", "m", "in_sync"), row("stale", "m", "in_sync"), row("moving", "m", "syncing"), row("elsewhere", "other", "syncing")];
+  const base = { machine_id: "m", machine_name: "M", folder: "", bytes: 0, files: 90, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: false };
+  const detail = (status: string, more = {}) => ({ project: "", pinned: false, paused: false, machines: [{ ...base, status, ...more }] });
+  const details: Record<string, ReturnType<typeof detail>> = {
+    stale: detail("syncing"),
+    moving: detail("syncing", { progress: { files_done: 1, files_total: 4, bytes_done: 50, bytes_total: 100, rate: 2000000, eta_secs: 30 } }),
+  };
+  const out = machineProjects("m", rows, p => details[p]);
+  assert.deepEqual(out.map(p => p.project), ["moving", "done", "stale"]);
+  assert.equal(out[0].pct, 50);
+  assert.deepEqual(out[0].meta, ["1 of 4 files", "50 B of 100 B", "2.0 MB/s", "under a minute"]);
+  assert.equal(out[2].pct, null, "a row that moved on wins over its older detail");
+  assert.equal(out[2].chip.text, "In sync");
+});
 
 test("Running now puts the session that moved last first", () => {
   const agent = (id: string, started_at: number, last_activity: number) => ({ kind: "agent" as const, machine_id: "m", id, started_at, last_activity });

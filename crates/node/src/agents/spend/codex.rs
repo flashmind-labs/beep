@@ -1,12 +1,8 @@
-//! Codex's logs: the `session_meta` line names the session (`payload.id`)
-//! and its folder, each `turn_context` the model the turn runs, and each
-//! `event_msg` of type `token_count` the last request's tokens
-//! (`info.last_token_usage`) and the running total. Input counts cached
-//! input; output counts reasoning. Codex repeats a count when only its
-//! rate limits changed, which the running total tells.
+//! Codex's logs (`line`): `session_meta` names the session, `turn_context`
+//! the model, and each `token_count` event the last request's tokens.
 
 use super::{Line, Request};
-use crate::{agents::prices::Tokens, claude::unix_seconds};
+use crate::{agents::claude::unix_seconds, agents::prices::Tokens};
 use beep_proto::node::usage::Billing;
 use serde::Deserialize;
 use serde_json::Value;
@@ -36,7 +32,9 @@ pub(super) fn wanted(line: &str) -> bool {
         || line.contains("\"session_meta\"")
 }
 
-/// What one line of a Codex log says, if anything that counts.
+/// What one line of a Codex log says, if anything that counts. Input
+/// counts cached input; output counts reasoning. Codex repeats a count when
+/// only its rate limits changed, which the running total tells.
 pub(super) fn line(text: &str) -> Option<Line> {
     let entry: Entry = serde_json::from_str(text).ok()?;
     let payload = entry.payload?;

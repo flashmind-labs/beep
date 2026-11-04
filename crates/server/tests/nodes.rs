@@ -23,17 +23,17 @@ use beep_server::{
     client::{Client, Node},
     nodes::{self, Follower, Online, StartOn},
     protocol::{
-        AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
-        AgentModels, AgentNoticeKey, AgentSteer, AgentTokens, ApiError, CreateNodeToken,
-        CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile, DiffStatus,
-        GetAgentFile, GetAgentImage, GetAgentSession, GetNodeToken, GetSpendReport, GetUsage,
-        GetUsageReport, GetWorkDiff, GitChange, HarnessSettings, ListAgentHosts, ListAgentImages,
-        ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
-        ListMachines, ListMemoryScopes, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD,
-        MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile,
-        RemoveDevice, RemoveMachine, RevokeNodeToken, SaveHarnessSettings, StartAgentSession,
-        SteerAgentSession, Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile,
-        image_key,
+        AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk, AgentImageData, AgentModel,
+        AgentModelPick, AgentModels, AgentNoticeKey, AgentSessionUsage, AgentSteer, AgentTokens,
+        ApiError, CreateNodeToken, CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind,
+        DiffFile, DiffStatus, GetAgentFile, GetAgentImage, GetAgentSession, GetAgentSessionUsage,
+        GetNodeToken, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
+        HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
+        ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
+        ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD, MachineCapability, MemoryScope,
+        MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
+        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
+        WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -2530,6 +2530,53 @@ async fn agent_control_keeps_to_the_callers_machines_and_chats() {
         ..start(Some(mine), "Fix the tests")
     };
     assert!(not_found(client.call(&in_their_chat).await.unwrap_err()));
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_sessions_usage_comes_from_its_node() {
+    let mut center = CommandCenter::new(1).await;
+    let machine = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![SessionInfo {
+                    context: Some(AgentContext {
+                        used: 124_000,
+                        size: 200_000,
+                    }),
+                    tokens: 184_000,
+                    cost_usd: Some(1.42),
+                    ..beep_session("a3f9c1", None)
+                }],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let get = |session: &str| GetAgentSessionUsage {
+        machine_id: machine.clone(),
+        agent: "claude".into(),
+        session: session.into(),
+    };
+    let usage = client.call(&get("a3f9c1")).await.unwrap();
+    assert_eq!(
+        usage,
+        AgentSessionUsage {
+            context: Some(AgentContext {
+                used: 124_000,
+                size: 200_000
+            }),
+            tokens: 184_000,
+            cost_usd: Some(1.42),
+        }
+    );
+    let missing = client.call(&get("b7e2d0")).await.unwrap_err();
+    assert!(matches!(
+        missing.downcast::<ApiError>().unwrap(),
+        ApiError::NotFound {}
+    ));
     center.shutdown().await;
 }
 

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { keyedReads } from "../src/projectloads.ts";
-import { PageCache, SWITCH_MS } from "../src/pagecache.ts";
-import { makeThreads, type KeptThreads, type ThreadDeps } from "../src/threads.ts";
+import { keyedReads } from "../src/project/projectloads.ts";
+import { PageCache, SWITCH_MS } from "../src/project/pagecache.ts";
+import { makeThreads, type KeptThreads, type ThreadDeps } from "../src/project/threads.ts";
 
 /// A read the test answers when it likes.
 function deferred<T>() {

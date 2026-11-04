@@ -95,6 +95,23 @@ pub(in crate::api) async fn get_agent_session(
 /// A session read slower than this is logged with where the time went.
 pub(super) const SLOW_READ: Duration = Duration::from_millis(500);
 
+pub(in crate::api) async fn get_agent_session_usage(
+    cx: Cx,
+    get: GetAgentSessionUsage,
+) -> Reply<AgentSessionUsage> {
+    let live = live_host(&cx, &get.machine_id).await?;
+    let info = limited(live.online.agent_sessions())
+        .await?
+        .into_iter()
+        .find(|info| info.id == get.session && info.agent == get.agent)
+        .ok_or(ApiError::NotFound {})?;
+    Ok(AgentSessionUsage {
+        context: info.context,
+        tokens: info.tokens,
+        cost_usd: info.cost_usd,
+    })
+}
+
 pub(super) fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
     let state = info.state.clone();
     let last_message = info.last_message.clone();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEBOUNCE_MS, PaletteSearch } from "../src/palette-search.ts";
+import { DEBOUNCE_MS, PaletteSearch } from "../src/center/palette-search.ts";
 
 /// A find whose answers the test hands out by hand, in any order.
 function finder() {

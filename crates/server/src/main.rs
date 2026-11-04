@@ -28,7 +28,12 @@ use flashmind::{
 };
 use iroh::{Endpoint, endpoint::presets, protocol::Router};
 use secrecy::SecretString;
-use std::{env, fs, path::Path, sync::Arc, time::SystemTime};
+use std::{
+    env, fs,
+    path::Path,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 /// `beep-server [config]` serves; `beep-server link [config]` prints the link code.
 #[tokio::main]
@@ -195,9 +200,35 @@ async fn main() -> Result<()> {
 
     log::info!("listening; addr={:?}", router.endpoint().addr());
 
-    tokio::signal::ctrl_c().await?;
-    router.shutdown().await?;
+    stop_signal().await?;
+    // Nodes and apps stay connected while turns finish, so their tool calls
+    // still reach the machines and the replies still reach the apps.
+    app.drain(DRAIN).await;
+    // Turns still going end as interrupted and are saved before the
+    // connections close, so the apps hear how they ended.
     app.shutdown().await;
+    router.shutdown().await?;
+    Ok(())
+}
+
+/// How long a stopping server lets running turns finish. With the cancel
+/// wait in `App::shutdown`, it stays under compose's `stop_grace_period`.
+const DRAIN: Duration = Duration::from_secs(40);
+
+/// Waits for ctrl-c, or the SIGTERM Docker sends by default.
+async fn stop_signal() -> Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut term = signal(SignalKind::terminate())?;
+        tokio::select! {
+            stopped = tokio::signal::ctrl_c() => stopped?,
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await?;
+    log::info!("stopping");
     Ok(())
 }
 

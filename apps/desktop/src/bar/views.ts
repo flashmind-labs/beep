@@ -1,18 +1,18 @@
-import { loadAgentHosts } from "./agents.ts";
-import { loadApps, renderApps } from "./apps.ts";
-import { focusAsk, newChat, renderChat } from "./chat.ts";
-import { renderChats } from "./chats.ts";
+import { loadAgentHosts } from "../agents/agents.ts";
+import { loadApps, renderApps } from "../settings/apps.ts";
+import { focusAsk, newChat, renderChat } from "../chat/chat.ts";
+import { renderChats } from "../chat/chats.ts";
 import { $, bar, GROUP_VIEWS, invoke, type LinkState, PANE, S } from "./core.ts";
-import { loadGroup } from "./groups.ts";
-import { openSession } from "./history.ts";
+import { loadGroup } from "../chat/groups.ts";
+import { openSession } from "../chat/history.ts";
 import { renderLink, renderRevoked } from "./link.ts";
 import { drawDock, loadLiveChats, LV, openLive, renderLive } from "./live.ts";
-import { renderMemories } from "./memories.ts";
-import { loadModels } from "./model.ts";
-import { loadResearches, renderResearches } from "./researches.ts";
-import { renderRoutines } from "./routines.ts";
-import { renderSettings } from "./settings.ts";
-import { renderSkills } from "./skills.ts";
+import { renderMemories } from "../lists/memories.ts";
+import { loadModels } from "../settings/model.ts";
+import { loadResearches, renderResearches } from "../research/researches.ts";
+import { renderRoutines } from "../lists/routines.ts";
+import { renderSettings } from "../settings/settings.ts";
+import { renderSkills } from "../lists/skills.ts";
 
 // ---------- State ----------
 
