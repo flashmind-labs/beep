@@ -45,6 +45,8 @@ mod usage;
 mod work_diff;
 mod work_folder;
 
+pub use work_folder::{local_read, local_tree};
+
 pub(crate) use acp::{Line, LineReader};
 pub(crate) use images::{Picture, block_picture};
 pub use kinds::{AgentKind, detect};
