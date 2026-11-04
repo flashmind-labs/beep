@@ -37,6 +37,12 @@ html, body.cbody { background: var(--ink) }
 .cc-sec small { font-size: 11.5px; color: var(--muted) }
 .cc-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); min-width: 0 }
 .cc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start }
+/* Overview boxes and Projects' owners: as many columns as fit, one when narrow. */
+.cc-hgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 14px; align-items: start }
+.cc-sec h4 .lk { all: unset; cursor: pointer }
+.cc-sec h4 .lk:hover { color: var(--fg) }
+.cc-sec h4 .lk:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px }
+.cc-git { display: grid; gap: 14px }
 /* Home: every machine across the top, then the tabs, which stay in view. */
 .cc-mstrip { display: flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden }
 .cc-mstrip > .m { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border: 0; border-right: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; white-space: nowrap; min-width: 0 }
@@ -430,6 +436,12 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* A label: a small neutral chip after a row's meta text and in the detail pane. */
 .pj-tag { display: inline-block; margin-left: 4px; padding: 0 6px; font-style: normal; font-size: 10px; line-height: 14px; vertical-align: 1px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
 .pj-dh .meta .pj-tag { margin-left: 0 }
+/* Label chips above a list and on its rows: a click filters, the picked one lit. */
+.pj-labels { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 14px 6px }
+.pj-labels .pj-tag { margin-left: 0; font: inherit; font-size: 10px; line-height: 14px }
+.pj-tag.lab { cursor: pointer }
+.pj-tag.lab:hover { color: var(--fg) }
+.pj-tag.lab.on { color: var(--fg); border-color: var(--accent) }
 .pj-li .r { font-size: 11.5px; color: var(--muted); white-space: nowrap }
 .pj-det { overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; scrollbar-width: thin }
 .pj-det > * { flex: none }

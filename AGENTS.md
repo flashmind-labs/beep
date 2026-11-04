@@ -64,7 +64,7 @@ Every screen is mocked, one artifact per platform:
 - Android: https://claude.ai/artifact/NoyjMpUYmVxmBEGAgQfok2
 - iOS: https://claude.ai/artifact/SGKUgUgcBfqMimBBGiAEtq
 - Desktop (tray bar and command center):
-  https://claude.ai/artifact/8BxZSzsXaPqHXkn18rRRSL
+  https://claude.ai/artifact/WJG9k3zbmiKAMrZX47S6q7
 
 Before changing an app's UI, update that platform's mock first so it shows
 the new screen or state, then change the app to match.
