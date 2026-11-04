@@ -170,7 +170,7 @@ export function flushQueue() {
   })();
 }
 
-/// Esc while the turn runs: stop it and keep the field, so a correction can be
+/// ⌘. while the turn runs: stop it and keep the field, so a correction can be
 /// typed and sent.
 export function interruptAgent() {
   if (!turnRuns()) return false;
