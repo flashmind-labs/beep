@@ -39,6 +39,7 @@ use tokio::{task::spawn_blocking, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
 
 mod disk;
+mod gitdir;
 mod map;
 mod peer;
 mod progress;
@@ -46,6 +47,7 @@ mod project;
 mod root;
 mod rules;
 mod scan;
+mod stignore;
 mod watch;
 
 pub(crate) use peer::{ALPN, PeerHandler};
@@ -491,7 +493,7 @@ impl Syncs {
         .await??;
         Ok(Skipped {
             paths: walked.skipped,
-            through_git: walked.through_git,
+            through_git: 0,
             truncated: walked.skipped_more,
         })
     }
