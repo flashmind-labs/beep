@@ -775,12 +775,9 @@ mod tests {
             "2099-01-01T00:00:00Z   WARN beep_node: a.rs:1 lost the link\n",
         )
         .expect("the log is written");
-        let offers = beep_node::link::Offers {
-            extra: vec![std::sync::Arc::new(
-                beep_node::machine::service::logs::Logs::file(log),
-            )],
-            ..Default::default()
-        };
+        let offers = beep_node::link::Offers::with_protocols(vec![std::sync::Arc::new(
+            beep_node::machine::service::logs::Logs::file(log),
+        )]);
         let (key, router, served) = linked_node(&harness, offers).await;
         let id = key.public().to_string();
         timeout(Duration::from_secs(20), async {

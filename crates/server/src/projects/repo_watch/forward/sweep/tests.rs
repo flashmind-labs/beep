@@ -109,13 +109,7 @@ async fn a_removed_projects_webhooks_go_once_a_node_is_online() {
         .await
         .expect("the key links");
     let (watched, mut watches) = mpsc::unbounded_channel();
-    let offers = Offers {
-        agents: Arc::default(),
-        extra: vec![Arc::new(FakeWebhooks(watched)) as Arc<dyn Protocol>],
-        provision: None,
-        tools: Default::default(),
-        traffic: Default::default(),
-    };
+    let offers = Offers::with_protocols(vec![Arc::new(FakeWebhooks(watched)) as Arc<dyn Protocol>]);
     let node = Endpoint::builder(presets::Minimal)
         .secret_key(key)
         .bind()
