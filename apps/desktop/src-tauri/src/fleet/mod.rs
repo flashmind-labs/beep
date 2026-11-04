@@ -275,7 +275,7 @@ impl Fleet {
     }
 
     /// What the mesh calls `machine`, or its short id.
-    fn name_of(&self, machine: EndpointId) -> String {
+    pub(crate) fn name_of(&self, machine: EndpointId) -> String {
         self.machines()
             .into_iter()
             .find(|status| status.device.id == machine)
