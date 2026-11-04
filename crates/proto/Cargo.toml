@@ -27,7 +27,7 @@ serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
 tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }
