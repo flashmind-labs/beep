@@ -78,13 +78,14 @@ export function beepCall(title: string): BeepCall | null {
   if ((m = /^Send (\d+) (files?) to (.+)$/.exec(rest))) return call("Sent files to", "Sending files to", { machine: m[3], files: `${m[1]} ${m[2]}` });
   if ((m = /^Check job ?(.*)$/.exec(rest))) return call("Checked job", "Checking job", { detail: m[1] });
   if ((m = /^Cancel job ?(.*)$/.exec(rest))) return call("Cancelled job", "Cancelling job", { detail: m[1] });
+  if ((m = /^Read log of (.+)$/.exec(rest))) return call("Read log of", "Reading log of", { machine: m[1] });
   if ((m = /^Ask(?:: ([\s\S]*))?$/.exec(rest))) return call("Asked you", "Asking you", { detail: m[1] });
   return call(rest, rest);
 }
 
 const BEEP_VERBS: Record<string, [string, string]> = {
   List: ["Listed", "Listing"], Run: ["Ran", "Running"], Start: ["Started", "Starting"], Sync: ["Synced", "Syncing"],
-  Send: ["Sent", "Sending"], Check: ["Checked", "Checking"], Cancel: ["Cancelled", "Cancelling"], Ask: ["Asked", "Asking"],
+  Send: ["Sent", "Sending"], Check: ["Checked", "Checking"], Cancel: ["Cancelled", "Cancelling"], Ask: ["Asked", "Asking"], Read: ["Read", "Reading"],
 };
 
 /// A Beep call's title as one line in the past tense, or while it runs in

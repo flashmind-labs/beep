@@ -80,6 +80,7 @@ test("a Beep call reads as its machine, command, files and verb", () => {
   assert.equal(beepCall("Beep: Cancel job job-7f2c")?.done, "Cancelled job");
   assert.equal(beepCall("Beep: Ask: Push it?")?.detail, "Push it?");
   assert.equal(beepCall("Beep: List machines")?.done, "Listed machines");
+  assert.equal(beepCall("Beep: Read log of build-box")?.machine, "build-box");
   // Before its arguments come, no machine is named.
   assert.equal(beepCall("Beep: Run on a machine")?.machine, "");
   assert.equal(beepCall("Run cargo test"), null);

@@ -2,11 +2,14 @@
 //! (the journal on Linux, a file on macOS and Windows), without the
 //! networking crates' chatter unless asked.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use beep_proto::node::logs::{MAX_BYTES, MAX_LINES};
 use std::{
     borrow::Cow,
     collections::VecDeque,
-    io::{self, ErrorKind, Write},
+    fs::File,
+    io::{self, BufRead, BufReader, ErrorKind, Write},
+    path::Path,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -14,6 +17,12 @@ use std::{
 mod file;
 #[cfg(target_os = "linux")]
 mod journal;
+mod serve;
+
+pub use serve::Logs;
+
+/// How far back `recent` looks.
+const RECENT: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// What `beep-node logs` shows.
 #[derive(Debug, Clone, Copy)]
@@ -37,6 +46,38 @@ pub fn show(options: &LogOptions) -> Result<()> {
         Err(e) if is_broken_pipe(&e) => Ok(()),
         other => other,
     }
+}
+
+/// The last `lines` lines of the service's log, or of the log file `file`,
+/// cut to `MAX_LINES` and `MAX_BYTES`.
+fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
+    let options = LogOptions {
+        since: RECENT,
+        follow: false,
+        lines: Some(usize::try_from(lines.min(MAX_LINES))?),
+        all: false,
+    };
+    let mut printer = Printer::new(&options, cutoff(RECENT), Vec::new());
+    match file {
+        Some(file) => read_file(file, &mut printer)?,
+        None => read(&options, &mut printer)?,
+    }
+    let out = &printer.out;
+    let from = out.len().saturating_sub(MAX_BYTES);
+    let whole = match out[from..].iter().position(|&byte| byte == b'\n') {
+        Some(newline) if from > 0 => from + newline + 1,
+        _ => from,
+    };
+    Ok(String::from_utf8_lossy(&out[whole..]).into_owned())
+}
+
+fn read_file(path: &Path, printer: &mut Printer<impl Write>) -> Result<()> {
+    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    for line in BufReader::new(file).split(b'\n') {
+        printer.bytes(&line?)?;
+    }
+    printer.caught_up()?;
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]

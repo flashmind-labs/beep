@@ -3,11 +3,11 @@
 //! desktop control and the coding agents installed here, with the sessions
 //! they ran. On for a fresh install.
 
-use crate::{beep::Beep, beep::state::LinkState, machines::desktop};
+use crate::{beep::Beep, beep::state::LinkState, machines::desktop, platform::logfile};
 use beep_node::{
     agents::mcp,
     link::{self, Offers, reconnect::Backoff},
-    machine::provision::Provision,
+    machine::{provision::Provision, service::logs::Logs},
 };
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
@@ -174,6 +174,10 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
     // shell's PATH (the app adopts it at start), plus desktop control.
     let mut offers = Offers::local(&[], home.provision.clone());
     offers.extra.push(Arc::new(desktop::Desktop));
+    // The embedded node logs to the app's own file.
+    if let Some(log) = logfile::current() {
+        offers.extra.push(Arc::new(Logs::file(log)));
+    }
     // The agents' Beep MCP server: sessions run this app's executable as
     // its command (`mcp_command`), which pipes to the socket the node
     // bound, named in the session's environment. It stops with this task.
