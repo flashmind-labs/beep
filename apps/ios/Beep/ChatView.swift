@@ -189,9 +189,6 @@ struct ChatView: View {
             voice.cancel()
             if model.onScreen == model.chat.id { model.onScreen = nil }
         }
-        .fullScreenCover(isPresented: Binding(get: { model.browserOpen }, set: { model.browserOpen = $0 })) {
-            BrowserView(close: { model.browserOpen = false })
-        }
         .sheet(isPresented: $picking) {
             PhotoSheet(room: max(0, ChatPhotos.limit - photos.count)) { picked in
                 picking = false
@@ -776,6 +773,7 @@ private let memoryThreshold = 0.8
 
 struct MessageView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     let message: Message
     let live: Bool
     /// The newest reply in the chat, which shows the suggested replies.
@@ -834,16 +832,16 @@ struct MessageView: View {
                 }
                 // The web pages the turn used, once the reply is done.
                 if !live, !message.text.isEmpty, !message.sources.isEmpty {
-                    SourceChips(sources: message.sources) { model.openBrowser($0) }.padding(.top, 8)
+                    SourceChips(sources: message.sources) { openURL($0) }.padding(.top, 8)
                 }
                 // A finished tool with something to show is a card, once the reply is done.
                 let cards = message.tools.compactMap(\.card).filter { if case .replies = $0 { false } else { true } }
-                if !live, !cards.isEmpty { ToolCards(cards: cards) { model.openBrowser($0) }.padding(.top, 10) }
+                if !live, !cards.isEmpty { ToolCards(cards: cards) { openURL($0) }.padding(.top, 10) }
                 if !live, !message.text.isEmpty {
                     let shown = Set(cards.compactMap { if case .link(let url) = $0 { url } else { nil } })
                     let links = linksIn(message.text).filter { !shown.contains($0) }
                     if !links.isEmpty {
-                        VStack(spacing: 8) { ForEach(links, id: \.self) { LinkCard(url: $0) { model.openBrowser($0) } } }
+                        VStack(spacing: 8) { ForEach(links, id: \.self) { LinkCard(url: $0) { openURL($0) } } }
                             .padding(.top, 8).padding(.trailing, 4)
                     }
                 }

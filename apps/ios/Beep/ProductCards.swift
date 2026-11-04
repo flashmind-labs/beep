@@ -102,18 +102,17 @@ extension Product {
 
 /// Consecutive product blocks: a row of cards that scrolls sideways, or one card at full width.
 struct ProductRow: View {
-    @Environment(AppModel.self) private var model
     let products: [Product]
 
     var body: some View {
         SwiftUI.Group {
             if products.count == 1, let product = products.first {
-                ProductCard(product: product, open: { model.openBrowser($0.url) })
+                ProductCard(product: product)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 10) {
                         ForEach(products, id: \.self) { product in
-                            ProductCard(product: product, open: { model.openBrowser($0.url) }).frame(width: 208)
+                            ProductCard(product: product).frame(width: 208)
                         }
                     }
                     .scrollTargetLayout()
@@ -132,25 +131,11 @@ struct ProductRow: View {
 struct ProductCard: View {
     @Environment(\.openURL) private var openURL
     let product: Product
-    let open: (Product) -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Button { open(product) } label: { content }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(product.title), \(product.price ?? "no price"), opens \(product.storeName)")
-            Button { openURL(product.url) } label: {
-                Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Mint.ink)
-                    .frame(width: 30, height: 30)
-                    .background(Circle().fill(Mint.surface))
-                    .overlay(Circle().stroke(Mint.ledge, lineWidth: 1.5))
-            }
+        Button { openURL(product.url) } label: { content }
             .buttonStyle(.plain)
-            .padding(8)
-            .accessibilityLabel("Open in your browser")
-        }
+            .accessibilityLabel("\(product.title), \(product.price ?? "no price"), opens \(product.storeName)")
     }
 
     private var content: some View {

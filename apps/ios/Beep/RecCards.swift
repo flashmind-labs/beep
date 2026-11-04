@@ -154,7 +154,6 @@ struct RecRow: View {
 
 private struct RecCardView: View {
     @Environment(\.openURL) private var openURL
-    @Environment(AppModel.self) private var model
     let card: RecCard
     @State private var addingEvent = false
 
@@ -165,7 +164,7 @@ private struct RecCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                if let place { openURL(mapsLink(place, directions: false)) } else { model.openBrowser(card.url) }
+                if let place { openURL(mapsLink(place, directions: false)) } else { openURL(card.url) }
             } label: { content }
                 .buttonStyle(.plain)
                 .accessibilityHint(place != nil ? "Opens in Maps" : "Opens the page")
@@ -247,11 +246,11 @@ private struct RecCardView: View {
         var out: [Action] = []
         if let place {
             out.append(Action(label: "Directions") { openURL(mapsLink(place, directions: true)) })
-            if let booking = place.bookingURL { out.append(Action(label: "Book") { model.openBrowser(booking) }) }
+            if let booking = place.bookingURL { out.append(Action(label: "Book") { openURL(booking) }) }
         }
         if let event {
             out.append(Action(label: "Calendar") { addingEvent = true })
-            if let tickets = event.ticketsURL { out.append(Action(label: "Tickets") { model.openBrowser(tickets) }) }
+            if let tickets = event.ticketsURL { out.append(Action(label: "Tickets") { openURL(tickets) }) }
         }
         if let media, let watch = media.watchURL {
             let name = media.watch.map { $0.hasPrefix("Rent on ") ? String($0.dropFirst(8)) : $0 } ?? "page"
