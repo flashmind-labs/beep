@@ -195,7 +195,7 @@ internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Un
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
                         Icon(Icons.Outlined.PhotoCamera, "Take a photo", tint = Color.White)
                     }
-                } else Column(tile.background(Beep.colors.tints[1]).border(1.5.dp, Beep.colors.ledge, RoundedCornerShape(12.dp))
+                } else Column(tile.background(Beep.colors.tints[1]).border(1.5.dp, Beep.colors.ledge, RoundedCornerShape(Beep.shapes.smallRadius))
                     .clickable { ask.launch(Manifest.permission.CAMERA) }.padding(6.dp),
                     verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Outlined.PhotoCamera, null, tint = Beep.colors.ink)
@@ -223,7 +223,7 @@ internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Un
                 tiles.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEach { uri ->
-                            val tile = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(12.dp))
+                            val tile = Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(Beep.shapes.smallRadius))
                             if (uri == null) cameraTile(tile) else {
                                 val number = picked.indexOf(uri).takeIf { it >= 0 }?.plus(1)
                                 Box(tile.clickable(onClickLabel = if (number == null) "Pick photo" else "Unpick photo") {
@@ -231,7 +231,7 @@ internal fun AttachSheet(room: Int, onDismiss: () -> Unit, onAllPhotos: () -> Un
                                 }) {
                                     PhotoThumb(uri, Modifier.fillMaxSize())
                                     if (number != null) {
-                                        Box(Modifier.fillMaxSize().border(3.dp, Beep.colors.brand, RoundedCornerShape(12.dp)))
+                                        Box(Modifier.fillMaxSize().border(3.dp, Beep.colors.brand, RoundedCornerShape(Beep.shapes.smallRadius)))
                                         Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(20.dp).background(Beep.colors.brand, CircleShape),
                                             contentAlignment = Alignment.Center) {
                                             Text("$number", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -333,7 +333,7 @@ private fun ChatCamera(room: Int, onClose: () -> Unit, onDone: (List<String>) ->
             }
             Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 28.dp, top = 18.dp, bottom = 26.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).border(2.dp, Color.White, RoundedCornerShape(12.dp))
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius)).border(2.dp, Color.White, RoundedCornerShape(Beep.shapes.smallRadius))
                     .clickable(enabled = last != null, onClickLabel = "Look at the last photo") { reviewing = true }) {
                     last?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                     if (shots.isNotEmpty()) Box(Modifier.align(Alignment.BottomEnd).padding(2.dp).sizeIn(minWidth = 18.dp).height(18.dp)

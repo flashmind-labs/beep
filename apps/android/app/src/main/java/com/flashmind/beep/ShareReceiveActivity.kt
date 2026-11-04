@@ -15,7 +15,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -23,9 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.Image
 import androidx.compose.ui.text.font.FontWeight
@@ -150,9 +147,9 @@ private fun ShareScreen(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(max = 180.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(Beep.shapes.smallRadius))
                     .background(elevated)
-                    .border(1.dp, border, RoundedCornerShape(12.dp))
+                    .border(1.dp, border, RoundedCornerShape(Beep.shapes.smallRadius))
                     .padding(12.dp)
             ) {
                 Text("Shared content", color = textMuted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
@@ -167,7 +164,7 @@ private fun ShareScreen(
                             if (bitmap != null) Image(
                                 bitmap.asImageBitmap(), contentDescription = "Shared image ${index + 1}",
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp))
+                                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius))
                             )
                         }
                     }
@@ -191,7 +188,7 @@ private fun ShareScreen(
                 Suggestions.forEach { label ->
                     val selected = instruction.equals(label, ignoreCase = true)
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(Beep.shapes.radius),
                         color = if (selected) moss.copy(alpha = 0.2f) else elevated,
                         border = BorderStroke(1.dp, if (selected) moss else border),
                         modifier = Modifier.clickable {
@@ -221,7 +218,7 @@ private fun ShareScreen(
                     focusedTextColor = textPrimary,
                     unfocusedTextColor = textPrimary
                 ),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(Beep.shapes.smallRadius),
                 singleLine = true
             )
             Spacer(Modifier.height(16.dp))
@@ -250,7 +247,7 @@ private fun ShareScreen(
                     disabledContainerColor = moss.copy(alpha = 0.4f),
                     disabledContentColor = ink.copy(alpha = 0.5f)
                 ),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(Beep.shapes.smallRadius),
                 contentPadding = PaddingValues(vertical = 14.dp)
             ) {
                 Text(

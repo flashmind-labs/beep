@@ -5,8 +5,8 @@ use super::{
     cron_jobs::{COLUMNS, job_from},
 };
 use crate::{
-    places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger},
-    user::UserKey,
+    account::user::UserKey,
+    routines::places::{self, PlaceEvent, PlaceRepeat, PlaceTrigger},
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
@@ -14,7 +14,6 @@ use flashmind::cron::{CronJob, JobSchedule};
 use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
-/// A routine to start at a place.
 #[derive(Debug, Clone)]
 pub struct NewPlaceRoutine<'a> {
     pub label: &'a str,
@@ -62,7 +61,6 @@ pub struct Crossed {
     pub event: PlaceEvent,
 }
 
-/// A routine that starts at a place.
 #[derive(Debug, Clone)]
 pub struct PlaceRoutine {
     pub job: CronJob,

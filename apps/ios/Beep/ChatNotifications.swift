@@ -97,7 +97,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             recipients: [me, from], outgoingMessageType: .outgoingMessageText, content: text,
             speakableGroupName: INSpeakableString(spokenPhrase: title), conversationIdentifier: threadId,
             serviceName: nil, sender: from, attachments: nil)
-        let initials = group ? groupInitials(title) : "b"
+        let initials = group ? groupInitials(title) : ""
         intent.setImage(avatar(initials, fill: group ? UIColor(Mint.tint(for: threadId)) : UIColor(Mint.brand), light: !group),
                         forParameterNamed: \.speakableGroupName)
         let interaction = INInteraction(intent: intent, response: nil)
@@ -107,7 +107,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
     }
 
     @MainActor private func person(_ name: String, id: String, beep: Bool) -> INPerson {
-        let image = beep ? avatar("b", fill: UIColor(Mint.brand), light: true)
+        let image = beep ? avatar("", fill: UIColor(Mint.brand), light: true)
             : avatar(initial(name), fill: UIColor(Mint.tint(for: name)), light: false)
         return INPerson(personHandle: INPersonHandle(value: id, type: .unknown), nameComponents: nil,
                         displayName: name, image: image, contactIdentifier: nil, customIdentifier: id)
@@ -119,6 +119,10 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
         let image = UIGraphicsImageRenderer(size: size).image { _ in
             fill.setFill()
             UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+            if light {
+                UIImage(systemName: "bubble.left")?.withTintColor(.white).draw(in: CGRect(x: 34, y: 34, width: 52, height: 52))
+                return
+            }
             let font = UIFont.systemFont(ofSize: text.count > 1 ? 42 : 52, weight: .bold)
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font, .foregroundColor: light ? UIColor.white : UIColor(Mint.ink),

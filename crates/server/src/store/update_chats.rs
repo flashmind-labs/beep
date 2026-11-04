@@ -8,9 +8,9 @@ use super::{
     updates::{Readers, UpdateOp, log_chat, log_messages},
 };
 use crate::{
-    events::Verdict,
+    account::user::UserKey,
+    routines::events::Verdict,
     store::{EventRow, TriageRow},
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::Utc;

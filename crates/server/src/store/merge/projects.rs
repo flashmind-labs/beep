@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     use crate::{
         api::project_sync::project_name,
-        imports::{
+        projects::imports::{
             place::{Folders, checkout_folder},
             repo::RepoRef,
         },

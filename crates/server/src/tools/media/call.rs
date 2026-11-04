@@ -1,7 +1,7 @@
 //! A media call's arguments, checked, and how its approval card shows them.
 
 use super::provider::{MediaKind, MediaProvider};
-use crate::{permissions::shorten, protocol::ApprovalField, tools::args::text};
+use crate::{apps::permissions::shorten, protocol::ApprovalField, tools::args::text};
 use serde_json::{Value, json};
 use std::str::FromStr;
 

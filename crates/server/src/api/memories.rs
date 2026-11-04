@@ -2,10 +2,10 @@
 
 use super::{Reply, found};
 use crate::{
-    profile,
+    api::router::Cx,
+    memory::profile,
+    memory::skills,
     protocol::*,
-    router::Cx,
-    skills,
     store::{Scope, SkillPatch, SkillRow},
 };
 use chrono::{DateTime, SecondsFormat, Utc};

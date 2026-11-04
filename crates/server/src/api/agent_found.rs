@@ -6,12 +6,12 @@ use super::{
     agent_sessions::{Host, IN_FLIGHT, limited},
 };
 use crate::{
-    imports::{self, MachineFound},
+    api::router::Cx,
+    projects::imports::{self, MachineFound},
     protocol::{
         node::agent::{ExternalSession, Presence, SESSIONS_PROTOCOL},
         *,
     },
-    router::Cx,
 };
 use futures::{StreamExt, stream};
 use std::{

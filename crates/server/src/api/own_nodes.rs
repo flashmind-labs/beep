@@ -1,6 +1,6 @@
 //! The caller's machines, as the handlers look them up.
 
-use crate::{nodes::Online, protocol::ApiError, router::Cx};
+use crate::{api::router::Cx, nodes::Online, protocol::ApiError};
 use std::collections::{HashMap, HashSet};
 
 /// The caller's machine `endpoint`, while it is online as them.

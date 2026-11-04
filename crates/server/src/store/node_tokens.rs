@@ -1,7 +1,7 @@
 //! One-time setup tokens linking a machine to an account; only their hashes are stored.
 
 use super::{Account, Store};
-use crate::{protocol::DeviceKind, user::UserKey};
+use crate::{account::user::UserKey, protocol::DeviceKind};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;

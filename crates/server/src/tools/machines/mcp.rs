@@ -10,8 +10,8 @@ use super::{
     transfer,
 };
 use crate::{
+    apps::permissions::{self, Check, RUN_ON, SEND_FILES, ToolApp},
     nodes::{StartOn, agent_name, describe},
-    permissions::{self, Check, RUN_ON, SEND_FILES, ToolApp},
     protocol::node::{
         LinkRx, LinkTx, Open, Opened, agent,
         process::{Reply as TaskReply, Request as TaskRequest},
@@ -672,7 +672,7 @@ fn sync_line(status: &ProjectStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::watchers::testing::{Harness, Scripted};
+    use crate::memory::watchers::testing::{Harness, Scripted};
 
     fn calls(harness: &Harness) -> Calls {
         Calls {

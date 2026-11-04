@@ -2,9 +2,9 @@
 //! Each case names the checks it should fail. They call the real model, so
 //! they are ignored by default; `just eval-gates` runs them.
 use beep_server::{
+    agent::decision::DecisionTool,
+    agent::gates::{self, Call, Draft},
     config::Config,
-    decision::DecisionTool,
-    gates::{self, Call, Draft},
 };
 use futures::future::join_all;
 use secrecy::SecretString;

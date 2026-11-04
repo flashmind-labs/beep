@@ -11,7 +11,7 @@ use uuid::Uuid;
 pub(super) const COLUMNS: &str = "id, user_id, label, prompt, schedule, enabled, run_once, created_at, \
     last_run_at, chat_id::text AS session_id, kind, group_id::text AS group_id";
 
-/// A routine that wakes the agent with its prompt; the other kind is [`crate::digest::DIGEST_KIND`].
+/// A routine that wakes the agent with its prompt; the other kind is [`crate::routines::digest::DIGEST_KIND`].
 const PROMPT_KIND: &str = "prompt";
 
 pub(super) fn job_from(row: &PgRow) -> Result<CronJob> {
@@ -179,8 +179,8 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use crate::{
+        account::user::UserKey,
         store::{TestDb, test_chat},
-        user::UserKey,
     };
     use chrono::Utc;
     use flashmind::cron::{CronJob, JobSchedule};

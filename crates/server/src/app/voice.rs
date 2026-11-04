@@ -2,9 +2,9 @@
 
 use super::App;
 use crate::{
+    account::user::User,
     protocol::{ApiError, Upload, VoiceNote},
-    stt::{Session, SttError},
-    user::User,
+    voice::stt::{Session, SttError},
     voice::{self, VoiceError},
 };
 use std::{

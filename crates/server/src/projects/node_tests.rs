@@ -8,21 +8,22 @@ use super::{
     turn::{REPLAN_LABEL, WORKER_LABEL},
     worker::{Started, start_task, stop_worker},
 };
-use crate::protocol::node::{
-    LinkRx, LinkTx,
-    agent::{
-        Event as AgentEvent, Request as AgentRequest, SessionInfo, State as AgentState,
-        Status as AgentStatus,
-    },
-};
 use crate::{
-    fetch,
-    images::Describer,
+    agent::images::Describer,
+    memory::watchers::testing::{Harness, Scripted},
     nodes::{self, Online},
-    protocol::DeviceKind,
+    protocol::{
+        DeviceKind,
+        node::{
+            LinkRx, LinkTx,
+            agent::{
+                Event as AgentEvent, Request as AgentRequest, SessionInfo, State as AgentState,
+                Status as AgentStatus,
+            },
+        },
+    },
     store::{After, CheckoutRow, NewKey, NewTask, ProjectRow, TaskRow},
-    tools::{AttachTool, SendFileTool, machines::Machines},
-    watchers::testing::{Harness, Scripted},
+    tools::{AttachTool, SendFileTool, fetch, machines::Machines},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_node::{

@@ -2,9 +2,9 @@
 
 use super::Store;
 use crate::{
-    credentials::{CredentialKey, HarnessOwner},
+    account::credentials::{CredentialKey, HarnessOwner},
+    account::user::UserKey,
     protocol::node::EnvSecret,
-    user::UserKey,
 };
 use anyhow::{Context, Result};
 use secrecy::{ExposeSecret, SecretString};

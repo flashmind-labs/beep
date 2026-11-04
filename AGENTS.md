@@ -46,6 +46,26 @@ The server is the production server on Neon, the target of
 `BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
+### Code map
+
+`crates/server/src`, one line per top-level module:
+
+- `account`: `User`, single-user instance mode, guest keys, credentials.
+- `agent`: around a turn: models, metering, compaction, gates, titles, sub-agents.
+- `api`: request handlers, `routes`, the op `router`, the iroh `transport`.
+- `app`: the `App` hub: admission, `submit`, the turn itself in `run/turn.rs`.
+- `apps`: app catalog, Composio, MCP, `permissions`, `grants`, mail and Slack `feeds`.
+- `config`: the TOML config.
+- `memory`: memories, skills, profile, starters, watchers, the group leak check.
+- `nodes`: node connections (`serve`), linking, per-node requests, the workspace.
+- `projects`: project agent: tasks, workers, reviews, imports, `repo_watch`, `git_items`.
+- `push`: notice delivery, FCM, APNs.
+- `research`: research papers: planning, team tools, PDF.
+- `routines`: what wakes the agent: `cron`, `places`, `events`, `digest`, `wake`.
+- `store`: Postgres queries, one file per kind of row, `migrations`.
+- `tools`: the agent's tools, plus web `search` and `fetch`.
+- `voice`: voice notes, live transcription (`stt`), filler lines.
+
 ## Deploying the server
 
 Push to main, then `just deploy-server`. It waits for the image CI builds for
@@ -81,9 +101,9 @@ The agent's app tools come from two places:
   `FASTMAIL_TOOLS` (`crates/server/src/apps/mcp.rs`) and named
   `FASTMAIL_<TOOL>`. The server caches its schemas in `mcp_servers`.
 
-`CATALOG` in `crates/server/src/apps/mod.rs` lists the tools the agent gets
+`CATALOG` in `crates/server/src/apps/catalog.rs` lists the tools the agent gets
 and which of them act. An acting tool asks first when the app is set to Ask
-(`crates/server/src/permissions.rs`). The approval card shows the call's
+(`crates/server/src/apps/permissions/`). The approval card shows the call's
 arguments, and for IDs it shows the record they name: from an earlier
 result in the chat, or read back through the tool in `LOOKUPS`. When adding
 an acting tool that takes an ID, add its read tool there.

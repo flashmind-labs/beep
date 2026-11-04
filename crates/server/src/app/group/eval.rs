@@ -8,8 +8,8 @@ use super::{
     mentions_beep,
 };
 use crate::{
+    agent::decision::DecisionTool,
     app::learning::MEMORY_THRESHOLD,
-    decision::DecisionTool,
     store::{GroupRow, JoinedGroup, MemberRow, MessageRow},
 };
 use anyhow::{Context, Result};

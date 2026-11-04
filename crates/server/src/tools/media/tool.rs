@@ -7,10 +7,10 @@ use super::{
     provider::{Keys, MediaKind, MediaProvider},
 };
 use crate::{
-    fetch,
+    account::user::User,
+    nodes::workspace::Workspace,
+    tools::fetch,
     tools::{file::clean_name, image::image_mime},
-    user::User,
-    workspace::Workspace,
 };
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;

@@ -1,7 +1,7 @@
 //! Which machines sync which projects, and pinned projects.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use sqlx::Row;
 

@@ -2,8 +2,8 @@
 
 use super::Reply;
 use crate::{
-    apps::catalog_app, feeds, models::Picked, permissions, profile, protocol::*, router::Cx,
-    store::Feed,
+    agent::models::Picked, api::router::Cx, apps::catalog_app, apps::feeds, apps::permissions,
+    memory::profile, protocol::*, store::Feed,
 };
 
 pub(super) async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>> {

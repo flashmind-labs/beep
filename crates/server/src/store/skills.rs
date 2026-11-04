@@ -1,7 +1,7 @@
 //! Skills Beep learned with earlier versions, and each chat's skill review progress.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row, postgres::PgRow};
@@ -55,7 +55,6 @@ pub struct SkillRow {
     pub can_undo: bool,
 }
 
-/// A skill to add.
 #[derive(Debug, Clone, Copy)]
 pub struct NewSkill<'a> {
     pub name: &'a str,

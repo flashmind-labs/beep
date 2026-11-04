@@ -1,11 +1,6 @@
 package com.flashmind.beep
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -48,14 +43,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.abs
 
 /** Statuses that only mean "waiting on Beep". They all read as "Thinking…". */
 private val idleStatuses = setOf("Sending…", "Beep is thinking…", "Working...")
@@ -77,23 +67,7 @@ fun StatusText(status: String) {
 /** Text with a bright band that moves across it, letter by letter. */
 @Composable
 private fun Shimmer(text: String) {
-    val base = Beep.colors.muted
-    val bright = Beep.colors.ink
-    if (reduceMotion()) {
-        Text(text, color = base, fontSize = 13.sp, maxLines = 2)
-        return
-    }
-    val sweep by rememberInfiniteTransition(label = "shimmer").animateFloat(
-        initialValue = -4f, targetValue = text.length + 4f,
-        animationSpec = infiniteRepeatable(tween(90 * (text.length + 8), easing = LinearEasing), RepeatMode.Restart),
-        label = "shimmer-sweep",
-    )
-    Text(buildAnnotatedString {
-        text.forEachIndexed { i, c ->
-            val glow = (1f - abs(i - sweep) / 3f).coerceIn(0f, 1f)
-            withStyle(SpanStyle(color = lerp(base, bright, glow))) { append(c) }
-        }
-    }, fontSize = 13.sp, maxLines = 2)
+    Text(text, color = Beep.colors.muted, fontSize = 13.sp, maxLines = 2)
 }
 
 /** Most reasoning kept for one reply, in characters. The oldest goes first. */

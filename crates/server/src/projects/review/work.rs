@@ -10,11 +10,11 @@ use super::super::{
     worker::Started,
 };
 use crate::{
+    account::user::User,
     app::App,
     nodes::Online,
     protocol::ReviewChecks,
     store::{NewTask, PrRow, ProjectRow, TaskRow},
-    user::User,
 };
 use anyhow::{Context, Result};
 use std::sync::Arc;

@@ -160,7 +160,6 @@ class ChatRepository(private val storage: LocalStorage) {
     val pushMissing = MutableStateFlow<Boolean?>(null)
     val pendingIntent = MutableStateFlow<AppIntent?>(null)
     val pendingAlarm = MutableStateFlow<AlarmRequest?>(null)
-    val browserOpen = MutableStateFlow(false)
     private var reconnectJob: Job? = null
     /** False while the phone has no working network, so runs wait instead of spinning. */
     @Volatile private var networkUp = true
@@ -177,19 +176,13 @@ class ChatRepository(private val storage: LocalStorage) {
     private var locationJob: Job? = null
     /** Chat screens currently started: the app, the bubble or the panel. */
     private val chatScreens = AtomicInteger(0)
-    /** The started chat screens that are a bubble or the panel. */
-    private val bubbleScreens = AtomicInteger(0)
-    fun chatScreenShown(shown: Boolean, bubble: Boolean) {
-        val step = if (shown) 1 else -1
-        if (bubble) bubbleScreens.addAndGet(step)
-        chatScreens.addAndGet(step)
+    fun chatScreenShown(shown: Boolean) {
+        chatScreens.addAndGet(if (shown) 1 else -1)
         if (!shown) return
         // The chat on screen has been read, so its notification goes.
         ChatNotifications.cancel(storage.context, state.value.current.id)
     }
     fun onScreen(id: String) = chatScreens.get() > 0 && state.value.current.id == id
-    /** Whether Beep is on screen only as the bubble or panel, which has no room for the browser. */
-    private fun onlyBubble() = bubbleScreens.get() > 0 && bubbleScreens.get() == chatScreens.get()
     private val cloud = CloudBackup(storage.context)
     /** The readable name of this phone's identity, such as mega-fox-trot. */
     val accountName = MutableStateFlow("")
@@ -1418,7 +1411,7 @@ class ChatRepository(private val storage: LocalStorage) {
 
     private suspend fun executeDeviceQuery(query: DeviceQuery): JSONObject = when (query) {
         is DeviceQuery.Contacts -> queryContacts(query.name)
-        // Beep no longer drives the in-app browser; servers stopped asking.
+        // Beep has no in-app browser; servers stopped asking.
         is DeviceQuery.Browser -> error("Beep cannot use the browser on the phone")
         // Never runs on its own: the user answers it through [answerApproval].
         is DeviceQuery.Approve -> JSONObject().put("decision", "deny")
@@ -1487,16 +1480,6 @@ class ChatRepository(private val storage: LocalStorage) {
         if (message.approvals.none { it.waitsOnTurn }) message
         else message.copy(approvals = message.approvals.map { if (it.waitsOnTurn) it.copy(answer = "skipped") else it })
     }
-
-    /** Show the in-app browser on [url], or the phone's own browser from the bubble. */
-    fun openBrowser(url: String) {
-        if (url.isEmpty()) return
-        if (onlyBubble()) return ExternalBrowser.open(storage.context, url)
-        browserOpen.value = true
-        scope.launch { BrowserBridge.open(storage.context, url) }
-    }
-
-    fun closeBrowser() { browserOpen.value = false }
 
     private fun queryContacts(query: String): JSONObject {
         val ctx = storage.context
@@ -1662,7 +1645,7 @@ class ChatRepository(private val storage: LocalStorage) {
                                     uri = outputJson.optString("uri", ""),
                                     fallbackUrl = outputJson.optString("fallback_url", ""))
                                 "set_alarm" -> pendingAlarm.value = AlarmRequest.from(outputJson)
-                                "open_browser" -> openBrowser(outputJson.optString("url", ""))
+                                "open_browser" -> if (chatScreens.get() > 0) ExternalBrowser.open(storage.context, outputJson.optString("url", ""))
                                 // Places show as a map card in the chat; Maps opens only when the user taps it.
                             }
                             if (outputJson.optString("type") == "task_progress") {

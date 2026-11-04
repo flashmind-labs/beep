@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.compose.animation.*
-import androidx.compose.animation.core.EaseInOutCubic
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
@@ -12,7 +11,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.core.*
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import kotlinx.coroutines.launch
 
 // Short names for the current theme's colors.
@@ -49,7 +46,7 @@ private fun PlaceCard(data: org.json.JSONObject, compact: Boolean) {
     val lng = data.optDouble("longitude", 0.0)
 
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(BeepSpace.row)) {
             Text(name, style = displayStyle(if (compact) 15.sp else 17.sp), color = TextPrimary)
             if (rating > 0) {
                 Spacer(Modifier.height(4.dp))
@@ -94,7 +91,7 @@ private fun LinkCard(data: org.json.JSONObject, onBrowse: (String) -> Unit, comp
     val url = data.optString("url", "")
 
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
-        Column(Modifier.fillMaxWidth().clickable(enabled = url.isNotBlank()) { onBrowse(url) }.padding(14.dp)) {
+        Column(Modifier.fillMaxWidth().clickable(enabled = url.isNotBlank()) { onBrowse(url) }.padding(BeepSpace.row)) {
             if (title.isNotBlank()) {
                 Text(title, fontWeight = FontWeight.SemiBold, fontSize = if (compact) 14.sp else 15.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
@@ -119,7 +116,6 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
     val context = androidx.compose.ui.platform.LocalContext.current
     val buttonsArr = data.optJSONArray("buttons") ?: return
     val buttons = (0 until buttonsArr.length()).mapNotNull { buttonsArr.optJSONObject(it) }
-    val openLink = LocalOpenLink.current ?: repository::openBrowser
 
     // Room below for the hard shadow, which the scroll container would otherwise clip.
     Row(
@@ -133,7 +129,7 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
             ChunkyButton(
                 onClick = {
                     when (action) {
-                        "open_browser" -> openLink(button.optString("url", ""))
+                        "open_browser" -> ExternalBrowser.open(context, button.optString("url", ""))
                         "open_maps" -> {
                             val query = button.optString("query", label)
                             AppLauncher.start(context, Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(query)}")))
@@ -159,19 +155,14 @@ private fun ActionButtonRow(data: org.json.JSONObject, repository: ChatRepositor
 internal fun TaskProgressCard(steps: List<TaskStep>) {
     val noMotion = reduceMotion()
     BeepCard(Modifier.fillMaxWidth().animateContentSize()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(BeepSpace.row), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             steps.forEach { step ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
                         when (step.status) {
                             "pending" -> Box(Modifier.size(14.dp).border(1.5.dp, Border, CircleShape))
                             "in_progress" -> {
-                                val pulse = rememberInfiniteTransition(label = "step-pulse")
-                                val scale by if (noMotion) remember { mutableStateOf(1f) } else pulse.animateFloat(
-                                    initialValue = 0.7f, targetValue = 1f,
-                                    animationSpec = infiniteRepeatable(tween(600, easing = EaseInOutCubic), RepeatMode.Reverse),
-                                    label = "step-scale")
-                                Box(Modifier.size(12.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                                Box(Modifier.size(12.dp)
                                     .background(Beep.colors.accent, CircleShape))
                             }
                             "completed" -> Box(Modifier.size(18.dp).background(Beep.colors.ok, CircleShape), contentAlignment = Alignment.Center) {
@@ -222,9 +213,10 @@ internal fun toolIconFor(name: String): androidx.compose.ui.graphics.vector.Imag
 
 @Composable
 internal fun CardView(card: Card, repository: ChatRepository, compact: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     when (card.type) {
         "place" -> PlaceCard(card.data, compact)
-        "link" -> LinkCard(card.data, onBrowse = LocalOpenLink.current ?: repository::openBrowser, compact)
+        "link" -> LinkCard(card.data, onBrowse = { ExternalBrowser.open(context, it) }, compact)
         "action_buttons" -> ActionButtonRow(card.data, repository)
     }
 }

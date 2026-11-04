@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use beep_server::{
+    account::instance::{InstanceConfig, NODE_FILE},
+    agent::models::ModelChoices,
     app::{Admission, App, ServerTools, SignedIn},
-    instance::{InstanceConfig, NODE_FILE},
-    models::ModelChoices,
     protocol::DeviceKind,
     store::{NewKey, Store, TestDb},
 };

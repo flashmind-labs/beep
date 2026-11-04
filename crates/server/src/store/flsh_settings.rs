@@ -1,7 +1,7 @@
 //! A user's flsh settings, one row per user, the same on every machine.
 
 use super::Store;
-use crate::{protocol::FlshSettings, user::UserKey};
+use crate::{account::user::UserKey, protocol::FlshSettings};
 use anyhow::{Context, Result};
 use sqlx::types::Json;
 

@@ -149,12 +149,11 @@ internal fun RecRow(cards: List<RecCard>) {
 @Composable
 private fun RecCardView(card: RecCard, modifier: Modifier) {
     val context = LocalContext.current
-    val open = LocalOpenLink.current
-    val openPage = { url: String -> open?.invoke(url) ?: ExternalBrowser.open(context, url) }
+    val openPage = { url: String -> ExternalBrowser.open(context, url) }
     val place = card.place.takeIf { card.kind == "place" }
     val media = card.media.takeIf { card.kind == "media" }
     val event = card.event.takeIf { card.kind == "event" }
-    Column(modifier.beepFrame(RoundedCornerShape(16.dp), Beep.colors.surface)) {
+    Column(modifier.beepFrame(RoundedCornerShape(Beep.shapes.radius), Beep.colors.surface)) {
         Column(Modifier.fillMaxWidth().clickable(onClickLabel = if (place != null) "Open in Maps" else "Open the page") {
             if (place != null) openPlace(context, card, place) else openPage(card.url)
         }) {
@@ -199,7 +198,7 @@ private fun RecCardView(card: RecCard, modifier: Modifier) {
             actions.forEach { (label, action) ->
                 Text(label, textAlign = TextAlign.Center, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.ink, maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).border(1.5.dp, Beep.colors.ledge, RoundedCornerShape(9.dp))
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(Beep.shapes.smallRadius)).border(1.5.dp, Beep.colors.ledge, RoundedCornerShape(Beep.shapes.smallRadius))
                         .background(Beep.colors.surface).clickable(onClick = action).padding(vertical = 7.dp))
             }
         } else Box(Modifier.height(4.dp))
@@ -218,7 +217,7 @@ private fun RecPicture(url: String?, event: RecEvent?) {
     Box(Modifier.fillMaxWidth().height(108.dp).background(Beep.colors.code)) {
         bitmap?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         event?.let { e ->
-            Column(Modifier.padding(10.dp).width(42.dp).beepFrame(RoundedCornerShape(10.dp), Beep.colors.surface).padding(vertical = 4.dp),
+            Column(Modifier.padding(10.dp).width(42.dp).beepFrame(RoundedCornerShape(Beep.shapes.smallRadius), Beep.colors.surface).padding(vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(e.start.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).uppercase(Locale.getDefault()),
                     fontSize = 9.5.sp, lineHeight = 11.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.accent)

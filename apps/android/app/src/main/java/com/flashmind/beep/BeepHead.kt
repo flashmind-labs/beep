@@ -29,6 +29,6 @@ fun BeepHead(face: BeepFace, modifier: Modifier = Modifier, avatar: Avatar = Ava
     DisposableEffect(drawable) { onDispose { (drawable as? AnimatedImageDrawable)?.stop() } }
     AndroidView({ ImageView(it).apply { scaleType = ImageView.ScaleType.CENTER_CROP } }, modifier.clip(CircleShape)) { view ->
         view.setImageDrawable(drawable)
-        (drawable as? AnimatedImageDrawable)?.let { if (face == BeepFace.Sleepy) it.stop() else it.start() }
+        (drawable as? AnimatedImageDrawable)?.let { if (face != BeepFace.Thinking && face != BeepFace.Happy) it.stop() else it.start() }
     }
 }

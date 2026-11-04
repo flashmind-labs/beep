@@ -182,7 +182,7 @@ object Bubble {
                 val gone by animateFloatAsState(if (leaving.value) 0f else 1f, tween(LEAVE_MS.toInt(), easing = FastOutLinearInEasing), label = "gone")
                 // A light disc with a shadow, so the bubble reads as floating over any background.
                 Box(Modifier.fillMaxSize().graphicsLayer { scaleX = gone; scaleY = gone; alpha = gone; rotationZ = (1 - gone) * 120f }
-                    .padding(5.dp).shadow(6.dp, CircleShape).background(Color(0xFFF4F8F5), CircleShape)) {
+                    .padding(5.dp).shadow(6.dp, CircleShape).background(Beep.colors.page, CircleShape)) {
                     BeepHead(if (leaving.value) BeepFace.Sleepy else current, Modifier.fillMaxSize().padding(4.dp))
                 }
             }

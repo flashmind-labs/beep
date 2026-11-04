@@ -1,5 +1,6 @@
-//! Watches project folders for changes with one `Watcher` per node, and
-//! falls back to a rescan every `RESCAN` for a folder it cannot watch.
+//! Watches project folders for changes with one `Watcher` per node. Every
+//! folder is also rescanned every `RESCAN`, which is all a folder it cannot
+//! watch gets.
 
 use super::{gitdir, rules::Rules};
 use crate::{lock, read_lock};
@@ -15,18 +16,18 @@ use std::{
 };
 use tokio::{sync::mpsc, task::spawn_blocking};
 
-/// How often a project that cannot be watched is rescanned.
-pub(super) const RESCAN: Duration = Duration::from_secs(45);
+/// How often a project is rescanned, for changes no watcher reported.
+pub(super) const RESCAN: Duration = Duration::from_secs(5 * 60);
 /// The share of the watch limit left to other programs, in percent, and
 /// at least `MIN_RESERVE` watches.
 const RESERVE_PERCENT: u64 = 10;
 const MIN_RESERVE: u64 = 512;
 
 /// What raises the watch limit.
-const WATCHES_HINT: &str = "Beep rescans this folder every 45 s because the inotify watch limit \
+const WATCHES_HINT: &str = "Beep rescans this folder every 5 minutes because the inotify watch limit \
     is reached. Raise it with `sudo sysctl fs.inotify.max_user_watches=524288`, and add \
     `fs.inotify.max_user_watches=524288` to a file in /etc/sysctl.d/ to keep it.";
-const INSTANCES_HINT: &str = "Beep rescans this folder every 45 s because no inotify instance \
+const INSTANCES_HINT: &str = "Beep rescans this folder every 5 minutes because no inotify instance \
     is left. Raise the limit with `sudo sysctl fs.inotify.max_user_instances=512`, and add \
     `fs.inotify.max_user_instances=512` to a file in /etc/sysctl.d/ to keep it.";
 

@@ -1,7 +1,7 @@
 //! The machines running `beep-node`, and what each last reported.
 
 use super::Store;
-use crate::{protocol::node::EnvReport, user::UserKey};
+use crate::{account::user::UserKey, protocol::node::EnvReport};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;

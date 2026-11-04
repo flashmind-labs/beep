@@ -70,7 +70,7 @@ object ChatNotifications {
             NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Incoming notifications from your assistant"
                 enableLights(true)
-                lightColor = 0xFF3B9B7A.toInt()
+                lightColor = LINEAR_ACCENT.toInt()
                 setAllowBubbles(true)
             })
     }
@@ -192,7 +192,7 @@ object ChatNotifications {
             .addAction(replyAction(context, key))
             .addAction(markReadAction(context, key))
             .setCategory(Notification.CATEGORY_MESSAGE)
-            .setColor(0xFF3B9B7A.toInt())
+            .setColor(LINEAR_ACCENT.toInt())
             .setAutoCancel(true)
             .setOnlyAlertOnce(options.quiet)
             // Only Beep floats; a group stays in the shade so there is never a second bubble.
@@ -311,7 +311,7 @@ object ApprovalNotifications {
             .addAction(action("Deny", "deny"))
             .addAction(action("Allow", "allow"))
             .setCategory(Notification.CATEGORY_REMINDER)
-            .setColor(0xFF3B9B7A.toInt())
+            .setColor(LINEAR_ACCENT.toInt())
             .setAutoCancel(true)
             .build()
         context.getSystemService(NotificationManager::class.java).notify(pending.queryId.hashCode(), notification)

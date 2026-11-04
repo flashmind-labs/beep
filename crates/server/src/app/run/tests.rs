@@ -1,9 +1,9 @@
 use crate::{
+    agent::models::ModelChoices,
     app::{App, Draws, Message, ServerTools},
-    models::ModelChoices,
     protocol::{DeviceKind, MemorySource, RunEvent, WebSource},
-    search::SearchTool,
     store::{Account, Fact, StoredBody, TestDb},
+    tools::search::SearchTool,
 };
 use async_trait::async_trait;
 use flashmind::types::{
