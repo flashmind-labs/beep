@@ -6,8 +6,6 @@ mod beep;
 mod center;
 mod chat;
 mod error;
-// Its callers arrive as the commands that reach machines move onto it.
-#[cfg_attr(not(test), expect(dead_code))]
 mod fleet;
 mod machines;
 mod notices;
@@ -484,7 +482,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let (beep, notices) = Beep::start(endpoint.clone(), identity, server, file, chats);
     app.manage(beep.clone());
     // This Mac's node, and the mesh it is in, which opens in the background.
-    let machine = machines::this_mac::Machine::new(&dir.join("node"), beep.server().is_some());
+    let machine = machines::this_mac::Machine::new(&dir.join("node"), beep.linked());
     let fleet = Arc::new(Fleet::new(
         endpoint,
         &dir.join("node"),
@@ -517,6 +515,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(machines::terminals::Attached::default());
+    tauri::async_runtime::spawn(machines::list::retry_unlinks(beep.clone()));
+    app.state::<machines::this_mac::Machine>().start();
     app.state::<machines::this_mac::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());

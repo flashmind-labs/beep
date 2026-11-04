@@ -91,6 +91,8 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
     loop {
         let current = opened.borrow_and_update().clone();
         let Opened::Open(mesh) = current else {
+            // No mesh to follow: the streams let go of it, so it can close.
+            running = Running::default();
             if opened.changed().await.is_err() {
                 return;
             }
