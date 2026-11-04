@@ -14,7 +14,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::time::timeout;
@@ -426,8 +426,12 @@ async fn two_members_holding_different_addresses_for_a_third_settle() {
         until(&y.mesh, |m| online(m, x.id())).await;
     }
     let (low, high) = (at(c.id(), 9), at(c.id(), 10));
-    b.mesh.hint_addr(low, u64::MAX - 2).await;
-    a.mesh.hint_addr(high.clone(), u64::MAX - 1).await;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    b.mesh.hint_addr(low, now + 1_000).await;
+    a.mesh.hint_addr(high.clone(), now + 2_000).await;
     until(&b.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
     until(&a.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
     // A full round trip of state passes through every link.
