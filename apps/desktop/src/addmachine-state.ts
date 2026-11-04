@@ -5,6 +5,23 @@ import type { MacControl, MachineEnv, MachineView } from "./home.ts";
 /// The command that puts beep-node on a machine.
 export const INSTALL = "curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh";
 
+/// Where a new machine looks for projects unless told otherwise.
+export const HOME_SEARCH = "~/";
+
+/// The search folder as the node takes it: empty for home.
+export function searchFolder(typed: string) {
+  const dir = typed.trim();
+  return dir === "~" || dir === HOME_SEARCH ? "" : dir;
+}
+
+/// `command` with `--search <dir>` when the folder is not home, quoted
+/// for the shell when it has to be.
+export function withSearch(command: string, typed: string) {
+  const dir = searchFolder(typed);
+  if (!dir) return command;
+  return `${command} --search ${/^[\w~./-]+$/.test(dir) ? dir : `'${dir.replace(/'/g, `'\\''`)}'`}`;
+}
+
 /// A machine the sheet names, as `list_machines` gives it.
 type Machine = Pick<MachineView, "id" | "name"> & { env?: Pick<MachineEnv, "os" | "tools"> | null };
 

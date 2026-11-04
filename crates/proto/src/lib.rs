@@ -1414,8 +1414,19 @@ requests! {
     /// (`user@host` or an ssh config alias) over its own ssh: it connects
     /// without prompting, installs beep-node there and links it to the
     /// caller with a new setup token. The reply comes once it is online or
-    /// a step failed. Errors as for `ListSshHosts`.
-    403 AddMachineOverSsh { machine_id: String, target: String } => Call<SshAdd>
+    /// a step failed. `search` is where the new machine looks for git
+    /// checkouts (`beep-node setup --search`); empty for home. Errors as for
+    /// `ListSshHosts`.
+    403 AddMachineOverSsh { machine_id: String, target: String, #[serde(default)] search: String } => Call<SshAdd>
+    /// Where `machine_id`, one of the caller's online machines, looks for
+    /// git checkouts, as written (`~/` for home). Errors as for
+    /// `ListSshHosts`.
+    404 GetMachineSearch { machine_id: String } => Call<String>
+    /// Has `machine_id` look for git checkouts in `search` (empty for home)
+    /// from now on, and search there again. Gives the folder as
+    /// `GetMachineSearch` does; `BadRequest` saying why when the machine has
+    /// no such folder. Errors as for `ListSshHosts`.
+    405 SetMachineSearch { machine_id: String, search: String } => Call<String>
 }
 
 /// A tool on a machine with a newer release (`ListToolUpdates`).

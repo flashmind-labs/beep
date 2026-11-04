@@ -37,7 +37,7 @@ mod memo;
 mod opencode;
 mod pi;
 
-pub(crate) use disk::saved_checkouts;
+pub(crate) use disk::{forget_checkouts, saved_checkouts};
 pub(crate) use git::{Checkout, checkout, last_commit};
 pub(crate) use memo::Memo;
 

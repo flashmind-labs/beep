@@ -23,6 +23,7 @@ mod process;
 pub mod provision;
 pub mod reconnect;
 pub(crate) mod restart;
+mod search;
 pub mod service;
 pub mod setup;
 mod shell;

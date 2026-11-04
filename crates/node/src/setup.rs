@@ -3,9 +3,9 @@
 
 use crate::{
     link::{self, Claimed},
-    state::{self, State},
+    state::{self, Search, State},
 };
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use beep_proto::{link::MAX_NAME, node::NodeSetup, setup::SetupToken};
 use iroh::{Endpoint, SecretKey, endpoint::presets};
 use std::path::Path;
@@ -40,10 +40,19 @@ pub fn prepare(dir: &Path, token: &str) -> Result<Prepared> {
 
 /// Claims `token` for this machine and saves the server and name it was
 /// linked as. `name` wins over the token's; without either, the host name.
-pub async fn setup(dir: &Path, token: &str, name: Option<&str>) -> Result<(State, Claimed)> {
+/// `search` replaces where it looks for git checkouts.
+pub async fn setup(
+    dir: &Path,
+    token: &str,
+    name: Option<&str>,
+    search: Option<Search>,
+) -> Result<(State, Claimed)> {
     let name = name.map(str::trim);
     if name.is_some_and(|name| name.is_empty() || name.len() > MAX_NAME) {
         bail!("--name is empty or longer than {MAX_NAME} bytes");
+    }
+    if let Some(search) = &search {
+        search.existing_root().context("--search")?;
     }
     let Prepared { token, key } = prepare(dir, token)?;
     let fallback = host_name().await;
@@ -59,7 +68,7 @@ pub async fn setup(dir: &Path, token: &str, name: Option<&str>) -> Result<(State
     // `run` binds its own endpoint with the same key.
     endpoint.close().await;
     let claimed = claimed?;
-    let state = State::save(dir, key, token.server, &claimed.name)?;
+    let state = State::save(dir, key, token.server, &claimed.name, search)?;
     Ok((state, claimed))
 }
 

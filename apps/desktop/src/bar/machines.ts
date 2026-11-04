@@ -55,6 +55,11 @@ export const MC: {
   toolUps: Map<string, { busy: boolean; error: string }>;
 } = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map(), tools: [], toolUps: new Map() };
 
+/// Where the open machine looks for projects (GetMachineSearch): null until
+/// read, or when its beep-node cannot say; `draft` is the field while
+/// changing it.
+let search: { id: string; folder: string | null; draft: string | null; busy: boolean; error: string } | null = null;
+
 /// A tool on a machine with a newer release (ToolUpdate).
 interface ToolUpdate {
   machine_id: string;
@@ -100,6 +105,7 @@ export async function renderMachines(id: string | null = null) {
     invoke("close_group").catch(() => {});
   }
   MC.asking = null;
+  if (id) void loadSearch(id);
   drawMachines();
   try {
     const [list, mac, updatable] = await Promise.all([
@@ -122,6 +128,45 @@ export async function renderMachines(id: string | null = null) {
   } catch (e) {
     console.warn("tool updates:", e);
   }
+}
+
+async function loadSearch(id: string) {
+  search = { id, folder: null, draft: null, busy: false, error: "" };
+  try {
+    const folder = await invoke<string>("machine_search", { machineId: id });
+    if (search?.id === id) search.folder = folder;
+  } catch (e) {
+    console.warn("search folder:", e);
+  }
+  if (shown()) drawMachines();
+}
+
+/// Has the open machine look for projects in `folder` and search again.
+async function saveSearch(folder: string) {
+  const at = search;
+  if (!at || at.busy) return;
+  at.busy = true;
+  at.draft = folder;
+  at.error = "";
+  drawMachines();
+  try {
+    at.folder = await invoke<string>("set_machine_search", { machineId: at.id, search: folder });
+    at.draft = null;
+  } catch (e) {
+    at.error = errorText(e);
+  }
+  at.busy = false;
+  if (shown()) drawMachines();
+}
+
+/// The "Projects in" row: the folder and Change, or the field to change it.
+function searchRow(m: Machine) {
+  const at = search?.id === m.id ? search : null;
+  if (!at || at.folder === null) return "";
+  const value = at.draft === null
+    ? `<span class="dmono">${esc(at.folder)}</span>${m.online ? ' <button class="dbtn" id="mcSearchEdit">Change</button>' : ""}`
+    : `<span class="dfield" style="display:flex;gap:6px;align-items:center"><input class="dmono" id="mcSearch" value="${esc(at.draft)}" aria-label="Search for projects in" spellcheck="false"${at.busy ? " disabled" : ""}><button class="dbtn pri" id="mcSearchSave"${at.busy ? " disabled" : ""}>Save</button><button class="dbtn quiet" id="mcSearchNo">Cancel</button></span>`;
+  return `<span>Projects in</span><span>${value}</span>`;
 }
 
 /// Installs the newest release of `tool` on machine `id`.
@@ -297,10 +342,10 @@ function machinePage(m: Machine) {
   const behind = nodeBehind(m.version, newest()) ? ` <span class="dtag ask">${esc(newest() ?? "")} is out</span>` : "";
   const facts = kv("Status", statusTag(m)) + kv("beep-node", esc(nodeVersion(m)) + behind + updateControl(m))
     + (env ? kv("System", esc(`${env.os_version}, ${env.arch}`)) + kv("Hardware", esc(`${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB`))
-      + kv("Host name", `<span class="dmono">${esc(env.hostname)}</span>`) + kv("Home", `<span class="dmono">${esc(env.home)}</span>`)
+      + kv("Host name", `<span class="dmono">${esc(env.hostname)}</span>`) + kv("Home", `<span class="dmono">${esc(env.home)}</span>`) + searchRow(m)
       + (env.avds.length ? kv("Android emulators", esc(env.avds.join(", "))) : "")
       : kv("Report", "None yet"));
-  let html = `<div class="dset-box"><div class="dset-kv">${facts}</div></div>` + updateLine(m);
+  let html = `<div class="dset-box"><div class="dset-kv">${facts}</div></div>` + updateLine(m) + (search?.id === m.id ? errLine(search.error) : "");
   if (env?.logins.length) {
     const rows = env.logins.map(l => {
       const who = l.signed_in ? esc(l.account ?? "Signed in") : '<span class="dtag ask">Not signed in</span>';
@@ -379,6 +424,26 @@ function drawMachines() {
     b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
   }
   el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });
+  el.querySelector("#mcSearchEdit")?.addEventListener("click", () => {
+    if (!search) return;
+    search.draft = search.folder;
+    drawMachines();
+    el.querySelector<HTMLInputElement>("#mcSearch")?.focus();
+  });
+  const field = el.querySelector<HTMLInputElement>("#mcSearch");
+  field?.addEventListener("keydown", e => {
+    if (e.key === "Enter") void saveSearch(field.value);
+    if (e.key === "Escape") { e.stopPropagation(); stopEditing(); }
+  });
+  el.querySelector("#mcSearchSave")?.addEventListener("click", () => { if (field) void saveSearch(field.value); });
+  el.querySelector("#mcSearchNo")?.addEventListener("click", stopEditing);
+}
+
+function stopEditing() {
+  if (!search) return;
+  search.draft = null;
+  search.error = "";
+  drawMachines();
 }
 
 /// Rows that stand in for a machine until the list comes.
