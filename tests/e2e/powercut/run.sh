@@ -9,6 +9,8 @@
 #   2. node-b starts again and ends up with node-a's manifest, node-a's stays
 #      as it was, and neither made a conflict copy: nothing node-b lost was
 #      taken for an edit of its own.
+# A cut that comes after the whole tree proves nothing, so node-b watches its own
+# files and cuts itself, and the run fails unless a cut lands with files missing.
 set -uo pipefail
 
 E2E="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,7 +30,6 @@ trap 'rm -rf "$WORK"' EXIT
 manifest(){
   on "$1" "cd ~/ws/$PROJECT && find $2 -type f -print0 2> /dev/null | LC_ALL=C sort -z | xargs -0 -r sha256sum"
 }
-count(){ on "$1" "find ~/ws/$PROJECT/$2 -type f 2> /dev/null | wc -l"; }
 boot_id(){ on "$1" 'cat /proc/sys/kernel/random/boot_id'; }
 rebooted(){ [[ "$(boot_id "$1")" != "$2" && -n "$(boot_id "$1")" ]]; }
 holds(){ [[ "$(manifest "$1" "$2" | sha256sum)" == "$3" ]]; }
@@ -38,27 +39,24 @@ fresh_world
 turn_on_sync
 put node-a "$E2E/scale/make-tree.sh" beep/make-tree.sh || abort "could not copy make-tree.sh"
 
+midway=0
 for ((cut = 1; cut <= CUTS; cut++)); do
   dir="tree-$cut"
   # Each cut lands further into its tree.
   at=$((WANT * cut / (CUTS + 1)))
   step "cut $cut of $CUTS: node-b reboots at $at of $WANT files of $dir"
+  boot="$(boot_id node-b)"
+  on node-b "nohup sh -c 'until [ \$(find ~/ws/$PROJECT/$dir -type f 2> /dev/null | wc -l) -ge $at ]; do sleep 0.02; done; echo b | sudo tee /proc/sysrq-trigger' > /dev/null 2>&1 &"
   on node-a "bash ~/beep/make-tree.sh ~/ws/$PROJECT/$dir $SMALL $MB_FILES" || abort "could not make $dir"
   manifest node-a "$dir" > "$WORK/want"
   [[ "$(wc -l < "$WORK/want")" == "$WANT" ]] || abort "node-a holds no whole $dir"
-  started=$SECONDS
-  while (( $(count node-b "$dir" || echo 0) < at )); do
-    (( SECONDS - started > LIMIT )) && abort "node-b did not reach $at files of $dir"
-    sleep 0.2
-  done
-  boot="$(boot_id node-b)"
-  # The ssh goes with the VM, so the reboot waits for it to return.
-  on node-b "nohup sh -c 'sleep 0.5; echo b | sudo tee /proc/sysrq-trigger' > /dev/null 2>&1 &"
-  wait_for 300 "node-b is back" rebooted node-b "$boot" || abort "node-b did not come back"
+  wait_for "$LIMIT" "node-b is back" rebooted node-b "$boot" || abort "node-b did not come back"
 
   manifest node-b "$dir" > "$WORK/got"
   bad="$(LC_ALL=C comm -23 <(LC_ALL=C sort "$WORK/got") <(LC_ALL=C sort "$WORK/want"))"
-  note "node-b kept $(wc -l < "$WORK/got") of $WANT files through the cut"
+  kept="$(wc -l < "$WORK/got")"
+  note "node-b kept $kept of $WANT files through the cut"
+  (( kept < WANT )) && midway=$((midway + 1))
   if [[ -z "$bad" ]]; then
     pass "cut $cut: every file on node-b is whole"
   else
@@ -82,4 +80,6 @@ for ((cut = 1; cut <= CUTS; cut++)); do
     || { fail "cut $cut: the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
 done
 
+(( midway > 0 )) && pass "$midway of $CUTS cuts landed with files still to come" \
+  || fail "every cut came after the whole tree: nothing was tested"
 summary

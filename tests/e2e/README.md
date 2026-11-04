@@ -46,7 +46,7 @@ Env:
 `scale` and `multinode` sample each node's open fds, inotify instances and
 inotify watches every 2 s and print the peaks. They fail when peak fds pass
 `E2E_BUDGET_FDS` (default 128; the peak measured with a soft limit of 1024 was
-33), when a node holds more than one inotify
+71, on a tree of 1 MB files), when a node holds more than one inotify
 instance, or when fds grow by more than `E2E_FD_GROWTH` (default 16) between
 settled points or over a final `E2E_FD_IDLE` seconds (default 60).
 
@@ -56,22 +56,21 @@ settled points or over a final `E2E_FD_IDLE` seconds (default 60).
 over budget. The defaults come from a real run plus a margin on `small` VMs.
 Set one in the environment to change it, or to empty to only report it.
 
-| Env | Default | First real run |
+| Env | Default | Measured |
 | --- | --- | --- |
-| `E2E_BUDGET_SYNC_LISTED` | 30 s, to node-a's own list | 1 to 11 s |
-| `E2E_BUDGET_SYNC_FIRST` | 120 s, to node-b | 1.5 to 82 s |
-| `E2E_BUDGET_SYNC_ALL` | 150 s | 8 to 87 s |
-| `E2E_BUDGET_SYNC_MBPS` | at least 6 MB/s | 18.3 MB/s |
-| `E2E_BUDGET_SCALE_FIRST` | 60 s | 8.4 s, 15.2 s back |
-| `E2E_BUDGET_SCALE_ALL` | 1200 s, each way | 67 to 903 s |
-| `E2E_BUDGET_SCALE_DELETE_FIRST` | 45 s | 7.0 s |
-| `E2E_BUDGET_SCALE_DELETE` | 60 s | 11.2 s |
-| `E2E_BUDGET_SCALE_MBPS` | at least 5 MB/s | 17.0 MB/s |
-| `E2E_BUDGET_MULTI_CONVERGE` | 240 s | 73.3 s |
-| `E2E_BUDGET_MULTI_CATCHUP` | 300 s | 87.8 s |
+| `E2E_BUDGET_SYNC_LISTED` | 15 s, to node-a's own list | 4.4 to 5.1 s |
+| `E2E_BUDGET_SYNC_FIRST` | 20 s, to node-b | 4.9 to 5.4 s |
+| `E2E_BUDGET_SYNC_ALL` | 30 s | 5.6 to 6.3 s |
+| `E2E_BUDGET_SYNC_MBPS` | at least 6 MB/s | 16.4 to 18.7 MB/s |
+| `E2E_BUDGET_SCALE_FIRST` | 30 s | 6.6 to 15.9 s |
+| `E2E_BUDGET_SCALE_ALL` | 240 s, each way | 29 to 92 s |
+| `E2E_BUDGET_SCALE_DELETE_FIRST` | 20 s | 6.3 to 7.1 s |
+| `E2E_BUDGET_SCALE_DELETE` | 30 s | 10.2 to 11.6 s |
+| `E2E_BUDGET_SCALE_MBPS` | at least 5 MB/s | 6.1 to 17.4 MB/s |
+| `E2E_BUDGET_MULTI_CONVERGE` | 90 s | 28.3 s |
+| `E2E_BUDGET_MULTI_CATCHUP` | 60 s | 11.9 s |
 
-The margins are wide because runs vary: the same tree has taken 67 s and 903 s,
-in both directions.
+Disks differ by VM, and that sets most of the spread in `SCALE_ALL`.
 
 A new scenario is a `tests/e2e/<name>/run.sh` that sources `lib/common.sh`
 and `lib/beep.sh`, calls `fresh_world`, and ends with `summary`; add its name
