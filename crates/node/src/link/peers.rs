@@ -8,7 +8,7 @@
 
 use crate::{
     files::transfer::Transfers,
-    link::connection::{Offers, Protocol, Who, changed, read_open, serve_open},
+    link::connection::{Offers, Protocol, Who, changed, read_open, serve_open, withheld},
     link::from_mesh,
     link::local_socket::{Listener, Stream},
     machine::{env, stats},
@@ -18,7 +18,7 @@ use beep_mesh::{
     DeviceKind, DeviceStatus, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream, SessionFn,
     StreamHandler,
 };
-use beep_proto::node::{LinkRx, LinkTx, link, status::Report};
+use beep_proto::node::{LinkRx, LinkTx, Opened, link, status::Report};
 use iroh::{
     Endpoint,
     endpoint::Connection,
@@ -100,6 +100,13 @@ impl Inner {
             bail!("the node stopped");
         }
         let offers = self.offers().clone();
+        // The person at this machine is not held to the setting; a device of the mesh is.
+        if who.id() != self.endpoint.id()
+            && let Some(reason) = withheld(&open.protocol, offers.lends_to_peers())
+        {
+            let mut tx = tx;
+            return tx.send(&Opened::Refused { reason }).await;
+        }
         serve_open(tx, rx, open, offers, who).await
     }
 }
