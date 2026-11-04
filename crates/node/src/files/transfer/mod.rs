@@ -13,7 +13,10 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     transfer::{ContentKind, PROTOCOL, Reply, Request, Stage},
 };
-use iroh::{Endpoint, protocol::Router};
+use iroh::{
+    Endpoint,
+    protocol::{Router, RouterBuilder},
+};
 use iroh_blobs::{
     BlobsProtocol, Hash, HashAndFormat,
     store::{
@@ -105,8 +108,8 @@ impl Ticker {
     }
 }
 
-/// The node's transfers: its store, the grants of its open offers and the
-/// router serving the blobs protocol, all dropped together.
+/// The node's transfers: its store, the grants of its open offers and, when
+/// it has one, the router serving the blobs protocol, all dropped together.
 #[derive(Clone)]
 pub struct Transfers {
     inner: Arc<Inner>,
@@ -127,9 +130,24 @@ struct Inner {
     running: Arc<Semaphore>,
     syncs: Syncs,
     // Dropping the router stops serving blobs; the handle ends the task
-    // that answers its events.
-    router: Router,
+    // that answers its events. `None` when the caller serves `Served`.
+    router: Option<Router>,
     _events: AbortOnDropHandle<()>,
+}
+
+/// What `Transfers` answers on the endpoint: the blobs and sync protocols,
+/// for a router the caller runs.
+pub struct Served {
+    blobs: BlobsProtocol,
+    sync: PeerHandler,
+}
+
+impl Served {
+    pub fn add_to(self, router: RouterBuilder) -> RouterBuilder {
+        router
+            .accept(iroh_blobs::ALPN, self.blobs)
+            .accept(sync::ALPN, self.sync)
+    }
 }
 
 impl Transfers {
@@ -149,6 +167,28 @@ impl Transfers {
         folders: Folders,
         syncthing: Syncthing,
     ) -> Result<Self> {
+        Ok(Self::build(endpoint, dir, folders, syncthing, true)
+            .await?
+            .0)
+    }
+
+    /// `start`, but the blobs and sync protocols are left to the caller's
+    /// router: add `Served` to it. Stop that router before `shutdown`.
+    pub async fn start_shared(
+        endpoint: &Endpoint,
+        dir: &Path,
+        folders: Folders,
+    ) -> Result<(Self, Served)> {
+        Self::build(endpoint, dir, folders, Syncthing::local(), false).await
+    }
+
+    async fn build(
+        endpoint: &Endpoint,
+        dir: &Path,
+        folders: Folders,
+        syncthing: Syncthing,
+        own_router: bool,
+    ) -> Result<(Self, Served)> {
         let collect = Arc::new(Notify::new());
         let mut options = Options::new(dir);
         options.gc = Some(GcConfig {
@@ -180,16 +220,19 @@ impl Transfers {
         let grants = Arc::new(Grants::default());
         grants.set_access(syncs.access());
         let (events, events_task) = grants::events(grants.clone());
-        let router = Router::builder(endpoint.clone())
-            .accept(iroh_blobs::ALPN, BlobsProtocol::new(&store, Some(events)))
-            .accept(
-                sync::ALPN,
-                PeerHandler {
-                    syncs: syncs.clone(),
-                },
-            )
-            .spawn();
-        Ok(Self {
+        let served = Served {
+            blobs: BlobsProtocol::new(&store, Some(events)),
+            sync: PeerHandler {
+                syncs: syncs.clone(),
+            },
+        };
+        let router = own_router.then(|| {
+            let (blobs, sync) = (served.blobs.clone(), served.sync.clone());
+            Served { blobs, sync }
+                .add_to(Router::builder(endpoint.clone()))
+                .spawn()
+        });
+        let transfers = Self {
             inner: Arc::new(Inner {
                 endpoint: endpoint.clone(),
                 store,
@@ -204,7 +247,8 @@ impl Transfers {
                 router,
                 _events: events_task,
             }),
-        })
+        };
+        Ok((transfers, served))
     }
 
     /// The synced projects, served to the server as `sync/1`.
@@ -216,11 +260,12 @@ impl Transfers {
     /// closes the store, so it can be opened again.
     pub async fn shutdown(&self) -> Result<()> {
         self.inner.syncs.shutdown().await;
-        self.inner
-            .router
-            .shutdown()
-            .await
-            .context("stopping the blobs protocol")?;
+        if let Some(router) = &self.inner.router {
+            router
+                .shutdown()
+                .await
+                .context("stopping the blobs protocol")?;
+        }
         // The store stops without answering, so its reply channel closes.
         if let Err(e) = self.inner.store.shutdown().await {
             log::debug!("the blob store stopped: {e}");

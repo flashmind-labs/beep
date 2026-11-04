@@ -14,8 +14,9 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     process::{MAX_LINES, MAX_TASKS, Reply, Request, Task, TaskId, TaskState},
 };
+use iroh::EndpointId;
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     process::Stdio,
     sync::{Arc, LazyLock, Mutex},
@@ -38,12 +39,38 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 
 /// The node's tasks. One per process: a host embedding the node, such as
 /// the Mac app, gets them too without wiring anything.
-static TASKS: LazyLock<Tasks> = LazyLock::new(Tasks::default);
+static TASKS: LazyLock<Arc<Tasks>> = LazyLock::new(Arc::default);
+
+/// The tasks each node peer started over `tools/1`, apart from `TASKS` and
+/// from each other, so a peer can neither fill the desktop's slots nor reach
+/// its jobs or another peer's.
+static PEER_TASKS: LazyLock<Mutex<HashMap<EndpointId, Arc<Tasks>>>> = LazyLock::new(Mutex::default);
+
+/// Whose tasks a `tools/1` call works on.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Table {
+    /// The node's own, shared with `process/1`.
+    Shared,
+    /// The ones this peer started.
+    Peer(EndpointId),
+}
+
+impl Table {
+    fn tasks(self) -> Arc<Tasks> {
+        match self {
+            Self::Shared => TASKS.clone(),
+            Self::Peer(id) => lock(&PEER_TASKS).entry(id).or_default().clone(),
+        }
+    }
+}
 
 /// Kills every task still running, at once. For a host about to exit, such
 /// as the Mac app: a process exit drops nothing, so its tasks would outlive it.
 pub fn kill_all() {
     TASKS.kill_all();
+    for tasks in lock(&PEER_TASKS).values() {
+        tasks.kill_all();
+    }
 }
 
 /// Serves one session stream until the server closes it.
@@ -53,6 +80,37 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         tx.send(&reply).await?;
     }
     Ok(())
+}
+
+/// Runs one request on the node's tasks, as `process/1` would.
+pub(crate) async fn answer(table: Table, request: Request) -> Reply {
+    table.tasks().answer(request).await
+}
+
+/// Runs `command` as a task and waits for it, up to `limit`; one still
+/// running then is stopped. The reply is the task's status.
+pub(crate) async fn run_for(
+    table: Table,
+    command: String,
+    cwd: Option<String>,
+    limit: Duration,
+) -> Reply {
+    let tasks = table.tasks();
+    let id = match tasks.start(command, cwd) {
+        Reply::Started { id } => id,
+        other => return other,
+    };
+    let done = lock(&tasks.inner)
+        .jobs
+        .iter()
+        .find(|job| job.id == id)
+        .map(|job| job.done.clone());
+    if let Some(mut done) = done
+        && timeout(limit, done.wait_for(|done| *done)).await.is_err()
+    {
+        return tasks.stop(id).await;
+    }
+    tasks.status(id)
 }
 
 #[derive(Default)]
