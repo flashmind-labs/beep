@@ -7,7 +7,7 @@
 use std::fmt::Write;
 
 /// The keys kept, as `section.key`, and whether the section needs a subsection.
-const KEPT: [(&str, bool); 10] = [
+const KEPT: [(&str, bool); 12] = [
     ("remote.url", true),
     ("remote.fetch", true),
     ("branch.remote", true),
@@ -18,6 +18,8 @@ const KEPT: [(&str, bool); 10] = [
     ("core.precomposeunicode", false),
     ("core.filemode", false),
     ("core.logallrefupdates", false),
+    ("extensions.objectformat", false),
+    ("extensions.refstorage", false),
 ];
 
 /// The largest config read; a bigger one is not brought in.
@@ -102,6 +104,13 @@ fn keeps(section: &Section, key: &str, value: &str) -> bool {
         // an option for git or a program for a transport helper to run.
         "remote.url" | "branch.remote" => !value.is_empty() && !is_unsafe_address(value),
         "remote.fetch" | "branch.merge" => !value.is_empty(),
+        // The repository's format, which only these words name.
+        "extensions.objectformat" => {
+            ["sha1", "sha256"].contains(&value.to_ascii_lowercase().as_str())
+        }
+        "extensions.refstorage" => {
+            ["files", "reftable"].contains(&value.to_ascii_lowercase().as_str())
+        }
         _ => {
             value.len() <= CORE_VALUE
                 && value
@@ -349,7 +358,8 @@ mod tests {
             "[includeIf \"gitdir:/\"]\n\tpath = /tmp/more\n",
             "[url \"/tmp/x\"]\n\tinsteadOf = https://example.com/\n",
             "[remote \"origin\"]\n\tpushurl = ext::sh -c payload\n\tuploadpack = /tmp/payload\n",
-            "[extensions]\n\tobjectformat = sha256\n",
+            "[extensions]\n\tworktreeConfig = true\n\tobjectformat = sha999\n\trefstorage = /tmp/x\n",
+            "[extensions]\n\tpartialClone = origin\n\tcompatobjectformat = sha1\n",
         ];
         for config in hostile {
             assert_eq!(keeps_only(config), "", "{config}");
@@ -424,6 +434,101 @@ mod tests {
         assert!(!kept.contains("fsmonitor"), "{kept}");
         // Bytes that are not text still give a config.
         assert_eq!(kept_bytes(b"\xff\xfe[core]\n\tfsmonitor = x\n"), "");
+    }
+
+    #[test]
+    fn the_repository_format_stays_when_it_names_a_known_one() {
+        for (key, value) in [
+            ("objectformat", "sha1"),
+            ("objectformat", "sha256"),
+            ("objectformat", "SHA256"),
+            ("refstorage", "files"),
+            ("refstorage", "reftable"),
+        ] {
+            let kept = keeps_only(&format!("[extensions]\n\t{key} = {value}\n"));
+            assert!(
+                kept.contains(&format!("{key} = \"{value}\"")),
+                "{key} {value}: {kept}"
+            );
+        }
+        for (key, value) in [
+            ("objectformat", "sha999"),
+            ("objectformat", ""),
+            ("objectformat", "sha256 /tmp/x"),
+            ("refstorage", "reftable2"),
+            ("refstorage", "/tmp/store"),
+        ] {
+            let kept = keeps_only(&format!("[extensions]\n\t{key} = \"{value}\"\n"));
+            assert_eq!(kept, "", "{key} {value}");
+        }
+    }
+
+    fn git_ok(dir: &std::path::Path, args: &[&str]) -> Option<String> {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .env("GIT_CEILING_DIRECTORIES", dir.parent().unwrap())
+            .args(args)
+            .output()
+            .expect("git runs");
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    }
+
+    /// Git opens a repository whose config went through `kept`, in its own
+    /// object and ref format.
+    #[test]
+    fn git_opens_a_repository_with_its_config_rewritten() {
+        for (flags, show, want) in [
+            (
+                vec!["--object-format=sha256"],
+                "--show-object-format",
+                "sha256",
+            ),
+            (
+                vec!["--ref-format=reftable"],
+                "--show-ref-format",
+                "reftable",
+            ),
+        ] {
+            let source = tempfile::tempdir().expect("a temp folder");
+            let mut init = vec!["init", "-q"];
+            init.extend(flags);
+            if git_ok(source.path(), &init).is_none() {
+                // This git does not know the format.
+                continue;
+            }
+            let config = std::fs::read(source.path().join(".git/config")).expect("a config");
+            let rewritten = kept(&config);
+            assert!(
+                rewritten.contains("repositoryformatversion = \"1\""),
+                "{rewritten}"
+            );
+            assert!(rewritten.contains("[extensions]"), "{rewritten}");
+            // A copy of the repository with only the rewritten config.
+            let copy = tempfile::tempdir().expect("a temp folder");
+            let mut dirs = vec![source.path().join(".git")];
+            let mut at = 0;
+            while at < dirs.len() {
+                for entry in std::fs::read_dir(&dirs[at]).expect("a folder") {
+                    let path = entry.expect("an entry").path();
+                    let relative = path.strip_prefix(source.path()).expect("inside");
+                    if path.is_dir() {
+                        std::fs::create_dir_all(copy.path().join(relative)).expect("made");
+                        dirs.push(path);
+                    } else {
+                        std::fs::copy(&path, copy.path().join(relative)).expect("copied");
+                    }
+                }
+                at += 1;
+            }
+            std::fs::write(copy.path().join(".git/config"), &rewritten).expect("written");
+            assert_eq!(
+                git_ok(copy.path(), &["rev-parse", show]).as_deref(),
+                Some(want)
+            );
+            assert!(git_ok(copy.path(), &["status", "--porcelain"]).is_some());
+        }
     }
 
     fn kept_bytes(raw: &[u8]) -> String {
