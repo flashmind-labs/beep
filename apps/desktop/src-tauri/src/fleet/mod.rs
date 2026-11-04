@@ -20,7 +20,7 @@ use crate::{
 };
 use beep_mesh::{
     DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn,
-    with_deadline,
+    machine::releases::ToolReleases, with_deadline,
 };
 use beep_node::link::{Offers, peers::Peers};
 use beep_proto::client::PushHandler;
@@ -77,8 +77,8 @@ pub struct Fleet {
     serving: Mutex<Option<Arc<Serving>>>,
     /// One `join` at a time.
     joining: AsyncMutex<()>,
-    /// The terminals this Mac keeps on the machines.
-    terminals: terminals::Store,
+    /// The newest release of each tool a node installs.
+    releases: ToolReleases,
 }
 
 impl Fleet {
@@ -102,7 +102,7 @@ impl Fleet {
             mesh: watch::channel(Opened::Opening).0,
             serving: Mutex::default(),
             joining: AsyncMutex::new(()),
-            terminals: terminals::Store::load(dir),
+            releases: ToolReleases::default(),
         }
     }
 
@@ -218,6 +218,11 @@ impl Fleet {
             serving.stop().await;
         }
         self.status.stop().await;
+    }
+
+    /// The newest release of each tool a node installs.
+    pub(crate) fn releases(&self) -> &ToolReleases {
+        &self.releases
     }
 
     pub fn id(&self) -> EndpointId {
@@ -755,5 +760,64 @@ mod tests {
         })
         .await
         .expect("the node took the setting from the new mesh");
+    }
+
+    /// A node that lists one session of its own, or never answers.
+    fn sessions_handler(answers: bool) -> beep_mesh::StreamHandler {
+        use beep_proto::node::{
+            Open, Opened,
+            agent::{SessionInfo, SessionsReply, SessionsRequest},
+            link,
+        };
+        Arc::new(move |stream: beep_mesh::PeerStream| {
+            Box::pin(async move {
+                let (mut tx, mut rx) = link(stream.send, stream.recv);
+                let Ok(Some(_)) = rx.recv::<Open>().await else {
+                    return;
+                };
+                tx.send(&Opened::Ready {}).await.ok();
+                let Ok(Some(_)) = rx.recv::<SessionsRequest>().await else {
+                    return;
+                };
+                if answers {
+                    let info = SessionInfo {
+                        id: "s1".into(),
+                        agent: "claude".into(),
+                        ..SessionInfo::default()
+                    };
+                    let reply = SessionsReply::Sessions {
+                        sessions: vec![info],
+                    };
+                    tx.send(&reply).await.ok();
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            })
+        })
+    }
+
+    #[tokio::test]
+    async fn one_peer_that_never_answers_does_not_hold_the_others() {
+        let mac = start("Studio").await;
+        let host = mac.fleet.mesh().expect("the mesh is open");
+        let (quick, _quick_router, quick_endpoint) =
+            join(&mac.fleet, DeviceKind::Node, "Quick").await;
+        let (slow, _slow_router, slow_endpoint) = join(&mac.fleet, DeviceKind::Node, "Slow").await;
+        quick.protocols().0.on_stream(sessions_handler(true));
+        slow.protocols().0.on_stream(sessions_handler(false));
+        let (quick_id, slow_id) = (quick_endpoint.id(), slow_endpoint.id());
+        until(&host, |mesh| {
+            online(mesh, quick_id) && online(mesh, slow_id)
+        })
+        .await;
+        let started = Instant::now();
+        let found = agents::peer_sessions(&mac.fleet).await;
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].machine_name, "Quick");
     }
 }

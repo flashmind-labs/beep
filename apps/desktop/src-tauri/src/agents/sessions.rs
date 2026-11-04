@@ -214,21 +214,59 @@ pub async fn agent_hosts(
 }
 
 #[tauri::command]
-pub async fn agent_sessions(beep: Service<'_>, fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
-    let sessions = machine_sessions(&beep, &fleet).await;
+pub async fn agent_sessions(
+    app: AppHandle,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    held: State<'_, Outside>,
+) -> Result<Vec<SessionRow>> {
+    let sessions = machine_sessions(&app, &beep, &fleet, &held).await;
     Ok(sessions.into_iter().map(SessionRow::from).collect())
 }
 
-/// The sessions on the machines of the mesh, then on the server's other
-/// machines, newest activity first.
-pub(crate) async fn machine_sessions(beep: &Beep, fleet: &Fleet) -> Vec<MachineSession> {
-    let mut sessions = direct::list_sessions(fleet).await;
-    let others = extra(beep.call(ListAgentSessions {}).await);
-    sessions.extend(
-        others
-            .into_iter()
-            .filter(|session| fleet.member(&session.machine_id).is_none()),
-    );
+/// Whether two listings of a session differ in what the windows draw, which
+/// leaves out what moves on every read.
+fn same_session(old: &MachineSession, new: &MachineSession) -> bool {
+    old.machine_id == new.machine_id
+        && old.id == new.id
+        && old.status == new.status
+        && old.question.as_ref().map(|q| q.id) == new.question.as_ref().map(|q| q.id)
+}
+
+/// The sessions of every machine, newest activity first, at once: Beep's on
+/// this Mac, read in this process, and the rest as last held. The other
+/// machines of the mesh, the server and the scans of what agents ran
+/// outside Beep refresh in the background, each machine on its own limit,
+/// and the windows redraw when one changes.
+pub(crate) async fn machine_sessions(
+    app: &AppHandle,
+    beep: &Arc<Beep>,
+    fleet: &Arc<Fleet>,
+    held: &Outside,
+) -> Vec<MachineSession> {
+    let mut sessions = direct::local_sessions(fleet).await;
+    let (b, f) = (beep.clone(), fleet.clone());
+    sessions.extend(held.sessions.refreshed(
+        app,
+        async move {
+            let (peers, server) =
+                tokio::join!(direct::peer_sessions(&f), b.call(ListAgentSessions {}));
+            let mut sessions = peers;
+            sessions.extend(
+                extra(server)
+                    .into_iter()
+                    .filter(|session| f.member(&session.machine_id).is_none()),
+            );
+            Ok(sessions)
+        },
+        same_session,
+    ));
+    let f = fleet.clone();
+    sessions.extend(held.scans.refreshed(
+        app,
+        async move { Ok(direct::scanned_sessions(&f).await) },
+        same_session,
+    ));
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
 }
@@ -263,7 +301,9 @@ pub async fn agent_start(
         effort: effort.map(Into::into),
         checkout: checkout.map(Into::into),
     };
-    let started = if goes_direct(&fleet, request.machine_id.as_deref()).await {
+    // A chat that hears the session is the server's: it follows the node.
+    let chat_on_server = request.chat.is_some() && beep.server().is_some();
+    let started = if !chat_on_server && goes_direct(&fleet, request.machine_id.as_deref()).await {
         direct::start(&fleet, request).await?
     } else {
         beep.call(request).await?

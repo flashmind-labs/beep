@@ -5,7 +5,7 @@ use crate::{
     error::Result,
     fleet::{
         Fleet, Machines,
-        files::{self as direct, Place},
+        files::{self as direct, FALLBACK_DEFAULT, Place},
     },
     projects::reviews::BranchRow,
     projects::{known, needs_update},
@@ -16,9 +16,6 @@ use beep_proto::{
 };
 use serde::Serialize;
 use std::time::Duration;
-
-/// What a project's default branch is taken to be until its checkout says.
-const FALLBACK_DEFAULT: &str = "main";
 
 /// Where `project` has a checkout on a machine of the mesh, as the server
 /// records it; none without a server or a record.

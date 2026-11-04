@@ -31,9 +31,15 @@ use beep_proto::{
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use std::{cmp::Reverse, collections::HashSet, time::Duration};
+use tokio::time::timeout;
 
 /// Machines asked at once.
 const IN_FLIGHT: usize = 4;
+/// How long one machine gets to name its checkouts.
+const MACHINE_LIMIT: Duration = Duration::from_secs(8);
+/// What a project's default branch is taken to be until its checkout says:
+/// the scripts read `origin`'s HEAD first and `branches` gives what they found.
+pub(crate) const FALLBACK_DEFAULT: &str = "main";
 /// The most checkouts one machine names.
 const FOLDERS_PER_MACHINE: u32 = 100;
 
@@ -131,12 +137,11 @@ pub(crate) async fn work_diff(
     work(fleet, machine, sessions::diff(&client, ask).await?)
 }
 
-/// What changed on `branch` of a project against its default branch, read
-/// at the checkout `place`.
+/// What changed on `branch` of a project against the checkout's own
+/// default branch, read at the checkout `place`.
 pub(crate) async fn branch_diff(
     fleet: &Fleet,
     place: &Place,
-    default_branch: &str,
     branch: &str,
     only: Vec<String>,
     lockfiles: bool,
@@ -145,7 +150,8 @@ pub(crate) async fn branch_diff(
         .ok_or_else(|| ApiError::bad_request(format!("{} is not a branch name.", branch.trim())))?;
     let ask = DiffAsk {
         root: place.folder.clone(),
-        base: default_branch.to_owned(),
+        // Empty: the node compares against the checkout's default.
+        base: String::new(),
         head: branch.to_owned(),
         only,
         lockfiles,
@@ -160,16 +166,20 @@ pub(crate) async fn found_folders(fleet: &Fleet) -> Vec<MachineFound> {
         .online()
         .into_iter()
         .map(|machine| async move {
-            let client = fleet.client(machine).await.ok()?;
-            let folders = sessions::found_folders(&client, FOLDERS_PER_MACHINE)
-                .await
-                .ok()?;
-            let host = fleet.host_of(machine);
-            Some(MachineFound {
-                machine_id: host.id,
-                machine_name: host.name,
-                folders,
-            })
+            let ask = async {
+                let client = fleet.client(machine).await.ok()?;
+                let folders = sessions::found_folders(&client, FOLDERS_PER_MACHINE)
+                    .await
+                    .ok()?;
+                let host = fleet.host_of(machine);
+                Some(MachineFound {
+                    machine_id: host.id,
+                    machine_name: host.name,
+                    folders,
+                })
+            };
+            // A machine that is slow or off is left out.
+            timeout(MACHINE_LIMIT, ask).await.ok().flatten()
         })
         .collect();
     stream::iter(asks)

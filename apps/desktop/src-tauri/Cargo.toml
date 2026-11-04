@@ -28,7 +28,6 @@ iroh-tickets = "1"
 log = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 percent-encoding = "2"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
