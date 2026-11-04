@@ -23,7 +23,7 @@ import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive } from "../agents/thoughtlive.ts";
 import { answerHtml, errorCardHtml, queueRowHtml, stepMark, thinkingRow, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
-import { plural } from "../ui/format.ts";
+import { linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
 
@@ -221,7 +221,7 @@ export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) 
 }
 /// A turn for `question`, not yet in any chat.
 export function makeTurn(question: string, images?: PicRef[], files?: AskFile[]) {
-  const turn = h<Turn>(`<div class="turn dcoderlog">${question ? userRowHtml(esc(question)) : ""}${picRow(images)}</div>`);
+  const turn = h<Turn>(`<div class="turn dcoderlog">${question ? userRowHtml(linkified(question)) : ""}${picRow(images)}</div>`);
   fillPics(turn);
   if (files?.length) turn.append(askFiles(files));
   turn.steps = [];

@@ -1,5 +1,6 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
+import { linkified } from "../ui/format.ts";
 import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { $, type ChatBody, esc, ICON, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
@@ -190,7 +191,7 @@ export function entryRow(en: AgentEntry, at: number) {
   if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
   if (en.kind === "user") {
     const { text: said, names } = userImages(en.text);
-    const user = (s: string) => AG.log ? AG.log.userHtml(s, esc, i => AG.opened.has(`${at}:${i}`)) : esc(s);
+    const user = (s: string) => AG.log ? AG.log.userHtml(s, linkified, i => AG.opened.has(`${at}:${i}`)) : linkified(s);
     return userRowHtml(user(said), ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "");
   }
   // The pictures the agent or a tool showed go after the text, as a
