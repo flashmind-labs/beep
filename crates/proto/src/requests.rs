@@ -1199,28 +1199,21 @@ requests! {
     /// `NotFound` when the machine is not the caller's; `BadRequest`
     /// saying why when it is offline, too old, or the install failed.
     401 UpdateMachineTool { machine_id: String, tool: String } => Call<String>
-    /// The hosts the ssh of `machine_id`, one of the caller's online
-    /// machines, knows: `Host` names in its `~/.ssh/config` without
-    /// wildcards, then unhashed names in `~/.ssh/known_hosts`. `NotFound`
-    /// when the machine is not the caller's; `BadRequest` saying why when it
-    /// is offline or its beep-node is too old.
+    /// Removed with adding machines over ssh: an empty list, for apps that
+    /// still ask.
     402 ListSshHosts { machine_id: String } => Call<Vec<String>>
-    /// Has `machine_id`, one of the caller's online machines, add `target`
-    /// (`user@host` or an ssh config alias) over its own ssh: it connects
-    /// without prompting, installs beep-node there and links it to the
-    /// caller with a new setup token. The reply comes once it is online or
-    /// a step failed. `search` is where the new machine looks for git
-    /// checkouts (`beep-node setup --search`); empty for home. Errors as for
-    /// `ListSshHosts`.
+    /// Removed: an `SshAdd` saying so, for apps that still ask. Nothing is
+    /// installed or linked.
     403 AddMachineOverSsh { machine_id: String, target: String, #[serde(default)] search: String } => Call<SshAdd>
     /// Where `machine_id`, one of the caller's online machines, looks for
-    /// git checkouts, as written (`~/` for home). Errors as for
-    /// `ListSshHosts`.
+    /// git checkouts, as written (`~/` for home). `NotFound` when the machine
+    /// is not the caller's; `BadRequest` saying why when it is offline or its
+    /// beep-node is too old.
     404 GetMachineSearch { machine_id: String } => Call<String>
     /// Has `machine_id` look for git checkouts in `search` (empty for home)
     /// from now on, and search there again. Gives the folder as
     /// `GetMachineSearch` does; `BadRequest` saying why when the machine has
-    /// no such folder. Errors as for `ListSshHosts`.
+    /// no such folder. Errors as for `GetMachineSearch`.
     405 SetMachineSearch { machine_id: String, search: String } => Call<String>
     /// `GetProjectLists` with the labels of each pull request. Errors as
     /// for `GetProjectLists`.

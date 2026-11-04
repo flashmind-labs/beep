@@ -114,6 +114,31 @@ pub(super) async fn gone(fleet: &dyn Fleet, user: &Arc<User>, worker: WorkerId) 
     Ok(())
 }
 
+/// `worker`'s machine was removed, its row with it; nothing to do when its project went too.
+pub(crate) async fn machine_removed(
+    fleet: &dyn Fleet,
+    user: &Arc<User>,
+    worker: &WorkerRow,
+) -> Result<()> {
+    let (Some(task), Some(project)) = (
+        user.project_task(worker.task).await?,
+        user.project(worker.project).await?,
+    ) else {
+        return Ok(());
+    };
+    block(fleet, user, &project, &task).await?;
+    let chat = user.ensure_project_agent(project.id).await?;
+    fleet.post(
+        chat,
+        REPLAN_LABEL,
+        format!(
+            "The worker for {} is gone; its machine was removed.",
+            task.slug
+        ),
+    );
+    Ok(())
+}
+
 /// Closes `worker` if still idle at `now`: waiting, not asking, last turn [`IDLE_CLOSE`] ago.
 pub(crate) async fn idle_close(
     fleet: &dyn Fleet,

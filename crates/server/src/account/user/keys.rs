@@ -1,7 +1,7 @@
 //! The keys of the user's account, invites and the actions log.
 
 use super::User;
-use crate::store::{AccountKey, ActionRow, Invite, Merge, MergeInto};
+use crate::store::{AccountKey, ActionRow, Invite, Merge, MergeInto, RemovedProject};
 use anyhow::Result;
 use iroh::EndpointId;
 use std::time::Duration;
@@ -29,8 +29,8 @@ impl User {
         self.store.merge_into(&self.key, into).await
     }
 
-    /// Stops a linked key signing in; `false` when the account has no such key.
-    pub async fn revoke_key(&self, endpoint_id: &str) -> Result<bool> {
+    /// Stops a linked key signing in and forgets the machine behind it; `None` when the account has no such key.
+    pub(crate) async fn revoke_key(&self, endpoint_id: &str) -> Result<Option<RemovedProject>> {
         self.store.revoke_key(&self.key, endpoint_id).await
     }
 

@@ -292,6 +292,6 @@ tested without tapping.
 - `link/`: the node's key and settings (`state`), linking and the control
   stream, reconnecting, and what carries over a restart.
 - `machine/`: what the machine has (`env`, `stats`), setup, the service,
-  self-update, provisioning, `ssh` and repository webhooks.
+  self-update, provisioning and repository webhooks.
 - `run/`: process groups, shell sessions, background tasks and terminals.
 - `lib.rs` declares these; `main.rs` is the command line.

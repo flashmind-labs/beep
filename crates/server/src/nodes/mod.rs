@@ -38,7 +38,6 @@ mod logs;
 mod retry;
 mod search;
 mod shell;
-mod ssh;
 mod stats;
 mod sync;
 mod tasks;

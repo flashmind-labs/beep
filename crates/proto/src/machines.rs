@@ -18,17 +18,16 @@ ffi_structs! {
         pub latest: String,
     }
 
-    /// What `AddMachineOverSsh` did.
+    /// `AddMachineOverSsh`'s answer, which is always a failure now.
     #[derive(Eq)]
     pub struct SshAdd {
-        /// The `Machine::id` it linked as; `None` when it failed.
+        /// Always `None`.
         pub machine_id: Option<String>,
-        /// What the target said it runs, such as "Linux x86_64"; empty before
-        /// that was read.
+        /// Always empty.
         pub system: String,
-        /// Which step failed and why; empty when it linked.
+        /// Why it did nothing.
         pub error: String,
-        /// The failing command's last lines of output.
+        /// Always empty.
         pub output: Vec<String>,
     }
 
