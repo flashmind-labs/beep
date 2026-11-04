@@ -8,6 +8,7 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::Result,
+    fleet::projects::{FleetState, mesh_project},
     projects::known,
     projects::threads::{IssueRow, PullRequestRow},
 };
@@ -41,15 +42,21 @@ pub struct ListsRow {
 /// them, which the page then lists the older way.
 #[tauri::command]
 pub async fn center_project_lists(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
-    let read = GetLabeledProjectLists {
-        project_id,
-        refresh,
+    let found = match mesh_project(&fleet, project_id).await {
+        Some((desk, name)) => Some(desk.lists(&name).await?),
+        None => known(
+            beep.call(GetLabeledProjectLists {
+                project_id,
+                refresh,
+            })
+            .await,
+        )?,
     };
-    let found = known(beep.call(read).await)?;
     Ok(
         found.map(|LabeledProjectLists { lists, pr_labels }| ListsRow {
             prs: lists

@@ -3,15 +3,13 @@
 //! view, which also pauses sync and settles conflicts.
 
 use crate::{
-    beep::Service,
     center::kept,
     center::view_cache::{View, ViewCache},
-    error::{DesktopError, Result},
-    projects::{known, needs_update},
+    error::Result,
+    fleet::projects::{FleetState, desk},
 };
 use beep_proto::{
-    ConflictKeep, GetProjectSyncDetail, ListProjectSync, MachineSync, MachineSyncDetail,
-    PauseProjectSync, ProjectSync, ProjectSyncDetail, ResolveSyncConflict, SyncProgress,
+    ConflictKeep, MachineSync, MachineSyncDetail, ProjectSync, ProjectSyncDetail, SyncProgress,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -48,11 +46,13 @@ impl SyncRow {
 /// server too old to sync projects.
 #[tauri::command]
 pub async fn project_sync(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Vec<SyncRow>> {
-    let rows = known(beep.call(ListProjectSync {}).await)
-        .map(|projects| projects.map_or_else(Vec::new, rows));
+    let rows = match desk(&fleet).await {
+        Ok(desk) => Ok(rows(desk.sync().await)),
+        Err(e) => Err(e),
+    };
     kept(&cache, View::Sync, rows)
 }
 
@@ -144,30 +144,27 @@ impl From<ProjectSyncDetail> for SyncDetailView {
     }
 }
 
-fn outdated(e: DesktopError) -> DesktopError {
-    needs_update(e, "before it pauses sync or settles conflicts")
-}
-
-/// `project`'s sync in detail; `None` from a server too old to give it.
+/// `project`'s sync in detail; `None` for a project no machines sync.
 #[tauri::command]
 pub async fn project_sync_detail(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     project: String,
 ) -> Result<Option<SyncDetailView>> {
-    Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
+    match desk(&fleet).await?.sync_detail(&project).await {
+        Ok(detail) => Ok(Some(detail.into())),
+        Err(beep_fleet::FleetError::NotFound) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Pauses `project`'s sync on every machine, or resumes it.
 #[tauri::command]
 pub async fn project_sync_pause(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     project: String,
     paused: bool,
 ) -> Result<SyncDetailView> {
-    let detail = beep
-        .call(PauseProjectSync { project, paused })
-        .await
-        .map_err(outdated)?;
+    let detail = desk(&fleet).await?.pause_sync(&project, paused).await?;
     Ok(detail.into())
 }
 
@@ -175,7 +172,7 @@ pub async fn project_sync_pause(
 /// place of the file beside it, or keeps that file and deletes the copy.
 #[tauri::command]
 pub async fn project_sync_resolve(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     project: String,
     machine_id: String,
     path: String,
@@ -186,14 +183,10 @@ pub async fn project_sync_resolve(
     } else {
         ConflictKeep::Original {}
     };
-    beep.call(ResolveSyncConflict {
-        project,
-        machine_id,
-        path,
-        keep,
-    })
-    .await
-    .map_err(outdated)
+    Ok(desk(&fleet)
+        .await?
+        .resolve_conflict(&project, &machine_id, &path, keep)
+        .await?)
 }
 
 fn rows(projects: Vec<ProjectSync>) -> Vec<SyncRow> {

@@ -1,10 +1,11 @@
 //! This Mac's own `gh` and `teacli` sign-ins, so Settings can save a git
 //! host's token without the user pasting it. The token is read here and
-//! goes straight to the server: the bar only learns whether there is one.
+//! goes straight into the mesh: the bar only learns whether there is one.
 
 use crate::{
     beep::Beep,
     error::{DesktopError, Result},
+    fleet::{Fleet, projects::FleetState},
     settings::credentials::{self, CredentialView, Kind},
 };
 use anyhow::Context;
@@ -113,11 +114,15 @@ pub async fn cli_logins() -> Result<CliLogins> {
 /// Saves the token gh here holds for the github.com account `login`, as
 /// one of the GitHub accounts, checked by the server.
 #[tauri::command]
-pub async fn use_gh_account(beep: State<'_, Arc<Beep>>, login: String) -> Result<CredentialView> {
+pub async fn use_gh_account(
+    fleet: FleetState<'_>,
+    beep: State<'_, Arc<Beep>>,
+    login: String,
+) -> Result<CredentialView> {
     let login = parse_login(&login).ok_or_else(|| refused("That is not a GitHub login"))?;
     let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this Mac"))?;
     let token = gh_account_token(&gh, &login).await?;
-    credentials::save(&beep, Kind::Github, token, true).await
+    credentials::save(&fleet, &beep, Kind::Github, token, true).await
 }
 
 /// The github.com accounts gh lists, signed in or not checked.
@@ -192,7 +197,11 @@ fn push_login(accounts: &mut Vec<GhAccount>, rest: &str, active: bool) -> bool {
 /// Saves the token `gh` or teacli holds for `host`, checked by the server
 /// as a pasted one is.
 #[tauri::command]
-pub async fn use_cli_login(beep: State<'_, Arc<Beep>>, host: Kind) -> Result<CredentialView> {
+pub async fn use_cli_login(
+    fleet: FleetState<'_>,
+    beep: State<'_, Arc<Beep>>,
+    host: Kind,
+) -> Result<CredentialView> {
     let token = match &host {
         Kind::Github => gh_token().await?,
         Kind::Forgejo { url } => tea_logins()
@@ -203,12 +212,12 @@ pub async fn use_cli_login(beep: State<'_, Arc<Beep>>, host: Kind) -> Result<Cre
             .ok_or_else(|| refused("teacli has no token for this server"))?,
         Kind::ApiKey { .. } => return Err(refused("API keys have no CLI sign-in")),
     };
-    credentials::save(&beep, host, token, true).await
+    credentials::save(&fleet, &beep, host, token, true).await
 }
 
-/// Saves the token `gh` holds for github.com, checked by the server.
-pub(crate) async fn save_gh_login(beep: &Beep) -> Result<CredentialView> {
-    credentials::save(beep, Kind::Github, gh_token().await?, true).await
+/// Saves the token `gh` holds for github.com, checked with GitHub.
+pub(crate) async fn save_gh_login(fleet: &Arc<Fleet>, beep: &Beep) -> Result<CredentialView> {
+    credentials::save(fleet, beep, Kind::Github, gh_token().await?, true).await
 }
 
 /// The token `gh` holds for github.com, or why there is none.

@@ -6,13 +6,15 @@ use crate::{
     agents::sessions::SessionRow,
     beep::{BarEvent, Pick, Sent, Service, Turn, epoch_ms},
     center::{self, Chat},
-    error::Result,
+    error::{DesktopError, Result},
+    fleet::projects::{FleetState, desk},
 };
+use beep_fleet::project_id;
 use beep_proto::{
-    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectMachines,
-    ListProjectSessions, ListProjectSyncthing, ListProjectTasks, ListProjectWorkers,
-    PendingApproval, ProjectAgent, ProjectCopy, ProjectMachine, ProjectTask, ProjectTaskState,
-    ProjectWorker, ProjectWorkerState, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
+    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectSessions,
+    ListProjectTasks, ListProjectWorkers, PendingApproval, ProjectAgent, ProjectCopy,
+    ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
+    StopProjectWorker, SyncthingPlace, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -64,41 +66,68 @@ impl From<ProjectMachine> for ProjectMachineRow {
 /// say, and the page lists the imported folders as before.
 #[tauri::command]
 pub async fn project_machines(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     project: String,
 ) -> Result<Option<Vec<ProjectMachineRow>>> {
-    Ok(known(beep.call(ListProjectMachines { project }).await)?
-        .map(|machines| machines.into_iter().map(ProjectMachineRow::from).collect()))
+    let machines = desk(&fleet).await?.project_machines(&project).await?;
+    Ok(Some(
+        machines.into_iter().map(ProjectMachineRow::from).collect(),
+    ))
 }
 
-/// Copies `project` onto `machine_id`. `None` from a server too old to, and
-/// the page clones instead.
+/// Copies `project` onto `machine_id` through the server, which brings it
+/// over sync. `None` from a server too old to, or with no server, and the
+/// page clones instead.
 #[tauri::command]
 pub async fn project_copy(
     beep: Service<'_>,
     project: String,
     machine_id: String,
 ) -> Result<Option<ProjectCopy>> {
-    known(
+    match known(
         beep.call(CopyProject {
             project,
             machine_id,
         })
         .await,
-    )
+    ) {
+        Err(DesktopError::NoServer) => Ok(None),
+        copied => copied,
+    }
 }
 
 /// The machines on which Syncthing keeps `project`'s folder in step. Empty
 /// from a server too old to say.
 #[tauri::command]
-pub async fn project_syncthing(beep: Service<'_>, project: String) -> Result<Vec<SyncthingPlace>> {
-    Ok(known(beep.call(ListProjectSyncthing { project }).await)?.unwrap_or_default())
+pub async fn project_syncthing(
+    fleet: FleetState<'_>,
+    project: String,
+) -> Result<Vec<SyncthingPlace>> {
+    Ok(desk(&fleet).await?.syncthing(&project).await)
 }
 
 /// The project agent of `name` (`org/repo`), made with its chat on the
 /// first ask.
 #[tauri::command]
-pub async fn center_open_project(beep: Service<'_>, name: String) -> Result<ProjectAgent> {
+pub async fn center_open_project(
+    fleet: FleetState<'_>,
+    beep: Service<'_>,
+    name: String,
+) -> Result<ProjectAgent> {
+    // With no server there is no project agent: the page still opens, on an id the name makes,
+    // with no chat.
+    if beep.server().is_none() {
+        let found = desk(&fleet).await?.project_machines(&name).await;
+        return found
+            .map(|_| ProjectAgent {
+                project_id: project_id(&name),
+                name,
+                chat_id: Uuid::nil(),
+                open_tasks: 0,
+                open_workers: 0,
+            })
+            .map_err(Into::into);
+    }
     beep.call(GetProjectAgent { project: name })
         .await
         .map_err(outdated)
@@ -171,6 +200,16 @@ pub async fn center_project(
     project_id: Uuid,
     chat_id: Uuid,
 ) -> Result<ProjectView> {
+    // No server, no project agent: nothing planned, nothing running, no chat.
+    if beep.server().is_none() {
+        return Ok(project_view(ProjectParts {
+            chat_id,
+            tasks: Vec::new(),
+            workers: Vec::new(),
+            turns: Vec::new(),
+            approvals: Vec::new(),
+        }));
+    }
     let (tasks, workers, turns, approvals) = join!(
         beep.call(ListProjectTasks {
             project: project_id

@@ -3,14 +3,11 @@
 //! is parsed into the protocol's types here, and checked before it goes.
 
 use crate::{
-    beep::Service,
     error::{DesktopError, Result},
-    projects::unknown_op,
-    settings::credentials::plain,
+    fleet::projects::{FleetState, desk},
 };
 use beep_proto::{
     FlshAutoCompact, FlshModel, FlshModelRule, FlshQuantization, FlshSettings, FlshSort,
-    GetFlshSettings, SaveFlshSettings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -139,21 +136,15 @@ impl TryFrom<FlshView> for FlshSettings {
 
 /// The user's flsh settings; `None` from a server too old to keep them.
 #[tauri::command]
-pub async fn flsh_settings_get(beep: Service<'_>) -> Result<Option<FlshView>> {
-    match beep.call(GetFlshSettings {}).await {
-        Ok(settings) => Ok(Some(settings.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(plain(e)),
-    }
+pub async fn flsh_settings_get(fleet: FleetState<'_>) -> Result<Option<FlshView>> {
+    Ok(Some(desk(&fleet).await?.flsh().into()))
 }
 
 /// Saves the user's flsh settings for every machine.
 #[tauri::command]
-pub async fn flsh_settings_save(beep: Service<'_>, settings: FlshView) -> Result<()> {
+pub async fn flsh_settings_save(fleet: FleetState<'_>, settings: FlshView) -> Result<()> {
     let settings = FlshSettings::try_from(settings)?;
-    beep.call(SaveFlshSettings { settings })
-        .await
-        .map_err(plain)
+    Ok(desk(&fleet).await?.save_flsh(&settings).await?)
 }
 
 #[cfg(test)]
