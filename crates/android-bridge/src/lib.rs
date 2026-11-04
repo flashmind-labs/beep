@@ -60,6 +60,7 @@ use uuid::Uuid;
 
 mod live;
 mod reply_voice;
+mod workspace;
 
 pub use live::{
     LeaveReason, LiveEvent, LiveListener, LivePhase, LiveSession, LiveStart, LiveView, ReplyFailure,

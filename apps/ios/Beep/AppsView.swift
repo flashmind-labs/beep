@@ -158,6 +158,7 @@ struct AppsView: View {
         async let listed = model.mcpServers()
         do {
             apps = try await model.apps()
+            await model.workspace.refresh()
             if let fastmail = apps.first(where: { $0.kind == .fastmail }) {
                 accounts = fastmail.connected ? try? await model.appAccounts(fastmail.slug) : []
             } else {
