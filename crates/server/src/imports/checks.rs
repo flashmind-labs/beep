@@ -24,10 +24,10 @@ use std::{
 use tokio::{sync::Semaphore, task::JoinSet, time::timeout};
 
 /// The most checkouts one machine names in a look.
-const FOLDERS_PER_MACHINE: u32 = 200;
+const FOLDERS_PER_MACHINE: u32 = 800;
 /// The longest one machine's look may take.
 const LOOK_LIMIT: Duration = Duration::from_secs(60);
-/// How long a look at a machine with a project folder stands before the page asks again.
+/// How long a look at a machine stands before the page asks again.
 const RECHECK: TimeDelta = TimeDelta::minutes(10);
 /// Machines looked through at once, server-wide.
 const AT_ONCE: usize = 4;
@@ -294,12 +294,13 @@ pub(crate) struct Machine<'a> {
 /// A project's page: its machines, and those to look through now.
 pub(crate) struct Page {
     pub(crate) machines: Vec<ProjectMachine>,
-    /// Online machines without a checkout not looked through since the import, by key.
+    /// Online machines without a checkout not looked through lately, by key.
     pub(crate) to_check: Vec<String>,
 }
 
-/// What a project's page lists per machine; looks before the first import do not count.
-pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
+/// What a project's page lists per machine; looks before the first import do not count, and one
+/// older than `RECHECK` is repeated: a checkout may have appeared, or the node not known it yet.
+pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>], now: DateTime<Utc>) -> Page {
     let since = rows.iter().map(|row| row.imported_at).min();
     let mut listed = Vec::new();
     let mut to_check = Vec::new();
@@ -314,7 +315,8 @@ pub(crate) fn machines(rows: &[ImportRow], machines: &[Machine<'_>]) -> Page {
         // A look left over from before it went offline answers nothing; it
         // is looked through again when it connects.
         let mut checking = machine.checking && machine.online;
-        if folder.is_none() && checked_at.is_none() && machine.lookable && !checking {
+        let due = checked_at.is_none_or(|at| at + RECHECK < now);
+        if folder.is_none() && due && machine.lookable && !checking {
             to_check.push(machine.row.endpoint.clone());
             checking = true;
         }
@@ -433,6 +435,31 @@ mod tests {
         assert_eq!(on_laptop, ["/home/user/site"]);
     }
 
+    #[test]
+    fn a_machine_looked_through_long_ago_is_looked_through_again() {
+        let imported = import("acme/widget", "laptop", "/home/user/projects/acme/widget");
+        let build = node("build", "build-box");
+        let now = imported.imported_at + RECHECK * 3;
+        let listed = |checked_at| {
+            [Machine {
+                row: &build,
+                online: true,
+                lookable: true,
+                checking: false,
+                checked_at: Some(checked_at),
+            }]
+        };
+        let rows = std::slice::from_ref(&imported);
+
+        let recent = machines(rows, &listed(now - TimeDelta::minutes(1)), now);
+        assert!(recent.to_check.is_empty());
+        assert!(!recent.machines[0].checking);
+
+        let old = machines(rows, &listed(now - RECHECK - TimeDelta::minutes(1)), now);
+        assert_eq!(old.to_check, ["build"]);
+        assert!(old.machines[0].checking);
+    }
+
     #[tokio::test]
     async fn a_project_imported_after_a_look_is_looked_for_again() {
         let harness = Harness::new(Scripted::default()).await;
@@ -463,7 +490,7 @@ mod tests {
         let Page {
             machines: page,
             to_check,
-        } = machines(std::slice::from_ref(&imported), &listed);
+        } = machines(std::slice::from_ref(&imported), &listed, Utc::now());
         assert!(page[0].checking);
         assert_eq!(to_check, ["build"]);
         // The look the import starts finds it.
