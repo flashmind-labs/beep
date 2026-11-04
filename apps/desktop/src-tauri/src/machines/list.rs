@@ -76,7 +76,17 @@ impl<T> Default for Held<T> {
     }
 }
 
-impl<T: Clone + PartialEq + Send + 'static> Held<T> {
+/// A refresh in progress; the next may start once it is dropped, however
+/// its task ended.
+struct Refresh<T>(Arc<Held<T>>);
+
+impl<T> Drop for Refresh<T> {
+    fn drop(&mut self) {
+        self.0.refreshing.store(false, Ordering::Relaxed);
+    }
+}
+
+impl<T: Clone + Send + 'static> Held<T> {
     fn last(&self) -> Vec<T> {
         self.list
             .lock()
@@ -84,19 +94,20 @@ impl<T: Clone + PartialEq + Send + 'static> Held<T> {
             .clone()
     }
 
-    /// Whether the caller may refresh: one refresh runs at a time.
-    fn begin(&self) -> bool {
-        !self.refreshing.swap(true, Ordering::Relaxed)
+    /// Allows a refresh, unless one runs: one at a time.
+    fn begin(self: &Arc<Self>) -> Option<Refresh<T>> {
+        (!self.refreshing.swap(true, Ordering::Relaxed)).then(|| Refresh(self.clone()))
     }
 
-    /// Ends the refresh that `begin` allowed. A list that could not be read
-    /// keeps the last one. Whether the list changed.
-    fn finish(&self, listed: Result<Vec<T>>) -> bool {
-        self.refreshing.store(false, Ordering::Relaxed);
+    /// Keeps `listed`; a list that could not be read keeps the last one.
+    /// Whether the list changed in a way `same` tells apart, which leaves
+    /// out values that move on every read.
+    fn finish(&self, listed: Result<Vec<T>>, same: impl Fn(&T, &T) -> bool) -> bool {
         match listed {
             Ok(listed) => {
                 let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
-                let changed = *held != listed;
+                let changed = held.len() != listed.len()
+                    || held.iter().zip(&listed).any(|(old, new)| !same(old, new));
                 *held = listed;
                 changed
             }
@@ -109,13 +120,14 @@ impl<T: Clone + PartialEq + Send + 'static> Held<T> {
 
     /// `mesh` and the machines the server last listed that it lacks, at
     /// once. With a server, the list is read again in the background, and
-    /// the windows redraw when it changed.
+    /// the windows redraw when `same` tells the new list from the last.
     pub(crate) fn merged<R>(
         self: &Arc<Self>,
         app: &AppHandle,
         mesh: Vec<T>,
         request: R,
         id: impl Fn(&T) -> &str,
+        same: fn(&T, &T) -> bool,
     ) -> Vec<T>
     where
         R: Call<Reply = Vec<T>> + Sync,
@@ -124,11 +136,13 @@ impl<T: Clone + PartialEq + Send + 'static> Held<T> {
         if beep.server().is_none() {
             return mesh;
         }
-        if self.begin() {
+        if let Some(refresh) = self.begin() {
             let (held, app) = (self.clone(), app.clone());
+            // Ends with the call, which times out; nothing else owns it.
             tauri::async_runtime::spawn(async move {
+                let _refresh = refresh;
                 let listed = beep.call(request).await;
-                if held.finish(listed)
+                if held.finish(listed, same)
                     && let Err(e) = app.emit(HOME_CHANGED, ())
                 {
                     log::warn!("telling the windows the machines changed: {e}");
@@ -171,20 +185,36 @@ pub(crate) fn machines(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<Ma
             machine.version.clone_from(&listed.version);
         }
     }
-    held.machines
-        .merged(app, mesh, ListMachines {}, |machine| &machine.id)
+    held.machines.merged(
+        app,
+        mesh,
+        ListMachines {},
+        |machine| &machine.id,
+        |old, new| old.id == new.id && old.online == new.online,
+    )
 }
 
 pub(crate) fn details(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<MachineDetails> {
     let mesh = fleet.status().details();
-    held.details
-        .merged(app, mesh, ListMachineDetails {}, |details| &details.id)
+    held.details.merged(
+        app,
+        mesh,
+        ListMachineDetails {},
+        |details| &details.id,
+        |old, new| old == new,
+    )
 }
 
 pub(crate) fn stats(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<MachineStats> {
     let mesh = fleet.status().stats();
-    held.stats
-        .merged(app, mesh, ListMachineStats {}, |stats| &stats.id)
+    // Live values: a new reading is never news.
+    held.stats.merged(
+        app,
+        mesh,
+        ListMachineStats {},
+        |stats| &stats.id,
+        |_, _| true,
+    )
 }
 
 #[tauri::command]
@@ -220,9 +250,14 @@ pub async fn machine_traffic(
     held: State<'_, Outside>,
 ) -> Result<Vec<TrafficView>> {
     let mesh = fleet.status().traffic();
-    let traffic = held
-        .traffic
-        .merged(&app, mesh, ListMachineTraffic {}, |traffic| &traffic.id);
+    let traffic = held.traffic.merged(
+        &app,
+        mesh,
+        ListMachineTraffic {},
+        |traffic| &traffic.id,
+        // Counters that grow: a new reading is never news.
+        |_, _| true,
+    );
     Ok(traffic.into_iter().map(TrafficView::from).collect())
 }
 
@@ -270,9 +305,13 @@ pub async fn updatable_machines(
     held: State<'_, Outside>,
 ) -> Result<Vec<UpdatableMachine>> {
     let mesh = fleet.status().updatable();
-    Ok(held
-        .updatable
-        .merged(&app, mesh, ListUpdatableMachines {}, |machine| &machine.id))
+    Ok(held.updatable.merged(
+        &app,
+        mesh,
+        ListUpdatableMachines {},
+        |machine| &machine.id,
+        |old, new| old.id == new.id,
+    ))
 }
 
 /// The recent log of one of the account's machines.
@@ -331,17 +370,43 @@ mod tests {
 
     #[test]
     fn a_server_that_cannot_answer_leaves_the_last_list() {
-        let held = Held::<String>::default();
-        assert!(held.begin());
-        assert!(!held.begin(), "one refresh runs at a time");
-        assert!(held.finish(Ok(vec!["far".to_owned()])));
-        assert!(held.begin());
-        assert!(!held.finish(Err(DesktopError::NoServer)));
+        let held = Arc::new(Held::<String>::default());
+        let refresh = held.begin().expect("the first refresh starts");
+        assert!(held.begin().is_none(), "one refresh runs at a time");
+        assert!(held.finish(Ok(vec!["far".to_owned()]), |a, b| a == b));
+        drop(refresh);
+        let refresh = held.begin().expect("the next refresh starts");
+        assert!(!held.finish(Err(DesktopError::NoServer), |a, b| a == b));
         assert_eq!(held.last(), ["far"]);
-        // The failed refresh ended, so the next may start, and a list
-        // that did not change is not news.
-        assert!(held.begin());
-        assert!(!held.finish(Ok(vec!["far".to_owned()])));
+        drop(refresh);
+        // A list that did not change is not news.
+        assert!(!held.finish(Ok(vec!["far".to_owned()]), |a, b| a == b));
+    }
+
+    #[test]
+    fn a_refresh_that_panicked_does_not_block_the_next() {
+        let held = Arc::new(Held::<String>::default());
+        let refresh = held.begin().expect("the first refresh starts");
+        let died = std::thread::spawn(move || {
+            let _refresh = refresh;
+            panic!("the task died");
+        })
+        .join();
+        assert!(died.is_err());
+        assert!(held.begin().is_some());
+    }
+
+    #[test]
+    fn a_live_value_that_moved_is_not_a_change() {
+        // Entries are (id, load): only the id is structure.
+        let held = Held::<(String, u32)>::default();
+        let same = |a: &(String, u32), b: &(String, u32)| a.0 == b.0;
+        assert!(held.finish(Ok(vec![("box".to_owned(), 3)]), same));
+        assert!(!held.finish(Ok(vec![("box".to_owned(), 9)]), same));
+        assert_eq!(held.last(), [("box".to_owned(), 9)]);
+        // A machine that came or went is.
+        assert!(held.finish(Ok(vec![("box".to_owned(), 9), ("rig".to_owned(), 1)]), same));
+        assert!(held.finish(Ok(vec![("rig".to_owned(), 1)]), same));
     }
 
     #[test]
