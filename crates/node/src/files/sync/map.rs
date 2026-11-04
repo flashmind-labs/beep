@@ -249,6 +249,9 @@ struct Stored {
     seq: u64,
 }
 
+/// More changes than a node makes between two saves.
+const LOAD_GAP: u64 = 1 << 32;
+
 /// One node's copy of a project's list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct Map {
@@ -280,8 +283,13 @@ impl Map {
         }
     }
 
-    /// Rebuilds what is not saved, after loading.
+    /// Rebuilds what is not saved, after loading. A crash can load a list
+    /// older than what peers already got from it: moving its counts past any
+    /// it gave out keeps a peer's cursor from skipping the next changes, and
+    /// an old edit from passing for newer than the next ones.
     pub(super) fn loaded(mut self) -> Self {
+        self.seq += LOAD_GAP;
+        self.clock += LOAD_GAP;
         self.by_seq = self
             .entries
             .iter()
@@ -549,6 +557,23 @@ mod tests {
         map.merge(&entry("a", &[(2, 1)], file(2, 2)));
         let first = map.since(before, 1).entries;
         assert_eq!(first[0].path, "a (conflict 01010101)");
+    }
+
+    #[test]
+    fn a_list_loaded_after_a_crash_reuses_nothing_peers_got() {
+        let mut map = Map::new(1);
+        map.edit("a", &Version::default(), file(1, 1));
+        let saved = rmp_serde::to_vec_named(&map).unwrap();
+        // What the crash loses, and a peer already has.
+        let lost = map.edit("b", &Version::default(), file(2, 2));
+        let cursor = map.seq();
+
+        let mut loaded = rmp_serde::from_slice::<Map>(&saved).unwrap().loaded();
+        let again = loaded.edit("b", &Version::default(), file(3, 3));
+        assert_eq!(again.compare(&lost), Order::Newer);
+        let sent = loaded.since(cursor, 10).entries;
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].file, file(3, 3));
     }
 
     #[test]
