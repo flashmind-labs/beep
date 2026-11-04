@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   type DiffFile, type DiffView, diffRows, withLoaded,
-} from "../src/diff-state.ts";
+} from "../src/review/diff-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path, old_path: null, status: "modified", additions: 1, deletions: 1, hunks: [], left_out: null, ...o,

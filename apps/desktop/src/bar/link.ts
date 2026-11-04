@@ -1,8 +1,8 @@
-import { renderChat } from "./chat.ts";
-import { copy } from "./chats.ts";
+import { renderChat } from "../chat/chat.ts";
+import { copy } from "../chat/chats.ts";
 import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
-import { loadModels } from "./model.ts";
-import { renderSettings } from "./settings.ts";
+import { loadModels } from "../settings/model.ts";
+import { renderSettings } from "../settings/settings.ts";
 
 // ---------- Link ----------
 

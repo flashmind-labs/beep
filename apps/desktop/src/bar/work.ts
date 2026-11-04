@@ -1,9 +1,9 @@
-import { body, type ApprovalField, type Decision, forRoutine, keepDown } from "./chat.ts";
+import { body, type ApprovalField, type Decision, forRoutine, keepDown } from "../chat/chat.ts";
 import { esc, h, here, ICON, invoke, listen, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";
-import { notice } from "./media.ts";
-import { AnsweredIds } from "../approvals.ts";
-import { appTile, fillAppTiles } from "../applogo.ts";
+import { notice } from "../chat/media.ts";
+import { AnsweredIds } from "../chat/approvals.ts";
+import { appTile, fillAppTiles } from "../chat/applogo.ts";
 
 /// Questions answered in this window. A list fetched before the answer
 /// landed, or a notice repeated, would bring the card back.

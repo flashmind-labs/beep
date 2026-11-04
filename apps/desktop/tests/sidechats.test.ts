@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sideThreads, type ThreadChatEntry } from "../src/sidechats.ts";
+import { sideThreads, type ThreadChatEntry } from "../src/center/sidechats.ts";
 
 const thread = (chat_id: string, project: string, number: number): ThreadChatEntry => ({
   chat_id, kind: "pr", repo: project, number, title: `PR #${number} Fix`, project_id: `id-${project}`, project,

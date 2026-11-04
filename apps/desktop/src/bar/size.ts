@@ -1,4 +1,4 @@
-import { drawMap } from "./chat.ts";
+import { drawMap } from "../chat/chat.ts";
 import { $, bar, invoke, PANE } from "./core.ts";
 
 // ---------- Size ----------

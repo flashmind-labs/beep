@@ -1,5 +1,5 @@
 /* Skins: every color, corner, font and label style the windows use. The
-   default is Linear; `data-skin` on <html> picks another (src/skin.ts). */
+   default is Linear; `data-skin` on <html> picks another (src/ui/skin.ts). */
 :root {
   --ink: #0f1011; --surface: #151617; --elev: #1c1d1f; --border: #222326;
   --fg: #e3e4e6; --muted: #8a8f98; --accent: #5e6ad2; --on-accent: #fff; --hot: #f2994a;

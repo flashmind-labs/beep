@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Attached, batches, DELIVERED_SHOWN_MS, dropDelivered, markDelivered, type Waiting } from "../src/bar/agentqueue.ts";
+import { type Attached, batches, DELIVERED_SHOWN_MS, dropDelivered, markDelivered, type Waiting } from "../src/agents/agentqueue.ts";
 
 const img = (name: string, size = 10): Attached => ({ name, mime: "image/png", size, data: "", url: "" });
 const item = (text: string, images: Attached[] = []): Waiting => ({ how: "queue", typed: text, text, paths: [], images, state: null, after: 0 });

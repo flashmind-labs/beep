@@ -1,17 +1,17 @@
 import "./keys.ts";
-import { chartClick } from "./charts.ts";
-import { answeredTurns, openInWindow, renderChat, watchRun } from "./chat.ts";
-import type { ApprovalField } from "./chat.ts";
-import { copy, loadChats } from "./chats.ts";
+import { chartClick } from "../chat/charts.ts";
+import { answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
+import type { ApprovalField } from "../chat/chat.ts";
+import { copy, loadChats } from "../chat/chats.ts";
 import { bar, COPY_ICON, G, h, here, ICON, invoke, listen, live, type LinkState, PANE, S, type Turn } from "./core.ts";
-import { drawGroup, loadGroup } from "./groups.ts";
+import { drawGroup, loadGroup } from "../chat/groups.ts";
 import { learnedHotkey, refreshHints } from "./hints.ts";
-import { refreshSession } from "./history.ts";
+import { refreshSession } from "../chat/history.ts";
 import { drawLink, renderLink, renderRevoked } from "./link.ts";
-import { openViewer } from "./media.ts";
-import { modelClick, renderModel } from "./model.ts";
-import { closeRerunMenu, rerun, rerunClick, rerunMenu } from "./rerun.ts";
-import { routeClick } from "./routes.ts";
+import { openViewer } from "../chat/media.ts";
+import { modelClick, renderModel } from "../settings/model.ts";
+import { closeRerunMenu, rerun, rerunClick, rerunMenu } from "../chat/rerun.ts";
+import { routeClick } from "../chat/routes.ts";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
 

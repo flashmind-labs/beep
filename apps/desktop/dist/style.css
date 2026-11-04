@@ -1019,7 +1019,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }
 .agc-menuopen > .dhints { visibility: hidden }
-/* Composers (bar/compose.ts): a long paste is a pill, the part sent as code
+/* Composers (chat/compose.ts): a long paste is a pill, the part sent as code
    has a dim outline. Both are drawn on a layer behind the field's own text. */
 .cx-field { position: relative; z-index: 1 }
 .cx-layer { position: absolute; z-index: 0; box-sizing: border-box; margin: 0; border: 0; overflow: hidden; pointer-events: none; color: transparent; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal }

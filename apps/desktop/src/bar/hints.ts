@@ -1,9 +1,9 @@
-import { attachedCount } from "./attach.ts";
-import { focusAsk, forRoutine, stop } from "./chat.ts";
+import { attachedCount } from "../chat/attach.ts";
+import { focusAsk, forRoutine, stop } from "../chat/chat.ts";
 import { $, bar, h, here, ICON, PANE, queued, S } from "./core.ts";
 import type { LinkState } from "./core.ts";
 import { liveParts, LV } from "./live.ts";
-import { modelChip } from "./model.ts";
+import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
 
 // ---------- Hints ----------

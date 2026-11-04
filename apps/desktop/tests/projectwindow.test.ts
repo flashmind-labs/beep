@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { route, type ProjectScope } from "../src/projectwindow.ts";
+import { route, type ProjectScope } from "../src/project/projectwindow.ts";
 
 const scope: ProjectScope = {
   project: "org/site",
