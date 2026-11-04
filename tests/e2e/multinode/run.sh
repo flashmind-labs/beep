@@ -204,6 +204,18 @@ for c in add edit tie del gone; do
   printf '   %-6s %8s %10s %12s %12s %9s\n' "$c" "${PATHS[$c]}" "${DIVERGED[$c]}" "${NEWEST[$c]}" "${COPIES[$c]}" "${LOST[$c]}"
 done
 
+# The conflict copies now make each node's status more than a datagram. A node
+# that is up must answer every time, not once in a while.
+offline=0
+for i in $(seq 1 30); do
+  n="$(probe sync-status "$PROJECT" | awk '$2 == "offline" { n++ } END { print n + 0 }')"
+  offline=$((offline + n))
+  sleep 1
+done
+if (( offline == 0 )); then pass "no node looked offline in 30 status polls"; else
+  fail "nodes looked offline $offline times in 30 status polls, all of them up"
+fi
+
 fd_mark
 
 step "3. node-d offline while the others change the project"

@@ -26,6 +26,7 @@ iroh finds its paths through relays and hole punching, so nothing is hosted.
 | `reconnect` | With node-a's egress capped by tc, node-b is stopped partway through fetching a 200 MB file, with SIGTERM and then SIGKILL, and started again. The file arrives whole, no partial folder is left and the server sees both in sync. |
 | `interrupt` | With node-a's egress capped by tc, a 500 MB file is moving to node-b when node-b is restarted, then node-a is restarted, then node-b's network is cut with iptables DROP for 30 s (ssh still let through) and restored. Each time node-b receives about what was left after the interruption, not the whole file again (bytes on its uplinks), the file arrives with node-a's sha256, no partial folder or journal entry is left on either node, and the server sees both in sync. |
 | `scale` | node-a makes 20000 small files in a tree 8 folders deep plus 300 files of 1 MB; node-b ends up with the same sorted sha256 manifest. node-a deletes the tree; node-b keeps none of it and no empty folder. The same tree made on node-b reaches node-a. A 256 MB file times MB/s. |
+| `powercut` | node-b reboots without a flush (`/proc/sysrq-trigger`) partway through taking in a tree from node-a, three times. Every file at its path after the reboot is whole; node-b then reaches node-a's manifest, node-a's does not change, and there are no conflict copies. |
 | `multinode` | Four nodes. Changes from all of them at one moment converge. One path changed on every node at one moment, over rounds (all add, all edit, all edit with one mtime, one deletes while the others edit, all delete): every node picks one winner, the newest edit wins, losing edits stay as conflict copies, a delete never beats an edit. node-d stops while the others add, edit, delete and rename: the others converge without it, it catches up to their manifest, no deleted file returns, and the server says in sync only once it is. |
 
 Env:
@@ -37,6 +38,7 @@ Env:
   transfers in `sync` and `reconnect`.
 - `E2E_INTERRUPT_MB`, `E2E_INTERRUPT_RATE`, `E2E_CUT_SECS` for `interrupt`.
 - `E2E_SCALE_FILES`, `E2E_SCALE_MB_FILES`, `E2E_SCALE_BIG_MB` for `scale`.
+- `E2E_POWERCUT_ROUNDS`, `E2E_POWERCUT_FILES`, `E2E_POWERCUT_MB_FILES` for `powercut`.
 - `E2E_MULTI_ROUNDS` (default 8) for `multinode`.
 
 ## Open fds
