@@ -1,25 +1,20 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
-import { type BeepCall, beepCall, beepLine, clock, commandDetail, commandOf, diffBlocks, duration, heading, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, thoughtLabel, toolKind, type ToolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
-import { $, bar, type ChatBody, esc, ICON, S } from "../bar/core.ts";
+import { type BeepCall, beepCall, beepLine, commandDetail, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { $, type ChatBody, esc, ICON, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
-import { attachLive, endedHtml, liveHtml } from "./thoughtlive.ts";
+import { attachLive } from "./thoughtlive.ts";
+import { answerHtml, errorCardHtml, KIND_ICONS, stepMark, stopFace, thinkingRow, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "../chat/turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
-import { stoppingNow, redrawAgentHints, STOP_MARK, userImages } from "./session.ts";
+import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { fillAgentPics, gonePic } from "./images.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawQueue } from "./messages.ts";
 
 /// A step's mark: done, failed, running or did not finish.
-function stepMark(status: string) {
-  const running = AGENT_ACTIVE.has(AG.page?.session.status);
-  return status === "completed" ? `<span class="dok" title="Done">${ICON.check}</span>`
-    : status === "failed" ? `<span class="dbad" title="Failed">${ICON.x}</span>`
-    : status && running ? `<span class="dspin" title="Running"></span>`
-    : status ? '<span class="ddot off" title="Did not finish"></span>' : "";
-}
+const mark = (status: string) => stepMark(status, AGENT_ACTIVE.has(AG.page?.session.status));
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
 export function toolRow(en: AgentEntry, at: number, pics = "") {
@@ -45,35 +40,17 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
   if (beep) {
     return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-      + `<span class="mk">${stepMark(status)}</span>${beepHead(beep, title, state, live)}`
+      + `<span class="mk">${mark(status)}</span>${beepHead(beep, title, state, live)}`
       + mediaButtons(title) + body + pics + "</div>";
   }
   const parts = rowParts(en.text, live);
   const rowBody = !open ? "" : (detail ? `<pre class="cmd">${esc(detail)}</pre>` : "") + toolBody(output);
-  const tip = esc(commandOf(title));
-  return `<div class="dcoderen tool row${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-    + `<span class="ki">${KIND_ICONS[parts.kind]}</span><span class="vb">${esc(parts.verb)}</span>`
-    + `<code class="tt" title="${tip}">${esc(open && long ? label : parts.target)}</code>`
-    + `<span class="rm${parts.bad ? " bad" : ""}">${detailHtml(parts.detail)}</span><span class="mk">${stepMark(status)}</span>`
-    + mediaButtons(title) + rowBody + pics + "</div>";
-}
-
-/// An icon for each kind of call, in the row before its verb.
-const KIND_ICONS: Record<ToolKind, string> = {
-  read: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 13h6M9 17h4"/></svg>',
-  edit: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
-  command: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l5 5-5 5M12 17h7"/></svg>',
-  search: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>',
-  web: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>',
-  mcp: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"/></svg>',
-  beep: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="7" rx="1.5"/><rect x="13" y="13" width="9" height="7" rx="1.5"/><path d="M6.5 11v4.5a2 2 0 0 0 2 2H13"/></svg>',
-  other: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>',
-};
-
-/// The right side of a row: an edit's counts in green and red.
-function detailHtml(detail: string) {
-  const counts = /^\+(\d+) -(\d+)$/.exec(detail);
-  return counts ? `<span class="pl">+${counts[1]}</span><span class="mi">-${counts[2]}</span>` : esc(detail);
+  return toolRowHtml({
+    ...parts, target: open && long ? label : parts.target, tip: commandOf(title), mark: mark(status),
+    cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
+    attrs: ` data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}`,
+    after: mediaButtons(title) + rowBody + pics,
+  });
 }
 
 /// What an opened call shows: each diff as its changed lines, then the
@@ -130,7 +107,7 @@ function subRow(at: number) {
   const st = x.working ? "working" : x.failed ? "failed" : "done";
   const meta = [st, x.ms != null ? duration(x.ms) : "", x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`].filter(Boolean).join(" · ");
   const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
-  return `<button class="dsubrow" data-sub="${at}" title="Open ${esc(x.title)}"><span class="mk">${stepMark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span></button>`;
+  return `<button class="dsubrow" data-sub="${at}" title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span></button>`;
 }
 
 /// Subagents started together as one card: "3 subagents · 2 working · 1 done".
@@ -152,13 +129,13 @@ function subagentsShown(p: AgentPage) {
 /// asked, its steps and what it answered.
 function childHtml(p: AgentPage, at: number) {
   const x = subOf(at), s = p.session, k = agentKind(s.agent);
-  const steps = x.sub.steps.map(st => `<div class="dcoderen tool"><span class="mk">${stepMark(st.status)}</span><code class="tt" title="${esc(st.title)}">${esc(stepLabel(`${st.title} [${st.status}]`, st.status === "in_progress" && x.working))}</code></div>`).join("");
+  const steps = x.sub.steps.map(st => `<div class="dcoderen tool"><span class="mk">${mark(st.status)}</span><code class="tt" title="${esc(st.title)}">${esc(stepLabel(`${st.title} [${st.status}]`, st.status === "in_progress" && x.working))}</code></div>`).join("");
   const earlier = x.sub.count > x.sub.steps.length ? `<div class="dmuted">${x.sub.count - x.sub.steps.length} earlier steps not shown</div>` : "";
   const none = !x.sub.count && !x.working ? `<div class="dcoderen other">Steps not reported by ${esc(k.name)}.</div>` : "";
   const result = x.sub.result ? `<div class="dcoderen agent">${esc(x.sub.result)}</div>` : x.working ? '<div class="dmuted"><span class="dspin"></span> Working…</div>' : "";
   return `<div class="dcoderlog"><div class="dcrumb"><button id="agparent">${esc(s.title || "Session")}</button><span>›</span><b>${esc(x.title)}</b><span class="sp"></span><button class="dbtn" id="agparent2" data-parent="1">Open parent<kbd>esc</kbd></button></div>
     <div class="dcoderen user"><b>${esc(x.agent || "Task")}</b><span>${esc(x.title)}</span></div>
-    <div class="dcoderturn"><span class="hd">${esc(x.working ? "Working" : x.ms != null ? `Worked for ${duration(x.ms)}` : "Worked")}</span></div>
+    ${turnHeadHtml({ state: x.working ? "working" : "done", ms: x.ms, stats: "", key: null, opened: false })}
     ${earlier}${steps}${none}${result}</div>`;
 }
 
@@ -183,23 +160,11 @@ function entryPic(n: string) {
   return gonePic(label);
 }
 
-/// A reply's code blocks, each with a button that copies it.
-function withCopy(html: string) {
-  return html.replace(/<pre(\s[^>]*)?>/g, (_m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
-}
-
 /// The thought still arriving, by its place, which shows "Thinking"; set
 /// by each draw of the turns.
 let liveAt: number | null = null;
 /// The running turn thinks: a thought streams or is about to.
 export let thinking = false;
-
-/// How long one pass of the "Thinking" letters takes, as in the CSS.
-const SWEEP_MS = 1500;
-
-/// "Thinking", its letters lit one after another in a loop that keeps
-/// its phase across redraws, so a poll does not restart it.
-const thinkingLabel = () => `<span class="lb" style="--ph:${Date.now() % SWEEP_MS}ms">${[..."Thinking"].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
 
 /// A thought as one line that opens to its text. While it streams it
 /// follows its newest line; once done it folds to "Thought for 12s" unless
@@ -210,14 +175,7 @@ function thoughtRow(en: AgentEntry, at: number) {
   const touched = !!m?.touched.has(at), opened = !!m?.thoughts.has(at);
   const folding = !live && !touched && m?.wasLive === at;
   const open = live ? !touched || opened : opened || folding;
-  const label = live ? thinkingLabel() : `<span class="lb">${thoughtLabel(en.ms)}</span>`;
-  const key = `${session}:${at}`;
-  const body = live ? `<div class="tx">${liveHtml(key, en.text)}</div>`
-    : folding ? `<div class="tx">${endedHtml(key, en.text)}</div>`
-    : `<div class="tx md">${en.html ?? esc(en.text).replace(/\n/g, "<br>")}</div>`;
-  return `<div class="dthink${live ? " live" : ""}${open ? " open" : ""}" data-row="${at}"${folding ? " data-folding" : ""}>`
-    + `<button data-thought="${at}" aria-expanded="${open}">${label}<span class="cv">${ICON.chev}</span></button>`
-    + `<div class="bd"><div>${body}</div></div></div>`;
+  return thoughtHtml({ key: `${session}:${at}`, text: en.text, html: en.html, ms: en.ms, live, open, folding, row: at });
 }
 
 export function entryRow(en: AgentEntry, at: number) {
@@ -229,8 +187,7 @@ export function entryRow(en: AgentEntry, at: number) {
   if (en.kind === "user") {
     const { text: said, names } = userImages(en.text);
     const user = (s: string) => AG.log ? AG.log.userHtml(s, esc, i => AG.opened.has(`${at}:${i}`)) : esc(s);
-    if (!names.length) return `<div class="dcoderen user" data-at="${at}"><b>You</b><span>${user(en.text)}</span></div>`;
-    return `<div class="dcoderen user" data-at="${at}"><b>You</b>${said ? `<span>${user(said)}</span>` : ""}<span class="pics">${names.map(entryPic).join("")}</span></div>`;
+    return userRowHtml(user(said), ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "");
   }
   // The pictures the agent or a tool showed go after the text, as a
   // user's do. The HTML is already without their lines.
@@ -239,7 +196,7 @@ export function entryRow(en: AgentEntry, at: number) {
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
   // Image files the reply names link to its pictures, shown in a strip.
   const linked = (html: string) => AG.log ? AG.log.linkImagePaths(html).html : html;
-  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${withCopy(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
+  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other" data-row="${at}">${text}</div>`;
 }
@@ -378,12 +335,7 @@ function turnsHtml(p: AgentPage) {
       const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
       work = pics + rowsOf(p, t.steps.filter(at => kept.has(at)));
     }
-    const label = `<span${running && start != null ? ` data-since="${start}" data-state="${state}"` : ""}>${esc(heading(state, ms))}</span>`
-      + (stats ? `<span class="stats">· ${esc(stats)}</span>` : "");
-    const head = `<div class="dcoderturn">`
-      + (!t.steps.length ? `<span class="hd">${label}</span>`
-        : `<button class="hd${opened ? " open" : ""}" data-turn="${t.key}" aria-expanded="${opened}" title="${opened ? "Fold the steps" : "Show the steps"}">${label}${ICON.chev}</button>`)
-      + (start != null ? `<span class="when">${clock(start)}</span>` : "") + "</div>";
+    const head = turnHeadHtml({ state, start, ms, stats, key: t.steps.length ? t.key : null, opened });
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
     const doing = s.doing?.split("\n")[0].trim() ?? "";
@@ -393,25 +345,12 @@ function turnsHtml(p: AgentPage) {
       // A thought without text yet (or one the agent keeps to itself) sweeps
       // like one that has it, with nothing to open.
       ? doing === "Thinking"
-        ? `<div class="dthink live">${thinkingLabel()}</div>`
+        ? thinkingRow()
         : `<div class="dcoderthought" title="${esc(s.doing ?? "")}">${esc(doing)}</div>` : "";
     return user + head + work + thought + t.answer.map(row).join("");
   }).join("");
   m.wasLive = liveAt;
   return html;
-}
-
-let turnTick: ReturnType<typeof setInterval> | undefined;
-
-/// Moves the running turn's clock on between polls, and stops once no
-/// turn runs on screen.
-function tickTurns() {
-  const tick = () => {
-    const els = S.view === "agent" ? bar.querySelectorAll<HTMLElement>("#agbody [data-since]") : null;
-    if (!els?.length) { clearInterval(turnTick); turnTick = undefined; return; }
-    for (const el of els) el.textContent = heading(el.dataset.state as TurnState, Date.now() - Number(el.dataset.since));
-  };
-  if (!turnTick && bar.querySelector("#agbody [data-since]")) turnTick = setInterval(tick, 1000);
 }
 
 /// The question's answers; the first that allows and the first that does
@@ -490,7 +429,7 @@ export function drawAgentBody(keep?: string) {
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
   const entries = child != null ? childHtml(p, child) : p.entries.length && AG.log ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
-  const err = p.error ? `<div class="derrcard"><b>The turn did not finish</b><span>${esc(p.error)}</span></div>` : "";
+  const err = p.error ? errorCardHtml(p.error) : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note && AG.note === AG.readError && AG.note.startsWith("Reconnecting") ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
@@ -516,7 +455,7 @@ export function drawAgentBody(keep?: string) {
     // Stopped: it says so at once, while the agent winds the turn down.
     if (stop.disabled !== stopping) {
       stop.disabled = stopping;
-      stop.innerHTML = stopping ? '<span class="dspin"></span>Stopping' : `${STOP_MARK}Stop`;
+      stop.innerHTML = stopFace(stopping);
     }
   }
   if (scroll === "bottom") b.scrollTop = b.scrollHeight;

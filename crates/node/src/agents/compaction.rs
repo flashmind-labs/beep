@@ -1,15 +1,13 @@
-//! When the node compacts a session's conversation: once a turn ends with
-//! the context window past a threshold, it sends the agent `/compact`
-//! before the next prompt. Agents that compact on their own trigger
-//! (Gemini CLI, flsh) are left to it.
-//!
-//! The threshold is set per harness with `BEEP_COMPACT_AT` in its env
-//! settings: a percent of the window (`70`), or `off`.
+//! When the node compacts a session (`Compactor`): once a turn ends past the
+//! threshold `Policy` sets, it sends `/compact` before the next prompt. Agents
+//! that compact on their own (Gemini CLI, flsh) are left to it.
 
 use super::Known;
+use beep_proto::AgentContext;
 use std::collections::BTreeMap;
 
-/// The variable in a harness's env settings that sets its threshold.
+/// The variable in a harness's env settings that sets its threshold: a
+/// percent of the window (`70`), or `off`.
 pub(super) const COMPACT_AT_VAR: &str = "BEEP_COMPACT_AT";
 /// Claude Code's own threshold, a percent of its window.
 const CLAUDE_AUTOCOMPACT_VAR: &str = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE";
@@ -19,15 +17,6 @@ const DEFAULT_PERCENT: u8 = 80;
 pub(super) const COMPACT_PROMPT: &str = "/compact";
 /// What the transcript shows for a compaction, as Claude Code's reader does.
 pub(super) const COMPACTED_ENTRY: &str = "[conversation compacted]";
-
-/// How full the context window is, from the agent's last `usage_update`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Usage {
-    /// Tokens in the context.
-    pub(crate) used: u64,
-    /// The window's size in tokens.
-    pub(crate) size: u64,
-}
 
 /// Whether and when the node compacts a harness's sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +49,7 @@ impl Policy {
     }
 
     /// Whether a session at `usage` is due a compaction.
-    pub(super) fn due(self, usage: Option<Usage>) -> bool {
+    pub(super) fn due(self, usage: Option<AgentContext>) -> bool {
         let (Self::At(percent), Some(usage)) = (self, usage) else {
             return false;
         };
@@ -139,7 +128,7 @@ pub(super) struct Compactor {
 /// What a session looks like when its turn ends.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TurnEnd<'a> {
-    pub(super) usage: Option<Usage>,
+    pub(super) usage: Option<AgentContext>,
     pub(super) commands: &'a [String],
 }
 
@@ -189,15 +178,15 @@ mod tests {
             .collect()
     }
 
-    fn usage(used: u64, size: u64) -> Option<Usage> {
-        Some(Usage { used, size })
+    fn usage(used: u64, size: u64) -> Option<AgentContext> {
+        Some(AgentContext { used, size })
     }
 
     fn commands(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_owned()).collect()
     }
 
-    fn ended(compactor: &mut Compactor, usage: Option<Usage>, commands: &[String]) {
+    fn ended(compactor: &mut Compactor, usage: Option<AgentContext>, commands: &[String]) {
         compactor.turn_ended(TurnEnd { usage, commands });
     }
 

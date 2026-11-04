@@ -6,9 +6,8 @@
 
 use async_trait::async_trait;
 use beep_node::{
-    files::Folders,
+    files::{Folders, transfer::Transfers},
     link::{Offers, Protocol},
-    transfer::Transfers,
 };
 use beep_server::{
     app::{App, ServerTools},

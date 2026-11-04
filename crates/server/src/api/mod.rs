@@ -229,6 +229,7 @@ pub fn router() -> Router {
         .call(agent_control::start_agent_session)
         .call(agent_control::preview_agent_machine)
         .call(agent_control::get_agent_session)
+        .call(agent_control::get_agent_session_usage)
         .call(agent_control::steer_agent_session)
         .call(work::list_pending_approvals)
         .call(projects::get_project_agent)
@@ -377,6 +378,13 @@ async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> {
     }
     check_images(&req.images)?;
     check_files(&req.files)?;
+    // A run started now would be cut off by the restart; the app sends it
+    // again to the next server.
+    if cx.app.draining() {
+        return Err(ApiError::Conflict {
+            message: RESTARTING.into(),
+        });
+    }
     let model = match &req.model {
         Some(id) => Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone()),
         None => None,

@@ -1,23 +1,8 @@
 //! Whether what a session spent was paid by the token or covered by a
-//! subscription, as far as this machine tells without reading a secret.
-//!
-//! - Claude Code: a message id or model of Bedrock or Vertex in the log is
-//!   metered. Otherwise its settings (the user's, then the project's) are
-//!   read for which keys they set, never their values: an API key, an auth
-//!   token, an `apiKeyHelper` or a Bedrock, Vertex or Foundry switch is
-//!   metered, `forceLoginMethod` says which login. `.credentials.json` is
-//!   never read.
-//! - Codex: a token count carrying a ChatGPT plan is a subscription, a
-//!   provider other than `openai` is metered; otherwise `auth.json`'s
-//!   `auth_mode`, the only field read of it.
-//! - pi and OpenCode: each request's provider, by the `type` their
-//!   `auth.json` gives it (OAuth is a subscription), else by name.
-//! - flsh: the provider its model names, by name.
-//!
-//! Whatever is left unknown the server counts as a subscription for Claude
-//! Code and Codex.
+//! subscription (`Accounts`), as far as this machine tells without reading a
+//! secret.
 
-use crate::found::Agent;
+use crate::agents::found::Agent;
 use beep_proto::node::usage::Billing;
 use serde::{Deserialize, de::IgnoredAny};
 use std::{
@@ -73,7 +58,8 @@ pub(crate) struct AccountFiles {
     pub(crate) opencode: Option<PathBuf>,
 }
 
-/// How each agent signs in here, read again each pass.
+/// How each agent signs in here, read again each pass. What stays unknown
+/// the server counts as a subscription for Claude Code and Codex.
 #[derive(Debug, Default)]
 pub(super) struct Accounts {
     /// From Claude Code's user settings.
@@ -98,6 +84,7 @@ struct ClaudeSettings {
     force_login_method: Option<String>,
 }
 
+/// The only field of Codex's `auth.json` that is read.
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct CodexAuth {
@@ -128,6 +115,8 @@ fn read<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     }
 }
 
+/// How Claude Code's settings at `path` say it signs in, from which keys
+/// they set, never their values. `.credentials.json` is never read.
 fn claude_settings(path: &Path) -> Billing {
     let Some(settings) = read::<ClaudeSettings>(path) else {
         return Billing::Unknown;

@@ -2,6 +2,7 @@
 //! its machine through the server: shown, opened or saved here.
 
 use crate::{
+    agents::work_copy,
     beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name, image_mime},
     error::{DesktopError, Result},
@@ -118,6 +119,10 @@ async fn file_chunk(
     path: String,
     offset: u64,
 ) -> Result<AgentFileChunk> {
+    let len = u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?;
+    if let Some(chunk) = work_copy::read(beep, &machine_id, &path, offset, len).await {
+        return Ok(chunk);
+    }
     let chunk = beep
         .call(GetAgentFile {
             machine_id,

@@ -1,12 +1,11 @@
-//! What the agents' logs said so far: per log file, how far it was read
-//! and what each session in it spent by hour and model, and which sessions
-//! changed since the server last heard of them. Kept in one JSON file so a
-//! restart reads only what was written since.
+//! What the agents' logs said so far (`Ledger`): per log file how far it was
+//! read, what each session spent by hour and model, and which changed. Kept
+//! in one JSON file so a restart reads only what was written since.
 
 use super::{Line, billing::Accounts};
 use crate::{
+    agents::found::Agent,
     agents::prices::{self, Tokens},
-    found::Agent,
 };
 use beep_proto::{
     ModelId,

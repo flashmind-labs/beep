@@ -1,6 +1,7 @@
 import { askFiles } from "./attach.ts";
-import { answeredTurns, approvalCard, body, drawLatest, drawSteps, failed, makeTurn, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
+import { ANSWER, answeredTurns, approvalCard, ASK, askText, body, drawLatest, drawWork, failed, makeTurn, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
+import { answerHtml } from "./turnrows.ts";
 import { $$, changed, esc, h, invoke, live, queued, S, windowHooks } from "../bar/core.ts";
 import type { ChatBody, Step, Turn } from "../bar/core.ts";
 import type { ImageRef, SentFile } from "./media.ts";
@@ -96,8 +97,8 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
       turn.user = false;
     } else if (t.role === "assistant") {
       turn ??= drawTurn("");
-      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map((x): Step => ({ id: "", label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
-      if (t.html) reply(turn).innerHTML += t.html;
+      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map((x): Step => ({ id: "", name: x.name, label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
+      if (t.html) reply(turn).innerHTML += answerHtml(t.html);
       for (const x of t.tools) toolOutput(turn, x, x.route);
       last = t.replies.length ? { turn, replies: t.replies } : null;
       turn.done = true;
@@ -106,7 +107,7 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
         // A turn Auto did not pick still names the model that answered.
         if (!turn.querySelector(".dranon")) ranOn(turn, t.model, "");
       }
-      drawSteps(turn, true);
+      drawWork(turn);
       replyActs(turn);
     } else if (t.role === "approval") {
       turn ??= drawTurn("");
@@ -172,15 +173,14 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
 /// drawn live has no `at` yet, so its prompt says.
 function sameTurn(old: Turn, fresh: Turn) {
   if (old.dataset.at && fresh.dataset.at) return old.dataset.at === fresh.dataset.at;
-  const ask = (t: Turn) => t.querySelector(":scope > .ask")?.textContent ?? "";
-  return ask(old) === ask(fresh);
+  return askText(old) === askText(fresh);
 }
 
 /// Parts of a turn that stay the element they are: the prompt with its
 /// pictures and files. The reply stays too, its text updated when it differs.
-const STABLE = new Set(["ask", "dpics", "dachips"]);
+const STABLE = new Set(["dcoderen user", "dpics", "dachips"]);
 /// Parts drawn again into the kept turn, so their buttons act on it.
-const REDRAWN = new Set(["tools dsteps", "dreplyacts"]);
+const REDRAWN = new Set(["tools dcoderlog", "dreplyacts"]);
 /// Parts that are only what the server lists now.
 const LISTED = new Set(["dreplies", "dcard"]);
 
@@ -212,7 +212,7 @@ function mergeTurn(old: Turn, fresh: Turn) {
       else old.prepend(el);
     } else if (STABLE.has(el.className)) {
       now = was;
-    } else if (el.className === "reply") {
+    } else if (el.className === "dcoderen agent md") {
       if (was.innerHTML !== el.innerHTML) was.innerHTML = el.innerHTML;
       now = was;
     } else if (!LISTED.has(el.className) && was.outerHTML === el.outerHTML) {
@@ -228,7 +228,7 @@ function mergeTurn(old: Turn, fresh: Turn) {
   if (!fresh.done) return;
   old.done = true;
   old.steps = fresh.steps;
-  drawSteps(old, true);
+  drawWork(old);
   replyActs(old);
 }
 
@@ -259,7 +259,7 @@ async function eachTurn<T extends { message: number }>(id: string, b: ChatBody, 
 export function loadAskFiles(id: string, b: ChatBody) {
   return eachTurn(id, b, invoke<{ message: number; files: SentFile[] }[]>("session_files", { id }), (turn, { files }) => {
     if (turn.querySelector(".dachips")) return;
-    (turn.querySelector(".dpics") ?? turn.querySelector(".ask"))?.after(askFiles(files));
+    (turn.querySelector(".dpics") ?? turn.querySelector(ASK))?.after(askFiles(files));
   });
 }
 
@@ -298,7 +298,7 @@ export function sourceRow(turn: Turn, sources: WebSource[] | null | undefined) {
     row.querySelector(".dsrc.more")?.addEventListener("click", () => draw(true));
   };
   draw(false);
-  const anchor = turn.querySelector(".files") ?? turn.querySelector(".reply");
+  const anchor = turn.querySelector(".files") ?? turn.querySelector(ANSWER);
   anchor ? anchor.after(row) : turn.append(row);
 }
 

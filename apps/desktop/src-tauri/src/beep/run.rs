@@ -18,12 +18,39 @@ use beep_proto::{
     MAX_UPLOAD, Platform, ReasoningLevel, RunEvent, Upload, WebSource, client::Replies,
 };
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tauri::ipc::Channel;
+use tokio::time::{Instant, sleep};
 use uuid::Uuid;
 
 const NOT_HERE: &str = "not available on desktop";
 /// Images one message may carry, as many as the server takes.
 pub const MAX_IMAGES: usize = 8;
+/// How long a run's stream is opened again after its connection drops,
+/// long enough for a server restart.
+const RECONNECT: Duration = Duration::from_secs(90);
+/// The first and longest pause between tries to open it.
+const FIRST_PAUSE: Duration = Duration::from_millis(500);
+const LAST_PAUSE: Duration = Duration::from_secs(5);
+
+/// Where a followed run's stream opens again from.
+enum RunSource {
+    /// A prompt sent from here, before its run said its id: sent again
+    /// with the same request id, which follows the run it started.
+    Chat(Box<Chat>),
+    /// A run by id.
+    Run(String),
+}
+
+/// Whether `e` passes once the server is back: the connection dropped or
+/// could not open, or the server was restarting.
+fn passing(e: &DesktopError) -> bool {
+    match e {
+        DesktopError::Other(_) => true,
+        DesktopError::Api(api) => api.is_restarting(),
+        _ => false,
+    }
+}
 
 /// An admin's one-off model and thinking for a single turn. Both empty
 /// sends the turn on the account's own pick.
@@ -291,22 +318,50 @@ impl Beep {
     ) -> Result<String> {
         let images = image_uris(sent.images)?;
         let files = uploads(sent.files)?;
-        let replies = self
-            .stream(Chat {
-                session_id,
-                request_id: Uuid::new_v4(),
-                message: sent.message,
-                images,
-                model: pick.model,
-                thinking: pick.thinking,
-                platform: Some(Platform::Macos {}),
-                files,
-                research: sent.research,
-                voice: sent.voice,
-                spoken: sent.spoken,
-            })
-            .await?;
-        Ok(self.follow(replies, channel, Asked::Here, news).await)
+        let chat = Chat {
+            session_id,
+            request_id: Uuid::new_v4(),
+            message: sent.message,
+            images,
+            model: pick.model,
+            thinking: pick.thinking,
+            platform: Some(Platform::Macos {}),
+            files,
+            research: sent.research,
+            voice: sent.voice,
+            spoken: sent.spoken,
+        };
+        let from = RunSource::Chat(Box::new(chat));
+        let replies = self.reopen(&from, 0, Instant::now() + RECONNECT).await?;
+        Ok(self.follow(replies, from, channel, Asked::Here, news).await)
+    }
+
+    /// Opens `from`'s stream after event `seq`, again and again while the
+    /// server is out of reach or restarting, until `until`.
+    async fn reopen(&self, from: &RunSource, seq: i64, until: Instant) -> Result<Replies<Event>> {
+        let mut pause = FIRST_PAUSE;
+        loop {
+            let opened = match from {
+                // The same request id follows the run it started, if any.
+                RunSource::Chat(chat) => self.stream(chat.as_ref().clone()).await,
+                RunSource::Run(run_id) => {
+                    let more = GetEvents {
+                        run_id: run_id.clone(),
+                        after: seq,
+                    };
+                    self.stream(more).await
+                }
+            };
+            match opened {
+                Ok(replies) => return Ok(replies),
+                Err(e) if passing(&e) && Instant::now() + pause < until => {
+                    log::info!("reconnecting to follow a run: {e}");
+                    sleep(pause).await;
+                    pause = (pause * 2).min(LAST_PAUSE);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     /// Sends the session's `index`th prompt again on `pick`, after removing
@@ -382,8 +437,9 @@ impl Beep {
         channel: Channel<BarEvent>,
         news: Option<&Teller>,
     ) -> Result<()> {
-        let replies = self.stream(GetEvents { run_id, after: 0 }).await?;
-        self.follow(replies, channel, Asked::Here, news).await;
+        let from = RunSource::Run(run_id);
+        let replies = self.reopen(&from, 0, Instant::now() + RECONNECT).await?;
+        self.follow(replies, from, channel, Asked::Here, news).await;
         Ok(())
     }
 
@@ -396,16 +452,20 @@ impl Beep {
     /// Streams run `run_id` from its start, for a chat that another device
     /// asked in.
     pub async fn follow_run(&self, run_id: String, channel: Channel<BarEvent>) -> Result<()> {
-        let replies = self.stream(GetEvents { run_id, after: 0 }).await?;
-        self.follow(replies, channel, Asked::Elsewhere, None).await;
+        let from = RunSource::Run(run_id);
+        let replies = self.reopen(&from, 0, Instant::now() + RECONNECT).await?;
+        self.follow(replies, from, channel, Asked::Elsewhere, None)
+            .await;
         Ok(())
     }
 
     /// Streams the run into `channel` until it finishes, and returns the
-    /// reply's text.
+    /// reply's text. A stream cut off, as a server restart or a network
+    /// change does, is opened again from `from` after the last event.
     async fn follow(
         &self,
         mut replies: Replies<Event>,
+        mut from: RunSource,
         channel: Channel<BarEvent>,
         asked: Asked,
         news: Option<&Teller>,
@@ -417,22 +477,38 @@ impl Beep {
             }
         };
         let mut text = String::new();
-        let mut run_id = String::new();
+        let mut run_id = match &from {
+            RunSource::Run(id) => id.clone(),
+            RunSource::Chat(_) => String::new(),
+        };
         let mut seq = 0;
+        // Tries to follow it again end `RECONNECT` after the first that
+        // brought no event.
+        let mut lost: Option<Instant> = None;
         loop {
             let event = match replies.next().await {
                 Ok(Some(event)) => {
                     seq = event.seq;
+                    lost = None;
                     event.event
                 }
-                // The server ends a stream after a while; a run still going
-                // is picked up again from the last event.
-                Ok(None) if !run_id.is_empty() => {
-                    let more = GetEvents {
-                        run_id: run_id.clone(),
-                        after: seq,
+                Ok(None) if run_id.is_empty() => break,
+                next => {
+                    let reopened = match next {
+                        // The server ends a stream after a while; a run
+                        // still going is picked up again from the last event.
+                        Ok(_) => self.reopen(&from, seq, Instant::now() + RECONNECT).await,
+                        // So is one cut off, as by a server restart.
+                        Err(e) => match self.failed(e).await {
+                            error if passing(&error) => {
+                                log::info!("lost a run's stream, following it again: {error}");
+                                let until = *lost.get_or_insert_with(Instant::now) + RECONNECT;
+                                self.reopen(&from, seq, until).await
+                            }
+                            error => Err(error),
+                        },
                     };
-                    match self.stream(more).await {
+                    match reopened {
                         Ok(more) => {
                             replies = more;
                             continue;
@@ -446,14 +522,6 @@ impl Beep {
                         }
                     }
                 }
-                Ok(None) => break,
-                Err(e) => {
-                    let message = self.failed(e).await.to_string();
-                    tell(RunNews::Failed(message.clone()));
-                    // The bar may have closed; the run ends either way.
-                    let _ = channel.send(BarEvent::Error { message });
-                    break;
-                }
             };
             let out = match event {
                 RunEvent::RunStarted {
@@ -461,6 +529,7 @@ impl Beep {
                     session_id,
                 } => {
                     run_id.clone_from(&id);
+                    from = RunSource::Run(id.clone());
                     tell(RunNews::Started(id.clone()));
                     BarEvent::Started {
                         run_id: id,

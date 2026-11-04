@@ -1,4 +1,4 @@
-import { body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, reply, scrollDown, settle } from "../chat/chat.ts";
+import { ASK, askText, body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
 import { $, $$, bar, entry, esc, h, here, ICON, invoke, listen, live, PANE, S, type Turn } from "./core.ts";
 import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
@@ -6,6 +6,7 @@ import { openSession } from "../chat/history.ts";
 import { notice } from "../chat/media.ts";
 import { forgetHeight } from "./size.ts";
 import { type HeldQuestion, waitingQuestion } from "./work.ts";
+import { userRowHtml } from "../chat/turnrows.ts";
 
 // ---------- Live voice ----------
 
@@ -204,12 +205,10 @@ export function liveTurn(id: string, text: string, runId: string) {
   b.querySelectorAll(".dreplies").forEach(r => r.remove());
   // The server's copy may have drawn the message already.
   const last = [...b.querySelectorAll<Turn>(".turn")].at(-1);
-  const turn = last?.user && !last.done && last.querySelector(".ask")?.textContent === text ? last : newTurn(text);
+  const turn = last?.user && !last.done && askText(last) === text ? last : newTurn(text);
   turn.user = true;
   turn.steps ??= [];
-  reply(turn).innerHTML = '<span class="caret"></span>';
-  e.body = b;
-  e.run = { id: runId, turn };
+  startRun(id, turn, runId);
   refreshHints();
   scrollDown();
   followAnswered(id, turn, runId);
@@ -253,10 +252,10 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
 }
 /// Shows what the user said in place of the waiting prompt.
 export function heard(turn: Turn, text: string) {
-  const ask = turn.querySelector<HTMLElement>(".ask") ?? h('<div class="ask"></div>');
-  if (!ask.isConnected) turn.prepend(ask);
-  ask.textContent = text;
-  ask.classList.remove("dmuted");
+  let ask = turn.querySelector<HTMLElement>(ASK);
+  if (!ask) turn.prepend(ask = h(userRowHtml("")));
+  ask.querySelector("span")?.remove();
+  ask.append(h(`<span>${esc(text)}</span>`));
   touch(S.session!, text);
 }
 // Live mode stays in the bar and the orb.

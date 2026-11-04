@@ -2,6 +2,7 @@
 //! opened on demand, and the state saved between launches.
 
 use crate::{
+    agents::work_copy::Copies,
     beep::identity::{Identity, secret_key},
     beep::state::{LinkState, NoticeVoice, Saved, StateFile},
     beep::sync::Chats,
@@ -47,6 +48,7 @@ pub struct Beep {
     /// The group the bar shows, so its messages do not also notify.
     group: Mutex<Option<String>>,
     chats: Chats,
+    copies: Copies,
 }
 
 impl Beep {
@@ -72,9 +74,15 @@ impl Beep {
                 file,
                 group: Mutex::new(None),
                 chats,
+                copies: Copies::default(),
             }),
             rx,
         ))
+    }
+
+    /// The copies of projects sync keeps on this Mac.
+    pub(crate) fn copies(&self) -> &Copies {
+        &self.copies
     }
 
     pub fn id(&self) -> EndpointId {
@@ -371,7 +379,7 @@ async fn connect_in_time<T>(
 ) -> Result<T> {
     match timeout(limit, connect).await {
         Ok(connected) => Ok(connected?),
-        Err(_) => Err(DesktopError::BadRequest(format!(
+        Err(_) => Err(DesktopError::Other(anyhow::anyhow!(
             "the server did not answer in {} seconds",
             limit.as_secs()
         ))),

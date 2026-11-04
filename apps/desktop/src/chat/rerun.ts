@@ -1,4 +1,4 @@
-import { body, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
+import { ANSWER, askText, body, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
 import { $, COPY_ICON, esc, h, here, ICON, invoke, S, stopping } from "../bar/core.ts";
 import type { Turn } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
@@ -13,19 +13,20 @@ interface ModelChoices {
   choices: (Parameters<typeof modelPrice>[0] & { id: string; name: string })[];
 }
 
-/// "Stopped" under a reply the user or another device stopped, with Retry,
-/// which sends the prompt again, for a prompt sent from this chat.
-export function stoppedRow(turn: Turn) {
+/// "Stopped" under a reply the user or another device stopped, or `said`
+/// for one a server restart cut off, with Retry, which sends the prompt
+/// again, for a prompt sent from this chat.
+export function stoppedRow(turn: Turn, said = "Stopped") {
   turn.querySelector(":scope > .dstopped")?.remove();
   const retry = turn.user ? '<button class="dbtn" data-act="retry">Retry</button>' : "";
-  turn.append(h(`<div class="dmuted dstopped">Stopped${retry}</div>`));
+  turn.append(h(`<div class="dmuted dstopped">${esc(said)}${retry}</div>`));
 }
 
 /// Copy, and for admins Rerun, under a finished reply, then the agent that
 /// answered it when there was one.
 export function replyActs(turn: Turn) {
   turn.querySelector(".dreplyacts")?.remove();
-  const text = turn.querySelector<HTMLElement>(".reply")?.innerText.trim();
+  const text = turn.querySelector<HTMLElement>(ANSWER)?.innerText.trim();
   const rerun = canPickModel() && turn.user;
   if (!text && !rerun && !turn.agent) return;
   const agent = turn.agent ? `<span class="dagent" title="The agent that answered">${esc(turn.agent)}</span>` : "";
@@ -77,7 +78,7 @@ export async function rerun(turn: Turn, model: string | null, thinking: string |
   const turns = [...body()!.querySelectorAll<Turn>(".turn")];
   const index = turns.filter(t => t.user).indexOf(turn);
   if (index < 0) return;
-  const question = turn.querySelector(".ask")?.textContent ?? "";
+  const question = askText(turn);
   for (const t of turns.slice(turns.indexOf(turn))) t.remove();
   const fresh = newTurn(question);
   fresh.user = true;
