@@ -1,12 +1,22 @@
 //! Real iroh endpoints on loopback, relays off. Waits ride on `updates()`
 //! and outer timeouts; nothing sleeps.
 
-use beep_mesh::{DeviceKind, JOIN_ALPN, Key, Mesh, MeshError, PEER_ALPN};
-use iroh::endpoint::presets;
-use iroh::protocol::Router;
-use iroh::{Endpoint, EndpointId, SecretKey};
+use beep_mesh::{
+    DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, PEER_ALPN, PeerStream,
+    StreamHandler, transport_config,
+};
+use iroh::endpoint::{Connection, presets};
+use iroh::protocol::{AcceptError, ProtocolHandler, Router};
+use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
+use std::fs::{copy, create_dir_all, read_dir};
+use std::future::pending as never;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tempfile::TempDir;
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::time::timeout;
 
 const LIMIT: Duration = Duration::from_secs(60);
@@ -33,6 +43,7 @@ impl Dev {
 async fn bind(key: &SecretKey) -> Endpoint {
     Endpoint::builder(presets::Minimal)
         .secret_key(key.clone())
+        .transport_config(transport_config())
         .bind()
         .await
         .expect("endpoint binds")
@@ -71,7 +82,7 @@ async fn try_join(from: &Dev, kind: DeviceKind, name: &str) -> Result<Dev, MeshE
     join_with(&ticket, name).await
 }
 
-async fn join_with(ticket: &beep_mesh::JoinTicket, name: &str) -> Result<Dev, MeshError> {
+async fn join_with(ticket: &JoinTicket, name: &str) -> Result<Dev, MeshError> {
     let key = SecretKey::generate();
     let dir = TempDir::new().expect("temp dir");
     let endpoint = bind(&key).await;
@@ -150,7 +161,11 @@ async fn a_third_device_joins_through_one_member_and_reaches_the_other() {
         m.get(&project("p")).as_deref() == Some(&b"one"[..])
     })
     .await;
-    assert_eq!(changes.recv().await.expect("a change came"), project("p"));
+    let key = timeout(LIMIT, changes.recv())
+        .await
+        .expect("a change came in time")
+        .expect("channel open");
+    assert_eq!(key, project("p"));
 }
 
 #[tokio::test]
@@ -388,4 +403,206 @@ async fn a_removed_device_that_comes_back_learns_it_was_removed() {
         b.mesh.set(project("p"), None).await,
         Err(MeshError::Removed(_))
     ));
+}
+
+fn at(id: EndpointId, port: u16) -> EndpointAddr {
+    EndpointAddr::new(id).with_ip_addr(SocketAddr::from(([127, 0, 0, 1], port)))
+}
+
+fn addr_of(mesh: &Mesh, id: EndpointId) -> Option<EndpointAddr> {
+    mesh.devices()
+        .into_iter()
+        .find(|d| d.device.id == id)
+        .and_then(|d| d.addr)
+}
+
+#[tokio::test]
+async fn two_members_holding_different_addresses_for_a_third_settle() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    let c = join(&a, DeviceKind::Desktop, "c").await;
+    for (x, y) in [(&a, &b), (&a, &c), (&b, &c)] {
+        until(&x.mesh, |m| online(m, y.id())).await;
+        until(&y.mesh, |m| online(m, x.id())).await;
+    }
+    let (low, high) = (at(c.id(), 9), at(c.id(), 10));
+    b.mesh.hint_addr(low, u64::MAX - 2).await;
+    a.mesh.hint_addr(high.clone(), u64::MAX - 1).await;
+    until(&b.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
+    until(&a.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
+    // A full round trip of state passes through every link.
+    let before = [&a, &b, &c].map(|d| d.mesh.addr_updates());
+    a.mesh
+        .set(project("barrier"), Some(b"1".to_vec()))
+        .await
+        .expect("write");
+    until(&b.mesh, |m| m.get(&project("barrier")).is_some()).await;
+    until(&c.mesh, |m| m.get(&project("barrier")).is_some()).await;
+    assert_eq!([&a, &b, &c].map(|d| d.mesh.addr_updates()), before);
+}
+
+/// Counts connections that reach the peer ALPN, then serves them.
+#[derive(Clone, Debug)]
+struct Counting {
+    inner: MeshProtocol,
+    seen: Arc<AtomicUsize>,
+    tx: UnboundedSender<()>,
+}
+
+impl ProtocolHandler for Counting {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        self.seen.fetch_add(1, Ordering::SeqCst);
+        self.tx.send(()).ok();
+        self.inner.accept(connection).await
+    }
+}
+
+#[tokio::test]
+async fn a_removed_device_stops_dialing() {
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("temp dir");
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "a")
+        .await
+        .expect("mesh");
+    let (peer, join_protocol) = mesh.protocols();
+    let (tx, mut rx) = unbounded_channel();
+    let counting = Counting {
+        inner: peer,
+        seen: Default::default(),
+        tx,
+    };
+    let router = Router::builder(endpoint)
+        .accept(PEER_ALPN, counting.clone())
+        .accept(JOIN_ALPN, join_protocol)
+        .spawn();
+    let a = Dev {
+        mesh,
+        router,
+        key,
+        dir,
+    };
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    a.mesh.remove(b.id()).await.expect("removes");
+    until(&b.mesh, |m| {
+        m.devices().iter().all(|d| d.device.id != b.id())
+    })
+    .await;
+    // Whatever was in flight lands first.
+    while rx.try_recv().is_ok() {}
+    let settled = counting.seen.load(Ordering::SeqCst);
+    // Absence cannot be waited for: allow two full backoff steps.
+    let again = timeout(Duration::from_millis(2500), async {
+        while counting.seen.load(Ordering::SeqCst) == settled {
+            rx.recv().await;
+        }
+    })
+    .await;
+    assert!(again.is_err(), "the removed device dialed again");
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    create_dir_all(to).expect("mkdir");
+    for entry in read_dir(from).expect("read dir") {
+        let entry = entry.expect("entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("type").is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            copy(entry.path(), target).expect("copy");
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_peer_that_restarts_with_the_same_key_reconnects_at_once() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    // The old process is still there as far as A can tell: its connection
+    // has not closed, and a second one arrives from the same key.
+    let dir = TempDir::new().expect("temp dir");
+    copy_dir(b.dir.path(), dir.path());
+    let b2 = reopen(b.key.clone(), dir).await;
+    a.mesh
+        .set(project("after"), Some(b"1".to_vec()))
+        .await
+        .expect("write");
+    timeout(Duration::from_secs(5), async {
+        until(&b2.mesh, |m| m.get(&project("after")).is_some()).await
+    })
+    .await
+    .expect("the restarted peer got the change without an idle timeout");
+}
+
+fn echo() -> StreamHandler {
+    Arc::new(|mut stream: PeerStream| {
+        Box::pin(async move {
+            assert_eq!(stream.kind, DeviceKind::Desktop);
+            let mut byte = [0u8; 1];
+            if stream.recv.read_exact(&mut byte).await.is_ok() {
+                stream.send.write_all(&byte).await.ok();
+                stream.send.finish().ok();
+                stream.send.stopped().await.ok();
+            }
+        })
+    })
+}
+
+#[tokio::test]
+async fn a_peers_extra_stream_reaches_the_handler() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(echo());
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let conn = b.mesh.peer(a.id()).expect("connected");
+    let (mut send, mut recv) = conn.open_bi().await.expect("stream");
+    send.write_all(b"x").await.expect("write");
+    let mut back = [0u8; 1];
+    timeout(LIMIT, recv.read_exact(&mut back))
+        .await
+        .expect("answered")
+        .expect("read");
+    assert_eq!(&back, b"x");
+}
+
+#[tokio::test]
+async fn a_peer_may_have_64_streams_open_and_no_more() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    let (entered, mut entries) = unbounded_channel();
+    peer.on_stream(Arc::new(move |stream: PeerStream| {
+        let entered = entered.clone();
+        Box::pin(async move {
+            entered.send(()).ok();
+            // Hold the stream open until the connection goes.
+            let _keep = stream;
+            never::<()>().await;
+        })
+    }));
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let conn = b.mesh.peer(a.id()).expect("connected");
+    let mut open = Vec::new();
+    for _ in 0..64 {
+        let (mut send, recv) = conn.open_bi().await.expect("stream");
+        send.write_all(b"x").await.expect("write");
+        open.push((send, recv));
+    }
+    for _ in 0..64 {
+        timeout(LIMIT, entries.recv())
+            .await
+            .expect("entered")
+            .expect("open");
+    }
+    let (mut send, mut recv) = conn.open_bi().await.expect("stream");
+    send.write_all(b"x").await.expect("write");
+    let mut byte = [0u8; 1];
+    let refused = timeout(LIMIT, recv.read_exact(&mut byte))
+        .await
+        .expect("the 65th was answered");
+    assert!(refused.is_err(), "the 65th stream was served");
+    assert!(entries.try_recv().is_err());
 }
