@@ -5,9 +5,10 @@ use crate::{
     api::router::Cx,
     projects::imports::{self, Import, ImportError},
     protocol::{
-        ApiError, FindImportFork, HostRepos, ImportFork, ImportPreview, ImportProject,
+        ApiError, CopyProject, FindImportFork, HostRepos, ImportFork, ImportPreview, ImportProject,
         ImportedProject, ListHostRepos, ListImportedProjects, ListMachineFolder,
-        ListProjectMachines, MachineFolder, PreviewImport, ProjectMachine, RemoveProject,
+        ListProjectMachines, MachineFolder, PreviewImport, ProjectCopy, ProjectMachine,
+        RemoveProject,
     },
 };
 
@@ -16,6 +17,12 @@ fn refusal(e: ImportError) -> ApiError {
         ImportError::Internal => ApiError::Internal {},
         other => ApiError::bad_request(other.to_string()),
     }
+}
+
+pub(super) async fn copy_project(cx: Cx, request: CopyProject) -> Reply<ProjectCopy> {
+    imports::copy_project(&cx.app, &cx.user, &request.project, &request.machine_id)
+        .await
+        .map_err(refusal)
 }
 
 pub(super) async fn import_project(cx: Cx, request: ImportProject) -> Reply<ImportedProject> {

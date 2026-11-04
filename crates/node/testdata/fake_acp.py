@@ -46,7 +46,7 @@ def handle(message):
     elif method == "session/prompt":
         params = message["params"]
         session = params["sessionId"]
-        text = params["prompt"][0]["text"]
+        text = " ".join(block.get("text", "") for block in params["prompt"])
         update(session, {"sessionUpdate": "plan", "entries": [
             {"content": "Read the prompt", "priority": "high", "status": "completed"},
             {"content": "Answer it", "priority": "high", "status": "in_progress"},
