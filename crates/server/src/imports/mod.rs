@@ -3,6 +3,7 @@
 
 mod checks;
 mod clone;
+mod copy;
 mod folder;
 mod fork;
 mod found;
@@ -17,6 +18,7 @@ mod service;
 mod tool;
 
 pub use checks::Checkouts;
+pub(crate) use copy::copy_project;
 pub(crate) use found::MachineFound;
 pub use host_repos::HostRepoCache;
 pub(crate) use host_repos::host_repos;
@@ -90,6 +92,18 @@ pub(crate) enum ImportError {
     Failed { machine: String, detail: String },
     #[error("Could not reach {machine}: {detail}")]
     Link { machine: String, detail: String },
+    #[error("{0} is not imported.")]
+    NotImported(String),
+    #[error("{0} shares no folders.")]
+    NoSharedFolders(String),
+    #[error("{0} is pinned to the machines it is on.")]
+    Pinned(String),
+    #[error("{0} has its sync paused.")]
+    SyncPaused(String),
+    #[error("No online machine can give {0}.")]
+    NoCopyOnline(String),
+    #[error("{machine} cannot sync it: {why}")]
+    CannotSync { machine: String, why: String },
     /// Beep's own failure, such as the database; not the user's to fix.
     #[error("Beep could not import the project.")]
     Internal,

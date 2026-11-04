@@ -426,7 +426,7 @@ export function sideProjects<T extends Groupable>(rows: readonly T[] | null | un
 /// A row of a project's "Where it lives". `kind` is:
 /// - "here": a checkout in `folder`; `mac` when it is this Mac
 /// - "checking": the server is looking through it now
-/// - "none": online without a checkout, so it can be cloned there
+/// - "none": online without a checkout, so it can be copied or cloned there
 /// - "offline": offline without a checkout; it is looked through once it
 ///   connects
 export interface WhereRow {
@@ -438,6 +438,8 @@ export interface WhereRow {
   checked_at?: number | null;
   /// What the row says when there is no checkout.
   text?: string;
+  /// Another machine online can give it: Beep's sync copies it from there.
+  copy?: boolean;
   /// The Syncthing folder's label when Syncthing keeps the folder in step.
   syncthing?: string | null;
 }
@@ -452,7 +454,7 @@ export function whereRows(project: { machines?: readonly ProjectPlace[] } | null
     if (m.folder) return { ...here(m.id, m.name, m.folder), syncthing: m.syncthing || null };
     const one = { id: m.id, name: m.name, folder: null, mac: false, checked_at: m.checked_at || null };
     if (m.checking) return { ...one, kind: "checking", text: "Checking…" };
-    if (m.online) return { ...one, kind: "none", text: `Not on ${m.name}` };
+    if (m.online) return { ...one, kind: "none", text: `Not on ${m.name}`, copy: machines.some(o => o.folder && o.online && !o.syncthing) };
     return { ...one, kind: "offline", text: `Checks when ${m.name} is online` };
   }));
 }
