@@ -7,7 +7,7 @@ import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, stepMark, stopFace, thinkingRow, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "../chat/turnrows.ts";
-import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
+import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { fillAgentPics, gonePic } from "./images.ts";
 import { filesHtml, planHtml, questionHtml } from "./coderhtml.ts";
@@ -154,11 +154,11 @@ export function closeChild() {
 /// or its name when neither can be.
 function entryPic(n: string) {
   const key = /^image-([0-9a-f]{16})$/.exec(n)?.[1], label = key ? "Image" : n;
-  const got = key ? agentImages.get(key) : undefined;
-  const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof got === "string" ? got : "");
-  const named = ` data-name="${esc(n)}" alt="${esc(label)}" title="${esc(label)}"`;
+  const whole = key ? agentImages.get(key) : undefined, thumb = key ? agentThumbs.get(key) : undefined;
+  const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof whole === "string" ? whole : "") || (typeof thumb === "string" ? thumb : "");
+  const named = `${key ? ` data-key="${key}"` : ""} data-name="${esc(n)}" alt="${esc(label)}" title="${esc(label)}"`;
   if (url) return `<img class="pic" src="${esc(url)}"${named}>`;
-  if (key && got !== null) return `<img class="pic" data-key="${key}"${named}>`;
+  if (key && thumb !== null) return `<img class="pic"${named}>`;
   return gonePic(label);
 }
 
