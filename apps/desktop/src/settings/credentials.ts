@@ -162,7 +162,6 @@ export function cliHost(key: string) {
   return null;
 }
 
-const sm = 'style="font-size:11.5px;padding:2px 8px;min-height:24px"';
 
 const GITHUB_ICON = `<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>`;
 const FORGEJO_ICON = `<svg viewBox="0 0 212 212" width="15" height="15" aria-hidden="true"><g fill="none" transform="translate(6 6)"><path d="M58 168V70a50 50 0 0 1 50-50h20" stroke="#f60" stroke-width="25"/><path d="M58 168v-30a50 50 0 0 1 50-50h20" stroke="#d40000" stroke-width="25"/><circle cx="142" cy="20" r="18" stroke="#f60" stroke-width="15"/><circle cx="142" cy="88" r="18" stroke="#d40000" stroke-width="15"/><circle cx="58" cy="180" r="18" stroke="#d40000" stroke-width="15"/></g></svg>`;
@@ -184,13 +183,13 @@ function form(state: CredState, esc: Esc, { title, noteHtml, env, url }: FormTex
     ? `<input id="credUrl" class="url" type="url" placeholder="https://git.example.com" autocomplete="off" spellcheck="false" value="${esc(e.url ?? "")}" aria-label="Server URL">`
     : "";
   const check = e.kind === "api_key" && env
-    ? `<label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)"><input type="checkbox" id="credMachines"${e.toMachines !== false ? " checked" : ""}> Give it to my machines as ${esc(env)}</label>`
+    ? `<label class="dline dfine"><input type="checkbox" id="credMachines"${e.toMachines !== false ? " checked" : ""}> Give it to my machines as ${esc(env)}</label>`
     : "";
   const label = e.kind === "api_key" && e.provider !== "openrouter" ? "Save" : "Check and save";
-  return `<div class="dcred-form" style="padding:10px 0;border-bottom:1px solid var(--border);display:grid;gap:8px">
-    <div style="display:flex;align-items:center;gap:8px;font-size:13px"><b style="font-weight:600">${esc(title)}</b>${url ? `<span style="color:var(--muted);font-size:12px">${esc(url)}</span>` : ""}</div>
-    <div class="dfield${state.error ? " err" : ""}" style="gap:8px">${urlField}
-      <div style="display:flex;gap:8px"><input id="credSecret" type="password" style="flex:1;font-family:var(--mono);font-size:12.5px" placeholder="Paste the token" autocomplete="off" spellcheck="false" aria-label="Token">
+  return `<div class="dcred-form">
+    <div class="dline"><b>${esc(title)}</b>${url ? `<span class="dfine">${esc(url)}</span>` : ""}</div>
+    <div class="dfield${state.error ? " err" : ""}">${urlField}
+      <div class="dline"><input id="credSecret" type="password" class="dsecret" placeholder="Paste the token" autocomplete="off" spellcheck="false" aria-label="Token">
       <button class="dbtn pri" id="credSave"${state.busy ? " disabled" : ""}>${state.busy ? "Checking…" : label}</button><button class="dbtn quiet" id="credCancel">Cancel</button></div></div>
     ${check}${noteHtml ? note(noteHtml) : ""}
     <div class="derr" id="credErr">${esc(state.error || "")}</div></div>`;
@@ -200,15 +199,15 @@ function form(state: CredState, esc: Esc, { title, noteHtml, env, url }: FormTex
 /// server can no longer open it.
 function shown(esc: Esc, cred: { last4: string; unreadable?: boolean }, what: string) {
   return cred.unreadable
-    ? `<span style="color:var(--err)">Re-enter this ${what}</span>`
-    : `<code style="font-size:11px">…${esc(cred.last4)}</code>`;
+    ? `<span class="derr">Re-enter this ${what}</span>`
+    : `<code>…${esc(cred.last4)}</code>`;
 }
 
 /// A link that opens in the browser.
-const link = (esc: Esc, href: string, text: string) => `<a href="${esc(href)}" data-cred-open="${esc(href)}" style="color:var(--accent)">${esc(text)}</a>`;
-const code = (text: string) => `<code style="font-size:11px">${text}</code>`;
+const link = (esc: Esc, href: string, text: string) => `<a href="${esc(href)}" class="dlink" data-cred-open="${esc(href)}">${esc(text)}</a>`;
+const code = (text: string) => `<code>${text}</code>`;
 /// A muted line in a row.
-const note = (html: string) => `<span style="font-size:11.5px;color:var(--muted)">${html}</span>`;
+const note = (html: string) => `<span class="dsub">${html}</span>`;
 /// Why a sign-in was refused, under its row.
 const rowError = (esc: Esc, error: string | undefined) => error ? `<span class="derr">${esc(error)}</span>` : "";
 
@@ -236,16 +235,16 @@ const editRemove = (esc: Esc, what: string, editKey: string, id: string) =>
 
 /// "Use gh sign-in", or "Checking…" while it is being saved.
 const useButton = (esc: Esc, key: string, label: string, busy: boolean) =>
-  `<button class="dbtn pri" ${sm} data-cred-cli="${esc(key)}"${busy ? " disabled" : ""}>${busy ? "Checking…" : esc(label)}</button>`;
+  `<button class="dbtn pri small" data-cred-cli="${esc(key)}"${busy ? " disabled" : ""}>${busy ? "Checking…" : esc(label)}</button>`;
 
 /// The code gh's browser sign-in waits for, large and selectable, or a
 /// spinner until gh prints it.
 function ghWaiting(esc: Esc, flow: GhFlow) {
   const entry = flow.code
-    ? `<span>Enter code <code style="font-family:var(--mono);font-size:18px;font-weight:600;letter-spacing:.1em;user-select:all;-webkit-user-select:all;cursor:text">${esc(flow.code)}</code> on ${link(esc, flow.url, "GitHub")}${flow.copied ? `<span style="color:var(--muted)"> (copied)</span>` : ""}</span>`
+    ? `<span>Enter code <code class="dflowcode">${esc(flow.code)}</code> on ${link(esc, flow.url, "GitHub")}${flow.copied ? `<span class="dmut"> (copied)</span>` : ""}</span>`
     : "";
-  return `<div style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;display:grid;gap:6px">${entry}
-    <span style="display:flex;gap:6px;align-items:center;color:var(--muted)"><span class="dspin"></span>${flow.code ? "Waiting for GitHub" : "Starting gh…"}</span></div>`;
+  return `<div class="dflow">${entry}
+    <span class="dmuted"><span class="dspin"></span>${flow.code ? "Waiting for GitHub" : "Starting gh…"}</span></div>`;
 }
 
 /// One git host's row.
@@ -283,8 +282,8 @@ interface Offer {
 /// What the GitHub row offers when no usable token is saved, from this Mac's
 /// gh: its sign-in, signing it in, or a link to make a token.
 function ghOffer(esc: Esc, gh: CliLogin | null | undefined, busy: boolean, flow: GhFlow | null | undefined): Offer {
-  const paste = (quiet: boolean) => `<button class="dbtn${quiet ? " quiet" : ""}" ${sm} data-cred-edit="github">Paste a token</button>`;
-  if (flow) return { acts: `<button class="dbtn quiet" ${sm} data-cred-gh-cancel>Cancel</button>`, help: "", body: ghWaiting(esc, flow) };
+  const paste = (quiet: boolean) => `<button class="dbtn small${quiet ? " quiet" : ""}" data-cred-edit="github">Paste a token</button>`;
+  if (flow) return { acts: `<button class="dbtn quiet small" data-cred-gh-cancel>Cancel</button>`, help: "", body: ghWaiting(esc, flow) };
   switch (gh?.state) {
     case "signed_in":
       return {
@@ -294,7 +293,7 @@ function ghOffer(esc: Esc, gh: CliLogin | null | undefined, busy: boolean, flow:
       };
     case "signed_out":
       return {
-        acts: `<button class="dbtn pri" ${sm} data-cred-gh>Sign in with GitHub</button>${paste(true)}`,
+        acts: `<button class="dbtn pri small" data-cred-gh>Sign in with GitHub</button>${paste(true)}`,
         help: "Opens GitHub in your browser, then saves the sign-in here",
       };
     case "missing":
@@ -334,7 +333,7 @@ function hostRow(esc: Esc, { icon, name, cred, cli, machines, editKey, offer, cl
   const use = cliKey && !usable ? useButton(esc, cliKey, `Use ${cli} sign-in`, !!busy) : "";
   const acts = cred
     ? use + editRemove(esc, name, editKey, cred.id)
-    : offer?.acts ?? `<button class="dbtn" ${sm} data-cred-edit="${esc(editKey)}">Add token</button>`;
+    : offer?.acts ?? `<button class="dbtn small" data-cred-edit="${esc(editKey)}">Add token</button>`;
   const chips = (cred?.unreadable ? chip(esc, "Re-enter this token", "", "err") : "")
     + (usable ? checkChip(esc, name, !!cred.account, check) : "")
     + cliChip(esc, cli, machines);
@@ -363,14 +362,14 @@ function checkChip(esc: Esc, host: string, known: boolean, check: CredCheck | un
 
 /// One provider's API key row.
 function keyRow(esc: Esc, ago: Ago, p: Provider, cred: Credential | undefined) {
-  const start = `<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px">`;
+  const start = `<div class="dcred-row">`;
   if (!cred) return `${start}
-    <span class="ddot off"></span><b style="font-weight:600">${esc(p.name)}</b><code style="font-size:11px;color:var(--muted)">${esc(p.env_var)}</code>
-    <span style="margin-left:auto"><button class="dbtn" ${sm} data-cred-edit="api:${esc(p.slug)}">Add key</button></span></div>`;
+    <span class="ddot off"></span><b>${esc(p.name)}</b><code class="dmut">${esc(p.env_var)}</code>
+    <span class="dpush"><button class="dbtn small" data-cred-edit="api:${esc(p.slug)}">Add key</button></span></div>`;
   const use = !cred.unreadable && cred.to_machines ? `your machines as ${esc(p.env_var)}` : "not given to your machines";
   return `${start}
-    <span class="ddot"></span><span style="display:grid;gap:2px;min-width:0"><b style="font-weight:600">${esc(p.name)}</b><span style="font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${shown(esc, cred, "key")} · ${use} · added ${esc(ago(cred.created_at))}</span></span>
-    <span style="margin-left:auto;display:flex;gap:6px;flex:none"><button class="dbtn" ${sm} data-cred-edit="api:${esc(p.slug)}">Replace</button><button class="dbtn quiet" ${sm} data-cred-remove="${esc(cred.id)}" aria-label="Remove the ${esc(p.name)} key">Remove</button></span></div>`;
+    <span class="ddot"></span><span class="dstack"><b>${esc(p.name)}</b><span class="dsub dell">${shown(esc, cred, "key")} · ${use} · added ${esc(ago(cred.created_at))}</span></span>
+    <span class="dacts"><button class="dbtn small" data-cred-edit="api:${esc(p.slug)}">Replace</button><button class="dbtn quiet small" data-cred-remove="${esc(cred.id)}" aria-label="Remove the ${esc(p.name)} key">Remove</button></span></div>`;
 }
 
 /// The GitHub accounts: from `ListGitHubAccounts` when the server answered
@@ -390,11 +389,11 @@ export function ghChoices(cli: CliLogins | null | undefined, accounts: GitHubAcc
 
 /// "Use" for one gh account, or "Checking…" while it is being saved.
 const ghUse = (esc: Esc, login: string, busy: boolean) =>
-  `<button class="dbtn pri" ${sm} data-cred-gh-use="${esc(login)}"${busy ? " disabled" : ""}>${busy ? "Checking…" : "Use"}</button>`;
+  `<button class="dbtn pri small" data-cred-gh-use="${esc(login)}"${busy ? " disabled" : ""}>${busy ? "Checking…" : "Use"}</button>`;
 
 /// The gh accounts on this Mac, one line each with Use.
 function ghChoiceRows(esc: Esc, choices: { login: string; active?: boolean }[], cliBusy: string | undefined) {
-  return choices.map(g => `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px"><span style="color:var(--muted)">gh on this Mac as @${esc(g.login)}</span>${g.active ? `<span style="font-size:10.5px;color:var(--dim)">active</span>` : ""}<span style="margin-left:auto">${ghUse(esc, g.login, cliBusy === `gh:${g.login}`)}</span></div>`).join("");
+  return choices.map(g => `<div class="dline dsm"><span class="dmut">gh on this Mac as @${esc(g.login)}</span>${g.active ? `<span class="dsub">active</span>` : ""}<span class="dpush">${ghUse(esc, g.login, cliBusy === `gh:${g.login}`)}</span></div>`).join("");
 }
 
 /// What an account row needs besides the account.
@@ -409,7 +408,7 @@ function accountRow(esc: Esc, acc: GitHubAccount, { machines, cli, busy, error }
   const usable = !acc.unreadable;
   const ghHere = (cli?.github_accounts ?? []).some(g => sameLogin(g.login, acc.login)) || cli?.github?.state === "signed_in";
   const use = !usable && ghHere ? useButton(esc, "github", "Use gh sign-in", busy) : "";
-  const make = acc.default ? "" : `<button class="dbtn" ${sm} data-cred-gh-default="${esc(acc.id)}">Make default</button>`;
+  const make = acc.default ? "" : `<button class="dbtn small" data-cred-gh-default="${esc(acc.id)}">Make default</button>`;
   const what = acc.login ? `@${acc.login}` : "GitHub";
   // The first three orgs, the rest folded into one "+N" chip.
   const orgs = acc.orgs ?? [], more = orgs.slice(3);
@@ -431,19 +430,19 @@ function addAccount(esc: Esc, state: CredState, accounts: GitHubAccount[]) {
   const cli = state.cli;
   const flow = state.ghFlow;
   const err = state.cliError?.key === "github" ? `<span class="derr">${esc(state.cliError.message)}</span>` : "";
-  const top = `<div style="display:flex;align-items:center;gap:8px"><b style="font-weight:600">Add another GitHub account</b><span style="margin-left:auto">${flow ? `<button class="dbtn quiet" ${sm} data-cred-gh-cancel>Cancel</button>` : `<button class="dbtn quiet" ${sm} data-cred-gh-add="">Cancel</button>`}</span></div>`;
-  const box = (body: string) => `<div style="padding:10px 0;border-bottom:1px solid var(--border);display:grid;gap:6px;font-size:13px">${top}<div style="display:grid;gap:6px;padding-left:15px">${body}</div></div>`;
+  const top = `<div class="dline"><b>Add another GitHub account</b><span class="dpush">${flow ? `<button class="dbtn quiet small" data-cred-gh-cancel>Cancel</button>` : `<button class="dbtn quiet small" data-cred-gh-add="">Cancel</button>`}</span></div>`;
+  const box = (body: string) => `<div class="dcred-form">${top}<div class="dgrid6 dind">${body}</div></div>`;
   if (flow) return box(ghWaiting(esc, flow) + err);
   const choices = ghChoices(cli, accounts);
   const ghState = cli?.github?.state;
-  const signIn = ghState === "signed_in" || ghState === "signed_out" ? `<button class="dbtn" ${sm} data-cred-gh>Sign in with GitHub</button>` : "";
-  const paste = `<button class="dbtn${signIn ? " quiet" : ""}" ${sm} data-cred-edit="github:new">Paste a token</button>`;
+  const signIn = ghState === "signed_in" || ghState === "signed_out" ? `<button class="dbtn small" data-cred-gh>Sign in with GitHub</button>` : "";
+  const paste = `<button class="dbtn small${signIn ? " quiet" : ""}" data-cred-edit="github:new">Paste a token</button>`;
   const saved = accounts.filter(a => (cli?.github_accounts ?? []).some(g => sameLogin(g.login, a.login))).map(a => `@${esc(a.login)}`);
   const help = ghState === "missing"
     ? `Make a token on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} while signed in as the other account, then paste it`
     : signIn ? `Sign in adds the account to gh here too.${saved.length ? ` ${saved.join(", ")} ${saved.length > 1 ? "are" : "is"} in Beep already.` : ""}` : "";
   return box(`${ghChoiceRows(esc, choices, state.cliBusy)}
-    <div style="display:flex;gap:6px">${signIn}${paste}</div>
+    <div class="dline tight">${signIn}${paste}</div>
     ${help ? note(help) : ""}${err}`);
 }
 
@@ -462,9 +461,9 @@ function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, 
     // Several accounts in gh here: one Use each.
     if (choices.length > 1 && !state.ghFlow) {
       offer.account = `gh on this Mac has ${choices.length} accounts`;
-      offer.acts = `<button class="dbtn quiet" ${sm} data-cred-edit="github">Paste a token</button>`;
+      offer.acts = `<button class="dbtn quiet small" data-cred-edit="github">Paste a token</button>`;
       offer.help = "";
-      offer.body = `<div style="display:grid;gap:6px">${ghChoiceRows(esc, choices, state.cliBusy)}</div>`;
+      offer.body = `<div class="dgrid6">${ghChoiceRows(esc, choices, state.cliBusy)}</div>`;
     }
     return { rows: hostRow(esc, { icon: GITHUB_ICON, name: "GitHub", cli: "gh", machines, editKey: "github", ...rowState("github"), offer }), adding: "", canAdd: false };
   }
@@ -480,7 +479,7 @@ function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, 
 }
 
 const head = (text: string, top: number) => `<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:${top}px 0 2px">${text}</div>`;
-const addButton = (attr: string, text: string) => `<button class="dbtn" style="font-size:11.5px;padding:3px 9px" ${attr}>${text}</button>`;
+const addButton = (attr: string, text: string) => `<button class="dbtn small" ${attr}>${text}</button>`;
 
 /// The whole section (see `CredState`). `machines`: the machines list, or
 /// null when it is not known.
@@ -514,16 +513,16 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
   if (addingForgejo) html += form(state, esc, { title: "New Forgejo server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login")} on this Mac and use that sign-in.` });
   const adds = (github.canAdd ? addButton(`data-cred-gh-add="1"`, "+ Add another GitHub account") : "")
     + (addingForgejo ? "" : addButton(`data-cred-edit="forgejo"`, "+ Add a Forgejo server"));
-  if (adds) html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${adds}</div>`;
+  if (adds) html += `<div class="dline tight wrap dmt6">${adds}</div>`;
   html += head("API keys", 14);
-  html += `<div style="font-size:12.5px;color:var(--muted);margin:4px 0 8px;max-width:60ch">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and, when you choose, gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
+  html += `<div class="dlead">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and, when you choose, gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
   for (const p of state.providers ?? []) {
     const cred = list.find(c => c.kind === "api_key" && c.provider === p.slug);
     html += e?.kind === "api_key" && e.provider === p.slug
       ? form(state, esc, { title: p.name, env: p.env_var, url: p.env_var })
       : keyRow(esc, ago, p, cred);
   }
-  return `<div style="display:grid">${html}</div>`;
+  return `<div class="dcreds">${html}</div>`;
 }
 
 /// The edit a `data-cred-edit` value names, with what the form starts with.

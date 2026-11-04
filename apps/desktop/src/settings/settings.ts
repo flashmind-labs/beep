@@ -68,7 +68,7 @@ function thisMac(mac: MacControl) {
     ? perm("ScreenRecording", "Screen Recording", "To see the screen", p.screen_recording)
       + perm("Accessibility", "Accessibility", "To click, type and read app controls", p.accessibility)
     : "";
-  return `<div class="dsec flat" style="padding-top:6px">This Mac</div>
+  return `<div class="dsec flat top">This Mac</div>
     <div class="dtoggle"><span><b>Let Beep use this Mac</b><small>${sub}</small></span>
       <button class="dswitch" id="usemac" role="switch" aria-checked="${mac.enabled}" aria-label="Let Beep use this Mac"></button></div>${rows}`;
 }
@@ -82,7 +82,7 @@ const VOICE_NOTES_SAY: Record<NoticeVoice, string> = {
 };
 function voiceNotesRow(cur: NoticeVoice) {
   return `<div class="dtoggle"><span><b>Voice notes</b><small>${VOICE_NOTES_SAY[cur] ?? ""}</small></span></div>
-    <div class="dchips" role="radiogroup" aria-label="Voice notes" style="margin:6px 0 10px">${VOICE_NOTES.map(([k, label]) =>
+    <div class="dchips dgap" role="radiogroup" aria-label="Voice notes">${VOICE_NOTES.map(([k, label]) =>
       `<button class="dchip" role="radio" aria-checked="${cur === k}" aria-pressed="${cur === k}" data-vn="${k}">${label}</button>`).join("")}</div>`;
 }
 
@@ -97,7 +97,7 @@ function agentNoticesRow(on: boolean) {
 function sendRow(onPause: boolean) {
   const why = onPause ? "Sends after a short pause. Saying “send” sends at once." : "Pauses never send. Say “send” or “stop” when you are done.";
   return `<div class="dtoggle"><span><b>When I stop talking</b><small>${why}</small></span></div>
-    <div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:6px 0 10px"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
+    <div class="dchips dgap" role="radiogroup" aria-label="When I stop talking"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
 
 /// Settings: drawn at once from what this Mac knows (its own settings and the
@@ -154,11 +154,11 @@ function setDevicesHtml(linked: boolean, set: MacSettings) {
     const tags = [d.this_device ? "This Mac" : "", d.primary ? "Owner" : ""].filter(Boolean)
       .map(t => `<span class="dtag">${t}</span>`).join("");
     const remove = owner && !d.this_device ? `<button class="dbtn quiet" data-remove="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ICON.x}</button>` : "";
-    return `<div class="dtoggle"><span><b style="display:flex;gap:7px;align-items:center">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
+    return `<div class="dtoggle"><span><b class="dline tight">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
   };
-  const ask = SET.confirm ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px">
-      <b style="font-size:13.5px">Unlink this Mac?</b><div class="dmuted" style="display:block">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
-      <div style="display:flex;gap:8px"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn" id="unlinkNo">Cancel</button></div>
+  const ask = SET.confirm ? `<div class="dcard"><div class="dask">
+      <b class="dtitle">Unlink this Mac?</b><div class="dmuted dblock">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
+      <div class="dline"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
   return devices.map(row).join("") + (owner
     ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
@@ -329,10 +329,10 @@ function skinsHtml() {
 
 /// The sections of Settings, in order, each with the page it is.
 function settingsSections(set: MacSettings, mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, string][] {
-  const sec = (id: string, title: string, body: string) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat" style="padding-top:6px">${title}</div><div id="set-${id}">${body}</div></section>`;
+  const sec = (id: string, title: string, body: string) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat top">${title}</div><div id="set-${id}">${body}</div></section>`;
   // A page drawn by its own code, into this box.
   const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
-  const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat" style="padding-top:6px">General</div>
+  const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
       ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}${agentNoticesRow(set.agent_notices)}</section>`]];
@@ -345,7 +345,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   // The Coding agents rows sit outside #set-agents, which redraws alone.
   const sub = SET.path?.sub;
   out.push(["agents", sheet && sub?.kind === "agent" ? host("agents")
-    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat" style="padding-top:6px">Agent accounts</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}<div id="set-agents">${setAgentsHtml()}</div>${sheet ? codingAgentsHtml() : ""}</section>`]);
+    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">Agent accounts</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}<div id="set-agents">${setAgentsHtml()}</div>${sheet ? codingAgentsHtml() : ""}</section>`]);
   out.push(["creds", sec("creds", "Credentials", setCredsHtml())]);
   out.push(["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)]);
   out.push(["devices", sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`)]);
@@ -586,7 +586,7 @@ export async function renderSettings(confirm = false, root?: HTMLElement, page?:
   } else {
     const sections = settingsSections(set, mac, linked, false).map(([, html]) => html).join("");
     el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
-      <div class="dform" style="padding-top:12px;display:flex;flex-direction:column">${sections}</div>${hints([["esc", "close"]])}`;
+      <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
     bindSettings(el);
   }
   if (!linked) return;

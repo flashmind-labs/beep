@@ -87,14 +87,14 @@ function drawModel() {
     ? `<div class="dtoggle"><span><b>Auto</b><small>${autoSub}</small></span><button class="dswitch" data-act="auto" role="switch" aria-checked="${m.auto}" aria-label="Auto"></button></div>`
     : "";
   const rows = m.choices.map((c, i) => `<button class="drt dmrow" role="option" data-pick="${i}" aria-selected="${i === MODELS.sel}"><span class="tt"><b>${esc(c.name)}</b><span>${esc(modelPrice(c))}</span></span>${c.id === m.selected ? `<span class="dok">${ICON.check}</span>` : ""}</button>`).join("");
-  const picker = `<div class="dlist" style="padding:0" role="listbox" aria-label="Models">${rows}</div>
+  const picker = `<div class="dlist dflush" role="listbox" aria-label="Models">${rows}</div>
       <div class="dfield"><span>Thinking</span><div class="dchips">${THINKING.map(l => `<button class="dchip" data-level="${l}" aria-pressed="${l === m.thinking}">${cap(l)}</button>`).join("")}</div></div>`;
   // Agents apply to everyone, so they sit apart from the caller's own model.
   const agentSec = MODELS.list.length ? `<div class="dsec flat dagents">Agents <span class="dtag">Admin</span></div>
       <div class="dtoggle"><span><b>Agents</b><small>${agents ? "On for everyone" : "Off for everyone"}</small></span><button class="dswitch" data-act="agents" role="switch" aria-checked="${agents}" aria-label="Agents"></button></div>
       <div class="dmuted dagentlist"${agents ? "" : ' style="opacity:.6"'}>${esc(MODELS.list.join(", "))}</div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Model</b><small>Your own turns only</small></span></div>
-    <div class="dform dmodelform" style="padding-top:12px">${auto}
+    <div class="dform dmodelform">${auto}
       ${picker}
       ${agentSec}
       <div class="derr" id="modelErr"></div>

@@ -114,8 +114,8 @@ function logoFallbacks(root: ParentNode) {
 }
 
 /// The top of a list in Apps: the error, or a spinner until `loaded`.
-const listTop = (loaded: unknown) => A.error ? `<div class="derr" style="padding:8px 10px">${esc(A.error)}</div>`
-  : loaded ? "" : '<div class="dmuted" style="padding:14px 10px"><span class="dspin"></span></div>';
+const listTop = (loaded: unknown) => A.error ? `<div class="derr dpad">${esc(A.error)}</div>`
+  : loaded ? "" : '<div class="dmuted dpad"><span class="dspin"></span></div>';
 
 /// Stops waiting for a browser sign-in.
 const cancelSignIn = () => invoke("cancel_app_sign_in").catch(() => {});
@@ -257,12 +257,12 @@ function drawServers(servers: McpServer[]) {
     html += `<div class="dform dmcp">
       <label class="dfield"><span>Name</span><input id="mname" maxlength="60" placeholder="Team notes" autocomplete="off" spellcheck="false"${off}></label>
       <label class="dfield${A.addError ? " err" : ""}"><span>${A.addError ? esc(A.addError) : "Server URL"}</span><input id="murl" class="url" maxlength="2000" placeholder="https://example.com/mcp" autocomplete="off" spellcheck="false"${off}></label>
-      <div style="display:flex;gap:8px;align-items:center">${busy ? '<span class="dmuted"><span class="dspin"></span> Connecting…</span>'
+      <div class="dline">${busy ? '<span class="dmuted"><span class="dspin"></span> Connecting…</span>'
         : `<button class="dbtn pri" data-madd>Add server<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-mclose>Cancel</button>`}</div></div>`;
   } else {
-    html += `<div style="padding:4px 10px"><button class="dbtn" data-mnew>Add MCP server</button></div>`;
+    html += `<div class="dpad"><button class="dbtn" data-mnew>Add MCP server</button></div>`;
   }
-  return html + '<div class="dmuted" style="padding:6px 10px;display:block">Beep asks before every tool on a server you add.</div>';
+  return html + '<div class="dmuted dpad dblock">Beep asks before every tool on a server you add.</div>';
 }
 
 export async function addServer() {
@@ -401,9 +401,9 @@ export function drawMcpTools() {
       if (!tool.usable) return `<div class="daction off"${title}><span>${name}<small>Too large for Beep to use</small></span><button class="dswitch" role="switch" aria-checked="false" aria-label="Use ${name}" disabled></button></div>`;
       return `<div class="daction"${title}><span>${name}</span><button class="dswitch" role="switch" aria-checked="${tool.enabled}" data-ttool="${esc(tool.name)}" aria-label="Use ${name}"></button></div>`;
     }).join("");
-    html += `<div class="dmuted" style="padding:8px 10px;display:block">Beep uses up to ${t.limit} tools from a server, so turn on the ones you need. It asks before every tool on a server you add.</div>`;
+    html += `<div class="dmuted dpad dblock">Beep uses up to ${t.limit} tools from a server, so turn on the ones you need. It asks before every tool on a server you add.</div>`;
   }
-  html += `<div style="padding:6px 10px 2px;display:flex;gap:8px;align-items:center">${A.unadd
+  html += `<div class="dpad dline">${A.unadd
     ? '<span class="dmuted">Beep stops using this server</span><button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-mremove>Remove</button>'
     : '<button class="dbtn warn" data-mremoving>Remove server</button>'}</div>`;
   list.innerHTML = html;
@@ -487,7 +487,7 @@ async function loadPageAccounts(app: App) {
 function drawAccounts(app: App, accounts: AppAccount[]) {
   let html = '<div class="dsec">Accounts</div>' + accounts.map((a, i) => {
     const name = esc(a.address ?? `${app.name} account`);
-    const first = i === 0 && accounts.length > 1 ? ' <small class="dmuted" style="display:inline">Default</small>' : "";
+    const first = i === 0 && accounts.length > 1 ? ' <small class="dmuted dinline">Default</small>' : "";
     const end = A.busy === "account:" + a.id ? SPIN
       : A.removing === a.id ? `<span class="dmuted">${accounts.length === 1 ? `Disconnects ${esc(app.name)}` : "Beep stops using this account"}</span>`
         + `<button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-remove="${esc(a.id)}">Remove</button>`
@@ -495,9 +495,9 @@ function drawAccounts(app: App, accounts: AppAccount[]) {
     return `<div class="daction"><span>${name}${first}</span>${end}</div>`;
   }).join("");
   html += A.connecting === app.slug
-    ? `<div style="padding:4px 10px;display:flex;gap:8px;align-items:center">${waitingFor("data-cancel")}</div>`
-    : '<div style="padding:4px 10px"><button class="dbtn" data-addaccount>Add another account</button></div>';
-  return html + `<div class="dmuted" style="padding:6px 10px;display:block">Beep uses the first account unless you name another, like "check my work inbox". To add a different account, sign out of ${esc(app.name)} in the browser first.</div>`;
+    ? `<div class="dpad dline">${waitingFor("data-cancel")}</div>`
+    : '<div class="dpad"><button class="dbtn" data-addaccount>Add another account</button></div>';
+  return html + `<div class="dmuted dpad dblock">Beep uses the first account unless you name another, like "check my work inbox". To add a different account, sign out of ${esc(app.name)} in the browser first.</div>`;
 }
 
 async function addAccount(app: App) {
@@ -535,7 +535,7 @@ function drawPerms() {
   const accounts = A.accounts[app.slug];
   let html = listTop(p);
   if (A.accountsError) html += `<div class="dsec">Accounts</div><div class="daction"><span class="derr">${esc(app.name)} accounts did not load: ${esc(A.accountsError)}</span></div>`;
-  if (A.error || A.accountsError) html += '<div style="padding:4px 10px"><button class="dbtn" data-retry>Retry</button></div>';
+  if (A.error || A.accountsError) html += '<div class="dpad"><button class="dbtn" data-retry>Retry</button></div>';
   if (accounts?.length) html += drawAccounts(app, accounts);
   if (p) {
     html += `<div class="dsec">When Beep acts in ${esc(app.name)}</div>` + APP_LEVELS.map(([level, title, detail]) =>
@@ -548,10 +548,10 @@ function drawPerms() {
         return `<div class="daction"><span>${esc(a.label)}</span><span class="dtag${cls}">${tag}</span>${sw}</div>`;
       }).join("");
     }
-    html += '<div class="dmuted" style="padding:8px 10px;display:block">Searching and reading is always allowed.</div>';
+    html += '<div class="dmuted dpad dblock">Searching and reading is always allowed.</div>';
   }
   const all = (accounts?.length ?? 0) > 1 ? " (all accounts)" : "";
-  html += `<div style="padding:6px 10px 2px"><button class="dbtn warn" id="disconnect">Disconnect ${esc(app.name)}${all}</button></div>`;
+  html += `<div class="dpad"><button class="dbtn warn" id="disconnect">Disconnect ${esc(app.name)}${all}</button></div>`;
   list.innerHTML = html;
 }
 

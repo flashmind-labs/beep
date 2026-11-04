@@ -10,6 +10,7 @@ import { answerHtml, errorCardHtml, KIND_ICONS, stepMark, stopFace, thinkingRow,
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { fillAgentPics, gonePic } from "./images.ts";
+import { filesHtml, planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
 import { drawQueue } from "./messages.ts";
@@ -357,10 +358,7 @@ function turnsHtml(p: AgentPage) {
 /// The question's answers; the first that allows and the first that does
 /// not take ⌘Return and ⌘D.
 function questionCard(q: AgentQuestion) {
-  const allow = q.options.findIndex(x => x.allow), deny = q.options.findIndex(x => !x.allow);
-  const buttons = q.options.map((o, i) => `<button class="dbtn${i === allow ? " pri" : i === deny ? " warn" : ""}" data-agopt="${i}"${q.id === AG.answering ? " disabled" : ""}>${esc(o.name)}${i === allow ? `<kbd>⌘${ICON.ret}</kbd>` : i === deny ? "<kbd>⌘D</kbd>" : ""}</button>`);
-  return `<div class="q"><b style="font-weight:600">${esc(q.text)}</b>${q.detail ? `<code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(q.detail)}</code>` : ""}
-      <div class="dups">${buttons.join("")}</div></div>`;
+  return questionHtml(q, "data-agopt", q.id === AG.answering, true);
 }
 
 /// A row of the log a redraw puts back where it was: found by `sel`, `off`
@@ -416,17 +414,16 @@ export function drawAgentBody(keep?: string) {
   const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
   const child = AG.child != null && AG.log && p.entries[AG.child - p.earlier] ? AG.child : null;
   if (child == null) AG.child = null;
-  const mark = (x: string) => x === "completed" ? `<span class="dok">${ICON.check}</span>` : x === "in_progress" ? (s.status === "asking" ? '<span class="ddot" style="background:var(--hot)"></span>' : '<span class="dspin"></span>') : '<span class="ddot off"></span>';
   // A plan waiting for approval shows above the field instead.
   const question = q && AG.modes?.plan == null ? questionCard(q) : "";
-  const plan = p.plan.length ? `<div class="sec">Plan</div><div class="plan">${p.plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
-  const files = p.files.length ? `<div class="sec">Files changed</div><div class="files">${p.files.slice(-12).map(f => `<span><b>${esc(f)}</b></span>`).join("")}${p.files.length > 12 ? `<span style="color:var(--muted)">and ${p.files.length - 12} more</span>` : ""}</div>` : "";
+  const plan = planHtml(p.plan, s.status === "asking");
+  const files = filesHtml(p.files, 12);
   // Steers sent from here show above the field; this counts the others.
   const others = p.queued - AG.queue.filter(q => q.state === "sent" || q.state === "sending").length;
-  const queued = others > 0 ? `<div class="row" style="padding:8px 12px 0;color:var(--muted)">${others === 1 ? "1 message waits" : `${others} messages wait`} for the turn to end</div>` : "";
+  const queued = others > 0 ? `<div class="row note">${others === 1 ? "1 message waits" : `${others} messages wait`} for the turn to end</div>` : "";
   // The question, plan and files sit under the log, by the field.
   const card = question || plan || files || queued
-    ? `<div class="dcard dcoder">${question}${plan}${files}${queued}<div style="height:12px"></div></div>` : "";
+    ? `<div class="dcard dcoder">${question}${plan}${files}${queued}</div>` : "";
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
   const entries = child != null ? childHtml(p, child) : p.entries.length && AG.log ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`

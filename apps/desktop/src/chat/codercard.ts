@@ -1,5 +1,6 @@
 import { type AgentReport, cardKey, parseAgentReport, type ReportStep } from "./agentcard.ts";
 import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, agentAvatar, agentKind, stateTag } from "../agents/agents.ts";
+import { filesHtml, planHtml, questionHtml } from "../agents/coderhtml.ts";
 import { openAgent } from "../agents/session.ts";
 import { esc, h, ICON, invoke } from "../bar/core.ts";
 import type { Turn } from "../bar/core.ts";
@@ -82,16 +83,6 @@ async function poll(card: CoderCard) {
   if (card.isConnected && AGENT_ACTIVE.has(f.page?.session.status)) card.timer = setTimeout(() => poll(card), CARD_POLL_MS);
 }
 
-const mark = (status: string, asking: boolean) => status === "completed" ? `<span class="dok">${ICON.check}</span>`
-  : status === "in_progress" ? (asking ? '<span class="ddot" style="background:var(--hot)"></span>' : '<span class="dspin"></span>')
-  : '<span class="ddot off"></span>';
-
-function questionHtml(q: AgentQuestion, busy: boolean) {
-  const allow = q.options.findIndex(x => x.allow), deny = q.options.findIndex(x => !x.allow);
-  const buttons = q.options.map((o, i) => `<button class="dbtn${i === allow ? " pri" : i === deny ? " warn" : ""}" data-cardopt="${i}"${busy ? " disabled" : ""}>${esc(o.name)}</button>`).join("");
-  return `<div class="q"><b style="font-weight:600">${esc(q.text)}</b>${q.detail ? `<code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(q.detail)}</code>` : ""}<div class="dups">${buttons}</div></div>`;
-}
-
 function draw(card: CoderCard) {
   const r = card.report, f = card.found, page = f?.page, s = page?.session;
   const status = s?.status ?? r.status;
@@ -101,16 +92,14 @@ function draw(card: CoderCard) {
   const doing = s ? s.doing : r.doing;
   const machine = s?.machine_name ?? f?.row.machine_name;
   const k = agentKind(r.agent);
-  const head = `<div class="head" style="background:color-mix(in srgb, var(--accent) 10%, transparent)">${agentAvatar(r.agent)}<div style="flex:1;min-width:0;display:grid"><b>${esc(k.name)}${machine ? ` on ${esc(machine)}` : ""}</b><small style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.cwd)}">${esc(r.cwd)}</small></div>${status === "unknown" ? "" : stateTag(status)}</div>`;
+  const head = `<div class="head">${agentAvatar(r.agent)}<div class="dcol"><b>${esc(k.name)}${machine ? ` on ${esc(machine)}` : ""}</b><small class="dmono dell" title="${esc(r.cwd)}">${esc(r.cwd)}</small></div>${status === "unknown" ? "" : stateTag(status)}</div>`;
   const now = doing && status !== "ended" && status !== "idle"
-    ? `<div class="row" style="padding:8px 12px 0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(doing)}">${esc(doing.split("\n")[0])}</div>` : "";
-  const planHtml = plan.length ? `<div class="sec">Plan</div><div class="plan">${plan.map(x => `<div class="row"><span style="width:16px;display:grid;place-items:center">${mark(x.status, asking)}</span><span style="${x.status === "pending" ? "color:var(--muted)" : ""}">${esc(x.content)}</span></div>`).join("")}</div>` : "";
-  const filesHtml = files.length ? `<div class="sec">Files changed</div><div class="files">${files.slice(-8).map(x => `<span><b>${esc(x)}</b></span>`).join("")}${files.length > 8 ? `<span style="color:var(--muted)">and ${files.length - 8} more</span>` : ""}</div>` : "";
+    ? `<div class="row note dell" title="${esc(doing)}">${esc(doing.split("\n")[0])}</div>` : "";
   // A live question gets its buttons; one only the reply names is text.
-  const q = s?.question ? questionHtml(s.question, card.answering === s.question.id)
-    : !f && r.question && asking ? `<div class="q"><b style="font-weight:600">${esc(r.question)}</b></div>` : "";
-  const open = f ? `<div class="dups" style="padding:10px 12px 0"><button class="dbtn" data-cardopen>Open</button></div>` : "";
-  card.innerHTML = head + now + q + planHtml + filesHtml + open + '<div style="height:12px"></div>';
+  const q = s?.question ? questionHtml(s.question, "data-cardopt", card.answering === s.question.id)
+    : !f && r.question && asking ? `<div class="q"><b>${esc(r.question)}</b></div>` : "";
+  const open = f ? `<div class="dups"><button class="dbtn" data-cardopen>Open</button></div>` : "";
+  card.innerHTML = head + now + q + planHtml(plan, asking) + filesHtml(files, 8) + open;
 }
 
 async function answer(card: CoderCard, i: number) {

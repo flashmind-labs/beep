@@ -176,7 +176,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dmlist button { display: flex; align-items: center; gap: 10px; border: 0; background: transparent; color: var(--fg); padding: 6px 8px; border-radius: var(--radius-sm); text-align: left; font-size: 13px }
 .dmlist button[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 28%, transparent) }
 .dmlist small { color: var(--muted); font-size: 12px; margin-left: auto }
-.dform { display: grid; gap: 12px; padding: 4px 18px 16px }
+.dform { display: grid; gap: 12px; padding: 12px 18px 16px }
 .dfield { display: grid; gap: 4px; font-size: 12px; color: var(--muted) }
 .dfield .f { min-height: 34px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 14px; display: flex; align-items: center }
 .dfield.on .f { border-color: var(--accent) }
@@ -220,6 +220,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dinfo .member .dav { width: 28px; height: 28px; font-size: 12px; margin: 0 }
 .dinfo .member > span:not(.dav) { flex: 1; min-width: 0; display: grid; line-height: 18px }
 .dinfo .member small { font-size: 12px; color: var(--muted) }
+.dinfo .member b { font-weight: 500 }
 .dtoggle { display: flex; gap: 12px; align-items: center }
 .dtoggle span { flex: 1; display: grid; line-height: 19px }
 .dtoggle b { font-weight: 500; font-size: 13.5px }
@@ -1055,3 +1056,91 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dskin:hover { color: var(--fg) }
 .dskin[aria-pressed="true"] { background: var(--elev); color: var(--fg); border-color: var(--accent) }
 .dskin:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+/* Pieces shared by the views built from HTML strings. */
+.dline { display: flex; align-items: center; gap: 8px }
+.dline.tight { gap: 6px }
+.dline.wrap { flex-wrap: wrap }
+.dpush { margin-left: auto }
+.dacts { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none }
+.dcol { flex: 1; min-width: 0; display: grid }
+.dcol0 { min-width: 0 }
+.dstack { display: grid; gap: 2px; min-width: 0 }
+.dfill { flex: 1 }
+.dgrid6 { display: grid; gap: 6px }
+.dgrid8 { display: grid; gap: 8px }
+.dtwo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.dmut { color: var(--muted) }
+.dsub { font-size: 11.5px; color: var(--muted) }
+.dfine { font-size: 12px; color: var(--muted) }
+.dsm { font-size: 12.5px }
+.dtitle { font-size: 13.5px }
+.dbig { font-size: 14px }
+.dlink { color: var(--accent) }
+.dell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dblock { display: block }
+.dmuted.dinline { display: inline }
+.dmuted.dcenter, .dline.dcenter { justify-content: center }
+.dpad { padding: 8px 10px }
+.dpadx { padding: 8px 18px 0 }
+.dpy { padding: 6px 0 }
+.dpt { padding-top: 10px }
+.dind { padding-left: 15px }
+.dmt6 { margin-top: 6px }
+.dm8 { margin: 8px }
+.dcardm { margin: 12px 16px 0 }
+.dgap { margin: 6px 0 10px }
+.dtop { border-top: 1px solid var(--border) }
+.dflush { padding: 0 }
+.dwide { width: 100%; text-align: left }
+.dnarrow { max-width: 140px }
+.dalignt { align-items: flex-start }
+.dpull { margin-top: -6px }
+.dicon { color: var(--dim); display: grid }
+.dmark { width: 16px; display: grid; place-items: center }
+.dstopico { width: 9px; height: 9px; border-radius: 2px; background: currentColor }
+.ddot.hot { background: var(--hot) }
+.code.big { font-size: 22px; font-weight: 600 }
+.dfield input.mono.plain { text-transform: none }
+.dlist.top { padding-top: 8px }
+.dsec.flat.top { padding-top: 6px }
+.dsec.bare { border: 0; padding-left: 10px }
+.dbody.pt { padding-top: 12px }
+.dgroupbody { padding-left: 18px }
+#ginfobody { gap: 14px }
+.dform.dscroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; align-content: start }
+.dform.dformcol { display: flex; flex-direction: column }
+.dchips.dchipbar { padding: 8px 16px 2px }
+.dsave { flex: none; display: inline-flex; gap: 4px; align-items: center }
+.dtext { font-size: 13.5px; line-height: 18px; color: var(--fg) }
+.dbanner { padding: 10px 16px; border-top: 1px solid var(--border) }
+.dnomsg { text-align: center; white-space: pre-line; padding: 12px 0 }
+.dfile .go { color: var(--muted); display: grid }
+.dworkq > .dmuted { justify-content: center; font-size: 11.5px; color: var(--dim) }
+#kbody { font-size: 13px; line-height: 19px }
+/* A list with nothing in it: its icon, a line, what it is for. */
+.dempty { padding: 28px 24px 32px; display: grid; justify-items: center; gap: 8px; text-align: center }
+.dempty b { font-size: 14px }
+.dempty .dmuted { max-width: 44ch }
+/* A card asking before something (confirmCard). */
+.dask { padding: 10px 12px; display: grid; gap: 8px }
+.dask.dline { display: flex }
+/* A coding agent's card, in a chat and on its page. */
+.dcoder { padding-bottom: 12px }
+.dcoder .head { background: color-mix(in srgb, var(--accent) 10%, transparent) }
+.dcoder .row.note { padding: 8px 12px 0; color: var(--muted) }
+.dcoder > .dups { padding: 10px 12px 0 }
+.dcoder .q b { font-weight: 600 }
+.dcoder .q code { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere }
+/* Settings: sign-ins and keys. */
+.dcreds { display: grid }
+.dcreds b, .dbox b { font-weight: 600 }
+.dcreds code, .dbox code { font-size: 11px }
+.dbox { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-top: 12px }
+.dbox > .dline { gap: 10px }
+.dlead { font-size: 12.5px; color: var(--muted); margin: 4px 0 8px; max-width: 60ch }
+.dsecret { flex: 1; font-family: var(--mono); font-size: 12.5px }
+.dcred-form { padding: 10px 0; border-bottom: 1px solid var(--border); display: grid; gap: 8px; font-size: 13px }
+.dcred-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px }
+.dflow { padding: 8px 10px; margin: 4px 0; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); font-size: 12.5px; display: grid; gap: 6px }
+.dflowcode { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: .1em; user-select: all; cursor: text }
