@@ -96,6 +96,7 @@ pub(super) fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
             Request::Steer { text, images }
         }
         AgentSteer::DropSteers {} => Request::DropSteers {},
+        AgentSteer::SetMode { mode } => Request::SetMode { mode },
         AgentSteer::Cancel {} => Request::Cancel {},
         AgentSteer::Close {} => Request::Close {},
         AgentSteer::Configure {

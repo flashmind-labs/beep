@@ -311,6 +311,7 @@ impl Agents {
             prompt: begin.prompt,
             resume: begin.resume,
             model: begin.model,
+            mode: begin.mode,
             effort: begin.effort,
             note: begin.note,
             brief: begin.brief,
@@ -368,6 +369,8 @@ pub(super) struct Begin {
     pub(super) resume: Option<String>,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
+    /// The session mode it was in before the node restarted.
+    pub(super) mode: Option<String>,
     /// A first line for the transcript, such as the branch it started on.
     pub(super) note: Option<String>,
     /// Beep's word to the agent ahead of the first prompt.

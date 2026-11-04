@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 17;
+pub const WIRE: u32 = 18;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -70,6 +70,10 @@ impl Feature {
     /// that goes once its current tool call finishes. Only the macOS app sends
     /// it.
     pub const AGENT_STEER: Feature = Feature(16);
+
+    /// Sends `AgentSteer::SetMode`, switching a running coding-agent session's
+    /// mode, and asks `GetAgentSessionModes`. Only the macOS app does.
+    pub const AGENT_MODES: Feature = Feature(18);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {

@@ -24,7 +24,9 @@ use agent_client_protocol::{
 };
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
-use beep_proto::node::agent::{AlertKind, Effort, EntryKind, Question, Status, StopReason};
+use beep_proto::node::agent::{
+    AlertKind, Effort, EntryKind, ModeOption, Question, Status, StopReason,
+};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use std::{
     collections::{HashSet, VecDeque},
@@ -78,8 +80,17 @@ pub(super) enum Reply {
         SessionId,
         Result<serde_json::Value, agent_client_protocol::Error>,
     ),
-    /// The answer to `session/set_mode` to the mode that asks no permission.
-    Bypass(Result<(), agent_client_protocol::Error>),
+    /// The answer to `session/set_mode` to the `mode` it starts in.
+    FirstMode {
+        mode: String,
+        result: Result<(), agent_client_protocol::Error>,
+    },
+    /// The answer to switching the session's mode, which shows already,
+    /// from `was`.
+    ModeSet {
+        was: Option<String>,
+        result: Result<(), agent_client_protocol::Error>,
+    },
     Prompt(Result<PromptResponse, agent_client_protocol::Error>),
     /// The answer to the `/compact` the node sent.
     Compacted(Result<PromptResponse, agent_client_protocol::Error>),
@@ -99,6 +110,8 @@ pub(super) enum Reply {
 pub(super) struct Asked {
     pub(super) question: Question,
     pub(super) waiting: Waiting,
+    /// The plan it asks to approve, for a plan's approval.
+    pub(super) plan: Option<String>,
 }
 
 /// Who waits for a question's answer.
@@ -152,6 +165,13 @@ pub(super) struct Actor {
     /// agent runs without prompts, and a permission request that comes
     /// anyway is allowed rather than asked.
     pub(super) bypass_mode: Option<&'static str>,
+    /// The mode to start in instead, for a session the node resumes.
+    pub(super) first_mode: Option<String>,
+    /// The last mode the session was in other than plan mode.
+    pub(super) left_plan_for: Option<String>,
+    /// The mode to go back to once the agent left plan mode for an approved
+    /// plan: it picks its own among those the approval offers.
+    pub(super) returning: Option<String>,
     /// When the node compacts the conversation.
     pub(super) compactor: Compactor,
     /// Prompts waiting for the agent to be free, the first prompt among them.
@@ -276,6 +296,7 @@ impl Actor {
             // A cost the agent reported after its last turn still counts.
             live.spent(TurnTokens::default());
             live.info.question = None;
+            live.info.plan_ready = None;
             live.info.state.status = Status::Ended;
             live.info.state.queued = 0;
             live.held = waiting;
@@ -415,6 +436,9 @@ impl Actor {
     fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {
         match event {
             Event::Update(update) => {
+                if let SessionUpdate::CurrentModeUpdate(now) = &update {
+                    self.mode_is(cx, now.current_mode_id.to_string());
+                }
                 let finished = self.tool_finished(&update);
                 self.live.send_if_modified(|live| live.apply(&update));
                 if let Some(stopping) = self.stopping {
@@ -425,6 +449,9 @@ impl Actor {
                 }
             }
             Event::Permission(request, responder) => {
+                let Some(responder) = self.plan_ready(&request, responder) else {
+                    return Ok(());
+                };
                 if let Some(responder) = self.allow(&request, responder)? {
                     self.ask(&request, responder);
                 }
@@ -487,12 +514,21 @@ impl Actor {
                     "the agent could not switch to {model}: {e}"
                 ))));
             }
-            Reply::Bypass(result) => {
-                if let Err(e) = result {
+            Reply::FirstMode { mode, result } => {
+                match result {
+                    Ok(()) => self.mode_is(cx, mode),
                     // Requests that still come are allowed in `ask`.
-                    log::warn!("the agent kept asking permission: {e}");
+                    Err(e) => log::warn!("the agent did not switch to {mode}: {e}"),
                 }
                 self.idle(cx);
+            }
+            Reply::ModeSet { was, result } => {
+                if let Err(e) = result {
+                    self.note(&format!("Could not switch mode: {e}"));
+                    if let Some(was) = was {
+                        self.mode_is(cx, was);
+                    }
+                }
             }
             Reply::Resumed(_, Err(e)) => {
                 return Ok(Some(End::Failed(format!(
@@ -575,6 +611,13 @@ impl Actor {
         self.acp_session = Some(session.clone());
         self.thinking = offered.thinking;
         self.switch = offered.switch.clone();
+        if let Some(modes) = offered.modes {
+            let bypass = self.bypass_mode;
+            self.live.send_modify(|live| {
+                live.info.modes = cycle(modes.available, bypass);
+            });
+            self.mode_is(cx, modes.current);
+        }
         // From now on the session goes by the agent's own id, which
         // still finds it once the node restarts.
         self.live.send_modify(|live| {
@@ -656,10 +699,14 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
-        if let Some(mode) = self.bypass_mode {
+        let first = self.first_mode.take();
+        if let Some(mode) = first.or_else(|| self.bypass_mode.map(str::to_owned)) {
             // The first prompt waits for the mode, so it never asks.
-            let request = SetSessionModeRequest::new(session, mode);
-            self.send(cx, request, |result| Reply::Bypass(result.map(drop)));
+            let request = SetSessionModeRequest::new(session, mode.clone());
+            self.send(cx, request, |result| Reply::FirstMode {
+                mode,
+                result: result.map(drop),
+            });
             return;
         }
         self.idle(cx);
@@ -671,6 +718,22 @@ impl Actor {
             .send_modify(|live| live.info.state.status = Status::Idle);
         self.next_prompt(cx);
     }
+}
+
+/// The modes an agent offers in the order a switch goes through them: the one
+/// that asks no permission, shown as Full access, then plan mode, then the
+/// others as the agent lists them.
+fn cycle(mut modes: Vec<ModeOption>, bypass: Option<&str>) -> Vec<ModeOption> {
+    let is_bypass = |mode: &ModeOption| Some(mode.id.as_str()) == bypass;
+    modes.sort_by_key(|mode| match mode.id.as_str() {
+        _ if is_bypass(mode) => 0,
+        acp::PLAN_MODE => 1,
+        _ => 2,
+    });
+    for mode in modes.iter_mut().filter(|mode| is_bypass(mode)) {
+        mode.name = "Full access".to_owned();
+    }
+    modes
 }
 
 /// What people call the agent `name`, such as Claude Code for `claude`.

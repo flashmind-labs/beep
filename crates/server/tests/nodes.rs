@@ -24,16 +24,17 @@ use beep_server::{
     client::{Client, Node},
     nodes::{self, Follower, Online, StartOn},
     protocol::{
-        AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk, AgentImageData, AgentModel,
-        AgentModelPick, AgentModels, AgentNoticeKey, AgentSessionUsage, AgentSteer, AgentTokens,
-        AnswerApproval, ApiError, Approval, ApprovalDecision, CreateNodeToken, CustomAgent,
-        CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile, DiffStatus, GetAgentFile,
-        GetAgentImage, GetAgentSession, GetAgentSessionUsage, GetMachineLog, GetNodeToken,
-        GetSession, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
-        HarnessSettings, HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels,
-        ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines,
-        ListMemoryScopes, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD, MachineCapability,
-        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
+        AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk, AgentImageData, AgentMode,
+        AgentModel, AgentModelPick, AgentModels, AgentNoticeKey, AgentSessionModes,
+        AgentSessionUsage, AgentSteer, AgentTokens, AnswerApproval, ApiError, Approval,
+        ApprovalDecision, CreateNodeToken, CustomAgent, CustomAgentHarness, CustomAgentScope,
+        DeviceKind, DiffFile, DiffStatus, GetAgentFile, GetAgentImage, GetAgentSession,
+        GetAgentSessionModes, GetAgentSessionUsage, GetMachineLog, GetNodeToken, GetSession,
+        GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange, HarnessSettings,
+        HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
+        ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
+        ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD, MachineCapability, MemoryScope,
+        MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
         RevokeNodeToken, RunEvent, SaveHarnessSettings, StartAgentSession, SteerAgentSession,
         Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile, image_key,
         link::LinkOffer,
@@ -41,9 +42,9 @@ use beep_server::{
             EnvReport, NodeSetup,
             agent::{
                 Alert, AlertKind, AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event,
-                ExternalSession, ModelList, ModelOption, ModelPick, OptionKind, Question, Request,
-                SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest, State, Status,
-                StopReason,
+                ExternalSession, ModeOption, ModelList, ModelOption, ModelPick, OptionKind,
+                Question, Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest,
+                State, Status, StopReason,
             },
             usage::{
                 Billing, HourSpend, LimitWindow, ModelTokens, PlanUsage, SessionSpend, TurnUsage,
@@ -2727,7 +2728,7 @@ async fn agent_control_keeps_to_the_callers_machines_and_chats() {
 }
 
 #[tokio::test]
-async fn a_sessions_usage_comes_from_its_node() {
+async fn a_sessions_usage_and_modes_come_from_its_node() {
     let mut center = CommandCenter::new(1).await;
     let machine = center
         .node(
@@ -2741,6 +2742,12 @@ async fn a_sessions_usage_comes_from_its_node() {
                     }),
                     tokens: 184_000,
                     cost_usd: Some(1.42),
+                    modes: vec![ModeOption {
+                        id: "plan".into(),
+                        name: "Plan".into(),
+                    }],
+                    mode: Some("plan".into()),
+                    plan_ready: Some("1. Add a flag".into()),
                     ..beep_session("a3f9c1", None)
                 }],
                 ..FakeAgents::default()
@@ -2748,6 +2755,22 @@ async fn a_sessions_usage_comes_from_its_node() {
         )
         .await;
     let (_node, client) = center.phone(0).await;
+    let modes = GetAgentSessionModes {
+        machine_id: machine.clone(),
+        agent: "claude".into(),
+        session: "a3f9c1".into(),
+    };
+    assert_eq!(
+        client.call(&modes).await.unwrap(),
+        AgentSessionModes {
+            current: Some("plan".into()),
+            modes: vec![AgentMode {
+                id: "plan".into(),
+                name: "Plan".into(),
+            }],
+            plan: Some("1. Add a flag".into()),
+        }
+    );
     let get = |session: &str| GetAgentSessionUsage {
         machine_id: machine.clone(),
         agent: "claude".into(),
