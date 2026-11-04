@@ -146,15 +146,16 @@ const VERBS: Record<string, [string, string]> = {
 
 const RANGE = /\s*(?:\((\d+)\s*-\s*(\d+)\)|:(\d+)(?:-(\d+))?)$/;
 
-/// A tool entry as the parts of its row. `output` is what it showed.
-export function rowParts(text: string, running = false): RowParts {
+/// A tool entry as the parts of its row. `output` is what it showed;
+/// `whole` keeps every line of the target.
+export function rowParts(text: string, running = false, whole = false): RowParts {
   const { title, status, output } = parseTool(imageLines(text).text);
   const kind = toolKind(text), failed = status === "failed";
   const exit = failed ? /(?:exit(?:ed with)?(?: code)?|status) (\d+)/i.exec(output)?.[1] : undefined;
   let detail = failed ? (exit ? `exit ${exit}` : "failed") : "";
   const mcp = MCP.exec(title.trim());
   if (mcp) return { kind, verb: mcp[1], target: (mcp[2] + mcp[3]).trim(), detail: detail || "MCP", bad: failed };
-  const label = stepLabel(text, running).replace(/ …$/, "");
+  const label = stepLabel(text, running, whole).replace(/ …$/, "");
   const first = /^(\S+)\s+([\s\S]*)$/.exec(label);
   const known = first ? VERBS[first[1].toLowerCase()] : undefined;
   let verb = known ? known[running ? 1 : 0] : kind === "command" ? (running ? "Running" : "Ran") : "Used";
@@ -319,17 +320,6 @@ export function stepLabel(text: string, running = false, whole = false) {
 /// `Bash: `).
 export function commandOf(title: string) {
   return title.trim().replace(/^[A-Za-z]+: /, "");
-}
-
-const squash = (s: string) => s.replace(/\s+/g, " ").trim();
-
-/// What an opened step shows of its title under its label: the command
-/// without the tool's name, or "" when the label already says it, so a
-/// command never prints twice.
-export function commandDetail(title: string, label: string) {
-  const cmd = squash(commandOf(title)), shown = squash(label);
-  if (!cmd || shown === cmd || shown.endsWith(` ${cmd}`)) return "";
-  return commandOf(title);
 }
 
 /// Whether a step's row starts open: a failed step only while it is the newest

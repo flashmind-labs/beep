@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { RunningAgent, RunningRow } from "../src/center/home-state.ts";
 import type { ProjectRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { mergeProjects, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn } from "../src/project/projects-state.ts";
+import { mergeProjects, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy } from "../src/project/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -169,4 +169,28 @@ test("the next import goes under the folder the last one went under", () => {
   assert.equal(folderUnder("/srv/projects/", "n0-computer/iroh"), "/srv/projects/n0-computer/iroh");
   assert.equal(folderUnder("/srv/projects", "https://git.example.com/acme/relay.git"), "/srv/projects/acme/relay");
   assert.equal(folderUnder("/srv/projects", "nope"), null);
+});
+
+test("a folded heading stands alone and names what it hides; loose projects stay", () => {
+  const rows = [{ name: "acme/one" }, { name: "acme/two" }, { name: "other/three" }, { name: "loose" }, { name: "kept", machines: [{ folder: "/srv/work/kept" }] }];
+  const groups = [{ id: "g1", name: "work", paths: ["/srv/work"] }];
+  const names = (out: ReturnType<typeof sideProjects<(typeof rows)[number]>>) => out.map(p => p.group ? `group ${p.folded ?? ""}` : p.org ? `org ${p.org} ${p.folded ?? ""}` : p.name);
+  assert.deepEqual(names(sideProjects(rows, groups)), ["group ", "kept", "org acme ", "acme/one", "acme/two", "org other ", "other/three", "loose"]);
+  assert.deepEqual(names(sideProjects(rows, groups, new Set(["org:acme", "group:g1"]))), ["group kept", "org acme acme/one,acme/two", "org other ", "other/three", "loose"]);
+});
+
+test("the folded headings read back, and rubbish folds nothing", () => {
+  assert.deepEqual([...parseFolded('["org:acme", 3, "group:g1"]')], ["org:acme", "group:g1"]);
+  assert.equal(parseFolded("{").size, 0);
+  assert.equal(parseFolded("{}").size, 0);
+  assert.equal(parseFolded(null).size, 0);
+});
+
+test("a card names what keeps its project in step", () => {
+  const rows = [{ project: "beep" }, { project: "both" }];
+  assert.equal(syncedBy("beep", rows, [{ syncthing: null }]), "Beep sync");
+  assert.equal(syncedBy("st", rows, [{}, { syncthing: "folder" }]), "Syncthing");
+  assert.equal(syncedBy("both", rows, [{ syncthing: "folder" }]), "Beep sync · Syncthing");
+  assert.equal(syncedBy("none", rows, [{ syncthing: null }]), "");
+  assert.equal(syncedBy("none", rows, undefined), "");
 });

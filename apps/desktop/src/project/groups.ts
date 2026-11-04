@@ -17,7 +17,7 @@ import { jump } from "../center/home.ts";
 
 /// A group's heading in the sidebar; right-click for its menu.
 export function groupHeading(g: ProjectGroup) {
-  const head = h("div", "cc-org gp", icon(IC.folder), g.name);
+  const head = h("button", "cc-org gp", icon(IC.folder), g.name);
   head.title = `${g.paths.join(", ")} on every machine`;
   head.addEventListener("contextmenu", e => groupMenu(e, g));
   return head;
