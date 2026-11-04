@@ -5,9 +5,10 @@
 use super::Online;
 use crate::{
     AsyncMutex,
-    protocol::node::tool_update::{FLSH, PROTOCOL, Releases, Reply, Request, Tool},
+    protocol::node::tool_update::{FLSH, PROTOCOL, Releases, Tool},
 };
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
+use beep_mesh::{PeerClient, machine};
 use reqwest::{Client, header::USER_AGENT};
 use serde::Deserialize;
 use std::{
@@ -22,8 +23,6 @@ const FRESH: Duration = Duration::from_secs(6 * 60 * 60);
 const RETRY: Duration = Duration::from_secs(15 * 60);
 /// How long one lookup may take.
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long the node has to download, check and install the release.
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// The newest release of each tool, as last looked up.
 #[derive(Default)]
@@ -125,20 +124,7 @@ impl Online {
     /// Has the node install release `version` of `tool`. `Err` holds the
     /// node's reason, in words for the user.
     pub(crate) async fn install_tool(&self, tool: Tool, version: &str) -> Result<()> {
-        let (mut tx, mut rx) = self.open_stream(PROTOCOL).await?;
-        let request = Request::Install {
-            tool,
-            version: version.to_owned(),
-        };
-        tx.send(&request).await?;
-        let reply = timeout(INSTALL_TIMEOUT, rx.recv::<Reply>())
-            .await
-            .context("the install took too long")??
-            .context("the node closed the install without an answer")?;
-        match reply {
-            Reply::Installed {} => Ok(()),
-            Reply::Failed { reason } => bail!("{reason}"),
-            other => bail!("the node answered {other:?}"),
-        }
+        let client = PeerClient::new(self.connection.clone());
+        Ok(machine::install_tool(&client, tool, version).await?)
     }
 }

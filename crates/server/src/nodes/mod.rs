@@ -53,7 +53,7 @@ pub use crate::protocol::node::{
     sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
 pub use agent::{AgentLink, Mark, StartOn, Watched};
-pub(crate) use agent::{News, NodeFile, NodeWork, SessionRefused, WorkRead, WorkWrite};
+pub(crate) use agent::{News, NodeFile, NodeImage, NodeWork, SessionRefused, WorkRead, WorkWrite};
 pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};

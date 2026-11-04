@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod auto;
 mod convert;
+pub mod listing;
 mod node;
 pub mod sessions;
 mod steer;
@@ -17,7 +18,8 @@ pub use convert::{
     runs_now,
 };
 pub use node::{
-    Exec, Tasks, exec, files, install_tool, log, search, set_search, task_request, update_node,
+    Exec, Tasks, Updated, exec, files, install_tool, log, search, set_search, task_request,
+    update_node,
 };
 pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
 pub use steer::{Makes, checkout_for, node_request, picked_effort, picked_model, queued_instead};

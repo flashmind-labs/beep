@@ -245,17 +245,7 @@ fn approval(node: &str, agent: &str, task: Option<&str>, question: &Question) ->
     }
 }
 
-pub(crate) fn agent_name(agent: &str) -> &str {
-    match agent {
-        "claude" => "Claude Code",
-        "codex" => "Codex",
-        "gemini" => "Gemini CLI",
-        "pi" => "pi",
-        "flsh" => "flsh",
-        "opencode" => "OpenCode",
-        other => other,
-    }
-}
+pub(crate) use beep_mesh::machine::agent_name;
 
 /// The agent's allow or reject option for the card's answer; `None` when it offers neither.
 fn reply(question: &Question, answer: &GateAnswer) -> Option<Request> {
