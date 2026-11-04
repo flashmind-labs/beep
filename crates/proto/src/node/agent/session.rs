@@ -64,6 +64,8 @@ pub enum Request {
     Steer { text: String, images: Vec<Upload> },
     /// Takes back the `Steer`s not yet sent to the agent.
     DropSteers {},
+    /// Switches the running session to `mode`, one of `SessionInfo::modes`.
+    SetMode { mode: String },
 }
 
 /// What the node sends on an agent stream.
@@ -119,6 +121,21 @@ pub struct SessionInfo {
     /// What the finished turns cost at API prices, in US dollars, when the
     /// agent reports a cost.
     pub cost_usd: Option<f64>,
+    /// The modes it can be switched between, in the order a switch goes
+    /// through them; empty for an agent that offers none.
+    pub modes: Vec<ModeOption>,
+    /// The id of the mode it is in, once the agent said.
+    pub mode: Option<String>,
+    /// The plan `question` asks to approve, in Markdown.
+    pub plan_ready: Option<String>,
+}
+
+/// A session mode an agent offers.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModeOption {
+    pub id: String,
+    pub name: String,
 }
 
 /// What a session is doing, small enough to send on every change.

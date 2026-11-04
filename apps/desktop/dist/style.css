@@ -850,6 +850,14 @@ button.dachip:hover { border-color: var(--border-hi) }
 #agstop[disabled] { opacity: .6; cursor: default }
 #agmodel { flex: none; display: flex } #agmodel .agc-pill.agm { font-size: 12px; max-width: 260px; overflow: hidden; white-space: nowrap }
 #agmodel .agc-pill.agm[disabled] { opacity: .55; cursor: default }
+#agmode { flex: none; display: flex } #agmode:empty { display: none }
+#agmode .agmode { font-size: 12px; white-space: nowrap; color: var(--muted); border: 1px solid transparent }
+#agmode .agmode.on { color: var(--fg); border-color: var(--ok) }
+.ag-plan { display: grid; gap: 10px; margin: 10px 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface) }
+.ag-plan .h { display: flex; gap: 8px; align-items: baseline }
+.ag-plan .h small { color: var(--muted); font-size: 12px }
+.ag-plan .md { max-height: 40vh; overflow-y: auto }
+.ag-plan .acts { display: flex; gap: 8px }
 .dcoderen.agent > .pics { flex-wrap: nowrap; overflow-x: auto; gap: 8px; margin-top: 8px }
 .dcoderen.agent > .pics .pic { height: 160px; max-height: 160px; width: auto; max-width: none; border-radius: var(--radius-sm); flex: none }
 .dcoderen.agent > .pics img.pic:not([src]) { width: 240px }

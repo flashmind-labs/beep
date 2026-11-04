@@ -11,7 +11,8 @@ use crate::{
 };
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentModel, AgentModels, AgentQuestion,
-    AgentSessionUsage, AgentSessionView, GetAgentSession, GetAgentSessionUsage, ListAgentHosts,
+    AgentMode, AgentSessionModes, AgentSessionUsage, AgentSessionView, GetAgentSession,
+    GetAgentSessionModes, GetAgentSessionUsage, ListAgentHosts,
     ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
     ResumeAgentSession, StartAgentSession,
     node::agent::{CheckoutPlan, Effort},
@@ -394,6 +395,55 @@ pub async fn agent_usage(
         })
         .await,
     )
+}
+
+/// A session's modes for the page.
+#[derive(Debug, Serialize)]
+pub struct ModesRow {
+    current: Option<String>,
+    modes: Vec<ModeRow>,
+    /// The plan waiting for approval, as cleaned HTML.
+    plan: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ModeRow {
+    id: String,
+    name: String,
+}
+
+impl From<AgentSessionModes> for ModesRow {
+    fn from(modes: AgentSessionModes) -> Self {
+        Self {
+            current: modes.current,
+            modes: modes
+                .modes
+                .into_iter()
+                .map(|AgentMode { id, name }| ModeRow { id, name })
+                .collect(),
+            plan: modes.plan.as_deref().map(markdown::to_html),
+        }
+    }
+}
+
+/// The modes of a Beep session and the plan it waits on approval of; `None`
+/// from a server too old to say.
+#[tauri::command]
+pub async fn agent_modes(
+    beep: Service<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+) -> Result<Option<ModesRow>> {
+    let modes = known(
+        beep.call(GetAgentSessionModes {
+            machine_id,
+            agent,
+            session,
+        })
+        .await,
+    )?;
+    Ok(modes.map(Into::into))
 }
 
 #[cfg(test)]

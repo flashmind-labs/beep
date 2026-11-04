@@ -41,6 +41,10 @@ pub enum Steer {
         #[serde(default)]
         effort: Option<Effort>,
     },
+    /// Switches the running session's mode, one `agent_modes` lists.
+    Mode {
+        mode: String,
+    },
 }
 
 /// An image as the page sends it: its bytes in base64.
@@ -74,6 +78,7 @@ impl TryFrom<Steer> for AgentSteer {
                 model,
                 effort: effort.map(Into::into),
             },
+            Steer::Mode { mode } => Self::SetMode { mode },
         })
     }
 }
