@@ -35,10 +35,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{
-    task::spawn_blocking,
-    time::{MissedTickBehavior, interval, timeout},
-};
+use tokio::{task::spawn_blocking, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
 
 mod disk;
@@ -59,8 +56,6 @@ use watch::{Key, Watcher};
 const RESCAN_LIMIT: Duration = Duration::from_secs(120);
 /// How long a project that stops may take to save its state.
 const STOP_LIMIT: Duration = Duration::from_secs(10);
-/// How often the synced folders are checked against Syncthing's.
-const SYNCTHING_CHECK: Duration = Duration::from_secs(60);
 /// The projects the server last named (which, where, with which peers),
 /// kept so sync goes on while the server is down.
 const CONFIG: &str = "projects.json";
@@ -224,7 +219,10 @@ impl Syncs {
         for refused in syncs.configure_from(config.projects, Source::Saved).await {
             log::warn!("not syncing {}: {}", refused.project, refused.message);
         }
-        let task = tokio::spawn(check_syncthing(Arc::downgrade(&syncs.inner)));
+        let task = tokio::spawn(check_syncthing(
+            Arc::downgrade(&syncs.inner),
+            syncs.inner.syncthing.clone(),
+        ));
         *lock(&syncs.inner.checking) = Some(AbortOnDropHandle::new(task));
         Ok(syncs)
     }
@@ -294,12 +292,7 @@ impl Syncs {
             let was_held = lock(&self.inner.held)
                 .remove(&project.name)
                 .is_some_and(|held| held.project.folder == project.folder);
-            if let Some(managed) = self
-                .inner
-                .syncthing
-                .managed(Path::new(&project.folder))
-                .await
-            {
+            if let Some(managed) = self.inner.syncthing.check(Path::new(&project.folder)).await {
                 if was_held || from == Source::Saved {
                     log::info!("not syncing {}: {}", project.name, managed.reason());
                     lock(&self.inner.held).insert(
@@ -417,7 +410,7 @@ impl Syncs {
     /// Checks the synced folders against Syncthing's now: a project whose
     /// folder Syncthing keeps in step stops, as one turned off does, which
     /// deletes nothing anywhere, and is held; a held one whose folder
-    /// Syncthing let go of starts again, from a fresh scan.
+    /// Syncthing let go of or paused starts again, from a fresh scan.
     pub async fn check_syncthing(&self) {
         let _one = self.inner.configuring.lock().await;
         let running: Vec<Project> = lock(&self.inner.projects)
@@ -430,10 +423,10 @@ impl Syncs {
             };
             log::info!("stopped syncing {}: {}", project.name, managed.reason());
             let stopped = lock(&self.inner.projects).remove(&project.name);
-            lock(&self.inner.held).insert(project.name.clone(), Held { project, managed });
             if let Some(stopped) = stopped {
                 self.stop(stopped).await;
             }
+            lock(&self.inner.held).insert(project.name.clone(), Held { project, managed });
         }
         let held: Vec<Project> = lock(&self.inner.held)
             .values()
@@ -451,7 +444,10 @@ impl Syncs {
             }
             match self.run(&project).await {
                 Ok(running) => {
-                    log::info!("syncing {} again: Syncthing let go of it", project.name);
+                    log::info!(
+                        "syncing {}: Syncthing let go of it or paused it",
+                        project.name
+                    );
                     lock(&self.inner.held).remove(&project.name);
                     lock(&self.inner.projects).insert(project.name.clone(), running);
                 }
@@ -555,15 +551,13 @@ impl Syncs {
     }
 }
 
-/// Checks the folders against Syncthing's every `SYNCTHING_CHECK` while
-/// the syncs live.
-async fn check_syncthing(inner: Weak<Inner>) {
-    let mut every = interval(SYNCTHING_CHECK);
-    every.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    // Starting checked them already.
-    every.tick().await;
+/// Checks the folders against Syncthing's whenever it changes one, and at
+/// least every minute, while the syncs live. A folder Syncthing resumes is
+/// taken away from Beep's sync at once; Syncthing does not wait for that.
+async fn check_syncthing(inner: Weak<Inner>, syncthing: Syncthing) {
+    let mut since = 0;
     loop {
-        every.tick().await;
+        syncthing.changed(&mut since).await;
         let Some(inner) = inner.upgrade() else {
             return;
         };

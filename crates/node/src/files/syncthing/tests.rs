@@ -148,34 +148,35 @@ async fn the_api_says_which_folder_holds_a_project_nested_or_through_a_link() {
         {"id": "sync-1", "label": "Sync", "path": "~/sync", "type": "sendreceive"},
         {"id": "game-2", "label": "", "path": home.path().join("game-link")},
         {"id": "gone-3", "label": "Gone", "path": "~/not-there"},
+        {"id": "off-4", "label": "Off", "path": "~/other", "paused": true},
     ]))
     .await;
     home.write_config(&addr.to_string());
     let syncthing = home.syncthing();
 
-    let notes = syncthing.managed(&sync.join("notes")).await.unwrap();
+    let notes = syncthing.check(&sync.join("notes")).await.unwrap();
     assert_eq!(notes.label, "Sync");
     assert_eq!(notes.id.as_deref(), Some("sync-1"));
     assert_eq!(notes.root, sync);
     assert_eq!(notes.reason(), "Already synced by Syncthing (Sync)");
-    assert_eq!(syncthing.managed(&sync).await.unwrap().label, "Sync");
+    assert_eq!(syncthing.check(&sync).await.unwrap().label, "Sync");
 
     #[cfg(unix)]
     {
-        let inner = syncthing.managed(&game.join("src")).await.unwrap();
+        let inner = syncthing.check(&game.join("src")).await.unwrap();
         assert_eq!(inner.id.as_deref(), Some("game-2"));
         assert_eq!(inner.label, "game-2");
         let linked = syncthing
-            .managed(&home.path().join("sync-link/notes"))
+            .check(&home.path().join("sync-link/notes"))
             .await
             .unwrap();
         assert_eq!(linked.id.as_deref(), Some("sync-1"));
     }
 
-    // The API answered: a marker elsewhere does not count.
+    // The API answered: a paused folder and a marker elsewhere do not count.
     fs::write(home.path().join("other/.stfolder"), "").unwrap();
-    assert_eq!(syncthing.managed(&home.path().join("other")).await, None);
-    assert_eq!(syncthing.managed(&home.path().join("syncing")).await, None);
+    assert_eq!(syncthing.check(&home.path().join("other")).await, None);
+    assert_eq!(syncthing.check(&home.path().join("syncing")).await, None);
 
     let listed = syncthing.folders().await;
     assert_eq!(listed.len(), 3);
@@ -190,12 +191,10 @@ async fn without_the_api_a_marker_up_to_home_says_it() {
     let loose = home.mkdir("loose/project");
     home.write_config(&closed_port().await);
     let syncthing = home.syncthing();
-    assert_eq!(syncthing.managed(&game).await, None);
+    assert_eq!(syncthing.check(&game).await, None);
     assert!(syncthing.folders().await.is_empty());
 
     fs::write(sync.join(MARKER), "").unwrap();
-    // The answer stands a while; asking again sees the marker.
-    assert_eq!(syncthing.managed(&game).await, None);
     let found = syncthing.check(&game).await.unwrap();
     assert_eq!(found.label, "sync");
     assert_eq!(found.id, None);
