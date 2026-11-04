@@ -1,5 +1,6 @@
-//! Watches project folders for changes with one `Watcher` per node, and
-//! falls back to a rescan every `RESCAN` for a folder it cannot watch.
+//! Watches project folders for changes with one `Watcher` per node. Every
+//! folder is also rescanned every `RESCAN`, which is all a folder it cannot
+//! watch gets.
 
 use super::{gitdir, rules::Rules};
 use crate::{lock, read_lock};
@@ -15,8 +16,8 @@ use std::{
 };
 use tokio::{sync::mpsc, task::spawn_blocking};
 
-/// How often a project that cannot be watched is rescanned.
-pub(super) const RESCAN: Duration = Duration::from_secs(45);
+/// How often a project is rescanned, for changes no watcher reported.
+pub(super) const RESCAN: Duration = Duration::from_secs(5 * 60);
 /// The share of the watch limit left to other programs, in percent, and
 /// at least `MIN_RESERVE` watches.
 const RESERVE_PERCENT: u64 = 10;

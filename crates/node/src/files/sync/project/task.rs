@@ -33,9 +33,6 @@ const SETTLE: Duration = Duration::from_millis(300);
 /// Five seconds is well past such pauses and still sends an ordinary
 /// delete within seconds.
 pub(super) const DELETE_SETTLE: Duration = Duration::from_secs(5);
-/// How often a watched folder is scanned anyway, for changes a watcher
-/// missed.
-const FULL_RESCAN: Duration = Duration::from_secs(10 * 60);
 /// How soon files that could not be fetched are tried again.
 const RETRY: Duration = Duration::from_secs(30);
 /// How often a changing state is saved; it is saved on stop as well.
@@ -144,10 +141,6 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             }
             continue;
         }
-        let every = match task.mode {
-            Mode::Watching => FULL_RESCAN,
-            Mode::Rescan { .. } => RESCAN,
-        };
         let mut apply = false;
         let mut forced = false;
         // A change waiting to be saved is saved once `SAVE_EVERY` passed.
@@ -186,7 +179,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 }
                 apply = true;
             }
-            () = sleep_until(last_scan + every) => {
+            () = sleep_until(last_scan + RESCAN) => {
                 task.scan().await;
                 last_scan = Instant::now();
                 apply = true;
