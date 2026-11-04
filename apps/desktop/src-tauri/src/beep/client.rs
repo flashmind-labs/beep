@@ -9,8 +9,8 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, Session, Stream,
-    TRANSCRIBE_RATE, Transcribe, Transcription,
+    Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions, Session,
+    SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription,
     client::{Client, Node, OnNotice, Replies, Uplink},
 };
 use iroh::{Endpoint, EndpointId};
@@ -318,6 +318,19 @@ impl Beep {
         match self.chats.sessions() {
             Some(sessions) => Ok(sessions),
             None => self.call(ListSessions {}).await,
+        }
+    }
+
+    /// Searches the local copy, off the async workers since it walks every
+    /// message, or the server before the copy is ready.
+    pub async fn search(self: &Arc<Self>, query: String) -> Result<Vec<SessionMatch>> {
+        let (me, words) = (Arc::clone(self), query.clone());
+        let copy = tauri::async_runtime::spawn_blocking(move || me.chats.search(&words))
+            .await
+            .map_err(anyhow::Error::from)?;
+        match copy {
+            Some(found) => Ok(found),
+            None => self.call(SearchSessions { query }).await,
         }
     }
 
