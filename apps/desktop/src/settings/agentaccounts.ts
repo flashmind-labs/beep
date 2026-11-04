@@ -173,7 +173,7 @@ function codexHtml(state: AgentAccountsState, data: AgentAccounts, esc: Esc, ago
     ? `API key <code>…${esc(key.last4)}</code> on every machine · added ${esc(ago(key.created_at))}`
     : key ? "Beep can no longer read the saved API key" : "signs in on each machine";
   const acts = key
-    ? `<button class="dbtn small" data-ag-edit="codex">Replace key</button><button class="dbtn quiet small" data-ag-revoke="codex"${state.busy === "revoke:codex" ? " disabled" : ""}>Remove key</button>`
+    ? `<button class="dbtn small" data-ag-edit="codex">Replace key</button><button class="dbtn quiet warn small" data-ag-revoke="codex"${state.busy === "revoke:codex" ? " disabled" : ""}>Remove key</button>`
     : `<button class="dbtn" data-ag-edit="codex">Use an API key</button>`;
   const edit = form(state, esc, "codex");
   const rows = on.length

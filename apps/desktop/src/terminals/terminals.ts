@@ -579,7 +579,7 @@ export function makeTerminals(deps: TerminalDeps) {
     });
     go.disabled = t.busy || !places.length;
     const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", anywhere ? "No machine is online" : "No machine has this project yet"));
-    const acts = h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }));
+    const acts = h("div", "in-acts", go, button("Cancel", "quiet", () => { t.form = null; redraw(); }));
     const form = anywhere
       ? h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
         input("cwd", "Folder", "Empty for the workspace or home folder"),

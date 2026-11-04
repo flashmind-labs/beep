@@ -40,13 +40,13 @@
 .dv.wide .dv-body { grid-template-columns: 250px minmax(0, 1fr) }
 .dv-tree { display: none; min-height: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); scrollbar-width: thin }
 .dv.wide .dv-tree { display: block }
-.dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 7px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: pointer }
+.dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: pointer }
 .dv-tr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dv-tr.on { background: color-mix(in srgb, var(--accent) 20%, transparent) }
 .dv-tr .nm { display: flex; min-width: 0; white-space: nowrap }
 .dv-tr .nm i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-style: normal }
 .dv-tr .nm b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 400 }
-.dv-tr .ct { font-size: 11px; display: flex; gap: 5px }
+.dv-tr .ct { font-size: 11px; display: flex; gap: 6px }
 .dv-st { font: 600 10.5px var(--mono); text-align: center; color: var(--muted) }
 .dv-st.A { color: var(--dv-add-fg) } .dv-st.D { color: var(--dv-del-fg) } .dv-st.M { color: var(--warn) } .dv-st.R { color: var(--dv-hunk-fg) }
 .dv-files { min-height: 0; min-width: 0; overflow: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; overscroll-behavior: contain }
@@ -94,7 +94,7 @@
 .dv-note .dv-btn { height: 24px }
 .dv-empty { margin: auto; padding: 24px; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); font-size: 13px }
 .dv-empty b { color: var(--fg); font-weight: 500 }
-.dv-err { margin: 10px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); color: var(--err); font-size: 12.5px }
+.dv-err { margin: 10px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); color: var(--err); font-size: 12.5px }
 .dv-more { padding: 4px 2px 0; color: var(--muted); font-size: 12px }
 /* The sheet a branch's or a task's diff opens in, over the window. */
 .dv-sheet { position: fixed; inset: 0; z-index: 60; display: grid; padding: 18px; background: color-mix(in srgb, var(--shade) 62%, transparent) }

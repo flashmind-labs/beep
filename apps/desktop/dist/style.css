@@ -47,13 +47,13 @@ button { font: inherit; color: inherit; cursor: default }
 .reply img:not(a img, .dprods img, .drecs img) { cursor: zoom-in }
 
 /* The prompt sits in the user's bubble on the right, like the phone and the group chat, so it stands apart from the reply. */
-.ask { align-self: flex-end; max-width: 78%; padding: 6px 11px; border-radius: 12px 12px 4px 12px; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg);
+.ask { align-self: flex-end; max-width: 78%; padding: 6px 10px; border-radius: 12px 12px 4px 12px; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg);
   white-space: pre-wrap; overflow-wrap: anywhere }
 
 .dhints { flex: none; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 16px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 35%, transparent);
   font-size: 11.5px; color: var(--muted) }
-.dhints span { display: inline-flex; align-items: center; gap: 5px }
-.dhints .win { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: pointer }
+.dhints span { display: inline-flex; align-items: center; gap: 6px }
+.dhints .win { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: pointer }
 .dhints .win:hover { color: var(--fg) }
 .dhints .st { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font: inherit; color: var(--fg) }
 kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; padding: 0 5px; border-radius: 4px; background: var(--elev);
@@ -62,7 +62,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .ddot.off { background: var(--dim) } .ddot.bad { background: var(--err) }
 
 .dsteps { display: grid; gap: 4px }
-.dstep { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--muted); line-height: 20px; min-width: 0 }
+.dstep { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); line-height: 20px; min-width: 0 }
 .dstep > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dstep .s { width: 16px; height: 16px; display: grid; place-items: center; flex: none }
 .dstep.run { color: var(--fg) }
@@ -82,6 +82,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dbtn.pri kbd { background: color-mix(in srgb, var(--on-accent) 18%, transparent); border-color: transparent; color: var(--on-accent) }
 .dbtn.warn { color: var(--err) }
 .dbtn:disabled { opacity: .5 }
+/* The one small size, in rows and section heads. */
+.dbtn.small, .dchat .acts .dbtn, .dmem .acts .dbtn, .drt .acts .dbtn, .pj-issue .acts .dbtn, .rv-side .dbtn, .tl-m h5 .dbtn, .pj-org h3 .gp-acts .dbtn, .gp-path .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 /* Shown while the user reads back; it jumps to the newest text. */
 .dlatest { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 2; border-radius: 999px; box-shadow: 0 6px 18px color-mix(in srgb, var(--shade) 45%, transparent) }
 .dlatest .down { display: grid; transform: rotate(90deg) }
@@ -140,6 +142,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dor::before, .dor::after { content: ""; flex: 1; border-top: 1px solid var(--border) }
 .dbtn.quiet { border-color: transparent; background: none; color: var(--muted) }
 .dbtn.quiet:hover { color: var(--fg); border-color: var(--border) }
+.dbtn.quiet.warn { color: var(--err) }
 .dtag { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--elev); color: var(--muted) }
 .dwin p { margin: 0; color: var(--muted); font-size: 13px; line-height: 19px; max-width: 40ch }
 .qr { width: 196px; height: 196px; padding: 10px; border-radius: var(--radius); background: #F4F8F5; position: relative }
@@ -200,7 +203,6 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dswitch[aria-checked="true"] { background: var(--accent) }
 .dswitch[aria-checked="true"]::after { transform: translateX(12px) }
 .dchat .acts, .dmem .acts, .drt .acts { display: flex; gap: 4px; flex: none }
-.dchat .acts .dbtn, .dmem .acts .dbtn, .drt .acts .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
 .dchat .grp { color: var(--muted); display: grid; flex: none }
 .dchat input { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 2px 6px }
 .dinfo { display: grid; gap: 8px; font-size: 13px; line-height: 19px }
@@ -241,7 +243,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dprod-img { display: block; height: 116px; background: var(--elev) }
 .dprod-img img { display: block; width: 100%; height: 100%; object-fit: contain; background: #fff; opacity: 0 }
 .dprod-img img.on { opacity: 1 }
-.dprod-info { display: grid; gap: 5px; align-content: start; padding: 10px 12px 12px }
+.dprod-info { display: grid; gap: 6px; align-content: start; padding: 10px 12px 12px }
 .dprod-store { font-size: 11px; letter-spacing: .02em; color: var(--muted) }
 .dprod-title { font-size: 13.5px; line-height: 18px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 36px }
 .dprod-price { display: flex; align-items: baseline; gap: 6px }
@@ -269,7 +271,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .drec-watch { flex: 1; display: grid; align-content: end; gap: 4px; padding: 10px; line-height: 16px }
 .drec-watch small { font-size: 10.5px; color: var(--muted) }
 .drec-watch b { font-size: 13px; font-weight: 600 }
-.drec-info { display: grid; gap: 5px; align-content: start; padding: 10px 12px 12px; min-width: 0 }
+.drec-info { display: grid; gap: 6px; align-content: start; padding: 10px 12px 12px; min-width: 0 }
 .drec-title { font-size: 14px; line-height: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .drec-sub, .drec-meta { font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .drec-facts { display: flex; gap: 4px; flex-wrap: wrap }
@@ -279,7 +281,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .drec-status.open { color: var(--ok) }
 
 /* Memories and routines */
-.dmem { display: grid; gap: 2px; padding: 7px 10px; border-radius: var(--radius-sm); color: var(--fg) }
+.dmem { display: grid; gap: 2px; padding: 6px 10px; border-radius: var(--radius-sm); color: var(--fg) }
 .dmem .top { display: flex; align-items: flex-start; gap: 10px }
 .dmem .c { flex: 1; min-width: 0; font-size: 14px; line-height: 20px }
 .dmem .m { font-size: 12px; color: var(--muted); line-height: 17px }
@@ -299,7 +301,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dchip.day { min-width: 34px; padding: 0 8px }
 .dchip:disabled { opacity: .5 }
 #setModel { flex: none; max-width: 46%; min-height: 28px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px }
-.dfield textarea { padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; line-height: 20px; outline: 0; resize: none; caret-color: var(--accent) }
+.dfield textarea { padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; line-height: 20px; outline: 0; resize: none; caret-color: var(--accent) }
 .dfield input[type="time"], .dfield input[type="date"] { color-scheme: dark }
 
 
@@ -346,7 +348,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dreplyacts { display: flex; margin: -4px 0 0 -6px }
 /* Prompts queued during a reply, above the hints; each sends once the reply before it finishes. */
 /* Background work: a strip above the field while agents or jobs run; it opens to list them. */
-.dcopy { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 3px 6px; border-radius: var(--radius-sm) }
+.dcopy { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 3px 6px; border-radius: var(--radius-sm) }
 .dcopy:hover { color: var(--fg); background: var(--elev) }
 .dcopy .dchev { display: grid; transform: rotate(90deg) }
 .dcopy svg { flex: none }
@@ -423,7 +425,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dapps { padding-top: 4px }
 .dapps .dsec { border: 0; padding-left: 10px }
 .dalogo { width: 28px; height: 28px; border-radius: var(--radius-sm); flex: none; object-fit: contain; background: var(--elev); display: grid; place-items: center; font-weight: 600; font-size: 13px; color: var(--muted) }
-.dappr, .dlevel, .daction { display: flex; gap: 10px; align-items: center; padding: 7px 10px; border-radius: var(--radius-sm); min-height: 42px }
+.dappr, .dlevel, .daction { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: var(--radius-sm); min-height: 42px }
 .dappr .tt, .dlevel .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
 .dappr .tt b, .dlevel .tt b { font-size: 13.5px; font-weight: 500 }
 .dappr .tt small, .dlevel .tt small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -537,14 +539,14 @@ button.dachip:hover { border-color: var(--border-hi) }
    its column and the versions line up. Line 1 name, spec and beep-node;
    line 2 the agents; line 3 the other tools. */
 .dmt { display: grid; grid-template-columns: repeat(var(--ag, 0), max-content) minmax(0, 1fr) auto }
-.dmt > .dmach { grid-column: 1 / -1; grid-template-columns: subgrid; column-gap: 5px; row-gap: 6px; align-items: center; padding: 10px 10px 10px 12px }
+.dmt > .dmach { grid-column: 1 / -1; grid-template-columns: subgrid; column-gap: 6px; row-gap: 6px; align-items: center; padding: 10px 10px 10px 12px }
 .dmt .l1 { grid-column: 1 / -2; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px }
 .dmt .l1 b { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 0 auto; max-width: 55% }
 .dmt .l1 .seen { font-size: 11.5px; color: var(--dim); white-space: nowrap; flex: none }
 .dmt .l1 .spec { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; font-variant-numeric: tabular-nums }
 .dmt .l1 .dbtn { flex: none; padding: 1px 9px; font-size: 11.5px; min-height: 0; font-weight: 400 }
 .dmt .ch { grid-column: -2; grid-row: 1 / span 3; color: var(--muted); display: grid }
-.dmnv { flex: none; display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 6px; line-height: 18px; white-space: nowrap }
+.dmnv { flex: none; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 6px; line-height: 18px; white-space: nowrap }
 .dmnv .up { color: var(--hot); font-weight: 600 }
 .dmag { grid-row: 2; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px 0 3px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 0 }
 .dmag-ic { width: 15px; height: 15px; display: grid; place-items: center; flex: none; font-family: var(--sans, inherit); font-size: 7.5px; font-weight: 700; color: var(--muted) }
@@ -730,7 +732,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agpview.term .tm-xterm .xterm { height: 100% }
 .agpview.term .tm-xterm .xterm-viewport { background: var(--deep) !important }
 /* Paths mentioned in the next message, uploads on their way, and where a drop goes. */
-.agment { display: inline-flex; align-items: center; gap: 5px; max-width: 280px; padding: 3px 4px 3px 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--link) 12%, transparent); border: 1px solid color-mix(in srgb, var(--link) 30%, transparent); font: 11.5px var(--mono); color: var(--fg) }
+.agment { display: inline-flex; align-items: center; gap: 6px; max-width: 280px; padding: 3px 4px 3px 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--link) 12%, transparent); border: 1px solid color-mix(in srgb, var(--link) 30%, transparent); font: 11.5px var(--mono); color: var(--fg) }
 .agment .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left }
 .agment small { color: var(--muted) } .agment .dspin { width: 9px; height: 9px }
 .agment button { border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid; cursor: pointer } .agment button:hover { color: var(--fg) }
@@ -740,7 +742,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agmain > .agpstrip span { writing-mode: initial }
 /* A step's media files, as buttons that open them in the pane. */
 .dcoderen.tool .dmedia { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px }
-.dcoderen.tool .dmedia button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); font: 11.5px var(--mono); color: var(--muted) }
+.dcoderen.tool .dmedia button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); font: 11.5px var(--mono); color: var(--muted) }
 .dcoderen.tool .dmedia button:hover { color: var(--fg); border-color: var(--border-hi) } .dcoderen.tool .dmedia svg { width: 12px; height: 12px }
 .dagmain { display: flex; flex-direction: column; gap: 10px; min-width: 0 }
 .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { width: 100%; max-width: 800px; margin-inline: auto }
@@ -758,7 +760,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dcrumb #agparent { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis } .dcrumb #agparent:hover { color: var(--fg) }
 .dcrumb b { font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis } .dcrumb .sp { flex: 1 }
 /* A call as one row: kind icon, verb, target, what the right side says, status. Opened, its body under it. */
-.dcoderen.tool.row { grid-template-columns: 16px auto minmax(0, 1fr) auto 16px; column-gap: 7px; align-items: center; margin-inline: -6px; padding: 1px 6px; border-radius: var(--radius-sm) }
+.dcoderen.tool.row { grid-template-columns: 16px auto minmax(0, 1fr) auto 16px; column-gap: 8px; align-items: center; margin-inline: -6px; padding: 1px 6px; border-radius: var(--radius-sm) }
 .dcoderen.tool.row[data-at]:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .dcoderen.tool.row .ki { display: grid; place-items: center; height: 20px; color: var(--dim) }
 .dcoderen.tool.row .vb { color: var(--fg); font-size: 12.5px; white-space: nowrap }
@@ -777,7 +779,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 /* Calls of one kind in a row as one line that opens to them. */
 .dtrun { display: grid; margin-inline: -6px }
 .dtrun + .dcoderen.tool, .dcoderen.tool + .dtrun, .dtrun + .dtrun { margin-top: -9px }
-.dtrun > button { all: unset; cursor: pointer; display: grid; grid-template-columns: 16px auto minmax(0, 1fr) 16px; column-gap: 7px; align-items: center; padding: 1px 6px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 20px; color: var(--fg) }
+.dtrun > button { all: unset; cursor: pointer; display: grid; grid-template-columns: 16px auto minmax(0, 1fr) 16px; column-gap: 8px; align-items: center; padding: 1px 6px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 20px; color: var(--fg) }
 .dtrun > button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .dtrun > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
 .dtrun .ki { display: grid; place-items: center; color: var(--dim) }
@@ -943,7 +945,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agc-box.err textarea::placeholder { color: var(--err) }
 .agc-row { display: flex; align-items: center; gap: 8px; margin-top: 6px }
 .agc-row .sp { flex: 1 }
-.agc-pill { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 13px; color: var(--fg); min-width: 0; white-space: nowrap }
+.agc-pill { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 13px; color: var(--fg); min-width: 0; white-space: nowrap }
 .agc-pill:hover, .agc-pill[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .agc-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
 .agc-pill[disabled] { color: var(--dim); cursor: default; background: transparent }
@@ -980,18 +982,18 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agc-list { display: grid; align-content: start; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: thin; min-width: 0; padding-bottom: 8px; box-sizing: border-box }
 .agc-find { position: sticky; top: 0; z-index: 1; padding: 12px 12px 8px; background: var(--deep) }
 .agc-models { display: grid; align-content: start; min-width: 0 }
-.agc-search { display: block; width: 100%; box-sizing: border-box; padding: 8px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 4%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent) }
+.agc-search { display: block; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 4%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent) }
 .agc-search::placeholder { color: var(--dim) }
 .agc-search:focus { border-color: color-mix(in srgb, var(--accent) 70%, transparent) }
 #agmodels { display: grid }
-.agc-list button { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 22px; margin: 0 6px; padding: 7px 10px; border-radius: var(--radius-sm); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.agc-list button { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 22px; margin: 0 6px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .agc-list button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .agc-list button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .agc-list button small { color: var(--muted); font-size: 11.5px; margin-left: auto; overflow: hidden; text-overflow: ellipsis }
 .agc-list .none, .agc-think .none { margin: 8px 16px; font-size: 12px; color: var(--dim); line-height: 17px; display: flex; gap: 6px; align-items: center }
 .agc-think { border-left: 1px solid var(--border); padding: 14px 0 10px; display: grid; align-content: start; box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: thin }
 .agc-think h5 { margin: 0 16px 8px; font-size: 12px; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; gap: 6px }
-.agc-think button { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: center; min-height: 22px; margin: 0 6px; padding: 7px 10px; border-radius: var(--radius-sm); font-size: 13px }
+.agc-think button { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: center; min-height: 22px; margin: 0 6px; padding: 6px 10px; border-radius: var(--radius-sm); font-size: 13px }
 .agc-think button:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .agc-think button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .agc-think button svg { color: var(--accent) }
@@ -1033,7 +1035,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .cx-pop pre { margin: 0; padding: 8px 12px; max-height: 220px; overflow: auto; font: 11.5px/17px var(--mono); color: var(--muted); white-space: pre }
 
 /* Settings, Git hosts: one row per host, chips under it. */
-.dgit { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; row-gap: 5px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px }
+.dgit { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; row-gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px }
 .dgit > :not(.ic) { grid-column: 2 }
 .dgit .ic { display: grid; place-items: center; color: var(--fg) }
 .dgit.off .ic { opacity: .45 }
@@ -1051,7 +1053,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dskins { display: grid; gap: 6px; margin-bottom: 12px }
 .dskins small { font-size: 12px; color: var(--muted) }
 .dskins > div { display: flex; flex-wrap: wrap; gap: 6px }
-.dskin { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer }
+.dskin { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer }
 .dskin i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid color-mix(in srgb, var(--muted) 50%, transparent) }
 .dskin:hover { color: var(--fg) }
 .dskin[aria-pressed="true"] { background: var(--elev); color: var(--fg); border-color: var(--accent) }

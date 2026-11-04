@@ -158,7 +158,7 @@ function setDevicesHtml(linked: boolean, set: MacSettings) {
   };
   const ask = SET.confirm ? `<div class="dcard"><div class="dask">
       <b class="dtitle">Unlink this Mac?</b><div class="dmuted dblock">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
-      <div class="dline"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn" id="unlinkNo">Cancel</button></div>
+      <div class="dline"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn quiet" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
   return devices.map(row).join("") + (owner
     ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'

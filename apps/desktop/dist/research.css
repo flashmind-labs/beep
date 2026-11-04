@@ -3,7 +3,7 @@ html, body.rbody { background: var(--surface) }
 .rwin { height: 100vh; display: flex; flex-direction: column; background: var(--surface) }
 .rwin .tb { height: 38px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 82px; border-bottom: 1px solid var(--border); font-size: 13px }
 .rwin .tb .name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.rwin .tb .stat { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); flex: none }
+.rwin .tb .stat { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); flex: none }
 .rwin .tb .dbtn { min-height: 24px }
 .rgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(250px, 30%) minmax(0, 1fr) 220px }
 .rgrid.wide { grid-template-columns: minmax(250px, 28%) minmax(0, 1fr) 320px }

@@ -72,7 +72,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
 
   function draw() {
     const rows = paths.map(p => el("div", "gp-path", el("span", "", p),
-      button("Remove", "dbtn quiet", () => { paths = paths.filter(x => x !== p); error = null; draw(); })));
+      button("Remove", "dbtn quiet warn small", () => { paths = paths.filter(x => x !== p); error = null; draw(); })));
     const n = options.matches(paths);
     const named = group ? null : paths[0] || groupPath(field.value);
     const sum = paths.length
