@@ -300,12 +300,15 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-mt .num.low { color: var(--hot) }
 .cc-mt .caps { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 30px }
 .cc-mt .off { opacity: .5 }
-.cc-mt .sync { flex-direction: column; align-items: stretch; justify-content: center; gap: 3px }
-.cc-mt .sync .bar { display: block; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden }
-.cc-mt .sync .bar i { display: block; height: 100%; background: color-mix(in srgb, var(--ok) 60%, transparent) }
-.cc-mt .sync small { font-size: 10.5px; white-space: nowrap }
-.cc-mt .mac-state { grid-column: span 4 }
-.cc-mt .mac-state.bad, .cc-si .mac-state.bad { color: var(--hot) }
+.mbox .sync { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 3px; min-width: 90px }
+.mbox .sync .bar { display: block; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden }
+.mbox .sync .bar i { display: block; height: 100%; background: color-mix(in srgb, var(--ok) 60%, transparent) }
+.mbox .sync small { font-size: 10.5px; white-space: nowrap }
+.cc-si .mac-state.bad, .mb-info .t .bad { color: var(--hot) }
+.mb-info { cursor: default }
+.mb-info.off { opacity: .5 }
+.mb-info.low .t b { color: var(--hot) }
+.mbox .tl-row { padding-left: 39px }
 .cc-si .mac-state { max-width: 45%; overflow: hidden; text-overflow: ellipsis }
 .cc-si .mac-add { margin-left: auto; min-height: 18px; padding: 0 6px; font-size: 11px }
 /* A sidebar group title that opens its view. */
