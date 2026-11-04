@@ -5,6 +5,7 @@ import type { LinkState } from "./core.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
+import { shortcutSheet } from "../settings/subscription.ts";
 import { stopFace } from "../chat/turnrows.ts";
 
 // ---------- Hints ----------
@@ -95,7 +96,7 @@ export function toggleKeys() {
   $("#viewer")?.remove();
   bar.append(h(`<div class="dover" id="keys" role="dialog" aria-label="Keyboard shortcuts">
     <div class="vt"><span class="tt"><b>Keyboard shortcuts</b></span></div>
-    ${keyGroups(SHORTCUTS)}
+    ${keyGroups(shortcutSheet(SHORTCUTS, S.link === "linked"))}
     ${hints([["esc", "close"]])}</div>`));
 }
 
