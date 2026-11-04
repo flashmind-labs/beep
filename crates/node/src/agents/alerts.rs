@@ -216,14 +216,22 @@ mod tests {
             .is_err()
     }
 
+    /// The instant `seconds` ago, or `None` on a host booted more recently,
+    /// where it cannot be represented and the test has nothing to check.
+    fn ago(seconds: u64) -> Option<Instant> {
+        Instant::now().checked_sub(Duration::from_secs(seconds))
+    }
+
     #[tokio::test]
     async fn a_new_follower_starts_at_the_last_ten_minutes_and_a_returning_one_where_it_left() {
         let hub = AlertHub::default();
         let (new, returning) = (follower(), follower());
-        let ago = |minutes: u64| Instant::now() - Duration::from_secs(minutes * 60);
-        hub.record_at(alert("stale"), ago(30));
-        hub.record_at(alert("older"), ago(9));
-        hub.record_at(alert("newer"), ago(1));
+        let (Some(stale), Some(older), Some(newer)) = (ago(30 * 60), ago(9 * 60), ago(60)) else {
+            return;
+        };
+        hub.record_at(alert("stale"), stale);
+        hub.record_at(alert("older"), older);
+        hub.record_at(alert("newer"), newer);
         // A follower with a place before the stale alert still gets it.
         lock(&hub.held).place(returning, 0);
         let (new, returning) = (hub.follow(new), hub.follow(returning));
@@ -237,10 +245,10 @@ mod tests {
     #[tokio::test]
     async fn a_new_follower_with_only_stale_alerts_waits_for_the_next() {
         let hub = AlertHub::default();
-        hub.record_at(
-            alert("stale"),
-            Instant::now() - FRESH - Duration::from_secs(1),
-        );
+        let Some(stale) = ago(FRESH.as_secs() + 1) else {
+            return;
+        };
+        hub.record_at(alert("stale"), stale);
         let new = hub.follow(follower());
         assert!(nothing(&new).await);
         hub.record(alert("now"));
