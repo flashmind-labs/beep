@@ -1,6 +1,6 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
-import { type BeepCall, beepCall, beepLine, commandDetail, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { $, type ChatBody, esc, ICON, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
@@ -29,26 +29,28 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const exit = failed ? log.exitCode(output) : null;
   const beep = beepCall(title);
   const long = title.includes("\n") || label.length > 80;
-  // A Beep call's row shows the first line of its command or prompt; opened, all of it.
-  const detail = beep ? (beep.detail.includes("\n") || beep.detail.length > 60 ? beep.detail : "") : commandDetail(title, label);
   const tail = log.tailLines(output), whole = AG.all.has(at);
+  // A Beep call's row shows the first line of its command or prompt; opened, all of it.
   const body = !open ? ""
-    : (detail ? `<pre class="cmd">${esc(detail)}</pre>` : "")
+    : (beep?.detail ? `<pre class="cmd">${esc(beep.detail)}</pre>` : "")
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
-  const opens = !!output || long;
+  const parts = rowParts(en.text, live, open);
+  // A command may be cut at any width, so it always opens.
+  const opens = !!output || long || (beep ? !!beep.detail : parts.kind === "command");
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
   const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
   if (beep) {
     return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-      + `<span class="mk">${mark(status)}</span>${beepHead(beep, title, state, live)}`
+      + `<span class="mk">${mark(status)}</span>${beepHead(beep, title, state, live, open)}`
       + mediaButtons(title) + body + pics + "</div>";
   }
-  const parts = rowParts(en.text, live);
-  const rowBody = !open ? "" : (detail ? `<pre class="cmd">${esc(detail)}</pre>` : "") + toolBody(output);
+  // Opened, a command or a long title leaves the row's one line and shows whole under it.
+  const wrapped = open && (parts.kind === "command" || long);
+  const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${esc(parts.target)}</pre>` : "") + toolBody(output);
   return toolRowHtml({
-    ...parts, target: open && long ? label : parts.target, tip: commandOf(title), mark: mark(status),
+    ...parts, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: mark(status),
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
     attrs: ` data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}`,
     after: mediaButtons(title) + rowBody + pics,
@@ -67,11 +69,11 @@ function toolBody(output: string) {
 
 /// A call to the session's Beep tools: what it did, the machine as a chip,
 /// the first line of its command or prompt, then the file count and how it
-/// stands on the right.
-function beepHead(beep: BeepCall, title: string, state: string, live: boolean) {
+/// stands on the right. Opened, the command or prompt is under it instead.
+function beepHead(beep: BeepCall, title: string, state: string, live: boolean, open: boolean) {
   return `<span class="tt bp" title="${esc(beepLine(title) ?? title)}"><span class="bi">${KIND_ICONS.beep}</span><span class="v">${esc(live ? beep.doing : beep.done)}</span>`
     + (beep.machine ? `<span class="mc">${esc(beep.machine)}</span>` : "")
-    + (beep.detail ? `<code>${esc(beep.detail.split("\n")[0])}</code>` : "") + "</span>"
+    + (beep.detail && !open ? `<code>${esc(beep.detail.split("\n")[0])}</code>` : "") + "</span>"
     + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}</span>`;
 }
 

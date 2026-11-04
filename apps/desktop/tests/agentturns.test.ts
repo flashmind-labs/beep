@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandDetail, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, runLabel, span, splitTurns, stepLabel, summary, toolKind, toolRuns, withoutDiffs } from "../src/agents/agentturns.ts";
+import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, summary, toolKind, toolRuns, withoutDiffs } from "../src/agents/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -50,18 +50,15 @@ test("failed steps fold with the rest; the summary counts them with their kind",
   assert.equal(summary(ok, splitTurns(ok)[0]), "Ran 1 command");
 });
 
-test("an opened step does not print its command twice", () => {
+test("an opened step has its whole command, without the verb", () => {
   const title = "exec: cd /srv/project;\n  git ls-files | grep widget";
-  const whole = stepLabel(`${title} [failed]\nexit 1`, false, true);
-  assert.equal(whole, "Ran cd /srv/project;\n  git ls-files | grep widget");
-  assert.equal(commandDetail(title, whole), "");
-  assert.equal(commandDetail("exec:  make   test", "Ran make test"), "");
-  assert.equal(commandDetail("Bash: make", "Ran make"), "");
-  assert.equal(commandDetail("TodoWrite: plan", "TodoWrite: plan"), "");
-  // Closed, the label is the first line; the rest of the command is new.
-  const closed = stepLabel(`${title} [failed]`);
-  assert.equal(closed, "Ran cd /srv/project; …");
-  assert.equal(commandDetail(title, closed), "cd /srv/project;\n  git ls-files | grep widget");
+  const entry = `${title} [failed]\nexit 1`;
+  assert.equal(stepLabel(entry, false, true), "Ran cd /srv/project;\n  git ls-files | grep widget");
+  assert.equal(stepLabel(entry), "Ran cd /srv/project; …");
+  assert.equal(rowParts(entry).target, "cd /srv/project;");
+  const opened = rowParts(entry, false, true);
+  assert.equal(opened.verb, "Ran");
+  assert.equal(opened.target, "cd /srv/project;\n  git ls-files | grep widget");
   assert.equal(commandOf("exec: make"), "make");
   assert.equal(commandOf("make"), "make");
 });
