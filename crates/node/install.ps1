@@ -75,7 +75,9 @@
         }
 
         $unpacked = Join-Path $tmp 'unpacked'
-        Expand-Archive -Path (Join-Path $tmp $archive) -DestinationPath $unpacked
+        # Not Expand-Archive: its progress bar throws in a console it cannot read, as over ssh.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $tmp $archive), $unpacked)
         $new = Join-Path $unpacked 'beep-node.exe'
         if (-not (Test-Path $new)) {
             Fail "$archive holds no beep-node.exe"

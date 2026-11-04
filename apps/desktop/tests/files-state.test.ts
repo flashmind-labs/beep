@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_UPLOAD, type Listing, type TreeEntry, atEdge, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, uploadParts,
+  MAX_UPLOAD, type Listing, type TreeEntry, atEdge, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, unreadFolders, uploadParts,
   uploadRefusal, withMentions,
 } from "../src/agentpane/files-state.ts";
+import { linkedPath } from "../src/agentpane/media-state.ts";
 
 const file = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => ({ name, folder: false, size: 1, ignored: false, change: null, ...o });
 const dir = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => file(name, { folder: true, size: 0, ...o });
@@ -50,6 +51,18 @@ test("a tree read merges over what was read and finds its edge", () => {
 test("a filter keeps matching names and the folders on the way", () => {
   assert.deepEqual(treeRows(listings, new Set(), "LOGIN").map(r => r.path), ["src", "src/login.rs"]);
   assert.deepEqual(treeRows(listings, new Set(), "nothing"), []);
+});
+
+test("a filter reads the folders nothing read yet, not what git ignores", () => {
+  const read = new Map<string, Listing>([["", { entries: [dir("src"), dir("target", { ignored: true }), dir("docs")], more: 0, error: "" }], ["docs", { entries: null, more: 0, error: "no" }]]);
+  assert.deepEqual(unreadFolders(read), ["src"]);
+});
+
+test("a link to a file gives its path, a web link none", () => {
+  assert.equal(linkedPath("/srv/app/my%20notes.md#L3"), "/srv/app/my notes.md");
+  assert.equal(linkedPath("src/main.rs:12"), "src/main.rs");
+  assert.equal(linkedPath("https://example.com/a.md"), null);
+  assert.equal(linkedPath("#top"), null);
 });
 
 test("mentions go after the text, quoted with a space", () => {

@@ -5,7 +5,8 @@ import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
-import { openPath, openPicture, paneFrame, showArtifact, startPane } from "../agentpane/media.ts";
+import { linkedPath } from "../agentpane/media-state.ts";
+import { openLinked, openPath, openPicture, paneFrame, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "../chat/turnrows.ts";
 import { MN, resetMentions } from "./workdrop.ts";
@@ -270,6 +271,10 @@ function agentClick(e: MouseEvent) {
   // A file a step names opens in the media pane.
   const step = target.closest<HTMLElement>("#agbody [data-media]");
   if (step) { openPath(step.dataset.media!); return; }
+  // A markdown link to a file opens it in the pane; bar/events.ts sends web links out.
+  const fileLink = target.closest<HTMLAnchorElement>("#agbody a[href]");
+  const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);
+  if (linkedFile) { openLinked(linkedFile); return; }
   // A file the reply names opens its picture, as its thumbnail does, or
   // else the file itself from the machine, in the media pane.
   const link = target.closest<HTMLElement>("#agbody a.imgl");

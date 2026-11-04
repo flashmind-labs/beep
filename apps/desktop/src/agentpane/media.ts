@@ -136,7 +136,7 @@ export const paneOf = (d: Dock) => document.getElementById(`agpane-${d}`);
 /// One dock's frame: its divider, its pane and the strip it folds to.
 function dockFrame(d: Dock) {
   return `<div class="agdiv" id="agdiv-${d}" data-dock="${d}" role="separator" tabindex="0" title="Drag to resize, double-click to reset" hidden></div>`
-    + `<aside class="agpane" id="agpane-${d}" data-dock="${d}" hidden><div class="agphead"><div class="agtabs" role="tablist"></div>`
+    + `<aside class="agpane" id="agpane-${d}" data-dock="${d}" tabindex="-1" hidden><div class="agphead"><div class="agtabs" role="tablist"></div>`
     + `<button class="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" data-pact="dock"></button><button class="agpbtn" data-pact="fold" title="Hide the pane"></button></div><div class="agpviews"></div></aside>`
     + `<button class="agpstrip" id="agpstrip-${d}" data-dock="${d}" hidden title="Show the pane"></button>`;
 }
@@ -167,6 +167,8 @@ export function startPane(s: PaneSession) {
     wireDivider(d);
     const pane = paneOf(d)!;
     pane.addEventListener("click", e => paneClick(e, d));
+    // A viewer may keep the pointer to itself; ⌘W still needs the pane focused.
+    pane.addEventListener("pointerdown", () => { if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true }); }, true);
     pane.querySelector(".agtabs")!.addEventListener("pointerdown", e => tabDown(e as PointerEvent));
     document.getElementById(`agpstrip-${d}`)!.addEventListener("click", () => { P.layout.hidden[d] = false; saveLayout(); draw(); });
   }
@@ -313,7 +315,7 @@ function drawDock(d: Dock, ids: string[]) {
     if (id === SUBS) return tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`);
     if (id === ARTS) return tab(ARTS, ARTS, "Artifacts", `<small>${artifactCount()}</small>`);
     const t = P.tabs.find(x => x.id === id)!;
-    return tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close">${ICON.x}</em>`);
+    return tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close (⌘W)">${ICON.x}</em>`);
   }).join("");
   const bottom = d === "bottom";
   const dock = pane.querySelector<HTMLElement>('[data-pact="dock"]')!;
@@ -414,6 +416,17 @@ export function closeTab(id: string) {
   draw();
 }
 
+/// Closes the tab on screen in the focused pane (⌘W); false when no pane is
+/// focused or that tab stays, as Files does. A terminal is not closed by a key.
+export function closeFocusedTab() {
+  const pane = document.activeElement?.closest<HTMLElement>(".agpane");
+  const tab = pane && P.tabs.find(t => t.id === P.on[pane.dataset.dock as Dock]);
+  if (!pane || !tab || tab.kind === "term") return false;
+  closeTab(tab.id);
+  pane.focus({ preventScroll: true });
+  return true;
+}
+
 /// Shows the Files tab, unfolding its dock.
 export function showFiles() {
   const d = dockOf(FILES);
@@ -463,6 +476,7 @@ export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> 
   saveLayout();
   P.on[d] = t.id;
   draw();
+  paneOf(d)?.focus({ preventScroll: true });
 }
 
 /// The session the pane shows, while one does.
@@ -475,6 +489,15 @@ export function paneSession(): Readonly<PaneSession> | null {
 export function openWorkFile(rel: string) {
   if (openPath(rel)) return;
   open({ id: `text:${rel}`, kind: "text", name: baseName(rel), path: null, url: null, rel });
+}
+
+/// Opens the file a link in a reply points at. One outside the session's
+/// folder opens as a tab saying the node would not read it.
+export function openLinked(path: string) {
+  if (openPath(path) || !P.session) return;
+  const cwd = P.session.cwd.replace(/\/+$/, "");
+  const full = resolvePath(cwd, path);
+  openWorkFile(full.startsWith(`${cwd}/`) ? full.slice(cwd.length + 1) : full);
 }
 
 /// Saves `rel`, a file in the session's folder, to Downloads; `note`

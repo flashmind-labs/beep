@@ -1,5 +1,6 @@
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
+import { closeFocusedTab } from "../agentpane/media.ts";
 import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
@@ -49,9 +50,9 @@ document.addEventListener("keydown", e => {
   }
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
-  // ⌘W closes this window; Beep keeps running in the menu bar. The main
+  // ⌘W closes the focused pane's tab, else this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
-  if (key === "w" && !e.shiftKey) { e.preventDefault(); invoke("center_close_window").catch(() => window.close()); return; }
+  if (key === "w" && !e.shiftKey) { e.preventDefault(); if (closeFocusedTab()) return; invoke("center_close_window").catch(() => window.close()); return; }
   // ⌘M on the pane's start form and ⌘R in its chats list are the pane's.
   if (windowTakes(key, shown === "pane" ? paneOn().view : undefined)) {
     e.preventDefault();

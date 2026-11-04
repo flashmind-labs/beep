@@ -1,4 +1,5 @@
 import "./keys.ts";
+import { linkedPath } from "../agentpane/media-state.ts";
 import { chartClick } from "../chat/charts.ts";
 import { ANSWER, answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
 import { loadChats } from "../chat/chats.ts";
@@ -97,6 +98,8 @@ bar.addEventListener("click", e => {
   const a = t.closest<HTMLAnchorElement>("a[href]");
   if (!a) return;
   e.preventDefault();
+  // A link to a file, not a web address: the session's pane opens it.
+  if (linkedPath(a.getAttribute("href")!)) return;
   invoke("open_url", { url: a.href }).catch(() => {});
 });
 
