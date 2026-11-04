@@ -3,8 +3,8 @@
 
 use crate::{center, error::Result};
 use tauri::{
-    ActivationPolicy, AppHandle, LogicalPosition, LogicalSize, Manager, Runtime, TitleBarStyle,
-    WebviewUrl, WebviewWindowBuilder,
+    ActivationPolicy, AppHandle, LogicalSize, Manager, Runtime, TitleBarStyle, WebviewUrl,
+    WebviewWindowBuilder,
 };
 use uuid::Uuid;
 
@@ -51,39 +51,6 @@ pub fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
 }
 
-/// Where a new window goes: most of the screen under the mouse, moved down
-/// and right for each window already open so none hides another.
-fn frame<R: Runtime>(
-    app: &AppHandle<R>,
-    open: usize,
-) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
-    let cursor = app.cursor_position().ok()?;
-    let monitor = app
-        .monitor_from_point(cursor.x, cursor.y)
-        .ok()
-        .flatten()
-        .or_else(|| app.primary_monitor().ok().flatten())?;
-    let scale = monitor.scale_factor();
-    let area = monitor.work_area();
-    let (left, top) = (
-        f64::from(area.position.x) / scale,
-        f64::from(area.position.y) / scale,
-    );
-    let (full_w, full_h) = (
-        f64::from(area.size.width) / scale,
-        f64::from(area.size.height) / scale,
-    );
-    let width = (full_w * SHARE).max(WIDTH.min(full_w));
-    let height = (full_h * SHARE).max(HEIGHT.min(full_h));
-    let step = CASCADE * (open % 8) as f64;
-    let x = left + ((full_w - width) / 2.0 + step).min(full_w - width).max(0.0);
-    let y = top
-        + ((full_h - height) / 2.0 + step)
-            .min(full_h - height)
-            .max(0.0);
-    Some((LogicalPosition::new(x, y), LogicalSize::new(width, height)))
-}
-
 /// Shows the research window for `session`, opening it if needed.
 pub(super) fn open_window<R: Runtime>(app: &AppHandle<R>, session: Uuid) -> Result<()> {
     if let Some(window) = app.get_webview_window(&label(session)) {
@@ -91,9 +58,7 @@ pub(super) fn open_window<R: Runtime>(app: &AppHandle<R>, session: Uuid) -> Resu
         window.set_focus()?;
         return Ok(());
     }
-    if let Err(e) = app.set_activation_policy(ActivationPolicy::Regular) {
-        log::warn!("joining the Dock: {e}");
-    }
+    center::join_dock(app);
     let url = WebviewUrl::App(format!("research.html?session={session}").into());
     let mut builder = WebviewWindowBuilder::new(app, label(session), url)
         .title("Research")
@@ -102,7 +67,9 @@ pub(super) fn open_window<R: Runtime>(app: &AppHandle<R>, session: Uuid) -> Resu
         .maximizable(true)
         .title_bar_style(TitleBarStyle::Overlay)
         .hidden_title(true);
-    builder = match frame(app, open_windows(app, None)) {
+    // Each window open moves the next down and right, so none hides another.
+    let step = CASCADE * (open_windows(app, None) % 8) as f64;
+    builder = match center::frame(app, SHARE, LogicalSize::new(WIDTH, HEIGHT), step) {
         Some((position, size)) => builder
             .position(position.x, position.y)
             .inner_size(size.width, size.height),

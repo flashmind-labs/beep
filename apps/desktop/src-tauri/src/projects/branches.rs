@@ -1,20 +1,17 @@
 //! Branches with work before an import, and giving a branch a worktree.
 
 use crate::{
-    beep::{Beep, epoch_ms},
-    error::{DesktopError, Result},
+    beep::{Service, epoch_ms},
+    error::Result,
     projects::reviews::BranchRow,
-    projects::unknown_op,
+    projects::{known, needs_update},
 };
 use beep_proto::{
     AddBranchWorktree, FindImportFork, ImportCheckout, ImportFork, ImportPreview, PreviewImport,
     WorkBranch,
 };
 use serde::Serialize;
-use std::{sync::Arc, time::Duration};
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::time::Duration;
 
 /// Adding a worktree may fetch the branch first.
 const ADD_TIMEOUT: Duration = Duration::from_secs(150);
@@ -90,28 +87,21 @@ impl From<ImportPreview> for PreviewView {
 /// What importing `repo` would find; `None` from a server too old to say.
 #[tauri::command]
 pub async fn preview_import(beep: Service<'_>, repo: String) -> Result<Option<PreviewView>> {
-    match beep
-        .call_within(PreviewImport { repo }, PREVIEW_TIMEOUT)
-        .await
-    {
-        Ok(preview) => Ok(Some(preview.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(
+        beep.call_within(PreviewImport { repo }, PREVIEW_TIMEOUT)
+            .await,
+    )?
+    .map(Into::into))
 }
 
 /// The user's fork that importing `repo` would clone; `None` from a server
 /// too old to say.
 #[tauri::command]
 pub async fn find_import_fork(beep: Service<'_>, repo: String) -> Result<Option<ImportFork>> {
-    match beep
-        .call_within(FindImportFork { repo }, PREVIEW_TIMEOUT)
-        .await
-    {
-        Ok(found) => Ok(Some(found)),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    known(
+        beep.call_within(FindImportFork { repo }, PREVIEW_TIMEOUT)
+            .await,
+    )
 }
 
 /// Gives `branch` of `project` a worktree on `machine_id`.
@@ -127,11 +117,8 @@ pub async fn add_branch_worktree(
         branch,
         machine_id,
     };
-    match beep.call_within(request, ADD_TIMEOUT).await {
-        Ok(branch) => Ok(branch.into()),
-        Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
-            "The server needs an update before it adds worktrees.".into(),
-        )),
-        Err(e) => Err(e),
-    }
+    let branch = beep.call_within(request, ADD_TIMEOUT).await;
+    Ok(branch
+        .map_err(|e| needs_update(e, "before it adds worktrees"))?
+        .into())
 }

@@ -3,7 +3,7 @@
 //! sees only their last four characters.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     error::{DesktopError, Result},
 };
 use beep_proto::{
@@ -12,10 +12,6 @@ use beep_proto::{
     SaveCredential, SaveGitHubAccount, SecretText, SetDefaultGitHubAccount,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// What a credential is for, as the bar names it.
 #[derive(Debug, Serialize, Deserialize)]

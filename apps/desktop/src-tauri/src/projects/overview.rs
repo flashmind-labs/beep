@@ -2,11 +2,11 @@
 //! its workers and what changed last, from one call for all of them.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     center::kept,
     center::view_cache::{View, ViewCache},
     error::Result,
-    projects::unknown_op,
+    projects::known,
 };
 use beep_proto::{ListProjectOverview, ProjectOverview, ProjectTask, TaskCounts};
 use serde::Serialize;
@@ -66,14 +66,11 @@ impl From<ProjectOverview> for OverviewCard {
 /// up, when the page shows its table instead.
 #[tauri::command]
 pub async fn project_overview(
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Option<Vec<OverviewCard>>> {
-    let cards = match beep.call(ListProjectOverview {}).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    };
+    let cards = known(beep.call(ListProjectOverview {}).await)
+        .map(|rows| rows.map(|rows| rows.into_iter().map(Into::into).collect()));
     kept(&cache, View::Overview, cards)
 }
 

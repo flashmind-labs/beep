@@ -4,7 +4,7 @@
 //! into the folder a part at a time.
 
 use crate::{
-    beep::Beep,
+    beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name},
     error::{DesktopError, Result},
 };
@@ -14,10 +14,8 @@ use beep_proto::{
     ReadWorkFile, WriteWorkFile,
 };
 use serde::Serialize;
-use std::{fs, path::PathBuf, sync::Arc};
-use tauri::{AppHandle, Manager, State};
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::{fs, path::PathBuf};
+use tauri::{AppHandle, Manager};
 
 /// The most of a file the text view shows.
 const TEXT_CAP: u32 = 512 * 1024;

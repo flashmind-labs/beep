@@ -178,23 +178,14 @@ impl Voice {
         let now = Instant::now();
         let mode = self.end_mode();
         let id = self.lives.fetch_add(1, Ordering::Relaxed) + 1;
-        let (live, effects, note) = match how {
-            Start::Tap => {
-                let (live, effects) = Live::listening(mode, now);
-                (live, effects, None)
-            }
-            Start::Hold => {
-                let (live, effects) = Live::hold_to_talk(mode, now);
-                (live, effects, None)
-            }
+        let ((live, effects), note) = match how {
+            Start::Tap => (Live::listening(mode, now), None),
+            Start::Hold => (Live::hold_to_talk(mode, now), None),
             Start::Note {
                 note,
                 title,
                 notice,
-            } => {
-                let (live, effects) = Live::speaking(mode, now);
-                (live, effects, Some((note, title, notice)))
-            }
+            } => (Live::speaking(mode, now), Some((note, title, notice))),
         };
         let card = {
             let mut state = self.state();
@@ -322,14 +313,7 @@ impl Voice {
     }
 
     pub(super) fn leave(&self, id: u64, draft: Option<String>, why: Leaving) {
-        let session = {
-            let mut state = self.state();
-            if !state.live.as_ref().is_some_and(|s| s.id == id) {
-                return;
-            }
-            state.live.take()
-        };
-        let Some(mut session) = session else {
+        let Some(mut session) = self.state().live.take_if(|s| s.id == id) else {
             return;
         };
         session.hush();

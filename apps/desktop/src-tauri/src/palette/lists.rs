@@ -3,7 +3,7 @@
 //! sessions and branches from their own commands, so none holds up the rest.
 
 use crate::{
-    beep::Beep,
+    beep::Service,
     center::{home_sessions::AgentSessions, section, view_cache::ViewCache},
     error::Result,
     machines::list::MachineView,
@@ -19,8 +19,6 @@ use std::{
 };
 use tauri::{AppHandle, State};
 use tokio::{join, task::JoinSet};
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// The lists the palette searches in memory. A list is `None` when the
 /// server could not give it, which hides its group.

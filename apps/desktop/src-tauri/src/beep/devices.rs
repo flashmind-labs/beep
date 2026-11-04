@@ -3,7 +3,7 @@
 
 use crate::{
     beep::state::LinkState,
-    beep::{Beep, qr_svg},
+    beep::{Beep, Service, qr_svg},
     error::{DesktopError, Result},
 };
 use beep_proto::{
@@ -12,10 +12,8 @@ use beep_proto::{
     link::{format_join_code, join_code},
 };
 use serde::Serialize;
-use std::{sync::Arc, time::SystemTime};
-use tauri::{AppHandle, State};
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::time::SystemTime;
+use tauri::AppHandle;
 
 /// A join code for a phone to scan or type.
 #[derive(Serialize)]

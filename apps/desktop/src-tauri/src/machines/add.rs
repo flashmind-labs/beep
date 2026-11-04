@@ -4,7 +4,7 @@
 //! machine of the account installs beep-node over its own ssh.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
     projects::needs_update,
 };
@@ -13,10 +13,7 @@ use beep_proto::{
     RevokeNodeToken, SetMachineSearch, SshAdd, setup::setup_command,
 };
 use serde::Serialize;
-use std::{sync::Arc, time::Duration};
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::time::Duration;
 
 /// A token as the sheet shows it.
 #[derive(Debug, Serialize)]

@@ -250,7 +250,6 @@ impl Session {
     }
 }
 
-/// Which permissions are granted now.
 pub fn permissions() -> Permissions {
     Permissions {
         screen_recording: CGPreflightScreenCaptureAccess(),

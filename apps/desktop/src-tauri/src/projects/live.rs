@@ -3,7 +3,10 @@
 //! pull requests, issues or runs were read again, and the page redraws
 //! them as `project-live` events.
 
-use crate::{beep::Beep, projects::unknown_op};
+use crate::{
+    beep::{Beep, Service},
+    projects::unknown_op,
+};
 use beep_node::reconnect::Backoff;
 use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
@@ -59,7 +62,7 @@ impl Drop for Following {
 #[tauri::command]
 pub fn follow_project(
     app: AppHandle,
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     followed: State<'_, Followed>,
     project_id: Uuid,
 ) {

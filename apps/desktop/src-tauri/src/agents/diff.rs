@@ -1,16 +1,12 @@
 //! The diff viewer: what changed in a coding agent session's checkout, or
 //! on a project's branch, read by the node where the checkout is.
 
-use crate::{beep::Beep, error::Result};
+use crate::{beep::Service, error::Result};
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetBranchDiff,
     GetWorkDiff, WorkDiff,
 };
 use serde::Serialize;
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// A diff for the web view (DiffView).
 #[derive(Debug, Serialize)]

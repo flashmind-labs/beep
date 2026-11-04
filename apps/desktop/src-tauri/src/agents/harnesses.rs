@@ -2,7 +2,7 @@
 //! their settings, and installing or updating one there.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::Result,
     projects::unknown_op,
     settings::credentials::plain,
@@ -13,10 +13,7 @@ use beep_proto::{
     SecretText, UpdateAgentHarness,
 };
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::time::Duration;
 
 /// How long the server may take to ask the machine: it runs each
 /// harness's version and sign-in commands there.

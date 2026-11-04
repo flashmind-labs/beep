@@ -3,9 +3,9 @@
 //! finding, and handing the rest to a worker or the project agent.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    projects::{needs_update, unknown_op},
+    projects::{known, needs_update},
 };
 use beep_proto::{
     BranchReview, CheckBranchReview, DismissReviewFinding, FixReviewFindings, GetBranchReview,
@@ -14,11 +14,8 @@ use beep_proto::{
     ReviewShardState, ReviewVerdict, StartBranchReview,
 };
 use serde::Serialize;
-use std::{sync::Arc, time::Duration};
-use tauri::State;
+use std::time::Duration;
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// Starting a review fetches and starts a session per shard first.
 const START_TIMEOUT: Duration = Duration::from_secs(150);
@@ -241,22 +238,15 @@ fn outdated(e: DesktopError) -> DesktopError {
 /// `project`'s branches; `None` from a server too old to list them.
 #[tauri::command]
 pub async fn project_branches(beep: Service<'_>, project: String) -> Result<Option<BranchesView>> {
-    match beep.call(ListProjectBranches { project }).await {
-        Ok(branches) => Ok(Some(branches.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(ListProjectBranches { project }).await)?.map(Into::into))
 }
 
 /// `project`'s newest review of each branch; `None` from a server too old
 /// to review.
 #[tauri::command]
 pub async fn reviews_list(beep: Service<'_>, project: String) -> Result<Option<Vec<ReviewView>>> {
-    match beep.call(ListBranchReviews { project }).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(ListBranchReviews { project }).await)?
+        .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
 
 #[tauri::command]
@@ -281,14 +271,10 @@ pub async fn review_get(beep: Service<'_>, id: Uuid) -> Result<ReviewView> {
 /// Where the review's branch is now; `None` from a server too old to say.
 #[tauri::command]
 pub async fn review_check(beep: Service<'_>, id: Uuid) -> Result<Option<ReviewHead>> {
-    match beep
-        .call_within(CheckBranchReview { id }, CHECK_TIMEOUT)
-        .await
-    {
-        Ok(now) => Ok(Some(now)),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    known(
+        beep.call_within(CheckBranchReview { id }, CHECK_TIMEOUT)
+            .await,
+    )
 }
 
 #[tauri::command]

@@ -2,15 +2,11 @@
 //! grant ends, and revoking one so the routine asks again.
 
 use crate::{
-    beep::{Beep, Field, epoch_ms},
+    beep::{Field, Service, epoch_ms},
     error::Result,
 };
 use beep_proto::{Grant, ListGrants, RevokeGrant};
 use serde::Serialize;
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// A grant as the bar lists it. Times are in milliseconds since the Unix
 /// epoch.

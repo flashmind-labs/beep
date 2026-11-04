@@ -108,7 +108,6 @@ fn app(_bundles: &[&str]) -> Option<PathBuf> {
     None
 }
 
-/// `cli` in a directory on `PATH`.
 fn on_path(cli: &str) -> Option<PathBuf> {
     env::split_paths(&env::var_os("PATH")?)
         .map(|d| d.join(cli))

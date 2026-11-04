@@ -1,11 +1,8 @@
 //! Newer `gh` and `teacli` on the account's machines, and installing them.
 
-use crate::{beep::Beep, error::Result, projects::unknown_op};
+use crate::{beep::Service, error::Result, projects::unknown_op};
 use beep_proto::{ListToolUpdates, ToolUpdate, UpdateMachineTool};
-use std::{sync::Arc, time::Duration};
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::time::Duration;
 
 /// How long the server may take to look up the newest releases.
 const LIST_LIMIT: Duration = Duration::from_secs(30);

@@ -2,7 +2,7 @@
 //! Only the account's own machines.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
     projects::unknown_op,
 };
@@ -11,10 +11,7 @@ use beep_proto::{
     UpdatableMachine, UpdateMachine,
 };
 use serde::Serialize;
-use std::{sync::Arc, time::Duration};
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::time::Duration;
 
 /// A machine as the bar shows it.
 #[derive(Debug, Serialize)]

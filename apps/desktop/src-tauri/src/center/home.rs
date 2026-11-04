@@ -7,9 +7,9 @@ use super::{
     view_cache::{View, ViewCache, cache_view},
 };
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    projects::{ProjectRow, unknown_op},
+    projects::{ProjectRow, known},
 };
 use beep_proto::{
     AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
@@ -23,8 +23,6 @@ use std::{cmp::Reverse, collections::HashMap, sync::Arc};
 use tauri::{AppHandle, State};
 use tokio::join;
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// Answers a question an agent session asks.
 #[tauri::command]
@@ -56,11 +54,7 @@ pub async fn center_dismiss_updates(beep: Service<'_>, ids: Vec<i64>) -> Result<
 /// first ask. `None` from a server too old to make one.
 #[tauri::command]
 pub async fn center_open_update_chat(beep: Service<'_>, id: i64) -> Result<Option<String>> {
-    match beep.call(OpenUpdateChat { id }).await {
-        Ok(session) => Ok(Some(session.id)),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(OpenUpdateChat { id }).await)?.map(|session| session.id))
 }
 
 /// What Home shows. A section is `None` when the server cannot list it for

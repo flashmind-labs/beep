@@ -1,9 +1,9 @@
 //! The Add a project sheet: checkouts and host repositories to pick from,
 //! the folder choice, and importing a project onto a machine.
 
-use super::{list::ProjectRow, needs_update, unknown_op};
+use super::{known, list::ProjectRow, needs_update};
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
 };
 use beep_proto::{
@@ -14,14 +14,11 @@ use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
     time::Duration,
 };
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// The server stops a clone after 30 minutes; this leaves it time to say so.
 const IMPORT_TIMEOUT: Duration = Duration::from_secs(31 * 60);
@@ -64,11 +61,8 @@ impl From<FoundProject> for FoundRow {
 /// yet; none from a server too old to look.
 #[tauri::command]
 pub async fn found_projects(beep: Service<'_>) -> Result<Vec<FoundRow>> {
-    match beep.call(ListFoundFolders {}).await {
-        Ok(found) => Ok(found.into_iter().map(FoundRow::from).collect()),
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        Err(e) => Err(e),
-    }
+    let found = known(beep.call(ListFoundFolders {}).await)?;
+    Ok(found.into_iter().flatten().map(FoundRow::from).collect())
 }
 
 /// One git host's repositories to clone, as the Add a project sheet lists
@@ -114,11 +108,12 @@ impl From<HostRepos> for HostReposRow {
 /// server too old to list them.
 #[tauri::command]
 pub async fn host_repos(beep: Service<'_>) -> Result<Vec<HostReposRow>> {
-    match beep.call(ListHostRepos {}).await {
-        Ok(hosts) => Ok(hosts.into_iter().map(HostReposRow::from).collect()),
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        Err(e) => Err(e),
-    }
+    let hosts = known(beep.call(ListHostRepos {}).await)?;
+    Ok(hosts
+        .into_iter()
+        .flatten()
+        .map(HostReposRow::from)
+        .collect())
 }
 
 /// Shows a project's folder on this Mac in Finder.

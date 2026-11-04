@@ -2,13 +2,9 @@
 //! agent harnesses define in the project's folder on one machine, and the
 //! user's own there.
 
-use crate::{beep::Beep, error::Result};
+use crate::{beep::Service, error::Result};
 use beep_proto::{CustomAgent, ListCustomAgents};
 use serde::Serialize;
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// One custom agent, for the page.
 #[derive(Debug, Serialize)]

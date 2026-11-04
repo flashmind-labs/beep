@@ -3,11 +3,11 @@
 //! view, which also pauses sync and settles conflicts.
 
 use crate::{
-    beep::Beep,
+    beep::Service,
     center::kept,
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
-    projects::{needs_update, unknown_op},
+    projects::{known, needs_update},
 };
 use beep_proto::{
     ConflictKeep, GetProjectSyncDetail, ListProjectSync, MachineSync, MachineSyncDetail,
@@ -48,14 +48,11 @@ impl SyncRow {
 /// server too old to sync projects.
 #[tauri::command]
 pub async fn project_sync(
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Vec<SyncRow>> {
-    let rows = match beep.call(ListProjectSync {}).await {
-        Ok(projects) => Ok(rows(projects)),
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        Err(e) => Err(e),
-    };
+    let rows = known(beep.call(ListProjectSync {}).await)
+        .map(|projects| projects.map_or_else(Vec::new, rows));
     kept(&cache, View::Sync, rows)
 }
 
@@ -154,20 +151,16 @@ fn outdated(e: DesktopError) -> DesktopError {
 /// `project`'s sync in detail; `None` from a server too old to give it.
 #[tauri::command]
 pub async fn project_sync_detail(
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     project: String,
 ) -> Result<Option<SyncDetailView>> {
-    match beep.call(GetProjectSyncDetail { project }).await {
-        Ok(detail) => Ok(Some(detail.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
 }
 
 /// Pauses `project`'s sync on every machine, or resumes it.
 #[tauri::command]
 pub async fn project_sync_pause(
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     project: String,
     paused: bool,
 ) -> Result<SyncDetailView> {
@@ -182,7 +175,7 @@ pub async fn project_sync_pause(
 /// place of the file beside it, or keeps that file and deletes the copy.
 #[tauri::command]
 pub async fn project_sync_resolve(
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     project: String,
     machine_id: String,
     path: String,

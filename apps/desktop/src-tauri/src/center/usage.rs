@@ -3,9 +3,9 @@
 //! this month.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::Result,
-    projects::unknown_op,
+    projects::known,
 };
 use beep_proto::{
     AgentSlug, AgentTokens, GetSpendReport, GetUsage, GetUsageReport, HarnessBill, HarnessSpend,
@@ -13,10 +13,6 @@ use beep_proto::{
     SpendReport, UsageReport, UsageView,
 };
 use serde::Serialize;
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// `UsageReport` as the window reads it, times in milliseconds since the
 /// Unix epoch.
@@ -268,19 +264,11 @@ impl From<UsageView> for UsageRow {
 /// the pill hides. `refresh` has the machines read the plans again.
 #[tauri::command]
 pub async fn usage_get(beep: Service<'_>, refresh: bool) -> Result<Option<UsageRow>> {
-    match beep.call(GetSpendReport { refresh }).await {
-        Ok(report) => return Ok(Some(report.into())),
-        Err(e) if unknown_op(&e) => {}
-        Err(e) => return Err(e),
+    if let Some(report) = known(beep.call(GetSpendReport { refresh }).await)? {
+        return Ok(Some(report.into()));
     }
-    match beep.call(GetUsageReport { refresh }).await {
-        Ok(report) => return Ok(Some(report.into())),
-        Err(e) if unknown_op(&e) => {}
-        Err(e) => return Err(e),
+    if let Some(report) = known(beep.call(GetUsageReport { refresh }).await)? {
+        return Ok(Some(report.into()));
     }
-    match beep.call(GetUsage { refresh }).await {
-        Ok(view) => Ok(Some(view.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(GetUsage { refresh }).await)?.map(Into::into))
 }

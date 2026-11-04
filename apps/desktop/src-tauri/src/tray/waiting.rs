@@ -151,7 +151,6 @@ pub fn badge(count: usize) -> Option<String> {
     (count > 0).then(|| count.to_string())
 }
 
-/// The tray icon's tooltip.
 pub fn tooltip(count: usize) -> String {
     match count {
         0 => "Beep".into(),

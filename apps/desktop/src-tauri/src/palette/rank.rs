@@ -6,10 +6,10 @@ use super::{
     lists::{PaletteCache, PaletteLists},
     projects::{project_hits, session_hits},
 };
-use crate::{agents::sessions::SessionRow, beep::Beep, center::section, error::Result};
+use crate::{agents::sessions::SessionRow, beep::Service, center::section, error::Result};
 use beep_proto::{ApiProvider, Session, SessionMatch};
 use serde::Serialize;
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
+use std::{cmp::Reverse, collections::HashMap};
 use strum::IntoEnumIterator;
 use tauri::State;
 use tokio::join;
@@ -20,8 +20,6 @@ pub(super) const PER_KIND: usize = 8;
 const RECENT_CHATS: usize = 5;
 /// Chat text is searched from this many characters.
 const MIN_TEXT_QUERY: usize = 2;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// Chats for one query: every chat (matched by title) and the chats whose
 /// messages hold the words.
@@ -114,14 +112,9 @@ impl SettingsSection {
     }
 }
 
-/// A setting the palette finds, and the section of the sheet that holds it.
-struct Setting {
-    title: String,
-    section: SettingsSection,
-}
-
-/// Every setting the palette finds.
-fn settings() -> Vec<Setting> {
+/// Every setting the palette finds, with the section of the sheet that
+/// holds it.
+fn settings() -> impl Iterator<Item = (String, SettingsSection)> {
     use SettingsSection::*;
     let fixed = [
         ("Account", Devices),
@@ -144,15 +137,8 @@ fn settings() -> Vec<Setting> {
     ];
     fixed
         .into_iter()
-        .map(|(title, section)| Setting {
-            title: title.to_owned(),
-            section,
-        })
-        .chain(ApiProvider::all().map(|p| Setting {
-            title: format!("{} API key", p.name()),
-            section: Creds,
-        }))
-        .collect()
+        .map(|(title, section)| (title.to_owned(), section))
+        .chain(ApiProvider::all().map(|p| (format!("{} API key", p.name()), Creds)))
 }
 
 #[derive(Debug, Serialize)]
@@ -268,13 +254,8 @@ fn chat_hit(session: &Session, snippet: &str) -> Hit {
 }
 
 fn action_hit(action: PaletteAction) -> Hit {
-    let id = <&'static str>::from(action).to_owned();
-    Hit::new(
-        HitKind::Action,
-        id,
-        action.title().to_owned(),
-        String::new(),
-    )
+    let (id, title) = (<&'static str>::from(action), action.title());
+    Hit::new(HitKind::Action, id.into(), title.into(), String::new())
 }
 
 /// A chat found by title and by text is one hit, with the snippet.
@@ -357,14 +338,12 @@ pub(crate) fn rank(query: &str, lists: &PaletteLists, chats: &ChatHits) -> Vec<H
         let hit = Hit::new(HitKind::Machine, id, name, state.to_owned());
         Some((tier(&query, m.name())?, hit))
     });
-    let settings = settings()
-        .into_iter()
-        .filter_map(|Setting { title, section }| {
-            let tier = tier(&query, &title)?;
-            let id = <&'static str>::from(section).to_owned();
-            let detail = format!("Settings · {}", section.title());
-            Some((tier, Hit::new(HitKind::Setting, id, title, detail)))
-        });
+    let settings = settings().filter_map(|(title, section)| {
+        let tier = tier(&query, &title)?;
+        let id = <&'static str>::from(section).to_owned();
+        let detail = format!("Settings · {}", section.title());
+        Some((tier, Hit::new(HitKind::Setting, id, title, detail)))
+    });
     let imported = lists.projects.as_deref().unwrap_or_default();
     let projects = project_hits(&query, lists, imported);
     let sessions = session_hits(&query, lists, imported);

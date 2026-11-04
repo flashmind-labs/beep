@@ -261,7 +261,8 @@ pub fn chat_id(session: Option<&str>) -> Uuid {
         .unwrap_or_else(Uuid::new_v4)
 }
 
-fn session_uuid(session: &str) -> Result<Uuid> {
+/// `session` as the chat id a request takes.
+pub fn session_uuid(session: &str) -> Result<Uuid> {
     Uuid::parse_str(session).map_err(|_| DesktopError::BadRequest("bad session".into()))
 }
 

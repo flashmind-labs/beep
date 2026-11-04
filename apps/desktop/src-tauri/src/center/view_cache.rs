@@ -3,7 +3,7 @@
 //! key; a file of another format or app version is dropped and rewritten.
 
 use crate::{
-    beep::{Beep, state::LinkState},
+    beep::{Service, state::LinkState},
     error::{self, DesktopError},
 };
 use anyhow::{Context, bail};
@@ -219,7 +219,7 @@ pub(crate) fn cache_view<T: Serialize>(cache: &Arc<ViewCache>, view: View, value
 /// opens to show before the server answers; `None` until this Mac is linked.
 #[tauri::command]
 pub fn center_cached(
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Option<BTreeMap<View, Value>> {
     if beep.link_state() != LinkState::Linked {
@@ -240,7 +240,7 @@ const MAX_PAGES: usize = 4 * 1024 * 1024;
 /// the account on Start over.
 #[tauri::command]
 pub fn center_keep_pages(
-    beep: State<'_, Arc<Beep>>,
+    beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
     pages: Value,
 ) -> error::Result<()> {

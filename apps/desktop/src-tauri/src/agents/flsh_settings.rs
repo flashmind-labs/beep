@@ -3,7 +3,7 @@
 //! is parsed into the protocol's types here, and checked before it goes.
 
 use crate::{
-    beep::Beep,
+    beep::Service,
     error::{DesktopError, Result},
     projects::unknown_op,
     settings::credentials::plain,
@@ -13,10 +13,6 @@ use beep_proto::{
     GetFlshSettings, SaveFlshSettings,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// The settings as the page reads and writes them. Null or empty means
 /// flsh's own default.
