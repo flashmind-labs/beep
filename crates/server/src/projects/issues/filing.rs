@@ -2,18 +2,23 @@
 
 use super::{
     super::{
-        commands::{HostCommand, Shell, parse_created_issue, parse_found_issue},
         fleet::{self, Fleet},
-        model::{IssueHost, IssueRef, TaskId},
+        model::TaskId,
     },
-    MAX_RETRIES, run_host,
+    MAX_RETRIES,
 };
 use crate::{
     account::user::User,
-    memory::leak::PublicText,
     store::{ProjectRow, TaskRow},
 };
 use anyhow::{Result, anyhow};
+use beep_projects::leak::PublicText;
+use beep_projects::{
+    Shell,
+    commands::{HostCommand, parse_created_issue, parse_found_issue},
+    issues::run_host,
+    model::{IssueHost, IssueRef},
+};
 
 /// What marks the issue of `task`, so a retry finds one filed before.
 pub(crate) fn marker(task: TaskId) -> String {
@@ -37,7 +42,7 @@ pub(crate) async fn file_issue(
     let found = run_host(
         shell,
         host,
-        project,
+        &project.name,
         HostCommand::FindIssue { marker: &marker },
     )
     .await?;
@@ -48,7 +53,7 @@ pub(crate) async fn file_issue(
             let out = run_host(
                 shell,
                 host,
-                project,
+                &project.name,
                 HostCommand::CreateIssue {
                     title: &task.title,
                     body: &body,

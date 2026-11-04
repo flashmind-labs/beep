@@ -1,11 +1,7 @@
 //! A thread's card and the chat about it.
 
 use super::{
-    super::{
-        fleet::Fleet,
-        issues::{IssueError, head},
-        turn::REPLY_LABEL,
-    },
+    super::{fleet::Fleet, issues::IssueError, turn::REPLY_LABEL},
     CARD_COMMENTS, CARD_TEXT, MAX_COMMENTS, MAX_THREAD_TEXT, ReadThread, Thread, clipped,
     needs_reply, project_repo, read,
 };
@@ -15,6 +11,7 @@ use crate::{
     store::{NewThreadChat, ProjectRow, ThreadChatRow},
 };
 use anyhow::Result;
+use beep_projects::issues::head;
 use std::fmt::Write;
 use uuid::Uuid;
 

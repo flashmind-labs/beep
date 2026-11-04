@@ -2,9 +2,8 @@
 
 use super::{
     Projects,
-    commands::{CommandOutput, Shell},
-    fleet::{Fleet, Machine},
-    model::{StartRequest, TaskSlug, WorkerAgent},
+    fleet::{Fleet, Machine, names_of},
+    model::{StartRequest, WorkerAgent},
     worker::{StartError, Started},
 };
 use crate::{
@@ -18,6 +17,11 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use async_trait::async_trait;
+use beep_projects::{
+    Shell, ShellOutput,
+    issues::{MachineName, Machines},
+    model::TaskSlug,
+};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use iroh::{EndpointId, SecretKey};
 use serde_json::{Value, json};
@@ -36,7 +40,7 @@ use uuid::Uuid;
 #[derive(Default)]
 pub(crate) struct FakeShell {
     ran: Mutex<Vec<String>>,
-    rules: Mutex<Vec<(String, CommandOutput)>>,
+    rules: Mutex<Vec<(String, ShellOutput)>>,
     /// Commands holding this text fail as if the machine dropped.
     fails: Mutex<Option<String>>,
     /// Commands holding the text wait for its signal before they answer.
@@ -69,16 +73,7 @@ impl FakeShell {
         self.rules
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(
-                0,
-                (
-                    holds.to_owned(),
-                    CommandOutput {
-                        code: Some(code),
-                        out: out.to_owned(),
-                    },
-                ),
-            );
+            .insert(0, (holds.to_owned(), ShellOutput::exited(code, out)));
     }
 
     pub(crate) fn ran(&self) -> Vec<String> {
@@ -99,7 +94,7 @@ impl FakeShell {
 
 #[async_trait]
 impl Shell for FakeShell {
-    async fn run(&self, command: &str, _limit: Duration) -> Result<CommandOutput> {
+    async fn run(&self, command: &str, _limit: Duration) -> Result<ShellOutput> {
         self.ran
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -127,13 +122,7 @@ impl Shell for FakeShell {
         Ok(rules
             .iter()
             .find(|(holds, _)| command.contains(holds.as_str()))
-            .map_or(
-                CommandOutput {
-                    code: Some(0),
-                    out: String::new(),
-                },
-                |(_, output)| output.clone(),
-            ))
+            .map_or(ShellOutput::exited(0, ""), |(_, output)| output.clone()))
     }
 }
 
@@ -145,7 +134,7 @@ pub(crate) struct Prefixed {
 
 #[async_trait]
 impl Shell for Prefixed {
-    async fn run(&self, command: &str, limit: Duration) -> Result<CommandOutput> {
+    async fn run(&self, command: &str, limit: Duration) -> Result<ShellOutput> {
         self.shell
             .run(&format!("{}\n{command}", self.prefix), limit)
             .await
@@ -195,18 +184,18 @@ impl Tool for RecordingTool {
 pub(crate) async fn widget_project(
     user: &crate::account::user::User,
     home: EndpointId,
-    roles: crate::projects::model::Roles,
-    visibility: crate::projects::model::Visibility,
+    roles: beep_projects::model::Roles,
+    visibility: beep_projects::model::Visibility,
 ) -> crate::store::ProjectRow {
     let project = user
-        .ensure_project(&crate::projects::model::RepoName::parse("acme/widget").unwrap())
+        .ensure_project(&beep_projects::model::RepoName::parse("acme/widget").unwrap())
         .await
         .unwrap();
     user.add_checkout(
         project.id,
         &crate::store::CheckoutRow {
             machine: home,
-            path: crate::projects::model::MachinePath::parse("/srv/widget").unwrap(),
+            path: beep_projects::model::MachinePath::parse("/srv/widget").unwrap(),
             home: true,
         },
     )
@@ -319,15 +308,22 @@ impl FakeFleet {
 }
 
 #[async_trait]
-impl Fleet for FakeFleet {
-    async fn machines(&self) -> Result<Vec<Machine>> {
-        Ok(self.machines.clone())
-    }
-
+impl Machines for FakeFleet {
     fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>> {
         self.shells
             .get(machine)
             .map(|shell| shell.clone() as Arc<dyn Shell>)
+    }
+
+    async fn names(&self) -> Vec<MachineName> {
+        names_of(self).await
+    }
+}
+
+#[async_trait]
+impl Fleet for FakeFleet {
+    async fn machines(&self) -> Result<Vec<Machine>> {
+        Ok(self.machines.clone())
     }
 
     async fn files(&self, machine: &EndpointId, request: &Request) -> Result<Reply> {

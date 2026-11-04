@@ -2,14 +2,9 @@
 
 use super::{
     super::{
-        commands::{
-            HostCommand, LABEL_BLOCKED, LABEL_REVIEW, LABEL_RUNNING, PrState, parse_pr,
-            pr_fingerprint,
-        },
         fleet::{self, Fleet},
         gate::ProjectGate,
-        issues::run_host,
-        model::{CHECK_EVERY, IDLE_CLOSE, IssueHost, TaskState, WorkerId, WorkerState},
+        model::{CHECK_EVERY, IDLE_CLOSE, TaskState, WorkerId, WorkerState},
         policy::{Verdict, WorkerScope},
         schedule::Due,
         turn::{REPLAN_LABEL, WORKER_LABEL},
@@ -24,6 +19,13 @@ use crate::{
     store::{ProjectRow, TaskRow, WorkerRow},
 };
 use anyhow::{Context, Result};
+use beep_projects::{
+    commands::{
+        HostCommand, LABEL_BLOCKED, LABEL_REVIEW, LABEL_RUNNING, PrState, parse_pr, pr_fingerprint,
+    },
+    issues::run_host,
+    model::IssueHost,
+};
 use chrono::{DateTime, Utc};
 use std::{fmt::Write, sync::Arc};
 use uuid::Uuid;
@@ -252,7 +254,7 @@ pub(super) async fn find_pr(
         branch: &branch,
         base: &project.default_branch,
     };
-    let out = run_host(home.as_ref(), prs, project, command).await?;
+    let out = run_host(home.as_ref(), prs, &project.name, command).await?;
     parse_pr(prs, &out)
 }
 
@@ -284,7 +286,7 @@ pub(super) async fn relabel(
         add,
         remove,
     };
-    if let Err(error) = run_host(home.as_ref(), host, project, command).await {
+    if let Err(error) = run_host(home.as_ref(), host, &project.name, command).await {
         log::warn!("projects: unable to relabel an issue: {error:#}");
     }
 }

@@ -1,21 +1,22 @@
-use super::{
-    super::{commands::ViewedIssue, turn::ISSUE_LABEL},
-    track::issue_task_body,
-    *,
-};
+use super::{super::turn::ISSUE_LABEL, track::issue_task_body, *};
 use crate::projects::testing::widget_project;
 use crate::{
     account::user::User,
     projects::{
         Arc,
         lifecycle::{fill_slots, finish_task},
-        model::{RepoName, Roles, Visibility, WorkerAgent},
+        model::WorkerAgent,
+        stored::StoredProject,
         testing::FakeFleet,
         tools::{drop_task, reopen_task},
         turn::REPLAN_LABEL,
     },
-    store::{NewImport, NewTask, TestDb},
+    store::{NewTask, ProjectRow, TestDb},
 };
+use beep_projects::commands::{OpenIssue, ViewedIssue};
+use beep_projects::imports::records::NewImport;
+use beep_projects::issues::{SourceError, list_open, list_open_prs};
+use beep_projects::model::{IssueHost, RepoName, Roles, Visibility};
 use chrono::{TimeZone, Utc};
 use iroh::EndpointId;
 
@@ -127,14 +128,17 @@ async fn closed_issues_and_unknown_machines_are_refused() {
     let (project, _, shell) = github_project(&user, &mut fleet).await;
     shell.answer("issue view 3", 0, &viewed(3, "CLOSED"));
     let closed = track(&fleet, &user, &project, 3, None).await;
-    assert!(matches!(closed, Err(IssueError::Refused(_))), "{closed:?}");
+    assert!(
+        matches!(closed, Err(IssueError::Source(SourceError::Refused(_)))),
+        "{closed:?}"
+    );
     let elsewhere = IssueWork {
         agent: WorkerAgent::Claude,
         machine: Some(crate::projects::testing::machine_id(9)),
     };
     let unknown = track(&fleet, &user, &project, 3, Some(elsewhere)).await;
     assert!(
-        matches!(unknown, Err(IssueError::Refused(_))),
+        matches!(unknown, Err(IssueError::Source(SourceError::Refused(_)))),
         "{unknown:?}"
     );
     assert!(user.project_tasks(project.id).await.unwrap().is_empty());
@@ -149,13 +153,17 @@ async fn dismiss_hides_nothing() {
     let open = [open_issue(10, 1), open_issue(11, 2), open_issue(12, 3)];
     shell.answer("issue list", 0, &listed(&open));
     shell.answer("issue view 12", 0, &viewed(12, "OPEN"));
-    let all = list_open(&fleet, &user, &project).await.unwrap();
+    let all = list_open(&StoredProject::new(&user, &project), &fleet)
+        .await
+        .unwrap();
     let numbers: Vec<u64> = all.iter().map(|issue| issue.number).collect();
     assert_eq!(numbers, [12, 11, 10]);
     track(&fleet, &user, &project, 12, None).await.unwrap();
     // Older apps' Not now: the issue stays listed, as on the host.
     dismiss(&user, &project).await.unwrap();
-    let left = list_open(&fleet, &user, &project).await.unwrap();
+    let left = list_open(&StoredProject::new(&user, &project), &fleet)
+        .await
+        .unwrap();
     let numbers: Vec<u64> = left.iter().map(|issue| issue.number).collect();
     assert_eq!(numbers, [11, 10]);
     let list = shell.ran_with("issue list");
@@ -254,21 +262,25 @@ async fn open_prs_list_everyones_newest_first_and_mark_the_users() {
             "updatedAt":"2026-10-03T09:00:00Z"}]"#,
     );
     shell.answer("api user", 0, "alice-dev\n");
-    let prs = list_open_prs(&fleet, &user, &project).await.unwrap();
+    let prs = list_open_prs(&StoredProject::new(&user, &project), &fleet)
+        .await
+        .unwrap();
     let seen: Vec<(u64, bool)> = prs.iter().map(|p| (p.pr.number, p.mine)).collect();
     assert_eq!(seen, [(5, true), (3, false)]);
     assert!(prs[0].pr.draft);
 
     // An unknown account makes none the user's, and still lists them.
     shell.answer("api user", 1, "gh: not logged in");
-    let prs = list_open_prs(&fleet, &user, &project).await.unwrap();
+    let prs = list_open_prs(&StoredProject::new(&user, &project), &fleet)
+        .await
+        .unwrap();
     assert_eq!(prs.len(), 2);
     assert!(prs.iter().all(|p| !p.mine));
 
     shell.answer("pr list", 1, "HTTP 401: Bad credentials");
-    let failed = list_open_prs(&fleet, &user, &project).await;
+    let failed = list_open_prs(&StoredProject::new(&user, &project), &fleet).await;
     assert!(
-        matches!(failed, Err(IssueError::Refused(_))),
+        matches!(failed, Err(SourceError::Refused(_))),
         "{:?}",
         failed.err()
     );
@@ -320,7 +332,9 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
     );
     new.answer("whoami", 0, r#"{"login":"kim"}"#);
 
-    let issues = list_open(&fleet, &user, &project).await.unwrap();
+    let issues = list_open(&StoredProject::new(&user, &project), &fleet)
+        .await
+        .unwrap();
     assert_eq!(issues.len(), 1);
     assert_eq!(
         old.ran_with("issue list").len(),
@@ -329,7 +343,9 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
     );
     assert_eq!(new.ran_with("issue list").len(), 1);
 
-    let prs = list_open_prs(&fleet, &user, &project).await.unwrap();
+    let prs = list_open_prs(&StoredProject::new(&user, &project), &fleet)
+        .await
+        .unwrap();
     assert_eq!(prs.len(), 1);
     assert!(
         prs[0].mine,
@@ -339,8 +355,8 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
 
     // When every machine fails, the last error names the machines tried.
     new.answer("teacli", 1, "Error: not logged in");
-    match list_open(&fleet, &user, &project).await {
-        Err(IssueError::Refused(why)) => {
+    match list_open(&StoredProject::new(&user, &project), &fleet).await {
+        Err(SourceError::Refused(why)) => {
             assert!(why.contains("not logged in"), "{why}");
             assert!(
                 why.contains("build-box") && why.contains("mac-box"),

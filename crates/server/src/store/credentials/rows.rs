@@ -2,11 +2,14 @@
 
 use super::{AGENT_TOKEN, API_KEY, CredentialRow, FORGEJO, GITHUB, GitHubAccountRow};
 use crate::{
-    account::credentials::{CredentialKey, Owner, Slot},
-    account::user::UserKey,
+    account::{
+        credentials::{CredentialKey, Owner},
+        user::UserKey,
+    },
     protocol::{AgentAccount, ApiProvider, CredentialKind},
 };
 use anyhow::{Context, Result, bail};
+use beep_projects::credentials::Slot;
 use sqlx::{Row, postgres::PgRow};
 use std::str::FromStr;
 

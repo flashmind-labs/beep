@@ -7,8 +7,9 @@ use crate::{
         AgentSlug, AgentTokens, GetUsage, GetUsageReport, HarnessSpend, ModelId, ModelSpend,
         PeriodSpend, PlanLimits, PlanWindow, ProjectSpend, UsageReport, UsageView,
     },
-    store::{DayModelRow, DaySpendRow, ImportRow, ModelRow, PlanRow, SpendRow},
+    store::{DayModelRow, DaySpendRow, ModelRow, PlanRow, SpendRow},
 };
+use beep_projects::imports::records::ImportRow;
 use chrono::NaiveDate;
 use iroh::EndpointId;
 use std::{

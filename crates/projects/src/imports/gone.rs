@@ -1,0 +1,137 @@
+//! Telling a deleted project folder from an unreachable one. A folder is gone only when the machine
+//! answers in time that its path is empty while the parent exists and holds other things;
+//! an unmounted disk (empty, missing, or right under `/Volumes`, `/mnt` or `/media`) never counts.
+
+use super::records::{ImportRow, SyncRow};
+use crate::quote;
+use std::collections::BTreeSet;
+
+/// What the script prints before each line it means.
+const MARK: &str = "BEEP_GONE:";
+
+/// One folder of a project on the machine being looked through.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Place {
+    pub project: String,
+    pub folder: String,
+}
+
+/// The project folders on `endpoint`, imported or synced, each once; non-absolute paths are skipped.
+pub fn places(imports: &[ImportRow], syncs: &[SyncRow], endpoint: &str) -> Vec<Place> {
+    let imported = imports
+        .iter()
+        .filter(|row| row.endpoint == endpoint)
+        .map(|row| (&row.project, &row.folder));
+    let synced = syncs
+        .iter()
+        .filter(|row| row.endpoint == endpoint)
+        .map(|row| (&row.project, &row.folder));
+    imported
+        .chain(synced)
+        .filter(|(_, folder)| folder.starts_with('/') && !folder.contains(['\n', '\r', '\0']))
+        .map(|(project, folder)| Place {
+            project: project.clone(),
+            folder: folder.clone(),
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// The script printing `there`, `missing` or `unsure` for each of `places` by number.
+pub fn script(places: &[Place]) -> String {
+    let mut out = format!(
+        "look() {{\n\
+         \x20 if [ -e \"$1\" ] || [ -L \"$1\" ]; then printf '{MARK} there %s\\n' \"$2\"; return; fi\n\
+         \x20 up=$(dirname -- \"$1\")\n\
+         \x20 case $up in /|/Volumes|/mnt|/media|/run/media) printf '{MARK} unsure %s\\n' \"$2\"; return;; esac\n\
+         \x20 case $(dirname -- \"$up\") in /media|/run/media) printf '{MARK} unsure %s\\n' \"$2\"; return;; esac\n\
+         \x20 if [ -d \"$up\" ] && [ -n \"$(ls -A -- \"$up\" 2>/dev/null)\" ]; then\n\
+         \x20   printf '{MARK} missing %s\\n' \"$2\"\n\
+         \x20 else\n\
+         \x20   printf '{MARK} unsure %s\\n' \"$2\"\n\
+         \x20 fi\n\
+         }}\n"
+    );
+    for (n, place) in places.iter().enumerate() {
+        out.push_str(&format!("look {} {n}\n", quote(&place.folder)));
+    }
+    out
+}
+
+/// The numbers of the places found missing; nothing counts unless the script finished in time.
+pub fn missing(output: &str, finished: bool, count: usize) -> Vec<usize> {
+    if !finished {
+        return Vec::new();
+    }
+    let mut out = BTreeSet::new();
+    for line in output.lines() {
+        let Some(said) = line.trim_end_matches('\r').strip_prefix(MARK) else {
+            continue;
+        };
+        let mut words = said.split_whitespace();
+        if words.next() != Some("missing") {
+            continue;
+        }
+        if let Some(n) = words.next().and_then(|n| n.parse::<usize>().ok())
+            && n < count
+        {
+            out.insert(n);
+        }
+    }
+    out.into_iter().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, path::Path, process::Command};
+
+    fn place(folder: &Path) -> Place {
+        Place {
+            project: "acme/widget".into(),
+            folder: folder.to_string_lossy().into_owned(),
+        }
+    }
+
+    fn run(script: &str) -> String {
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .output()
+            .expect("sh runs");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn only_a_deleted_folder_beside_others_counts_as_missing() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let code = root.path().join("code");
+        fs::create_dir_all(code.join("kept")).expect("folders");
+        fs::create_dir_all(code.join("other")).expect("folders");
+        // A mount point with nothing mounted on it.
+        let mount = root.path().join("disk");
+        fs::create_dir_all(&mount).expect("folders");
+        let places = [
+            place(&code.join("kept")),
+            place(&code.join("deleted")),
+            place(&mount.join("project")),
+            place(&root.path().join("nowhere/project")),
+            place(Path::new("/mnt/project")),
+            place(Path::new("/media/user/project")),
+            place(&code.join("it's here")),
+        ];
+        fs::create_dir_all(code.join("it's here")).expect("folders");
+        let output = run(&script(&places));
+        assert_eq!(missing(&output, true, places.len()), [1], "{output}");
+        // A look that did not finish says nothing.
+        assert!(missing(&output, false, places.len()).is_empty());
+    }
+
+    #[test]
+    fn stray_or_out_of_range_lines_do_not_count() {
+        let output = "BEEP_GONE: missing 7\nmissing 0\nBEEP_GONE: missing x\n\
+                      BEEP_GONE: unsure 1\nBEEP_GONE: missing 2\r\n";
+        assert_eq!(missing(output, true, 3), [2]);
+    }
+}

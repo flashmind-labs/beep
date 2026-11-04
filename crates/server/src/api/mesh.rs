@@ -4,10 +4,12 @@ use super::Reply;
 use crate::{
     account::user::User,
     api::router::Cx,
-    projects::{imports::FolderPath, model::RepoName},
     protocol::{ApiError, MirrorImport},
-    store::{ImportRow, NewImport, NewNode},
+    store::NewNode,
 };
+use beep_projects::imports::folder::FolderPath;
+use beep_projects::imports::records::{ImportRow, NewImport};
+use beep_projects::model::RepoName;
 use iroh::EndpointId;
 use std::str::FromStr;
 

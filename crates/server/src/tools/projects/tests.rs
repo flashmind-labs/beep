@@ -3,8 +3,9 @@ use crate::{
     memory::watchers::testing::{Harness, Scripted},
     projects::testing::machine_id,
     protocol::{AgentStatus, GitItem, GitItemKind, GitReview, MachineSession},
-    store::{NewImport, NewNode, NewTask},
+    store::{NewNode, NewTask},
 };
+use beep_projects::imports::records::NewImport;
 use flashmind::core::CancellationToken;
 use std::time::{Duration, UNIX_EPOCH};
 

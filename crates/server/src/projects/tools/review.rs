@@ -2,13 +2,11 @@
 //! Both always ask, and the card shows exactly what goes out.
 
 use super::{Planned, ProjectTools, card, field, gated, leaked, on_home};
+use crate::projects::stored::StoredProject;
 use crate::{
     app::App,
     projects::{
-        commands::{ChecksState, HostCommand, InlineComment, Shell, parse_pr},
         gate::Asks,
-        issues::issue_host,
-        model::IssueHost,
         review::{
             drive::online,
             git::{head_script, parse_head},
@@ -20,6 +18,12 @@ use crate::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use beep_projects::issues::issue_host;
+use beep_projects::{
+    Shell,
+    commands::{ChecksState, HostCommand, InlineComment, parse_pr},
+    model::IssueHost,
+};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -176,7 +180,7 @@ impl ReviewTool {
         };
         let host = match &project.roles.prs {
             Some(host) => host.clone(),
-            None => match issue_host(&tools.user, &project).await? {
+            None => match issue_host(&StoredProject::new(&tools.user, &project)).await? {
                 Some(host) => host,
                 None => {
                     return Ok(Planned::Refused(
@@ -289,7 +293,7 @@ impl ReviewTool {
                 HEAD_LIMIT,
             )
             .await?;
-        if out.code != Some(0) || parse_head(&out.out, &review.head).stale {
+        if out.exit_code != Some(0) || parse_head(&out.output, &review.head).stale {
             return Ok(Planned::Refused(format!(
                 "{} moved since the review of {} (or could not be read): review it again first.",
                 review.branch,

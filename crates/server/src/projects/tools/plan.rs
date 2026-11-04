@@ -2,7 +2,6 @@
 
 use super::{
     super::{
-        commands::HostCommand,
         fleet::{self, Machine},
         issues,
         model::{StartRequest, WorkerAgent},
@@ -16,6 +15,7 @@ use crate::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use beep_projects::commands::HostCommand;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};

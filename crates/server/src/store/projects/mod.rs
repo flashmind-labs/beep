@@ -19,11 +19,10 @@ use super::{
 };
 use crate::{
     account::user::UserKey,
-    projects::model::{
-        IssueHost, MachinePath, ProjectId, RepoName, Roles, Visibility, WorkerState,
-    },
+    projects::model::{ProjectId, WorkerState},
 };
 use anyhow::{Result, bail};
+use beep_projects::model::{IssueHost, MachinePath, RepoName, Roles, Visibility};
 use iroh::EndpointId;
 use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;

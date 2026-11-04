@@ -2,11 +2,10 @@
 
 use super::{
     super::{
-        commands::{ChecksState, HostCommand, parse_pr},
         fleet::{self, Fleet},
         gate::{Asks, Gate},
-        issues::{self, run_host},
-        model::{IssueHost, TaskId, TaskState, pr_number},
+        issues,
+        model::{TaskId, TaskState},
     },
     COMMENT_SLUG, DROP_SLUG, MERGE_SLUG, Planned, ProjectTools, REOPEN_SLUG, TASKS, UPDATE_SLUG,
     card, field, leaked,
@@ -17,6 +16,11 @@ use crate::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use beep_projects::{
+    commands::{ChecksState, HostCommand, parse_pr},
+    issues::run_host,
+    model::{IssueHost, pr_number},
+};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -490,7 +494,7 @@ pub(super) async fn on_home(
         Ok(home) => home,
         Err(why) => return Ok(Err(why)),
     };
-    Ok(run_host(home.as_ref(), host, project, command)
+    Ok(run_host(home.as_ref(), host, &project.name, command)
         .await
         .map_err(|error| format!("{error:#}.")))
 }

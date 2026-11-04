@@ -1,17 +1,9 @@
 //! Starting a task's worker in its own worktree, and stopping it.
 
 use super::{
-    commands::{
-        HostCommand, LABEL_BLOCKED, LABEL_RUNNING, Shell, exclude_project_dirs, head_commit,
-        worktree_add,
-    },
     fleet::{self, Fleet, Machine, NodeFleet},
-    issues::{HOST_LIMIT, run_host},
     lifecycle,
-    model::{
-        InputFile, IssueHost, IssueRef, MachinePath, RepoName, StartRequest, TaskSlug, TaskState,
-        WorkerAgent, WorkerState,
-    },
+    model::{InputFile, StartRequest, TaskState, WorkerAgent, WorkerState},
     place::{MachineFit, PlaceError, PlaceRequest, place},
     service::{Job, JobKind},
     turn::read_personas,
@@ -32,6 +24,15 @@ use crate::{
     },
 };
 use anyhow::{Context, Result, anyhow};
+use beep_projects::issues::Machines as _;
+use beep_projects::{
+    Shell,
+    commands::{
+        HostCommand, LABEL_BLOCKED, LABEL_RUNNING, exclude_project_dirs, head_commit, worktree_add,
+    },
+    issues::{HOST_LIMIT, run_host},
+    model::{IssueHost, IssueRef, MachinePath, RepoName, TaskSlug},
+};
 use iroh::EndpointId;
 use std::{fmt::Write, str::FromStr, sync::Arc, time::Duration};
 use strum::VariantNames;
@@ -230,11 +231,11 @@ async fn find_persona(
     // The commit only notes which version ran; a start goes on without it.
     let commit = match fleet.shell(&home.machine) {
         Some(shell) => match shell.run(&head_commit(&home.path), HOST_LIMIT).await {
-            Ok(out) if out.code == Some(0) => Some(out.out.trim().to_owned()),
+            Ok(out) if out.exit_code == Some(0) => Some(out.output.trim().to_owned()),
             Ok(out) => {
                 log::warn!(
                     "projects: unable to read the persona commit: {}",
-                    tail(&out.out)
+                    tail(&out.output)
                 );
                 None
             }
@@ -453,7 +454,7 @@ async fn relabel_running(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow,
         add: Some(LABEL_RUNNING),
         remove: &[LABEL_BLOCKED],
     };
-    if let Err(error) = run_host(home.as_ref(), host, project, command).await {
+    if let Err(error) = run_host(home.as_ref(), host, &project.name, command).await {
         log::warn!("projects: unable to label the issue running: {error:#}");
     }
 }
@@ -533,13 +534,16 @@ async fn run_checked(online: &Online, command: &str) -> Result<(), String> {
         .run(command, NODE_LIMIT)
         .await
         .map_err(|error| format!("{error:#}"))?;
-    match out.code {
+    match out.exit_code {
         Some(0) => Ok(()),
-        Some(code) => Err(format!("A command exited with {code}: {}", tail(&out.out))),
+        Some(code) => Err(format!(
+            "A command exited with {code}: {}",
+            tail(&out.output)
+        )),
         None => Err(format!(
             "A command did not finish in {}s: {}",
             NODE_LIMIT.as_secs(),
-            tail(&out.out)
+            tail(&out.output)
         )),
     }
 }

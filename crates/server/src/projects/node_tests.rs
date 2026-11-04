@@ -1,10 +1,7 @@
 //! Workers on real `beep-node`s over iroh, in a real git checkout, with a scripted agent.
 
 use super::{
-    model::{
-        InputFile, IssueHost, MachinePath, RepoName, Roles, StartRequest, TaskState, Visibility,
-        WorkerState,
-    },
+    model::{InputFile, StartRequest, TaskState, WorkerState},
     turn::{REPLAN_LABEL, WORKER_LABEL},
     worker::{Started, start_task, stop_worker},
 };
@@ -31,6 +28,7 @@ use beep_node::{
     files::Folders,
     link::{Offers, Protocol, Session as LinkSession},
 };
+use beep_projects::model::{IssueHost, MachinePath, RepoName, Roles, Visibility};
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, ContentPart, LlmProvider, Model,
     ModelCapabilities, Provider,
@@ -1030,9 +1028,15 @@ async fn add_branch_worktree_runs_on_chosen_node() {
     git(&render.widget, &["checkout", "main"]);
     git(&render.widget, &["branch", "-D", "beep/spike"]);
     let folder = render.widget.to_string_lossy().into_owned();
-    let added = super::branches::add_worktree(&render.online, &folder, "beep/spike", "main")
-        .await
-        .expect("the worktree is added");
+    let added = beep_projects::branches::add_worktree(
+        &render.online,
+        "render",
+        &folder,
+        "beep/spike",
+        "main",
+    )
+    .await
+    .expect("the worktree is added");
     let worktree = render.widget.join(".worktrees/beep-spike");
     assert_eq!(added.name, "beep/spike");
     assert_eq!(
@@ -1045,7 +1049,14 @@ async fn add_branch_worktree_runs_on_chosen_node() {
         "beep/spike"
     );
     assert!(!build.widget.join(".worktrees").exists());
-    let again = super::branches::add_worktree(&render.online, &folder, "beep/spike", "main").await;
+    let again = beep_projects::branches::add_worktree(
+        &render.online,
+        "render",
+        &folder,
+        "beep/spike",
+        "main",
+    )
+    .await;
     assert_eq!(
         again.expect_err("a second worktree is refused"),
         "beep/spike already has a worktree there."
