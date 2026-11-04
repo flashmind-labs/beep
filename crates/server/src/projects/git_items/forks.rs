@@ -19,7 +19,7 @@ pub(crate) enum Api {
 
 impl Api {
     /// The query that reads one page of a list.
-    fn page(self) -> String {
+    pub(super) fn page(self) -> String {
         match self {
             Api::GitHub => format!("per_page={PAGE}"),
             Api::Forgejo => format!("limit={PAGE}"),
@@ -48,8 +48,8 @@ pub(crate) struct Fork {
 }
 
 #[derive(Debug, Deserialize)]
-struct Account {
-    login: String,
+pub(super) struct Account {
+    pub(super) login: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,7 +160,7 @@ async fn fork_of(
 }
 
 /// Every item of the list at `first`, following `Link` up to `MAX_PAGES` and only on the same host.
-async fn all_pages<T: DeserializeOwned>(
+pub(super) async fn all_pages<T: DeserializeOwned>(
     caller: &Caller<'_>,
     first: String,
     found: impl Fn(&[T]) -> bool,

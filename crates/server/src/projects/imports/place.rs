@@ -14,6 +14,11 @@ pub(crate) struct Folders<'a> {
 
 /// `<workspace or home>/projects/<org>/<repo>` on Linux, else `~/Projects/<org>/<repo>`; `None` without a home.
 pub(crate) fn checkout_folder(folders: Folders<'_>, repo: &RepoRef) -> Option<String> {
+    project_folder(folders, &[repo.org(), repo.name()])
+}
+
+/// `parts` under the machine's projects folder; `None` without a home.
+pub(super) fn project_folder(folders: Folders<'_>, parts: &[&str]) -> Option<String> {
     let linux = match folders.os {
         Some(os) => os == "linux",
         // Only a Linux node runs with a workspace.
@@ -29,12 +34,9 @@ pub(crate) fn checkout_folder(folders: Folders<'_>, repo: &RepoRef) -> Option<St
     } else {
         '/'
     };
-    let base = base.trim_end_matches(sep);
-    Some(
-        [base, projects, repo.org(), repo.name()]
-            .join(&sep.to_string())
-            .to_string(),
-    )
+    let mut all = vec![base.trim_end_matches(sep), projects];
+    all.extend_from_slice(parts);
+    Some(all.join(&sep.to_string()))
 }
 
 /// What the chooser knows of one of the user's machines.

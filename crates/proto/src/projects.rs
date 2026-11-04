@@ -472,3 +472,48 @@ ffi_enum! {
         4 Failed {}
     }
 }
+
+wire_structs! {
+    /// A git host `CreateProject` can make a repository on, as
+    /// `ListProjectForges` lists it.
+    pub struct ProjectForge {
+        /// `github.com`, or a Forgejo or Gitea server's host; what
+        /// `NewRepository::host` takes.
+        pub host: String,
+        pub kind: GitHostKind,
+        /// What `NewRepository::owner` takes: each account, then the
+        /// organizations it can create in.
+        pub owners: Vec<String>,
+        /// Why `owners` is empty, for the user; `None` when the host answered.
+        pub error: Option<String>,
+    }
+
+    /// The repository `CreateProject` makes on a git host.
+    pub struct NewRepository {
+        /// `ProjectForge::host`.
+        pub host: String,
+        /// One of `ProjectForge::owners`.
+        pub owner: String,
+        pub private: bool,
+    }
+
+    /// What `CreateProject` did.
+    pub struct CreatedProject {
+        /// `org/repo`, or `local/<name>` for a project with no git host.
+        pub project: String,
+        /// The repository's web page; empty for a project with no git host.
+        pub url: String,
+        /// Where it landed.
+        pub imported: Vec<ImportedProject>,
+        /// What went wrong on a machine; the repository stays.
+        pub failed: Vec<CheckoutFailure>,
+    }
+
+    /// A machine `CreateProject` could not finish on.
+    pub struct CheckoutFailure {
+        pub machine_id: String,
+        pub machine_name: String,
+        /// Why, for the user.
+        pub why: String,
+    }
+}

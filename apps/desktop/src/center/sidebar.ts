@@ -10,6 +10,7 @@ import type { MachineCard } from "./home-state.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound } from "../addproject/addproject.ts";
+import { openNewProject } from "../addproject/newproject.ts";
 import { mergeProjects, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type Placed, type Project } from "../project/projects-state.ts";
 import { button, el as h, type Kid } from "../ui/dom.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
@@ -453,13 +454,19 @@ export function importSheet(choose = false, repo: string | null = null, machine:
   });
 }
 
-/// Opens the Add a project sheet: found folders, a folder, or a clone.
+/// Opens the Add a project sheet: found folders, a folder, a clone, or a new project.
 export function addProject() {
   openAddProject({
     machines: state.home?.machines || [],
     onImported: landed,
     onChoose: () => importSheet(true),
     onClone: repo => importSheet(false, repo ?? null),
+    onNew: () => openNewProject({
+      machines: state.home?.machines || [],
+      onDone: landed,
+      onBack: addProject,
+      onClone: repo => importSheet(false, repo),
+    }),
   });
 }
 

@@ -21,7 +21,7 @@ use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
 
 /// The server stops a clone after 30 minutes; this leaves it time to say so.
-const IMPORT_TIMEOUT: Duration = Duration::from_secs(31 * 60);
+pub(super) const IMPORT_TIMEOUT: Duration = Duration::from_secs(31 * 60);
 
 /// A branch the import sheet gives a worktree, on `machine_id` or, without
 /// one, the machine the project lands on.

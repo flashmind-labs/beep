@@ -1,8 +1,8 @@
 //! The user's fork of an imported repository, so the import clones the fork with their PR branches.
 
-use super::repo::{Host, RepoRef};
+use super::repo::RepoRef;
 use crate::{
-    account::credentials::{Opened, host_client},
+    account::credentials::{Opened, Slot, host_client},
     app::App,
     projects::git_items::{
         Caller,
@@ -22,27 +22,26 @@ pub(crate) struct UsedFork {
     pub(crate) found: Fork,
 }
 
-/// Where to ask about forks of a repository, and with which token.
-struct Target<'a> {
-    opened: &'a Opened,
-    api: Api,
+/// Where to reach a repository's host, and with which token.
+pub(super) struct Target<'a> {
+    pub(super) opened: &'a Opened,
+    pub(super) api: Api,
     /// The API's base URL.
-    base: String,
+    pub(super) base: String,
     /// The token's account, when the saved credential says.
-    login: Option<&'a str>,
+    pub(super) login: Option<&'a str>,
 }
 
-/// The API and token for `repo`'s host; `None` without a token or for an unreachable local Forgejo.
-async fn target<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<Target<'a>> {
-    let opened = repo.credential(credentials)?;
-    Some(match &repo.host {
-        Host::GitHub => Target {
+/// The API `opened` is a token for; `None` for an unreachable local Forgejo or another kind of token.
+pub(super) async fn target_of(opened: &Opened) -> Option<Target<'_>> {
+    Some(match &opened.slot {
+        Slot::GitHub => Target {
             opened,
             api: Api::GitHub,
             base: GITHUB_API.to_owned(),
             login: opened.github.as_ref().map(|github| github.login.as_str()),
         },
-        Host::Forgejo(url) => {
+        Slot::Forgejo(url) => {
             if !url.is_public().await {
                 return None;
             }
@@ -53,6 +52,7 @@ async fn target<'a>(credentials: &'a [Opened], repo: &RepoRef) -> Option<Target<
                 login: None,
             }
         }
+        _ => return None,
     })
 }
 
@@ -63,7 +63,7 @@ pub(crate) async fn find(app: &App, credentials: &[Opened], repo: &RepoRef) -> O
         api,
         base,
         login,
-    } = target(credentials, repo).await?;
+    } = target_of(repo.credential(credentials)?).await?;
     let upstream = RepoName::parse(&repo.project()).ok()?;
     let client = match host_client() {
         Ok(client) => client,

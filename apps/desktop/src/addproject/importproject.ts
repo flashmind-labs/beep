@@ -533,7 +533,7 @@ function browser(listing: MachineFolder) {
 }
 
 /// Loads the field's styles once; the Add a machine sheet's come first.
-function injectStyle() {
+export function injectStyle() {
   if (document.querySelector("style[data-ip]")) return;
   const style = document.createElement("style");
   style.dataset.ip = "";

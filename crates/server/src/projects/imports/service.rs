@@ -419,7 +419,7 @@ pub(crate) async fn imported(user: &User) -> anyhow::Result<Vec<ImportedProject>
         .collect())
 }
 
-fn project(row: ImportRow, machine_name: String, cloned: bool) -> ImportedProject {
+pub(super) fn project(row: ImportRow, machine_name: String, cloned: bool) -> ImportedProject {
     ImportedProject {
         project: row.project,
         url: row.url,

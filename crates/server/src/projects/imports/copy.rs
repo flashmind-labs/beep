@@ -39,6 +39,9 @@ pub(crate) async fn copy_project(
     let Some(first) = rows.first() else {
         return Err(ImportError::NotImported(project.to_owned()));
     };
+    if first.url.is_empty() {
+        return Err(ImportError::LocalOnly(first.project.clone()));
+    }
     let Chosen { row, node } = choose_machine(app, user, Some(machine_id)).await?;
     let record = async |folder: &str| {
         user.link_import(NewImport {
