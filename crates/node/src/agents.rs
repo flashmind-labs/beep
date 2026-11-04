@@ -424,9 +424,13 @@ impl Agents {
         *on_disk = Some(Arc::new(found));
     }
 
-    /// The checkouts under home `warm` read; requests during it wait.
+    /// The checkouts under home `warm` read. None while the first walk
+    /// runs, which can take minutes: requests do not wait for it.
     async fn disk_checkouts(&self) -> Arc<Vec<found::Checkout>> {
-        self.on_disk.lock().await.clone().unwrap_or_default()
+        match self.on_disk.try_lock() {
+            Ok(on_disk) => on_disk.clone().unwrap_or_default(),
+            Err(_) => Arc::default(),
+        }
     }
 
     /// The folders sessions started outside Beep worked in, read from the
