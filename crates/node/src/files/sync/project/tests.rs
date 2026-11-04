@@ -1,5 +1,5 @@
 use super::{
-    fetch::{copy_out, copy_store, fetch_within},
+    fetch::{copy_out, copy_store, fetch_within, peers_to_ask},
     list::{Merged, merge_peer, move_target, plan, record},
     scanning::has_baseline,
     shared::{Shared, Start},
@@ -21,10 +21,11 @@ use anyhow::Result;
 use beep_proto::node::sync::{Keep, State as SyncState};
 use futures::StreamExt as _;
 use iroh::endpoint::Connection;
-use iroh::{Endpoint, endpoint::presets};
+use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::{Hash, HashAndFormat};
 use std::{
+    collections::HashMap,
     fs,
     io::{SeekFrom, Write as _},
     path::PathBuf,
@@ -151,6 +152,32 @@ impl iroh::protocol::ProtocolHandler for Silent {
         connection.closed().await;
         Ok(())
     }
+}
+
+#[test]
+fn a_peer_that_is_off_does_not_hold_up_every_file() {
+    let addr = |seed: u8| {
+        let id = SecretKey::from_bytes(&[seed; 32]).public();
+        EndpointAddr::new(id)
+    };
+    let (off, on) = (addr(1), addr(2));
+    let peers = [off.clone(), on.clone()];
+    let ids = |ask: Vec<EndpointAddr>| ask.iter().map(|peer| peer.id).collect::<Vec<_>>();
+    let now = Instant::now() + Duration::from_secs(3600);
+
+    let nobody_down = HashMap::new();
+    assert_eq!(
+        ids(peers_to_ask(&peers, &nobody_down, now)),
+        [off.id, on.id]
+    );
+
+    // Just failed: not dialled again while another file waits.
+    let down = HashMap::from([(off.id, now)]);
+    assert_eq!(ids(peers_to_ask(&peers, &down, now)), [on.id]);
+
+    // Worth another try, once the peers that answer had their turn.
+    let later = now + Duration::from_secs(30);
+    assert_eq!(ids(peers_to_ask(&peers, &down, later)), [on.id, off.id]);
 }
 
 /// What the store's collector keeps, apart from named tags.

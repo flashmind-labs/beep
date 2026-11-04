@@ -1,23 +1,23 @@
 //! Fetching blobs from peers, and copying them out of the store.
 
-use super::task::Task;
+use super::task::{RETRY, Task};
 use crate::files::sync::{map::FileMeta, scan::MAX_BYTES};
 use crate::files::transfer::place::{Reserved, space_at};
 use anyhow::{Context, Result, anyhow, bail};
 use bao_tree::io::BaoContentItem;
 use futures::StreamExt as _;
-use iroh::{EndpointAddr, endpoint::Connection};
+use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
 use iroh_blobs::{
     Hash, HashAndFormat,
     api::{Store, TempTag, remote::GetProgressItem},
     get::request::{GetBlobItem, get_blob},
 };
-use std::{io::SeekFrom, time::Duration};
+use std::{collections::HashMap, io::SeekFrom, time::Duration};
 use tokio::{
     fs::File as AsyncFile,
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     task::spawn_blocking,
-    time::timeout,
+    time::{Instant, timeout},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -31,6 +31,26 @@ const STALL: Duration = Duration::from_secs(30);
 /// What every disk keeps free beyond a fetch.
 const SPACE_MARGIN: u64 = 64 << 20;
 const CHUNK: usize = 1 << 20;
+
+/// The peers to ask for a file, in order. A peer that could not be dialled
+/// comes last, and not at all within `RETRY` of that: each dial of a machine
+/// that is off takes `CONNECT_TIMEOUT`, which every file would otherwise wait.
+pub(super) fn peers_to_ask(
+    peers: &[EndpointAddr],
+    down: &HashMap<EndpointId, Instant>,
+    now: Instant,
+) -> Vec<EndpointAddr> {
+    let mut ask: Vec<EndpointAddr> = peers
+        .iter()
+        .filter(|peer| {
+            down.get(&peer.id)
+                .is_none_or(|at| now.saturating_duration_since(*at) >= RETRY)
+        })
+        .cloned()
+        .collect();
+    ask.sort_by_key(|peer| down.contains_key(&peer.id));
+    ask
+}
 
 /// A fetched blob, kept and with its disk space held until written.
 pub(super) struct Fetched {
@@ -61,7 +81,7 @@ impl Task {
             Some(tag) => tag,
             None => self.parts.store.tags().temp_tag(content).await?,
         };
-        let peers = self.shared.peers.borrow().clone();
+        let peers = peers_to_ask(&self.shared.peers.borrow(), &self.down, Instant::now());
         let mut last = None;
         for peer in peers {
             let connection = match self.blobs_to(&peer).await {
@@ -100,7 +120,7 @@ impl Task {
         self.unfinished.insert(content.hash, tag);
         Err(match last {
             Some(e) => e.context(format!("no machine that syncs it could send {path} now")),
-            None => anyhow!("no other machine syncs {path}"),
+            None => anyhow!("no other machine that syncs {path} can be reached now"),
         })
     }
 
@@ -134,12 +154,21 @@ impl Task {
         {
             return Ok(connection.clone());
         }
-        let connection = timeout(
+        let dialled = timeout(
             CONNECT_TIMEOUT,
             self.parts.endpoint.connect(peer.clone(), iroh_blobs::ALPN),
         )
         .await
-        .map_err(|_| anyhow!("could not reach {} in time", peer.id))??;
+        .map_err(|_| anyhow!("could not reach {} in time", peer.id))
+        .and_then(|connected| connected.map_err(anyhow::Error::from));
+        let connection = match dialled {
+            Ok(connection) => connection,
+            Err(e) => {
+                self.down.insert(peer.id, Instant::now());
+                return Err(e);
+            }
+        };
+        self.down.remove(&peer.id);
         self.blobs.insert(peer.id, connection.clone());
         Ok(connection)
     }
