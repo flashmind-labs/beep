@@ -2,7 +2,10 @@
 //! and what the rules leave out. Hashing happens in the store, by
 //! reference (`TryReference`), so a big file is read but not copied.
 
-use super::rules::{GitIgnored, Rules, Skip};
+use super::{
+    gitdir,
+    rules::{Rules, Skip},
+};
 use crate::{
     files::fsat,
     files::transfer::offer::{Identity, check_same},
@@ -78,8 +81,6 @@ pub(super) struct Walked {
     pub(super) skipped: Vec<SkippedPath>,
     /// More was left out than `skipped` holds.
     pub(super) skipped_more: bool,
-    /// Files of a git repository that git carries.
-    pub(super) through_git: u64,
 }
 
 impl Walked {
@@ -106,11 +107,6 @@ impl Walked {
 
 /// Walks `root` under `rules`, listing at most `skipped` left-out paths.
 pub(super) fn walk(root: &Path, rules: &Rules, skipped: usize) -> Result<Walked> {
-    let git = if rules.is_git() {
-        Some(GitIgnored::read(root)?)
-    } else {
-        None
-    };
     let mut walked = Walked {
         dirs: vec![root.to_owned()],
         ..Walked::default()
@@ -144,13 +140,19 @@ pub(super) fn walk(root: &Path, rules: &Rules, skipped: usize) -> Result<Walked>
                 None => {}
             }
             if is_dir {
-                walked.dirs.push(item.path());
+                // A linked worktree or a submodule: its `.git` file names
+                // this machine's paths, so it stays here whole.
+                if path != gitdir::GIT && item.path().join(gitdir::GIT).is_file() {
+                    walked.skip(skipped, path, true, Rule::Git, None);
+                    continue;
+                }
+                if !gitdir::is_quiet(&path) {
+                    walked.dirs.push(item.path());
+                }
                 stack.push((item.path(), format!("{path}/")));
             } else if kind.is_file() {
-                if let Some(git) = &git
-                    && !git.contains(&path)
-                {
-                    walked.through_git += 1;
+                // Refs are asked of git, packed or not.
+                if gitdir::is_ref(&path) {
                     continue;
                 }
                 let meta = match item.metadata() {
