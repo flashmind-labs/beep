@@ -1,4 +1,4 @@
-//! Newer `gh` and `teacli` on the account's machines, and installing them.
+//! Newer `gh`, `teacli` and `flsh` on the account's machines, and installing them.
 
 use crate::{beep::Beep, error::Result, projects::unknown_op};
 use beep_proto::{ListToolUpdates, ToolUpdate, UpdateMachineTool};
