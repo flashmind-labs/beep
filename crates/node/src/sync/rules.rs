@@ -185,7 +185,7 @@ pub(super) enum Skip {
         /// The marker file of a default.
         marker: Option<String>,
     },
-    /// Sync's own partial files, never listed.
+    /// Sync's own partial files and Syncthing's folders, never listed.
     Own,
 }
 
