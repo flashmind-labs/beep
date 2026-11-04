@@ -9,7 +9,9 @@ pub(crate) mod note;
 pub mod reconnect;
 pub(crate) mod restart;
 pub mod state;
+mod traffic;
 
 pub use connection::{
     Claimed, Linked, Offers, Protocol, Session, claim, connect, open, print_offer, serve, stay,
 };
+pub use traffic::Traffic;

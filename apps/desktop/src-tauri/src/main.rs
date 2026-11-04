@@ -254,6 +254,7 @@ fn main() {
             machines::add::set_machine_search,
             machines::add::ssh_hosts,
             machines::list::list_machines,
+            machines::list::machine_traffic,
             machines::list::remove_machine,
             machines::list::updatable_machines,
             machines::list::update_machine,
