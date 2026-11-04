@@ -11,7 +11,7 @@ import { atBottom } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "../chat/turnrows.ts";
 import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, agentAvatar, folderName, where, stateTag } from "./agents.ts";
-import { agentAttachError, agentAttach, drawAgentAttached } from "./images.ts";
+import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
@@ -281,16 +281,28 @@ function agentClick(e: MouseEvent) {
   const linked = link?.dataset.img != null ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic")[Number(link.dataset.img)] : null;
   if (link && !linked?.getAttribute("src")) { if (link.dataset.path) openPath(link.dataset.path); return; }
   // The agent's pictures open in the media pane, the user's own full size.
-  // One still loading opens once it is here.
+  // One still loading opens once it is here. The tile may be a thumbnail, so
+  // what opens is read whole.
   const pic = linked ?? target.closest<HTMLImageElement>("#agbody img.pic");
   if (pic) {
-    if (!pic.getAttribute("src")) return;
+    const o = AG.open;
+    if (!o || !pic.getAttribute("src")) return;
     const name = (link ? link.textContent : null) || pic.dataset.name || pic.alt;
-    if (!pic.closest(".dcoderen.user")) return openPicture(pic.src, name);
+    const unread = () => { AG.note = "Could not read the whole picture."; drawAgentBody(); };
+    if (!pic.closest(".dcoderen.user")) {
+      fullPic(o, pic).then(url => { if (isOpen(o)) url ? openPicture(url, name) : unread(); });
+      return;
+    }
     const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic[src]")];
-    // Each opens by its data URL, which can be saved or copied.
-    const shown = all.map(i => ({ url: i.src, name: i.dataset.name || i.alt, caption: "", saves: i.src.startsWith("data:") }));
-    return openViewer(shown, all.indexOf(pic));
+    Promise.all(all.map(i => fullPic(o, i))).then(urls => {
+      if (!isOpen(o)) return;
+      // Each opens by its data URL, which can be saved or copied.
+      const read = all.flatMap((i, at) => { const url = urls[at]; return url ? [{ img: i, url }] : []; });
+      const at = read.findIndex(r => r.img === pic);
+      if (at < 0) return unread();
+      openViewer(read.map(({ img: i, url }) => ({ url, name: i.dataset.name || i.alt, caption: "", saves: url.startsWith("data:") })), at);
+    });
+    return;
   }
   // An Artifact call opens what it published in the Artifacts tab.
   const art = target.closest<HTMLElement>("#agbody [data-artifact]");

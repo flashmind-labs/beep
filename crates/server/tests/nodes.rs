@@ -29,8 +29,8 @@ use beep_server::{
         AgentSessionModes, AgentSessionUsage, AgentSteer, AgentTokens, AnswerApproval, ApiError,
         Approval, ApprovalDecision, CreateNodeToken, CustomAgent, CustomAgentHarness,
         CustomAgentScope, DeviceKind, DiffFile, DiffStatus, GetAgentFile, GetAgentImage,
-        GetAgentSession, GetAgentSessionModes, GetAgentSessionUsage, GetMachineLog, GetNodeToken,
-        GetSession, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
+        GetAgentSession, GetAgentSessionModes, GetAgentSessionUsage, GetAgentThumb, GetMachineLog,
+        GetNodeToken, GetSession, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
         HarnessSettings, HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels,
         ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines,
         ListMemoryScopes, ListProjects, ListSshHosts, ListWorkFolder, ListWorkTree,
@@ -2588,7 +2588,18 @@ async fn agent_images_pass_through_from_the_node() {
         matches!(error.downcast::<ApiError>().unwrap(), ApiError::NotFound {})
     };
     // Once read, the server keeps a copy, which any session shows by key.
-    let elsewhere = client.call(&get("000000", &key)).await.unwrap();
+    // Polls: the reply does not wait for the copy, and keeping it has no
+    // signal to wait on.
+    let elsewhere = timeout(Duration::from_secs(20), async {
+        loop {
+            if let Ok(got) = client.call(&get("000000", &key)).await {
+                return got;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the picture was kept");
     assert_eq!(elsewhere.data, png);
     let unknown = client.call(&get("a3f9c1", &image_key(b"other"))).await;
     assert!(not_found(unknown.unwrap_err()));
@@ -2887,6 +2898,63 @@ async fn a_projects_custom_agents_are_read_through_its_node() {
     let error = client.call(&elsewhere).await.unwrap_err();
     let error = error.downcast::<ApiError>().unwrap();
     assert!(matches!(error, ApiError::NotFound {}), "{error:?}");
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_thumb_is_small_and_the_full_picture_is_what_is_kept() {
+    let mut center = CommandCenter::new(1).await;
+    // Noise, which a JPEG of it is smaller than.
+    let pixels = image::RgbImage::from_fn(1600, 900, |x, y| {
+        let [r, g, b, _] = (x ^ (y << 12)).wrapping_mul(2_654_435_761).to_be_bytes();
+        image::Rgb([r, g, b])
+    });
+    let mut png = std::io::Cursor::new(Vec::new());
+    pixels.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let png = png.into_inner();
+    let build = center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                sessions: vec![beep_session("a3f9c1", None)],
+                images: vec![("a3f9c1".into(), png.clone())],
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+    let key = image_key(&png);
+    let thumb = client
+        .call(&GetAgentThumb {
+            machine_id: build.clone(),
+            session: "a3f9c1".into(),
+            key: key.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(thumb.key, key);
+    assert_eq!(thumb.mime, "image/jpeg");
+    assert!(thumb.data.len() < png.len());
+    let full = GetAgentImage {
+        machine_id: build,
+        session: "000000".into(),
+        key,
+    };
+    // Polls: the reply does not wait for the copy, and keeping it has no
+    // signal to wait on. Only the kept copy answers for another session.
+    let kept = timeout(Duration::from_secs(20), async {
+        loop {
+            if let Ok(got) = client.call(&full).await {
+                return got;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the picture was kept");
+    assert_eq!(kept.mime, "image/png");
+    assert_eq!(kept.data, png);
     center.shutdown().await;
 }
 
