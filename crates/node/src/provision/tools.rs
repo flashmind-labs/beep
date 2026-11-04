@@ -1,8 +1,10 @@
-//! `gh` and `teacli` for machines that lack them: a pinned release for the
-//! machine's OS and architecture, checked against its pinned SHA-256 and
-//! put in the node's own `bin` folder.
+//! `gh` and `teacli` in the node's own `bin` folder: a pinned release for
+//! machines that lack them, checked against its pinned SHA-256, and a newer
+//! release when the server asks, checked against the release's published
+//! checksums.
 
 use anyhow::{Context, Result, bail, ensure};
+use beep_proto::node::tool_update::Tool;
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,
@@ -124,6 +126,92 @@ impl Pinned {
                 env::consts::ARCH
             )
         })?;
+        let download = Download {
+            name: self.name,
+            url: asset.url.to_owned(),
+            sha256: Sha256Of::Pinned(asset.sha256),
+            member: asset.member.map(str::to_owned),
+        };
+        download.install(bin).await
+    }
+}
+
+/// Installs release `version` of `tool` as `bin/<name>`, checked against
+/// the checksums the release publishes.
+pub(super) async fn install_release(tool: Tool, version: &str, bin: &Path) -> Result<PathBuf> {
+    ensure!(
+        !version.is_empty()
+            && version
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-')),
+        "{version} is not a version"
+    );
+    release(tool, version, env::consts::OS, env::consts::ARCH)?
+        .install(bin)
+        .await
+}
+
+/// Where release `version` of `tool` for `os` and `arch` is.
+fn release(tool: Tool, version: &str, os: &str, arch: &str) -> Result<Download> {
+    let base = format!(
+        "https://github.com/{}/releases/download/v{version}",
+        tool.repo()
+    );
+    let arch = match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => bail!("no {tool} release for {other}"),
+    };
+    Ok(match tool {
+        Tool::Gh => {
+            let (os, ext) = match os {
+                "linux" => ("linux", "tar.gz"),
+                "macos" => ("macOS", "zip"),
+                other => bail!("no gh release for {other}"),
+            };
+            let stem = format!("gh_{version}_{os}_{arch}");
+            Download {
+                name: "gh",
+                url: format!("{base}/{stem}.{ext}"),
+                sha256: Sha256Of::Listed(format!("{base}/gh_{version}_checksums.txt")),
+                member: Some(format!("{stem}/bin/gh")),
+            }
+        }
+        Tool::Teacli => {
+            let os = match os {
+                "linux" => "linux",
+                "macos" => "darwin",
+                other => bail!("no teacli release for {other}"),
+            };
+            Download {
+                name: "teacli",
+                url: format!("{base}/teacli-{os}-{arch}"),
+                sha256: Sha256Of::Listed(format!("{base}/checksums.txt")),
+                member: None,
+            }
+        }
+    })
+}
+
+/// One release file of a tool, to install.
+struct Download {
+    name: &'static str,
+    url: String,
+    sha256: Sha256Of,
+    /// The program's path inside the archive; `None` when the file is the
+    /// program itself.
+    member: Option<String>,
+}
+
+/// Where the SHA-256 a download must have comes from.
+enum Sha256Of {
+    Pinned(&'static str),
+    /// The release's checksums file at this URL, as `sha256sum` prints it.
+    Listed(String),
+}
+
+impl Download {
+    async fn install(&self, bin: &Path) -> Result<PathBuf> {
         tokio::fs::create_dir_all(bin)
             .await
             .with_context(|| format!("creating {}", bin.display()))?;
@@ -131,21 +219,33 @@ impl Pinned {
         // A download left from a stopped node starts over.
         remove_dir(&work).await?;
         tokio::fs::create_dir_all(&work).await?;
-        let installed = self.install_in(asset, bin, &work).await;
+        let installed = self.install_in(bin, &work).await;
         if let Err(e) = remove_dir(&work).await {
             log::warn!("could not clean up {}: {e:#}", work.display());
         }
         installed
     }
 
-    async fn install_in(&self, asset: &Asset, bin: &Path, work: &Path) -> Result<PathBuf> {
-        let file_name = asset.url.rsplit('/').next().unwrap_or(self.name);
+    async fn install_in(&self, bin: &Path, work: &Path) -> Result<PathBuf> {
+        let file_name = self.url.rsplit('/').next().unwrap_or(self.name);
+        let sha256 = match &self.sha256 {
+            Sha256Of::Pinned(sha256) => (*sha256).to_owned(),
+            Sha256Of::Listed(url) => {
+                let sums = work.join("checksums.txt");
+                fetch(url, &sums).await?;
+                let text = tokio::fs::read_to_string(&sums)
+                    .await
+                    .context("reading the release's checksums")?;
+                listed_sha256(&text, file_name)
+                    .with_context(|| format!("{file_name} is not in the release's checksums"))?
+                    .to_owned()
+            }
+        };
         let download = work.join(file_name);
-        fetch(asset.url, &download).await?;
+        fetch(&self.url, &download).await?;
         let file = download.clone();
-        let sha256 = asset.sha256;
-        tokio::task::spawn_blocking(move || verify(&file, sha256)).await??;
-        let program = match asset.member {
+        tokio::task::spawn_blocking(move || verify(&file, &sha256)).await??;
+        let program = match &self.member {
             Some(member) => {
                 extract(&download, member, work).await?;
                 work.join(member)
@@ -160,6 +260,16 @@ impl Pinned {
             .with_context(|| format!("moving {} into place", self.name))?;
         Ok(target)
     }
+}
+
+/// The SHA-256 that `sums`, as `sha256sum` prints them, lists for `file`.
+fn listed_sha256<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
+    sums.lines().find_map(|line| {
+        let mut words = line.split_whitespace();
+        let sha256 = words.next()?;
+        let name = words.next()?.trim_start_matches('*');
+        (name == file).then_some(sha256)
+    })
 }
 
 /// Fails unless the file at `path` has the SHA-256 `expected` (hex).
@@ -177,7 +287,7 @@ pub(super) fn verify(path: &Path, expected: &str) -> Result<()> {
     let found = hex::encode(hasher.finalize());
     ensure!(
         found.eq_ignore_ascii_case(expected),
-        "{} has SHA-256 {found}, not the pinned {expected}",
+        "{} has SHA-256 {found}, not the expected {expected}",
         path.display()
     );
     Ok(())
@@ -277,7 +387,28 @@ mod tests {
         verify(&file, &right.to_uppercase()).unwrap();
         fs::write(&file, b"hello, tampered\n").unwrap();
         let err = verify(&file, right).unwrap_err();
-        assert!(format!("{err:#}").contains("not the pinned"), "{err:#}");
+        assert!(format!("{err:#}").contains("not the expected"), "{err:#}");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_release_is_checked_against_its_own_line() {
+        let sums = "aaa  gh_2.103.3_linux_amd64.tar.gz\nbbb  gh_2.103.3_linux_arm64.tar.gz\n";
+        let gh = release(Tool::Gh, "2.103.3", "linux", "aarch64").unwrap();
+        assert_eq!(
+            gh.url,
+            "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_arm64.tar.gz"
+        );
+        assert_eq!(
+            listed_sha256(sums, "gh_2.103.3_linux_arm64.tar.gz"),
+            Some("bbb")
+        );
+        assert_eq!(listed_sha256(sums, "gh_2.103.3_macOS_arm64.zip"), None);
+        let teacli = release(Tool::Teacli, "1.0.8", "macos", "x86_64").unwrap();
+        assert!(
+            teacli.url.ends_with("/v1.0.8/teacli-darwin-amd64"),
+            "{}",
+            teacli.url
+        );
     }
 }

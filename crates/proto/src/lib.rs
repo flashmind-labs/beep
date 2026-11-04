@@ -1382,6 +1382,30 @@ requests! {
     /// `NotFound` when the caller has no such project; `BadRequest` saying
     /// why when the project has no host or the host cannot be read.
     392 GetThreadDetail { project_id: Uuid, number: u64 } => Call<ThreadDetail>
+    /// The tools on the caller's online machines that have a newer
+    /// release `UpdateMachineTool` can install (`gh`, `teacli`), checked
+    /// against the newest release every few hours.
+    400 ListToolUpdates {} => Call<Vec<ToolUpdate>>
+    /// Has one of the caller's online machines install the newest release
+    /// of `tool` into beep-node's own tools folder, which comes first on
+    /// the `PATH` of what Beep runs there. Gives the version installed.
+    /// `NotFound` when the machine is not the caller's; `BadRequest`
+    /// saying why when it is offline, too old, or the install failed.
+    401 UpdateMachineTool { machine_id: String, tool: String } => Call<String>
+}
+
+/// A tool on a machine with a newer release (`ListToolUpdates`).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolUpdate {
+    /// Its `Machine::id`.
+    pub machine_id: String,
+    /// Such as `gh`.
+    pub tool: String,
+    /// The version the machine runs.
+    pub version: String,
+    /// The newest release.
+    pub latest: String,
 }
 
 /// A machine `UpdateMachine` can update (`ListUpdatableMachines`).

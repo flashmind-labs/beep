@@ -30,6 +30,7 @@ pub mod process;
 pub mod shell;
 pub mod sync;
 pub mod terminal;
+pub mod tool_update;
 pub mod tools;
 pub mod transfer;
 pub mod update;

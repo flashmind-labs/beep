@@ -281,6 +281,7 @@ sample_struct! {
     RunsHost { host, kind, repo, primary, synced_at, error, rate_limited_until }
     MachineUpdate { from, to, restarting, note }
     UpdatableMachine { id, agent_sessions }
+    ToolUpdate { machine_id, tool, version, latest }
 }
 
 macro_rules! sample_values {

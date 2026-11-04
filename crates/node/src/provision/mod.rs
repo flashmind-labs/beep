@@ -12,7 +12,10 @@ mod tools;
 
 use crate::AsyncMutex;
 use anyhow::{Context, Result};
-use beep_proto::node::{ForgejoLogin, MachineCredentials};
+use beep_proto::node::{
+    ForgejoLogin, LinkRx, LinkTx, MachineCredentials,
+    tool_update::{Reply, Request, Tool},
+};
 use std::{
     env,
     ffi::OsString,
@@ -35,6 +38,9 @@ pub struct Provision {
     changed: Notify,
     /// Held while teacli's config is written, so two writes never mix.
     teacli: AsyncMutex<()>,
+    /// Held while a tool is installed, so two installs never share a
+    /// download folder.
+    installing: AsyncMutex<()>,
 }
 
 impl Provision {
@@ -46,6 +52,7 @@ impl Provision {
             forgejo: Mutex::default(),
             changed: Notify::new(),
             teacli: AsyncMutex::new(()),
+            installing: AsyncMutex::new(()),
         };
         spawn_env::set_path(vec![provision.bin()]);
         Arc::new(provision)
@@ -80,6 +87,7 @@ impl Provision {
 
     /// Whether any tool was installed.
     async fn install_tools(&self) -> bool {
+        let _one = self.installing.lock().await;
         let mut installed = false;
         for tool in tools::PINNED {
             if which::which_in(tool.name, Some(self.tool_path()), "/").is_ok() {
@@ -95,6 +103,39 @@ impl Provision {
             }
         }
         installed
+    }
+
+    /// Serves one `tool-update/1` stream: installs the release the server
+    /// names, then has the machine probed again.
+    pub(crate) async fn serve_updates(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+        let Some(Request::Install { tool, version }) = rx.recv::<Request>().await? else {
+            return Ok(());
+        };
+        let reply = match self.update(tool, &version).await {
+            Ok(()) => Reply::Installed {},
+            Err(e) => {
+                log::warn!("{tool} {version} not installed: {e:#}");
+                Reply::Failed {
+                    reason: format!("{e:#}"),
+                }
+            }
+        };
+        tx.send(&reply).await?;
+        tx.finish().await
+    }
+
+    async fn update(&self, tool: Tool, version: &str) -> Result<()> {
+        {
+            let _one = self.installing.lock().await;
+            log::info!("installing {tool} {version}");
+            let path = tools::install_release(tool, version, &self.bin()).await?;
+            log::info!("installed {tool} {version} at {}", path.display());
+        }
+        if tool == Tool::Teacli {
+            self.configure_teacli().await;
+        }
+        self.changed.notify_one();
+        Ok(())
     }
 
     /// Takes the user's credentials in place of the ones before.
