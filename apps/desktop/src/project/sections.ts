@@ -6,7 +6,7 @@ import { invoke, Channel, listen } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { type Project } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
-import { agentFor, workerSession, type ProjectAgent } from "./agent.ts";
+import { agentFor, pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.ts";
@@ -89,7 +89,7 @@ export const runs = makeRuns({
 /// Every 10 seconds while a project page shows: the runs move on, but only
 /// while one goes.
 export function tickRepo(name: string) {
-  const agent = agentFor(state.agents, name);
+  const agent = pageAgent(state.agents, name, state.subscribed);
   if (agent) runs.tick(agent.project_id);
 }
 
@@ -158,7 +158,7 @@ export async function act(id: string, call: () => Promise<unknown>) {
 /// Review opens a branch's review, Work on it and Continue fill the bar.
 export function repoActs(p: Project): RepoActs {
   const view = state.pview.get(p.name)?.view;
-  const agent = agentFor(state.agents, p.name);
+  const agent = pageAgent(state.agents, p.name, state.subscribed);
   revs.ensure(p.name);
   return {
     tasks: view?.tasks ?? [],
