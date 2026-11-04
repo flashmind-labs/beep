@@ -194,6 +194,7 @@ impl Status {
     }
 
     /// Counts up whenever a machine comes, goes or reports.
+    #[cfg(test)]
     pub fn changes(&self) -> watch::Receiver<u64> {
         self.shared.changes.subscribe()
     }
@@ -344,6 +345,7 @@ impl Follower {
         loop {
             updates.borrow_and_update();
             self.shared.refresh(&self.mesh);
+            reap(&mut follows);
             running.retain(|id, follow| {
                 let finished = follow.is_finished();
                 if finished {
@@ -378,6 +380,11 @@ impl Follower {
         }
         follows.shutdown().await;
     }
+}
+
+/// Collects the follows that have ended, so the set holds only live ones.
+fn reap(follows: &mut JoinSet<()>) {
+    while follows.try_join_next().is_some() {}
 }
 
 /// Whether a follow that ended at `ended`, if one did, may start again.
@@ -511,10 +518,11 @@ fn machine_disk(disk: DiskUsage) -> MachineDisk {
 
 #[cfg(test)]
 mod tests {
-    use super::retry_due;
+    use super::{reap, retry_due};
     use crate::fleet::tests::{LIMIT, join, online, start, until};
     use beep_mesh::DeviceKind;
     use std::time::Instant;
+    use tokio::task::JoinSet;
     use tokio::time::timeout;
 
     use super::Status;
@@ -533,6 +541,23 @@ mod tests {
         })
         .await
         .expect("the status settled in time");
+    }
+
+    #[tokio::test]
+    async fn ended_follows_leave_the_set() {
+        let mut follows = JoinSet::new();
+        for _ in 0..8 {
+            follows.spawn(async {});
+        }
+        // Finished, but not collected until the set is polled.
+        while !follows.is_empty() {
+            tokio::task::yield_now().await;
+            reap(&mut follows);
+        }
+        assert_eq!(follows.len(), 0);
+        follows.spawn(std::future::pending());
+        reap(&mut follows);
+        assert_eq!(follows.len(), 1, "a live follow stays");
     }
 
     #[tokio::test]

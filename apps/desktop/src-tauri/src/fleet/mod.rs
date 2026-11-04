@@ -24,7 +24,10 @@ use beep_mesh::{
     DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn,
     machine::releases::ToolReleases, with_deadline,
 };
-use beep_node::link::{Offers, peers::Peers};
+use beep_node::{
+    files::Folders,
+    link::{Offers, peers::Peers},
+};
 use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
@@ -36,7 +39,10 @@ use std::{
 };
 use tauri::State;
 use tauri::async_runtime::JoinHandle;
-use tokio::{sync::watch, time::timeout};
+use tokio::{
+    sync::watch,
+    time::{Instant, sleep, timeout},
+};
 
 /// The machines of the mesh, as a command takes them.
 pub(crate) type Machines<'a> = State<'a, Arc<Fleet>>;
@@ -57,6 +63,32 @@ pub(crate) fn extra<T>(result: Result<Vec<T>>) -> Vec<T> {
 /// How long a call to another machine waits for the mesh to open.
 const OPENING: Duration = Duration::from_secs(10);
 
+/// How long a join waits for the last handles to the old mesh to drop: calls
+/// that were running when it began.
+#[cfg(not(test))]
+const CLOSE_WAIT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const CLOSE_WAIT: Duration = Duration::from_millis(300);
+
+/// How often a join looks again while it waits.
+const CLOSE_POLL: Duration = Duration::from_millis(25);
+
+/// Closes `mesh`, trying again while another handle is alive, for at most
+/// `wait`. Handed back, still running, when one stays.
+async fn close_within(mut mesh: Mesh, wait: Duration) -> Result<(), InUse> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match mesh.close().await {
+            Ok(()) => return Ok(()),
+            Err(in_use) if Instant::now() >= deadline => return Err(in_use),
+            Err(InUse(back)) => {
+                mesh = back;
+                sleep(CLOSE_POLL).await;
+            }
+        }
+    }
+}
+
 /// Where the mesh stands.
 #[derive(Clone)]
 enum Opened {
@@ -73,6 +105,8 @@ pub struct Fleet {
     dir: PathBuf,
     name: String,
     peers: Peers,
+    /// What the user's home shares, for files and sync.
+    folders: Folders,
     /// The embedded node, as a call to this Mac reaches it.
     session: SessionFn,
     mesh: watch::Sender<Opened>,
@@ -95,6 +129,11 @@ impl Fleet {
         let peers = Peers::new(endpoint.clone(), dir.to_owned(), name.to_owned(), offers);
         // Sessions that open these wait for the services `run` starts.
         peers.expect(&mesh::LATER);
+        // Local file reads need no blob store: served from the first call.
+        let folders = mesh::home_folders();
+        if !folders.is_empty() {
+            peers.offer(Arc::new(folders.clone()));
+        }
         let session = peers.local_session();
         Self {
             me,
@@ -104,6 +143,7 @@ impl Fleet {
             dir: dir.to_owned(),
             name: name.to_owned(),
             peers,
+            folders,
             mesh: watch::channel(Opened::Opening).0,
             serving: Mutex::default(),
             joining: AsyncMutex::new(()),
@@ -138,7 +178,7 @@ impl Fleet {
         match serving {
             Some(serving) => {
                 serving
-                    .start_services(&self.endpoint, &self.dir, &self.peers)
+                    .start_services(&self.endpoint, &self.dir, &self.peers, self.folders.clone())
                     .await;
             }
             None => self.peers.settle(),
@@ -196,8 +236,8 @@ impl Fleet {
     /// on first launch leaves it while it is the mesh's only device, and
     /// brings its settings along: they are signed for the old mesh, so they
     /// are written again in the new one. A Mac with other devices in its
-    /// mesh does not leave it, and neither does one whose mesh is still in
-    /// use elsewhere in the app.
+    /// mesh does not leave it, and neither does one whose mesh stays in use
+    /// elsewhere in the app past `CLOSE_WAIT`.
     pub async fn join(&self, ticket: &JoinTicket, name: &str) -> Result<()> {
         let _one = self.joining.lock().await;
         let old = self.ready().await?;
@@ -213,9 +253,10 @@ impl Fleet {
         carry::save(&self.dir, &old.scan(""))?;
         self.peers.leave().await;
         self.mesh.send_replace(Opened::Opening);
-        // The follows hold the mesh, which closes only with none left.
+        // The status follows and the alert follows (which let go on seeing the
+        // mesh close) stop holding it; calls still running get `CLOSE_WAIT`.
         self.status.stop().await;
-        if let Err(in_use) = old.close().await {
+        if let Err(in_use) = close_within(old, CLOSE_WAIT).await {
             let message = in_use.to_string();
             let InUse(old) = in_use;
             self.peers.install(old.clone());
@@ -366,6 +407,7 @@ mod tests {
     use beep_mesh::{DEADLINE, DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, transport_config};
     use beep_node::machine::provision::Provision;
     use beep_proto::node::{
+        files,
         harness::HarnessConfig,
         mesh_state::StateValue,
         status::Report,
@@ -499,6 +541,25 @@ mod tests {
         };
         assert!(!offers.is_empty());
         assert!(started.elapsed() < DEADLINE, "{:?}", started.elapsed());
+    }
+
+    #[tokio::test]
+    async fn a_local_file_read_does_not_wait_for_the_services() {
+        let dir = TempDir::new().expect("a temp dir");
+        let endpoint = bind(&SecretKey::generate()).await;
+        // `run` never starts: the blob store and sync are not up.
+        let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
+        let client = fleet.client(fleet.id()).await.expect("this Mac is local");
+        let (mut tx, mut rx) = client.open(files::PROTOCOL).await.expect("opens");
+        tx.send(&files::Request::Roots {}).await.expect("sends");
+        let reply = timeout(DEADLINE, rx.recv::<files::Reply>())
+            .await
+            .expect("the node answers without waiting for the services")
+            .expect("the stream reads");
+        assert!(
+            matches!(reply, Some(files::Reply::Roots { .. })),
+            "{reply:?}"
+        );
     }
 
     #[tokio::test]
@@ -749,6 +810,21 @@ mod tests {
         laptop.fleet.join(&ticket, "Laptop").await.expect("joins");
         assert_eq!(laptop.fleet.machines().len(), 2);
         assert!(!laptop.dir.path().join("carry.json").exists());
+    }
+
+    #[tokio::test]
+    async fn a_join_waits_for_a_handle_that_is_about_to_drop() {
+        let studio = start("Studio").await;
+        let ticket = ticket(&studio).await;
+        let laptop = start("Laptop").await;
+        let held = laptop.fleet.mesh().expect("the mesh is open");
+        // A call that ends a moment after the join began.
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            drop(held);
+        });
+        laptop.fleet.join(&ticket, "Laptop").await.expect("joins");
+        assert_eq!(laptop.fleet.machines().len(), 2);
     }
 
     #[tokio::test]
