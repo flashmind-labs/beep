@@ -1,6 +1,5 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
-import { markWarnings } from "./agentlog.ts";
 import { type BeepCall, beepCall, beepLine, commandDetail, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { $, type ChatBody, esc, ICON, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
@@ -198,8 +197,8 @@ export function entryRow(en: AgentEntry, at: number) {
   const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
   // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
   // Image files the reply names link to its pictures, shown in a strip.
-  const linked = (html: string) => AG.log ? AG.log.linkImagePaths(html).html : html;
-  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(markWarnings(linked(en.html)))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
+  const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
+  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
   return `<div class="dcoderen other" data-row="${at}">${text}</div>`;
 }
