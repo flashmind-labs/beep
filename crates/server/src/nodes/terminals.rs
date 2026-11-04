@@ -9,14 +9,17 @@ use crate::{
     },
     store::TerminalRow,
 };
-use anyhow::{Context, Result, bail};
-use std::time::Duration;
-use tokio::time::timeout;
-
-/// How long one request may take; a stop waits for the terminal to end.
-const LIMIT: Duration = Duration::from_secs(20);
+use anyhow::{Result, bail};
+use beep_mesh::{
+    PeerClient,
+    machine::terminals::{self, Kept},
+};
 
 impl Online {
+    fn client(&self) -> PeerClient {
+        PeerClient::new(self.connection.clone())
+    }
+
     /// Sends `request` to the node's terminals and returns its reply.
     pub async fn terminals(&self, request: &Request) -> Result<Reply> {
         if !self.offers(PROTOCOL) {
@@ -25,12 +28,7 @@ impl Online {
                 self.name
             );
         }
-        let (mut tx, mut rx) = self.open_stream(PROTOCOL).await?;
-        tx.send(request).await?;
-        timeout(LIMIT, rx.recv::<Reply>())
-            .await
-            .context("the node stopped answering")??
-            .context("the node closed the terminal session")
+        Ok(terminals::request(&self.client(), request).await?)
     }
 
     /// Opens a stream following terminal `id` from byte `from`.
@@ -40,30 +38,20 @@ impl Online {
         from: u64,
         size: Size,
     ) -> Result<(LinkTx, LinkRx)> {
-        let (mut tx, rx) = self.open_stream(PROTOCOL).await?;
-        tx.send(&Request::Attach { id, from }).await?;
-        tx.send(&Request::Resize { size }).await?;
-        Ok((tx, rx))
+        Ok(terminals::attach(&self.client(), id, from, size).await?)
     }
 
     /// Stops terminal `row` if it still runs its command; one reusing its number is left alone.
     pub(crate) async fn stop_terminal(&self, row: &TerminalRow) -> Result<()> {
-        let id = TaskId(row.task);
-        if !row.pty {
-            return self.stop_task(id, &row.command).await;
-        }
-        let Reply::Terminals { terminals } = self.terminals(&Request::List {}).await? else {
-            bail!("the node did not list its terminals");
+        let kept = Kept {
+            task: row.task,
+            pty: row.pty,
+            command: &row.command,
         };
-        let running = terminals
-            .iter()
-            .any(|task| task.id == id && task.command == row.command && task.state.is_running());
-        if !running {
-            return Ok(());
+        if !row.pty {
+            // Background tasks go through the server's own retrying link.
+            return self.stop_task(TaskId(row.task), &row.command).await;
         }
-        match self.terminals(&Request::Stop { id }).await? {
-            Reply::Error { message } => bail!("{message}"),
-            _ => Ok(()),
-        }
+        Ok(terminals::stop(&self.client(), &kept).await?)
     }
 }

@@ -2,12 +2,14 @@
 //! and the questions coding agents ask, as Home lists them under Needs you.
 
 use crate::{
+    agents::sessions::machine_sessions,
     beep::Beep,
-    beep::state::LinkState,
     center::{self, AgentTarget, CenterTarget, NeedsYou},
-    error::Result,
+    error::{DesktopError, Result},
+    fleet::Fleet,
+    machines::list::Outside,
 };
-use beep_proto::{ListAgentSessions, ListPendingApprovals};
+use beep_proto::ListPendingApprovals;
 use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
@@ -163,12 +165,13 @@ pub fn tooltip(count: usize) -> String {
 /// session that ended with no alert.
 pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
     let list = app.state::<WaitingList>();
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
     list.poke();
     loop {
         // Timing out is the usual way round: nothing poked.
         let _ = timeout(EVERY, list.wake.notified()).await;
-        if beep.link_state() == LinkState::Linked {
-            match fetch(&beep).await {
+        {
+            match fetch(&app, &beep, &fleet).await {
                 Ok(entries) => {
                     if list.set(entries) {
                         crate::tray::refresh(&app);
@@ -182,13 +185,17 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
     }
 }
 
-async fn fetch(beep: &Beep) -> Result<Vec<Entry>> {
+async fn fetch(app: &AppHandle, beep: &Arc<Beep>, fleet: &Arc<Fleet>) -> Result<Vec<Entry>> {
+    let held = app.state::<Outside>();
     let (sessions, approvals) = join!(
-        beep.call(ListAgentSessions {}),
+        machine_sessions(app, beep, fleet, &held),
         beep.call(ListPendingApprovals {}),
     );
-    let sessions = supported(sessions)?;
-    let approvals = supported(approvals)?;
+    // With no server, or none linked, nothing waits there.
+    let approvals = match approvals {
+        Err(DesktopError::NoServer | DesktopError::Unlinked | DesktopError::Revoked) => Vec::new(),
+        other => supported(other)?,
+    };
     // Chats are not listed for their times, so approvals keep the server's
     // order after the agents' questions.
     Ok(entries(center::needs_you(sessions.iter(), approvals, &[])))

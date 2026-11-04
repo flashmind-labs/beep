@@ -213,3 +213,16 @@ fn fresh(key: &[String]) -> Option<LabeledGitItems> {
     let ttl = if failed { FRESH_AFTER_ERROR } else { FRESH };
     (kept.key == key && kept.at.elapsed() < ttl).then(|| kept.items.clone())
 }
+
+/// Where `project` is checked out, by machine and folder, as the mesh records it.
+pub fn places(mesh: &beep_mesh::Mesh, project: &str) -> Vec<(iroh::EndpointId, String)> {
+    crate::records::find_project(mesh, project)
+        .map(|stored| {
+            stored
+                .places
+                .into_iter()
+                .map(|(machine, place)| (machine, place.folder))
+                .collect()
+        })
+        .unwrap_or_default()
+}

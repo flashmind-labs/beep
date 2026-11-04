@@ -10,41 +10,24 @@ use super::{
 use crate::{
     api::router::Cx,
     nodes::Online,
-    protocol::{
-        node::{
-            EnvReport,
-            process::{Reply as TaskReply, Request as TaskRequest, TaskId, TaskState},
-        },
-        *,
-    },
+    protocol::{node::EnvReport, *},
     store::{AgentTokenRow, NewCredential},
 };
-use anyhow::{Result, bail};
+use beep_mesh::{PeerClient, machine::codex_login};
 use beep_projects::credentials::Slot;
 use beep_projects::credentials::last4;
 use futures::{StreamExt, stream};
-use reqwest::Url;
 use secrecy::ExposeSecret;
 use std::{
     str::FromStr,
     time::{Duration, SystemTime},
 };
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 
-/// What the node runs for Codex's device sign-in.
-const CODEX_LOGIN: &str = "codex login --device-auth";
 /// What tells whether Codex is signed in on a machine.
 const CODEX_STATUS: &str = "codex login status";
 /// How long `codex login status` may take.
 const STATUS_LIMIT: Duration = Duration::from_secs(5);
-/// How long Codex may take to print its page and code.
-const CODE_LIMIT: Duration = Duration::from_secs(20);
-/// How often its output is read while waiting for the code.
-const CODE_POLL: Duration = Duration::from_millis(300);
-/// How long a code lasts when Codex does not say; it says 15 minutes.
-const CODE_LIFETIME: Duration = Duration::from_secs(15 * 60);
-/// The longest reason from Codex passed on.
-const REASON_CHARS: usize = 200;
 
 pub(super) async fn get_agent_accounts(cx: Cx, _: GetAgentAccounts) -> Reply<AgentAccounts> {
     let tokens = cx.user.agent_tokens(&cx.app.credential_key).await?;
@@ -129,37 +112,9 @@ pub(super) async fn start_codex_login(
     StartCodexLogin { machine_id }: StartCodexLogin,
 ) -> Reply<CodexLogin> {
     let node = linked_online(&cx, &machine_id).await?;
-    let started = node
-        .tasks(&TaskRequest::Start {
-            command: CODEX_LOGIN.to_owned(),
-            cwd: None,
-        })
+    codex_login::start(&PeerClient::new(node.connection.clone()))
         .await
-        .and_then(|reply| match reply {
-            TaskReply::Started { id } => Ok(id),
-            TaskReply::Error { message } => bail!("{message}"),
-            other => bail!("the node answered {other:?}"),
-        })
-        .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
-    match timeout(CODE_LIMIT, wait_for_code(&node, started)).await {
-        Ok(Ok(prompt)) => Ok(CodexLogin {
-            task: started.0,
-            url: prompt.url,
-            code: prompt.code,
-            expires_at: SystemTime::now() + prompt.lifetime,
-        }),
-        Ok(Err(why)) => {
-            stop_quietly(&node, started).await;
-            Err(ApiError::bad_request(format!("{}: {why}", node.name)))
-        }
-        Err(_) => {
-            stop_quietly(&node, started).await;
-            Err(ApiError::bad_request(format!(
-                "{}: Codex did not give a sign-in code in time.",
-                node.name
-            )))
-        }
-    }
+        .map_err(|e| ApiError::bad_request(format!("{}: {e}", node.name)))
 }
 
 pub(super) async fn get_codex_login(
@@ -172,14 +127,9 @@ pub(super) async fn get_codex_login(
     let Some(node) = online(&cx, &machine_id) else {
         return Ok(CodexLoginState::Gone {});
     };
-    let status = node.tasks(&TaskRequest::Status { id: TaskId(task) }).await;
-    Ok(match status {
-        Ok(TaskReply::Status { task, lines, .. }) if task.command == CODEX_LOGIN => {
-            login_state(task.state, &lines)
-        }
-        Ok(_) => CodexLoginState::Gone {},
-        Err(e) => return Err(ApiError::bad_request(format!("{}: {e:#}", node.name))),
-    })
+    codex_login::state(&PeerClient::new(node.connection.clone()), task)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("{}: {e}", node.name)))
 }
 
 pub(super) async fn cancel_codex_login(
@@ -192,9 +142,9 @@ pub(super) async fn cancel_codex_login(
     let Some(node) = online(&cx, &machine_id) else {
         return Ok(());
     };
-    stop(&node, TaskId(task))
+    codex_login::cancel(&PeerClient::new(node.connection.clone()), task)
         .await
-        .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))
+        .map_err(|e| ApiError::bad_request(format!("{}: {e}", node.name)))
 }
 
 /// Which agents a machine has, from its last report.
@@ -321,222 +271,9 @@ async fn linked_online(cx: &Cx, endpoint: &str) -> Reply<Online> {
     online(cx, endpoint).ok_or(ApiError::NotFound {})
 }
 
-/// Reads the task's output until Codex prints its page and code, or what it said if it ended first.
-async fn wait_for_code(node: &Online, id: TaskId) -> Result<Prompt, String> {
-    loop {
-        let reply = node
-            .tasks(&TaskRequest::Status { id })
-            .await
-            .map_err(|e| format!("{e:#}"))?;
-        let TaskReply::Status { task, lines, .. } = reply else {
-            return Err("the sign-in stopped on the machine.".into());
-        };
-        if let Some(prompt) = Prompt::read(&lines) {
-            return Ok(prompt);
-        }
-        if !task.state.is_running() {
-            return Err(failure(&lines));
-        }
-        sleep(CODE_POLL).await;
-    }
-}
-
-/// Stops the task when it is still the sign-in and still runs.
-async fn stop(node: &Online, id: TaskId) -> Result<()> {
-    match node.tasks(&TaskRequest::Status { id }).await? {
-        TaskReply::Status { task, .. }
-            if task.command == CODEX_LOGIN && task.state.is_running() =>
-        {
-            match node.tasks(&TaskRequest::Stop { id }).await? {
-                TaskReply::Error { message } => bail!("{message}"),
-                _ => Ok(()),
-            }
-        }
-        _ => Ok(()),
-    }
-}
-
-/// Stops a sign-in that is being given up on; a failure is only logged.
-async fn stop_quietly(node: &Online, id: TaskId) {
-    if let Err(e) = stop(node, id).await {
-        log::warn!("codex sign-in not stopped on {}: {e:#}", node.name);
-    }
-}
-
-fn login_state(state: TaskState, lines: &[String]) -> CodexLoginState {
-    match state {
-        TaskState::Running => CodexLoginState::Waiting {},
-        TaskState::Exited { code: Some(0) } => CodexLoginState::SignedIn {},
-        TaskState::Stopped => CodexLoginState::Failed {
-            message: "The sign-in was stopped.".into(),
-        },
-        _ => CodexLoginState::Failed {
-            message: failure(lines),
-        },
-    }
-}
-
-/// What Codex printed of its device sign-in.
-#[derive(Debug, PartialEq)]
-struct Prompt {
-    url: String,
-    code: String,
-    lifetime: Duration,
-}
-
-impl Prompt {
-    /// The page and code in Codex's output, once both are there:
-    ///
-    /// ```text
-    /// 1. Open this link in your browser and sign in to your account
-    ///    https://auth.openai.com/codex/device
-    /// 2. Enter this one-time code (expires in 15 minutes)
-    ///    ABCD-12345
-    /// ```
-    fn read(lines: &[String]) -> Option<Self> {
-        let mut url = None;
-        let mut code = None;
-        let mut lifetime = CODE_LIFETIME;
-        for line in lines.iter().map(|line| plain(line)) {
-            for word in line.split_whitespace() {
-                if url.is_none() {
-                    url = device_page(word);
-                }
-                if code.is_none() && is_code(word) {
-                    code = Some(word.to_owned());
-                }
-            }
-            if let Some(minutes) = expires_in(&line) {
-                lifetime = Duration::from_secs(minutes * 60);
-            }
-        }
-        Some(Self {
-            url: url?,
-            code: code?,
-            lifetime,
-        })
-    }
-}
-
-/// `word` when it is an https page of OpenAI's, the only pages passed on.
-fn device_page(word: &str) -> Option<String> {
-    let word = word.trim_end_matches(['.', ',', ')', '"', '\'']);
-    let url = Url::parse(word).ok()?;
-    let host = url.host_str()?;
-    let theirs = ["openai.com", "chatgpt.com"]
-        .iter()
-        .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")));
-    (url.scheme() == "https" && theirs).then(|| url.to_string())
-}
-
-/// A one-time code such as `ABCD-12345`: hyphen-joined capitals and digits.
-fn is_code(word: &str) -> bool {
-    let groups: Vec<&str> = word.split('-').collect();
-    (4..=20).contains(&word.len())
-        && groups.len() >= 2
-        && groups.iter().all(|group| {
-            !group.is_empty()
-                && group
-                    .chars()
-                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-        })
-}
-
-/// N in "expires in N minutes".
-fn expires_in(line: &str) -> Option<u64> {
-    let rest = line.split("expires in ").nth(1)?;
-    let mut words = rest.split_whitespace();
-    let minutes: u64 = words.next()?.parse().ok()?;
-    words
-        .next()?
-        .starts_with("minute")
-        .then_some(minutes)
-        .filter(|minutes| (1..=120).contains(minutes))
-}
-
-/// `line` without terminal colours and other escape sequences.
-fn plain(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
-        if c != '\u{1b}' {
-            if !c.is_control() || c == '\t' {
-                out.push(c);
-            }
-            continue;
-        }
-        // CSI: ESC [ parameters, then one final letter.
-        if chars.next() == Some('[') {
-            for c in chars.by_ref() {
-                if c.is_ascii_alphabetic() || c == '~' {
-                    break;
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Why the sign-in ended, from the last line Codex printed.
-fn failure(lines: &[String]) -> String {
-    let last = lines
-        .iter()
-        .map(|line| plain(line))
-        .rfind(|line| {
-            let line = line.trim();
-            !line.is_empty() && !line.starts_with("WARNING")
-        })
-        .unwrap_or_default();
-    let last = last.trim();
-    if last.is_empty() {
-        return "Codex could not sign in.".into();
-    }
-    let short: String = last.chars().take(REASON_CHARS).collect();
-    format!("Codex could not sign in: {short}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// What codex-cli 0.166 prints, colours and all.
-    const DEVICE_AUTH: &str = "\n\u{1b}[1mWelcome to Codex\u{1b}[0m [v\u{1b}[90m0.166.0\u{1b}[0m]\n\
-        \u{1b}[90mOpenAI's command-line coding agent\u{1b}[0m\n\n\
-        Follow these steps to sign in with ChatGPT using device code authorization:\n\n\
-        1. Open this link in your browser and sign in to your account\n   \
-        \u{1b}[94mhttps://auth.openai.com/codex/device\u{1b}[0m\n\n\
-        2. Enter this one-time code \u{1b}[90m(expires in 15 minutes)\u{1b}[0m\n   \
-        \u{1b}[94mUZIW-O7IAI\u{1b}[0m\n\n\
-        \u{1b}[90mContinue only if you started this login in Codex. If a website or another \
-        person gave you this code, cancel.\u{1b}[0m\n";
-
-    fn lines(text: &str) -> Vec<String> {
-        text.lines().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn the_page_and_code_are_read_from_codex() {
-        assert_eq!(
-            Prompt::read(&lines(DEVICE_AUTH)),
-            Some(Prompt {
-                url: "https://auth.openai.com/codex/device".into(),
-                code: "UZIW-O7IAI".into(),
-                lifetime: Duration::from_secs(15 * 60),
-            })
-        );
-        // Not before the code is printed.
-        let half: Vec<String> = lines(DEVICE_AUTH).into_iter().take(9).collect();
-        assert_eq!(Prompt::read(&half), None);
-    }
-
-    #[test]
-    fn only_openai_pages_are_passed_on() {
-        assert!(device_page("https://auth.openai.com/codex/device").is_some());
-        assert!(device_page("https://chatgpt.com/device.").is_some());
-        assert_eq!(device_page("http://auth.openai.com/codex/device"), None);
-        assert_eq!(device_page("https://openai.com.example.net/device"), None);
-        assert_eq!(device_page("https://example.com"), None);
-    }
 
     #[test]
     fn an_api_key_is_not_taken_as_a_claude_token() {

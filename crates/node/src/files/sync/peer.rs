@@ -140,6 +140,20 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
         return tx.send(&Reply::Refused { message }).await;
     };
     let _serving = syncs.serving();
+    let mut peers = shared.watch_peers();
+    while !shared.is_matched(&peer) {
+        tokio::select! {
+            scanned = shared.scan_before_matching() => {
+                scanned?;
+                break;
+            }
+            () = shared.stopped() => return Ok(()),
+            // A node taken out of the project gets nothing more.
+            changed = peers.changed() => if changed.is_err() || !shared.has_peer(&peer) || !syncs.allows(&peer) {
+                return Ok(());
+            },
+        }
+    }
     let mut since = if replica == shared.replica() {
         since
     } else {
@@ -151,7 +165,6 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     })
     .await?;
     let mut seq = shared.subscribe();
-    let mut peers = shared.watch_peers();
     loop {
         // A device removed meanwhile gets nothing more, not even what is
         // already queued.

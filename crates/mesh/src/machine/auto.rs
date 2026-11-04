@@ -1,6 +1,16 @@
 //! Auto picks a session's machine: `needs` and the folder are required, prompt hints only steer.
 
-use crate::protocol::MachineCapability;
+use super::{Exec, agent_name, exec, sessions};
+use crate::PeerClient;
+use beep_proto::{AgentHost, ApiError, MachineCapability, StartAgentSession, node::agent::Status};
+use futures::{StreamExt, stream};
+use std::time::Duration;
+use tokio::time::timeout;
+
+/// How long one request to a node may take.
+const NODE_LIMIT: Duration = Duration::from_secs(3);
+/// Nodes asked at once.
+const IN_FLIGHT: usize = 4;
 
 /// Lowercase words of the prompt and folder that hint at a capability.
 const CALLS_FOR: &[(MachineCapability, &[&str])] = &[
@@ -33,7 +43,7 @@ const CALLS_FOR: &[(MachineCapability, &[&str])] = &[
 ];
 
 /// The capabilities `text` calls for, in `CALLS_FOR` order.
-pub(super) fn called_for(text: &str) -> Vec<MachineCapability> {
+pub fn called_for(text: &str) -> Vec<MachineCapability> {
     let lower = text.to_lowercase();
     let words: Vec<&str> = lower
         .split(|c: char| !c.is_alphanumeric())
@@ -60,28 +70,28 @@ pub(super) fn called_for(text: &str) -> Vec<MachineCapability> {
 
 /// What Auto knows of one online machine.
 #[derive(Debug)]
-pub(super) struct Candidate<'a> {
-    pub(super) name: &'a str,
+pub struct Candidate<'a> {
+    pub name: &'a str,
     /// It offers the agent asked for, or any agent when none was.
-    pub(super) offers: bool,
-    pub(super) capabilities: &'a [MachineCapability],
+    pub offers: bool,
+    pub capabilities: &'a [MachineCapability],
     /// The user's environment.
-    pub(super) workspace: bool,
+    pub workspace: bool,
     /// The folder asked for is there, or none was asked for.
-    pub(super) has_folder: bool,
+    pub has_folder: bool,
     /// Sessions running on it now; only read to break a tie.
-    pub(super) running: u32,
+    pub running: u32,
 }
 
 impl Candidate<'_> {
-    pub(super) fn has(&self, needs: &[MachineCapability]) -> bool {
+    pub fn has(&self, needs: &[MachineCapability]) -> bool {
         needs.iter().all(|need| self.capabilities.contains(need))
     }
 }
 
 /// Why no machine fits a start.
 #[derive(Debug, PartialEq, thiserror::Error)]
-pub(super) enum AutoError {
+pub enum AutoError {
     #[error("None of your machines online offers {agent}.")]
     NoAgent { agent: String },
     #[error("No machine online with {agent} has {needs}. With {agent}: {offering}.")]
@@ -95,25 +105,25 @@ pub(super) enum AutoError {
 }
 
 /// What a start asks of its machine.
-pub(super) struct Wants<'a> {
+pub struct Wants<'a> {
     /// The agent's name for messages, such as "Claude Code".
-    pub(super) agent: &'a str,
+    pub agent: &'a str,
     /// Asked for by the app: a machine must have all of them.
-    pub(super) needs: &'a [MachineCapability],
+    pub needs: &'a [MachineCapability],
     /// Mentioned in the prompt or folder: preferred, not required.
-    pub(super) hints: &'a [MachineCapability],
-    pub(super) folder: Option<&'a str>,
+    pub hints: &'a [MachineCapability],
+    pub folder: Option<&'a str>,
 }
 
 /// The machines Auto picks among, by index, and the hints none of them met.
 #[derive(Debug, PartialEq)]
-pub(super) struct Pool {
-    pub(super) at: Vec<usize>,
-    pub(super) missed: Vec<MachineCapability>,
+pub struct Pool {
+    pub at: Vec<usize>,
+    pub missed: Vec<MachineCapability>,
 }
 
 /// The machines with the agent, every need and the folder, narrowed by hints when some match.
-pub(super) fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoError> {
+pub fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoError> {
     let agent = wants.agent.to_owned();
     let names = |at: &[usize]| list(at.iter().map(|&at| candidates[at].name));
     let offering: Vec<usize> = (0..candidates.len())
@@ -168,19 +178,19 @@ pub(super) fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Po
 }
 
 /// Whether picking needs running-session counts: several fit and none is the user's environment.
-pub(super) fn needs_load(candidates: &[Candidate<'_>], pool: &Pool) -> bool {
+pub fn needs_load(candidates: &[Candidate<'_>], pool: &Pool) -> bool {
     pool.at.len() > 1 && !pool.at.iter().any(|&at| candidates[at].workspace)
 }
 
 /// The machine Auto picks and why, said to the user.
 #[derive(Debug, PartialEq)]
-pub(super) struct Choice {
-    pub(super) at: usize,
-    pub(super) why: String,
+pub struct Choice {
+    pub at: usize,
+    pub why: String,
 }
 
 /// Picks the user's environment, else the least busy machine, then by name; `pool` is never empty.
-pub(super) fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choice {
+pub fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choice {
     let wanted: Vec<&str> = wants
         .needs
         .iter()
@@ -238,6 +248,143 @@ fn list<'a>(items: impl Iterator<Item = &'a str>) -> String {
     }
 }
 
+/// A machine Auto may pick, with the way to ask it things.
+pub struct AutoHost {
+    pub host: AgentHost,
+    pub client: PeerClient,
+}
+
+/// The machine Auto picks for `start`, by index in `hosts`, and why.
+pub async fn pick(
+    hosts: &[AutoHost],
+    start: &StartAgentSession,
+    prompt: &str,
+) -> Result<Choice, ApiError> {
+    let mut text = prompt.to_owned();
+    if let Some(cwd) = &start.cwd {
+        text.push('\n');
+        text.push_str(cwd);
+    }
+    let hints: Vec<MachineCapability> = called_for(&text)
+        .into_iter()
+        .filter(|hint| !start.needs.contains(hint))
+        .collect();
+    let offers = |auto: &AutoHost| {
+        start
+            .agent
+            .as_deref()
+            .is_none_or(|agent| auto.host.agents.iter().any(|offered| offered == agent))
+    };
+    let folder = start.cwd.as_deref().filter(|cwd| !cwd.trim().is_empty());
+    let mut candidates: Vec<Candidate<'_>> = hosts
+        .iter()
+        .map(|auto| Candidate {
+            name: &auto.host.machine_name,
+            offers: offers(auto),
+            capabilities: &auto.host.capabilities,
+            workspace: auto.host.workspace.is_some(),
+            has_folder: true,
+            running: 0,
+        })
+        .collect();
+    if let Some(folder) = folder {
+        let asks: Vec<_> = (0..hosts.len())
+            .filter(|&at| candidates[at].offers && candidates[at].has(&start.needs))
+            .map(|at| has_folder(at, &hosts[at], folder))
+            .collect();
+        let found: Vec<(usize, bool)> = stream::iter(asks)
+            .buffer_unordered(IN_FLIGHT)
+            .collect()
+            .await;
+        for (at, there) in found {
+            candidates[at].has_folder = there;
+        }
+    }
+    let agent = start.agent.as_deref().map_or("a coding agent", agent_name);
+    let wants = Wants {
+        agent,
+        needs: &start.needs,
+        hints: &hints,
+        folder,
+    };
+    let chosen = pool(&candidates, &wants).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    if needs_load(&candidates, &chosen) {
+        let asks: Vec<_> = chosen
+            .at
+            .iter()
+            .map(|&at| counted(at, &hosts[at].client))
+            .collect();
+        let counts: Vec<(usize, u32)> = stream::iter(asks)
+            .buffer_unordered(IN_FLIGHT)
+            .collect()
+            .await;
+        for (at, count) in counts {
+            candidates[at].running = count;
+        }
+    }
+    Ok(choose(&candidates, &chosen, &wants))
+}
+
+/// Whether `folder` is on the machine. Unasked, a folder under another system's home root is missing.
+async fn has_folder(at: usize, auto: &AutoHost, folder: &str) -> (usize, bool) {
+    let home = auto.host.home.as_deref();
+    let Some(command) = folder_test(folder) else {
+        return (at, plausible(folder, home));
+    };
+    let asked = timeout(NODE_LIMIT, exec(&auto.client, &command, NODE_LIMIT)).await;
+    let there = match asked {
+        Ok(Ok(Exec {
+            exit_code: Some(code),
+            ..
+        })) => code == 0,
+        Ok(Ok(_)) | Ok(Err(_)) | Err(_) => plausible(folder, home),
+    };
+    (at, there)
+}
+
+/// `test -d` for `folder`, with a leading `~` left to the node's shell.
+pub fn folder_test(folder: &str) -> Option<String> {
+    let quoted = |path: &str| {
+        shlex::try_quote(path)
+            .ok()
+            .map(|quoted| quoted.into_owned())
+    };
+    let path = if folder == "~" {
+        "\"$HOME\"".to_owned()
+    } else if let Some(rest) = folder.strip_prefix("~/") {
+        format!("\"$HOME\"/{}", quoted(rest)?)
+    } else {
+        quoted(folder)?
+    };
+    Some(format!("test -d {path}"))
+}
+
+/// Whether `folder` could be on a machine whose home is `home`.
+fn plausible(folder: &str, home: Option<&str>) -> bool {
+    let Some(home) = home else {
+        return true;
+    };
+    ["/Users/", "/home/"]
+        .iter()
+        .all(|root| !folder.starts_with(root) || home.starts_with(root.trim_end_matches('/')))
+}
+
+/// Sessions running on a machine; one that does not answer counts as busy.
+async fn counted(at: usize, client: &PeerClient) -> (usize, u32) {
+    let listed = timeout(NODE_LIMIT, sessions::list(client)).await;
+    let running = match listed {
+        Ok(Ok(sessions)) => {
+            let live = sessions
+                .iter()
+                .filter(|info| info.state.status != Status::Ended)
+                .count();
+            u32::try_from(live).unwrap_or(u32::MAX)
+        }
+        _ => u32::MAX,
+    };
+    (at, running)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,7 +418,7 @@ mod tests {
         }
     }
 
-    fn pick(machines: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Choice, AutoError> {
+    fn choice(machines: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Choice, AutoError> {
         let pool = pool(machines, wants)?;
         Ok(choose(machines, &pool, wants))
     }
@@ -316,18 +463,31 @@ mod tests {
             candidate("gpu-b", &[GPU], false, 1),
             candidate("gpu-a", &[GPU], false, 1),
         ];
-        assert_eq!(pick(&tied, &need).map(|c| c.at), Ok(1));
+        assert_eq!(choice(&tied, &need).map(|c| c.at), Ok(1));
         let with_home = [
             candidate("mac", &[], false, 0),
             candidate("home", &[], true, 5),
         ];
         assert_eq!(
-            pick(&with_home, &wants(&[], &[])),
+            choice(&with_home, &wants(&[], &[])),
             Ok(Choice {
                 at: 1,
                 why: "It is your environment.".into()
             })
         );
+    }
+
+    #[test]
+    fn folder_tests_quote_the_path_and_keep_home() {
+        assert_eq!(
+            folder_test("/srv/my project").as_deref(),
+            Some("test -d '/srv/my project'")
+        );
+        assert_eq!(
+            folder_test("~/code/app").as_deref(),
+            Some("test -d \"$HOME\"/code/app")
+        );
+        assert_eq!(folder_test("~").as_deref(), Some("test -d \"$HOME\""));
     }
 
     #[test]
@@ -339,10 +499,10 @@ mod tests {
         machines[0].has_folder = false;
         let mut want = wants(&[], &[]);
         want.folder = Some("/Users/sam/app");
-        assert_eq!(pick(&machines, &want).map(|c| c.at), Ok(1));
+        assert_eq!(choice(&machines, &want).map(|c| c.at), Ok(1));
         machines[1].has_folder = false;
         assert_eq!(
-            pick(&machines, &want),
+            choice(&machines, &want),
             Err(AutoError::NoFolder {
                 folder: "/Users/sam/app".into(),
                 checked: "home and mac".into()

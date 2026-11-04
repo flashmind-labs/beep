@@ -4,23 +4,12 @@
 use super::Online;
 use crate::protocol::node::{
     agent::{SESSIONS_PROTOCOL, Status},
-    update::{Event, PROTOCOL, Request},
+    update::PROTOCOL,
 };
-use anyhow::{Context, Result, bail};
-use std::time::Duration;
-use tokio::time::timeout;
+use anyhow::Result;
+use beep_mesh::{PeerClient, machine};
 
-/// How long the node has to download, check and install the release.
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-
-/// What the node said it did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Updated {
-    pub(crate) from: String,
-    pub(crate) to: String,
-    pub(crate) restarting: bool,
-    pub(crate) note: String,
-}
+pub(crate) use beep_mesh::machine::Updated;
 
 impl Online {
     /// Whether it can be updated over `update/1`. The Mac app's node and
@@ -47,60 +36,7 @@ impl Online {
     /// agent sessions are idle or, with `now`, at once. `Err` holds the
     /// node's reason, in words for the user.
     pub(crate) async fn update(&self, now: bool) -> Result<Updated> {
-        let (mut tx, mut rx) = self.open_stream(PROTOCOL).await?;
-        tx.send(&Request::Update { now }).await?;
-        let event = timeout(INSTALL_TIMEOUT, rx.recv::<Event>())
-            .await
-            .context("the update took too long")??
-            .context("the node closed the update without an answer")?;
-        updated(event)
-    }
-}
-
-fn updated(event: Event) -> Result<Updated> {
-    match event {
-        Event::Newest { version } => Ok(Updated {
-            from: version.clone(),
-            to: version,
-            restarting: false,
-            note: String::new(),
-        }),
-        Event::Installed {
-            from,
-            to,
-            restarting,
-            note,
-        } => Ok(Updated {
-            from,
-            to,
-            restarting,
-            note,
-        }),
-        Event::Failed { reason } => bail!(reason),
-        other => bail!("the node answered {other:?}"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_newest_is_neither_installed_nor_restarted() {
-        let done = updated(Event::Newest {
-            version: "0.1.24".into(),
-        })
-        .expect("an answer");
-        assert_eq!((done.from.as_str(), done.to.as_str()), ("0.1.24", "0.1.24"));
-        assert!(!done.restarting);
-    }
-
-    #[test]
-    fn a_failure_keeps_the_nodes_reason() {
-        let e = updated(Event::Failed {
-            reason: "no build for this machine".into(),
-        })
-        .expect_err("a failure");
-        assert_eq!(e.to_string(), "no build for this machine");
+        let client = PeerClient::new(self.connection.clone());
+        Ok(machine::update_node(&client, now).await?)
     }
 }

@@ -5,19 +5,23 @@ use super::{list::ProjectRow, needs_update};
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::projects::{FleetState, desk, mirror_import},
+    fleet::{
+        Machines, extra, files as direct,
+        projects::{FleetState, desk, mirror_import},
+    },
+    machines::list::Outside,
 };
 use beep_fleet::ImportJob;
 use beep_proto::{
     ApiError, BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos,
-    MachineFolder,
+    ListFoundFolders, ListMachineFolder, MachineFolder,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
 
@@ -58,8 +62,38 @@ impl From<FoundProject> for FoundRow {
 /// The checkouts the user's coding agents worked in that are not projects
 /// yet.
 #[tauri::command]
-pub async fn found_projects(fleet: FleetState<'_>) -> Result<Vec<FoundRow>> {
-    let found = desk(&fleet).await?.found().await?;
+pub async fn found_projects(
+    app: AppHandle,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    session: FleetState<'_>,
+    held: State<'_, Outside>,
+) -> Result<Vec<FoundRow>> {
+    let (b, f, d) = (
+        beep.inner().clone(),
+        fleet.inner().clone(),
+        session.inner().clone(),
+    );
+    let found = held.found.refreshed(
+        &app,
+        async move {
+            let here = direct::found_folders(&f).await;
+            // What the mesh already has as a project is not offered again.
+            let mut found = match desk(&d).await {
+                Ok(desk) => desk.group_found(here),
+                Err(_) => beep_projects::imports::found::group(here, &[], &[]),
+            };
+            let others = extra(b.call(ListFoundFolders {}).await);
+            found.extend(others.into_iter().filter(|project| {
+                project
+                    .places
+                    .iter()
+                    .all(|place| f.member(&place.machine_id).is_none())
+            }));
+            Ok(found)
+        },
+        |old, new| old.project == new.project && old.places.len() == new.places.len(),
+    );
     Ok(found.into_iter().map(FoundRow::from).collect())
 }
 
@@ -172,14 +206,17 @@ pub async fn import_project(
 /// machine's workspace, else its home.
 #[tauri::command]
 pub async fn list_machine_folder(
-    fleet: FleetState<'_>,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     path: Option<String>,
 ) -> Result<MachineFolder> {
-    Ok(desk(&fleet)
-        .await?
-        .browse(&machine_id, path.as_deref())
-        .await?)
+    if let Some(machine) = fleet.member(&machine_id) {
+        return direct::folder(&fleet, machine, path.as_deref()).await;
+    }
+    beep.call(ListMachineFolder { machine_id, path })
+        .await
+        .map_err(outdated)
 }
 
 /// The macOS folder picker, opened at `start`; `None` when the user

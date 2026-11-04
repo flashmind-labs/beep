@@ -3,15 +3,21 @@
 //! an interactive one live while typing into it.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::{
+        Fleet, Machines,
+        terminals::{self as direct, Opened},
+    },
+    machines::list::Outside,
     projects::{needs_update, unknown_op},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
-    AttachTerminal, CloseTerminal, GetTerminal, ListAllTerminals, ListTerminals,
-    MAX_TERMINAL_INPUT, OpenTerminal, StartTerminal, Terminal, TerminalEvent, TerminalInput,
-    TerminalOutput, TerminalState,
+    AttachTerminal, CloseTerminal, GetTerminal, ListAllTerminals, MAX_TERMINAL_INPUT, OpenTerminal,
+    StartTerminal, Terminal, TerminalEvent, TerminalInput, TerminalOutput, TerminalState,
+    node::terminal::{Reply as PtyReply, Request as PtyRequest, Size},
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
@@ -19,10 +25,13 @@ use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
-use tauri::{State, ipc::Channel};
+use std::{sync::Arc, time::Duration};
+use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+/// How often an attached terminal looks for its window still being there.
+const WINDOW_CHECK: Duration = Duration::from_secs(2);
 /// Keys and sizes waiting to go up one attached terminal's stream.
 const INPUT_QUEUE: usize = 64;
 
@@ -78,28 +87,66 @@ fn outdated(e: DesktopError) -> DesktopError {
     needs_update(e, "before it keeps terminals")
 }
 
-/// `project`'s terminals; `None` from a server too old to keep them.
-#[tauri::command]
-pub async fn terminals_list(
-    beep: Service<'_>,
-    project: String,
-) -> Result<Option<Vec<TerminalRow>>> {
-    match beep.call(ListTerminals { project }).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+/// Whether two listings of a terminal differ in what the window draws.
+fn same_terminal(old: &Terminal, new: &Terminal) -> bool {
+    old.id == new.id && old.state == new.state
 }
 
-/// Every terminal on every machine; `None` from a server too old to list
-/// them.
+/// Every terminal, at once: those on this Mac as they stand, the rest as
+/// last held. The other machines of the mesh and the server refresh in the
+/// background, and the windows redraw when one changes. The server's
+/// terminals on the mesh's machines show too, so one it kept can be stopped.
+async fn every(
+    app: &AppHandle,
+    beep: &Arc<Beep>,
+    fleet: &Arc<Fleet>,
+    held: &Outside,
+) -> Result<Vec<Terminal>> {
+    let f = fleet.clone();
+    let remote =
+        held.terminals
+            .refreshed(app, async move { direct::remote(&f).await }, same_terminal);
+    let mut rows = direct::local(fleet).await?;
+    rows.extend(direct::remote_now(fleet, &remote));
+    let b = beep.clone();
+    let server = held.server_terminals.refreshed(
+        app,
+        async move { b.call(ListAllTerminals {}).await },
+        same_terminal,
+    );
+    let mine: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
+    rows.extend(server.into_iter().filter(|row| !mine.contains(&row.id)));
+    Ok(rows)
+}
+
+/// `project`'s terminals.
 #[tauri::command]
-pub async fn terminals_all(beep: Service<'_>) -> Result<Option<Vec<TerminalRow>>> {
-    match beep.call(ListAllTerminals {}).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+pub async fn terminals_list(
+    app: AppHandle,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    held: State<'_, Outside>,
+    project: String,
+) -> Result<Option<Vec<TerminalRow>>> {
+    let rows = every(&app, &beep, &fleet, &held).await?;
+    Ok(Some(
+        rows.into_iter()
+            .filter(|t| t.project == project)
+            .map(Into::into)
+            .collect(),
+    ))
+}
+
+/// Every terminal on every machine.
+#[tauri::command]
+pub async fn terminals_all(
+    app: AppHandle,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    held: State<'_, Outside>,
+) -> Result<Option<Vec<TerminalRow>>> {
+    let rows = every(&app, &beep, &fleet, &held).await?;
+    Ok(Some(rows.into_iter().map(Into::into).collect()))
 }
 
 /// The fields of a new terminal, as the form gives them.
@@ -114,7 +161,11 @@ pub struct NewTerminal {
 }
 
 #[tauri::command]
-pub async fn terminal_start(beep: Service<'_>, terminal: NewTerminal) -> Result<TerminalRow> {
+pub async fn terminal_start(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    terminal: NewTerminal,
+) -> Result<TerminalRow> {
     let NewTerminal {
         project,
         machine_id,
@@ -122,16 +173,17 @@ pub async fn terminal_start(beep: Service<'_>, terminal: NewTerminal) -> Result<
         command,
         cwd,
     } = terminal;
-    let started = beep
-        .call(StartTerminal {
-            project,
-            machine_id,
-            name,
-            command,
-            cwd,
-        })
-        .await
-        .map_err(outdated)?;
+    let request = StartTerminal {
+        project,
+        machine_id,
+        name,
+        command,
+        cwd,
+    };
+    let started = match fleet.member(&request.machine_id) {
+        Some(_) => direct::start(&fleet, request).await?,
+        None => beep.call(request).await.map_err(outdated)?,
+    };
     Ok(started.into())
 }
 
@@ -152,7 +204,11 @@ pub struct NewShell {
 /// Starts an interactive terminal; `None` from a server too old for them,
 /// which still starts view-only ones with `terminal_start`.
 #[tauri::command]
-pub async fn terminal_open(beep: Service<'_>, terminal: NewShell) -> Result<Option<TerminalRow>> {
+pub async fn terminal_open(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    terminal: NewShell,
+) -> Result<Option<TerminalRow>> {
     let NewShell {
         project,
         machine_id,
@@ -162,17 +218,19 @@ pub async fn terminal_open(beep: Service<'_>, terminal: NewShell) -> Result<Opti
         cols,
         rows,
     } = terminal;
-    let opened = beep
-        .call(OpenTerminal {
-            project,
-            machine_id,
-            name,
-            command,
-            cwd,
-            cols,
-            rows,
-        })
-        .await;
+    let request = OpenTerminal {
+        project,
+        machine_id,
+        name,
+        command,
+        cwd,
+        cols,
+        rows,
+    };
+    let opened = match fleet.member(&request.machine_id) {
+        Some(_) => direct::open(&fleet, request).await,
+        None => beep.call(request).await,
+    };
     match opened {
         Ok(row) => Ok(Some(row.into())),
         Err(e) if unknown_op(&e) => Ok(None),
@@ -181,12 +239,20 @@ pub async fn terminal_open(beep: Service<'_>, terminal: NewShell) -> Result<Opti
 }
 
 #[tauri::command]
-pub async fn terminal_output(beep: Service<'_>, id: Uuid) -> Result<OutputView> {
+pub async fn terminal_output(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    id: Uuid,
+) -> Result<OutputView> {
     let TerminalOutput {
         terminal,
         lines,
         earlier,
-    } = beep.call(GetTerminal { id }).await.map_err(outdated)?;
+    } = if direct::has(&fleet, id) {
+        direct::get(&fleet, id).await?
+    } else {
+        beep.call(GetTerminal { id }).await.map_err(outdated)?
+    };
     Ok(OutputView {
         terminal: terminal.into(),
         lines,
@@ -195,7 +261,10 @@ pub async fn terminal_output(beep: Service<'_>, id: Uuid) -> Result<OutputView> 
 }
 
 #[tauri::command]
-pub async fn terminal_close(beep: Service<'_>, id: Uuid) -> Result<()> {
+pub async fn terminal_close(beep: Service<'_>, fleet: Machines<'_>, id: Uuid) -> Result<()> {
+    if direct::has(&fleet, id) {
+        return direct::close(&fleet, id).await;
+    }
     beep.call(CloseTerminal { id }).await.map_err(outdated)
 }
 
@@ -318,7 +387,9 @@ impl Drop for Unfollow<'_> {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn terminal_attach(
+    window: WebviewWindow,
     beep: Service<'_>,
+    fleet: Machines<'_>,
     attached: State<'_, Attached>,
     id: Uuid,
     view: Uuid,
@@ -327,6 +398,65 @@ pub async fn terminal_attach(
     rows: u32,
     on_event: Channel<TermEvent>,
 ) -> Result<()> {
+    if direct::has(&fleet, id) {
+        let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
+            Opened::Live { tx, rx } => (tx, rx),
+            Opened::Over(event) => {
+                on_event.send(event.into())?;
+                return Ok(());
+            }
+        };
+        let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
+        let viewer = Viewer { terminal: id, view };
+        let serial = attached.follow(viewer, input_tx);
+        let _unfollow = Unfollow {
+            attached: &attached,
+            viewer,
+            serial,
+        };
+        on_event.send(TermEvent::Attached)?;
+        let ended = |state| TermEvent::from(TerminalEvent::Ended { state });
+        let (label, handle) = (window.label().to_owned(), window.app_handle().clone());
+        let mut watch = tokio::time::interval(WINDOW_CHECK);
+        loop {
+            tokio::select! {
+                // The window closed: nobody reads the output, so stop following.
+                _ = watch.tick() => {
+                    if handle.get_webview_window(&label).is_none() {
+                        return Ok(());
+                    }
+                }
+                heard_from_node = rx.recv::<PtyReply>() => match heard_from_node {
+                    Ok(Some(reply)) => match heard(reply) {
+                        Heard::Show(event) => on_event.send(event.into())?,
+                        Heard::End(state) => {
+                            on_event.send(ended(state))?;
+                            return Ok(());
+                        }
+                        Heard::Ignore => {}
+                    },
+                    Ok(None) | Err(_) => {
+                        on_event.send(ended(TerminalState::Offline {}))?;
+                        return Ok(());
+                    }
+                },
+                typed = input.recv() => {
+                    let request = match typed {
+                        Some(TerminalInput::Keys { data }) => PtyRequest::Input { data },
+                        Some(TerminalInput::Resize { cols, rows }) => PtyRequest::Resize {
+                            size: Size::clamped(cols, rows),
+                        },
+                        // Detached: closing the node's stream detaches there too.
+                        None => return Ok(()),
+                    };
+                    if tx.send(&request).await.is_err() {
+                        on_event.send(ended(TerminalState::Offline {}))?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
     let (mut uplink, mut replies) = beep
         .duplex(AttachTerminal {
             id,

@@ -1,6 +1,6 @@
 //! `AttachTerminal`: relays a live terminal between node and app; QUIC flow control bounds it.
 
-use super::{state, state_of};
+use super::{state_of, terminals};
 use crate::{
     api::{
         Reply,
@@ -17,6 +17,7 @@ use crate::{
     },
 };
 use anyhow::Result;
+use beep_mesh::machine::terminals::Heard;
 
 pub(in crate::api) async fn attach_terminal(
     cx: Cx,
@@ -112,18 +113,11 @@ pub(super) async fn relay(
     loop {
         tokio::select! {
             heard = from_node.hear() => match heard {
-                Ok(Some(PtyReply::Output { at, data })) => {
-                    screen.show(TerminalEvent::Output { at, data }).await?;
-                }
-                Ok(Some(PtyReply::Ended { task })) => {
-                    return ended(screen, state(task.state)).await;
-                }
-                // The node no longer has it, such as after a restart.
-                Ok(Some(PtyReply::Error { message })) => {
-                    log::debug!("attaching a terminal failed: {message}");
-                    return ended(screen, TerminalState::Gone {}).await;
-                }
-                Ok(Some(other)) => log::debug!("ignored {other:?} from an attached terminal"),
+                Ok(Some(reply)) => match terminals::heard(reply) {
+                    Heard::Show(event) => screen.show(event).await?,
+                    Heard::End(state) => return ended(screen, state).await,
+                    Heard::Ignore => {}
+                },
                 Ok(None) | Err(_) => return ended(screen, TerminalState::Offline {}).await,
             },
             input = keys.next_input() => {

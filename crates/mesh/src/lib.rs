@@ -7,6 +7,7 @@ mod devices;
 mod frame;
 mod join;
 mod link;
+pub mod machine;
 mod mesh;
 mod state;
 mod store;
