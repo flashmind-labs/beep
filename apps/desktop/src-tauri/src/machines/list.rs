@@ -356,11 +356,16 @@ async fn unlink(beep: &Beep, id: &str) -> Result<()> {
     done
 }
 
-/// Whether the server no longer has the machine after `reply`.
+/// Whether the server no longer has the machine after `reply`, or never
+/// will take the request: a bad request (a server too old to know it, or
+/// the machine is this one) would be refused again at every launch.
 fn dropped(reply: &Result<()>) -> bool {
     matches!(
         reply,
-        Ok(()) | Err(DesktopError::Api(ApiError::NotFound {}))
+        Ok(())
+            | Err(DesktopError::Api(
+                ApiError::NotFound {} | ApiError::BadRequest { .. }
+            ))
     )
 }
 
@@ -515,9 +520,13 @@ mod tests {
     fn a_machine_the_server_does_not_list_counts_as_dropped() {
         assert!(dropped(&Ok(())));
         assert!(dropped(&Err(DesktopError::Api(ApiError::NotFound {}))));
+        assert!(dropped(&Err(DesktopError::Api(ApiError::bad_request(
+            "unknown request"
+        )))));
         assert!(!dropped(&Err(DesktopError::BadRequest(
             "took too long".into()
         ))));
+        assert!(!dropped(&Err(DesktopError::Api(ApiError::Internal {}))));
         assert!(!dropped(&Err(DesktopError::NoServer)));
     }
 }
