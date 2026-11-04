@@ -97,7 +97,7 @@ enum Command {
         #[arg(long)]
         now: bool,
         /// The most minutes to wait for agent turns to finish.
-        #[arg(long, default_value_t = 30)]
+        #[arg(long, default_value_t = update::WAIT_MINUTES)]
         wait: u64,
     },
     /// Claude Code hooks that tell the node when a session started outside

@@ -30,7 +30,7 @@ impl Online {
     }
 
     /// The agent sessions the node runs that have not ended, which its
-    /// restart stops.
+    /// restart waits for.
     pub(crate) async fn running_agent_sessions(&self) -> Result<u32> {
         if !self.offers(SESSIONS_PROTOCOL) {
             return Ok(0);
@@ -43,11 +43,12 @@ impl Online {
         Ok(u32::try_from(running).unwrap_or(u32::MAX))
     }
 
-    /// Has the node install the newest release and restart. `Err` holds
-    /// the node's reason, in words for the user.
-    pub(crate) async fn update(&self) -> Result<Updated> {
+    /// Has the node install the newest release and restart, once its
+    /// agent sessions are idle or, with `now`, at once. `Err` holds the
+    /// node's reason, in words for the user.
+    pub(crate) async fn update(&self, now: bool) -> Result<Updated> {
         let (mut tx, mut rx) = self.open_stream(PROTOCOL).await?;
-        tx.send(&Request::Update {}).await?;
+        tx.send(&Request::Update { now }).await?;
         let event = timeout(INSTALL_TIMEOUT, rx.recv::<Event>())
             .await
             .context("the update took too long")??

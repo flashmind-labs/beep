@@ -100,7 +100,9 @@ pub async fn serve(
     let mut offers = Offers::local(&state.agents, provision);
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
-    offers.extra.push(Arc::new(crate::update::Updates));
+    offers
+        .extra
+        .push(Arc::new(crate::update::Updates::new(offers.agents.clone())));
     // Live project updates: GitHub through `gh webhook forward`, Forgejo
     // and Gitea on the private-network address the settings name.
     match Webhooks::new(state.webhook_listen) {

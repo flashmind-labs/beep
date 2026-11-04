@@ -5,7 +5,8 @@
 //!
 //! The server sends one `Request::Update`; the node answers with one
 //! `Event`, finishes the stream, and only then restarts, so the server
-//! reads the answer before the connection drops.
+//! reads the answer before the connection drops. It holds new prompts and
+//! restarts once its agent sessions are idle, or after a wait.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +17,12 @@ pub const PROTOCOL: &str = "update/1";
 #[non_exhaustive]
 pub enum Request {
     /// Installs the newest release if this node is behind it.
-    Update {},
+    Update {
+        /// Restarts without waiting for the agent sessions to be idle. A
+        /// node from before it restarts at once.
+        #[serde(default)]
+        now: bool,
+    },
 }
 
 /// What the node answers.
@@ -32,8 +38,9 @@ pub enum Event {
         /// The service restarts on `to` once the stream is finished: the
         /// node drops off and connects again.
         restarting: bool,
-        /// Why it does not restart, in words for the user; empty when it
-        /// does.
+        /// Why it does not restart, or that it waits for the agent
+        /// sessions first, in words for the user; empty when it restarts at
+        /// once.
         #[serde(default)]
         note: String,
     },
@@ -45,6 +52,24 @@ pub enum Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_reads_across_versions() {
+        #[derive(Serialize, Deserialize)]
+        enum Older {
+            Update {},
+        }
+        let body = rmp_serde::to_vec_named(&Older::Update {}).expect("encodes");
+        assert_eq!(
+            rmp_serde::from_slice::<Request>(&body).expect("decodes"),
+            Request::Update { now: false }
+        );
+        let body = rmp_serde::to_vec_named(&Request::Update { now: true }).expect("encodes");
+        assert!(matches!(
+            rmp_serde::from_slice::<Older>(&body).expect("decodes"),
+            Older::Update {}
+        ));
+    }
 
     #[test]
     fn events_round_trip() {
