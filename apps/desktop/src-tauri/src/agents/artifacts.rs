@@ -20,6 +20,7 @@ use crate::{
     beep::Beep,
     chat::markdown,
     error::{DesktopError, Result},
+    fleet::{Fleet, Machines},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{AGENT_FILE_CHUNK, ReadWorkFile};
@@ -239,6 +240,7 @@ pub enum ArtifactView {
 #[tauri::command]
 pub async fn agent_artifact(
     beep: State<'_, Arc<Beep>>,
+    fleet: Machines<'_>,
     pages: State<'_, Pages>,
     machine_id: String,
     root: String,
@@ -248,7 +250,7 @@ pub async fn agent_artifact(
         DesktopError::BadRequest("Only pages, documents and pictures show here.".into())
     })?;
     let place = Place::of(machine_id.clone(), root.clone(), &path);
-    let (data, size) = read_whole(&beep, machine_id, root, path).await?;
+    let (data, size) = read_whole(&beep, &fleet, machine_id, root, path).await?;
     Ok(match kind {
         Kind::Html => ArtifactView::Html {
             size,
@@ -275,6 +277,7 @@ pub async fn agent_artifact(
 /// `MAX_ARTIFACT`.
 async fn read_whole(
     beep: &Beep,
+    fleet: &Fleet,
     machine_id: String,
     root: String,
     path: String,
@@ -285,6 +288,7 @@ async fn read_whole(
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let part = read_part(
             beep,
+            fleet,
             ReadWorkFile {
                 machine_id: machine_id.clone(),
                 root: root.clone(),
@@ -410,8 +414,8 @@ impl FileRead {
 }
 
 /// A file beside a page, read whole through the Files tab's read path.
-pub async fn read_sibling(beep: &Beep, file: Sibling) -> Result<Vec<u8>> {
-    let (data, _) = read_whole(beep, file.machine_id, file.root, file.path).await?;
+pub async fn read_sibling(beep: &Beep, fleet: &Fleet, file: Sibling) -> Result<Vec<u8>> {
+    let (data, _) = read_whole(beep, fleet, file.machine_id, file.root, file.path).await?;
     Ok(data)
 }
 

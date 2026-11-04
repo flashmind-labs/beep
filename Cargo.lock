@@ -492,20 +492,27 @@ name = "beep-mesh"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "beep-node",
  "beep-proto",
  "crc32fast",
  "fastrand",
  "futures",
+ "image",
  "iroh",
  "iroh-tickets",
  "postcard",
+ "reqwest 0.12.28",
  "serde",
+ "serde_bytes",
+ "serde_json",
+ "shlex 1.3.0",
  "strum 0.28.0",
  "subtle",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

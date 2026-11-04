@@ -1,7 +1,12 @@
 //! Newer `gh`, `teacli` and `flsh` on the account's machines, and installing them.
 
-use crate::{beep::Service, error::Result, projects::unknown_op};
-use beep_proto::{ListToolUpdates, ToolUpdate, UpdateMachineTool};
+use crate::{
+    beep::Service,
+    error::{DesktopError, Result},
+    fleet::{Machines, files as direct},
+    projects::unknown_op,
+};
+use beep_proto::{ListToolUpdates, ToolUpdate, UpdateMachineTool, node::tool_update::Tool};
 use std::time::Duration;
 
 /// How long the server may take to look up the newest releases.
@@ -27,9 +32,21 @@ pub async fn tool_updates(beep: Service<'_>) -> Result<Vec<ToolUpdate>> {
 #[tauri::command]
 pub async fn update_machine_tool(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     tool: String,
 ) -> Result<String> {
-    beep.call_within(UpdateMachineTool { machine_id, tool }, UPDATE_LIMIT)
-        .await
+    let Some(machine) = fleet.member(&machine_id) else {
+        return beep
+            .call_within(UpdateMachineTool { machine_id, tool }, UPDATE_LIMIT)
+            .await;
+    };
+    let named: Tool = tool
+        .parse()
+        .map_err(|_| DesktopError::BadRequest(format!("Beep does not update {tool}.")))?;
+    let latest = fleet.releases().latest(named).await.ok_or_else(|| {
+        DesktopError::BadRequest(format!("Could not look up the newest {named}."))
+    })?;
+    direct::update_tool(&fleet, machine, named, &latest).await?;
+    Ok(latest)
 }

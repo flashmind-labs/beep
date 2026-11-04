@@ -4,6 +4,7 @@
 use crate::{
     beep::Service,
     error::{DesktopError, Result},
+    fleet::{Machines, agents as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -128,6 +129,7 @@ fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
 #[tauri::command]
 pub async fn agent_steer(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     agent: String,
     session: String,
@@ -141,6 +143,15 @@ pub async fn agent_steer(
         }
         _ => Vec::new(),
     };
+    if let Some(machine) = fleet.member(&machine_id) {
+        let order = SteerAgentSession {
+            machine_id,
+            agent,
+            session,
+            steer,
+        };
+        return direct::steer(&fleet, machine, order).await.map(|()| keys);
+    }
     let images = !keys.is_empty();
     let configure = matches!(steer, AgentSteer::Configure { .. });
     let fallback = queued_instead(&steer);

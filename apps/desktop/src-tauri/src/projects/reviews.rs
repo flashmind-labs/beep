@@ -5,7 +5,11 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    projects::{known, needs_update},
+    fleet::{
+        Machines,
+        files::{self as direct, FALLBACK_DEFAULT},
+    },
+    projects::{branches::places, known, needs_update},
 };
 use beep_proto::{
     BranchReview, CheckBranchReview, DismissReviewFinding, FixReviewFindings, GetBranchReview,
@@ -237,7 +241,23 @@ fn outdated(e: DesktopError) -> DesktopError {
 
 /// `project`'s branches; `None` from a server too old to list them.
 #[tauri::command]
-pub async fn project_branches(beep: Service<'_>, project: String) -> Result<Option<BranchesView>> {
+pub async fn project_branches(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    project: String,
+) -> Result<Option<BranchesView>> {
+    if let Some(place) = places(&beep, &fleet, &project).await.into_iter().next() {
+        let (default_branch, branches) = direct::branches(&fleet, &place, FALLBACK_DEFAULT).await?;
+        return Ok(Some(
+            ProjectBranches {
+                machine_id: place.machine.to_string(),
+                machine_name: fleet.name_of(place.machine),
+                default_branch,
+                branches,
+            }
+            .into(),
+        ));
+    }
     Ok(known(beep.call(ListProjectBranches { project }).await)?.map(Into::into))
 }
 

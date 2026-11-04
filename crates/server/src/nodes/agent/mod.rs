@@ -7,7 +7,7 @@ use follow::{Failed, Failure, Opening, Retry, follow};
 use super::{Ask, Follower};
 use crate::{
     api::transport::READ_TIMEOUT,
-    protocol::node::agent::{self, Question, Request, SessionInfo, Status, StopReason},
+    protocol::node::agent::{Question, Request, SessionInfo, Status, StopReason},
 };
 use anyhow::{Context, Result};
 use std::{
@@ -35,64 +35,8 @@ pub(crate) struct SessionRefused {
     pub(crate) reason: String,
 }
 
-/// A picture of a session's transcript, as the node gave it.
-pub(crate) struct NodeImage {
-    pub(crate) mime: String,
-    pub(crate) data: Vec<u8>,
-}
-
-/// What a node answered when asked for part of a media file.
-pub(crate) enum NodeFile {
-    Chunk {
-        size: u64,
-        mime: String,
-        data: Vec<u8>,
-    },
-    /// There is no file at that path.
-    Missing,
-    /// The node would not read it, saying why.
-    Refused(String),
-}
-
-/// What a node answered when asked to work in a session's folder.
-pub(crate) enum NodeWork<T> {
-    Done(T),
-    /// The node would not, saying why.
-    Refused(String),
-}
-
-/// A read of part of a file in a session's folder.
-pub(crate) struct WorkRead<'a> {
-    pub(crate) root: &'a str,
-    pub(crate) path: &'a str,
-    pub(crate) offset: u64,
-    pub(crate) len: u32,
-}
-
-/// One part of a file written into a session's folder.
-pub(crate) struct WorkWrite {
-    pub(crate) root: String,
-    pub(crate) path: String,
-    pub(crate) offset: u64,
-    pub(crate) size: u64,
-    pub(crate) data: Vec<u8>,
-}
-
-/// What a session starts on besides its folder and prompt; `None` keeps the agent's default.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct StartOn {
-    /// An id from the agent's model list.
-    pub model: Option<String>,
-    /// One of `agent::efforts` for the agent.
-    pub effort: Option<agent::Effort>,
-    /// The branch or worktree to make first, for a node that makes them.
-    pub checkout: Option<agent::CheckoutPlan>,
-}
-
-/// How long a node has to list models: it may start the agent and npx may download it first.
-const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
-/// How long a node has to read a diff: git may walk a large checkout.
-const DIFF_TIMEOUT: Duration = Duration::from_secs(60);
+pub use beep_mesh::machine::StartOn;
+pub(crate) use beep_mesh::machine::{NodeFile, NodeImage, NodeWork, WorkRead, WorkWrite};
 
 /// Unreadable messages in a row before a link gives up.
 const MAX_BAD_MESSAGES: u32 = 8;

@@ -7,6 +7,7 @@ use crate::{
     beep::{BarEvent, Pick, Sent, Service, Turn, epoch_ms},
     center::{self, Chat},
     error::Result,
+    fleet::{Machines, files as direct},
 };
 use beep_proto::{
     ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectMachines,
@@ -23,7 +24,16 @@ use uuid::Uuid;
 /// The sessions coding agents ran in `project`'s folders, newest first;
 /// none from a server too old to list them.
 #[tauri::command]
-pub async fn project_sessions(beep: Service<'_>, project: String) -> Result<Vec<SessionRow>> {
+pub async fn project_sessions(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    project: String,
+) -> Result<Vec<SessionRow>> {
+    let places = super::branches::places(&beep, &fleet, &project).await;
+    if !places.is_empty() {
+        let sessions = direct::project_sessions(&fleet, &places).await;
+        return Ok(sessions.into_iter().map(SessionRow::from).collect());
+    }
     let sessions = known(beep.call(ListProjectSessions { project }).await)?;
     Ok(sessions
         .into_iter()

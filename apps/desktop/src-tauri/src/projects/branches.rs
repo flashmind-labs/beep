@@ -1,17 +1,41 @@
 //! Branches with work before an import, and giving a branch a worktree.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     error::Result,
+    fleet::{
+        Fleet, Machines,
+        files::{self as direct, FALLBACK_DEFAULT, Place},
+    },
     projects::reviews::BranchRow,
     projects::{known, needs_update},
 };
 use beep_proto::{
-    AddBranchWorktree, FindImportFork, ImportCheckout, ImportFork, ImportPreview, PreviewImport,
-    WorkBranch,
+    AddBranchWorktree, FindImportFork, ImportCheckout, ImportFork, ImportPreview,
+    ListProjectMachines, PreviewImport, WorkBranch,
 };
 use serde::Serialize;
 use std::time::Duration;
+
+/// Where `project` has a checkout on a machine of the mesh, as the server
+/// records it; none without a server or a record.
+pub(crate) async fn places(beep: &Beep, fleet: &Fleet, project: &str) -> Vec<Place> {
+    let machines = beep
+        .call(ListProjectMachines {
+            project: project.to_owned(),
+        })
+        .await;
+    crate::fleet::extra(machines)
+        .into_iter()
+        .filter(|machine| machine.online)
+        .filter_map(|machine| {
+            Some(Place {
+                machine: fleet.member(&machine.machine_id)?,
+                folder: machine.folder?,
+            })
+        })
+        .collect()
+}
 
 /// Adding a worktree may fetch the branch first.
 const ADD_TIMEOUT: Duration = Duration::from_secs(150);
@@ -108,10 +132,21 @@ pub async fn find_import_fork(beep: Service<'_>, repo: String) -> Result<Option<
 #[tauri::command]
 pub async fn add_branch_worktree(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     project: String,
     branch: String,
     machine_id: String,
 ) -> Result<BranchRow> {
+    if let Some(machine) = fleet.member(&machine_id) {
+        let place = places(&beep, &fleet, &project)
+            .await
+            .into_iter()
+            .find(|place| place.machine == machine);
+        if let Some(place) = place {
+            let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
+            return Ok(added.into());
+        }
+    }
     let request = AddBranchWorktree {
         project,
         branch,
