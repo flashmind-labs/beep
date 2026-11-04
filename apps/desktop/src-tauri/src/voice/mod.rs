@@ -20,19 +20,18 @@ use crate::{
     beep::state::NoticeVoice,
     beep::{Asking, Beep, Decision, Field, Pick, RunNews, Sent},
     error::DesktopError,
-    voice::audio::{self, Audio, MicChunk, MicDenied, Played},
-    voice::hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW},
-    voice::news::{self, Heard, Teller},
-    voice::orb,
-    voice::presence::Presence,
 };
 use anyhow::Context;
+use audio::{Audio, MicChunk, MicDenied, Played};
 use beep_live::{
     Effect, EndMode, Filler, Fillers, Input, Leaving, Live, Phase, Reading, Toast as LiveToast,
 };
 use beep_proto::{
     ApiError, CancelRun, Filler as FillerLine, Notice, Say, SpeakNotice, Transcription, VoiceNote,
 };
+use hotkey::{Act, HOLD, HoldStep, Input as Key, TapStep, Taps, WINDOW};
+use news::{Heard, Teller};
+use presence::Presence;
 use serde::Serialize;
 use serde_bytes::ByteBuf;
 use std::{

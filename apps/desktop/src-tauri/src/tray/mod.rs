@@ -135,7 +135,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    let waiting = app.state::<waiting::WaitingList>().entries();
+    let waiting = app.state::<WaitingList>().entries();
     if linked && !waiting.is_empty() {
         menu.append(&MenuItem::with_id(
             app,
@@ -181,7 +181,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("cmd+,"),
     )?)?;
-    let (id, title) = match platform::update::ready(app) {
+    let (id, title) = match update::ready(app) {
         Some(_) => ("restart-update", "Restart to Update Beep"),
         None => ("check-update", "Check for Updates…"),
     };
@@ -217,7 +217,7 @@ pub(crate) fn refresh(app: &AppHandle) {
     }
     // The count beside the icon, while anything waits on the user.
     let count = if beep.link_state() == LinkState::Linked {
-        app.state::<waiting::WaitingList>().entries().len()
+        app.state::<WaitingList>().entries().len()
     } else {
         0
     };
@@ -232,11 +232,10 @@ pub(crate) fn refresh(app: &AppHandle) {
 /// Tells the bar and the tray this Mac now signs into an account.
 pub(crate) fn became_linked(app: &AppHandle) {
     let _ = app.emit("link-state", LinkState::Linked);
-    app.state::<machines::this_mac::Machine>()
-        .sync(&app.state::<Arc<Beep>>());
+    app.state::<Machine>().sync(&app.state::<Arc<Beep>>());
     refresh(app);
     tauri::async_runtime::spawn(refresh_recent(app.clone()));
-    app.state::<waiting::WaitingList>().poke();
+    app.state::<WaitingList>().poke();
 }
 
 /// Fetches the latest chats for Recent and rebuilds the menu.
@@ -323,9 +322,9 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
         }
         "check-update" => {
             let app = app.clone();
-            tauri::async_runtime::spawn(async move { platform::update::check(&app, true).await });
+            tauri::async_runtime::spawn(async move { update::check(&app, true).await });
         }
-        "restart-update" => platform::update::restart(app),
+        "restart-update" => update::restart(app),
         "show-logs" => {
             if let Err(e) = crate::bar::commands::open_log() {
                 log::warn!("showing the logs: {e}");

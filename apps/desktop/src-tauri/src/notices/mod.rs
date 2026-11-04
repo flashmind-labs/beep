@@ -39,7 +39,7 @@ pub(crate) async fn serve(
         }
         // Checked before `changed`, which a resolved question also sets.
         if let Some(query_id) = notice.resolved_question() {
-            let resolved = notices::work::Resolved {
+            let resolved = work::Resolved {
                 session_id: notice.session_id.clone(),
                 query_id: query_id.to_owned(),
             };
@@ -63,7 +63,7 @@ pub(crate) async fn serve(
         // Background work asks only through a notice, so its chat keeps a
         // card for the question.
         if let Some(question) =
-            notices::work::WorkQuestion::from_notice(&notice.session_id, notice.approval.as_ref())
+            work::WorkQuestion::from_notice(&notice.session_id, notice.approval.as_ref())
         {
             let _ = app.emit("work-question", question);
         }

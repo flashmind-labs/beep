@@ -3,7 +3,7 @@
 //! as "Restart to Update Beep" in the tray menu. Quitting installs a
 //! downloaded update too.
 
-use crate::{notify_text, refresh_tray};
+use crate::{notices::notify, tray};
 use std::{
     sync::{Mutex, MutexGuard, PoisonError},
     time::Duration,
@@ -57,19 +57,19 @@ pub async fn check(app: &AppHandle, asked: bool) {
     }
     match download(app).await {
         Ok(Some(version)) => {
-            refresh_tray(app);
-            notify_text(
+            tray::refresh(app);
+            notify::text(
                 app,
                 &format!("Beep {version} is ready"),
                 "Choose Restart to Update Beep in the menu bar, or it installs the next time Beep quits.",
             );
         }
-        Ok(None) if asked => notify_text(app, "Beep is up to date", ""),
+        Ok(None) if asked => notify::text(app, "Beep is up to date", ""),
         Ok(None) => {}
         Err(e) => {
             log::warn!("checking for an update: {e}");
             if asked {
-                notify_text(app, "Could not check for updates", "Try again later.");
+                notify::text(app, "Could not check for updates", "Try again later.");
             }
         }
     }

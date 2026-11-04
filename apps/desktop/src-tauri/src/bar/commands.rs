@@ -783,7 +783,7 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<()> {
 }
 
 #[tauri::command]
-pub fn mac_control(beep: Service<'_>, machine: State<'_, Machine>) -> machine::View {
+pub fn mac_control(beep: Service<'_>, machine: State<'_, Machine>) -> this_mac::View {
     machine.view(&beep)
 }
 
@@ -792,7 +792,7 @@ pub fn set_mac_control(
     beep: Service<'_>,
     machine: State<'_, Machine>,
     enabled: bool,
-) -> machine::View {
+) -> this_mac::View {
     beep.set_use_mac(enabled);
     machine.sync(&beep);
     machine.view(&beep)
@@ -800,7 +800,7 @@ pub fn set_mac_control(
 
 #[tauri::command]
 pub fn allow_mac_permission(permission: Permission) {
-    machine::allow(permission);
+    this_mac::allow(permission);
 }
 
 /// Forgets this computer's key and starts again with a new one, the only
