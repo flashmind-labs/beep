@@ -66,20 +66,16 @@ export interface Chip {
 /// Items a project shows before "Show all".
 export const ITEMS_SHOWN = 3;
 
-/// The section's title from the hosts saved: "Open on GitHub", "Open on
-/// Forgejo" or "Open on GitHub and Forgejo".
-export function openTitle(hosts: readonly Pick<GitHostRow, "forgejo">[]) {
-  const names = [];
-  if (hosts.some(h => !h.forgejo)) names.push("GitHub");
-  if (hosts.some(h => h.forgejo)) names.push("Forgejo");
-  return `Open on ${names.join(" and ") || "your git hosts"}`;
-}
-
 /// Whether an item waits on the user: a PR asking for their review, or
 /// one of theirs with changes requested or failing checks.
 export function waitsOnYou(item: Item) {
   if (item.kind !== "pull_request") return false;
   return item.review_requested || (item.authored && (item.review === "changes_requested" || item.checks_failing));
+}
+
+/// Orders items: those waiting on the user first, then the newest.
+export function waitingFirst(a: Item & Pick<GitItemRow, "updated_at">, b: Item & Pick<GitItemRow, "updated_at">) {
+  return Number(waitsOnYou(b)) - Number(waitsOnYou(a)) || b.updated_at - a.updated_at;
 }
 
 /// The repository's web page from an item's.
@@ -108,7 +104,7 @@ export function projectsWithOpen<P extends OpenProject>(
     row.last = Math.max(row.last, item.updated_at);
     row.items.push(item);
   }
-  for (const row of rows.values()) row.items.sort((a, b) => (Number(waitsOnYou(b)) - Number(waitsOnYou(a))) || b.updated_at - a.updated_at);
+  for (const row of rows.values()) row.items.sort(waitingFirst);
   return [...rows.values()].sort((a, b) => (Math.sign(b.waiting) - Math.sign(a.waiting)) || b.last - a.last);
 }
 

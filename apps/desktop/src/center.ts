@@ -29,7 +29,7 @@ import { confirmSheet, openMenu, type MenuItem } from "./menu.ts";
 import { editorTools } from "./editors.ts";
 import { NEW_WINDOW, mainTarget, opensNewWindow, route, startView, windowTitle } from "./projectwindow.ts";
 import type { CenterTarget, ProjectScope } from "./projectwindow.ts";
-import { ITEMS_SHOWN, itemChips, openTitle, projectsWithOpen, replyPrompt, reviewStart, repoUrl } from "./openitems.ts";
+import { ITEMS_SHOWN, itemChips, projectsWithOpen, replyPrompt, reviewStart, repoUrl, waitingFirst } from "./openitems.ts";
 import { outsideThreads } from "./branchwork.ts";
 import { agentFor, tasksSection, workersSection, cardsSection, chatProject, shortName, newChatProject, workerSession } from "./project.ts";
 import { type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
@@ -259,7 +259,7 @@ function projectDot(i?: number) {
 
 /// A Home section: its title and count, an optional button on the right,
 /// then its body. `notes` follow the count in the title.
-function section(id: string, title: string, count: number | string, action: Kid, body: Node, ...notes: Kid[]) {
+function section(id: string, title: Kid, count: number | string, action: Kid, body: Node, ...notes: Kid[]) {
   const el = h("div");
   el.id = id;
   const head = h("h4", "", title);
@@ -441,12 +441,6 @@ function runningRow(r: RunningRow) {
   return row;
 }
 
-/// Running now, the one that moved last first, at most `max` of them with
-/// a way to the rest.
-function runningSection(running: RunningRow[], max = Infinity) {
-  const more = running.length > max ? button(`All ${running.length}`, "quiet small", () => openHomeTab("running")) : null;
-  return section("sec-running", "Running now", running.length, more, h("div", "cc-panel", ...byRecent(running).slice(0, max).map(runningRow)));
-}
 
 // ---------- Terminals ----------
 
@@ -488,6 +482,13 @@ function terminalsPanel(m: MachineTerminals<TerminalRow>) {
     return row;
   });
   return h("div", "cc-panel tl-mp", head, ...rows);
+}
+
+/// A terminal in an Overview box: its name, machine and folder, how it stands.
+function terminalLine(t: TerminalRow, open: () => void) {
+  const row = line(h("span", `ddot${t.state === "running" ? "" : " off"}`), t.name, `${t.machine_name} · ${terminalWhere(t)}`, [terminalNote(t, ago)], open);
+  row.title = `${t.machine_name}: ${t.command} in ${t.cwd}`;
+  return row;
 }
 
 /// Home's Terminals: a panel per machine that is online or has terminals.
@@ -564,11 +565,9 @@ function needsSection(needs: NeedsYou[]) {
 
 // ---------- Coming up ----------
 
-function comingSection(rows: CronRow[]) {
-  return section("sec-coming", "Coming up", rows.length, null, h("div", "cc-panel", ...rows.map(c => {
-    const w = whenOf(c.next_run_at);
-    return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label.trim() || c.prompt.trim() || "Routine", scheduleText(c.schedule), [], () => go("pane", "routines"));
-  })));
+function comingRow(c: CronRow) {
+  const w = whenOf(c.next_run_at);
+  return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label.trim() || c.prompt.trim() || "Routine", scheduleText(c.schedule), [], () => go("pane", "routines"));
 }
 
 // ---------- Updates ----------
@@ -792,18 +791,29 @@ function importWithSettings(p: OpenRepo) {
   });
 }
 
-/// Open PRs and issues on the user's git hosts, one row per project with
-/// its items under it. A host that failed says why above the rows.
+/// Open PRs beside open issues on the user's git hosts, each a row per
+/// project with its items under it. A host that failed says why above.
 function gitSection(view: GitItemsView) {
-  const projects = projectsWithOpen(view, projectRows() || []);
-  const notes = view.hosts.filter(x => x.error).map(x =>
-    note("bad", x.error));
-  const body = projects.length
-    ? projects.flatMap(openProjectRows)
-    : [h("div", "cc-empty", h("span", "", notes.length ? "Nothing to show from the hosts that answered." : "No open pull requests or issues."))];
-  const total = projects.reduce((n, p) => n + p.items.length, 0);
-  const count = projects.length ? `${total} in ${plural(projects.length, "project", "projects")}` : "";
-  return section("sec-git", openTitle(view.hosts), count, null, h("div", "cc-panel cc-open", ...notes, ...body));
+  const all = projectRows() || [];
+  const column = (kind: GitItemRow["kind"], title: string, none: string) => {
+    const items = view.items.filter(i => i.kind === kind);
+    const body = items.length ? projectsWithOpen({ items }, all).flatMap(openProjectRows) : [h("div", "cc-empty", h("span", "", none))];
+    return section("", title, items.length, null, h("div", "cc-panel cc-open", ...body));
+  };
+  const el = h("div", "cc-git", ...view.hosts.filter(x => x.error).map(x => note("bad", x.error)),
+    h("div", "cc-cols", column("pull_request", "Pull requests", "No open pull requests."), column("issue", "Issues", "No open issues.")));
+  el.id = "sec-git";
+  return el;
+}
+
+/// An open PR or issue in an Overview box: number and title, its repo and
+/// first state chip, opening it on its host.
+function itemLine(item: GitItemRow) {
+  const chip = itemChips(item)[0];
+  const row = line(icon(item.kind === "pull_request" ? IC.pr : IC.issue), `#${item.number} ${item.title}`, item.repo,
+    [chip ? tag(chip.cls, chip.text) : null, ago(item.updated_at)], () => openUrl(item.url));
+  row.title = item.url;
+  return row;
 }
 
 /// `load` run so that a call while one runs is dropped.
@@ -1586,16 +1596,16 @@ function thisMacItem(mac: MacRow) {
 
 // ---------- Home ----------
 
-type HomeTab = "overview" | "running" | "git" | "terminals" | "updates" | "coming" | "projects" | "machines";
+type HomeTab = "overview" | "git" | "projects" | "machines" | "terminals";
 /// The Home tab on screen.
 let homeTab: HomeTab = "overview";
 /// The tab each section Home can jump to sits on.
 const TAB_OF: Record<string, HomeTab> = {
-  "sec-needs": "overview", "sec-running": "running", "sec-git": "git", "sec-terminals": "terminals",
-  "sec-updates": "updates", "sec-coming": "coming", "sec-projects-home": "projects", "sec-machines": "machines",
+  "sec-needs": "overview", "sec-running": "overview", "sec-updates": "overview", "sec-coming": "overview",
+  "sec-git": "git", "sec-terminals": "terminals", "sec-projects-home": "projects", "sec-machines": "machines",
 };
-/// Running now rows the Overview shows before "All".
-const OVERVIEW_RUNNING = 5;
+/// Rows an Overview box shows; its title opens the rest.
+const BOX_ROWS = 5;
 
 function openHomeTab(tab: HomeTab) {
   homeTab = tab;
@@ -1628,17 +1638,14 @@ function machineStrip(machines: MachineCard[]) {
 /// Home: the machines strip, then one tab at a time. A tab with nothing in
 /// it is left out; Overview and Machines stay.
 function page(home: HomeView) {
-  const { machines, running, coming_up: coming, needs_you: needs, updates } = home;
+  const { machines, running } = home;
   const terms = allTerms.list(ALL), projects = projectRows() || [], git = state.git;
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
     { key: "overview", label: "Overview", count: null, on: true, make: () => overview(home) },
-    { key: "running", label: "Running", count: running?.length ?? 0, on: !!running?.length, make: () => [runningSection(running!)] },
-    { key: "git", label: "Pull requests", count: git?.hosts?.length ? projectsWithOpen(git, projects).reduce((n, p) => n + p.items.length, 0) : 0, on: !!git?.hosts?.length, make: () => [gitSection(git!)] },
-    { key: "terminals", label: "Terminals", count: terms?.length ?? 0, on: !!terms && !!machines?.length, make: () => [terminalsSection(terms!)] },
-    { key: "updates", label: "Updates", count: updates?.length ?? 0, on: !!updates?.length, make: () => [updatesSection(updates!)] },
-    { key: "coming", label: "Coming up", count: coming?.length ?? 0, on: !!coming?.length, make: () => [comingSection(coming!)] },
+    { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length, make: () => [gitSection(git!)] },
     { key: "projects", label: "Projects", count: projects.length, on: projects.length > 0, make: () => [projectsSection(projects)] },
     { key: "machines", label: "Machines", count: null, on: !!machines, make: () => [machinesSection(machines!)] },
+    { key: "terminals", label: "Terminals", count: terms?.length ?? 0, on: !!terms && !!machines?.length, make: () => [terminalsSection(terms!)] },
   ];
   const shownTabs = tabs.filter(t => t.on);
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
@@ -1666,15 +1673,30 @@ function page(home: HomeView) {
   return out;
 }
 
-/// What needs you, then Running now beside Coming up.
+/// An Overview box: its title opens the full list, then its first rows.
+function homeBox(id: string, title: string, count: number | string, open: () => void, rows: Node[]) {
+  return section(id, button(title, "lk", open), count, null, h("div", "cc-panel", ...rows.slice(0, BOX_ROWS)));
+}
+
+/// What needs you, then a box per list, as many across as fit. A list
+/// with nothing in it is left out.
 function overview(home: HomeView) {
-  const { running, coming_up: coming, needs_you: needs } = home;
+  const { running, coming_up: coming, needs_you: needs, updates } = home;
+  const items = [...(state.git?.items || [])].sort(waitingFirst);
+  const prs = items.filter(i => i.kind === "pull_request"), issues = items.filter(i => i.kind === "issue");
+  const terms = home.machines?.length ? allTerms.list(ALL) || [] : [], projects = projectRows() || [];
+  const boxes = [
+    updates?.length ? updatesSection(updates) : null,
+    running?.length ? homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow)) : null,
+    prs.length ? homeBox("", "Pull requests", prs.length, () => openHomeTab("git"), prs.map(itemLine)) : null,
+    issues.length ? homeBox("", "Issues", issues.length, () => openHomeTab("git"), issues.map(itemLine)) : null,
+    terms.length ? homeBox("", "Terminals", terms.length, () => openHomeTab("terminals"), terms.map(t => terminalLine(t, () => openTerminals({ id: t.id })))) : null,
+    projects.length ? homeBox("", "Projects", projects.length, () => openHomeTab("projects"), projects.map((p, i) => homeProjectRow(p, i))) : null,
+    coming?.length ? homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)) : null,
+  ].filter(b => b !== null);
   const out: HTMLElement[] = [];
   if (needs.length) out.push(needsSection(needs));
-  const cols: HTMLElement[] = [];
-  if (running?.length) cols.push(runningSection(running, OVERVIEW_RUNNING));
-  if (coming?.length) cols.push(comingSection(coming));
-  if (cols.length) out.push(cols.length === 2 ? h("div", "cc-cols", ...cols) : cols[0]);
+  if (boxes.length) out.push(h("div", "cc-hgrid", ...boxes));
   if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
   return out;
 }
@@ -2217,12 +2239,11 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
   const cards = cardsSection(view, chatActs(p));
   const groups: SplitGroup[] = [];
   if (cards) groups.push({ title: "Needs you", items: [{ key: "needs", title: "The project agent waits on you", sub: plural(view.cards.length, "card", "cards"), detail: () => [cards] }] });
-  if (running.length) {
-    groups.push({ title: "Running", items: byRecent(running).map(r => ({
-      key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
-      right: r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r)), open: () => go("pane", { agent: r }),
-    })) });
-  }
+  const runItems: SplitItem[] = byRecent(running).map(r => ({
+    key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
+    right: r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r)), open: () => go("pane", { agent: r }),
+  }));
+  if (runItems.length) groups.push({ title: "Running", items: runItems });
   const past = sessions ? pastSessions(sessions, running) : [];
   groups.push({ title: "Work", items: [
     { key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [taskColumns(view)] },
@@ -2231,21 +2252,23 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
   ] });
   const num = (n: number) => h("span", "num", `#${n}`);
   const prs = thr.prs(pid), issues = thr.issues(pid);
-  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), items: thr.prLines(agent, acts).map(l => {
+  const prItems: SplitItem[] = thr.prLines(agent, acts).map(l => {
     const chip = prChip(l), pr = l.pr;
     return {
       key: `pr:${pr.number}`, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "),
       right: chip && stateChip(chip.cls, chip.text, chip.cls === "running"),
       detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
     };
-  }) });
-  groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), items: thr.issueLines(agent, acts).map(l => ({
+  });
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), items: prItems });
+  const issueItems: SplitItem[] = thr.issueLines(agent, acts).map(l => ({
     key: `issue:${l.number}`, lead: num(l.number), title: l.title,
     sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
     right: l.task && stateChip(l.task.state, l.task.state, l.task.state === "running"),
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
-  })) });
+  }));
+  groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), items: issueItems });
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
     { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },
@@ -2258,14 +2281,16 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
     project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
   }
   groups.push({ title: "Project", items: project });
+  const overview = projectOverview(p, runItems, prItems, issueItems, machineTile(rows, sync));
+  groups.unshift({ title: "", items: [{ key: "overview", title: "Overview", sub: overview.sub, detail: () => [overview.body] }] });
   // A review opens from Branches and keeps it lit.
   const all = groups.flatMap(g => g.items);
   const picked = pa.tile === "review"
     ? { key: "branches", detail: () => revs.reviewPanel(p.name) }
-    : all.find(i => i.key === pa.tile && i.detail) || all.find(i => i.key === (cards ? "needs" : "tasks"))!;
+    : all.find(i => i.key === pa.tile && i.detail) || all[0];
   const list = h("div", "pj-list");
   for (const g of groups) {
-    list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
+    if (g.title) list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
     if (g.note) list.append(h("div", "note", g.note));
     for (const i of g.items) {
       const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => h("i", "pj-tag", l)))), h("span", "r", i.right));
@@ -2279,6 +2304,28 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
   const error = state.pview.get(p.name)?.error;
   const det = h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
   return [h("div", "pj-split", list, det)];
+}
+
+/// The project's Overview: a box per list, each title opening that row of
+/// the list, and its one line for the list.
+function projectOverview(p: Project, run: SplitItem[], prs: SplitItem[], issues: SplitItem[], where: ReturnType<typeof machineTile>) {
+  const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead : null, i.title, i.sub, [i.right], i.open || (() => openTile(i.key))));
+  const box = (title: string, items: SplitItem[], key: string) => items.length ? homeBox("", title, items.length, () => openTile(key), rowsOf(items)) : null;
+  const list = terms.list(p.name) || [];
+  const machines = where.rows.map(r => {
+    const row = line(h("span", `ddot${r.dot ? " off" : ""}`), r.text || "", r.note || "", [], () => openTile("machines"));
+    row.title = r.title || r.text || "";
+    return row;
+  });
+  const boxes = [
+    box("Running", run, "agents"),
+    box("Pull requests", prs, prs[0]?.key),
+    box("Issues", issues, issues[0]?.key),
+    list.length ? homeBox("", "Terminals", list.length, () => openTile("terminals"), list.map(t => terminalLine(t, () => openTile("terminals")))) : null,
+    machines.length ? homeBox("", "Machines", where.count, () => openTile("machines"), machines) : null,
+  ].filter(b => b !== null);
+  const sub = [run.length ? `${run.length} running` : "", prs.length ? plural(prs.length, "PR", "PRs") : "", issues.length ? plural(issues.length, "issue", "issues") : ""].filter(Boolean).join(" · ");
+  return { sub, body: boxes.length ? h("div", "cc-hgrid", ...boxes) : emptyPanel(h("span", "", "Nothing running or open here.")) };
 }
 
 /// What the project chat's cards do.
@@ -3218,20 +3265,33 @@ registerView("projects", {
   },
 });
 
-/// Home's short list of projects: the page has the table.
+/// A project's row on Home: its dot, `name` (its full name by default),
+/// the machines it is on and how many agents run there.
+function homeProjectRow(p: Project, i: number, name = p.name) {
+  const row = line(
+    projectDot(i),
+    name,
+    [p.machines.map(m => m.name).join(", "), p.agents ? plural(p.agents, "agent", "agents") : ""].filter(Boolean).join(" · "),
+    [p.last ? ago(p.last) : ""],
+    () => openProjects(p.name));
+  newWindowOn(row, row, p.name);
+  return row;
+}
+
+/// Home's Projects: a panel per owner, as many across as fit, so one owner
+/// keeps one column's width.
 function projectsSection(rows: Project[]) {
-  const more = button("All projects", "quiet small", () => openProjects());
-  const list = rows.slice(0, 6).map((p, i) => {
-    const row = line(
-      projectDot(i),
-      p.name,
-      [p.machines.map(m => m.name).join(", "), p.agents ? plural(p.agents, "agent", "agents") : ""].filter(Boolean).join(" · "),
-      [p.last ? ago(p.last) : ""],
-      () => openProjects(p.name));
-    newWindowOn(row, row, p.name);
-    return row;
+  const owners = new Map<string, Node[]>();
+  rows.forEach((p, i) => {
+    const cut = p.name.lastIndexOf("/");
+    const owner = cut > 0 ? p.name.slice(0, cut) : "";
+    if (!owners.has(owner)) owners.set(owner, []);
+    owners.get(owner)!.push(homeProjectRow(p, i, p.name.slice(cut + 1)));
   });
-  return section("sec-projects-home", "Projects", rows.length, more, h("div", "cc-panel", ...list));
+  const panels = [...owners].map(([owner, list]) => section("", owner || "Other", list.length, null, h("div", "cc-panel", ...list)));
+  const el = h("div", "cc-hgrid", ...panels);
+  el.id = "sec-projects-home";
+  return el;
 }
 
 // ---------- Pane ----------
