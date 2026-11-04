@@ -1,10 +1,9 @@
-//! pi's logs: the first line, `{"type":"session","id","cwd"}`, names the
-//! session; each assistant `message` carries `usage` (`input` read fresh,
-//! `output`, `cacheRead`, `cacheWrite`, and `cost.total` in US dollars when
-//! the provider priced it), `model` and a `timestamp`.
+//! pi's logs (`line`): the first line, `{"type":"session","id","cwd"}`,
+//! names the session; each assistant `message` carries `usage` (`cost.total`
+//! in US dollars when the provider priced it), `model` and `timestamp`.
 
 use super::{Line, Request};
-use crate::{agents::prices::Tokens, claude::unix_seconds};
+use crate::{agents::claude::unix_seconds, agents::prices::Tokens};
 use serde::Deserialize;
 
 #[derive(Deserialize)]

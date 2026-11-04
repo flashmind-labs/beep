@@ -1,56 +1,41 @@
-//! `beep-node`: runs on a machine so Beep can run work on it.
-//!
-//! `beep-node setup <token>` makes the machine's key and claims a setup
-//! token from Beep, which links the key to the user's account, then installs
-//! `beep-node run` as a background service (`service`); the older
-//! `beep-node link` prints a link code for the phone instead. `beep-node run`
-//! keeps one connection to the server, reports what the machine has and
-//! serves the sessions Beep opens. `beep-node local` does both for the node
-//! bundled with a single-user server, which links it to the owner itself.
+//! `beep-node` runs on a machine so Beep can run work there. Its modules are
+//! `agents`, `files`, `link`, `machine` and `run`.
+
+use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub mod agents;
-pub mod claude;
-pub mod env;
 pub mod files;
-mod found;
-mod fsat;
-mod lines;
 pub mod link;
-pub mod local;
-mod local_socket;
-pub mod mcp;
-mod process;
-pub mod provision;
-pub mod reconnect;
-pub(crate) mod restart;
-mod search;
-pub mod service;
-pub mod setup;
-mod shell;
-mod ssh;
-pub mod state;
-mod stats;
-pub mod sync;
-pub mod syncthing;
-mod tasks;
-mod terminal;
-pub mod transfer;
-#[cfg(feature = "cli")]
-pub mod update;
-pub mod webhook;
+pub mod machine;
+mod run;
 
 /// Kills every background task and terminal still running, at once. For
 /// a host about to exit, such as the Mac app: a process exit drops nothing,
 /// so they would outlive it.
 pub fn kill_tasks() {
-    tasks::kill_all();
-    terminal::kill_all();
+    run::tasks::kill_all();
+    run::terminal::kill_all();
 }
 
 #[cfg(all(unix, feature = "cli"))]
-pub use terminal::host::in_process as terminal_host_in_process;
+pub use run::terminal::host::in_process as terminal_host_in_process;
 /// Runs `beep-node pty-host`, which keeps the node's terminals.
 #[cfg(all(unix, feature = "cli"))]
-pub use terminal::host::run as run_terminal_host;
+pub use run::terminal::host::run as run_terminal_host;
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
+
+/// Locks `mutex`, carrying on with what a holder that panicked left.
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `lock` for reading an `RwLock`.
+pub(crate) fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `lock` for writing an `RwLock`.
+pub(crate) fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(PoisonError::into_inner)
+}
