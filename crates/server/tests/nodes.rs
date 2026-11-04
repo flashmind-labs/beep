@@ -55,7 +55,11 @@ use beep_server::{
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
 };
-use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets, protocol::Router};
+use iroh::{
+    Endpoint, EndpointAddr, SecretKey,
+    endpoint::{VarInt, presets},
+    protocol::Router,
+};
 use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -3238,4 +3242,64 @@ async fn sessions_read_from_the_logs_count_once() {
         node.abort();
     }
     center.shutdown().await;
+}
+
+/// A node whose working link keeps dropping comes back each time within
+/// seconds: a welcome resets the wait, so the drops do not add up to a long
+/// one (they did to 8s by the fourth).
+#[tokio::test]
+async fn a_node_whose_link_keeps_dropping_comes_back_within_seconds() {
+    let server = server().await;
+    let key = linked_key(&server, "build box").await;
+    let id = key.public().to_string();
+    let node = endpoint(key).await;
+    let addr = server.addr.clone();
+    let stays = tokio::spawn(async move {
+        beep_node::link::stay(&node, addr, "build box", &Offers::default()).await
+    });
+    let mut current = online(&server.app, &id).await;
+    for _ in 0..4 {
+        current.connection.close(VarInt::from_u32(0), b"cut off");
+        current = timeout(
+            Duration::from_secs(3),
+            online_after(&server.app, &id, Some(&current)),
+        )
+        .await
+        .expect("the node came back within seconds");
+    }
+    stays.abort();
+    server.router.shutdown().await.unwrap();
+}
+
+/// A node that connects again before the server saw its old link drop
+/// takes over at once, and the old link's teardown does not mark it
+/// offline.
+#[tokio::test]
+async fn a_reconnect_replaces_the_stale_link_and_stays_online() {
+    let server = server().await;
+    let key = linked_key(&server, "build box").await;
+    let id = key.public().to_string();
+    let connect = |node: Endpoint| {
+        let addr = server.addr.clone();
+        tokio::spawn(async move {
+            beep_node::link::connect(&node, addr, "build box", &Offers::default()).await
+        })
+    };
+    let first = connect(endpoint(key.clone()).await);
+    let stale = online(&server.app, &id).await;
+    // The node starts again on a new endpoint.
+    let second = connect(endpoint(key).await);
+    let fresh = online_after(&server.app, &id, Some(&stale)).await;
+    // The old link was closed as replaced, and the node heard it.
+    let replaced = timeout(Duration::from_secs(10), first)
+        .await
+        .expect("the old link ended")
+        .unwrap()
+        .unwrap_err();
+    assert!(format!("{replaced:#}").contains("replaced"), "{replaced:#}");
+    let now = server.app.nodes.online(&id).expect("still online");
+    assert_eq!(now.connection.stable_id(), fresh.connection.stable_id());
+    assert!(now.connection.close_reason().is_none());
+    second.abort();
+    server.router.shutdown().await.unwrap();
 }

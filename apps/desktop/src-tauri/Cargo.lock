@@ -498,6 +498,7 @@ dependencies = [
  "beep-proto",
  "blake3",
  "dirs 7.0.0",
+ "fastrand",
  "futures",
  "hex",
  "hmac",

@@ -10,6 +10,7 @@ use crate::{
     markdown,
     state::LinkState,
 };
+use beep_node::reconnect::Backoff;
 use beep_proto::{
     ChatInfo, ChatKind, ChatMessage, GetUpdates, MessageBody, Session, SessionMatch, StreamUpdates,
     Update, UpdatePage, search::match_snippet,
@@ -26,8 +27,6 @@ use std::{
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-/// How long to wait before following the log again after it broke off.
-const RETRY: Duration = Duration::from_secs(15);
 /// How often to look again while the app is not linked.
 const UNLINKED_POLL: Duration = Duration::from_secs(5);
 /// Sessions a search returns, as many as the server's.
@@ -533,6 +532,8 @@ fn group_message(message: &ChatMessage) -> Option<MessageView> {
 /// Keeps the copy current for the app's life: catches up whenever the
 /// server says its log moved, and tells the bar which chats changed.
 pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
+    // Soon after it broke off: the user is at this Mac.
+    let mut backoff = Backoff::eager();
     loop {
         if beep.link_state() != LinkState::Linked {
             tokio::time::sleep(UNLINKED_POLL).await;
@@ -541,7 +542,7 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
         if let Err(e) = follow_once(&app, &beep).await {
             log::info!("following chat updates: {e}");
         }
-        tokio::time::sleep(RETRY).await;
+        tokio::time::sleep(backoff.pause()).await;
     }
 }
 

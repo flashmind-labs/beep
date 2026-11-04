@@ -499,6 +499,7 @@ dependencies = [
  "blake3",
  "clap",
  "dirs",
+ "fastrand",
  "flashmind-types",
  "flate2",
  "futures",
