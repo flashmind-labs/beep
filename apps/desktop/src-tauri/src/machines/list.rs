@@ -358,7 +358,10 @@ async fn unlink(beep: &Beep, id: &str) -> Result<()> {
 
 /// Whether the server no longer has the machine after `reply`.
 fn dropped(reply: &Result<()>) -> bool {
-    matches!(reply, Ok(()) | Err(DesktopError::Api(ApiError::NotFound {})))
+    matches!(
+        reply,
+        Ok(()) | Err(DesktopError::Api(ApiError::NotFound {}))
+    )
 }
 
 /// Asks the server again for each removal it did not take earlier.
@@ -512,7 +515,9 @@ mod tests {
     fn a_machine_the_server_does_not_list_counts_as_dropped() {
         assert!(dropped(&Ok(())));
         assert!(dropped(&Err(DesktopError::Api(ApiError::NotFound {}))));
-        assert!(!dropped(&Err(DesktopError::BadRequest("took too long".into()))));
+        assert!(!dropped(&Err(DesktopError::BadRequest(
+            "took too long".into()
+        ))));
         assert!(!dropped(&Err(DesktopError::NoServer)));
     }
 }

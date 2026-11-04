@@ -160,8 +160,7 @@ impl Machine {
     /// Starts or stops the link to match the setting and the link state.
     pub fn sync(&self, beep: &Arc<Beep>) {
         let mut task = self.task.lock().unwrap_or_else(PoisonError::into_inner);
-        let wanted =
-            beep.use_mac() && beep.linked();
+        let wanted = beep.use_mac() && beep.linked();
         let running = task
             .as_ref()
             .is_some_and(|task| !task.inner().is_finished());
