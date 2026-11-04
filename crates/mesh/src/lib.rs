@@ -2,6 +2,7 @@
 //! a desktop mints to bring a new one in, and the service that keeps every
 //! device's list and state current over iroh.
 
+mod client;
 mod devices;
 mod frame;
 mod join;
@@ -11,6 +12,7 @@ mod state;
 mod store;
 mod ticket;
 
+pub use client::{DEADLINE, Offline, PeerClient, SessionFn, with_deadline};
 pub use devices::{Device, DeviceKind, DeviceOp, Devices, Merged, MeshError, WriteLimit};
 pub use mesh::{
     DEFAULT_TICKET_TTL, DeviceStatus, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol, PEER_ALPN,

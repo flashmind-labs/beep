@@ -15,6 +15,7 @@ pdf = ["dep:pulldown-cmark", "dep:mitex", "dep:typst", "dep:typst-layout", "dep:
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
+beep-mesh = { path = "../mesh" }
 beep-proto = { path = "../proto", features = ["logging"] }
 blake3 = "1"
 bytes = "1"

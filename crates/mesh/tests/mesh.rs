@@ -2,9 +2,11 @@
 //! and outer timeouts; nothing sleeps.
 
 use beep_mesh::{
-    DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, PEER_ALPN, PeerStream,
-    StreamHandler, transport_config,
+    DEADLINE, DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, MeshProtocol, PEER_ALPN,
+    PeerClient, PeerStream, SessionFn, StreamHandler, transport_config, with_deadline,
 };
+use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
+use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
@@ -17,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tokio::time::timeout;
+use tokio::time::{Instant, pause, timeout};
 
 const LIMIT: Duration = Duration::from_secs(60);
 
@@ -605,4 +607,135 @@ async fn a_peer_may_have_64_streams_open_and_no_more() {
         .expect("the 65th was answered");
     assert!(refused.is_err(), "the 65th stream was served");
     assert!(entries.try_recv().is_err());
+}
+
+/// A stand-in for the node's `session()`.
+async fn session(mut tx: LinkTx, mut rx: LinkRx) {
+    let Ok(Some(open)) = rx.recv::<Open>().await else {
+        return;
+    };
+    match open.protocol.as_str() {
+        "echo/1" => {
+            tx.send(&Opened::Ready {}).await.ok();
+            if let Ok(Some(n)) = rx.recv::<u32>().await {
+                tx.send(&(n + 1)).await.ok();
+            }
+        }
+        "count/1" => {
+            tx.send(&Opened::Ready {}).await.ok();
+            if let Ok(Some(n)) = rx.recv::<u32>().await {
+                for i in 0..n {
+                    tx.send(&i).await.ok();
+                }
+            }
+        }
+        "stall/1" => {
+            tx.send(&Opened::Ready {}).await.ok();
+            if let Ok(Some(_)) = rx.recv::<u32>().await {
+                tx.send(&7u32).await.ok();
+                never::<()>().await;
+            }
+        }
+        other => {
+            let reason = format!("this node does not offer {other}");
+            tx.send(&Opened::Refused { reason }).await.ok();
+        }
+    }
+}
+
+fn session_fn() -> SessionFn {
+    Arc::new(|tx, rx| Box::pin(session(tx, rx)))
+}
+
+fn session_handler() -> StreamHandler {
+    Arc::new(|stream: PeerStream| {
+        Box::pin(async move {
+            let (tx, rx) = link(stream.send, stream.recv);
+            session(tx, rx).await;
+        })
+    })
+}
+
+async fn count(client: &PeerClient, n: u32) -> Vec<u32> {
+    client
+        .follow::<u32, u32>("count/1", &n)
+        .await
+        .expect("opened")
+        .map(|item| item.expect("item"))
+        .collect()
+        .await
+}
+
+#[tokio::test]
+async fn the_local_client_and_the_network_client_answer_alike() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(session_handler());
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    let local = PeerClient::local(session_fn());
+    for client in [&net, &local] {
+        let reply: u32 = client.call("echo/1", &41u32).await.expect("answered");
+        assert_eq!(reply, 42);
+        assert_eq!(count(client, 4).await, [0, 1, 2, 3]);
+    }
+    let refused = |client: &PeerClient| {
+        let client = client.clone();
+        async move {
+            client
+                .open("nope/1")
+                .await
+                .err()
+                .expect("refused")
+                .to_string()
+        }
+    };
+    assert_eq!(refused(&net).await, refused(&local).await);
+}
+
+#[tokio::test]
+async fn follow_ends_with_the_error_when_the_connection_drops() {
+    let a = create("a").await;
+    let (peer, _) = a.mesh.protocols();
+    peer.on_stream(session_handler());
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&b.mesh, |m| online(m, a.id())).await;
+    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    let mut items = Box::pin(net.follow::<u32, u32>("stall/1", &0).await.expect("opened"));
+    let first = timeout(LIMIT, items.next()).await.expect("first item");
+    assert_eq!(first.expect("an item").expect("ok"), 7);
+    a.stop().await;
+    let next = timeout(LIMIT, items.next()).await.expect("did not hang");
+    assert!(matches!(next, Some(Err(_))), "{next:?}");
+    assert!(timeout(LIMIT, items.next()).await.expect("ended").is_none());
+}
+
+#[tokio::test]
+async fn a_peer_that_is_off_says_so_within_the_deadline() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    let gone = b.id();
+    b.stop().await;
+    until(&a.mesh, |m| !online(m, gone)).await;
+    pause();
+    let start = Instant::now();
+    let offline = with_deadline(gone, &a.mesh).await.expect_err("offline");
+    // The paused clock rounds a sleep up to the next millisecond.
+    let limit = DEADLINE + Duration::from_millis(2);
+    assert!(start.elapsed() <= limit, "{:?}", start.elapsed());
+    assert!(offline.to_string().contains("offline"));
+}
+
+#[tokio::test]
+async fn a_removed_device_is_offline_at_once() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    until(&a.mesh, |m| online(m, b.id())).await;
+    a.mesh.remove(b.id()).await.expect("removed");
+    pause();
+    let start = Instant::now();
+    with_deadline(b.id(), &a.mesh).await.expect_err("offline");
+    assert_eq!(start.elapsed(), Duration::ZERO);
 }
