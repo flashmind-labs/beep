@@ -13,12 +13,13 @@ interface ModelChoices {
   choices: (Parameters<typeof modelPrice>[0] & { id: string; name: string })[];
 }
 
-/// "Stopped" under a reply the user or another device stopped, with Retry,
-/// which sends the prompt again, for a prompt sent from this chat.
-export function stoppedRow(turn: Turn) {
+/// "Stopped" under a reply the user or another device stopped, or `said`
+/// for one a server restart cut off, with Retry, which sends the prompt
+/// again, for a prompt sent from this chat.
+export function stoppedRow(turn: Turn, said = "Stopped") {
   turn.querySelector(":scope > .dstopped")?.remove();
   const retry = turn.user ? '<button class="dbtn" data-act="retry">Retry</button>' : "";
-  turn.append(h(`<div class="dmuted dstopped">Stopped${retry}</div>`));
+  turn.append(h(`<div class="dmuted dstopped">${esc(said)}${retry}</div>`));
 }
 
 /// Copy, and for admins Rerun, under a finished reply, then the agent that

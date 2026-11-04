@@ -14,8 +14,8 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentEntry, AgentEntryKind, AgentFileChunk, AgentHost, AgentModel,
-    AgentModels, AgentQuestion, AgentSessionView, AgentSteer, ApiError, GetAgentFile,
-    GetAgentImage, GetAgentSession, ListAgentHosts, ListAgentModels, ListAgentSessions,
+    AgentModels, AgentQuestion, AgentSessionUsage, AgentSessionView, AgentSteer, ApiError, GetAgentFile,
+    GetAgentImage, GetAgentSession, GetAgentSessionUsage, ListAgentHosts, ListAgentModels, ListAgentSessions,
     MAX_AGENT_FILE, MachinePick, MachineSession, ModelId, PreviewAgentMachine, ResumeAgentSession,
     StartAgentSession, SteerAgentSession, Upload, check_agent_images, image_key,
     node::agent::{CheckoutPlan, Effort},
@@ -498,6 +498,29 @@ pub async fn agent_view(
         })
         .await?;
     Ok(view.into())
+}
+
+/// How full a Beep session's context is and what its finished turns
+/// used; `None` from a server too old to say.
+#[tauri::command]
+pub async fn agent_usage(
+    beep: Service<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+) -> Result<Option<AgentSessionUsage>> {
+    let usage = beep
+        .call(GetAgentSessionUsage {
+            machine_id,
+            agent,
+            session,
+        })
+        .await;
+    match usage {
+        Ok(usage) => Ok(Some(usage)),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// The picture of the `[image: image-<key>]` line of `session`, read from

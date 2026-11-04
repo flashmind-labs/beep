@@ -4,7 +4,7 @@
 
 use super::{
     acp::{Prompt, wire_name},
-    compaction::{COMPACTED_ENTRY, Usage},
+    compaction::COMPACTED_ENTRY,
     image_files,
     images::{Images, Picture, data_url},
     subagent::{Activity, Run, Subagent},
@@ -24,7 +24,7 @@ use agent_client_protocol::schema::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentSlug,
+    AgentContext, AgentSlug,
     node::{
         agent::{
             AnswerOption, Entry, EntryKind, OptionKind, PlanEntry, PlanStatus, Question,
@@ -39,7 +39,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant, SystemTime},
 };
 
 /// The most transcript entries kept; older ones are dropped.
@@ -84,9 +84,6 @@ pub(crate) struct Live {
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,
-    /// How full the context window is, as the agent last said. Kept on
-    /// the node: the server is not told.
-    pub(crate) context: Option<Usage>,
     /// The names of the slash commands the agent advertises, such as
     /// `compact`.
     pub(crate) commands: Vec<String>,
@@ -110,6 +107,8 @@ pub(crate) struct Live {
     turn_start: u64,
     /// Image files the agent linked to this turn, as it named them.
     turn_links: Vec<String>,
+    /// When the running turn started, by the clock files are stamped with.
+    turn_began: Option<SystemTime>,
     /// Where finished turns' spending and plan limits go, shared by the
     /// node's sessions.
     usage: Arc<UsageHub>,
@@ -158,6 +157,11 @@ pub(crate) struct TurnFiles {
     pub(crate) cwd: PathBuf,
     /// Each joined to `cwd`, at most `image_files::MAX_PER_TURN`.
     pub(crate) paths: Vec<PathBuf>,
+    /// Files only shell commands or their output named: read when written
+    /// since `since`, so a listing does not show old pictures. Within the
+    /// same `MAX_PER_TURN` as `paths`.
+    pub(crate) made: Vec<PathBuf>,
+    pub(crate) since: SystemTime,
     /// The turn's last agent message, which shows them; a new entry when
     /// there is none.
     pub(crate) entry: Option<u64>,
@@ -217,6 +221,10 @@ impl Live {
         let cost_usd = self.unbilled.take();
         if tokens.total == 0 && tokens.models.is_empty() && cost_usd.is_none() {
             return;
+        }
+        self.info.tokens = self.info.tokens.saturating_add(tokens.total);
+        if let Some(cost) = cost_usd {
+            *self.info.cost_usd.get_or_insert(0.0) += cost;
         }
         self.usage.record(TurnUsage {
             session: self.info.id.clone(),
@@ -330,6 +338,7 @@ impl Live {
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
         self.turn_images.clear();
+        self.turn_began = Some(SystemTime::now());
         // A tool whose entry left the transcript has nothing left to show.
         let dropped = self.dropped;
         self.tools.retain(|_, tool| tool.entry >= dropped);
@@ -472,7 +481,7 @@ impl Live {
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
-                self.context = Some(Usage {
+                self.info.context = Some(AgentContext {
                     used: usage.used,
                     size: usage.size,
                 });
@@ -531,7 +540,7 @@ impl Live {
             return;
         }
         self.push(EntryKind::Other, COMPACTED_ENTRY);
-        self.context = None;
+        self.info.context = None;
         self.compacted = true;
     }
 
@@ -607,10 +616,11 @@ impl Live {
     }
 
     /// The image files the turn that just ended named: in the agent's
-    /// messages, its links, the files its finished edits wrote, and the
-    /// ones its finished reads looked at without showing them. Files a
-    /// read showed as pictures are left out, and so is the room those
-    /// pictures took. `None` when there are none.
+    /// messages, its links, the files its finished edits wrote, the ones
+    /// its finished reads looked at without showing them, and those its
+    /// finished commands named, such as a plot one saved. Files a read
+    /// showed as pictures are left out, and so is the room those pictures
+    /// took. `None` when there are none.
     pub(crate) fn turn_files(&mut self) -> Option<TurnFiles> {
         let cwd = PathBuf::from(&self.info.cwd);
         let start = self.turn_start;
@@ -630,6 +640,7 @@ impl Live {
             .collect();
         done.sort_by_key(|tool| tool.entry);
         let mut shown: Vec<PathBuf> = Vec::new();
+        let mut ran: Vec<&str> = Vec::new();
         for tool in done {
             let read = tool.kind == ToolKind::Read;
             if read && !tool.pictures.is_empty() {
@@ -640,6 +651,9 @@ impl Live {
                 );
             } else if read || EDIT_KINDS.contains(&tool.kind) {
                 named.extend(tool.paths.iter().cloned());
+            } else if tool.kind == ToolKind::Execute {
+                ran.extend(image_files::named_in(&tool.title));
+                ran.extend(image_files::named_in(&tool.output));
             }
         }
         let room = image_files::MAX_PER_TURN.saturating_sub(self.turn_images.len());
@@ -655,7 +669,28 @@ impl Live {
                 paths.push(path);
             }
         }
-        (!paths.is_empty()).then_some(TurnFiles { cwd, paths, entry })
+        let mut made: Vec<PathBuf> = Vec::new();
+        for path in ran
+            .into_iter()
+            .filter_map(|name| image_files::resolve(&cwd, name))
+        {
+            if paths.len() + made.len() >= room {
+                break;
+            }
+            if !paths.contains(&path) && !made.contains(&path) && !shown.contains(&path) {
+                made.push(path);
+            }
+        }
+        // Some file systems stamp to the second.
+        let began = self.turn_began.unwrap_or_else(SystemTime::now);
+        let since = began.checked_sub(Duration::from_secs(2)).unwrap_or(began);
+        (!paths.is_empty() || !made.is_empty()).then_some(TurnFiles {
+            cwd,
+            paths,
+            made,
+            since,
+            entry,
+        })
     }
 
     /// Shows `pictures`, read from the files `turn_files` gave, after the
@@ -1681,6 +1716,7 @@ mod tests {
         });
         let last = usage.next_turn().await;
         assert_eq!((last.tokens, last.cost_usd), (5, None));
+        assert_eq!((live.info.tokens, live.info.cost_usd), (905, Some(1.5)));
     }
 
     #[test]
@@ -1690,8 +1726,8 @@ mod tests {
             json!({"sessionUpdate": "usage_update", "used": 900, "size": 1000})
         )));
         assert_eq!(
-            live.context,
-            Some(Usage {
+            live.info.context,
+            Some(AgentContext {
                 used: 900,
                 size: 1000
             })
@@ -1713,7 +1749,7 @@ mod tests {
         assert_eq!(entries.len(), 1, "shown once");
         assert_eq!(entries[0].kind, EntryKind::Other);
         assert_eq!(entries[0].text, COMPACTED_ENTRY);
-        assert_eq!(live.context, None, "the usage before no longer holds");
+        assert_eq!(live.info.context, None, "the usage before no longer holds");
         assert!(live.take_compacted());
         assert!(!live.take_compacted());
     }

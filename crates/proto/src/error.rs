@@ -14,7 +14,16 @@ wire_enum! {
     }
 }
 
+/// The `Conflict` message for a prompt sent while the server restarts. An
+/// app sends it again, with the same `request_id`, once it reconnects.
+pub const RESTARTING: &str = "the server is restarting";
+
 impl ApiError {
+    /// A prompt refused because the server is restarting.
+    pub fn is_restarting(&self) -> bool {
+        matches!(self, Self::Conflict { message } if message == RESTARTING)
+    }
+
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest {
             message: message.into(),

@@ -160,6 +160,8 @@ sample_struct! {
     AgentModels { pick, current, models }
     AgentModel { id, name, description }
     AgentSessionView { session, plan, files, last_message, error, queued, turns, entries, earlier }
+    AgentSessionUsage { context, tokens, cost_usd }
+    AgentContext { used, size }
     AgentPlanStep { content, status }
     AgentEntry { kind, text }
     AppIntegration { slug, name, description, logo_url, connected, configured, kind }

@@ -47,7 +47,7 @@ use flashmind::{
         search_read::WebSearchReadTool,
     },
     types::{
-        AgentEvent, AgentInput, ContentPart, ToolRegistry,
+        AgentEvent, AgentInput, ContentPart, LlmError, LlmErrorKind, ToolRegistry,
         tool::{Tool, ToolResult},
     },
 };
@@ -844,13 +844,11 @@ impl App {
                                 continue;
                             }
                             Some(AgentEvent::Done(_)) => break RunStatus::Completed,
-                            Some(AgentEvent::Error(_)) => {
+                            Some(AgentEvent::Error(error)) => {
                                 // Provider errors can contain upstream response details. Keep them off the wire.
                                 let error = RunEvent::Error {
-                            message:
-                                "The model request failed. Check server provider configuration."
-                                    .to_owned(),
-                        };
+                                    message: failure_message(&error).to_owned(),
+                                };
                                 live.push(error);
                                 break RunStatus::Failed;
                             }
@@ -867,7 +865,8 @@ impl App {
                     }
                 };
                 if matches!(status, RunStatus::Cancelled | RunStatus::Interrupted) {
-                    failed_tools.extend(keep_stopped(&mut conversation, said, thought));
+                    let restarted = status == RunStatus::Interrupted;
+                    failed_tools.extend(keep_stopped(&mut conversation, said, thought, restarted));
                 }
                 // A failed check gets the agent one more pass to fix it.
                 if let Some(since) = quiet_since {
@@ -1372,23 +1371,29 @@ impl App {
 /// What the user saw of a run they stopped, kept in `conversation` so the
 /// chat shows it and the model reads it next turn: each call still running
 /// answered as stopped, then the text and reasoning streamed since the last
-/// tool calls, ending in a note that the user stopped it. Returns the
-/// stopped calls.
+/// tool calls, ending in a note that the user stopped it, or that a server
+/// restart did (`restarted`). Returns the stopped calls.
 pub(super) fn keep_stopped(
     conversation: &mut Conversation,
     said: String,
     thought: String,
+    restarted: bool,
 ) -> Vec<String> {
     let open: Vec<String> = permissions::open_calls(conversation)
         .into_iter()
         .map(|call| call.id)
         .collect();
-    permissions::close_open_calls(conversation, STOPPED_CALL);
+    let (call_note, note) = if restarted {
+        (RESTARTED_CALL, RESTARTED)
+    } else {
+        (STOPPED_CALL, STOPPED)
+    };
+    permissions::close_open_calls(conversation, call_note);
     let said = said.trim_end();
     let content = if said.is_empty() {
-        STOPPED.to_owned()
+        note.to_owned()
     } else {
-        format!("{said}\n\n{STOPPED}")
+        format!("{said}\n\n{note}")
     };
     let thought = Some(thought).filter(|thought| !thought.trim().is_empty());
     conversation.add(ConversationEntry::assistant_with_reasoning(
@@ -1401,6 +1406,11 @@ pub(super) fn keep_stopped(
 const STOPPED_CALL: &str = "Stopped by the user before it finished.";
 /// The note a stopped turn ends with.
 pub(super) const STOPPED: &str = "_Stopped_";
+/// A call's result, and the note its turn ends with, when the server
+/// restarted while it ran.
+const RESTARTED_CALL: &str = "Cut off by a server restart before it finished; it may have \
+                              partly run.";
+const RESTARTED: &str = "_Cut off by a server restart_";
 
 /// Firecrawl's page tools, with a per-run cache so `web_search_read` only reaches this run's pages.
 pub(super) fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
@@ -1427,6 +1437,26 @@ fn system_prompt(research: bool, project: bool) -> &'static str {
         (true, _) => research::LEAD_PROMPT,
         (false, true) => project_turn::PROJECT_PROMPT,
         (false, false) => ASSISTANT_PROMPT,
+    }
+}
+
+/// What the user is told about a failed model request, by its cause.
+fn failure_message(error: &str) -> &'static str {
+    match LlmError::classify(error).kind {
+        LlmErrorKind::Configuration => {
+            "The model request failed. Check server provider configuration."
+        }
+        LlmErrorKind::ContextLengthExceeded => {
+            "This chat is too long for the model, even after summarizing it."
+        }
+        LlmErrorKind::InvalidRequest | LlmErrorKind::MalformedToolCall => {
+            "The model rejected something in this chat, such as a file it cannot read."
+        }
+        LlmErrorKind::StreamError | LlmErrorKind::RateLimited => {
+            "The model provider is busy or unreachable. Try again in a moment."
+        }
+        LlmErrorKind::ContentFiltered => "The model refused to answer this.",
+        _ => "The model request failed.",
     }
 }
 
