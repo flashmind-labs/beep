@@ -112,6 +112,9 @@ pub(crate) struct Live {
     pub dialer: EndpointId,
     /// The peer's `session` from its hello.
     pub session: u64,
+    /// Rung when a connection of the same instance won the tie: this one
+    /// leaves the mesh link and stays only for the streams still on it.
+    pub retire: Arc<Notify>,
 }
 
 pub(crate) struct Inner {
@@ -124,6 +127,9 @@ pub(crate) struct Inner {
     pub rev: Arc<watch::Sender<u64>>,
     pub changes: broadcast::Sender<Key>,
     pub conns: Mutex<BTreeMap<EndpointId, Live>>,
+    /// Connections that left the mesh link and stay for their open streams,
+    /// by stable id. A removal cuts these too.
+    retired: Mutex<BTreeMap<usize, Connection>>,
     pub addrs: Mutex<BTreeMap<EndpointId, AddrNote>>,
     pub addr_updates: AtomicU64,
     /// Our own address and its counter.
@@ -155,6 +161,10 @@ impl Inner {
 
     pub fn conns(&self) -> MutexGuard<'_, BTreeMap<EndpointId, Live>> {
         self.conns.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn retired(&self) -> MutexGuard<'_, BTreeMap<usize, Connection>> {
+        self.retired.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn addrs(&self) -> MutexGuard<'_, BTreeMap<EndpointId, AddrNote>> {
@@ -249,6 +259,9 @@ impl Drop for Guard {
         self.owner.abort();
         for live in self.inner.conns().values() {
             live.conn.close(0u32.into(), b"closed");
+        }
+        for conn in self.inner.retired().values() {
+            conn.close(0u32.into(), b"closed");
         }
     }
 }
@@ -435,6 +448,7 @@ impl Mesh {
             rev,
             changes: broadcast::channel(CHANGES).0,
             conns: Mutex::default(),
+            retired: Mutex::default(),
             addrs: Mutex::new(known),
             addr_updates: AtomicU64::new(0),
             own_addr: Mutex::new(first),
@@ -593,6 +607,12 @@ impl Mesh {
         self.inner.addr_updates.load(Ordering::Relaxed)
     }
 
+    /// What peers tell a restart of this mesh from a second dial by.
+    #[cfg(test)]
+    pub(crate) fn session(&self) -> u64 {
+        self.inner.session
+    }
+
     pub fn peer(&self, id: EndpointId) -> Option<Connection> {
         self.inner.live(id)
     }
@@ -731,6 +751,12 @@ impl ProtocolHandler for JoinProtocol {
     }
 }
 
+/// A connection `own` cuts, and whether its mesh link tells the peer first.
+struct Doomed {
+    conn: Connection,
+    told: bool,
+}
+
 /// Keeps one dialer per other member and cuts the links of devices that
 /// are no longer members.
 async fn own(inner: Arc<Inner>) {
@@ -764,18 +790,35 @@ async fn own(inner: Arc<Inner>) {
                 .entry(id)
                 .or_insert_with(|| dialers.spawn(dial(inner.clone(), id)));
         }
-        let doomed: Vec<Connection> = inner
+        let doomed: Vec<Doomed> = inner
             .conns()
             .iter()
             .filter(|(id, _)| !member || !view.devices.is_member(**id))
-            .map(|(_, live)| live.conn.clone())
+            .map(|(_, live)| Doomed {
+                conn: live.conn.clone(),
+                told: true,
+            })
+            .chain(
+                inner
+                    .retired()
+                    .values()
+                    .filter(|c| !member || !view.devices.is_member(c.remote_id()))
+                    .map(|c| Doomed {
+                        conn: c.clone(),
+                        told: false,
+                    }),
+            )
             .collect();
-        for conn in doomed {
+        for Doomed { conn, told } in doomed {
             let id = conn.stable_id();
             if cutting.insert(id) {
                 // The link tells the peer first when it can; this ends it
                 // when the peer will not read, and with it the peer's streams.
-                let wait = if member { GRACE } else { Duration::ZERO };
+                let wait = if member && told {
+                    GRACE
+                } else {
+                    Duration::ZERO
+                };
                 closers.spawn(async move {
                     sleep(wait).await;
                     conn.close(2u32.into(), b"removed");
