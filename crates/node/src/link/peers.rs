@@ -482,6 +482,52 @@ pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
     }
 }
 
+/// Whether a node is running from `dir` and takes mesh commands.
+#[cfg(feature = "cli")]
+pub fn is_running(dir: &Path) -> bool {
+    crate::link::local_socket::is_listening(&dir.join(SOCKET))
+}
+
+/// How long `join_when_up` waits for a node that was just started.
+#[cfg(feature = "cli")]
+pub const START_LIMIT: Duration = Duration::from_secs(15);
+
+/// Joins like `join`, but first waits up to `limit` for the node's socket,
+/// which a node started a moment ago has not opened yet. The ticket is sent
+/// only once the node accepts a connection, so a node that never comes up
+/// does not spend it.
+#[cfg(feature = "cli")]
+pub async fn join_when_up(dir: &Path, ticket: &str, limit: Duration) -> Result<()> {
+    wait_for_node(dir, limit, || {}).await?;
+    join(dir, ticket).await
+}
+
+/// Retries a connection to the node's socket until `limit` runs out;
+/// `retrying` runs after each failed attempt.
+#[cfg(feature = "cli")]
+async fn wait_for_node(dir: &Path, limit: Duration, mut retrying: impl FnMut()) -> Result<()> {
+    use crate::link::local_socket;
+    /// The pause between attempts.
+    const RETRY: Duration = Duration::from_millis(100);
+    let socket = dir.join(SOCKET);
+    let attempts = async {
+        loop {
+            if local_socket::connect(&socket).await.is_ok() {
+                return;
+            }
+            retrying();
+            tokio::time::sleep(RETRY).await;
+        }
+    };
+    timeout(limit, attempts).await.map_err(|_| {
+        anyhow::anyhow!(
+            "the node did not start listening within {}s; run `beep-node run` in another \
+             terminal, then join again",
+            limit.as_secs()
+        )
+    })
+}
+
 /// The devices of the mesh the node running from `dir` belongs to, one
 /// printable line each.
 #[cfg(feature = "cli")]
@@ -516,4 +562,55 @@ async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
     .await
     .context("the node took too long to answer")??;
     Ok(answer)
+}
+
+#[cfg(all(test, feature = "cli"))]
+mod tests {
+    use super::*;
+
+    /// Answers the wait's probe, then one join, the way the node does.
+    fn serve_probe_then_join(mut listener: Listener) {
+        tokio::spawn(async move {
+            for _ in 0..2 {
+                let stream = listener.accept().await.expect("accepting");
+                let (read, mut write) = split(stream);
+                let request = BufReader::new(read)
+                    .lines()
+                    .next_line()
+                    .await
+                    .expect("reading");
+                if request.is_some_and(|line| line.starts_with(JOIN)) {
+                    write.write_all(b"joined\n").await.expect("writing");
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn join_waits_for_a_node_that_starts_late() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut retries = 0;
+        // The socket opens after the first attempt failed, as it does for a
+        // node that was just started.
+        wait_for_node(dir.path(), Duration::from_secs(10), || {
+            retries += 1;
+            if retries == 1 {
+                let listener = Listener::bind(&dir.path().join(SOCKET)).expect("bind");
+                serve_probe_then_join(listener);
+            }
+        })
+        .await
+        .expect("node came up");
+        assert!(retries >= 1, "the first attempt found no node");
+        join(dir.path(), "ticket").await.expect("joined");
+    }
+
+    #[tokio::test]
+    async fn join_says_what_to_do_when_no_node_comes_up() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let err = join_when_up(dir.path(), "ticket", Duration::from_millis(300))
+            .await
+            .expect_err("no node");
+        assert!(format!("{err}").contains("beep-node run"), "{err}");
+    }
 }

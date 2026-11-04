@@ -316,7 +316,16 @@ async fn main() -> Result<()> {
                 } else {
                     ticket
                 };
-                peers::join(&dir, &ticket).await?;
+                // A fresh machine has no node yet: start it in the background,
+                // as `setup` does, before the ticket is sent.
+                if !peers::is_running(&dir) {
+                    let described = in_background(&dir, cli.workspace.as_deref()).context(
+                        "no node is running and the service could not be started; run \
+                         `beep-node run` in another terminal, then join again",
+                    )?;
+                    println!("{described}");
+                }
+                peers::join_when_up(&dir, &ticket, peers::START_LIMIT).await?;
                 if let Some(search) = &search {
                     state::save_search(&dir, search)?;
                 }

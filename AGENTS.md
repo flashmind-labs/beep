@@ -256,9 +256,9 @@ https://releases.flashmind.com/beep/node/. Machines install it with:
 
     curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh
 
-then run `beep-node service install` and join the mesh with
-`beep-node mesh join <ticket>` (or `-` to read the ticket from stdin), with the
-ticket from the desktop's Add a machine. `--search <dir>` sets the folder to
+then join the mesh with `beep-node mesh join <ticket>` (or `-` to read the
+ticket from stdin), with the ticket from the desktop's Add a machine. It starts
+the node in the background if none runs. `--search <dir>` sets the folder to
 look for git checkouts in. `beep-node mesh devices` lists the devices and which
 are online. `beep-node setup <token>` is the older way: it links the node to a
 server account and installs the service. A node binds UDP port 47120 for
