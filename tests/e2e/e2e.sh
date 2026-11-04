@@ -9,7 +9,13 @@
 #              and a conflicting edit
 #   reconnect  a node stopped in the middle of a large sync is started
 #              again, and the sync resumes and completes
-#   all        (default) every scenario, one after another on one fleet
+#   interrupt  a 500 MB transfer survives a receiver restart, a sender
+#              restart and a 30 s network cut, resuming each time
+#   scale      20000 files 8 folders deep both ways and a whole-tree
+#              delete, timed against budgets
+#   multinode  four nodes (two more VMs): changes from all at once, one path
+#              changed on all at one moment, one node offline and catching up
+#   all      (default) every scenario, one after another on one fleet
 #
 # Actions:
 #   run        (default) build, provision, deploy, run, then always fetch
@@ -32,17 +38,19 @@ source "$E2E/lib/boat.sh"
 # shellcheck source=lib/beep.sh
 source "$E2E/lib/beep.sh"
 
-SCENARIOS=(sync reconnect)
+SCENARIOS=(sync reconnect interrupt scale multinode)
 scenario="${1:-all}"
 action="${2:-run}"
 
 case "$scenario" in
   all) chosen=("${SCENARIOS[@]}") ;;
-  -h|--help|help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help|help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)
     [[ -f "$E2E/$scenario/run.sh" ]] || { echo "unknown scenario: $scenario" >&2; exit 2; }
     chosen=("$scenario") ;;
 esac
+# Only multinode bills the two extra node VMs.
+[[ " ${chosen[*]} " == *" multinode "* ]] && ROLES+=(node-c node-d)
 
 case "$action" in
   provision) provision; exit $? ;;

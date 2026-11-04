@@ -20,6 +20,7 @@ use anyhow::{Result, anyhow, bail};
 use beep_proto::node::sync::{MAX_WAITING, State as SyncState};
 use iroh_blobs::Hash;
 use std::{
+    collections::HashSet,
     ffi::OsString,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -76,6 +77,12 @@ impl Task {
             let rules = read_lock(&self.shared.rules);
             plan(&state, &rules)
         };
+        let wanted: HashSet<Hash> = work
+            .iter()
+            .filter_map(|item| item.file.as_ref())
+            .map(|file| Hash::from_bytes(file.hash))
+            .collect();
+        self.unfinished.retain(|hash, _| wanted.contains(hash));
         if work.is_empty() {
             self.pending = 0;
             self.waiting.clear();
