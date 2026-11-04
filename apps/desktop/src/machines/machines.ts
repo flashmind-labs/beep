@@ -347,7 +347,9 @@ function removeParts(m: Machine) {
 const statusTag = (m: Machine) => m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
 const nodeVersion = (m: Machine) => /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
 /// The newest beep-node on the account's machines, which the others are behind.
-const newest = () => newestNode((MC.list ?? []).map(m => m.version));
+// Only nodes that update themselves count: the Mac app's built-in node is
+// whatever version the app was built with, which may never have been released.
+const newest = () => newestNode((MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
 /// The beep-node chip, marked when an update is out.
 function nodeChip(m: Machine) {
