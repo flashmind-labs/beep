@@ -2,7 +2,7 @@
 import { since } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
 import { IC, views } from "../center/state.ts";

@@ -3,7 +3,7 @@
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { chatProject, shortName, type ProjectAgent } from "../project/agent.ts";
 import { askBeep } from "./center.ts";

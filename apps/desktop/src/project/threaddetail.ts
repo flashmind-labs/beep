@@ -4,7 +4,7 @@
 // the HTML it gives is safe to insert. Commenting stays on the host.
 import { ago } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, stateChip } from "../ui/parts.ts";
-import { el as h, type Kid } from "./projects-state.ts";
+import { el as h, type Kid } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// One comment, as cleaned HTML (PostHtmlRow).

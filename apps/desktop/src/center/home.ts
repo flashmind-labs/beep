@@ -7,7 +7,7 @@ import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
 import { machineDisk, needsLine, runningKey, runningAt, runningLine, byRecent, thisMacRow, type HomeView, type MachineCard, type NeedsYou, type RunningAgent, type RunningRow, type UpdateRow, type CronRow } from "./home-state.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { waitingFirst } from "./openitems-state.ts";
 import { ALL } from "../terminals/terminals.ts";
 import { type Outcome, $, IC, CONNECT_STUCK_MS, state } from "./state.ts";

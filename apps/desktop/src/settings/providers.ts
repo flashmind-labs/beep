@@ -3,7 +3,7 @@
 // runtime settings.
 import { harnessEl } from "../agents/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { MakeButton, MakeEl } from "../project/projects-state.ts";
+import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
 import { emptyPanel } from "../ui/parts.ts";

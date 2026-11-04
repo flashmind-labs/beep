@@ -1,7 +1,7 @@
 // flsh's own settings on its Coding agents page: OpenRouter routing and
 // auto-compact, the same on every machine.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { MakeButton, MakeEl } from "../project/projects-state.ts";
+import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { EMPTY, QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshInput, flshProblem, toggleQuantization } from "./flsh-state.ts";
 import type { FlshDraft, FlshSettings, Sort } from "./flsh-state.ts";
 

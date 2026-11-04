@@ -1,7 +1,7 @@
 // An error banner: the first paragraph of `message` on one line, the rest
 // (a command's output, say) behind Details in a scrolling box, and a
 // button that dismisses it.
-import { button, el } from "../project/projects-state.ts";
+import { button, el } from "./dom.ts";
 
 /// The line to show and the details below it, split at the first blank line.
 export function splitFailure(message: string): { line: string; details: string } {

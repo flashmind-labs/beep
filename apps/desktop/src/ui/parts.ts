@@ -1,6 +1,6 @@
 // Small pieces of the command center window that several views draw the
-// same way. They build on `el` and `button` from projects-state.ts.
-import { button, el, type Kid } from "../project/projects-state.ts";
+// same way. They build on `el` and `button` from dom.ts.
+import { button, el, type Kid } from "./dom.ts";
 import type { Freshness } from "../project/pagecache.ts";
 
 /// Fixed SVG markup as a node, never server text.

@@ -2,8 +2,8 @@
 // from any chat, like tmux sessions: the node owns them, so they keep running
 // with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
-import { reason } from "../project/projects-state.ts";
-import type { Ago, MakeButton, MakeEl } from "../project/projects-state.ts";
+import { reason } from "../addproject/importproject-state.ts";
+import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
 import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../project/pagecache.ts";
 

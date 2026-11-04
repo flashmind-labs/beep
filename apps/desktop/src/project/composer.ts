@@ -2,7 +2,8 @@
 // starting or resuming a coding agent from it.
 import { ago } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-import { filterProjects, agentLabel, el as h } from "./projects-state.ts";
+import { filterProjects, agentLabel } from "./projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { agentFor } from "./agent.ts";
 import { type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
@@ -13,11 +14,11 @@ import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "..
 import { issueBranch, issuePrompt, prPrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.ts";
 import { type Started, state } from "../center/state.ts";
-import { refusal } from "../center/pieces.ts";
 import { shown, go } from "../center/views.ts";
 import { projectRows } from "../center/sidebar.ts";
 import { redrawProjects, pc } from "./sections.ts";
 import { projectPlaces } from "./loads.ts";
+import { reason } from "../addproject/importproject-state.ts";
 
 /// The tallest the bar's field grows before it scrolls, in pixels.
 const BAR_FIELD_MAX = 200;
@@ -311,7 +312,7 @@ async function startFromBar(fresh = false) {
     keepMachine(p.name, place.machine_id);
     go("pane", { agent: started.session });
   } catch (e) {
-    c.err.textContent = refusal(e);
+    c.err.textContent = reason(e);
   } finally {
     pc.starting = false;
     redrawProjects();
@@ -336,7 +337,7 @@ async function resumeFromBar(s: AgentSession, text: string) {
     c.input.value = "";
     pc.target = null;
   } catch (e) {
-    c.err.textContent = refusal(e);
+    c.err.textContent = reason(e);
   } finally {
     pc.starting = false;
     redrawProjects();

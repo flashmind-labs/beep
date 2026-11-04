@@ -1,7 +1,7 @@
 // A project's issues and pull requests, and the user's threads there.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { reason } from "./projects-state.ts";
-import type { Ago, MakeButton, MakeEl } from "./projects-state.ts";
+import { reason } from "../addproject/importproject-state.ts";
+import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent, TaskRow } from "./agent.ts";
 import { STATE_LABEL, reviewState } from "../review/review.ts";
 import type { ReviewState, ReviewView } from "../review/review.ts";

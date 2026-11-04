@@ -3,8 +3,8 @@
 // current job and step; a run opened shows its jobs and steps and, when it
 // failed, the end of its failing step's log with Fix this.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { reason } from "./projects-state.ts";
-import type { MakeButton, MakeEl } from "./projects-state.ts";
+import { reason } from "../addproject/importproject-state.ts";
+import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { since } from "../ui/format.ts";
@@ -207,15 +207,6 @@ export function runChip(state: RunState): { cls: string; text: string; spin: boo
     case "skipped": return { cls: "", text: "skipped", spin: false };
     default: return { cls: "", text: state || "unknown", spin: false };
   }
-}
-
-/// What a pull request row says of its checks: "checks running: Build, step
-/// 4 of 9: Run tests, 3m 12s", "checks failing" or "checks passing".
-export function checksText(c: Pick<ChecksRow, "state" | "progress">, now = Date.now()) {
-  if (c.state === "failed") return "checks failing";
-  if (going(c.state)) return c.progress ? `checks running: ${progressText(c.progress, now)}` : "checks running";
-  if (c.state === "passed") return "checks passing";
-  return `checks ${runChip(c.state).text}`;
 }
 
 /// The Actions heading's count: "1 running · 2 failed".

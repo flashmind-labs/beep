@@ -2,7 +2,7 @@
 import { ago } from "../ui/format.ts";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { ALL, byMachine, makeTerminals, terminalNote, terminalWhere, terminalsCount, type TerminalRow } from "./terminals.ts";
 import { makeScreen } from "./termview.ts";
 import { state, views } from "../center/state.ts";

@@ -7,18 +7,21 @@ import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectlo
 import { invoke } from "../ui/tauri.ts";
 import { base, type RunningAgent } from "../center/home-state.ts";
 import { foundRow, injectStyle as injectAddProjectStyle } from "../addproject/addproject.ts";
-import { withSyncthing, agentLabel, pastSessions, nextSessions, repoFromRemote, el as h, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { repoFromRemote } from "../addproject/importproject-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, type ProjectAgent, type ProjectView } from "./agent.ts";
 import { type Started, state, pages, keep, pageFresh } from "../center/state.ts";
-import { failure, refusal, section, rowButton } from "../center/pieces.ts";
+import { failure, section, rowButton } from "../center/pieces.ts";
 import { openUrl, openItemRow, repoLine, refreshGit } from "../center/openitems.ts";
 import { shown, go } from "../center/views.ts";
 import { projectRows, importSheet, addProject, importFromPage } from "../center/sidebar.ts";
 import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
+import { reason } from "../addproject/importproject-state.ts";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the
@@ -262,7 +265,7 @@ function sessionRow(s: SessionRow) {
       } catch (e) {
         act.disabled = false;
         act.textContent = "Resume";
-        said.textContent = refusal(e);
+        said.textContent = reason(e);
       }
     })
     : button("Open", "small", () => openAgentRow(s));

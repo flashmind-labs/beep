@@ -2,9 +2,10 @@
 // cards its chat waits on.
 import { harnessEl } from "../agents/harnessicon.ts";
 import type { ChatApproval } from "../center/home-state.ts";
-import { agentLabel, el } from "./projects-state.ts";
+import { agentLabel } from "./projects-state.ts";
+import { el } from "../ui/dom.ts";
 import { dbtn, emptyPanel, stateChip, svgEl } from "../ui/parts.ts";
-import type { Kid } from "./projects-state.ts";
+import type { Kid } from "../ui/dom.ts";
 
 /// A project agent with its chat (ProjectAgent).
 export interface ProjectAgent {

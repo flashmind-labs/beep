@@ -3,7 +3,8 @@ import { invoke } from "../ui/tauri.ts";
 import { HOME_SEARCH, INSTALL, START, next, timeLeft, machineById, describeMachine, macOption, searchFolder, withSearch } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen } from "./addmachine-state.ts";
 import type { MacControl, MachineView } from "../center/home-state.ts";
-import { button, el, present } from "../project/projects-state.ts";
+import { button, el } from "../ui/dom.ts";
+import { present } from "../addproject/importproject-state.ts";
 
 /// A setup token as `create_node_token` gives it (TokenView).
 interface NodeToken {

@@ -1,7 +1,7 @@
 // The window's views: registering one, going to one, and the header it draws.
 import { invoke } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { chatProject } from "../project/agent.ts";
 import { type ViewArg, type ViewHead, type CenterView, $, state, views } from "./state.ts";

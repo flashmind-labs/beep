@@ -7,7 +7,9 @@ import { invoke } from "../ui/tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
 import type { ImportState } from "./addproject-state.ts";
-import { agentLabel, button, el, foundSessions, importPlan, lookingText, reason } from "../project/projects-state.ts";
+import { agentLabel, foundSessions, importPlan, lookingText } from "../project/projects-state.ts";
+import { button, el } from "../ui/dom.ts";
+import { reason } from "./importproject-state.ts";
 import type { FoundRow, ProjectRow } from "../project/projects-state.ts";
 
 /// What the window hands the sheet.
