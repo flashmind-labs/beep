@@ -11,6 +11,7 @@ use crate::{
     link::restart::{self, Reopen},
     link::state::State,
     link::traffic::Traffic,
+    link::{peer_tools, peers, peers::Peers},
     machine::env,
     machine::provision::Provision,
     machine::service::logs::Logs,
@@ -21,12 +22,13 @@ use crate::{
     run::terminal,
 };
 use anyhow::{Context, Result, bail};
+use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::{
     client::CLOSE_REVOKED,
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, NODE_ALPN, NodeHello, NodeSetup,
-        Open, Opened, StatsReport, Up, agent, link, tool_update,
+        Open, Opened, StatsReport, Up, agent, link, status, tool_update, tools,
     },
 };
 use iroh::{
@@ -34,6 +36,7 @@ use iroh::{
     endpoint::{
         ConnectOptions, Connection, ConnectionError, RecvStream, SendStream, VarInt, presets,
     },
+    protocol::Router,
 };
 use std::{
     future::Future,
@@ -48,6 +51,8 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+/// Set, the node binds with no relay and no discovery service.
+const NO_RELAY: &str = "BEEP_NODE_NO_RELAY";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
@@ -75,7 +80,10 @@ pub trait Protocol: Send + Sync {
 pub type Session = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 
 pub fn print_offer(state: &State) -> Result<()> {
-    let offer = LinkOffer::sign(&state.key, state.server, &state.name, SystemTime::now())?;
+    let server = state
+        .server
+        .context("this node has no server; link one with `beep-node setup <token>`")?;
+    let offer = LinkOffer::sign(&state.key, server, &state.name, SystemTime::now())?;
     println!("Link this machine from Beep on your phone: copy the link below to the phone, then");
     println!("open Settings, Linked devices, Type a code instead, and paste it. Check that the");
     println!("phone shows the same code.");
@@ -99,7 +107,13 @@ pub async fn serve(
 ) -> Result<()> {
     let traffic = Traffic::default();
     let builder = || {
-        Endpoint::builder(presets::N0)
+        // Tests run nodes side by side on one machine, without relays.
+        let preset = if std::env::var_os(NO_RELAY).is_some() {
+            Endpoint::builder(presets::Minimal)
+        } else {
+            Endpoint::builder(presets::N0)
+        };
+        preset
             .secret_key(state.key.clone())
             .transport_config(beep_proto::port::transport().build())
             .hooks(traffic.clone())
@@ -153,11 +167,13 @@ pub async fn serve(
         .filter(|dir| folders.first() == Some(dir.as_path()))
         .map(|dir| dir.to_string_lossy().into_owned());
     let mut started = None;
+    let mut served = None;
     if !folders.is_empty() {
         // Transfers reach the same folders; without its store the node
         // still serves the rest.
-        match Transfers::start(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
-            Ok(transfers) => {
+        match Transfers::start_shared(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
+            Ok((transfers, handlers)) => {
+                served = Some(handlers);
                 offers.extra.push(Arc::new(transfers.syncs()));
                 offers.extra.push(Arc::new(transfers.syncs().controls()));
                 offers.extra.push(Arc::new(transfers.syncs().rescans()));
@@ -168,6 +184,27 @@ pub async fn serve(
         }
         offers.extra.push(Arc::new(folders));
     }
+    // The mesh: peers reach the node over `beep-peer/1` with or without a
+    // server. The router runs from here, so a join takes effect at once.
+    let peers = Peers::new(
+        endpoint.clone(),
+        state.dir.clone(),
+        state.name.clone(),
+        offers.clone(),
+    );
+    if let Err(e) = peers.open().await {
+        log::warn!("not serving the mesh: {e:#}");
+    }
+    if state.server.is_none() && !peers.is_member() {
+        log::info!("no server and no mesh: waiting for `beep-node mesh join <ticket>`");
+    }
+    let mut router = Router::builder(endpoint.clone())
+        .accept(PEER_ALPN, peers.peer_handler())
+        .accept(JOIN_ALPN, peers.join_handler());
+    if let Some(served) = served {
+        router = served.add_to(router);
+    }
+    let router = router.spawn();
     let hello = Hello {
         name: &state.name,
         workspace: workspace.as_deref(),
@@ -193,6 +230,14 @@ pub async fn serve(
             log::warn!("updates cannot wait for idle sessions: {e:#}");
         }
     }));
+    // `beep-node mesh join` and `mesh devices` reach the node on a socket of
+    // their own.
+    let (mesh_dir, mesh_peers) = (state.dir.clone(), peers.clone());
+    let _mesh_control = AbortOnDropHandle::new(tokio::spawn(async move {
+        if let Err(e) = peers::listen(&mesh_dir, mesh_peers).await {
+            log::warn!("the mesh commands cannot reach the node: {e:#}");
+        }
+    }));
     // What was open before a restart or crash opens again: terminals now,
     // sessions once the server sent the agent settings they start with.
     // Only then is the note kept to what is open, so a start that dies
@@ -205,7 +250,12 @@ pub async fn serve(
         agents.reopen(reopen.sessions).await;
         restart::keep(&note_dir, &agents).await;
     }));
-    let stay = stay_as(&endpoint, state.server.into(), &hello, &offers);
+    let stay = async {
+        match state.server {
+            Some(server) => stay_as(&endpoint, server.into(), &hello, &offers).await,
+            None => std::future::pending().await,
+        }
+    };
     tokio::select! {
         () = stay => {}
         () = stop => {}
@@ -241,6 +291,9 @@ pub async fn serve(
     };
     if let Err(e) = reopen.save(&state.dir) {
         log::warn!("what was open will not open again: {e:#}");
+    }
+    if let Err(e) = router.shutdown().await {
+        log::warn!("the router did not stop cleanly: {e:#}");
     }
     if let Some(transfers) = started
         && let Err(e) = transfers.shutdown().await
@@ -381,7 +434,7 @@ impl Offers {
         }
     }
 
-    fn names(&self) -> Vec<String> {
+    pub(crate) fn names(&self) -> Vec<String> {
         [
             shell::PROTOCOL.to_owned(),
             tasks::PROTOCOL.to_owned(),
@@ -575,7 +628,7 @@ async fn serve_linked(
                     log::warn!("refused a session: {MAX_SESSIONS} already open");
                     continue;
                 }
-                sessions.spawn(session(send, recv, offers.clone()));
+                sessions.spawn(session(send, recv, offers.clone(), Who::Everything));
             }
             Some(ended) = sessions.join_next() => match ended {
                 Ok(Ok(())) => {}
@@ -632,14 +685,40 @@ async fn serve_linked(
     }
 }
 
-/// Serves one session stream in the protocol it opens with.
-async fn session(send: SendStream, recv: RecvStream, offers: Offers) -> Result<()> {
+/// Who opened a session, and so what it may use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Who {
+    /// The server, or a desktop of the mesh: every protocol the node offers.
+    Everything,
+    /// Another node of the mesh: its status and agent tools, nothing else.
+    Node,
+}
+
+/// Serves one session stream in the protocol it opens with, if `who` may use it.
+pub(crate) async fn session(
+    send: SendStream,
+    recv: RecvStream,
+    offers: Offers,
+    who: Who,
+) -> Result<()> {
     let (mut tx, mut rx) = link(send, recv);
     let open: Open = timeout(OPEN_TIMEOUT, rx.recv())
         .await
         .context("the session did not say its protocol")??
         .context("the session closed before its protocol")?;
+    if who == Who::Node && !matches!(open.protocol.as_str(), status::PROTOCOL | tools::PROTOCOL) {
+        let reason = format!("a node may not open {}", open.protocol);
+        return tx.send(&Opened::Refused { reason }).await;
+    }
     match open.protocol.as_str() {
+        status::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            peers::status(tx, rx, offers).await
+        }
+        tools::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            peer_tools::serve(tx, rx).await
+        }
         shell::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             shell::serve(tx, rx).await
@@ -685,6 +764,6 @@ async fn tool_changed(provision: Option<&Provision>) {
     }
 }
 
-fn changed(before: &EnvReport, now: &EnvReport) -> bool {
+pub(crate) fn changed(before: &EnvReport, now: &EnvReport) -> bool {
     before != now
 }
