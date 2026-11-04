@@ -11,7 +11,6 @@ use crate::{
     app::App,
     lock,
     nodes::SHELL,
-    projects::branches::run_script,
     protocol::{
         ProjectMachine,
         node::agent::{SESSIONS_PROTOCOL, SessionFolder},
@@ -19,6 +18,7 @@ use crate::{
     store::{ImportRow, NewImport, NodeRow},
 };
 use anyhow::Context;
+use beep_projects::branches::run_script;
 use beep_projects::imports::{folder::FolderPath, repo::same_repo};
 use beep_projects::{Shell, model::ForgejoUrl};
 use chrono::{DateTime, TimeDelta, Utc};

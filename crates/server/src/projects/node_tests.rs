@@ -1028,9 +1028,15 @@ async fn add_branch_worktree_runs_on_chosen_node() {
     git(&render.widget, &["checkout", "main"]);
     git(&render.widget, &["branch", "-D", "beep/spike"]);
     let folder = render.widget.to_string_lossy().into_owned();
-    let added = super::branches::add_worktree(&render.online, &folder, "beep/spike", "main")
-        .await
-        .expect("the worktree is added");
+    let added = beep_projects::branches::add_worktree(
+        &render.online,
+        "render",
+        &folder,
+        "beep/spike",
+        "main",
+    )
+    .await
+    .expect("the worktree is added");
     let worktree = render.widget.join(".worktrees/beep-spike");
     assert_eq!(added.name, "beep/spike");
     assert_eq!(
@@ -1043,7 +1049,14 @@ async fn add_branch_worktree_runs_on_chosen_node() {
         "beep/spike"
     );
     assert!(!build.widget.join(".worktrees").exists());
-    let again = super::branches::add_worktree(&render.online, &folder, "beep/spike", "main").await;
+    let again = beep_projects::branches::add_worktree(
+        &render.online,
+        "render",
+        &folder,
+        "beep/spike",
+        "main",
+    )
+    .await;
     assert_eq!(
         again.expect_err("a second worktree is refused"),
         "beep/spike already has a worktree there."

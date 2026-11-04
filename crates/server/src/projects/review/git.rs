@@ -1,154 +1,16 @@
 //! Git scripts for a project's branches and one branch's diff, and parsing their output.
 
-use crate::protocol::ProjectBranch;
-use anyhow::{Result, bail};
-use beep_projects::quote;
-use std::{
-    collections::{BTreeMap, HashMap},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+use anyhow::Result;
+use beep_projects::{
+    branches::{at, base_lines},
+    quote,
 };
+use std::time::SystemTime;
 
-/// The most branches listed.
-pub(crate) const MAX_BRANCHES: usize = 100;
-/// The most refs read for a list.
-const MAX_REFS: u32 = 300;
 /// The most changed files read for a review.
 const MAX_FILES: u32 = 2000;
 /// The most of the head's `.gitattributes` read, in bytes.
 const MAX_ATTRIBUTES: u32 = 64 * 1024;
-
-/// Sets `$d` to the default branch (`origin`'s HEAD, else `fallback`) and `$base` to its commit.
-fn base_lines(fallback: &str) -> String {
-    format!(
-        "d=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##'); \
-         [ -n \"$d\" ] || d={fallback}; \
-         base=$(git rev-parse --verify -q \"refs/remotes/origin/$d^{{commit}}\" || git rev-parse --verify -q \"refs/heads/$d^{{commit}}\"); \
-         echo \"@@default $d\"; echo \"@@base $base\"; ",
-        fallback = quote(fallback),
-    )
-}
-
-/// Lists branches with last commit, worktree and distance from the default branch. Read-only.
-pub(crate) fn branches_script(folder: &str, default: &str) -> String {
-    let refs = "refs/heads refs/remotes/origin";
-    format!(
-        "cd -- {folder} || exit 3; {base}\
-         git for-each-ref --sort=-committerdate --count={MAX_REFS} \
-           --format='@@ref %(refname)%09%(objectname)%09%(committerdate:unix)%09%(worktreepath)%09%(contents:subject)' {refs} || exit 4; \
-         if [ -n \"$base\" ]; then \
-           git for-each-ref --sort=-committerdate --count={MAX_REFS} --format='%(objectname)' {refs} | sort -u | \
-           while read -r sha; do echo \"@@ab $sha $(git rev-list --left-right --count \"$base...$sha\")\"; done; \
-         fi",
-        folder = quote(folder),
-        base = base_lines(default),
-    )
-}
-
-/// One branch as the output names it, before local and remote are joined.
-struct Ref {
-    name: String,
-    local: bool,
-    head: String,
-    at: u64,
-    worktree: Option<String>,
-    subject: String,
-}
-
-fn at(secs: u64) -> SystemTime {
-    UNIX_EPOCH + Duration::from_secs(secs)
-}
-
-/// Parses `branches_script`: default first then newest, and the default branch's name.
-pub(crate) fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
-    let mut default = None;
-    let mut refs = Vec::new();
-    // Behind, then ahead, by commit.
-    let mut distance: HashMap<&str, (u32, u32)> = HashMap::new();
-    for line in output.lines() {
-        if let Some(name) = line.strip_prefix("@@default ") {
-            default = Some(name.trim().to_owned());
-        } else if let Some(rest) = line.strip_prefix("@@ref ") {
-            let mut parts = rest.splitn(5, '\t');
-            let (Some(name), Some(head), Some(secs), Some(worktree), subject) = (
-                parts.next(),
-                parts.next(),
-                parts.next(),
-                parts.next(),
-                parts.next(),
-            ) else {
-                continue;
-            };
-            let (name, local) = if let Some(name) = name.strip_prefix("refs/heads/") {
-                (name, true)
-            } else if let Some(name) = name.strip_prefix("refs/remotes/origin/") {
-                (name, false)
-            } else {
-                continue;
-            };
-            if name == "HEAD" {
-                continue;
-            }
-            refs.push(Ref {
-                name: name.to_owned(),
-                local,
-                head: head.to_owned(),
-                at: secs.trim().parse().unwrap_or(0),
-                worktree: Some(worktree.trim())
-                    .filter(|path| !path.is_empty())
-                    .map(str::to_owned),
-                subject: subject.unwrap_or_default().trim().to_owned(),
-            });
-        } else if let Some(rest) = line.strip_prefix("@@ab ") {
-            let mut parts = rest.split_whitespace();
-            if let (Some(sha), Some(behind), Some(ahead)) =
-                (parts.next(), parts.next(), parts.next())
-                && let (Ok(behind), Ok(ahead)) = (behind.parse(), ahead.parse())
-            {
-                distance.insert(sha, (behind, ahead));
-            }
-        }
-    }
-    let Some(default) = default else {
-        bail!("git did not answer as expected");
-    };
-    let mut joined: BTreeMap<String, ProjectBranch> = BTreeMap::new();
-    for one in refs {
-        let (behind, ahead) = distance.get(one.head.as_str()).copied().unwrap_or((0, 0));
-        let fresh = ProjectBranch {
-            name: one.name.clone(),
-            worktree: one.worktree,
-            ahead,
-            behind,
-            head: one.head,
-            subject: one.subject,
-            committed_at: at(one.at),
-            local: one.local,
-            pushed: !one.local,
-        };
-        match joined.get_mut(&one.name) {
-            None => {
-                joined.insert(one.name, fresh);
-            }
-            // The local branch speaks for both.
-            Some(kept) if one.local => {
-                *kept = ProjectBranch {
-                    pushed: kept.pushed,
-                    ..fresh
-                };
-            }
-            Some(kept) => kept.pushed = true,
-        }
-    }
-    let mut branches: Vec<ProjectBranch> = joined.into_values().collect();
-    branches.sort_by(|a, b| {
-        (b.name == default)
-            .cmp(&(a.name == default))
-            .then(b.committed_at.cmp(&a.committed_at))
-            .then(a.name.cmp(&b.name))
-    });
-    branches.truncate(MAX_BRANCHES);
-    Ok((default, branches))
-}
 
 /// Fetches, then prints `branch`'s head, merge base, mergeability and changed files. Read-only.
 pub(crate) fn review_script(folder: &str, branch: &str, default: &str) -> String {
@@ -367,34 +229,6 @@ mod tests {
     }
 
     #[test]
-    fn branches_join_local_and_pushed_and_put_the_default_first() {
-        let out = "@@default main\n@@base aaa\n\
-            @@ref refs/heads/login-copy\tbbb\t200\t/srv/project/.worktrees/login\tFix the copy\n\
-            @@ref refs/remotes/origin/login-copy\tccc\t150\t\tFix the copy\n\
-            @@ref refs/remotes/origin/HEAD\taaa\t100\t\t\n\
-            @@ref refs/heads/main\taaa\t100\t/srv/project\tRelease\n\
-            @@ref refs/remotes/origin/spike\tddd\t300\t\tTry\twidgets\n\
-            @@ab bbb 1\t4\n@@ab aaa 0\t0\n@@ab ddd 7\t2\n";
-        let (default, branches) = parse_branches(out).unwrap();
-        assert_eq!(default, "main");
-        let names: Vec<&str> = branches.iter().map(|b| b.name.as_str()).collect();
-        assert_eq!(names, ["main", "spike", "login-copy"]);
-        let login = &branches[2];
-        assert!(login.local && login.pushed);
-        assert_eq!(login.head, "bbb");
-        assert_eq!((login.ahead, login.behind), (4, 1));
-        assert_eq!(
-            login.worktree.as_deref(),
-            Some("/srv/project/.worktrees/login")
-        );
-        let spike = &branches[1];
-        assert!(!spike.local && spike.pushed);
-        assert_eq!(spike.subject, "Try\twidgets");
-        assert_eq!(spike.worktree, None);
-        assert!(parse_branches("").is_err());
-    }
-
-    #[test]
     fn facts_name_the_conflicts_and_the_changed_files() {
         let out = "@@default main\n@@base aaa\n@@head bbb 1700000000\n@@mergebase ccc\n\
             @@merge\ntreeoid\napps/web/copy.ts\nCargo.toml\n@@merged 1\n\
@@ -452,6 +286,5 @@ mod tests {
         let script = review_script("/srv/my project", "x; rm -rf /", "main");
         assert!(script.contains("cd -- '/srv/my project'"), "{script}");
         assert!(script.contains("b='x; rm -rf /'"), "{script}");
-        assert!(branches_script("/srv/project", "two words").contains("d='two words'"));
     }
 }

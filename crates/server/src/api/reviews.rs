@@ -10,16 +10,12 @@ use crate::{
     api::router::Cx,
     nodes::{Online, StartOn},
     projects::{
-        branches::tail,
         model::WorkerAgent,
         review::{
             Fix,
             drive::{close_session, doing, running},
             find_pr,
-            git::{
-                add_review_worktree, branches_script, head_script, parse_branches, parse_facts,
-                parse_head, review_script,
-            },
+            git::{add_review_worktree, head_script, parse_facts, parse_head, review_script},
             report::{Subject, reviewer_prompt},
             rules::{merge_blocked, open},
             shard::shard,
@@ -32,6 +28,7 @@ use crate::{
     tools::machines::command_name,
 };
 use anyhow::{Result, bail};
+use beep_projects::branches::{branches_script, parse_branches, tail};
 use beep_projects::model::RepoName;
 use chrono::{DateTime, Utc};
 use std::{
