@@ -610,11 +610,16 @@ impl Linked {
                 provision.forget().await;
             }
         }
-        if !offers.mesh.owns(Family::Harnesses) && !offers.mesh.owns(Family::Flsh) {
-            // The harnesses' env vars may be secrets too; the server sends the
-            // settings again on reconnecting.
-            offers.agents.set_settings(Default::default());
+        // The harnesses' env vars may be secrets too; the server sends the
+        // settings again on reconnecting. Each half goes unless the mesh owns it.
+        let mut settings = offers.agents.settings();
+        if !offers.mesh.owns(Family::Harnesses) {
+            settings.harnesses.clear();
         }
+        if !offers.mesh.owns(Family::Flsh) {
+            settings.flsh = None;
+        }
+        offers.agents.set_settings(settings);
         served
     }
 }
@@ -844,7 +849,7 @@ mod tests {
     async fn a_node_with_no_mesh_takes_the_servers_agent_settings() {
         let dir = tempfile::tempdir().expect("a temp folder");
         let offers = Offers::local(&[], Provision::new(dir.path()), true);
-        assert!(!offers.mesh.joined());
+        assert!(offers.mesh.get().is_none());
         assert!(!offers.mesh.owns(Family::Harnesses));
         let off = HarnessConfig {
             enabled: false,

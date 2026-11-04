@@ -67,12 +67,28 @@ fn done(text: impl Into<String>, failed: bool) -> Reply {
     }
 }
 
-/// Whether a call may go to the mesh. The server holds the user's rules and
-/// asks first before a run or a send, so while its link is up those three go
-/// through it; with no link they go direct, where a refusing rule cannot be
-/// enforced.
-pub(super) fn goes_direct(tool: Tool, server_link_up: bool) -> bool {
-    !(server_link_up && matches!(tool, Tool::RunOn | Tool::SendFiles | Tool::MachineLog))
+/// Where a call goes, from what the node has of a server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Route {
+    /// To the mesh.
+    Direct,
+    /// To the server, which holds the user's rules and asks first.
+    Server,
+    /// Not at all: it needs the server's approval and cannot have it now.
+    Refuse,
+}
+
+/// The server asks the user first before a send and checks the rules before
+/// a run. With its link up those go through it. With a server configured but
+/// its link down, a send fails closed and a run or a log read goes direct (a
+/// refusing rule goes unenforced for the outage). With no server, everything
+/// is direct.
+pub(super) fn route(tool: Tool, has_server: bool, link_up: bool) -> Route {
+    match tool {
+        Tool::RunOn | Tool::SendFiles | Tool::MachineLog if has_server && link_up => Route::Server,
+        Tool::SendFiles if has_server => Route::Refuse,
+        _ => Route::Direct,
+    }
 }
 
 /// The reply for `request`, or `None` when the server answers it: a tool
@@ -86,7 +102,7 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
     };
     match request.tool {
         // The server's list has more to say, so it answers when there is one.
-        Tool::ListMachines if offers.tools.has_server() => None,
+        Tool::ListMachines if offers.tools.connected() => None,
         Tool::ListMachines => Some(list(mesh).await),
         Tool::RunOn | Tool::MachineLog | Tool::SendFiles => {
             let name = machine(&args)?;
@@ -540,14 +556,19 @@ mod tests {
     }
 
     #[test]
-    fn runs_and_sends_go_through_a_linked_server_and_direct_without_one() {
+    fn calls_route_by_the_servers_link() {
+        // Link up: the server answers what it checks.
         for tool in [Tool::RunOn, Tool::SendFiles, Tool::MachineLog] {
-            assert!(!goes_direct(tool, true), "{tool:?}");
-            assert!(goes_direct(tool, false), "{tool:?}");
+            assert_eq!(route(tool, true, true), Route::Server, "{tool:?}");
+            assert_eq!(route(tool, false, false), Route::Direct, "{tool:?}");
         }
-        // Not rule-checked by the server: unchanged either way.
+        // Configured but down: a send fails closed, the others go direct.
+        assert_eq!(route(Tool::SendFiles, true, false), Route::Refuse);
+        assert_eq!(route(Tool::RunOn, true, false), Route::Direct);
+        assert_eq!(route(Tool::MachineLog, true, false), Route::Direct);
+        // Not checked by the server: direct whatever the link.
         for tool in [Tool::JobStatus, Tool::Cancel, Tool::SyncProject] {
-            assert!(goes_direct(tool, true), "{tool:?}");
+            assert_eq!(route(tool, true, true), Route::Direct, "{tool:?}");
         }
     }
 

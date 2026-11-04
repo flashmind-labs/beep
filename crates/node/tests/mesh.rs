@@ -1499,36 +1499,20 @@ async fn a_deleted_credential_disappears_from_every_node_and_one_copy_is_kept() 
     }
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn credentials_come_back_after_a_restart_with_no_server() {
-    let desktop = desktop(None).await;
-    // The same port after the restart, so the desktop finds the node again
-    // with no discovery.
-    let port = std::net::UdpSocket::bind("127.0.0.1:0")
+fn free_port() -> u16 {
+    std::net::UdpSocket::bind("127.0.0.1:0")
         .expect("a free port")
         .local_addr()
         .expect("its address")
-        .port();
-    let mut node = Node::start(Config {
-        port: Some(port),
-        ..Config::default()
-    })
-    .await;
-    node.join(&desktop.ticket(DeviceKind::Node).await).await;
-    set_credential(&desktop, "gh", "MESH_VAR", "still-here").await;
-    node.logged("from the mesh: 1 credentials").await;
-    let mut node = node.restart().await;
-    // Nothing reaches it from a desktop: the state file is what it has. The
-    // line may have come before the node was ready.
-    let applied = "from the mesh: 1 credentials";
-    if !node.log.iter().any(|line| line.contains(applied)) {
-        node.logged(applied).await;
-    }
-    // The desktop may hold the old process's link for a moment; ask again
-    // on the new one.
+        .port()
+}
+
+/// What a command on the restarted node sees of `MESH_VAR`, as `got[..]`.
+/// The desktop may hold the old process's link for a moment; this asks
+/// again on the new one.
+async fn env_after_restart(desktop: &Member, node: &Node) -> String {
     let mut updates = desktop.mesh.updates();
-    let seen = timeout(LIMIT, async {
+    timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
             let conn = desktop.reach(node.id).await;
@@ -1545,7 +1529,59 @@ async fn credentials_come_back_after_a_restart_with_no_server() {
         }
     })
     .await
-    .expect("the restarted node answered in time");
+    .expect("the restarted node answered in time")
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_deleted_credential_stays_gone_after_a_restart() {
+    let desktop = desktop(None).await;
+    let mut node = Node::start(Config {
+        port: Some(free_port()),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    set_credential(&desktop, "gh", "MESH_VAR", "short-lived").await;
+    node.logged("from the mesh: 1 credentials").await;
+    desktop
+        .mesh
+        .set(Key::Credential("gh".to_owned()), None)
+        .await
+        .expect("the credential is deleted");
+    node.logged("from the mesh: 0 credentials").await;
+    let mut node = node.restart().await;
+    // The deleted key is still held, so the family is the mesh's and empty.
+    let applied = "from the mesh: 0 credentials";
+    if !node.log.iter().any(|line| line.contains(applied)) {
+        node.logged(applied).await;
+    }
+    let seen = env_after_restart(&desktop, &node).await;
+    assert!(seen.contains("got[]"), "{seen}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn credentials_come_back_after_a_restart_with_no_server() {
+    let desktop = desktop(None).await;
+    // The same port after the restart, so the desktop finds the node again
+    // with no discovery.
+    let mut node = Node::start(Config {
+        port: Some(free_port()),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    set_credential(&desktop, "gh", "MESH_VAR", "still-here").await;
+    node.logged("from the mesh: 1 credentials").await;
+    let mut node = node.restart().await;
+    // Nothing reaches it from a desktop: the state file is what it has. The
+    // line may have come before the node was ready.
+    let applied = "from the mesh: 1 credentials";
+    if !node.log.iter().any(|line| line.contains(applied)) {
+        node.logged(applied).await;
+    }
+    let seen = env_after_restart(&desktop, &node).await;
     assert!(seen.contains("got[still-here]"), "{seen}");
 }
 
