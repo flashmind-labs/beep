@@ -854,7 +854,8 @@ pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<Open> {
 }
 
 /// Why a device of the mesh may not open `protocol` on a machine that does
-/// not lend itself to others, or `None`. Status stays open.
+/// not lend itself to others, or `None`. Status stays open. The agents are
+/// withheld too: their sessions run on this machine's own accounts.
 pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
     let shared = [
         shell::PROTOCOL,
@@ -862,7 +863,8 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         tasks::PROTOCOL,
         desktop::PROTOCOL,
     ];
-    (!lent && shared.contains(&protocol))
+    let agent = protocol == agent::SESSIONS_PROTOCOL || agent::agent_of(protocol).is_some();
+    (!lent && (shared.contains(&protocol) || agent))
         .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
 }
 
@@ -966,7 +968,15 @@ mod tests {
         offers.lend_to_peers(false);
         // Offers made earlier from this one share the setting.
         let copy = offers.clone();
-        for protocol in ["shell/1", "terminal/1", "process/1", "desktop/1"] {
+        for protocol in [
+            "shell/1",
+            "terminal/1",
+            "process/1",
+            "desktop/1",
+            "agents/1",
+            "claude/1",
+            "codex/1",
+        ] {
             assert!(
                 withheld(protocol, copy.lends_to_peers()).is_some(),
                 "{protocol}"

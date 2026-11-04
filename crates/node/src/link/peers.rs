@@ -775,6 +775,73 @@ mod tests {
         transfers.shutdown().await.expect("the transfers stop");
     }
 
+    /// A device of the mesh opening an agent stream on a machine that is not
+    /// lent is refused, over a real connection.
+    #[tokio::test]
+    async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
+        use beep_proto::node::Open;
+        use iroh::{SecretKey, endpoint::presets};
+        const ALPN: &[u8] = b"withheld-test";
+        let bind = || async {
+            Endpoint::builder(presets::Minimal)
+                .secret_key(SecretKey::generate())
+                .alpns(vec![ALPN.to_vec()])
+                .bind()
+                .await
+                .expect("the endpoint binds")
+        };
+        let (node, desktop) = (bind().await, bind().await);
+        let dir = tempfile::tempdir().expect("temp dir");
+        let offers = Offers::default();
+        offers.lend_to_peers(false);
+        let peers = Peers::new(
+            node.clone(),
+            dir.path().to_owned(),
+            "box".to_owned(),
+            offers,
+        );
+        let addr = node.addr();
+        let dialing = tokio::spawn({
+            let desktop = desktop.clone();
+            async move { desktop.connect(addr, ALPN).await }
+        });
+        let from_desktop = node
+            .accept()
+            .await
+            .expect("a connection comes")
+            .await
+            .expect("it is accepted");
+        let to_node = dialing.await.expect("joined").expect("connected");
+        let who = Who::Everything(desktop.id());
+        let serving = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
+                let (tx, rx) = link(send, recv);
+                peers.inner.serve(tx, rx, who).await.expect("served");
+            }
+            // Dropping the connection now would cut off the last answer.
+            from_desktop
+        });
+        for protocol in ["agents/1", "claude/1"] {
+            let (send, recv) = to_node.open_bi().await.expect("a stream opens");
+            let (mut tx, mut rx) = link(send, recv);
+            tx.send(&Open {
+                protocol: protocol.to_owned(),
+            })
+            .await
+            .expect("the protocol is sent");
+            let answer = timeout(Duration::from_secs(30), rx.recv::<Opened>())
+                .await
+                .expect("an answer came")
+                .expect("it reads");
+            assert!(
+                matches!(answer, Some(Opened::Refused { .. })),
+                "{protocol}: {answer:?}"
+            );
+        }
+        drop(serving.await.expect("served both"));
+    }
+
     #[tokio::test]
     async fn join_waits_for_a_node_that_starts_late() {
         let dir = tempfile::tempdir().expect("temp dir");
