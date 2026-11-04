@@ -362,7 +362,8 @@ impl Task {
             Mode::Watching => (None, None),
             Mode::Rescan { hint } => (Some(RESCAN.as_secs() as u32), Some((*hint).to_owned())),
         };
-        let (pending, error) = (self.pending, self.error.clone());
+        let pending = self.pending;
+        let error = self.error.clone().or_else(|| self.shared.hold());
         let waiting = self.waiting.clone();
         self.shared.publish(move |status| {
             status.paused = paused;
