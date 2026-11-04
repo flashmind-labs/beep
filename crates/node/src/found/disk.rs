@@ -20,8 +20,9 @@ use std::{
 const MAX_DEPTH: usize = 4;
 /// The most checkouts one walk gives.
 const MAX_CHECKOUTS: usize = 400;
-/// How long one walk, with its remote lookups, may take.
-const WALK_FOR: Duration = Duration::from_secs(3);
+/// How long the walk, with its remote lookups, may take. It runs once, in
+/// the background, and a large home takes minutes to walk.
+const WALK_FOR: Duration = Duration::from_secs(5 * 60);
 /// Folders never worth walking into.
 const PRUNED: &[&str] = &["node_modules", "target", "Library"];
 /// The checkouts the first walk found, in the node's folder.
