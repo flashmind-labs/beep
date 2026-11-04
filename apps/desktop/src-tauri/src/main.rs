@@ -187,6 +187,8 @@ fn main() {
             add_machine::create_node_token,
             add_machine::revoke_node_token,
             add_machine::node_token_machine,
+            add_machine::ssh_hosts,
+            add_machine::add_machine_over_ssh,
             agents::agent_hosts,
             agents::agent_sessions,
             agents::agent_start,

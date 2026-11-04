@@ -48,6 +48,7 @@ mod follow;
 mod harness;
 mod images;
 mod shell;
+mod ssh;
 mod stats;
 mod sync;
 mod tasks;

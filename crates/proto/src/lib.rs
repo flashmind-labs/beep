@@ -1393,6 +1393,18 @@ requests! {
     /// `NotFound` when the machine is not the caller's; `BadRequest`
     /// saying why when it is offline, too old, or the install failed.
     401 UpdateMachineTool { machine_id: String, tool: String } => Call<String>
+    /// The hosts the ssh of `machine_id`, one of the caller's online
+    /// machines, knows: `Host` names in its `~/.ssh/config` without
+    /// wildcards, then unhashed names in `~/.ssh/known_hosts`. `NotFound`
+    /// when the machine is not the caller's; `BadRequest` saying why when it
+    /// is offline or its beep-node is too old.
+    402 ListSshHosts { machine_id: String } => Call<Vec<String>>
+    /// Has `machine_id`, one of the caller's online machines, add `target`
+    /// (`user@host` or an ssh config alias) over its own ssh: it connects
+    /// without prompting, installs beep-node there and links it to the
+    /// caller with a new setup token. The reply comes once it is online or
+    /// a step failed. Errors as for `ListSshHosts`.
+    403 AddMachineOverSsh { machine_id: String, target: String } => Call<SshAdd>
 }
 
 /// A tool on a machine with a newer release (`ListToolUpdates`).
@@ -1407,6 +1419,21 @@ pub struct ToolUpdate {
     pub version: String,
     /// The newest release.
     pub latest: String,
+}
+
+/// What `AddMachineOverSsh` did.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SshAdd {
+    /// The `Machine::id` it linked as; `None` when it failed.
+    pub machine_id: Option<String>,
+    /// What the target said it runs, such as "Linux x86_64"; empty before
+    /// that was read.
+    pub system: String,
+    /// Which step failed and why; empty when it linked.
+    pub error: String,
+    /// The failing command's last lines of output.
+    pub output: Vec<String>,
 }
 
 /// A machine `UpdateMachine` can update (`ListUpdatableMachines`).
