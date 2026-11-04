@@ -1,7 +1,7 @@
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { ago, since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, fitRows, freshNote } from "../ui/parts.ts";
+import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote } from "../ui/parts.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "./pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -179,9 +179,7 @@ export function whereRow(p: Project, m: WhereRow) {
   if (m.kind === "here") {
     const path = m.folder!;
     const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }));
-    const copy = button("Copy path", "quiet small", async () => {
-      try { await navigator.clipboard.writeText(path); copy.textContent = "Copied"; } catch (e) { console.warn("copy:", e); }
-    });
+    const copy = copyButton(path, "Copy path", "dbtn quiet small");
     const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path }).catch(e => console.warn("open folder:", e))) : null;
     const folder = h("span", "nm", h("span", "os", path));
     folder.title = path;

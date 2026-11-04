@@ -4,7 +4,7 @@ import type { Ago, Kid, MakeButton, MakeEl } from "../ui/dom.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, behind, versionLine, mineLayer } from "./instructions-state.ts";
 import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
 import { plural } from "../ui/format.ts";
-import { emptyPanel, note } from "../ui/parts.ts";
+import { emptyPanel, note, secHead } from "../ui/parts.ts";
 
 /// The view's tabs.
 type InstructionsTab = "editor" | "import" | "sync" | "history";
@@ -130,7 +130,7 @@ export function registerInstructions(deps: InstructionsDeps) {
   }
 
   function sec(title: string, small: string, ...body: Kid[]) {
-    return h("div", "", h("div", "cc-sec", h("h4", "", title), small ? h("small", "", small) : null), ...body);
+    return h("div", "", secHead(title, small ? h("small", "", small) : null), ...body);
   }
 
   function tabs() {

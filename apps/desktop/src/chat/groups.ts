@@ -1,6 +1,7 @@
 import type { ApprovalField } from "./chat.ts";
 import { grow } from "./chat.ts";
-import { copy, renderChats } from "./chats.ts";
+import { renderChats } from "./chats.ts";
+import { copy } from "../ui/parts.ts";
 import { $, $$, bar, changed, esc, G, GROUP_VIEWS, h, ICON, invoke, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";

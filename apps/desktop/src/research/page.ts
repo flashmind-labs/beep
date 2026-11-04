@@ -1,6 +1,6 @@
 // The command center's Research page and its sidebar group.
 import { since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote, svgEl as icon } from "../ui/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, svgEl as icon, secHead } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
@@ -140,7 +140,7 @@ function drawResearch(focus = false) {
   } else if (!list.length) {
     kids.push(emptyPanel(h("b", "", "No research yet"), h("span", "", "Type a question above to start one.")));
   } else {
-    kids.push(h("div", "", h("div", "cc-sec", h("h4", "", "Research")), researchTable(list)));
+    kids.push(h("div", "", secHead("Research"), researchTable(list)));
   }
   const view = h("div", "cc-view", ...kids);
   if (old) { const top = old.scrollTop; old.replaceWith(view); view.scrollTop = top; } else el.append(view);

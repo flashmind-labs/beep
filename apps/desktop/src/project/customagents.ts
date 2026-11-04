@@ -2,7 +2,7 @@
 // harnesses define in the project's folder on one machine, and the user's own
 // there.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../ui/parts.ts";
 import { harnessEl } from "../agents/harnessicon.ts";
 import { dbtn, emptyPanel } from "../ui/parts.ts";
 import { agentLabel } from "./projects-state.ts";

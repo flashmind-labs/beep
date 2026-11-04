@@ -1,5 +1,5 @@
 import { renderChat } from "../chat/chat.ts";
-import { copy } from "../chat/chats.ts";
+import { copy } from "../ui/parts.ts";
 import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
 import { loadModels } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";

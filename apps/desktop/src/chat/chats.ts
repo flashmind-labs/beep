@@ -1,4 +1,5 @@
 import { openInWindow } from "./chat.ts";
+import { copy } from "../ui/parts.ts";
 import { $, $$, bar, type ChatRow, type ChatsMode, esc, G, h, ICON, invoke, live, PANE, S } from "../bar/core.ts";
 import { authorName, type GroupSummary, renderGroup, renderInvite } from "./groups.ts";
 import { hints } from "../bar/hints.ts";
@@ -229,21 +230,3 @@ export async function chatAction(a: ChatAction) {
   }
 }
 
-/// Copies `text` and says so on the button for a moment.
-export async function copy(text: string, button?: HTMLElement | null) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    // The webview may refuse the async clipboard; the old way still works.
-    const t = h<HTMLTextAreaElement>("<textarea></textarea>");
-    t.value = text;
-    document.body.append(t);
-    t.select();
-    document.execCommand("copy");
-    t.remove();
-  }
-  if (!button) return;
-  const was = button.innerHTML;
-  button.textContent = "Copied";
-  setTimeout(() => { if (button.isConnected) button.innerHTML = was; }, 1200);
-}

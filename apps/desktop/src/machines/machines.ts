@@ -7,7 +7,7 @@ import { bar, esc, ICON, invoke, S } from "../bar/core.ts";
 import { bytes } from "../center/home-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
-import { copy } from "../chat/chats.ts";
+import { copy } from "../ui/parts.ts";
 import { notice } from "../chat/media.ts";
 import { emptyPage, errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";

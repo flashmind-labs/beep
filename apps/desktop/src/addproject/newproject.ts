@@ -2,7 +2,7 @@
 // a token, or Local only), its owner and visibility, and the machines that
 // get a checkout. The server creates it, and each machine clones it.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../ui/parts.ts";
 import { button, el } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { cleanError, present } from "./importproject-state.ts";

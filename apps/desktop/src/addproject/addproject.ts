@@ -8,7 +8,7 @@
 // repository…", which open the Import a project sheet, and "New project…",
 // which opens the New project sheet.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../ui/parts.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
 import type { ImportState } from "./addproject-state.ts";
 import { agentLabel, foundSessions, importPlan, lookingText } from "../project/projects-state.ts";

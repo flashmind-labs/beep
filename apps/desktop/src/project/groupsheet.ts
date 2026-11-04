@@ -1,6 +1,6 @@
 // The group sheet: the folders of a project group.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../ui/parts.ts";
 import { addGroupFolder, groupPath } from "./projects-state.ts";
 import { button, el } from "../ui/dom.ts";
 import { present, reason } from "../addproject/importproject-state.ts";

@@ -21,6 +21,11 @@ export function emptyPanel(...kids: Kid[]) {
   return el("div", "cc-panel cc-empty", ...kids);
 }
 
+/// A section's head: its title, then notes or a button.
+export function secHead(title: Kid, ...kids: Kid[]) {
+  return el("div", "cc-sec", el("h4", "", title), ...kids);
+}
+
 /// `rows` in a box as tall as its first `shown` rows; the rest scroll.
 export function fitRows(rows: HTMLElement[], shown: number) {
   const list = el("div", "pj-scroll", ...rows);
@@ -67,4 +72,49 @@ export function segmented<T>(options: readonly { label: string; value: T }[], cu
     b.setAttribute("aria-pressed", String(o.value === current));
     return b;
   }));
+}
+
+/// `text` on the clipboard. The webview may refuse the async way; the old way
+/// still works.
+export async function writeClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const t = el("textarea");
+    t.value = text;
+    document.body.append(t);
+    t.select();
+    document.execCommand("copy");
+    t.remove();
+  }
+}
+
+/// Copies `text` and says so on `on` for a moment.
+export async function copy(text: string, on?: HTMLElement | null) {
+  await writeClipboard(text);
+  if (!on) return;
+  const was = on.innerHTML;
+  on.textContent = "Copied";
+  setTimeout(() => { if (on.isConnected) on.innerHTML = was; }, 1200);
+}
+
+/// A button with `cls` that copies `text`.
+export function copyButton(text: string, label = "Copy", cls = "dbtn") {
+  const b: HTMLButtonElement = button(label, cls, () => copy(text, b));
+  return b;
+}
+
+/// A dialog over the window: the dimmed scrim holding the sheet, not yet
+/// on the page.
+export function sheetShell(label: string, cls: string) {
+  const box = el("div", cls);
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.setAttribute("aria-label", label);
+  return { root: el("div", "am-scrim", box), sheet: box };
+}
+
+/// Gives focus back to what had it before a sheet opened.
+export function focusBack(was: Element | null) {
+  (was as HTMLElement | null)?.focus?.();
 }
