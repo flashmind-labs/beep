@@ -118,7 +118,7 @@ impl<T: Clone + PartialEq + Send + 'static> Held<T> {
         id: impl Fn(&T) -> &str,
     ) -> Vec<T>
     where
-        R: Call<Reply = Vec<T>>,
+        R: Call<Reply = Vec<T>> + Sync,
     {
         let beep = app.state::<Arc<Beep>>().inner().clone();
         if beep.server().is_none() {
