@@ -37,7 +37,8 @@ use voice::Voice;
 
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
-/// How long quitting waits for the mesh to save its state.
+/// How long quitting waits for the router and the node's sync and transfer
+/// services to stop. The mesh writes each change to disk as it happens.
 const FLEET_STOP: Duration = Duration::from_secs(3);
 /// Passed to Beep when it starts as a login item, so it stays in the tray.
 const LOGIN_ARG: &str = "--login";
@@ -427,7 +428,7 @@ fn main() {
                     // gh, if it is still waiting for a GitHub code, goes too.
                     app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
                     app.state::<agents::accounts::ClaudeSignIn>().stop();
-                    // The mesh and the node's services save what they hold.
+                    // The router stops, and the sync and transfer services save their state.
                     let fleet = app.state::<Arc<Fleet>>().inner().clone();
                     tauri::async_runtime::block_on(async move {
                         if timeout(FLEET_STOP, fleet.stop()).await.is_err() {

@@ -275,6 +275,7 @@ impl Mesh {
         let loaded = {
             let dir = dir.clone();
             blocking(move || {
+                Core::recover(&dir)?;
                 let Some(devices) = Core::load(&dir)? else {
                     return Ok(None);
                 };
@@ -336,6 +337,46 @@ impl Mesh {
                 Ok(core)
             })
             .await?
+        };
+        Self::run(endpoint, core, addrs)
+    }
+
+    /// Joins the mesh `ticket` names in place of the one in `dir`, which
+    /// must hold no device but this one. Shut the old `Mesh` down first:
+    /// drop every clone. Nothing changes on disk until the ticket is
+    /// redeemed, and a crash during the swap leaves the old mesh or the new.
+    /// What the old mesh held is gone; read it first to carry it over.
+    pub async fn join_replacing_lone(
+        dir: &Path,
+        endpoint: Endpoint,
+        ticket: &JoinTicket,
+        name: &str,
+    ) -> Result<Mesh, MeshError> {
+        let dir = dir.to_owned();
+        let me = endpoint.id();
+        {
+            let dir = dir.clone();
+            blocking(move || {
+                Core::recover(&dir)?;
+                match Core::load(&dir)? {
+                    Some(devices) if devices.members().iter().any(|d| d.id != me) => {
+                        Err(MeshError::NotLone)
+                    }
+                    _ => Ok(()),
+                }
+            })
+            .await?;
+        }
+        let welcome = crate::join::redeem(&endpoint, ticket, name).await?;
+        let key = endpoint.secret_key().clone();
+        let mut addrs = welcome.addrs;
+        addrs.push(AddrNote {
+            addr: ticket.addr.clone(),
+            generation: 0,
+        });
+        let core = {
+            let (dir, addrs) = (dir.clone(), addrs.clone());
+            blocking(move || Core::swap_in(&dir, key, welcome.devices, &addrs)).await?
         };
         Self::run(endpoint, core, addrs)
     }

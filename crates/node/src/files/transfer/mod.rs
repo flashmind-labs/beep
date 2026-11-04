@@ -15,7 +15,8 @@ use beep_proto::node::{
 };
 use iroh::{
     Endpoint,
-    protocol::{Router, RouterBuilder},
+    endpoint::Connection,
+    protocol::{AcceptError, ProtocolHandler, Router, RouterBuilder},
 };
 use iroh_blobs::{
     BlobsProtocol, Hash, HashAndFormat,
@@ -30,7 +31,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{Notify, OwnedSemaphorePermit, Semaphore},
+    sync::{Notify, OwnedSemaphorePermit, Semaphore, watch},
     task::spawn_blocking,
     time::{Instant, timeout},
 };
@@ -140,6 +141,86 @@ struct Inner {
 pub struct Served {
     blobs: BlobsProtocol,
     sync: PeerHandler,
+}
+
+#[derive(Clone)]
+enum Slot {
+    Waiting,
+    Ready {
+        blobs: BlobsProtocol,
+        sync: PeerHandler,
+    },
+    Failed,
+}
+
+/// The blobs and sync protocols for a router built before `Transfers` is
+/// up: a connection on either waits for the services, and is closed if they
+/// never come.
+pub struct Late {
+    slot: watch::Sender<Slot>,
+}
+
+impl Default for Late {
+    fn default() -> Self {
+        Self {
+            slot: watch::channel(Slot::Waiting).0,
+        }
+    }
+}
+
+impl Late {
+    pub fn add_to(&self, router: RouterBuilder) -> RouterBuilder {
+        let waiting = |blobs| Waiting {
+            slot: self.slot.subscribe(),
+            blobs,
+        };
+        router
+            .accept(iroh_blobs::ALPN, waiting(true))
+            .accept(sync::ALPN, waiting(false))
+    }
+
+    /// The services are up.
+    pub fn serve(&self, served: Served) {
+        self.slot.send_replace(Slot::Ready {
+            blobs: served.blobs,
+            sync: served.sync,
+        });
+    }
+
+    /// The services will not start.
+    pub fn fail(&self) {
+        self.slot.send_replace(Slot::Failed);
+    }
+}
+
+/// One of `Late`'s two protocols.
+struct Waiting {
+    slot: watch::Receiver<Slot>,
+    blobs: bool,
+}
+
+impl std::fmt::Debug for Waiting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Waiting")
+    }
+}
+
+impl ProtocolHandler for Waiting {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let mut slot = self.slot.clone();
+        let ready = match slot.wait_for(|slot| !matches!(slot, Slot::Waiting)).await {
+            Ok(ready) => ready.clone(),
+            Err(_) => Slot::Failed,
+        };
+        match ready {
+            Slot::Ready { blobs, .. } if self.blobs => blobs.accept(connection).await,
+            Slot::Ready { sync, .. } => sync.accept(connection).await,
+            _ => {
+                connection.close(1u32.into(), b"not serving");
+                Ok(())
+            }
+        }
+    }
 }
 
 impl Served {

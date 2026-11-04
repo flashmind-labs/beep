@@ -714,21 +714,27 @@ pub(crate) async fn session(
     offers: Offers,
     who: Who,
 ) -> Result<()> {
-    let (tx, rx) = link(send, recv);
-    session_over(tx, rx, offers, who).await
+    let (tx, mut rx) = link(send, recv);
+    let open = read_open(&mut rx).await?;
+    serve_open(tx, rx, open, offers, who).await
 }
 
-/// `session` on a stream already framed: a peer's, or one in this process.
-pub(crate) async fn session_over(
+/// Reads the protocol a session stream opens with.
+pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<Open> {
+    timeout(OPEN_TIMEOUT, rx.recv())
+        .await
+        .context("the session did not say its protocol")??
+        .context("the session closed before its protocol")
+}
+
+/// Serves a session stream that opened with `open`, if `who` may use it.
+pub(crate) async fn serve_open(
     mut tx: LinkTx,
-    mut rx: LinkRx,
+    rx: LinkRx,
+    open: Open,
     offers: Offers,
     who: Who,
 ) -> Result<()> {
-    let open: Open = timeout(OPEN_TIMEOUT, rx.recv())
-        .await
-        .context("the session did not say its protocol")??
-        .context("the session closed before its protocol")?;
     if matches!(who, Who::Node { .. })
         && !matches!(open.protocol.as_str(), status::PROTOCOL | tools::PROTOCOL)
     {

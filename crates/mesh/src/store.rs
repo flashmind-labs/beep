@@ -22,6 +22,15 @@ use tokio::sync::{mpsc, oneshot, watch};
 /// The largest value a device may write under one key.
 pub(crate) const MAX_VALUE: usize = 1024 * 1024;
 const QUEUE: usize = 256;
+/// Where a mesh's files wait while another takes their place.
+const ASIDE: &str = "mesh.old";
+
+fn remove_if_present(dir: &Path) -> Result<(), MeshError> {
+    match fs::remove_dir_all(dir) {
+        Err(e) if e.kind() != ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
+    }
+}
 
 /// What readers see: a snapshot rebuilt after every change.
 pub(crate) struct View {
@@ -66,6 +75,58 @@ impl Core {
         core.save_devices()?;
         core.publish();
         Ok(core)
+    }
+
+    /// Finishes or undoes a swap a crash cut short (see `swap_in`): once
+    /// the new mesh's device list is on disk the old one goes, before that
+    /// the old one is put back.
+    pub(crate) fn recover(dir: &Path) -> Result<(), MeshError> {
+        let (live, aside) = (dir.join("mesh"), dir.join(ASIDE));
+        if !aside.exists() {
+            return Ok(());
+        }
+        if !live.join("devices.bin").exists() {
+            remove_if_present(&live)?;
+            fs::rename(&aside, &live)?;
+        } else {
+            remove_if_present(&aside)?;
+        }
+        sync_dir(dir)?;
+        Ok(())
+    }
+
+    /// Starts a mesh in `dir` in place of the one there, which is kept
+    /// aside until the new one is on disk. A crash leaves one of the two.
+    pub(crate) fn swap_in(
+        dir: &Path,
+        key: SecretKey,
+        devices: Devices,
+        addrs: &[AddrNote],
+    ) -> Result<Core, MeshError> {
+        Self::recover(dir)?;
+        let (live, aside) = (dir.join("mesh"), dir.join(ASIDE));
+        let had_old = live.exists();
+        if had_old {
+            fs::rename(&live, &aside)?;
+            sync_dir(dir)?;
+        }
+        let started = Self::start(dir, key, devices).and_then(|core| {
+            core.save_addrs(addrs)?;
+            Ok(core)
+        });
+        match started {
+            Ok(core) => {
+                remove_if_present(&aside)?;
+                Ok(core)
+            }
+            Err(e) => {
+                if had_old {
+                    remove_if_present(&live)?;
+                    fs::rename(&aside, &live)?;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub(crate) fn exists(dir: &Path) -> bool {

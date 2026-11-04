@@ -118,6 +118,9 @@ pub enum MeshError {
     Refused(String),
     #[error("this directory already belongs to a mesh")]
     AlreadyMember,
+    /// A mesh can only be left while this device is its only member.
+    #[error("this device belongs to a mesh with other devices")]
+    NotLone,
     #[error("network: {0}")]
     Net(String),
     #[error("the mesh is closed")]
