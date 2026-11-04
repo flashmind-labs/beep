@@ -130,7 +130,7 @@ internal fun GrantsScreen(repository: ChatRepository, routineId: String?, onBack
             dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel") } })
     }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Routine grants"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Routine grants"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->

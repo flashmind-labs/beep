@@ -358,7 +358,7 @@ internal fun ResearchWorkspace(repository: ChatRepository, sessionId: String, st
     LaunchedEffect(notice) { if (notice?.second == true) { delay(8_000); notice = null } }
     val agent = (opened as? Opened.Agent)?.let { live?.agent(it.id) }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = {
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = {
             Column {
                 Text(when { agent != null -> agent.name; opened == Opened.Room -> "Room"; else -> live?.research?.topic ?: "Research" },
                     fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -604,7 +604,7 @@ internal fun ResearchListScreen(repository: ChatRepository, onBack: () -> Unit, 
     }
     fun start() { topic.trim().takeIf { it.isNotEmpty() }?.let { onStart(it); topic = "" } }
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(displayText("Research"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Research"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->

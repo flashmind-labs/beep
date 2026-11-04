@@ -147,7 +147,7 @@ fun SharedChatScreen(repository: ChatRepository, token: String, onBack: () -> Un
             .onFailure { if (it is BeepException.NotFound) gone = true else { Toast.makeText(context, userMessage(it), Toast.LENGTH_SHORT).show(); onBack() } }
     }
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = {
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = {
             Column {
                 Text(displayText(shared?.title ?: "Shared chat"), style = displayStyle(18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 shared?.let {

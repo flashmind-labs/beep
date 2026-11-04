@@ -131,7 +131,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
     if (showingCode) ShowCodeSheet(repository, onDismiss = { showingCode = false; refresh() })
 
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Linked devices"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Linked devices"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->

@@ -113,7 +113,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
     Scaffold(containerColor = Ink, snackbarHost = {
         SnackbarHost(snackbar) { Snackbar(it, actionColor = Beep.colors.ok, shape = RoundedCornerShape(Beep.shapes.smallRadius)) }
     }, topBar = {
-        TopAppBar(title = { Text(displayText("Routines"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Routines"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = { ChunkyButton(onClick = { showCreate = true }, modifier = Modifier.padding(end = 14.dp), color = Beep.colors.accent,
                 contentColor = Beep.colors.onAccent, contentPadding = PaddingValues(8.dp)) { Icon(Icons.Outlined.Add, "New routine", Modifier.size(20.dp)) } },
@@ -123,7 +123,7 @@ internal fun CronsScreen(repository: ChatRepository, onBack: () -> Unit, onAskBe
             if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
             if (loading) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
             else if (crons.isEmpty()) Text("No routines yet.\nSchedule tasks for Beep to run on a timer.", fontSize = 13.sp, color = TextMuted, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 20.sp)
-            else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(crons.filter { it.id !in hidden }, key = { it.id }) { cron ->
                     val grantsLine = grantEnds[cron.id]?.let { routineGrantsLine(it, Instant.now()) }
                     RoutineCard(cron, placeNames, Modifier.animateItem(), grantsLine, onGrants = { onGrants(cron.id) }, onRun = { run(cron) }, onDelete = { delete(cron) }, onToggle = { enabled ->
@@ -186,12 +186,12 @@ private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, Strin
                 Column(Modifier.weight(1f)) {
                     Text(cron.label.ifBlank { "Reminder" }, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(3.dp))
-                    Text(cron.prompt, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
+                    Text(cron.prompt, fontSize = 13.sp, color = TextMuted, maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
                     Spacer(Modifier.height(4.dp))
                     val place = placeSchedule(cron.schedule)
                     Text(place?.let { describePlaceSchedule(it, placeNames) } ?: describeSchedule(cron.schedule), fontSize = 11.sp, color = TextDim)
                     if (cron.enabled && onceAt(cron.schedule) == null) cron.nextRunAt?.let(::describeNextRun)?.let {
-                        Text(it, fontSize = 11.sp, color = TextDim)
+                        Text(it, fontSize = 12.sp, color = Moss)
                     }
                     // Grants the routine holds; tapping opens them.
                     if (grantsLine != null) Row(Modifier.padding(top = 4.dp).clip(RoundedCornerShape(Beep.shapes.smallRadius)).clickable(onClick = onGrants).padding(vertical = 4.dp),
@@ -200,8 +200,7 @@ private fun RoutineCard(cron: ChatRepository.Cron, placeNames: Map<String, Strin
                         Text(grantsLine, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Moss)
                     }
                 }
-                Switch(checked = cron.enabled, onCheckedChange = onToggle, modifier = Modifier.height(28.dp),
-                    colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
+                BeepSwitch(checked = cron.enabled, onCheckedChange = onToggle, label = cron.label)
             }
         }
     }
