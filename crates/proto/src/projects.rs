@@ -270,6 +270,16 @@ pub struct ProjectMachine {
     pub checked_at: Option<SystemTime>,
 }
 
+/// Where `CopyProject` put a project.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectCopy {
+    /// The project's absolute folder on the machine.
+    pub folder: String,
+    /// The machine it comes from; `None` when it was there already.
+    pub from: Option<String>,
+}
+
 /// An open issue on a project's issues host, as `ListProjectIssues` gives it.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

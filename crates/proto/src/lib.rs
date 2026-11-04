@@ -1328,6 +1328,10 @@ requests! {
     /// What each of the caller's machines moved over iroh since it first
     /// reported, online or not. A machine that never reported is left out.
     409 ListMachineTraffic {} => Call<Vec<MachineTraffic>>
+    /// Copies `project` onto `machine_id` from a machine that has it and keeps
+    /// them in sync; a machine that holds it already keeps what it holds.
+    /// `BadRequest` says why it cannot.
+    410 CopyProject { project: String, machine_id: String } => Call<ProjectCopy>
 }
 
 /// How long the model reasons before it answers. `Off` sends no reasoning

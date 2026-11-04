@@ -242,6 +242,7 @@ sample_struct! {
     HostRepos { host, kind, repos, error }
     HostRepo { name, url, updated_at }
     ProjectMachine { machine_id, machine_name, online, folder, checking, checked_at }
+    ProjectCopy { folder, from }
     SyncthingPlace { machine_id, folder, label }
     AgentHarnesses { machine_id, machine_name, checked_at, harnesses }
     AgentHarness { agent, installed, runnable, version, latest, program, home_var, home_default, sign_in, install, settings }

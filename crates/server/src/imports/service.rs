@@ -54,13 +54,13 @@ pub(crate) struct Import<'a> {
 }
 
 /// One of the user's machines, online and able to run commands.
-struct Chosen {
-    row: NodeRow,
-    node: Online,
+pub(super) struct Chosen {
+    pub(super) row: NodeRow,
+    pub(super) node: Online,
 }
 
 /// The machine `machine_id` names, or the one `place::choose` picks.
-async fn choose_machine(
+pub(super) async fn choose_machine(
     app: &App,
     user: &User,
     machine_id: Option<&str>,
@@ -234,7 +234,7 @@ pub(crate) async fn browse(
 }
 
 /// What `folder` on the machine holds.
-async fn look(
+pub(super) async fn look(
     node: &Online,
     row: &NodeRow,
     folder: &FolderPath,
