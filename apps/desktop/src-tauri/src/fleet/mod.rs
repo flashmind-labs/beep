@@ -675,12 +675,12 @@ mod tests {
     #[tokio::test]
     async fn settings_a_join_was_carrying_are_set_at_the_next_start() {
         let dir = TempDir::new().expect("a temp dir");
-        carry::save(dir.path(), &[(Key::Instructions, b"keep".to_vec())]).expect("saved");
+        carry::save(dir.path(), &[(Key::Flsh, b"keep".to_vec())]).expect("saved");
         let endpoint = bind(&SecretKey::generate()).await;
         let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
         fleet.run(None).await;
         let mesh = fleet.mesh().expect("the mesh is open");
-        assert_eq!(mesh.get(&Key::Instructions), Some(b"keep".to_vec()));
+        assert_eq!(mesh.get(&Key::Flsh), Some(b"keep".to_vec()));
         assert!(!dir.path().join("carry.json").exists());
     }
 

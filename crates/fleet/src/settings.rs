@@ -262,20 +262,12 @@ impl Desk {
             note: note.to_owned(),
             saved_ms: now_ms(),
         };
-        let key = Key::Group(format!(
-            "{VERSION_PREFIX}{}.{}",
-            saved.saved_ms,
-            Uuid::new_v4()
-        ));
+        let key = Key::InstructionVersion(format!("{}.{}", saved.saved_ms, Uuid::new_v4()));
         write(&self.mesh, key, Some(&saved)).await?;
         Ok(version(held, &saved))
     }
 }
 
-/// What the id of a version's key starts with.
-pub(crate) const VERSION_PREFIX: &str = "instructions.";
-
 fn scan_versions(mesh: &beep_mesh::Mesh) -> Vec<(Key, SavedVersion)> {
-    let prefix = format!("group/{VERSION_PREFIX}");
-    scan::<SavedVersion>(mesh, &prefix)
+    scan::<SavedVersion>(mesh, "instructions/")
 }

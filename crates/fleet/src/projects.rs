@@ -7,7 +7,7 @@ use crate::{
     error::{FleetError, Result},
     records::{
         GroupRecord, PinRecord, Place, ProjectRecord, Stored, WRITES, at, find_project, now_ms,
-        place_key, project_key, projects, read, scan, scan_where, write,
+        place_key, project_key, projects, read, scan, write,
     },
 };
 use async_trait::async_trait;
@@ -589,24 +589,20 @@ impl Desk {
 
     /// The user's groups, oldest first.
     pub fn groups(&self) -> Vec<ProjectGroup> {
-        let mut groups: Vec<(u64, ProjectGroup)> = scan_where::<GroupRecord>(
-            &self.mesh,
-            "group/",
-            |key| matches!(key, Key::Group(id) if id.parse::<Uuid>().is_ok()),
-        )
-        .into_iter()
-        .filter_map(|(key, record)| {
-            let Key::Group(id) = key else { return None };
-            Some((
-                record.created_ms,
-                ProjectGroup {
-                    id: id.parse().ok()?,
-                    name: record.name,
-                    paths: record.paths,
-                },
-            ))
-        })
-        .collect();
+        let mut groups: Vec<(u64, ProjectGroup)> = scan::<GroupRecord>(&self.mesh, "group/")
+            .into_iter()
+            .filter_map(|(key, record)| {
+                let Key::Group(id) = key else { return None };
+                Some((
+                    record.created_ms,
+                    ProjectGroup {
+                        id: id.parse().ok()?,
+                        name: record.name,
+                        paths: record.paths,
+                    },
+                ))
+            })
+            .collect();
         groups.sort_by_key(|(created, _)| *created);
         groups.into_iter().map(|(_, group)| group).collect()
     }
