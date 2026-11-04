@@ -1,6 +1,7 @@
 //! `Mesh`: one device's membership. An owner task keeps a dialer per other
 //! member; `link` runs each connection; `join` handles tickets.
 
+use crate::frame;
 use crate::state::now_ms;
 use crate::store::{Core, SharedView, Store, View};
 use crate::{Device, DeviceKind, JoinTicket, Key, MeshError, link};
@@ -45,6 +46,8 @@ const KEEP_ALIVE: Duration = Duration::from_secs(3);
 const IDLE_MS: u32 = 10_000;
 /// Further streams one peer may have open at once.
 pub(crate) const MAX_STREAMS: usize = 64;
+/// Times `open_bi` goes on to a newer connection.
+const OPEN_RETRIES: u32 = 2;
 /// Addresses taken from one message.
 const MAX_ADDRS: usize = 256;
 
@@ -75,9 +78,12 @@ pub struct PeerStream {
 }
 
 /// The transport settings a mesh endpoint should be built with: idle links
-/// are pinged and a dead one is given up on after ten seconds.
+/// are pinged and a dead one is given up on after ten seconds. Datagrams go
+/// singly, as `beep_proto::port::transport` has it, because sync shares the
+/// endpoint.
 pub fn transport_config() -> QuicTransportConfig {
     QuicTransportConfig::builder()
+        .enable_segmentation_offload(false)
         .keep_alive_interval(KEEP_ALIVE)
         .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(IDLE_MS))))
         .build()
@@ -485,6 +491,44 @@ impl Mesh {
 
     pub fn peer(&self, id: EndpointId) -> Option<Connection> {
         self.inner.live(id)
+    }
+
+    /// Opens a bi stream to `peer` on the current connection. When that
+    /// connection is closed because a newer link replaced it (two members
+    /// dialing at once keep one), the newer one is tried, twice at most.
+    pub async fn open_bi(&self, peer: EndpointId) -> Result<(SendStream, RecvStream), MeshError> {
+        let first = self
+            .inner
+            .live(peer)
+            .ok_or_else(|| frame::net("not connected"))?;
+        self.open_from(peer, first).await
+    }
+
+    pub(crate) async fn open_from(
+        &self,
+        peer: EndpointId,
+        first: Connection,
+    ) -> Result<(SendStream, RecvStream), MeshError> {
+        let mut conn = first;
+        let mut retries = OPEN_RETRIES;
+        loop {
+            match conn.open_bi().await {
+                Ok(streams) => return Ok(streams),
+                Err(e) => {
+                    let newer = self
+                        .inner
+                        .live(peer)
+                        .filter(|live| live.stable_id() != conn.stable_id());
+                    match newer {
+                        Some(live) if retries > 0 => {
+                            retries -= 1;
+                            conn = live;
+                        }
+                        _ => return Err(frame::net(e)),
+                    }
+                }
+            }
+        }
     }
 
     pub fn protocols(&self) -> (MeshProtocol, JoinProtocol) {

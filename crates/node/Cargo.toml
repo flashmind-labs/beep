@@ -31,6 +31,7 @@ agent-client-protocol = { version = "3.6", features = ["unstable_end_turn_token_
 anyhow = "1"
 bao-tree = "0.17"
 base64 = "0.22"
+beep-mesh = { path = "../mesh" }
 beep-proto = { path = "../proto" }
 blake3 = "1"
 clap = { version = "4", features = ["derive", "env"], optional = true }
@@ -43,6 +44,7 @@ hmac = "0.13"
 ignore = "0.4"
 iroh = "1.3"
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"] }
+iroh-tickets = "1"
 log = "0.4"
 notify = "8"
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.

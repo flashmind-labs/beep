@@ -68,12 +68,12 @@ pub async fn setup(
     // `run` binds its own endpoint with the same key.
     endpoint.close().await;
     let claimed = claimed?;
-    let state = State::save(dir, key, token.server, &claimed.name, search)?;
+    let state = State::save(dir, key, Some(token.server), &claimed.name, search)?;
     Ok((state, claimed))
 }
 
 /// What the machine calls itself, cut to fit a name.
-async fn host_name() -> String {
+pub async fn host_name() -> String {
     let output = Command::new("hostname").output().await;
     let name = output
         .ok()
