@@ -2,12 +2,12 @@
 
 use super::Reply;
 use crate::{
+    account::user::User,
+    api::router::Cx,
     app::App,
+    memory::watchers,
     protocol::{ApiError, Finding, FindingStatus, ListFindings, UpdateFinding},
-    router::Cx,
     store::FindingRow,
-    user::User,
-    watchers,
 };
 use chrono::Utc;
 use uuid::Uuid;
@@ -84,11 +84,11 @@ fn listed(row: FindingRow) -> Finding {
 mod tests {
     use super::*;
     use crate::{
-        store::{NewFinding, Sighting, test_chat},
-        watchers::{
+        memory::watchers::{
             Cause, FindingKind,
             testing::{Harness, Scripted},
         },
+        store::{NewFinding, Sighting, test_chat},
     };
 
     #[tokio::test]

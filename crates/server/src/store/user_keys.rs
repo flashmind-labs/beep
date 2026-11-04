@@ -2,8 +2,8 @@
 
 use super::Store;
 use crate::{
+    account::user::UserKey,
     protocol::{DeviceKind, names::username},
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};

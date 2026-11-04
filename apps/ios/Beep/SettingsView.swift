@@ -52,7 +52,7 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 20).padding(.vertical, 8)
+                .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
         }
         .background(Mint.page)
@@ -67,7 +67,7 @@ struct SettingsView: View {
         HStack(spacing: 14) {
             Image(systemName: icon).font(.system(size: 17)).foregroundStyle(Mint.muted).frame(width: 20)
             VStack(alignment: .leading, spacing: 1) {
-                Text(label).font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                Text(label).font(.body(14, .medium)).foregroundStyle(Mint.ink)
                 HStack(spacing: 6) {
                     if dot { ConnectionDot(connected: model.connected) }
                     Text(detail).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
@@ -76,7 +76,7 @@ struct SettingsView: View {
             Spacer(minLength: 0)
             Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium)).foregroundStyle(Mint.muted)
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .contentShape(Rectangle())
     }
 
@@ -122,9 +122,9 @@ struct SettingsView: View {
                             }
                         }
                         .padding(.horizontal, 12).padding(.vertical, 9)
-                        .overlay(RoundedRectangle(cornerRadius: 14)
+                        .overlay(RoundedRectangle(cornerRadius: Mint.radius)
                             .strokeBorder(selected ? Mint.ink : Mint.soft, lineWidth: selected ? 2 : 1))
-                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                        .contentShape(RoundedRectangle(cornerRadius: Mint.radius))
                     }
                     .buttonStyle(.plain)
                 }
@@ -222,9 +222,7 @@ private struct LookPicker: View {
                                 Circle().fill(p.accent).frame(width: 14, height: 14)
                                 Circle().fill(p.ok.mix(with: p.page, by: 0.15)).frame(width: 14, height: 14)
                             }
-                            Text(p.displayUppercase ? style.label.uppercased() : style.label)
-                                .font(p.displayWeight.map { Font.custom(p.display, size: 14).weight($0) }
-                                      ?? .custom(p.display, size: 14))
+                            Text(style.label).font(.body(14, .medium))
                                 .foregroundStyle(p.ink).lineLimit(1)
                             Spacer(minLength: 0)
                             if selected {
@@ -232,11 +230,10 @@ private struct LookPicker: View {
                             }
                         }
                         .padding(.horizontal, 12).padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(p.page))
-                        .overlay(RoundedRectangle(cornerRadius: 14)
+                        .background(RoundedRectangle(cornerRadius: Mint.radius).fill(p.page))
+                        .overlay(RoundedRectangle(cornerRadius: Mint.radius)
                             .strokeBorder(selected ? Mint.ink : Mint.soft, lineWidth: selected ? 2 : 1))
-                        .offset(x: selected ? 4 : 0)
-                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                        .contentShape(RoundedRectangle(cornerRadius: Mint.radius))
                     }
                     .buttonStyle(.plain)
                 }
@@ -301,9 +298,9 @@ private struct TalkToBeepCard: View {
             HStack(spacing: 12) {
                 Image(systemName: "waveform").font(.system(size: 18, weight: .semibold)).foregroundStyle(Mint.ink)
                     .frame(width: 40, height: 40)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Mint.tints[1]))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[1]))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Talk to Beep").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                    Text("Talk to Beep").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                     Text("Live voice from anywhere, without opening a chat first.")
                         .font(.body(13)).foregroundStyle(Mint.muted)
                 }

@@ -1,7 +1,7 @@
 //! Project groups: folders a user lists projects under, matched by the apps.
 
 use super::Store;
-use crate::{protocol::ProjectGroup, user::UserKey};
+use crate::{account::user::UserKey, protocol::ProjectGroup};
 use anyhow::Result;
 use uuid::Uuid;
 

@@ -4,14 +4,14 @@
 use async_trait::async_trait;
 use beep_node::link::Offers;
 use beep_server::{
+    agent::models::ModelChoices,
+    api::transport,
     app::{App, ServerTools},
     client::Node,
-    models::ModelChoices,
     nodes,
     protocol::{DeviceKind, ListMachineTraffic, node::traffic::TrafficReport},
     push::Pusher,
     store::{NewKey, TestDb},
-    transport,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,

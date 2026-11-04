@@ -94,7 +94,6 @@ impl RepoName {
         })
     }
 
-    /// The owner part.
     pub(crate) fn owner(&self) -> &str {
         &self.name[..self.slash]
     }
@@ -209,7 +208,6 @@ impl TaskSlug {
         format!("beep/{}", self.0)
     }
 
-    /// The task's worktree in `checkout`.
     pub(crate) fn worktree(&self, checkout: &MachinePath) -> MachinePath {
         checkout.join(&format!(".worktrees/{}", self.0))
     }

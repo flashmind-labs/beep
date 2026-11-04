@@ -251,6 +251,14 @@ ffi_structs! {
         pub checked_at: Option<SystemTime>,
     }
 
+    /// Where `CopyProject` put a project.
+    pub struct ProjectCopy {
+        /// The project's absolute folder on the machine.
+        pub folder: String,
+        /// The machine it comes from; `None` when it was there already.
+        pub from: Option<String>,
+    }
+
     /// An open issue on a project's issues host, as `ListProjectIssues` gives it.
     pub struct ProjectIssue {
         pub number: u64,

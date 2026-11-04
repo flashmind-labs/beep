@@ -13,7 +13,7 @@ struct SkillsView: View {
             BackBar(title: "Skills", back: { path.removeAll() })
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Mint.pageInset)
             }
             if !loaded, model.skills.isEmpty {
                 ProgressView().padding(40)
@@ -40,7 +40,7 @@ struct SkillsView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
                 }
                 .refreshable { await load() }
             }
@@ -92,7 +92,7 @@ private struct SkillCard: View {
                 Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Mint.muted).padding(.top, 2)
             }
-            .padding(14)
+            .padding(Mint.spacing)
             .card()
             .opacity(skill.enabled ? 1 : 0.65)
             .contentShape(Rectangle())
@@ -114,7 +114,7 @@ struct SkillView: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 BackArrow(action: back)
-                Text(skill?.name ?? "Skill").font(.display(20)).foregroundStyle(Mint.ink)
+                Text(skill?.name ?? "Skill").font(.display(18)).foregroundStyle(Mint.ink)
                     .lineLimit(1).truncationMode(.tail)
                 Spacer()
                 if skill != nil {
@@ -125,7 +125,7 @@ struct SkillView: View {
             .padding(.horizontal, 6).frame(minHeight: 56)
             if let skill {
                 ScrollView {
-                    details(skill).padding(.horizontal, 16).padding(.vertical, 8)
+                    details(skill).padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
                 }
             } else {
                 ProgressView().padding(40)
@@ -166,7 +166,7 @@ struct SkillView: View {
                 }
             }
             .tint(Mint.ok)
-            .padding(14)
+            .padding(Mint.spacing)
             .card()
             .padding(.trailing, 3).padding(.bottom, 3)
             VStack(alignment: .leading, spacing: 8) {
@@ -176,7 +176,7 @@ struct SkillView: View {
                 MarkdownText(text: skill.body, size: 14)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
+            .padding(Mint.spacing)
             .card()
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
@@ -252,7 +252,7 @@ private struct EditSkillSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Edit skill").font(.display(22)).foregroundStyle(Mint.ink)
+                Text("Edit skill").font(.display(18)).foregroundStyle(Mint.ink)
                 field("Name", text: $name)
                 field("When it applies", text: $description, lines: 1...3)
                 field("Instructions", text: $instructions, lines: 7...16, size: 13)
@@ -263,8 +263,8 @@ private struct EditSkillSheet: View {
                     Spacer()
                     Button("Cancel") { dismiss() }.buttonStyle(TextAction())
                     Button { save() } label: {
-                        Text("Save").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
-                            .padding(.horizontal, 20).frame(minHeight: 44)
+                        Text("Save").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
+                            .padding(.horizontal, Mint.pageInset).frame(minHeight: 44)
                             .chunky(Mint.accent, radius: 18)
                     }
                     .buttonStyle(.plain)
@@ -294,8 +294,8 @@ private struct EditSkillSheet: View {
                 .lineLimit(lines)
                 .font(.body(size)).foregroundStyle(Mint.ink)
                 .padding(.horizontal, 14).padding(.vertical, 12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
         }
     }
 

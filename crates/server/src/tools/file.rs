@@ -4,7 +4,9 @@ use super::{
     args::text,
     machines::{Machines, Need, copy, transfer},
 };
-use crate::{fetch, projects::model::MachinePath, user::User, workspace::Workspace};
+use crate::{
+    account::user::User, nodes::workspace::Workspace, projects::model::MachinePath, tools::fetch,
+};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};

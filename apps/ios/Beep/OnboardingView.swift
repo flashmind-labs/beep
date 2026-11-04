@@ -13,13 +13,13 @@ struct OnboardingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("b")
-                    .font(.display(24))
+                Image(systemName: "bubble.left")
+                    .font(.display(18))
                     .frame(width: 56, height: 56)
                     .chunky(Mint.user, radius: 18)
-                Text("Almost ready.".display).font(.display(36)).foregroundStyle(Mint.ink)
+                Text("Almost ready.".display).font(.display(24)).foregroundStyle(Mint.ink)
                 Text("A couple of permissions to make Beep more useful. You can skip any of these.")
-                    .font(.body(15))
+                    .font(.body(14))
                     .foregroundStyle(Mint.muted)
                     .lineSpacing(4)
 
@@ -59,7 +59,7 @@ struct OnboardingView: View {
                     .buttonStyle(TextAction(color: Mint.muted))
                     .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Mint.pageInset)
             .padding(.vertical, 24)
         }
         .background(Mint.page)
@@ -100,7 +100,7 @@ private struct PermissionCard: View {
         HStack(spacing: 12) {
             TintIcon(system: icon, tint: tint)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                Text(title).font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                 Text(detail).font(.body(13)).foregroundStyle(Mint.muted)
             }
             Spacer(minLength: 4)
@@ -112,7 +112,7 @@ private struct PermissionCard: View {
                 Button(action, action: onTap).buttonStyle(PillButton())
             }
         }
-        .padding(14)
+        .padding(Mint.spacing)
         .card()
     }
 }

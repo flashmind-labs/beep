@@ -2,6 +2,7 @@
 
 use super::Reply;
 use crate::{
+    api::router::Cx,
     nodes::Online,
     protocol::{
         node::{
@@ -10,7 +11,6 @@ use crate::{
         },
         *,
     },
-    router::Cx,
 };
 
 /// The tools on the caller's online machines that are behind the newest

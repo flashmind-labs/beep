@@ -2,6 +2,7 @@
 //! removes done worktrees. Only this loop writes progress; every step is safe to repeat.
 
 use super::{
+    super::issues::head as clip,
     git::remove_review_worktree,
     report::{
         MAX_CONTEXT, Reported, Subject, VERIFIER_SYSTEM, context_script, new_findings,
@@ -9,12 +10,12 @@ use super::{
     },
 };
 use crate::{
+    account::user::User,
     app::App,
     nodes::Online,
     projects::commands::Shell,
     protocol::node::agent::{EntryKind, Request as AgentRequest, SessionInfo, Status},
     store::{Judged, ReviewFindingRow, ReviewRow, ShardRow, ShardState, Verdict},
-    user::User,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -410,13 +411,4 @@ async fn verify(
         },
         why: Some(said.why).filter(|why| !why.is_empty()),
     })
-}
-
-/// `text` cut to `max` bytes on a character boundary.
-fn clip(text: &str, max: usize) -> &str {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
 }

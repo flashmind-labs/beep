@@ -6,14 +6,14 @@
 
 use super::{App, Reach, UserNotice, group::said, run::web_tools};
 use crate::{
+    account::user::User,
+    agent::decision::DecisionTool,
+    apps::permissions::{self, Rules, ToolApp, ToolSlug},
     apps::{CatalogApp, markdown},
-    decision::DecisionTool,
-    leak::{Gate, Said, Secret},
-    memories::clip,
-    permissions::{self, Rules, ToolApp, ToolSlug},
+    memory::leak::{Gate, Said, Secret},
+    memory::memories::clip,
     protocol::{Approval, Notice, PendingApproval},
     tools::group_memory::{Member, Secrets},
-    user::User,
 };
 use anyhow::Result;
 use async_trait::async_trait;

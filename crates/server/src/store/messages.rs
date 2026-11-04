@@ -4,11 +4,13 @@ use super::{
     RunStatus, Store,
     updates::{Bumped, Readers, UpdateOp, log_messages},
 };
-use crate::protocol::{
-    Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, PendingApproval,
-    ToolLabel, TurnInfo,
+use crate::{
+    account::user::UserKey,
+    protocol::{
+        Approval, ApprovalField, AutoPick, ChatMessage, ImageRef, MessageBody, PendingApproval,
+        ToolLabel, TurnInfo,
+    },
 };
-use crate::user::UserKey;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use flashmind::types::ReasoningLevel;
@@ -705,8 +707,8 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{
+        account::user::UserKey,
         store::{CreateRun, FinishedTurn, RunStatus, TestDb, test_chat},
-        user::UserKey,
     };
     use flashmind::core::{Conversation, ConversationEntry};
 

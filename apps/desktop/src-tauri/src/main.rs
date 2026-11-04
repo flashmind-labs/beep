@@ -307,6 +307,7 @@ fn main() {
             projects::page::center_project_send,
             projects::page::center_stop_worker,
             projects::page::center_update_task,
+            projects::page::project_copy,
             projects::page::project_machines,
             projects::page::project_sessions,
             projects::page::project_syncthing,
@@ -427,6 +428,7 @@ fn main() {
 }
 
 fn setup(app: &mut App) -> anyhow::Result<()> {
+    beep_node::machine::raise_open_files();
     app.set_activation_policy(ActivationPolicy::Accessory);
     let handle = app.handle().clone();
     let dir = beep::identity::data_dir(&handle)?;

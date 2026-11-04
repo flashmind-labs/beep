@@ -70,7 +70,6 @@ pub(super) const SUMMED: &[Summed] = &[
     },
 ];
 
-/// Adds the usage of `source` to `target`'s.
 pub(super) async fn move_usage(tx: &mut PgConnection, source: &str, target: &str) -> Result<()> {
     for summed in SUMMED {
         let table = summed.table;

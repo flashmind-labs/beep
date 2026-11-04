@@ -3,16 +3,16 @@
 
 use super::{App, Draws, Message, run::register_web_tools};
 use crate::{
-    metering,
+    account::user::User,
+    agent::metering,
+    agent::repeat,
     protocol::DeviceKind,
-    repeat,
     research::{
         AddScoutsTool, Entry, MAX_TEAM_SCOUTS, Member, Plan, ResearchConfig, ResearchMoreTool,
         RoleModel, Scout, Seat, StartResearchTool, Status, StopResearchTool, TEAM_TOOLS, TeamTools,
         team_tools,
     },
     store::{CreateRun, ResearchRow},
-    user::User,
 };
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -46,7 +46,6 @@ const SCOUT_PROMPT: &str = include_str!("../../prompts/research/scout.md");
 const CRITIC_PROMPT: &str = include_str!("../../prompts/research/critic.md");
 const WRITER_PROMPT: &str = include_str!("../../prompts/research/writer.md");
 const COORDINATOR_PROMPT: &str = include_str!("../../prompts/research/coordinator.md");
-/// The lead's prompt in the research chat.
 pub(super) const LEAD_PROMPT: &str = include_str!("../../prompts/research/lead.md");
 
 /// What the result turn's message shows in the chat.
@@ -543,7 +542,7 @@ impl App {
             registry.register(tool);
         }
         let refusals = repeat::guard_tool_calls(&mut registry);
-        crate::tool_cost::log("research team", &registry);
+        crate::agent::tool_cost::log("research team", &registry);
 
         let mut llm = self
             .llm

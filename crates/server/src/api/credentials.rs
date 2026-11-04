@@ -2,17 +2,17 @@
 
 use super::Reply;
 use crate::{
-    credentials::{
+    account::credentials::{
         Checked, Checker, Slot, last4,
         machines::{MAX_MACHINES, Reach, check_from},
     },
+    api::router::Cx,
     nodes::SHELL,
     protocol::{
         ApiError, ApiProvider, CheckCredential, Credential, CredentialCheck, CredentialKind,
         GITHUB_ENV_VAR, GitHubAccount, ListCredentials, ListGitHubAccounts, RemoveCredential,
         SaveCredential, SaveGitHubAccount, SecretText, SetDefaultGitHubAccount,
     },
-    router::Cx,
     store::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount},
 };
 use secrecy::{ExposeSecret, SecretString};

@@ -11,13 +11,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
@@ -45,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -176,10 +170,8 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
     val t = LocalBeep.current
     val noMotion = reduceMotion()
     val running = !call.isDone
-    val quiet = t.shapes.card == CardLook.Hairline
-    val shape = RoundedCornerShape(50)
-    val frame = if (quiet) Modifier.clip(shape).background(tint)
-        else Modifier.beepFrame(shape, tint)
+    val shape = RoundedCornerShape(t.shapes.smallRadius)
+    val frame = Modifier.beepFrame(shape, tint)
     val described = callLabel(call)
     val sources = remember(call.result) { if (running) emptyList() else sourcesOf(call.result) }
     val memory = remember(call.result) { if (running) "" else memoryOf(call.name, call.result) }
@@ -202,12 +194,8 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
             .then(if (expandable) Modifier.clickable { open = !open } else Modifier)
             .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            val wiggle by if (running && !noMotion) rememberInfiniteTransition(label = "tool-wiggle").animateFloat(
-                initialValue = -12f, targetValue = 12f,
-                animationSpec = infiniteRepeatable(tween(260), RepeatMode.Reverse), label = "tool-wiggle-angle")
-                else remember { mutableFloatStateOf(0f) }
             val appLogo = remember(call.name) { appLogoForTool(call.name) }
-            Box(Modifier.size(26.dp).graphicsLayer { rotationZ = wiggle }
+            Box(Modifier.size(26.dp)
                 .background(if (appLogo != null) Color.White else t.colors.surface, CircleShape),
                 contentAlignment = Alignment.Center) {
                 if (appLogo != null) Image(painterResource(appLogo), null, Modifier.size(15.dp))
@@ -215,7 +203,7 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
             }
             Spacer(Modifier.width(8.dp))
             Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                color = if (quiet) t.colors.muted else t.colors.ink,
+                color = t.colors.muted,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             Spacer(Modifier.width(8.dp))
             Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
@@ -298,13 +286,11 @@ fun ThemePicker(modifier: Modifier = Modifier) {
         Spacer(Modifier.height(8.dp))
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             BeepStyle.entries.forEach { style ->
-                val tokens = BeepTokens.of(style)
+                val tokens = BeepTokens.of(style, androidx.compose.foundation.isSystemInDarkTheme())
                 val c = tokens.colors
                 val selected = style == current
-                val shape = RoundedCornerShape(14.dp)
-                val lift by animateSelection(selected)
+                val shape = RoundedCornerShape(Beep.shapes.radius)
                 Row(Modifier.fillMaxWidth()
-                    .graphicsLayer { translationX = 4.dp.toPx() * lift }
                     .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
                     .clip(shape)
                     .background(c.page)
@@ -313,12 +299,12 @@ fun ThemePicker(modifier: Modifier = Modifier) {
                     verticalAlignment = Alignment.CenterVertically) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box(Modifier.size(14.dp).background(c.user, CircleShape)
-                            .border(if (tokens.shapes.outline > 0.dp) 1.5.dp else 0.dp, c.line, CircleShape))
+                            .border(1.dp, c.softLine, CircleShape))
                         Box(Modifier.size(14.dp).background(c.accent, CircleShape))
                         Box(Modifier.size(14.dp).background(lerp(c.ok, c.page, 0.15f), CircleShape))
                     }
                     Spacer(Modifier.width(12.dp))
-                    Text(if (tokens.fonts.displayUppercase) style.label.uppercase() else style.label,
+                    Text(style.label,
                         fontFamily = tokens.fonts.display, fontWeight = tokens.fonts.displayWeight,
                         fontSize = 14.sp, color = c.ink, maxLines = 1, modifier = Modifier.weight(1f))
                     if (selected) Icon(Icons.Outlined.Check, "Selected", Modifier.size(16.dp), tint = c.ink)
@@ -327,8 +313,3 @@ fun ThemePicker(modifier: Modifier = Modifier) {
         }
     }
 }
-
-@Composable
-private fun animateSelection(selected: Boolean) =
-    animateFloatAsState(if (selected) 1f else 0f,
-        spring(dampingRatio = 0.5f, stiffness = 500f), label = "theme-lift")

@@ -27,7 +27,7 @@ struct RoutinesView: View {
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20).padding(.vertical, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
             if !loaded, crons.isEmpty {
                 ProgressView().padding(40)
@@ -53,7 +53,7 @@ struct RoutinesView: View {
                             .font(.body(11)).foregroundStyle(Mint.dim)
                             .padding(.vertical, 6)
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
                 }
                 .refreshable { await load() }
             }
@@ -62,7 +62,7 @@ struct RoutinesView: View {
         .overlay(alignment: .bottom) {
             if pendingDelete != nil {
                 UndoBar(text: "Routine deleted", undo: undo)
-                    .padding(.horizontal, 16).padding(.bottom, 12)
+                    .padding(.horizontal, Mint.pageInset).padding(.bottom, 12)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -172,7 +172,7 @@ private struct RoutineCard: View {
                 .foregroundStyle(Mint.ink)
                 .padding(.horizontal, 22)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: toDelete ? .trailing : .leading)
-                .background(RoundedRectangle(cornerRadius: 18)
+                .background(RoundedRectangle(cornerRadius: Mint.radius)
                     .fill(!armed ? Mint.soft : toDelete ? Mint.error : Mint.accent)
                     .animation(.easeOut(duration: 0.15), value: armed))
             }
@@ -207,7 +207,7 @@ private struct RoutineCard: View {
                     .labelsHidden()
                     .tint(Mint.ok)
             }
-            .padding(14)
+            .padding(Mint.spacing)
             .card()
             .offset(x: offset)
         }
@@ -253,7 +253,7 @@ private struct NewRoutineView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("New routine").font(.display(22)).foregroundStyle(Mint.ink)
+                Text("New routine").font(.display(18)).foregroundStyle(Mint.ink)
                 field("Name", text: $label, placeholder: "Morning briefing")
                 VStack(alignment: .leading, spacing: 6) {
                     Text("When").font(.body(12, .medium)).foregroundStyle(Mint.muted)
@@ -292,8 +292,8 @@ private struct NewRoutineView: View {
                     Spacer()
                     Button("Cancel") { dismiss() }.buttonStyle(TextAction())
                     Button { save() } label: {
-                        Text("Create").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
-                            .padding(.horizontal, 20).frame(minHeight: 44)
+                        Text("Create").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
+                            .padding(.horizontal, Mint.pageInset).frame(minHeight: 44)
                             .chunky(Mint.accent, radius: 18)
                     }
                     .buttonStyle(.plain)
@@ -370,10 +370,10 @@ private struct NewRoutineView: View {
             Text(title).font(.body(12, .medium)).foregroundStyle(Mint.muted)
             TextField("", text: text, prompt: Text(placeholder).foregroundStyle(Mint.dim), axis: .vertical)
                 .lineLimit(lines)
-                .font(.body(15)).foregroundStyle(Mint.ink)
+                .font(.body(14)).foregroundStyle(Mint.ink)
                 .padding(.horizontal, 14).padding(.vertical, 12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
         }
     }
 

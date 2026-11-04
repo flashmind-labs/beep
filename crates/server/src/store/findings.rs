@@ -1,7 +1,7 @@
 //! Findings from the improvement watcher, one row per problem and user; a user only sees findings from their own chats.
 
 use super::Store;
-use crate::watchers::{Cause, FindingKind, FindingStatus};
+use crate::memory::watchers::{Cause, FindingKind, FindingStatus};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use sqlx::{Row, postgres::PgRow};
@@ -26,7 +26,6 @@ pub struct Sighting<'a> {
     pub last_seq: i64,
 }
 
-/// A stored finding.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FindingRow {
     pub id: Uuid,
@@ -211,8 +210,8 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{
+        account::user::UserKey,
         store::{TestDb, test_chat, test_turn},
-        user::UserKey,
     };
     use chrono::TimeDelta;
 

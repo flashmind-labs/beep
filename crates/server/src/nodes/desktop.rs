@@ -1,6 +1,6 @@
 //! Driving a node's desktop (`desktop/1`) on one stream, so tree indexes and scale carry over.
 
-use super::{NODE_BACK, Online, Repeat, retry::Unsent};
+use super::{Online, Repeat, retry::Unsent};
 use crate::{
     AsyncMutex,
     protocol::node::{
@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
-use tokio::time::{Instant, timeout};
+use tokio::time::timeout;
 
 /// How long one request may take.
 const LIMIT: Duration = Duration::from_secs(30);
@@ -32,18 +32,10 @@ impl Online {
             bail!("{} does not offer desktop control", self.name);
         }
         let looks = matches!(request, Request::Screenshot { .. } | Request::Tree { .. });
-        let until = Instant::now() + NODE_BACK;
-        let mut on = self.clone();
-        loop {
-            let error = match on.desktop_once(request).await {
-                Ok(reply) => return Ok(reply),
-                Err(error) => error,
-            };
-            match on.again(&error, Repeat::when(looks), until).await {
-                Some(back) => on = back,
-                None => return Err(error),
-            }
-        }
+        self.retrying(Repeat::when(looks), |on| async move {
+            on.desktop_once(request).await
+        })
+        .await
     }
 
     async fn desktop_once(&self, request: &Request) -> Result<Reply> {

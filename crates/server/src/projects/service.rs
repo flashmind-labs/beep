@@ -8,11 +8,11 @@ use super::{
     schedule::{self, Due, Schedule},
 };
 use crate::{
+    account::user::User,
     app::App,
     lock,
     nodes::{News, Post},
     protocol::node::agent::Question,
-    user::User,
 };
 use anyhow::Result;
 use chrono::{DateTime, TimeDelta, Utc};
@@ -136,7 +136,6 @@ struct Mirror {
 }
 
 impl Projects {
-    /// The worker running in `session` on `machine`.
     pub(crate) fn worker_of(&self, machine: &EndpointId, session: &str) -> Option<WorkerId> {
         lock(&self.sessions)
             .get(&(*machine, session.to_owned()))
@@ -520,9 +519,9 @@ async fn run_jobs(app: Weak<App>, mut waiting: mpsc::Receiver<Job>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::watchers::testing::{Harness, Scripted};
+    use crate::memory::watchers::testing::{Harness, Scripted};
     use crate::{
-        leak::PublicText,
+        memory::leak::PublicText,
         projects::model::{MachinePath, RepoName, Visibility},
     };
     use anyhow::anyhow;

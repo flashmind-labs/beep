@@ -40,6 +40,27 @@ impl Repeat {
 }
 
 impl Online {
+    /// `call` on this connection, then on the node's next ones while the
+    /// link drops under it and `repeat` allows it.
+    pub(super) async fn retrying<T, F: Future<Output = anyhow::Result<T>>>(
+        &self,
+        repeat: Repeat,
+        call: impl Fn(Online) -> F,
+    ) -> anyhow::Result<T> {
+        let until = Instant::now() + NODE_BACK;
+        let mut on = self.clone();
+        loop {
+            let error = match call(on.clone()).await {
+                Ok(reply) => return Ok(reply),
+                Err(error) => error,
+            };
+            match on.again(&error, repeat, until).await {
+                Some(back) => on = back,
+                None => return Err(error),
+            }
+        }
+    }
+
     /// The node's next connection to send a call again on, after it failed
     /// with `error` on this one, waiting for it until `until`. `None` when
     /// the call fails as it is: the link is still up, `repeat` does not

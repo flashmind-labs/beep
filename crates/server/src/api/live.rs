@@ -2,9 +2,9 @@
 
 use super::Reply;
 use crate::{
-    filler,
+    api::router::Cx,
     protocol::{ApiError, Filler, MAX_SAY_CHARS, Say, SpokenTurns, VoiceNote},
-    router::Cx,
+    voice::filler,
 };
 
 /// Longest step label or message a `Filler` reads.

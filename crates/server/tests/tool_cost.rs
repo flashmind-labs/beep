@@ -7,14 +7,14 @@
 
 use async_trait::async_trait;
 use beep_server::{
+    agent::decision::DecisionTool,
+    agent::models::ModelChoices,
+    agent::tool_cost::{Cost, Costs, size},
     app::{App, Draws, Message, ServerTools},
-    decision::DecisionTool,
-    models::ModelChoices,
     protocol::DeviceKind,
-    search::SearchTool,
     store::{CreateRun, TestDb},
-    tool_cost::{Cost, Costs, size},
     tools::Transitous,
+    tools::search::SearchTool,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider,

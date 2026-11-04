@@ -198,7 +198,7 @@ struct PlacesView: View {
                         Text("No places yet.\nBeep can remind you when you arrive somewhere, or leave.")
                             .font(.body(14)).foregroundStyle(Mint.muted).lineSpacing(5)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 20).padding(.top, 48).padding(.bottom, 16)
+                            .padding(.horizontal, Mint.pageInset).padding(.top, 48).padding(.bottom, 16)
                     } else {
                         if !model.location.always { banner }
                         ForEach(model.places) { place in row(place) }
@@ -243,8 +243,8 @@ struct PlacesView: View {
             }
             .foregroundStyle(Mint.ink)
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Mint.tints[2]))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Mint.ledge, lineWidth: 1.5))
+            .background(RoundedRectangle(cornerRadius: Mint.radius).fill(Mint.tints[2]))
+            .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.ledge, lineWidth: 1.5))
         }
         .buttonStyle(.plain)
     }
@@ -255,7 +255,7 @@ struct PlacesView: View {
                 HStack(spacing: 12) {
                     TintIcon(system: "mappin", tint: Mint.tint(for: place.id))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(place.name).font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+                        Text(place.name).font(.body(14, .semibold)).foregroundStyle(Mint.ink)
                         if let address = place.address {
                             Text(address).font(.body(12.5)).foregroundStyle(Mint.muted).lineLimit(1)
                         }
@@ -284,10 +284,10 @@ struct PlacesView: View {
             + Text("\"this is home\"").fontWeight(.semibold)
             + Text("."))
             .font(.body(13)).foregroundStyle(Mint.ink).lineSpacing(4)
-            .padding(14)
+            .padding(Mint.spacing)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 18).fill(Mint.tints[1]))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Mint.ledge, lineWidth: 1.5))
+            .background(RoundedRectangle(cornerRadius: Mint.radius).fill(Mint.tints[1]))
+            .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.ledge, lineWidth: 1.5))
     }
 
     private func delete(_ place: SavedPlace) {
@@ -337,7 +337,7 @@ struct PlaceCard: View {
             PlaceMap(place: place).frame(height: mapHeight)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text(place.name).font(.display(20)).foregroundStyle(Mint.ink)
+                    Text(place.name).font(.display(18)).foregroundStyle(Mint.ink)
                     Spacer()
                     Text("Saved").font(.body(11, .medium)).foregroundStyle(Mint.ink)
                         .padding(.horizontal, 8).padding(.vertical, 3)
@@ -444,16 +444,16 @@ struct LocationAlwaysView: View {
     private var ask: some View {
         VStack(alignment: .leading, spacing: 16) {
             TintIcon(system: "mappin.and.ellipse", tint: Mint.tints[0], size: 56)
-            Text("Notice when you arrive?").font(.display(30)).foregroundStyle(Mint.ink)
+            Text("Notice when you arrive?").font(.display(24)).foregroundStyle(Mint.ink)
             (Text("For routines like \"when I get to the gym\", the phone watches your saved places and tells Beep when you arrive or leave. That needs location set to ")
                 + Text("Always").fontWeight(.semibold).foregroundColor(Mint.ink) + Text("."))
-                .font(.body(15)).foregroundStyle(Mint.muted).lineSpacing(5)
+                .font(.body(14)).foregroundStyle(Mint.muted).lineSpacing(5)
             VStack(alignment: .leading, spacing: 10) {
                 point("mappin", "Works with the app closed, only for places you saved.")
                 point("bell", "You only get a notification when a routine has something to say.")
                 point("checkmark.shield", "Uses the phone's geofencing, so the battery cost is small.")
             }
-            .padding(14)
+            .padding(Mint.spacing)
             .frame(maxWidth: .infinity, alignment: .leading)
             .card()
             if settingsStep {
@@ -464,7 +464,7 @@ struct LocationAlwaysView: View {
                     Text("3. Choose ") + Text("Always").fontWeight(.semibold)
                 }
                 .font(.body(13)).foregroundStyle(Mint.ink)
-                .padding(14)
+                .padding(Mint.spacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .card()
             }
@@ -480,7 +480,7 @@ struct LocationAlwaysView: View {
             .buttonStyle(PrimaryButton())
             Button("Not now", action: close).buttonStyle(TextAction(color: Mint.muted)).frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 20).padding(.top, 28).padding(.bottom, 16)
+        .padding(.horizontal, Mint.pageInset).padding(.top, 28).padding(.bottom, 16)
     }
 
     private func point(_ icon: String, _ text: String) -> some View {
@@ -495,9 +495,9 @@ struct LocationAlwaysView: View {
             Spacer()
             Image(systemName: "checkmark").font(.system(size: 26, weight: .bold)).foregroundStyle(Mint.ok)
                 .frame(width: 64, height: 64)
-                .background(RoundedRectangle(cornerRadius: 18).fill(Mint.tints[1]))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Mint.ledge, lineWidth: 2))
-            Text("Beep will notice when you arrive.").font(.display(30)).foregroundStyle(Mint.ink)
+                .background(RoundedRectangle(cornerRadius: Mint.radius).fill(Mint.tints[1]))
+                .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.ledge, lineWidth: 2))
+            Text("Beep will notice when you arrive.").font(.display(24)).foregroundStyle(Mint.ink)
                 .multilineTextAlignment(.center)
             Text("Your places work with the app closed. Turn it off any time in Settings, Beep, Location.")
                 .font(.body(14)).foregroundStyle(Mint.muted).multilineTextAlignment(.center)

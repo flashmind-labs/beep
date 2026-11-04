@@ -39,13 +39,11 @@ private val TextMuted: Color @Composable @ReadOnlyComposable get() = Beep.colors
 @Composable
 internal fun ConnectionDot(connected: Boolean, status: String) {
     val reconnecting = !connected && status.contains("Reconnecting", ignoreCase = true)
-    if (reconnecting) {
-        val infiniteTransition = rememberInfiniteTransition(label = "reconnect-dot")
-        val alpha by infiniteTransition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "reconnect-alpha")
-        Box(Modifier.size(7.dp).background(Beep.colors.warn.copy(alpha = alpha), CircleShape))
-    } else {
-        Box(Modifier.size(7.dp).background(if (connected) Beep.colors.ok else Beep.colors.error, CircleShape))
-    }
+    Box(Modifier.size(7.dp).background(when {
+        connected -> Beep.colors.ok
+        reconnecting -> Beep.colors.warn
+        else -> Beep.colors.error
+    }, CircleShape))
 }
 
 /** Swipe left starts a new chat, swipe right goes back to the last one, or opens the chat list when there is none. */

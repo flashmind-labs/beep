@@ -237,6 +237,8 @@ const LOG_FILES: usize = 7;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     start_logging(cli.log_file.as_deref())?;
+    #[cfg(unix)]
+    beep_node::machine::raise_open_files();
     let dir = match cli.dir {
         Some(dir) => dir,
         None => state::default_dir()?,

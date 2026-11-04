@@ -2,8 +2,8 @@
 
 use super::Store;
 use crate::{
+    account::user::UserKey,
     protocol::{MachineTraffic, TrafficCounter, node::traffic::TrafficReport},
-    user::UserKey,
 };
 use anyhow::{Context, Result};
 use iroh::EndpointId;

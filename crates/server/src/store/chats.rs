@@ -6,8 +6,8 @@ use super::{
     updates::{Bumped, Readers, UpdateOp, log_chat},
 };
 use crate::{
+    account::user::UserKey,
     protocol::{ChatInfo, ChatKind, GroupMember, Update, UpdatePage},
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};

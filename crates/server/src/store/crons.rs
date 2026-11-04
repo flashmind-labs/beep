@@ -2,9 +2,9 @@
 
 use super::{Store, format_time};
 use crate::{
-    places::{PlaceRepeat, PlaceTrigger},
+    account::user::UserKey,
     protocol::Cron,
-    user::UserKey,
+    routines::places::{PlaceRepeat, PlaceTrigger},
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
@@ -162,7 +162,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-    use crate::{store::TestDb, user::UserKey};
+    use crate::{account::user::UserKey, store::TestDb};
 
     #[tokio::test]
     async fn updates_are_held_to_the_same_bounds_as_new_routines() {

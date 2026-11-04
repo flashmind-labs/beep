@@ -20,7 +20,7 @@ struct GrantsView: View {
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20).padding(.vertical, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
             if !loaded, shown.isEmpty {
                 ProgressView().padding(40)
@@ -41,7 +41,7 @@ struct GrantsView: View {
                             .font(.body(11)).foregroundStyle(Mint.dim).multilineTextAlignment(.center)
                             .padding(.vertical, 6)
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
                 }
                 .refreshable { await load() }
             }
@@ -99,8 +99,8 @@ private struct GrantCard: View {
                 Text(String(grant.app.prefix(1)).uppercased())
                     .font(.body(14, .semibold))
                     .frame(width: 32, height: 32)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Mint.tints[2]))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Mint.ledge, lineWidth: 2))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[2]))
+                    .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.ledge, lineWidth: 2))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(grant.routine).font(.body(14, .semibold)).lineLimit(2)
                     Text(allows)
@@ -133,7 +133,7 @@ private struct GrantCard: View {
             .padding(.top, 10)
         }
         .foregroundStyle(Mint.ink)
-        .padding(14)
+        .padding(Mint.spacing)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
     }

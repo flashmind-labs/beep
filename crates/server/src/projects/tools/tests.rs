@@ -1,16 +1,32 @@
-use super::*;
+use super::{
+    super::{
+        gate::{GatedExec, GatedProcess, ProjectGate},
+        issues,
+        model::{IssueHost, MachinePath, TaskState, Visibility},
+    },
+    *,
+};
 use crate::{
-    permissions::{ApprovalPayload, Rules},
+    account::user::User,
+    apps::permissions::{ApprovalPayload, Rules},
     projects::{
-        gate::GatedProcess,
         model::{IssueRef, RepoName, Roles},
         testing::{FakeFleet, FakeShell, RecordingTool},
     },
-    protocol::PermissionLevel,
-    store::{AppPermissionRow, IssueAuthor, TestDb, TrackedIssue},
+    protocol::{Approval, PermissionLevel, node::Capability},
+    store::{
+        AppPermissionRow, CheckoutRow, IssueAuthor, NewTask, ProjectRow, TaskRow, TestDb,
+        TrackedIssue,
+    },
 };
-use flashmind::core::CancellationToken;
+use flashmind::{
+    core::CancellationToken,
+    types::tool::{Tool, ToolContext, ToolResult},
+};
 use iroh::EndpointId;
+use serde_json::{Value, json};
+use std::sync::Arc;
+use uuid::Uuid;
 
 const ISSUE_URL: &str = "https://github.com/acme/widget/issues/";
 

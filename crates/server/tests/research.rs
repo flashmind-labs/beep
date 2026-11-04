@@ -3,9 +3,10 @@
 
 use async_trait::async_trait;
 use beep_server::{
+    agent::models::ModelChoices,
+    api::transport,
     app::{App, ServerTools},
     client::{Client, Node, Replies},
-    models::ModelChoices,
     protocol::{
         Chat, Event, GetResearch, GetResearchPdf, GetSession, HistoryEntry, Research,
         ResearchEntryBody, ResearchStatus, RunEvent, StopResearch,
@@ -13,7 +14,6 @@ use beep_server::{
     push::Pusher,
     research::{ResearchConfig, RoleModel},
     store::TestDb,
-    transport,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Message,

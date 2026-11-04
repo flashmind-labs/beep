@@ -2,9 +2,9 @@
 
 use super::{App, Reach, UserNotice};
 use crate::{
+    account::user::User,
     protocol::{Notice, Run},
     store::RunStatus,
-    user::User,
 };
 
 impl App {

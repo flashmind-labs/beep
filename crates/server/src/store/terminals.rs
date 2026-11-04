@@ -1,7 +1,7 @@
 //! Terminals, of a project or none: which background command or pty on which node.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::{Row, postgres::PgRow};

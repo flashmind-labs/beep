@@ -2,9 +2,9 @@
 
 use super::App;
 use crate::{
-    skills::{self, Audience, REVIEW_TOOL_CALLS, REVIEW_TURNS},
+    account::user::User,
+    memory::skills::{self, Audience, REVIEW_TOOL_CALLS, REVIEW_TURNS},
     store::{JoinedGroup, Review, SkillOwner},
-    user::User,
 };
 use chrono::Utc;
 use std::sync::Arc;
@@ -23,7 +23,10 @@ impl App {
         corrected: bool,
     ) {
         // The skills watcher reads the whole chat once it is finished.
-        if self.watchers.watches(crate::watchers::WatcherKind::Skills) {
+        if self
+            .watchers
+            .watches(crate::memory::watchers::WatcherKind::Skills)
+        {
             return;
         }
         let app = self.clone();

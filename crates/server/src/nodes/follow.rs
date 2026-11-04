@@ -3,12 +3,12 @@
 
 use super::{Online, Post, deliver::agent_name};
 use crate::{
+    account::user::User,
     app::App,
     protocol::node::agent::{
         Activity, ActivityKind, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest,
     },
     tools::machines::agent_call,
-    user::User,
 };
 use anyhow::{Result, bail};
 use std::{
@@ -83,7 +83,6 @@ impl Follows {
         true
     }
 
-    /// The sessions followed on `node`.
     pub fn followed(&self, node: &str) -> Vec<String> {
         let mut sessions: Vec<String> = self
             .lock()
@@ -131,7 +130,7 @@ async fn read_watch(
 ) -> Result<()> {
     let (mut tx, mut rx) = online.open_stream(SESSIONS_PROTOCOL).await?;
     tx.send(&SessionsRequest::Watch { sessions }).await?;
-    match timeout(crate::transport::READ_TIMEOUT, rx.recv()).await?? {
+    match timeout(crate::api::transport::READ_TIMEOUT, rx.recv()).await?? {
         Some(SessionsReply::Watching { unknown }) if !unknown.is_empty() => {
             log::info!(
                 "follow: {} sessions not found on {}",

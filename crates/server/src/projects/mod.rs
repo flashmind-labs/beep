@@ -1,5 +1,9 @@
 //! Projects: a folder of work with its own agent and Markdown personas.
 
+pub mod git_items;
+pub mod imports;
+pub mod repo_watch;
+
 use crate::app::App;
 use std::sync::Arc;
 

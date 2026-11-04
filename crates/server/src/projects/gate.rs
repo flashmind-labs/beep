@@ -6,7 +6,7 @@ use super::{
     tools::{ProjectTools, leaked},
 };
 use crate::{
-    permissions::{ApprovalPayload, PROJECT_APP, Rules, ToolSlug},
+    apps::permissions::{ApprovalPayload, PROJECT_APP, Rules, ToolSlug},
     protocol::{Approval, ApprovalField, PermissionLevel},
 };
 use async_trait::async_trait;

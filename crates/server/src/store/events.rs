@@ -2,8 +2,8 @@
 
 use super::Store;
 use crate::{
-    events::{AppEvent, EventApp, EventKind, Topic, Urgency, Verdict},
-    user::UserKey,
+    account::user::UserKey,
+    routines::events::{AppEvent, EventApp, EventKind, Topic, Urgency, Verdict},
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -532,7 +532,7 @@ fn triage_fields(row: &PgRow, id: i64, summary: &str) -> Result<TriageRow> {
 mod tests {
     use super::*;
     use crate::{
-        events::{DedupeKey, Source},
+        routines::events::{DedupeKey, Source},
         store::TestDb,
     };
     use serde_json::json;

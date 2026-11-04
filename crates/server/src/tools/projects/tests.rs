@@ -1,11 +1,12 @@
 use super::*;
 use crate::{
+    memory::watchers::testing::{Harness, Scripted},
     projects::testing::machine_id,
+    protocol::{AgentStatus, GitItem, GitItemKind, GitReview, MachineSession},
     store::{NewImport, NewNode, NewTask},
-    watchers::testing::{Harness, Scripted},
 };
 use flashmind::core::CancellationToken;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 /// A fixed "now", an hour after the items and sessions below moved.
 fn now() -> SystemTime {

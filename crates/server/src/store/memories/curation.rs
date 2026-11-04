@@ -2,9 +2,9 @@
 
 use super::Scope;
 use crate::{
-    memories::{ScopeState, Signal},
+    account::user::UserKey,
+    memory::memories::{ScopeState, Signal},
     store::Store,
-    user::UserKey,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};

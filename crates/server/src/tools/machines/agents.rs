@@ -2,13 +2,13 @@
 
 use super::agent_call;
 use crate::{
+    account::user::User,
     app::App,
     nodes::{Follower, Online, StartOn, Watched},
     protocol::node::agent::{
         EntryKind, ExternalSession, LiveState, LiveStatus, PlanEntry, PlanStatus, Request,
         SessionInfo, Status, Steer,
     },
-    user::User,
 };
 use chrono::Utc;
 use std::{fmt::Write, sync::Arc, time::Duration};
@@ -272,7 +272,7 @@ fn live_report(status: &LiveStatus) -> String {
         _ => format!(
             "{}; no hook reported on it since the node started, so it cannot be seen live or \
              steered. That needs `beep-node hooks install` and a restart of the session.",
-            crate::permissions::capitalize(session.presence.as_str())
+            crate::apps::permissions::capitalize(session.presence.as_str())
         ),
     };
     let done = status
