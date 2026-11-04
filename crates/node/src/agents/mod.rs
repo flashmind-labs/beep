@@ -1,13 +1,8 @@
-//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) run over ACP: the
-//! table of agents this node can start, the sessions it runs, and the
-//! streams the server follows them on (`beep_proto::node::agent`).
+//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) run
+//! over ACP (`Agents`) and the streams the server follows them on; sessions
+//! started outside Beep (`claude`, `found`) and the Beep MCP server (`mcp`).
 
-use crate::{
-    AsyncMutex,
-    claude::External,
-    found::{self, Stores},
-    mcp::Launch,
-};
+use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -15,6 +10,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{sync::watch, time::Instant};
+
+pub mod claude;
+pub(crate) mod found;
+pub mod mcp;
 
 mod acp;
 mod alerts;

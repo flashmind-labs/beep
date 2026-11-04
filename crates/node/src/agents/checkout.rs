@@ -3,7 +3,7 @@
 //! before the agent starts.
 
 use super::folder;
-use crate::found;
+use crate::agents::found;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{
     CheckoutPlan, prompt_branch, valid_branch, valid_ref, worktree_path,

@@ -14,8 +14,8 @@ use super::{
     usage::UsageHub,
 };
 use crate::{
-    process::{command, own_group},
-    provision::spawn_env::{self, Scope},
+    machine::provision::spawn_env::{self, Scope},
+    run::process::{command, own_group},
 };
 use agent_client_protocol::schema::v1::McpServer;
 use anyhow::{Context, Result};
@@ -197,8 +197,8 @@ impl Session {
             node,
         } = start;
         let brief = match (brief, &mcp) {
-            (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::mcp::BRIEF)),
-            (None, Some(_)) => Some(crate::mcp::BRIEF.to_owned()),
+            (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::agents::mcp::BRIEF)),
+            (None, Some(_)) => Some(crate::agents::mcp::BRIEF.to_owned()),
             (brief, None) => brief.map(str::to_owned),
         };
         // Only a new session takes a model and thinking level; a resumed

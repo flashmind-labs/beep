@@ -5,9 +5,9 @@ use super::{
     checkout, harnesses, models, plans,
 };
 use crate::{
-    mcp::Launch,
-    process,
-    provision::spawn_env::{self, Scope},
+    agents::mcp::Launch,
+    machine::provision::spawn_env::{self, Scope},
+    run::process,
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -326,7 +326,7 @@ impl Agents {
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
         sessions.insert(id, session.clone());
-        crate::restart::changed();
+        crate::link::restart::changed();
         Ok(session)
     }
 }

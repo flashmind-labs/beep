@@ -5,6 +5,7 @@ use super::{
     content::{cut, detail},
     tools::CodexChild,
 };
+use crate::agents::mcp::calls::Tool as BeepTool;
 use crate::agents::{
     acp::wire_name,
     images::{Images, Picture},
@@ -12,7 +13,6 @@ use crate::agents::{
     unix_now,
     usage::{UsageHub, claude_rate_limit},
 };
-use crate::mcp::calls::Tool as BeepTool;
 use agent_client_protocol::schema::v1::{RequestPermissionRequest, SessionUpdate, ToolCallId};
 use beep_proto::{
     AgentSlug,

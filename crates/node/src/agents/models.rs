@@ -1,8 +1,6 @@
 //! The models a coding agent can run on here, for the start form's Model
-//! field. flsh lists them with `flsh models` and names its default in its
-//! `config.toml`; the others say in their answer to `session/new`, so a
-//! session is made once to ask and then closed. Each agent's list is kept a
-//! few minutes, and one agent is asked at a time.
+//! field (`find`, `ModelCache`). flsh lists them with `flsh models`; the
+//! others are read from a `session/new` made only to ask.
 
 use super::{
     AgentKind,
@@ -11,9 +9,9 @@ use super::{
 };
 use crate::{
     AsyncMutex,
-    found::Agent,
-    process::{GroupLeader, STOP_GRACE, command, own_group},
-    provision::spawn_env::{self, Scope},
+    agents::found::Agent,
+    machine::provision::spawn_env::{self, Scope},
+    run::process::{GroupLeader, STOP_GRACE, command, own_group},
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use anyhow::{Context, Result};

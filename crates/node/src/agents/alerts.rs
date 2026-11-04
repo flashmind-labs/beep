@@ -1,8 +1,6 @@
-//! What the node's sessions did that the user would want to hear about,
-//! waiting for the server's `FollowAlerts` stream: a question, a turn that
-//! ended with nothing queued behind it, a session that failed. Each waits
-//! in a bounded outbox, so alerts from while the server was away still
-//! reach it, the oldest dropped first.
+//! Alerts the user would want (a question, a turn that ended with nothing
+//! queued, a failed session), held in `AlertHub` for the server's
+//! `FollowAlerts` stream.
 
 use beep_proto::node::agent::Alert;
 use std::{

@@ -1,15 +1,13 @@
-//! Reads how much of each coding agent's plan is left from the agent's
-//! own CLI, signed in as it is on this machine: Claude Code answers the
-//! `get_usage` control request in stream-json mode without a prompt, and
-//! Codex's app-server answers `account/rateLimits/read`. Neither sends a
-//! model request; the node never reads their token files.
+//! How much of each coding agent's plan is left (`read_claude`,
+//! `read_codex`), from the agent's own CLI as signed in here. Neither sends a
+//! model request, and the node never reads their token files.
 
 use super::{
     acp::{Line, LineReader},
     unix_now,
     usage::claude_window,
 };
-use crate::process::{GroupLeader, STOP_GRACE, own_group};
+use crate::run::process::{GroupLeader, STOP_GRACE, own_group};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AgentSlug,
@@ -175,7 +173,7 @@ fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
                 used_percent: used.clamp(0.0, 100.0),
                 resets_at: value["resets_at"]
                     .as_str()
-                    .and_then(crate::claude::unix_seconds),
+                    .and_then(crate::agents::claude::unix_seconds),
                 scope: scope.map(str::to_owned),
             })
         })

@@ -1,15 +1,12 @@
-//! When the node compacts a session's conversation: once a turn ends with
-//! the context window past a threshold, it sends the agent `/compact`
-//! before the next prompt. Agents that compact on their own trigger
-//! (Gemini CLI, flsh) are left to it.
-//!
-//! The threshold is set per harness with `BEEP_COMPACT_AT` in its env
-//! settings: a percent of the window (`70`), or `off`.
+//! When the node compacts a session (`Compactor`): once a turn ends past the
+//! threshold `Policy` sets, it sends `/compact` before the next prompt. Agents
+//! that compact on their own (Gemini CLI, flsh) are left to it.
 
 use super::Known;
 use std::collections::BTreeMap;
 
-/// The variable in a harness's env settings that sets its threshold.
+/// The variable in a harness's env settings that sets its threshold: a
+/// percent of the window (`70`), or `off`.
 pub(super) const COMPACT_AT_VAR: &str = "BEEP_COMPACT_AT";
 /// Claude Code's own threshold, a percent of its window.
 const CLAUDE_AUTOCOMPACT_VAR: &str = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE";
