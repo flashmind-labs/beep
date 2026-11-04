@@ -1,8 +1,12 @@
 use anyhow::{Context, Result};
-use beep_proto::logging::{self, RollingFile};
+use beep_proto::{
+    logging::{self, RollingFile},
+    wire::LOGIN_ALPN,
+};
 use beep_server::{
     account::credentials::CredentialKey,
     account::instance,
+    account::login,
     agent::cache_session::SharedCacheSessions,
     agent::decision::DecisionTool,
     agent::metering::Metered,
@@ -124,6 +128,7 @@ async fn main() -> Result<()> {
             realtime: realtime(mistral.as_ref(), &config),
             mistral: mistral.map(|m| m as Arc<dyn LlmProvider>),
             instance: config.instance.clone(),
+            login: config.login.clone(),
             credential_key: Some(CredentialKey::derive(&secret_key)),
         },
         models,
@@ -197,10 +202,13 @@ async fn main() -> Result<()> {
     pusher.start(notices);
     let handler = transport::BeepHandler::new(app.clone(), pusher);
     let node_handler = nodes::NodeHandler::new(app.clone(), endpoint.id());
-    let router = Router::builder(endpoint)
+    let mut router = Router::builder(endpoint)
         .accept(transport::ALPN, handler)
-        .accept(nodes::NODE_ALPN, node_handler)
-        .spawn();
+        .accept(nodes::NODE_ALPN, node_handler);
+    if app.login().is_some() {
+        router = router.accept(LOGIN_ALPN, login::LoginCheck);
+    }
+    let router = router.spawn();
 
     log::info!("listening; addr={:?}", router.endpoint().addr());
 
@@ -238,7 +246,12 @@ async fn stop_signal() -> Result<()> {
 
 fn read_config(path: &str) -> Result<Config> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
-    toml::from_str(&text).with_context(|| format!("reading {path}"))
+    let config: Config = toml::from_str(&text).with_context(|| format!("reading {path}"))?;
+    anyhow::ensure!(
+        config.instance.is_none() || config.login.is_none(),
+        "{path} sets both instance and login: a single-user server has no hosted sign-in"
+    );
+    Ok(config)
 }
 
 /// Prints the link code for the server's key, making the key if missing.

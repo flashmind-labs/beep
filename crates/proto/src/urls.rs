@@ -57,6 +57,17 @@ pub fn mcp_callback(url: &str) -> Option<McpCallback> {
     })
 }
 
+/// The token in a `beep://login?token=...` link.
+pub fn login_token(url: &str) -> Option<String> {
+    let query = url.trim().strip_prefix("beep://login")?;
+    let query = query.strip_prefix('/').unwrap_or(query).strip_prefix('?')?;
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("token="))
+        .and_then(percent_decode)
+        .filter(|token| !token.is_empty())
+}
+
 /// A query value with `%XX` escapes and `+` decoded, or `None` when it is
 /// not valid UTF-8 after.
 fn percent_decode(value: &str) -> Option<String> {
@@ -131,6 +142,21 @@ pub fn format_group_code(code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_login_link_gives_its_token() {
+        assert_eq!(
+            login_token("beep://login?token=abc.def").as_deref(),
+            Some("abc.def")
+        );
+        assert_eq!(
+            login_token("beep://login/?x=1&token=a%2Db.c").as_deref(),
+            Some("a-b.c")
+        );
+        assert_eq!(login_token("beep://login"), None);
+        assert_eq!(login_token("beep://login?token="), None);
+        assert_eq!(login_token("beep://oauth?token=abc"), None);
+    }
 
     #[test]
     fn share_token_reads_only_share_links() {

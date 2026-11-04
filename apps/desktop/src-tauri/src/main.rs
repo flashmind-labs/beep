@@ -192,6 +192,10 @@ fn main() {
             beep::devices::list_devices,
             beep::devices::remove_device,
             beep::devices::use_here,
+            beep::login::complete_login,
+            beep::login::login_hosted,
+            beep::login::start_login,
+            beep::login::use_own_server,
             center::home::center_answer_agent,
             center::home::center_dismiss_updates,
             center::home::center_home,
@@ -434,11 +438,15 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.set_activation_policy(ActivationPolicy::Accessory);
     let handle = app.handle().clone();
     let dir = beep::identity::data_dir(&handle)?;
-    let server: EndpointId = SERVER_NODE_ID
-        .parse()
-        .context("built without a server node id; set BEEP_NODE_ID")?;
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
     let file = StateFile::new(dir.join("state.json"));
+    // The server chosen with a link code, or the one built in.
+    let server: EndpointId = match file.load().server {
+        Some(server) => server,
+        None => SERVER_NODE_ID
+            .parse()
+            .context("built without a server node id; set BEEP_NODE_ID")?,
+    };
     let chats = beep::sync::Chats::load(dir.join("sync"));
     let views = Arc::new(center::view_cache::ViewCache::load(
         dir.join("views.json"),

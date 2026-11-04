@@ -1,6 +1,6 @@
 use crate::{
     Call, Duplex, Hello, Notice, Platform, Rpc, Stream, WIRE,
-    wire::{ALPN, PUSH_ALPN, Rx, Tx, framed},
+    wire::{ALPN, LOGIN_ALPN, PUSH_ALPN, Rx, Tx, framed},
 };
 use anyhow::{Context, Result};
 use iroh::{
@@ -22,6 +22,8 @@ use tokio::{
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long an app waits to learn whether the server has hosted sign-in.
+const LOGIN_CHECK_TIMEOUT: Duration = Duration::from_secs(8);
 /// How long a connection with no requests stays open. Each open connection
 /// sends a QUIC keep-alive every 5s, which keeps a phone's radio awake.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -120,7 +122,12 @@ impl Node {
     /// Opens a connection to the server. It closes itself once idle for
     /// `IDLE_TIMEOUT`, and `Client::is_closed` then says to make a new one.
     pub async fn connect(&self) -> Result<Client> {
-        let connect = self.endpoint.connect(self.server.clone(), ALPN);
+        self.connect_to(self.server.clone()).await
+    }
+
+    /// `connect` to another server, to try it before making it this node's.
+    pub async fn connect_to(&self, server: impl Into<EndpointAddr>) -> Result<Client> {
+        let connect = self.endpoint.connect(server.into(), ALPN);
         let connection = timeout(CONNECT_TIMEOUT, connect)
             .await
             .context("connect timed out")??;
@@ -148,6 +155,13 @@ impl Node {
         })
     }
 
+    /// Whether the server has hosted sign-in. An unreachable server reads as
+    /// no. Connects on `LOGIN_ALPN`, so no account is made.
+    pub async fn has_login(&self) -> bool {
+        let connect = self.endpoint.connect(self.server.clone(), LOGIN_ALPN);
+        matches!(timeout(LOGIN_CHECK_TIMEOUT, connect).await, Ok(Ok(_)))
+    }
+
     /// Tells iroh the network changed. Android gives iroh no way to watch
     /// for this itself, so the app calls it from its network callback.
     pub async fn network_change(&self) {
@@ -170,6 +184,11 @@ impl Client {
     /// True once the connection is gone and a new one is needed.
     pub fn is_closed(&self) -> bool {
         self.connection.close_reason().is_some()
+    }
+
+    /// Waits until the connection is gone.
+    pub async fn closed(&self) {
+        self.connection.closed().await;
     }
 
     /// True once the server closed the connection because the account

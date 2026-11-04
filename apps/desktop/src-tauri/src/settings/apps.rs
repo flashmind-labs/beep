@@ -27,7 +27,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -269,7 +269,10 @@ fn open_sign_in(connect: McpConnect) -> Result<McpServer> {
 /// Takes a `beep://` link macOS opened Beep with. An MCP sign-in goes to
 /// the server, then Apps opens and the bar hears `mcp-signed-in` with
 /// `null`, or why it failed.
-pub fn open_link<R: Runtime>(app: &AppHandle<R>, url: &str) {
+pub fn open_link(app: &AppHandle, url: &str) {
+    if url.starts_with("beep://login") {
+        return crate::beep::login::open_link(app, url);
+    }
     if !url.starts_with("beep://oauth") {
         return;
     }

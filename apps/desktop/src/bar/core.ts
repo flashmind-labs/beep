@@ -25,7 +25,7 @@ export const PANE = bar.dataset.mode === "window";
 /// What the bar or the pane shows.
 export type View =
   | "chat" | "chats" | "group" | "ginfo" | "invite" | "gnew" | "joincode" | "joining"
-  | "link" | "revoked" | "invite-phone" | "starting" | "settings" | "apps" | "appperms" | "mcp"
+  | "link" | "login" | "revoked" | "invite-phone" | "starting" | "settings" | "apps" | "appperms" | "mcp"
   | "machines" | "memories" | "routines" | "rnew" | "grants" | "skills" | "research" | "model"
   | "agent" | "agentnew" | "agents";
 
