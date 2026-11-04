@@ -255,6 +255,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-tbl td { padding: 7px 14px; border-bottom: 1px solid var(--border) }
 .cc-set .dset-tbl tr:last-child td { border-bottom: 0 }
 .cc-set .dset-rm { padding: 0 }
+.dset-hrow { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px }
+.dset-hrow .dset-h { flex: 1 }
 .dset-rm-row { display: flex; align-items: center; gap: 12px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border) }
 .dset-rm-row .t { flex: 1; min-width: 0; display: grid; gap: 2px }
 .dset-rm-row b { font-size: 13px; font-weight: 500 }
