@@ -1,14 +1,25 @@
-//! Replicated last-write-wins state. One log per origin device, numbered
-//! from one. On connect each side sends its heads and receives what it
-//! lacks. The value of a key is the entry with the highest `(at_ms, origin)`.
+//! Replicated last-write-wins state. One log per origin device. On connect
+//! each side sends its heads and receives what it lacks. The value of a key
+//! is the entry with the highest `(at_ms, origin)`.
 //!
-//! Kept in `<dir>/mesh/state.log`, mode 0600, one length-prefixed record per
-//! entry. Compaction at start empties every entry that lost its key (value
-//! `None`, `at_ms` 0, which loses to any real write) but keeps its number, so
-//! each origin's log stays gapless for a peer that has nothing yet.
+//! These calls block on fsync, so callers run them off the async workers.
+//!
+//! Every entry is signed by its origin over the mesh id, so a node relaying
+//! entries cannot forge or alter one. Sequence numbers rise per origin but
+//! are sparse: a new entry takes `max(head + 1, now_ms)`, so a desktop that
+//! lost its log restarts above its old numbers, and compaction can delete
+//! superseded entries. A receiver skips `seq <= head` and moves the head to
+//! the entry's `seq`.
+//!
+//! Kept in `<dir>/mesh/state.log`, mode 0600. Each record is a length, a
+//! CRC32 and a postcard body. Compaction at open rewrites the file as a
+//! `Heads` record plus the newest entry per key. Two replicas' heads may
+//! differ after compaction (one may have dropped its newest entry), so
+//! callers use `since`, never a comparison of heads, to decide they are in
+//! sync. The first bad or short record at open ends the log there.
 
-use crate::{Devices, MeshError};
-use iroh::EndpointId;
+use crate::{Devices, MeshError, WriteLimit};
+use iroh::{EndpointId, SecretKey, Signature};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,9 +29,14 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::warn;
 
-/// A record larger than this is taken as a damaged file.
+const SIGN_DOMAIN: &[u8] = b"beep-mesh/1 state-entry";
+/// A record larger than this is taken as damage.
 const MAX_RECORD: usize = 64 * 1024 * 1024;
+/// An entry stamped further ahead than this is refused.
+const MAX_AHEAD_MS: u64 = 24 * 60 * 60 * 1000;
+const HEADER: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Key {
@@ -88,7 +104,7 @@ impl<'de> Deserialize<'de> for Key {
     }
 }
 
-/// One write. `None` is a delete.
+/// One signed write. `None` is a delete.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub key: Key,
@@ -96,10 +112,76 @@ pub struct Entry {
     pub at_ms: u64,
     pub origin: EndpointId,
     pub seq: u64,
+    sig: Signature,
+}
+
+impl Entry {
+    fn message(
+        mesh: EndpointId,
+        key: &Key,
+        value: &Option<Vec<u8>>,
+        at_ms: u64,
+        origin: EndpointId,
+        seq: u64,
+    ) -> Result<Vec<u8>, MeshError> {
+        let mut msg = SIGN_DOMAIN.to_vec();
+        msg.extend_from_slice(mesh.as_bytes());
+        msg.extend(postcard::to_stdvec(&(key, value, at_ms, origin, seq))?);
+        Ok(msg)
+    }
+
+    fn sign(
+        secret: &SecretKey,
+        mesh: EndpointId,
+        key: Key,
+        value: Option<Vec<u8>>,
+        at_ms: u64,
+        seq: u64,
+    ) -> Result<Entry, MeshError> {
+        let origin = secret.public();
+        let sig = secret.sign(&Self::message(mesh, &key, &value, at_ms, origin, seq)?);
+        Ok(Entry {
+            key,
+            value,
+            at_ms,
+            origin,
+            seq,
+            sig,
+        })
+    }
+
+    fn verify(&self, mesh: EndpointId) -> Result<(), MeshError> {
+        let msg = Self::message(
+            mesh,
+            &self.key,
+            &self.value,
+            self.at_ms,
+            self.origin,
+            self.seq,
+        )?;
+        self.origin
+            .verify(&msg, &self.sig)
+            .map_err(|_| MeshError::BadSignature)
+    }
 }
 
 /// Origin to the highest sequence number held.
 pub type Heads = BTreeMap<EndpointId, u64>;
+
+/// What `apply` did. A refused entry never hides the ones that counted.
+#[derive(Debug, Default)]
+pub struct Applied {
+    /// Keys whose value changed.
+    pub changed: Vec<Key>,
+    /// Entries turned away, and why.
+    pub refused: Vec<MeshError>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum Record {
+    Heads(Heads),
+    Entry(Entry),
+}
 
 /// Where the winning entry of a key sits in `logs`.
 #[derive(Clone, Copy, Debug)]
@@ -109,12 +191,24 @@ struct Slot {
 }
 
 pub struct State {
-    me: EndpointId,
+    secret: SecretKey,
+    mesh: EndpointId,
     file: File,
-    /// Per origin, the entry numbered `n` is at index `n - 1`.
-    logs: BTreeMap<EndpointId, Vec<Entry>>,
+    /// Bytes of valid log in `file`.
+    len: u64,
+    heads: Heads,
+    logs: BTreeMap<EndpointId, BTreeMap<u64, Entry>>,
     winners: BTreeMap<Key, Slot>,
     highest_ms: u64,
+}
+
+impl fmt::Debug for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("State")
+            .field("mesh", &self.mesh)
+            .field("heads", &self.heads)
+            .finish_non_exhaustive()
+    }
 }
 
 fn now_ms() -> u64 {
@@ -145,37 +239,55 @@ fn private_dir(dir: &Path) -> io::Result<()> {
     builder.create(dir)
 }
 
-fn encode(entries: &[&Entry]) -> Result<Vec<u8>, MeshError> {
+fn encode(records: &[Record]) -> Result<Vec<u8>, MeshError> {
     let mut buf = Vec::new();
-    for entry in entries {
-        let body = postcard::to_stdvec(entry)?;
-        let len = u32::try_from(body.len()).map_err(|_| MeshError::Corrupt)?;
+    for record in records {
+        let body = postcard::to_stdvec(record)?;
+        let len = u32::try_from(body.len()).map_err(|_| MeshError::TooLarge)?;
         buf.extend(len.to_le_bytes());
+        buf.extend(crc32fast::hash(&body).to_le_bytes());
         buf.extend(body);
     }
     Ok(buf)
 }
 
-/// Records up to the first incomplete one, which a crash mid-append leaves.
-fn decode(mut bytes: &[u8]) -> Result<Vec<Entry>, MeshError> {
+/// The records before the first bad or short one, and the bytes they use.
+fn decode(bytes: &[u8]) -> (Vec<Record>, usize) {
     let mut out = Vec::new();
-    while let Some((len, rest)) = bytes.split_first_chunk::<4>() {
-        let len = usize::try_from(u32::from_le_bytes(*len)).map_err(|_| MeshError::Corrupt)?;
+    let mut at = 0;
+    while let Some(head) = bytes.get(at..at + HEADER) {
+        let len = u32::from_le_bytes([head[0], head[1], head[2], head[3]]) as usize;
+        let crc = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
         if len > MAX_RECORD {
-            return Err(MeshError::Corrupt);
+            break;
         }
-        let Some((body, rest)) = rest.split_at_checked(len) else {
+        let Some(body) = bytes.get(at + HEADER..at + HEADER + len) else {
             break;
         };
-        out.push(postcard::from_bytes(body).map_err(|_| MeshError::Corrupt)?);
-        bytes = rest;
+        if crc32fast::hash(body) != crc {
+            break;
+        }
+        let Ok(record) = postcard::from_bytes(body) else {
+            break;
+        };
+        out.push(record);
+        at += HEADER + len;
     }
-    Ok(out)
+    (out, at)
+}
+
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    File::open(dir)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
 }
 
 impl State {
-    /// Opens `<dir>/mesh/state.log`, compacting it, and creates it if absent.
-    pub fn open(dir: &Path, me: EndpointId) -> Result<State, MeshError> {
+    /// Opens `<dir>/mesh/state.log` for the mesh `mesh`, as the device that
+    /// holds `secret`, and creates the log if absent.
+    pub fn open(dir: &Path, secret: &SecretKey, mesh: EndpointId) -> Result<State, MeshError> {
         let mesh_dir = dir.join("mesh");
         private_dir(&mesh_dir)?;
         let path = mesh_dir.join("state.log");
@@ -184,126 +296,145 @@ impl State {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e.into()),
         };
-        let mut logs: BTreeMap<EndpointId, Vec<Entry>> = BTreeMap::new();
-        let mut winners = BTreeMap::new();
-        let mut highest_ms = 0;
-        for entry in decode(&bytes)? {
-            let log = logs.entry(entry.origin).or_default();
-            let have = log.len() as u64;
-            if entry.seq != have + 1 {
-                return Err(MeshError::Corrupt);
-            }
-            highest_ms = highest_ms.max(entry.at_ms);
-            log.push(entry);
+        // The file may predate the 0600 rule.
+        #[cfg(unix)]
+        if !bytes.is_empty() {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         }
-        for (origin, log) in &logs {
-            for entry in log {
-                Self::record_winner(&logs, &mut winners, entry, *origin);
-            }
-        }
-        let file = Self::compact(&path, &mut logs, &winners)?;
-        Ok(State {
-            me,
-            file,
-            logs,
-            winners,
-            highest_ms,
-        })
-    }
-
-    fn compact(
-        path: &Path,
-        logs: &mut BTreeMap<EndpointId, Vec<Entry>>,
-        winners: &BTreeMap<Key, Slot>,
-    ) -> Result<File, MeshError> {
-        for (origin, log) in logs.iter_mut() {
-            for entry in log.iter_mut() {
-                let wins = winners
-                    .get(&entry.key)
-                    .is_some_and(|w| w.origin == *origin && w.seq == entry.seq);
-                if !wins {
-                    entry.value = None;
-                    entry.at_ms = 0;
+        let (records, good) = decode(&bytes);
+        let mut state = State {
+            secret: secret.clone(),
+            mesh,
+            // Replaced below, once the log is settled.
+            file: private_options().append(true).create(true).open(&path)?,
+            len: good as u64,
+            heads: Heads::new(),
+            logs: BTreeMap::new(),
+            winners: BTreeMap::new(),
+            highest_ms: 0,
+        };
+        let mut held = 0usize;
+        for record in records {
+            match record {
+                Record::Heads(heads) => {
+                    for (origin, seq) in heads {
+                        let head = state.heads.entry(origin).or_default();
+                        *head = (*head).max(seq);
+                    }
+                }
+                Record::Entry(entry) => {
+                    held += 1;
+                    state.insert(entry);
                 }
             }
         }
-        let all: Vec<&Entry> = logs.values().flatten().collect();
+        let superseded = held > state.winners.len();
+        if good < bytes.len() {
+            warn!(
+                kept = good,
+                dropped = bytes.len() - good,
+                "state log has a damaged tail, cutting it"
+            );
+            state.file.set_len(good as u64)?;
+            state.file.sync_all()?;
+        }
+        if superseded {
+            state.compact(&path)?;
+        }
+        Ok(state)
+    }
+
+    /// Rewrites the log as the heads and the winning entries only.
+    fn compact(&mut self, path: &Path) -> Result<(), MeshError> {
+        let keep: BTreeSet<(EndpointId, u64)> =
+            self.winners.values().map(|s| (s.origin, s.seq)).collect();
+        for (origin, log) in &mut self.logs {
+            log.retain(|seq, _| keep.contains(&(*origin, *seq)));
+        }
+        let mut records = vec![Record::Heads(self.heads.clone())];
+        records.extend(
+            self.logs
+                .values()
+                .flatten()
+                .map(|(_, e)| Record::Entry(e.clone())),
+        );
+        let buf = encode(&records)?;
         let tmp = path.with_extension("tmp");
         let mut out = private_options()
             .write(true)
             .create(true)
             .truncate(true)
             .open(&tmp)?;
-        out.write_all(&encode(&all)?)?;
+        out.write_all(&buf)?;
         out.sync_all()?;
         drop(out);
         fs::rename(&tmp, path)?;
-        // The file may predate the 0600 rule.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        if let Some(dir) = path.parent() {
+            sync_dir(dir)?;
         }
-        Ok(private_options().append(true).open(path)?)
+        self.file = private_options().append(true).open(path)?;
+        self.len = buf.len() as u64;
+        Ok(())
     }
 
-    /// Makes `entry` the winner of its key when it beats the current one.
-    fn record_winner(
-        logs: &BTreeMap<EndpointId, Vec<Entry>>,
-        winners: &mut BTreeMap<Key, Slot>,
-        entry: &Entry,
-        origin: EndpointId,
-    ) {
-        let beats = winners.get(&entry.key).is_none_or(|slot| {
-            let old = &logs[&slot.origin][(slot.seq - 1) as usize];
-            (entry.at_ms, origin) > (old.at_ms, old.origin)
-        });
-        if beats {
-            winners.insert(
-                entry.key.clone(),
-                Slot {
-                    origin,
-                    seq: entry.seq,
-                },
-            );
+    /// Writes and fsyncs. On failure the file goes back to its old length.
+    fn append(&mut self, entries: &[Entry]) -> Result<(), MeshError> {
+        let records: Vec<Record> = entries.iter().cloned().map(Record::Entry).collect();
+        let buf = encode(&records)?;
+        let written = self
+            .file
+            .write_all(&buf)
+            .and_then(|()| self.file.sync_data());
+        if let Err(e) = written {
+            // Best effort: a short record is cut at the next open anyway.
+            let _ = self.file.set_len(self.len);
+            return Err(e.into());
         }
-    }
-
-    fn append(&mut self, entries: &[&Entry]) -> Result<(), MeshError> {
-        self.file.write_all(&encode(entries)?)?;
-        self.file.sync_data()?;
+        self.len += buf.len() as u64;
         Ok(())
     }
 
     fn insert(&mut self, entry: Entry) {
         self.highest_ms = self.highest_ms.max(entry.at_ms);
-        let origin = entry.origin;
-        let log = self.logs.entry(origin).or_default();
-        log.push(entry);
-        // The entry just pushed is the newest of its log.
-        let newest = log[log.len() - 1].clone();
-        Self::record_winner(&self.logs, &mut self.winners, &newest, origin);
+        let head = self.heads.entry(entry.origin).or_default();
+        *head = (*head).max(entry.seq);
+        let slot = Slot {
+            origin: entry.origin,
+            seq: entry.seq,
+        };
+        let beats = self
+            .winner(&entry.key)
+            .is_none_or(|old| (entry.at_ms, entry.origin) > (old.at_ms, old.origin));
+        if beats {
+            self.winners.insert(entry.key.clone(), slot);
+        }
+        self.logs
+            .entry(entry.origin)
+            .or_default()
+            .insert(entry.seq, entry);
     }
 
     /// Writes `key` as this device and returns the entry to send to peers.
     /// Call it on a desktop only.
     pub fn set(&mut self, key: Key, value: Option<Vec<u8>>) -> Result<Entry, MeshError> {
-        let seq = self.logs.get(&self.me).map_or(0, Vec::len) as u64 + 1;
-        let entry = Entry {
-            key,
-            value,
-            at_ms: now_ms().max(self.highest_ms.saturating_add(1)),
-            origin: self.me,
-            seq,
-        };
-        self.append(&[&entry])?;
+        let me = self.secret.public();
+        let head = self.heads.get(&me).copied().unwrap_or(0);
+        let seq = head.checked_add(1).ok_or(MeshError::Clock)?.max(now_ms());
+        let at_ms = self
+            .highest_ms
+            .checked_add(1)
+            .ok_or(MeshError::Clock)?
+            .max(now_ms());
+        let entry = Entry::sign(&self.secret, self.mesh, key, value, at_ms, seq)?;
+        self.append(std::slice::from_ref(&entry))?;
         self.insert(entry.clone());
         Ok(entry)
     }
 
     fn winner(&self, key: &Key) -> Option<&Entry> {
         let slot = self.winners.get(key)?;
-        Some(&self.logs[&slot.origin][(slot.seq - 1) as usize])
+        self.logs.get(&slot.origin)?.get(&slot.seq)
     }
 
     pub fn get(&self, key: &Key) -> Option<&[u8]> {
@@ -320,70 +451,83 @@ impl State {
     }
 
     pub fn heads(&self) -> Heads {
-        self.logs
-            .iter()
-            .map(|(origin, log)| (*origin, log.len() as u64))
-            .collect()
+        self.heads.clone()
     }
 
-    /// Everything this side holds that `theirs` does not.
+    /// Everything this side holds above `theirs`, per origin by rising seq.
     pub fn since(&self, theirs: &Heads) -> Vec<Entry> {
         let mut out = Vec::new();
         for (origin, log) in &self.logs {
             let have = theirs.get(origin).copied().unwrap_or(0);
-            let skip = usize::try_from(have).unwrap_or(usize::MAX);
-            out.extend(log.iter().skip(skip).cloned());
+            out.extend(log.range(have.saturating_add(1)..).map(|(_, e)| e.clone()));
         }
         out
     }
 
-    /// Takes entries from peers. All or nothing: a gap, or an origin that is
-    /// not a desktop in `devices`, refuses the whole batch. Returns the keys
-    /// whose value changed.
+    /// Why `entry` may not be taken, if it may not. Signature first.
+    fn check(&self, entry: &Entry, devices: &Devices, now: u64) -> Result<(), MeshError> {
+        entry.verify(self.mesh)?;
+        match devices.write_limit(&entry.origin) {
+            WriteLimit::Always => {}
+            WriteLimit::Refused => return Err(MeshError::NotDesktop(entry.origin)),
+            WriteLimit::Until(limit) if entry.at_ms <= limit => {}
+            WriteLimit::Until(_) => return Err(MeshError::Removed(entry.origin)),
+        }
+        if entry.at_ms > now.saturating_add(MAX_AHEAD_MS) {
+            return Err(MeshError::Future(entry.origin));
+        }
+        Ok(())
+    }
+
+    /// Takes entries from peers. A refused entry stops its origin for this
+    /// batch (later numbers must not move the head past it); other origins
+    /// go on. `Err` is for I/O only.
     pub fn apply(
         &mut self,
         mut entries: Vec<Entry>,
         devices: &Devices,
-    ) -> Result<Vec<Key>, MeshError> {
+    ) -> Result<Applied, MeshError> {
         entries.sort_by_key(|e| (e.origin, e.seq));
-        let mut next: Heads = self.heads();
+        let now = now_ms();
+        let mut applied = Applied::default();
+        let mut stopped = BTreeSet::new();
+        let mut next = self.heads.clone();
         let mut fresh = Vec::new();
         for entry in entries {
-            if !devices.is_desktop(entry.origin) {
-                return Err(MeshError::NotDesktop(entry.origin));
-            }
-            let have = next.get(&entry.origin).copied().unwrap_or(0);
-            if entry.seq <= have && entry.seq != 0 {
+            if stopped.contains(&entry.origin) {
                 continue;
             }
-            if entry.seq != have + 1 {
-                return Err(MeshError::Gap {
-                    origin: entry.origin,
-                    have,
-                    got: entry.seq,
-                });
+            if let Err(e) = self.check(&entry, devices, now) {
+                stopped.insert(entry.origin);
+                applied.refused.push(e);
+                continue;
+            }
+            let head = next.get(&entry.origin).copied().unwrap_or(0);
+            if entry.seq <= head {
+                continue;
             }
             next.insert(entry.origin, entry.seq);
             fresh.push(entry);
         }
         if fresh.is_empty() {
-            return Ok(Vec::new());
+            return Ok(applied);
         }
         let touched: BTreeSet<Key> = fresh.iter().map(|e| e.key.clone()).collect();
         let before: Vec<Option<Vec<u8>>> = touched
             .iter()
             .map(|key| self.get(key).map(<[u8]>::to_vec))
             .collect();
-        self.append(&fresh.iter().collect::<Vec<_>>())?;
+        self.append(&fresh)?;
         for entry in fresh {
             self.insert(entry);
         }
-        Ok(touched
+        applied.changed = touched
             .into_iter()
             .zip(before)
             .filter(|(key, old)| self.get(key) != old.as_deref())
             .map(|(key, _)| key)
-            .collect())
+            .collect();
+        Ok(applied)
     }
 }
 
@@ -424,8 +568,16 @@ mod tests {
 
     fn open(mesh: &Mesh, who: usize) -> (TempDir, State) {
         let dir = TempDir::new().expect("tempdir");
-        let state = State::open(dir.path(), mesh.keys[who].public()).expect("open");
+        let state = State::open(dir.path(), &mesh.keys[who], mesh.devices.mesh()).expect("open");
         (dir, state)
+    }
+
+    fn reopen(mesh: &Mesh, who: usize, dir: &TempDir) -> State {
+        State::open(dir.path(), &mesh.keys[who], mesh.devices.mesh()).expect("reopen")
+    }
+
+    fn entry(m: &Mesh, who: usize, key: Key, value: &str, at_ms: u64, seq: u64) -> Entry {
+        Entry::sign(&m.keys[who], m.devices.mesh(), key, val(value), at_ms, seq).expect("signs")
     }
 
     fn project(name: &str) -> Key {
@@ -434,6 +586,10 @@ mod tests {
 
     fn val(s: &str) -> Option<Vec<u8>> {
         Some(s.as_bytes().to_vec())
+    }
+
+    fn log_path(dir: &TempDir) -> std::path::PathBuf {
+        dir.path().join("mesh").join("state.log")
     }
 
     fn orders<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
@@ -477,29 +633,24 @@ mod tests {
     fn two_writes_at_one_millisecond_end_on_the_same_value_everywhere() {
         let m = mesh(3, 0);
         let entries: Vec<Entry> = (0..3)
-            .map(|i| Entry {
-                key: project("p"),
-                value: val(&format!("v{i}")),
-                at_ms: 500,
-                origin: m.keys[i].public(),
-                seq: 1,
-            })
+            .map(|i| entry(&m, i, project("p"), &format!("v{i}"), 500, 1))
             .collect();
         let winner = (0..3)
             .max_by_key(|i| m.keys[*i].public())
             .expect("three keys");
+        let want = val(&format!("v{winner}"));
         for order in orders(&entries) {
             let (_dir, mut s) = open(&m, 0);
             for e in order {
                 s.apply(vec![e], &m.devices).expect("apply");
             }
-            assert_eq!(s.get(&project("p")), val(&format!("v{winner}")).as_deref());
+            assert_eq!(s.get(&project("p")), want.as_deref());
         }
-        // One batch in any order converges too.
         for order in orders(&entries) {
             let (_dir, mut s) = open(&m, 1);
-            s.apply(order, &m.devices).expect("apply");
-            assert_eq!(s.get(&project("p")), val(&format!("v{winner}")).as_deref());
+            let applied = s.apply(order, &m.devices).expect("apply");
+            assert!(applied.refused.is_empty());
+            assert_eq!(s.get(&project("p")), want.as_deref());
         }
     }
 
@@ -515,60 +666,112 @@ mod tests {
         let for_b = a.since(&b.heads());
         assert_eq!(for_b.len(), 2);
         assert!(for_b.iter().all(|e| e.origin == m.keys[0].public()));
-        let changed = b.apply(for_b, &m.devices).expect("apply");
-        assert_eq!(changed.len(), 2);
+        assert!(for_b[0].seq < for_b[1].seq);
+        let applied = b.apply(for_b, &m.devices).expect("apply");
+        assert_eq!(applied.changed.len(), 2);
         let for_a = b.since(&a.heads());
         assert_eq!(for_a.len(), 1);
         a.apply(for_a, &m.devices).expect("apply");
         assert!(a.since(&b.heads()).is_empty());
         assert!(b.since(&a.heads()).is_empty());
         assert_eq!(a.heads(), b.heads());
-        // A node reads everything and writes nothing.
         n.apply(a.since(&n.heads()), &m.devices).expect("apply");
         assert_eq!(n.get(&project("two")), val("2").as_deref());
         assert_eq!(n.get(&Key::Flsh), val("f").as_deref());
         assert_eq!(n.scan("project/").len(), 2);
-        // Reapplying changes nothing.
         let again = n.apply(a.since(&Heads::new()), &m.devices).expect("apply");
-        assert!(again.is_empty());
+        assert!(again.changed.is_empty() && again.refused.is_empty());
     }
 
     #[test]
-    fn a_gap_in_an_origins_log_is_refused() {
+    fn a_compacted_log_still_converges_on_a_fresh_peer() {
         let m = mesh(2, 0);
-        let (_da, mut a) = open(&m, 0);
-        let (_db, mut b) = open(&m, 1);
-        a.set(project("one"), val("1")).expect("set");
-        a.set(project("two"), val("2")).expect("set");
-        let mut lacking = a.since(&Heads::new());
-        lacking.remove(0);
-        let err = b.apply(lacking, &m.devices);
-        assert!(matches!(err, Err(MeshError::Gap { .. })));
-        assert!(b.heads().is_empty());
-        assert_eq!(b.get(&project("two")), None);
+        let dir = TempDir::new().expect("tempdir");
+        {
+            let mut s = reopen(&m, 0, &dir);
+            for i in 0..10 {
+                s.set(project("a"), val(&format!("a{i}"))).expect("set");
+                s.set(project("b"), val(&format!("b{i}"))).expect("set");
+            }
+            s.set(project("a"), None).expect("set");
+        }
+        let s = reopen(&m, 0, &dir);
+        let (_d, mut fresh) = open(&m, 1);
+        let applied = fresh
+            .apply(s.since(&Heads::new()), &m.devices)
+            .expect("apply");
+        assert!(applied.refused.is_empty());
+        assert_eq!(fresh.get(&project("a")), None);
+        assert_eq!(fresh.get(&project("b")), val("b9").as_deref());
+        assert_eq!(fresh.scan("project/").len(), 1);
+        assert!(s.since(&fresh.heads()).is_empty());
     }
 
     #[test]
     fn an_entry_from_a_node_is_refused() {
         let m = mesh(1, 1);
         let (_da, mut a) = open(&m, 0);
-        let node_entry = Entry {
-            key: Key::Credential("c".into()),
-            value: val("stolen"),
-            at_ms: u64::MAX,
-            origin: m.keys[1].public(),
-            seq: 1,
-        };
-        let stranger = Entry {
-            origin: SecretKey::generate().public(),
-            ..node_entry.clone()
-        };
-        for entry in [node_entry, stranger] {
-            let err = a.apply(vec![entry], &m.devices);
-            assert!(matches!(err, Err(MeshError::NotDesktop(_))));
-        }
+        let from_node = entry(&m, 1, Key::Credential("c".into()), "stolen", u64::MAX, 1);
+        let stranger = SecretKey::generate();
+        let from_stranger = Entry::sign(
+            &stranger,
+            m.devices.mesh(),
+            Key::Credential("c".into()),
+            val("x"),
+            1,
+            1,
+        )
+        .expect("signs");
+        let applied = a
+            .apply(vec![from_node, from_stranger], &m.devices)
+            .expect("apply");
+        assert_eq!(applied.refused.len(), 2);
+        assert!(
+            applied
+                .refused
+                .iter()
+                .all(|e| matches!(e, MeshError::NotDesktop(_)))
+        );
+        assert!(applied.changed.is_empty());
         assert_eq!(a.get(&Key::Credential("c".into())), None);
         assert!(a.heads().is_empty());
+    }
+
+    #[test]
+    fn an_entry_forged_by_a_relaying_node_is_refused() {
+        let m = mesh(2, 1);
+        let (_da, mut a) = open(&m, 0);
+        let (_db, mut b) = open(&m, 1);
+        // The node rewrites a real entry of desktop 0 and relays it to b.
+        let mut forged = entry(&m, 0, Key::Credential("c".into()), "real", 10, 1);
+        forged.value = val("forged");
+        let applied = b.apply(vec![forged], &m.devices).expect("apply");
+        assert!(matches!(applied.refused[..], [MeshError::BadSignature]));
+        assert_eq!(b.get(&Key::Credential("c".into())), None);
+        assert!(b.heads().is_empty());
+        // The real entry with that seq still lands.
+        let real = a
+            .set(Key::Credential("c".into()), val("real"))
+            .expect("set");
+        let applied = b.apply(vec![real], &m.devices).expect("apply");
+        assert_eq!(applied.changed, vec![Key::Credential("c".into())]);
+        assert_eq!(b.get(&Key::Credential("c".into())), val("real").as_deref());
+    }
+
+    #[test]
+    fn one_origins_bad_entry_does_not_block_another() {
+        let m = mesh(3, 0);
+        let (_d, mut s) = open(&m, 2);
+        let mut bad = entry(&m, 0, project("x"), "1", 5, 1);
+        bad.at_ms = 6;
+        let later = entry(&m, 0, project("y"), "2", 5, 2);
+        let good = entry(&m, 1, project("z"), "3", 5, 1);
+        let applied = s.apply(vec![bad, later, good], &m.devices).expect("apply");
+        assert_eq!(applied.refused.len(), 1);
+        assert_eq!(applied.changed, vec![project("z")]);
+        assert_eq!(s.get(&project("y")), None);
+        assert_eq!(s.heads().get(&m.keys[0].public()), None);
+        assert_eq!(s.heads().get(&m.keys[1].public()), Some(&1));
     }
 
     #[test]
@@ -577,77 +780,129 @@ mod tests {
         let dir = TempDir::new().expect("tempdir");
         let me = m.keys[0].public();
         {
-            let mut s = State::open(dir.path(), me).expect("open");
+            let mut s = reopen(&m, 0, &dir);
             s.set(project("a"), val("1")).expect("set");
             s.set(project("b"), val("2")).expect("set");
             s.set(project("a"), None).expect("set");
-            let theirs = Entry {
-                key: Key::Pin("x".into()),
-                value: val("y"),
-                at_ms: 9,
-                origin: m.keys[1].public(),
-                seq: 1,
-            };
+            let theirs = entry(&m, 1, Key::Pin("x".into()), "y", 9, 1);
             s.apply(vec![theirs], &m.devices).expect("apply");
         }
-        let mut s = State::open(dir.path(), me).expect("reopen");
+        let mut s = reopen(&m, 0, &dir);
         assert_eq!(s.get(&project("a")), None);
         assert_eq!(s.get(&project("b")), val("2").as_deref());
         assert_eq!(s.get(&Key::Pin("x".into())), val("y").as_deref());
-        assert_eq!(s.heads().get(&me), Some(&3));
+        let head = s.heads()[&me];
         let next = s.set(project("c"), val("3")).expect("set");
-        assert_eq!(next.seq, 4);
+        assert!(next.seq > head);
     }
 
     #[test]
     fn compaction_keeps_the_heads() {
         let m = mesh(2, 0);
         let dir = TempDir::new().expect("tempdir");
-        let me = m.keys[0].public();
         let heads;
         let big = vec![7u8; 4096];
         {
-            let mut s = State::open(dir.path(), me).expect("open");
+            let mut s = reopen(&m, 0, &dir);
             for _ in 0..20 {
                 s.set(project("a"), Some(big.clone())).expect("set");
             }
+            // The head entry is itself superseded.
             s.set(project("b"), val("last")).expect("set");
+            s.set(project("b"), val("last2")).expect("set");
             heads = s.heads();
         }
-        let file = dir.path().join("mesh").join("state.log");
-        let before = std::fs::metadata(&file).expect("log").len();
-        let s = State::open(dir.path(), me).expect("reopen");
-        let after = std::fs::metadata(&file).expect("log").len();
+        let before = std::fs::metadata(log_path(&dir)).expect("log").len();
+        let s = reopen(&m, 0, &dir);
+        let after = std::fs::metadata(log_path(&dir)).expect("log").len();
         assert!(after < before / 4, "{after} vs {before}");
         assert_eq!(s.heads(), heads);
         assert_eq!(s.get(&project("a")), Some(big.as_slice()));
-        assert_eq!(s.get(&project("b")), val("last").as_deref());
-        // A fresh peer still gets a log it can apply, without a gap.
-        let (_d, mut fresh) = open(&m, 1);
-        fresh
-            .apply(s.since(&Heads::new()), &m.devices)
-            .expect("compacted log applies");
-        assert_eq!(fresh.get(&project("a")), Some(big.as_slice()));
-        assert_eq!(fresh.heads(), heads);
+        assert_eq!(s.get(&project("b")), val("last2").as_deref());
+        drop(s);
+        // A second open has nothing to compact and keeps the heads.
+        assert_eq!(reopen(&m, 0, &dir).heads(), heads);
     }
 
     #[test]
     fn the_clock_moves_past_what_it_has_seen() {
         let m = mesh(2, 0);
         let (_d, mut s) = open(&m, 0);
-        let future = Entry {
-            key: project("p"),
-            value: val("theirs"),
-            at_ms: u64::MAX / 2,
-            origin: m.keys[1].public(),
-            seq: 1,
-        };
-        s.apply(vec![future], &m.devices).expect("apply");
+        let soon = now_ms() + 3_600_000;
+        let theirs = entry(&m, 1, project("p"), "theirs", soon, 1);
+        s.apply(vec![theirs], &m.devices).expect("apply");
         let mine = s.set(project("p"), val("mine")).expect("set");
-        assert_eq!(mine.at_ms, u64::MAX / 2 + 1);
+        assert_eq!(mine.at_ms, soon + 1);
         assert_eq!(s.get(&project("p")), val("mine").as_deref());
         let again = s.set(project("p"), val("again")).expect("set");
         assert!(again.at_ms > mine.at_ms);
+    }
+
+    #[test]
+    fn a_clock_that_cannot_move_on_is_an_error() {
+        let m = mesh(1, 0);
+        let (_d, mut s) = open(&m, 0);
+        s.highest_ms = u64::MAX;
+        assert!(matches!(
+            s.set(project("p"), val("x")),
+            Err(MeshError::Clock)
+        ));
+        assert_eq!(s.get(&project("p")), None);
+    }
+
+    #[test]
+    fn an_entry_far_in_the_future_is_refused() {
+        let m = mesh(2, 0);
+        let (_d, mut s) = open(&m, 0);
+        let day = 24 * 3_600_000;
+        let far = entry(&m, 1, project("p"), "x", now_ms() + day + 60_000, 1);
+        let applied = s.apply(vec![far], &m.devices).expect("apply");
+        assert!(matches!(applied.refused[..], [MeshError::Future(_)]));
+        assert_eq!(s.get(&project("p")), None);
+        let ok = entry(&m, 1, project("p"), "x", now_ms() + day - 60_000, 1);
+        let applied = s.apply(vec![ok], &m.devices).expect("apply");
+        assert_eq!(applied.changed, vec![project("p")]);
+    }
+
+    #[test]
+    fn a_desktop_that_lost_its_log_is_still_heard() {
+        let m = mesh(2, 0);
+        let (_db, mut b) = open(&m, 1);
+        let old = entry(&m, 0, project("p"), "old", 5, 7);
+        b.apply(vec![old], &m.devices).expect("apply");
+        // Desktop 0 comes back with an empty directory.
+        let (_da, mut a) = open(&m, 0);
+        let fresh = a.set(project("p"), val("new")).expect("set");
+        assert!(fresh.seq > 7);
+        let applied = b.apply(vec![fresh], &m.devices).expect("apply");
+        assert_eq!(applied.changed, vec![project("p")]);
+        assert_eq!(b.get(&project("p")), val("new").as_deref());
+    }
+
+    #[test]
+    fn a_removed_desktop_keeps_its_old_writes_and_loses_new_ones() {
+        let mut m = mesh(2, 0);
+        let gone = m.keys[1].public();
+        let before = entry(&m, 1, project("old"), "kept", 5, 1);
+        let removal = m.devices.remove(&m.keys[0], gone).expect("remove");
+        assert_eq!(
+            m.devices.write_limit(&gone),
+            WriteLimit::Until(removal_ms(&m, gone))
+        );
+        let after = entry(&m, 1, project("new"), "late", now_ms() + 5_000, 2);
+        let (_d, mut fresh) = open(&m, 0);
+        let applied = fresh.apply(vec![before, after], &m.devices).expect("apply");
+        assert_eq!(applied.changed, vec![project("old")]);
+        assert!(matches!(applied.refused[..], [MeshError::Removed(_)]));
+        assert_eq!(fresh.get(&project("new")), None);
+        drop(removal);
+    }
+
+    fn removal_ms(m: &Mesh, id: EndpointId) -> u64 {
+        match m.devices.write_limit(&id) {
+            WriteLimit::Until(t) => t,
+            other => panic!("not removed: {other:?}"),
+        }
     }
 
     #[cfg(unix)]
@@ -657,13 +912,64 @@ mod tests {
         let m = mesh(1, 0);
         let (dir, mut s) = open(&m, 0);
         s.set(Key::Flsh, val("x")).expect("set");
-        let file = dir.path().join("mesh").join("state.log");
+        let file = log_path(&dir);
         let mode = |p: &Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
         assert_eq!(mode(&file), 0o600);
         assert_eq!(mode(&dir.path().join("mesh")) & 0o077, 0);
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("chmod");
         drop(s);
-        State::open(dir.path(), m.keys[0].public()).expect("reopen");
+        reopen(&m, 0, &dir);
         assert_eq!(mode(&file), 0o600);
+    }
+
+    #[test]
+    fn a_damaged_tail_is_cut_and_the_earlier_entries_survive() {
+        use std::io::Write;
+        let m = mesh(1, 0);
+        for tail in [
+            vec![0u8; 300],
+            b"garbage that is no record".to_vec(),
+            vec![9, 0],
+        ] {
+            let dir = TempDir::new().expect("tempdir");
+            {
+                let mut s = reopen(&m, 0, &dir);
+                s.set(project("a"), val("1")).expect("set");
+                s.set(project("b"), val("2")).expect("set");
+            }
+            OpenOptions::new()
+                .append(true)
+                .open(log_path(&dir))
+                .expect("open")
+                .write_all(&tail)
+                .expect("write");
+            let mut s = reopen(&m, 0, &dir);
+            assert_eq!(s.get(&project("a")), val("1").as_deref());
+            assert_eq!(s.get(&project("b")), val("2").as_deref());
+            // New writes land after the cut and survive another open.
+            s.set(project("c"), val("3")).expect("set");
+            drop(s);
+            let s = reopen(&m, 0, &dir);
+            assert_eq!(s.get(&project("c")), val("3").as_deref());
+            assert_eq!(s.get(&project("a")), val("1").as_deref());
+        }
+    }
+
+    #[test]
+    fn a_flipped_byte_in_a_record_cuts_the_log_there() {
+        let m = mesh(1, 0);
+        let dir = TempDir::new().expect("tempdir");
+        {
+            let mut s = reopen(&m, 0, &dir);
+            s.set(project("a"), val("1")).expect("set");
+            s.set(project("b"), val("2")).expect("set");
+        }
+        let mut bytes = std::fs::read(log_path(&dir)).expect("read");
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        std::fs::write(log_path(&dir), bytes).expect("write");
+        let s = reopen(&m, 0, &dir);
+        assert_eq!(s.get(&project("a")), val("1").as_deref());
+        assert_eq!(s.get(&project("b")), None);
     }
 }
