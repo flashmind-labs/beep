@@ -24,6 +24,7 @@ pub mod logs;
 pub mod process;
 pub mod search;
 pub mod shell;
+pub mod status;
 pub mod sync;
 pub mod terminal;
 pub mod tool_update;

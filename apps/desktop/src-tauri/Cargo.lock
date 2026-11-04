@@ -488,6 +488,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-mesh"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "fastrand",
+ "iroh",
+ "iroh-tickets",
+ "postcard",
+ "serde",
+ "strum",
+ "subtle",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "beep-node"
 version = "0.2.2"
 dependencies = [
@@ -495,6 +512,7 @@ dependencies = [
  "anyhow",
  "bao-tree",
  "base64 0.22.1",
+ "beep-mesh",
  "beep-proto",
  "blake3",
  "dirs 7.0.0",
@@ -505,6 +523,7 @@ dependencies = [
  "ignore",
  "iroh",
  "iroh-blobs",
+ "iroh-tickets",
  "libc",
  "log",
  "notify",

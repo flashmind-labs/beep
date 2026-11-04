@@ -62,7 +62,7 @@ mod tests {
         let server = SecretKey::generate().public();
         fs::write(link.join(SERVER_FILE), format!("{server}\n")).unwrap();
         let state = prepare(&dir, &link, "box").await.unwrap();
-        assert_eq!(state.server, server);
+        assert_eq!(state.server, Some(server));
         let written = fs::read_to_string(link.join(NODE_FILE)).unwrap();
         assert_eq!(written, format!("{}\nbox\n", state.key.public()));
         // A restart keeps the key.
