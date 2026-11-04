@@ -301,20 +301,21 @@ async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<
                 })
                 .await?;
             }
-            // The server sends nothing more; anything is its goodbye.
+            // The caller sends nothing more; anything is its goodbye.
             _ = rx.recv::<SessionsRequest>() => return Ok(()),
         }
     }
 }
 
-/// Sends the server each alert as it comes, until it closes the stream.
+/// Sends each alert as it comes, until the caller closes the stream.
 async fn send_alerts(mut tx: LinkTx, mut rx: LinkRx, alerts: &AlertHub) -> Result<()> {
+    let mut follow = alerts.follow();
     loop {
         tokio::select! {
-            alert = alerts.next() => {
+            alert = follow.next() => {
                 tx.send(&SessionsReply::Alert { alert }).await?;
             }
-            // The server sends nothing more; anything is its goodbye.
+            // The caller sends nothing more; anything is its goodbye.
             _ = rx.recv::<SessionsRequest>() => return Ok(()),
         }
     }

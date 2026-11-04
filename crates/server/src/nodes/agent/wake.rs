@@ -3,9 +3,12 @@
 use super::{AgentLinks, LinkOrder, Watched, order};
 use crate::{
     app::App,
-    nodes::{Ask, Follower, Post, deliver::agent_name},
+    nodes::{Ask, Follower, Post},
     projects::{Handled, lifecycle::quote},
-    protocol::node::agent::{Event, Question},
+    protocol::{
+        agent_name,
+        node::agent::{Event, Question},
+    },
     tools::machines::agent_call,
 };
 use iroh::EndpointId;
