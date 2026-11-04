@@ -307,11 +307,28 @@ impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
         // In a mesh the machines answer for themselves; the server still
         // takes what is not between machines, and machines the mesh lacks.
-        if let Some(mesh) = self.offers.mesh.get()
-            && machines::goes_direct(request.tool, self.offers.tools.connected())
-            && let Some(reply) = machines::call(&self.offers, &mesh, request).await
-        {
-            return Ok(reply);
+        if let Some(mesh) = self.offers.mesh.get() {
+            let route = machines::route(
+                request.tool,
+                self.offers.tools.has_server(),
+                self.offers.tools.connected(),
+            );
+            match route {
+                machines::Route::Refuse => {
+                    return Ok(Reply::Done {
+                        text: "send_files needs the user's approval from the server, which is not \
+                               connected now. Try again when it is."
+                            .to_owned(),
+                        failed: true,
+                    });
+                }
+                machines::Route::Direct => {
+                    if let Some(reply) = machines::call(&self.offers, &mesh, request).await {
+                        return Ok(reply);
+                    }
+                }
+                machines::Route::Server => {}
+            }
         }
         self.offers.tools.call(request).await
     }
@@ -320,10 +337,10 @@ impl Backend for Node {
         self.offers.agents.ask(session, question).await
     }
 
-    /// The memory tools live on the server: a node in a mesh with none has
-    /// nothing to remember with.
+    /// The memory tools live on the server: a node with none has nothing to
+    /// remember with, in a mesh or not, as its brief says.
     fn memory_tools(&self) -> bool {
-        self.offers.tools.has_server() || !self.offers.mesh.joined()
+        self.offers.tools.has_server()
     }
 }
 

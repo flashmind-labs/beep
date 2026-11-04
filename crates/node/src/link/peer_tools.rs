@@ -200,11 +200,15 @@ static SYNC_SLOTS: Semaphore = Semaphore::const_new(MAX_SYNCS);
 /// have, and says how it stands.
 async fn sync_project(args: Value, caller: &Caller) -> Outcome {
     let SyncArgs { project } = parse(args)?;
-    let Ok(_slot) = SYNC_SLOTS.try_acquire() else {
-        return Err(format!(
-            "busy: {MAX_SYNCS} syncs are already waiting on this machine"
-        ));
-    };
+    // Capped for node peers only; the server's calls are not theirs to crowd.
+    let _slot =
+        if matches!(caller.table, Table::Peer(_)) {
+            Some(SYNC_SLOTS.try_acquire().map_err(|_| {
+                format!("busy: {MAX_SYNCS} syncs are already waiting on this machine")
+            })?)
+        } else {
+            None
+        };
     let Some(transfers) = &caller.transfers else {
         return Err("This machine shares no folders, so it syncs no projects.".to_owned());
     };

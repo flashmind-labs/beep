@@ -80,10 +80,6 @@ impl Membership {
         self.0.borrow().clone()
     }
 
-    pub(crate) fn joined(&self) -> bool {
-        self.0.borrow().is_some()
-    }
-
     /// Whether the node is in a mesh that owns `family` now.
     pub(crate) fn owns(&self, family: Family) -> bool {
         self.get().is_some_and(|mesh| family.owned_by(&mesh))
