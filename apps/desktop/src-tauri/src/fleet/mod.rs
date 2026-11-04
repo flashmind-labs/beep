@@ -35,6 +35,7 @@ use std::{
     time::Duration,
 };
 use tauri::State;
+use tauri::async_runtime::JoinHandle;
 use tokio::{sync::watch, time::timeout};
 
 /// The machines of the mesh, as a command takes them.
@@ -79,6 +80,8 @@ pub struct Fleet {
     serving: Mutex<Option<Arc<Serving>>>,
     /// One `join` at a time.
     joining: AsyncMutex<()>,
+    /// The account move running now, which holds the mesh.
+    move_task: Mutex<Option<JoinHandle<()>>>,
     /// The newest release of each tool a node installs.
     releases: ToolReleases,
 }
@@ -104,6 +107,7 @@ impl Fleet {
             mesh: watch::channel(Opened::Opening).0,
             serving: Mutex::default(),
             joining: AsyncMutex::new(()),
+            move_task: Mutex::default(),
             releases: ToolReleases::default(),
         }
     }
@@ -161,6 +165,33 @@ impl Fleet {
         }
     }
 
+    /// Keeps `task`, the account move, as the one running; a move before it is cancelled.
+    pub(crate) fn moving(&self, task: JoinHandle<()>) {
+        let before = self
+            .move_task
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replace(task);
+        if let Some(before) = before {
+            before.abort();
+        }
+    }
+
+    /// Cancels the account move and waits until it lets go of the mesh. It starts again with
+    /// the next launch, or the next sign-in or join.
+    async fn stop_move(&self) {
+        let task = self
+            .move_task
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(task) = task {
+            task.abort();
+            // Cancelled or finished: either way its mesh handle is gone.
+            let _ = task.await;
+        }
+    }
+
     /// Joins the mesh `ticket` names, as `name`. A Mac that made its own mesh
     /// on first launch leaves it while it is the mesh's only device, and
     /// brings its settings along: they are signed for the old mesh, so they
@@ -175,6 +206,8 @@ impl Fleet {
                 "this Mac is in a mesh with other devices".into(),
             ));
         }
+        // The move holds the mesh while it reads the server, and a mesh in use cannot close.
+        self.stop_move().await;
         // On disk first, so a crash after the swap still brings them along.
         carry::save(&self.dir, &old.scan(""))?;
         self.peers.leave().await;

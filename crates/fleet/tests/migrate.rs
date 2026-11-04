@@ -378,3 +378,38 @@ async fn a_join_carrying_a_moved_account_keeps_the_meshes_newer_values() {
     assert!(joined.get(&Key::Sync("acme/widget".into())).is_some());
     assert!(joined.get(&Key::Project("acme/widget".into())).is_some());
 }
+
+#[tokio::test]
+async fn a_move_cut_off_mid_write_finishes_on_the_next_try() {
+    let server = Server::new();
+    // What one clean run leaves, without the mark's time.
+    let whole = {
+        let dir = TempDir::new().expect("temp dir");
+        let clean = mesh(&dir).await;
+        migrate::run(&clean, &server).await.expect("moves");
+        keys(&clean)
+    };
+    // Cut the move off after a few turns of the runtime: some writes are in, the mark is not.
+    for turns in [64, 128, 256, 512, 1024, 2048] {
+        let dir = TempDir::new().expect("temp dir");
+        let cut = mesh(&dir).await;
+        tokio::select! {
+            biased;
+            _ = migrate::run(&cut, &server) => {}
+            () = async { for _ in 0..turns { tokio::task::yield_now().await } } => {}
+        }
+        let again = migrate::run(&cut, &server).await.expect("moves");
+        assert_eq!(keys(&cut), whole, "after {turns} turns");
+        assert!(again.written <= whole.len());
+    }
+}
+
+fn keys(mesh: &Mesh) -> Vec<String> {
+    let mut all: Vec<String> = mesh
+        .scan("")
+        .into_iter()
+        .map(|(key, _)| key.to_string())
+        .collect();
+    all.sort();
+    all
+}

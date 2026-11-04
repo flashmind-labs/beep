@@ -501,7 +501,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let (opening, push) = (fleet.clone(), beep.push());
     tauri::async_runtime::spawn(async move { opening.run(push).await });
     // An account with a server moves into the mesh in the background, after Home has drawn.
-    tauri::async_runtime::spawn(fleet::migrate::run(handle.clone()));
+    fleet::migrate::start(handle.clone());
     app.manage(machine);
     app.manage(machines::list::Outside::default());
     app.manage(tray::Recent::default());
