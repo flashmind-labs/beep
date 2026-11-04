@@ -8,6 +8,7 @@ use crate::{
     api::router::Cx,
     protocol::{node::agent::Request, *},
 };
+use beep_mesh::machine::{node_request, queued_instead};
 
 /// Only sessions Beep runs take orders; one started outside Beep is not found.
 pub(in crate::api) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession) -> Reply<()> {
@@ -57,59 +58,4 @@ pub(in crate::api) async fn steer_agent_session(cx: Cx, steer: SteerAgentSession
         }
     })?;
     Ok(())
-}
-
-/// The prompt a node from before `Request::Steer` gets for one, sent after the running turn.
-pub(super) fn queued_instead(request: &Request) -> Option<Request> {
-    let Request::Steer { text, images } = request else {
-        return None;
-    };
-    Some(if images.is_empty() {
-        Request::Prompt { text: text.clone() }
-    } else {
-        Request::PromptImages {
-            text: text.clone(),
-            images: images.clone(),
-        }
-    })
-}
-
-/// What the node is asked for `steer`; an empty message or images over the limits are refused.
-pub(super) fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
-    Ok(match steer {
-        AgentSteer::Prompt { text } if text.trim().is_empty() => {
-            return Err(ApiError::bad_request("The message is empty."));
-        }
-        AgentSteer::Prompt { text } => Request::Prompt { text },
-        AgentSteer::PromptImages { text, images } if images.is_empty() => {
-            return node_request(AgentSteer::Prompt { text });
-        }
-        AgentSteer::PromptImages { text, images } => {
-            check_agent_images(&images)?;
-            Request::PromptImages { text, images }
-        }
-        AgentSteer::Steer { text, images } if text.trim().is_empty() && images.is_empty() => {
-            return Err(ApiError::bad_request("The message is empty."));
-        }
-        AgentSteer::Steer { text, images } => {
-            check_agent_images(&images)?;
-            Request::Steer { text, images }
-        }
-        AgentSteer::DropSteers {} => Request::DropSteers {},
-        AgentSteer::SetMode { mode } => Request::SetMode { mode },
-        AgentSteer::Cancel {} => Request::Cancel {},
-        AgentSteer::Close {} => Request::Close {},
-        AgentSteer::Configure {
-            model: None,
-            effort: None,
-        } => return Err(ApiError::bad_request("Nothing to switch.")),
-        AgentSteer::Configure { model, effort } => Request::Configure {
-            model: model
-                .as_ref()
-                .map(|m| m.as_str().trim())
-                .filter(|m| !m.is_empty())
-                .map(ModelId::from),
-            effort: effort.map(Into::into),
-        },
-    })
 }

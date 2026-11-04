@@ -9,22 +9,22 @@ use crate::{
     nodes::Online,
     protocol::{
         node::{
-            process::{Reply as TaskReply, Request as TaskRequest, Task, TaskId, TaskState},
+            process::{Reply as TaskReply, Request as TaskRequest, Task, TaskId},
             terminal::{Reply as PtyReply, Request as PtyRequest, Size},
         },
         *,
     },
     store::TerminalRow,
 };
-use anyhow::{Result, bail};
+use anyhow::bail;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 pub(super) mod attach;
 
-/// The longest name, command or folder.
-const MAX_FIELD: usize = 1000;
+pub(super) use beep_mesh::machine::terminals::{self, Kept, field, optional, state};
+
 /// The folder shown for a terminal started in its node's home folder.
 const HOME: &str = "~";
 
@@ -68,11 +68,7 @@ async fn with_states(cx: &Cx, rows: Vec<TerminalRow>) -> Reply<Vec<Terminal>> {
 
 /// Whether `row` is an interactive terminal that will never run again.
 fn ended_for_good(row: &TerminalRow, state: &TerminalState) -> bool {
-    row.pty
-        && matches!(
-            state,
-            TerminalState::Exited { .. } | TerminalState::Stopped {} | TerminalState::Gone {}
-        )
+    terminals::ended_for_good(&kept(row), state)
 }
 
 pub(super) async fn start_terminal(cx: Cx, request: StartTerminal) -> Reply<Terminal> {
@@ -266,39 +262,16 @@ async fn listed(node: &Online, pty: bool) -> Option<Vec<Task>> {
     }
 }
 
-/// `text` trimmed, refused when empty, too long or on several lines.
-fn field<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
-    let text = text.trim();
-    if text.is_empty() || text.len() > MAX_FIELD || text.contains(['\n', '\r', '\0']) {
-        return Err(ApiError::bad_request(format!(
-            "A terminal needs a {what} of 1 to {MAX_FIELD} characters on one line."
-        )));
-    }
-    Ok(text)
-}
-
-/// `text` trimmed, which may be empty; else as `field` takes it.
-fn optional<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
-    match text.trim() {
-        "" => Ok(""),
-        text => field(what, text),
-    }
-}
-
-/// How the row's task stands; the same number with another command is a new task.
+/// How the row's task stands.
 fn state_of(row: &TerminalRow, tasks: &[Task]) -> TerminalState {
-    tasks
-        .iter()
-        .find(|task| task.id.0 == row.task && task.command == row.command)
-        .map_or(TerminalState::Gone {}, |task| state(task.state))
+    terminals::state_of(&kept(row), tasks)
 }
 
-pub(super) fn state(state: TaskState) -> TerminalState {
-    match state {
-        TaskState::Running => TerminalState::Running {},
-        TaskState::Exited { code } => TerminalState::Exited { code },
-        TaskState::Stopped => TerminalState::Stopped {},
-        _ => TerminalState::Gone {},
+fn kept(row: &TerminalRow) -> Kept<'_> {
+    Kept {
+        task: row.task,
+        pty: row.pty,
+        command: &row.command,
     }
 }
 
@@ -313,73 +286,5 @@ fn view(row: TerminalRow, names: &HashMap<String, String>, state: TerminalState)
         cwd: row.cwd,
         state,
         started_at: row.started_at.into(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row() -> TerminalRow {
-        TerminalRow {
-            id: Uuid::nil(),
-            project: "acme/widget".into(),
-            endpoint: "node".into(),
-            task: 3,
-            pty: false,
-            name: "dev-server".into(),
-            command: "npm run dev".into(),
-            cwd: "/srv/project".into(),
-            started_at: Utc::now(),
-        }
-    }
-
-    fn task(id: u32, command: &str, state: TaskState) -> Task {
-        Task {
-            id: TaskId(id),
-            command: command.into(),
-            state,
-        }
-    }
-
-    #[test]
-    fn a_terminal_is_its_task_only_while_the_command_matches() {
-        let row = row();
-        assert_eq!(
-            state_of(&row, &[task(3, "npm run dev", TaskState::Running)]),
-            TerminalState::Running {}
-        );
-        assert_eq!(
-            state_of(
-                &row,
-                &[task(3, "npm run dev", TaskState::Exited { code: Some(1) })]
-            ),
-            TerminalState::Exited { code: Some(1) }
-        );
-        // The node restarted and gave number 3 to another command.
-        assert_eq!(
-            state_of(&row, &[task(3, "cargo watch", TaskState::Running)]),
-            TerminalState::Gone {}
-        );
-        assert_eq!(state_of(&row, &[]), TerminalState::Gone {});
-    }
-
-    #[test]
-    fn only_an_ended_interactive_terminal_is_dropped() {
-        let pty = TerminalRow { pty: true, ..row() };
-        assert!(ended_for_good(
-            &pty,
-            &TerminalState::Exited { code: Some(0) }
-        ));
-        assert!(ended_for_good(&pty, &TerminalState::Stopped {}));
-        assert!(ended_for_good(&pty, &TerminalState::Gone {}));
-        assert!(!ended_for_good(&pty, &TerminalState::Running {}));
-        // Its machine is away: it may still run there.
-        assert!(!ended_for_good(&pty, &TerminalState::Offline {}));
-        // A background task keeps its last lines to read.
-        assert!(!ended_for_good(
-            &row(),
-            &TerminalState::Exited { code: Some(1) }
-        ));
     }
 }

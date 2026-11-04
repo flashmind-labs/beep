@@ -122,19 +122,46 @@ pub async fn install_tool(client: &PeerClient, tool: Tool, version: &str) -> Res
     }
 }
 
+/// What the node said it did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Updated {
+    pub from: String,
+    pub to: String,
+    pub restarting: bool,
+    pub note: String,
+}
+
 /// Has the node install the newest release and restart, once its agent
 /// sessions are idle or, with `now`, at once.
-pub async fn update_node(client: &PeerClient, now: bool) -> Result<update::Event, MeshError> {
+pub async fn update_node(client: &PeerClient, now: bool) -> Result<Updated, MeshError> {
+    let request = update::Request::Update { now };
     let event = client
-        .call_within(
-            NODE_INSTALL,
-            update::PROTOCOL,
-            &update::Request::Update { now },
-        )
+        .call_within(NODE_INSTALL, update::PROTOCOL, &request)
         .await?;
+    updated(event)
+}
+
+fn updated(event: update::Event) -> Result<Updated, MeshError> {
     match event {
+        update::Event::Newest { version } => Ok(Updated {
+            from: version.clone(),
+            to: version,
+            restarting: false,
+            note: String::new(),
+        }),
+        update::Event::Installed {
+            from,
+            to,
+            restarting,
+            note,
+        } => Ok(Updated {
+            from,
+            to,
+            restarting,
+            note,
+        }),
         update::Event::Failed { reason } => Err(said(reason)),
-        event => Ok(event),
+        other => Err(unexpected(&other)),
     }
 }
 
@@ -180,4 +207,28 @@ pub async fn exec(client: &PeerClient, command: &str, limit: Duration) -> Result
     timeout(limit + GRACE, answer)
         .await
         .map_err(|_| said("the node stopped answering"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_newest_is_neither_installed_nor_restarted() {
+        let done = updated(update::Event::Newest {
+            version: "0.1.24".into(),
+        })
+        .expect("an answer");
+        assert_eq!((done.from.as_str(), done.to.as_str()), ("0.1.24", "0.1.24"));
+        assert!(!done.restarting);
+    }
+
+    #[test]
+    fn a_failure_keeps_the_nodes_reason() {
+        let e = updated(update::Event::Failed {
+            reason: "no build for this machine".into(),
+        })
+        .expect_err("a failure");
+        assert_eq!(e.to_string(), "no build for this machine");
+    }
 }
