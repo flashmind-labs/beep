@@ -180,6 +180,9 @@ enum MeshAction {
     },
     /// Lists the devices of the mesh and which are online.
     Devices,
+    /// Leaves the mesh and deletes what this machine kept of it, so it can
+    /// join another. The node keeps running.
+    Leave,
 }
 
 #[derive(Subcommand)]
@@ -338,6 +341,7 @@ async fn main() -> Result<()> {
                 }
                 Ok(())
             }
+            MeshAction::Leave => peers::leave(&dir).await,
         },
         Command::Run => {
             let state = state::State::load_or_start(&dir, &setup::host_name().await)?;

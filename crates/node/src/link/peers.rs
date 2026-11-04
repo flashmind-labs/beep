@@ -47,6 +47,8 @@ const SOCKET: &str = "mesh.sock";
 const JOIN: &str = "join ";
 /// The node answers one line per device, then `end`.
 const DEVICES: &str = "devices";
+/// `leave`; the node answers `left`, or `failed <why>`.
+const LEAVE: &str = "leave";
 
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
@@ -191,23 +193,53 @@ impl Peers {
     }
 
     /// Joins the mesh a desktop's ticket names. The ticket is read once and
-    /// never logged or put in an error.
+    /// never logged or put in an error. A node whose mesh removed it has no
+    /// mesh to keep and takes the new one in its place.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
         let ticket = JoinTicket::decode_string(ticket.trim())
             .map_err(|_| anyhow::anyhow!("that is not a join ticket"))?;
-        if self.is_member() {
+        let old = self.active().map(|active| active.mesh);
+        if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
             bail!("this node already belongs to a mesh");
         }
-        let mesh = Mesh::join(
-            &self.inner.dir,
-            self.inner.endpoint.clone(),
-            &ticket,
-            &self.inner.name,
-        )
-        .await
+        let mesh = match old {
+            Some(old) => {
+                self.leave().await;
+                old.close().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                Mesh::join_replacing_lone(
+                    &self.inner.dir,
+                    self.inner.endpoint.clone(),
+                    &ticket,
+                    &self.inner.name,
+                )
+                .await
+            }
+            None => {
+                Mesh::join(
+                    &self.inner.dir,
+                    self.inner.endpoint.clone(),
+                    &ticket,
+                    &self.inner.name,
+                )
+                .await
+            }
+        }
         .context("could not join")?;
         self.install(mesh);
         Ok(())
+    }
+
+    /// Leaves the mesh for good and deletes what it kept: the node is in none
+    /// after this, and can join another.
+    pub(crate) async fn forget(&self) -> Result<()> {
+        let old = self.active().map(|active| active.mesh);
+        self.leave().await;
+        if let Some(old) = old {
+            old.close().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        Mesh::forget(&self.inner.dir)
+            .await
+            .context("could not delete the mesh")
     }
 
     /// Whether this device is a desktop in the current device list.
@@ -218,8 +250,10 @@ impl Peers {
             .any(|status| status.device.id == me && status.device.kind == DeviceKind::Desktop)
     }
 
+    /// Whether this device is in a mesh it was not removed from.
     pub fn is_member(&self) -> bool {
-        self.active().is_some()
+        self.active()
+            .is_some_and(|active| active.mesh.is_member(active.mesh.me()))
     }
 
     /// The mesh's devices, empty before the node joined.
@@ -447,6 +481,14 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
             }
             Err(e) => format!("failed {e:#}\n"),
         }
+    } else if request == LEAVE {
+        match peers.forget().await {
+            Ok(()) => {
+                log::info!("left the mesh");
+                "left\n".to_owned()
+            }
+            Err(e) => format!("failed {e:#}\n"),
+        }
     } else if request == DEVICES {
         let mut out = String::new();
         for status in peers.devices() {
@@ -477,6 +519,17 @@ pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
     let lines = ask(dir, &format!("{JOIN}{}", ticket.trim())).await?;
     match lines.first().map(String::as_str) {
         Some("joined") => Ok(()),
+        Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
+        None => bail!("the node closed without answering"),
+    }
+}
+
+/// Has the node running from `dir` leave its mesh and delete what it kept.
+#[cfg(feature = "cli")]
+pub async fn leave(dir: &Path) -> Result<()> {
+    let lines = ask(dir, LEAVE).await?;
+    match lines.first().map(String::as_str) {
+        Some("left") => Ok(()),
         Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
         None => bail!("the node closed without answering"),
     }

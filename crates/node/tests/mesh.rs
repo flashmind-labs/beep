@@ -315,6 +315,24 @@ impl Node {
         self.join_with(ticket, &[]).await;
     }
 
+    /// `beep-node mesh leave`.
+    async fn leave(&self) {
+        let out = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+            .args(["mesh", "leave", "--dir"])
+            .arg(self.dir.path())
+            .kill_on_drop(true)
+            .output();
+        let out = timeout(LIMIT, out)
+            .await
+            .expect("the command finished in time")
+            .expect("the command ran");
+        assert!(
+            out.status.success(),
+            "leave failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
     /// `join` with more arguments for the command.
     async fn join_with(&self, ticket: &JoinTicket, more: &[&str]) {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_beep-node"))
@@ -804,6 +822,18 @@ async fn the_control_socket_is_private_and_the_ticket_stays_out_of_the_log() {
         node.log.push(line);
     }
     assert!(node.log.iter().all(|line| !line.contains(&text)));
+}
+
+#[tokio::test]
+async fn a_node_leaves_its_mesh_and_joins_another() {
+    let first = desktop(None).await;
+    let second = desktop(None).await;
+    let node = Node::start(Config::default()).await;
+    node.join(&first.ticket(DeviceKind::Node).await).await;
+    first.reach(node.id).await;
+    node.leave().await;
+    node.join(&second.ticket(DeviceKind::Node).await).await;
+    second.reach(node.id).await;
 }
 
 #[tokio::test]
