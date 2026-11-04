@@ -4,7 +4,10 @@ use super::agent_call;
 use crate::{
     app::App,
     nodes::{Follower, Online, StartOn, Watched},
-    protocol::node::agent::{EntryKind, ExternalSession, PlanStatus, Request, SessionInfo, Status},
+    protocol::node::agent::{
+        EntryKind, ExternalSession, LiveState, LiveStatus, PlanEntry, PlanStatus, Request,
+        SessionInfo, Status, Steer,
+    },
     user::User,
 };
 use chrono::Utc;
@@ -93,6 +96,15 @@ pub(crate) enum Order {
         prompt: Option<String>,
         wait: Duration,
     },
+    /// How a session started outside Beep does now, from its hooks.
+    Live {
+        id: String,
+    },
+    /// Queues a message or a stop for a session started outside Beep.
+    Steer {
+        id: String,
+        steer: Steer,
+    },
 }
 
 /// Runs one order; the text is the result, the error a failure.
@@ -163,13 +175,36 @@ pub(crate) async fn run(
             }
             Ok(out)
         }
-        Order::Follow { .. } | Order::Unfollow { .. } | Order::Takeover { .. }
+        Order::Follow { .. }
+        | Order::Unfollow { .. }
+        | Order::Takeover { .. }
+        | Order::Live { .. }
+        | Order::Steer { .. }
             if agent != EXTERNAL_AGENT =>
         {
             Err(format!(
-                "Only Claude Code sessions started outside Beep can be followed or taken over, \
-                 not {agent}."
+                "Only Claude Code sessions started outside Beep can be followed, checked live, \
+                 steered or taken over, not {agent}."
             ))
+        }
+        Order::Live { id } => online
+            .live_session(&id, None)
+            .await
+            .map(|status| live_report(&status))
+            .map_err(|e| format!("Could not check {id}: {e:#}")),
+        Order::Steer { id, steer } => {
+            let queued = match &steer {
+                Steer::Stop {} => "Queued a stop: its next tool call is denied.",
+                _ => {
+                    "Queued: Claude reads it after the current tool call, or instead of ending \
+                      its turn."
+                }
+            };
+            let status = online
+                .live_session(&id, Some(steer))
+                .await
+                .map_err(|e| format!("Could not steer {id}: {e:#}"))?;
+            Ok(format!("{queued}\n{}", live_report(&status)))
         }
         Order::Follow { id } => call.follow(&id, asker).await,
         Order::Unfollow { id } => {
@@ -205,6 +240,102 @@ pub(crate) async fn run(
                 agent_call(node, agent, "prompt", &now.info.id)
             ))
         }
+    }
+}
+
+/// A session started outside Beep as its hooks report it: one short line to say aloud,
+/// then the details.
+fn live_report(status: &LiveStatus) -> String {
+    let session = &status.session;
+    let mut out = match status.state {
+        LiveState::Working => {
+            let mut line = "Working".to_owned();
+            if let Some(tool) = &status.tool {
+                let _ = write!(line, ", running {}", tool.name);
+                if !tool.detail.is_empty() {
+                    let _ = write!(line, " ({})", cut(&tool.detail, 80));
+                }
+                let _ = write!(line, " for {}", span(tool.secs));
+            }
+            line.push('.');
+            line
+        }
+        LiveState::Asking => format!(
+            "Waiting for the user in the terminal: {}.",
+            status.waiting_for.trim_end_matches('.')
+        ),
+        LiveState::Idle => {
+            "Idle at its prompt, so it cannot be steered; only the user can prompt it there."
+                .to_owned()
+        }
+        LiveState::Ended => "It ended.".to_owned(),
+        _ => format!(
+            "{}; no hook reported on it since the node started, so it cannot be seen live or \
+             steered. That needs `beep-node hooks install` and a restart of the session.",
+            crate::permissions::capitalize(session.presence.as_str())
+        ),
+    };
+    let done = status
+        .todos
+        .iter()
+        .filter(|todo| todo.status == PlanStatus::Completed)
+        .count();
+    if !status.todos.is_empty() {
+        let _ = write!(out, " {done} of {} todos done.", status.todos.len());
+    }
+    if status.error.is_some() {
+        out.push_str(" A tool call failed.");
+    }
+    out.push('\n');
+    let _ = write!(out, "Session {} in {}", session.id, session.cwd);
+    if let Some(title) = &session.title {
+        let _ = write!(out, ", \"{title}\"");
+    }
+    out.push('\n');
+    match &status.queued {
+        Some(Steer::Message { text }) => {
+            let _ = writeln!(out, "Waiting for its next hook: \"{text}\"");
+        }
+        Some(_) => out.push_str("Waiting for its next hook: a stop.\n"),
+        None => {}
+    }
+    if let Some(error) = &status.error {
+        let _ = writeln!(out, "Last error: {error}");
+    }
+    if let Some(now) = status
+        .todos
+        .iter()
+        .find(|todo| todo.status == PlanStatus::InProgress)
+    {
+        let _ = writeln!(out, "Todo now: {}", now.content);
+    }
+    let left: Vec<&PlanEntry> = status
+        .todos
+        .iter()
+        .filter(|todo| todo.status == PlanStatus::Pending)
+        .collect();
+    if !left.is_empty() {
+        let left: Vec<&str> = left.iter().map(|todo| todo.content.as_str()).collect();
+        let _ = writeln!(out, "Todos left: {}", left.join("; "));
+    }
+    if !status.files.is_empty() {
+        let _ = writeln!(out, "Files changed: {}", status.files.join(", "));
+    }
+    if !session.last_message.is_empty() {
+        let _ = writeln!(
+            out,
+            "Last message: {}",
+            cut(&session.last_message, MAX_ENTRY_SHOWN)
+        );
+    }
+    out.trim_end().to_owned()
+}
+
+/// "40s" or "3 min".
+fn span(secs: u64) -> String {
+    match secs {
+        0..60 => format!("{secs}s"),
+        _ => format!("{} min", secs / 60),
     }
 }
 
