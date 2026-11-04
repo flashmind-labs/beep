@@ -195,7 +195,7 @@ impl TestDb {
     pub(crate) async fn legacy() -> Result<(Self, PgPool)> {
         let db = Self::empty().await?;
         let pool = db.pool().await?;
-        super::migrator(super::BEFORE_BACKFILL - 1)
+        super::migrations::migrator(super::migrations::BEFORE_BACKFILL - 1)
             .run(&pool)
             .await?;
         add_users(&pool).await?;
@@ -208,7 +208,7 @@ impl TestDb {
     pub(crate) async fn at(last: i64) -> Result<(Self, PgPool)> {
         let db = Self::empty().await?;
         let pool = db.pool().await?;
-        super::migrator(last).run(&pool).await?;
+        super::migrations::migrator(last).run(&pool).await?;
         Ok((db, pool))
     }
 
