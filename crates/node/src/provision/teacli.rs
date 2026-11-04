@@ -55,7 +55,7 @@ pub(super) fn configure(
     let script = if cfg!(windows) {
         batch_shim(teacli, &config)
     } else {
-        sh_shim(teacli, &config)
+        sh_shim(teacli, &config, &shims_dir(dir))
     };
     let shims = shims_dir(dir);
     fs::create_dir_all(&shims).with_context(|| format!("creating {}", shims.display()))?;
@@ -164,11 +164,19 @@ fn host_of(url: &str) -> String {
 }
 
 /// The shim as a sh script.
-fn sh_shim(teacli: &Path, config: &Path) -> String {
+fn sh_shim(teacli: &Path, config: &Path, shims: &Path) -> String {
+    // A teacli moved since (say to ~/.local/bin) is looked up on PATH,
+    // past this folder.
     format!(
         "#!/bin/sh\n# Written by beep-node: teacli with the Forgejo servers from Beep.\n\
-         exec {} --config {} \"$@\"\n",
+         teacli={}\n\
+         if [ ! -x \"$teacli\" ]; then\n\
+         \x20 teacli=$(IFS=:; for d in $PATH; do [ \"$d\" = {} ] || [ ! -x \"$d/teacli\" ] || {{ echo \"$d/teacli\"; break; }}; done)\n\
+         \x20 [ -n \"$teacli\" ] || {{ echo 'teacli: not found' >&2; exit 127; }}\n\
+         fi\n\
+         exec \"$teacli\" --config {} \"$@\"\n",
         quote(&teacli.to_string_lossy()),
+        quote(&shims.to_string_lossy()),
         quote(&config.to_string_lossy()),
     )
 }
@@ -281,7 +289,7 @@ mod tests {
             assert!(shim.contains("\"/opt/it's/teacli\" --config \""), "{shim}");
         } else {
             assert!(
-                shim.contains("exec '/opt/it'\\''s/teacli' --config '"),
+                shim.contains("teacli='/opt/it'\\''s/teacli'") && shim.contains("--config '"),
                 "{shim}"
             );
         }
