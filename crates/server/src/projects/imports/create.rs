@@ -4,6 +4,7 @@
 use super::{
     ImportError,
     clone::{quote, tail},
+    credential_of,
     fork::target_of,
     place::{Folders, project_folder},
     repo::{Host, RepoRef, valid_part},
@@ -184,8 +185,7 @@ async fn create_repository(
     };
     let wanted = RepoRef::new(host, &new.owner, name)?;
     let host_name = wanted.host_name();
-    let opened = wanted
-        .credential(&credentials)
+    let opened = credential_of(&wanted, &credentials)
         .ok_or_else(|| ImportError::NoToken(host_name.clone()))?;
     let target = target_of(opened)
         .await

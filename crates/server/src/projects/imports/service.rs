@@ -3,14 +3,14 @@
 use super::{
     ImportError,
     checks::{self, Machine, Page},
-    clone::{self, Failure, ForkSetup, Job, Outcome},
+    clone, credential_of,
     folder::{self, FolderPath, Seen},
     fork::{self, UsedFork},
     found::{self, MachineFound},
     link::link_fork,
     place::{self, Candidate, Folders},
     preview::existing_checkout,
-    repo::{Host, RepoRef},
+    repo::RepoRef,
 };
 use crate::{
     account::credentials::{ForgejoUrl, Opened, Slot},
@@ -24,17 +24,13 @@ use crate::{
     store::{ImportRow, NewImport, NodeRow},
 };
 use chrono::Utc;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
     time::Duration,
 };
 
-/// The longest a clone may take.
-const CLONE_LIMIT: Duration = Duration::from_secs(30 * 60);
-/// The most output kept while cloning; the end explains a failure.
-const MAX_OUTPUT: usize = 64 * 1024;
 /// The longest reading a folder may take.
 const LOOK_LIMIT: Duration = Duration::from_secs(20);
 /// The most output kept from reading a folder; past it, folders are left out.
@@ -159,7 +155,7 @@ pub(crate) async fn import(
     } else {
         None
     };
-    let token = repo.credential(&credentials).map(|opened| &opened.secret);
+    let token = credential_of(&repo, &credentials).map(|opened| &opened.secret);
     let (folder, cloned) = match existing {
         Some(found) => (found.folder, false),
         None => {
@@ -276,65 +272,7 @@ async fn run_clone(
     folder: &str,
     token: Option<&SecretString>,
 ) -> Result<bool, ImportError> {
-    let cloning = fork.map_or(repo, |fork| &fork.repo);
-    let url = cloning.clone_url();
-    let upstream_url = repo.clone_url();
-    let script = clone::script(&Job {
-        url: &url,
-        folder,
-        token,
-        github: repo.host == Host::GitHub,
-        fork: fork.map(|fork| ForkSetup {
-            upstream_url: &upstream_url,
-            default_branch: &fork.found.default_branch,
-            branches: &fork.found.branches,
-        }),
-    });
-    let mut output = String::new();
-    let mut on_output = |text: &str| {
-        output.push_str(text);
-        if output.len() > MAX_OUTPUT * 2 {
-            output = clone::tail(&output);
-        }
-    };
-    let exited = node
-        .exec(script.expose_secret(), CLONE_LIMIT, &mut on_output)
-        .await
-        .map_err(|e| ImportError::Link {
-            machine: row.name.clone(),
-            detail: format!("{e:#}"),
-        })?;
-    match clone::outcome(&output, exited.exit_code, exited.timed_out) {
-        Outcome::Cloned => Ok(true),
-        Outcome::Existing(remote)
-            if repo.matches_remote(&remote)
-                || fork.is_some_and(|fork| fork.repo.matches_remote(&remote)) =>
-        {
-            Ok(false)
-        }
-        Outcome::Existing(remote) => Err(ImportError::OtherRepo {
-            folder: folder.to_owned(),
-            machine: row.name.clone(),
-            remote: if remote.is_empty() {
-                "no origin remote".to_owned()
-            } else {
-                remote
-            },
-        }),
-        Outcome::Occupied => Err(ImportError::Occupied {
-            folder: folder.to_owned(),
-            machine: row.name.clone(),
-        }),
-        Outcome::NoGit => Err(ImportError::NoGit(row.name.clone())),
-        Outcome::TimedOut => Err(ImportError::TimedOut(cloning.project())),
-        Outcome::Failed(said) => Err(clone::explain(Failure {
-            output: &said,
-            project: cloning.project(),
-            host: repo.host_name(),
-            machine: &row.name,
-            had_token: token.is_some(),
-        })),
-    }
+    clone::run_clone(node, &row.name, repo, fork, folder, token).await
 }
 
 /// What the machines found, one row per repository not imported yet.

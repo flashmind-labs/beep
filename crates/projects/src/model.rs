@@ -1,8 +1,9 @@
 //! Names and paths the project modules share: repositories, machine paths, task slugs and hosts.
 
 use beep_proto::node::agent;
-use std::fmt;
+use std::{fmt, str::FromStr};
 use strum::{EnumString, IntoStaticStr};
+use thiserror::Error;
 use url::Url;
 
 /// Longest owner or repository part of a [`RepoName`].
@@ -204,6 +205,75 @@ impl ForgejoHost {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Why text is not a Forgejo URL, for the user.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("{0}")]
+pub struct ForgejoUrlError(pub &'static str);
+
+/// A Forgejo or Gitea base URL: https (http only on the user's network), no query, fragment or trailing slash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForgejoUrl(Url);
+
+impl ForgejoUrl {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str().trim_end_matches('/')
+    }
+
+    /// The parsed URL.
+    pub fn url(&self) -> &Url {
+        &self.0
+    }
+
+    /// Its host name alone, without the port.
+    pub fn hostname(&self) -> &str {
+        self.0.host_str().unwrap_or_default()
+    }
+
+    /// Its host, with the port when it has one, such as `git.example.com`.
+    pub fn host(&self) -> String {
+        let host = self.0.host_str().unwrap_or_default();
+        match self.0.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_owned(),
+        }
+    }
+}
+
+impl FromStr for ForgejoUrl {
+    type Err = ForgejoUrlError;
+
+    fn from_str(text: &str) -> Result<Self, ForgejoUrlError> {
+        let text = text.trim();
+        let mut url = Url::parse(text).map_err(|_| {
+            ForgejoUrlError("The server URL is not a URL, such as https://git.example.com.")
+        })?;
+        if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+            return Err(ForgejoUrlError(
+                "The server URL must start with https:// or http://.",
+            ));
+        }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err(ForgejoUrlError(
+                "Put the token in its own field, not in the URL.",
+            ));
+        }
+        url.set_query(None);
+        url.set_fragment(None);
+        // Pasted from the browser: the API sits at the server's root or
+        // under its sub-path, never under `/api/v1` itself.
+        let path = url.path().trim_end_matches('/').to_owned();
+        let path = path.strip_suffix("/api/v1").unwrap_or(&path).to_owned();
+        url.set_path(&path);
+        Ok(Self(url))
+    }
+}
+
+impl fmt::Display for ForgejoUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

@@ -12,11 +12,13 @@ use crate::protocol::{
     AgentAccount, ApiProvider, CredentialKind, GITHUB_ENV_VAR, SecretText,
     node::{EnvSecret, ForgejoLogin, MachineCredentials},
 };
-use reqwest::Url;
 
-pub use beep_projects::github_owner_var;
+pub use beep_projects::{
+    github_owner_var,
+    model::{ForgejoUrl, ForgejoUrlError},
+};
 use secrecy::{ExposeSecret, SecretString};
-use std::{fmt, str::FromStr};
+use std::str::FromStr;
 use thiserror::Error;
 
 /// Which credential a value is; a user has at most one of each.
@@ -35,6 +37,17 @@ pub enum SlotError {
     UnknownProvider(String),
     #[error("{0}")]
     BadUrl(&'static str),
+}
+
+impl From<ForgejoUrlError> for SlotError {
+    fn from(error: ForgejoUrlError) -> Self {
+        Self::BadUrl(error.0)
+    }
+}
+
+/// Whether every address `url`'s host resolves to is public.
+pub async fn is_public(url: &ForgejoUrl) -> bool {
+    net::resolves_public(url.url()).await
 }
 
 impl Slot {
@@ -63,70 +76,6 @@ impl Slot {
     /// Git hosts always go to the machines, for gh and teacli.
     pub fn always_to_machines(&self) -> bool {
         matches!(self, Self::GitHub | Self::Forgejo(_))
-    }
-}
-
-/// A Forgejo or Gitea base URL: https (http only on the user's network), no query, fragment or trailing slash.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ForgejoUrl(Url);
-
-impl ForgejoUrl {
-    pub fn as_str(&self) -> &str {
-        self.0.as_str().trim_end_matches('/')
-    }
-
-    /// Whether every address its host resolves to is public.
-    pub async fn is_public(&self) -> bool {
-        net::resolves_public(&self.0).await
-    }
-
-    /// Its host name alone, without the port.
-    pub fn hostname(&self) -> &str {
-        self.0.host_str().unwrap_or_default()
-    }
-
-    /// Its host, with the port when it has one, such as `git.example.com`.
-    pub fn host(&self) -> String {
-        let host = self.0.host_str().unwrap_or_default();
-        match self.0.port() {
-            Some(port) => format!("{host}:{port}"),
-            None => host.to_owned(),
-        }
-    }
-}
-
-impl FromStr for ForgejoUrl {
-    type Err = SlotError;
-
-    fn from_str(text: &str) -> Result<Self, SlotError> {
-        let text = text.trim();
-        let mut url = Url::parse(text).map_err(|_| {
-            SlotError::BadUrl("The server URL is not a URL, such as https://git.example.com.")
-        })?;
-        if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-            return Err(SlotError::BadUrl(
-                "The server URL must start with https:// or http://.",
-            ));
-        }
-        if !url.username().is_empty() || url.password().is_some() {
-            return Err(SlotError::BadUrl(
-                "Put the token in its own field, not in the URL.",
-            ));
-        }
-        url.set_query(None);
-        url.set_fragment(None);
-        // Pasted from the browser: the API sits at the server's root or
-        // under its sub-path, never under `/api/v1` itself.
-        let path = url.path().trim_end_matches('/').to_owned();
-        let path = path.strip_suffix("/api/v1").unwrap_or(&path).to_owned();
-        url.set_path(&path);
-        Ok(Self(url))
-    }
-}
-
-impl fmt::Display for ForgejoUrl {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 

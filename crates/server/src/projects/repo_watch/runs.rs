@@ -5,7 +5,7 @@ use super::{
     http::{HostCalls, TailLimits, Who},
 };
 use crate::{
-    account::credentials::{Opened, Slot, github_for},
+    account::credentials::{Opened, Slot, github_for, is_public},
     account::user::User,
     app::App,
     projects::git_items::{Caller, HostError, forks::Api, github},
@@ -108,7 +108,7 @@ pub(crate) async fn target(
                         name.as_str()
                     )
                 })?;
-            if !url.is_public().await {
+            if !is_public(url).await {
                 return Err(HostError::Private(url.host()).to_string());
             }
             Ok(Target {

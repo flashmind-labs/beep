@@ -3,6 +3,7 @@
 
 pub mod commands;
 pub mod git_items;
+pub mod imports;
 pub mod issues;
 pub mod leak;
 pub mod model;
@@ -10,4 +11,4 @@ mod owner_var;
 mod shell;
 
 pub use owner_var::github_owner_var;
-pub use shell::{CommandOutput, Shell, quote};
+pub use shell::{CommandOutput, MachineShell, Shell, ShellError, ShellOutput, quote};

@@ -1,26 +1,19 @@
 //! The user's fork of an imported repository, so the import clones the fork with their PR branches.
 
-use super::repo::RepoRef;
+use super::{credential_of, repo::RepoRef};
 use crate::{
-    account::credentials::{Opened, Slot, host_client},
+    account::credentials::{Opened, Slot, host_client, is_public},
     app::App,
     projects::git_items::{
         Caller,
-        forks::{self, Api, Fork, Lookup},
+        forks::{self, Api, Lookup},
     },
     projects::model::RepoName,
 };
 
 const GITHUB_API: &str = "https://api.github.com";
 
-/// The user's fork of an imported repository.
-#[derive(Debug, Clone)]
-pub(crate) struct UsedFork {
-    /// The fork, on the repository's host.
-    pub(crate) repo: RepoRef,
-    /// What the host said about it.
-    pub(crate) found: Fork,
-}
+pub(crate) use super::clone::UsedFork;
 
 /// Where to reach a repository's host, and with which token.
 pub(super) struct Target<'a> {
@@ -42,7 +35,7 @@ pub(super) async fn target_of(opened: &Opened) -> Option<Target<'_>> {
             login: opened.github.as_ref().map(|github| github.login.as_str()),
         },
         Slot::Forgejo(url) => {
-            if !url.is_public().await {
+            if !is_public(url).await {
                 return None;
             }
             Target {
@@ -63,7 +56,7 @@ pub(crate) async fn find(app: &App, credentials: &[Opened], repo: &RepoRef) -> O
         api,
         base,
         login,
-    } = target_of(repo.credential(credentials)?).await?;
+    } = target_of(credential_of(repo, credentials)?).await?;
     let upstream = RepoName::parse(&repo.project()).ok()?;
     let client = match host_client() {
         Ok(client) => client,

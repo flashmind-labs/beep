@@ -3,9 +3,14 @@
 use crate::nodes::Online;
 use anyhow::Result;
 use async_trait::async_trait;
-use beep_projects::{CommandOutput, Shell};
+use beep_projects::{
+    CommandOutput, MachineShell, Shell, ShellError, ShellOutput, imports::clone::tail,
+};
+use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
+/// Output kept while a script runs, before the end of it is cut down.
+const MAX_SCRIPT_OUTPUT: usize = 128 * 1024;
 /// Most output a command keeps.
 const MAX_OUTPUT: usize = 64 * 1024;
 
@@ -19,6 +24,28 @@ impl Shell for Online {
         Ok(CommandOutput {
             code: exited.exit_code,
             out,
+        })
+    }
+}
+
+#[async_trait]
+impl MachineShell for Online {
+    async fn run(&self, script: &SecretString, limit: Duration) -> Result<ShellOutput, ShellError> {
+        let mut output = String::new();
+        let mut on_output = |text: &str| {
+            output.push_str(text);
+            if output.len() > MAX_SCRIPT_OUTPUT {
+                output = tail(&output);
+            }
+        };
+        let exited = self
+            .exec(script.expose_secret(), limit, &mut on_output)
+            .await
+            .map_err(ShellError)?;
+        Ok(ShellOutput {
+            exit_code: exited.exit_code,
+            timed_out: exited.timed_out,
+            output,
         })
     }
 }
