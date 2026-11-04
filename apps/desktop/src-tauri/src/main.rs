@@ -6,8 +6,6 @@ mod beep;
 mod center;
 mod chat;
 mod error;
-// Its callers arrive as the commands that reach machines move onto it.
-#[cfg_attr(not(test), expect(dead_code))]
 mod fleet;
 mod machines;
 mod notices;
