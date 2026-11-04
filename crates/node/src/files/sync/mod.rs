@@ -281,6 +281,11 @@ impl Syncs {
         *lock(&self.inner.mesh) = Some(mesh);
     }
 
+    /// Lets go of the mesh `follow` took.
+    pub(crate) fn unfollow(&self) {
+        *lock(&self.inner.mesh) = None;
+    }
+
     /// Whether the mesh owns the project list, so the server's is ignored.
     fn follows_mesh(&self) -> bool {
         lock(&self.inner.mesh)

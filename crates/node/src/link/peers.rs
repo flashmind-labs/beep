@@ -7,17 +7,18 @@
 //! mesh, so `join` takes effect without a restart.
 
 use crate::{
-    link::connection::{Offers, Who, changed, session},
+    files::transfer::Transfers,
+    link::connection::{Offers, Protocol, Who, changed, read_open, serve_open},
     link::from_mesh,
     link::local_socket::{Listener, Stream},
     machine::{env, stats},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream,
+    DeviceKind, DeviceStatus, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream, SessionFn,
     StreamHandler,
 };
-use beep_proto::node::{LinkRx, LinkTx, status::Report};
+use beep_proto::node::{LinkRx, LinkTx, link, status::Report};
 use iroh::{
     Endpoint,
     endpoint::Connection,
@@ -26,13 +27,15 @@ use iroh::{
 use iroh_tickets::Ticket;
 use serde::de::IgnoredAny;
 use std::{
+    collections::BTreeSet,
     fmt::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
+    sync::watch,
     task::JoinSet,
     time::{MissedTickBehavior, interval, timeout},
 };
@@ -65,40 +68,110 @@ struct Inner {
     endpoint: Endpoint,
     dir: PathBuf,
     name: String,
-    offers: Offers,
+    offers: Mutex<Offers>,
+    /// Protocols a host will offer once its services are up.
+    later: watch::Sender<BTreeSet<String>>,
     active: Mutex<Option<Active>>,
     /// Applies the mesh's state to the node while it is a member.
     follower: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
+impl Inner {
+    fn offers(&self) -> MutexGuard<'_, Offers> {
+        self.offers.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn follower(&self) -> MutexGuard<'_, Option<AbortOnDropHandle<()>>> {
+        self.follower.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Serves a stream a peer, or this process, opened.
+    async fn serve(&self, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
+        let open = read_open(&mut rx).await?;
+        // A protocol still on its way is waited for; the others are not held up.
+        let mut later = self.later.subscribe();
+        if later
+            .wait_for(|later| !later.contains(&open.protocol))
+            .await
+            .is_err()
+        {
+            bail!("the node stopped");
+        }
+        let offers = self.offers().clone();
+        serve_open(tx, rx, open, offers, who).await
+    }
+}
+
 /// The node's membership, shared by the router, the control socket and the
-/// shutdown.
+/// shutdown. A host that is a node itself, such as the Mac app, makes one
+/// with its own mesh through `install`.
 #[derive(Clone)]
-pub(crate) struct Peers {
+pub struct Peers {
     inner: Arc<Inner>,
 }
 
 impl Peers {
-    pub(crate) fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
+    pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
         Self {
             inner: Arc::new(Inner {
                 endpoint,
                 dir,
                 name,
-                offers,
+                offers: Mutex::new(offers),
+                later: watch::channel(BTreeSet::new()).0,
                 active: Mutex::new(None),
                 follower: Mutex::new(None),
             }),
         }
     }
 
+    /// Adds a protocol to what peers can open, for a host that starts it
+    /// after the node is up.
+    pub fn offer(&self, protocol: Arc<dyn Protocol>) {
+        self.inner.offers().extra.push(protocol);
+    }
+
+    /// Names protocols a later `offer` will add, so a session that opens one
+    /// waits for it instead of being refused. `settle` ends the wait.
+    pub fn expect(&self, protocols: &[&str]) {
+        self.inner.later.send_modify(|later| {
+            later.extend(protocols.iter().map(|name| (*name).to_owned()));
+        });
+    }
+
+    /// Nothing more is coming: waiting sessions go on, to be served or refused.
+    pub fn settle(&self) {
+        self.inner.later.send_modify(BTreeSet::clear);
+    }
+
+    /// Lets go of the mesh, so it can stop: nothing in the node holds it
+    /// once this returns. Peers are refused until `install`.
+    pub async fn leave(&self) {
+        let follower = self.inner.follower().take();
+        if let Some(follower) = follower {
+            follower.abort();
+            // Returns once the task, and the mesh it held, is gone.
+            follower.await.ok();
+        }
+        let offers = self.inner.offers().clone();
+        offers.mesh.clear();
+        if let Some(transfers) = &offers.transfers {
+            transfers.syncs().unfollow();
+        }
+        self.inner
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+    }
+
     /// The `beep-peer/1` handler.
-    pub(crate) fn peer_handler(&self) -> PeerAlpn {
+    pub fn peer_handler(&self) -> PeerAlpn {
         PeerAlpn(self.clone())
     }
 
     /// The `beep-join/1` handler.
-    pub(crate) fn join_handler(&self) -> JoinAlpn {
+    pub fn join_handler(&self) -> JoinAlpn {
         JoinAlpn(self.clone())
     }
 
@@ -138,19 +211,19 @@ impl Peers {
     }
 
     /// Whether this device is a desktop in the current device list.
-    pub(crate) fn is_desktop(&self) -> bool {
+    pub fn is_desktop(&self) -> bool {
         let me = self.inner.endpoint.id();
         self.devices()
             .iter()
             .any(|status| status.device.id == me && status.device.kind == DeviceKind::Desktop)
     }
 
-    pub(crate) fn is_member(&self) -> bool {
+    pub fn is_member(&self) -> bool {
         self.active().is_some()
     }
 
     /// The mesh's devices, empty before the node joined.
-    pub(crate) fn devices(&self) -> Vec<DeviceStatus> {
+    pub fn devices(&self) -> Vec<DeviceStatus> {
         self.active()
             .map(|active| active.mesh.devices())
             .unwrap_or_default()
@@ -164,28 +237,54 @@ impl Peers {
             .clone()
     }
 
-    fn install(&self, mesh: Mesh) {
+    /// Takes `mesh` as the node's membership; its peers' streams are served
+    /// from here on.
+    pub fn install(&self, mesh: Mesh) {
         let (peer, join) = mesh.protocols();
         peer.on_stream(self.stream_handler());
-        // From here on the mesh, not the server, says what the node syncs,
-        // holds and runs agents with.
-        let offers = &self.inner.offers;
-        offers.mesh.set(mesh.clone());
-        if let Some(transfers) = &offers.transfers {
-            transfers.syncs().follow(mesh.clone());
-        }
-        let follow = from_mesh::follow(mesh.clone(), self.inner.endpoint.id(), offers.clone());
-        *self
-            .inner
-            .follower
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) =
-            Some(AbortOnDropHandle::new(tokio::spawn(follow)));
         *self
             .inner
             .active
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(Active { mesh, peer, join });
+        self.follow();
+    }
+
+    /// From here on the mesh, not the server, says what the node syncs,
+    /// holds and runs agents with. Starts over on the current mesh and
+    /// offers, which a service started later may have added to, and ends
+    /// what followed before.
+    fn follow(&self) {
+        let Some(active) = self.active() else {
+            return;
+        };
+        let offers = self.inner.offers().clone();
+        offers.mesh.set(active.mesh.clone());
+        if let Some(transfers) = &offers.transfers {
+            transfers.syncs().follow(active.mesh.clone());
+        }
+        let follow = from_mesh::follow(active.mesh, self.inner.endpoint.id(), offers);
+        *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(follow)));
+    }
+
+    /// The node's transfer and sync services started: the mesh drives them.
+    pub fn serve_transfers(&self, transfers: Transfers) {
+        self.inner.offers().transfers = Some(transfers);
+        self.follow();
+    }
+
+    /// The node's session for a caller in this process, which is a desktop
+    /// by being the user at this machine: no network, every protocol.
+    pub fn local_session(&self) -> SessionFn {
+        let peers = self.clone();
+        Arc::new(move |tx: LinkTx, rx: LinkRx| {
+            let peers = peers.clone();
+            Box::pin(async move {
+                if let Err(e) = peers.inner.serve(tx, rx, Who::Everything).await {
+                    log::debug!("a local session ended: {e:#}");
+                }
+            })
+        })
     }
 
     /// Serves each stream a peer opens, by what the peer is now.
@@ -198,7 +297,10 @@ impl Peers {
                 let Some(inner) = peers.upgrade() else {
                     return;
                 };
-                let (offers, desktop_here) = (inner.offers.clone(), Peers { inner }.is_desktop());
+                let desktop_here = Peers {
+                    inner: inner.clone(),
+                }
+                .is_desktop();
                 let PeerStream {
                     peer,
                     kind,
@@ -209,7 +311,8 @@ impl Peers {
                     DeviceKind::Desktop => Who::Everything,
                     DeviceKind::Node => Who::Node { peer, desktop_here },
                 };
-                if let Err(e) = session(send, recv, offers, who).await {
+                let (tx, rx) = link(send, recv);
+                if let Err(e) = inner.serve(tx, rx, who).await {
                     log::debug!("a stream from {peer} ended: {e:#}");
                 }
             })
@@ -219,7 +322,7 @@ impl Peers {
 
 /// Serves `beep-peer/1`.
 #[derive(Clone)]
-pub(crate) struct PeerAlpn(Peers);
+pub struct PeerAlpn(Peers);
 
 impl std::fmt::Debug for PeerAlpn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -242,7 +345,7 @@ impl ProtocolHandler for PeerAlpn {
 /// Serves `beep-join/1`; a node refuses it, since only a desktop mints
 /// tickets.
 #[derive(Clone)]
-pub(crate) struct JoinAlpn(Peers);
+pub struct JoinAlpn(Peers);
 
 impl std::fmt::Debug for JoinAlpn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

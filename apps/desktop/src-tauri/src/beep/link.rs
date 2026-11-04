@@ -22,13 +22,9 @@ pub struct LinkView {
 impl Beep {
     /// A fresh offer, signed for this server.
     pub fn link_offer(&self, name: &str) -> Result<LinkView> {
-        let offer = LinkOffer::sign(
-            &secret_key(&self.identity),
-            self.server(),
-            name,
-            SystemTime::now(),
-        )
-        .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+        let server = self.server().ok_or(DesktopError::NoServer)?;
+        let offer = LinkOffer::sign(&secret_key(&self.identity), server, name, SystemTime::now())
+            .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
         let uri = offer.to_uri();
         let qr_svg = qr_svg(&uri)?;
         let expires_in = offer

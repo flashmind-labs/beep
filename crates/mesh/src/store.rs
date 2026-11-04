@@ -22,6 +22,15 @@ use tokio::sync::{mpsc, oneshot, watch};
 /// The largest value a device may write under one key.
 pub(crate) const MAX_VALUE: usize = 1024 * 1024;
 const QUEUE: usize = 256;
+/// Where a mesh's files wait while another takes their place.
+const ASIDE: &str = "mesh.old";
+
+fn remove_if_present(dir: &Path) -> Result<(), MeshError> {
+    match fs::remove_dir_all(dir) {
+        Err(e) if e.kind() != ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
+    }
+}
 
 /// What readers see: a snapshot rebuilt after every change.
 pub(crate) struct View {
@@ -69,6 +78,60 @@ impl Core {
         core.save_devices()?;
         core.publish();
         Ok(core)
+    }
+
+    /// Finishes or undoes a swap a crash cut short (see `swap_in`): once
+    /// the new mesh's device list is on disk the old one goes, before that
+    /// the old one is put back.
+    pub(crate) fn recover(dir: &Path) -> Result<(), MeshError> {
+        let (live, aside) = (dir.join("mesh"), dir.join(ASIDE));
+        if !aside.exists() {
+            return Ok(());
+        }
+        if !live.join("devices.bin").exists() {
+            remove_if_present(&live)?;
+            fs::rename(&aside, &live)?;
+        } else {
+            remove_if_present(&aside)?;
+        }
+        sync_dir(dir)?;
+        Ok(())
+    }
+
+    /// Starts a mesh in `dir` in place of the one there, which is kept
+    /// aside until the new one is on disk. A crash leaves one of the two.
+    pub(crate) fn swap_in(
+        dir: &Path,
+        key: SecretKey,
+        devices: Devices,
+        addrs: &[AddrNote],
+    ) -> Result<Core, MeshError> {
+        Self::recover(dir)?;
+        let (live, aside) = (dir.join("mesh"), dir.join(ASIDE));
+        let had_old = live.exists();
+        if had_old {
+            fs::rename(&live, &aside)?;
+            sync_dir(dir)?;
+        }
+        let started = Self::start(dir, key, devices).and_then(|core| {
+            core.save_addrs(addrs)?;
+            sync_dir(dir)?;
+            Ok(core)
+        });
+        match started {
+            Ok(core) => {
+                remove_if_present(&aside)?;
+                sync_dir(dir)?;
+                Ok(core)
+            }
+            Err(e) => {
+                if had_old {
+                    remove_if_present(&live)?;
+                    fs::rename(&aside, &live)?;
+                }
+                Err(e)
+            }
+        }
     }
 
     pub(crate) fn exists(dir: &Path) -> bool {
@@ -279,23 +342,36 @@ impl Core {
 
 type Job = Box<dyn FnOnce(&mut Core) + Send>;
 
+enum Msg {
+    Job(Job),
+    /// Ends the thread, which answers once its `Core` is dropped.
+    Stop(oneshot::Sender<()>),
+}
+
 /// The owner thread of a `Core`. It ends when the store drops.
 pub(crate) struct Store {
-    jobs: mpsc::Sender<Job>,
+    jobs: mpsc::Sender<Msg>,
 }
 
 impl Store {
     pub(crate) fn spawn(mut core: Core) -> Result<Store, MeshError> {
-        let (jobs, mut queue) = mpsc::channel::<Job>(QUEUE);
+        let (jobs, mut queue) = mpsc::channel::<Msg>(QUEUE);
         thread::Builder::new()
             .name("mesh-store".to_owned())
             .spawn(move || {
-                while let Some(job) = queue.blocking_recv() {
-                    job(&mut core);
+                while let Some(msg) = queue.blocking_recv() {
+                    match msg {
+                        Msg::Job(job) => job(&mut core),
+                        Msg::Stop(done) => {
+                            drop(core);
+                            done.send(()).ok();
+                            return;
+                        }
+                    }
                 }
             })?;
         // The thread ends when the last sender drops. It is not joined: a
-        // drop on an async worker must not wait for a disk.
+        // drop on an async worker must not wait for a disk. `close` waits.
         Ok(Store { jobs })
     }
 
@@ -309,7 +385,19 @@ impl Store {
             // The caller may have gone away; the work is already done.
             tx.send(f(core)).ok();
         });
-        self.jobs.send(job).await.map_err(|_| MeshError::Closed)?;
+        self.jobs
+            .send(Msg::Job(job))
+            .await
+            .map_err(|_| MeshError::Closed)?;
         rx.await.map_err(|_| MeshError::Closed)?
+    }
+
+    /// Finishes the jobs queued before it, then stops the thread. Returns
+    /// once the thread is done with the files.
+    pub(crate) async fn close(&self) {
+        let (done, stopped) = oneshot::channel();
+        if self.jobs.send(Msg::Stop(done)).await.is_ok() {
+            stopped.await.ok();
+        }
     }
 }

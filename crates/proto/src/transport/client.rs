@@ -5,10 +5,15 @@ use crate::{
 use anyhow::{Context, Result};
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, SecretKey,
-    endpoint::{Connection, ConnectionError, NetReportConfig, PortmapperConfig, VarInt, presets},
+    endpoint::{
+        Builder, Connection, ConnectionError, NetReportConfig, PortmapperConfig,
+        QuicTransportConfig, VarInt, presets,
+    },
+    protocol::{AcceptError, ProtocolHandler},
 };
 use serde::de::DeserializeOwned;
 use std::{
+    fmt::{self, Debug, Formatter},
     marker::PhantomData,
     sync::{
         Arc, Mutex, PoisonError,
@@ -50,8 +55,59 @@ pub struct Node {
     /// Opens every connection, telling the server what this app reads.
     hello: Hello,
     /// Dropped with the node, which stops the accept loop and closes the
-    /// endpoint, so a replaced node stops pinging its relay.
-    _stop: oneshot::Sender<()>,
+    /// endpoint, so a replaced node stops pinging its relay. A node on an
+    /// endpoint its caller serves has none.
+    _stop: Option<oneshot::Sender<()>>,
+}
+
+/// The settings every device's endpoint has: HTTPS probes stay on, since
+/// without them a network that blocks QUIC never finds a home relay and
+/// the server could not reach the device.
+fn builder(identity: SecretKey) -> Builder {
+    let mut net_report = NetReportConfig::default();
+    net_report.captive_portal_check = false;
+    Endpoint::builder(presets::N0)
+        .secret_key(identity)
+        // UPnP and PCP never work on cellular, and each probe wakes the radio.
+        .portmapper_config(PortmapperConfig::Disabled)
+        .net_report_config(net_report)
+}
+
+/// Binds an endpoint as `identity` that serves nothing yet: the caller
+/// serves its protocols through a `Router`, which can include
+/// `Node::on_endpoint`'s `PushHandler`.
+pub async fn bind_endpoint(
+    identity: SecretKey,
+    transport: QuicTransportConfig,
+) -> Result<Endpoint> {
+    Ok(builder(identity).transport_config(transport).bind().await?)
+}
+
+/// Takes the server's notice connections for a `Node` on an endpoint the
+/// caller serves through a `Router`, on `PUSH_ALPN`. Any other peer is
+/// turned away.
+#[derive(Clone)]
+pub struct PushHandler {
+    server: EndpointId,
+    on_notice: OnNotice,
+}
+
+impl Debug for PushHandler {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("PushHandler")
+    }
+}
+
+impl ProtocolHandler for PushHandler {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        if connection.remote_id() != self.server {
+            log::warn!("refused a push from {}", connection.remote_id());
+            connection.close(VarInt::from_u32(1), b"not the server");
+            return Ok(());
+        }
+        serve_notices(connection, self.on_notice.clone()).await;
+        Ok(())
+    }
 }
 
 impl Node {
@@ -64,16 +120,8 @@ impl Node {
         on_notice: OnNotice,
     ) -> Result<Self> {
         let server = server.into();
-        // HTTPS probes stay on: without them a network that blocks QUIC never
-        // finds a home relay, and the server could not reach this node.
-        let mut net_report = NetReportConfig::default();
-        net_report.captive_portal_check = false;
-        let endpoint = Endpoint::builder(presets::N0)
-            .secret_key(identity)
+        let endpoint = builder(identity)
             .alpns(vec![PUSH_ALPN.to_vec()])
-            // UPnP and PCP never work on cellular, and each probe wakes the radio.
-            .portmapper_config(PortmapperConfig::Disabled)
-            .net_report_config(net_report)
             .bind()
             .await?;
         let (stop, stopped) = oneshot::channel();
@@ -83,7 +131,32 @@ impl Node {
             on_notice.clone(),
             stopped,
         ));
-        Ok(Self {
+        Ok(Self::with(endpoint, server, on_notice, Some(stop)))
+    }
+
+    /// A node on `endpoint`, which the caller serves through a `Router`
+    /// that accepts `PUSH_ALPN` with the returned handler. The endpoint is
+    /// the caller's to close.
+    pub fn on_endpoint(
+        endpoint: Endpoint,
+        server: impl Into<EndpointAddr>,
+        on_notice: OnNotice,
+    ) -> (Self, PushHandler) {
+        let server = server.into();
+        let push = PushHandler {
+            server: server.id,
+            on_notice: on_notice.clone(),
+        };
+        (Self::with(endpoint, server, on_notice, None), push)
+    }
+
+    fn with(
+        endpoint: Endpoint,
+        server: EndpointAddr,
+        on_notice: OnNotice,
+        stop: Option<oneshot::Sender<()>>,
+    ) -> Self {
+        Self {
             endpoint,
             server,
             on_notice,
@@ -94,7 +167,7 @@ impl Node {
                 version: None,
             },
             _stop: stop,
-        })
+        }
     }
 
     /// Sets how long an idle connection stays open; tests shorten it.
