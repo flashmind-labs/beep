@@ -1,27 +1,27 @@
-import { closeAgentNewMenus, renderAgentNew } from "./agentnew.ts";
-import { agentBack, agentKeys } from "./agents.ts";
-import { A, addServer, drawApps, drawMcpTools, renderApps } from "./apps.ts";
-import { attachedCount, unattach } from "./attach.ts";
-import { answer, newChat, openInWindow, popQueued, renderChat, send, sendQueued, stop, toWindow } from "./chat.ts";
-import { chatAction, chatMode, drawChats, openRow, renderChats } from "./chats.ts";
+import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.ts";
+import { agentBack, agentKeys } from "../agents/agents.ts";
+import { A, addServer, drawApps, drawMcpTools, renderApps } from "../settings/apps.ts";
+import { attachedCount, unattach } from "../chat/attach.ts";
+import { answer, newChat, openInWindow, popQueued, renderChat, send, sendQueued, stop, toWindow } from "../chat/chat.ts";
+import { chatAction, chatMode, drawChats, openRow, renderChats } from "../chat/chats.ts";
 import { $, $$, bar, G, here, invoke, PANE, queued, S, windowHooks } from "./core.ts";
-import { composeMessage } from "./compose.ts";
-import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, renderGroup, renderGroupInfo, renderGroupNew, sendGroup } from "./groups.ts";
+import { composeMessage } from "../chat/compose.ts";
+import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, renderGroup, renderGroupInfo, renderGroupNew, sendGroup } from "../chat/groups.ts";
 import { toggleKeys } from "./hints.ts";
-import { openSession } from "./history.ts";
+import { openSession } from "../chat/history.ts";
 import { LV, VN } from "./live.ts";
-import { closeFilesMenu } from "./filespane.ts";
-import { viewerKeys } from "./media.ts";
-import { newTerminal } from "./mediapane.ts";
-import { drawMemories, M, memKeys, renderMemories } from "./memories.ts";
-import { canPickModel, modelKeys, renderModel } from "./model.ts";
-import { closeRerunMenu } from "./rerun.ts";
-import { drawResearches, research, researchKeys, researchShortcut, RL } from "./researches.ts";
-import { createRoutine, drawGrants, GR, grantKeys, R, renderGrants, renderRoutineNew, renderRoutines, routineAction, routineKeys } from "./routines.ts";
-import { renderSettings } from "./settings.ts";
-import { K, renderSkills, skillAction, skillKeys } from "./skills.ts";
+import { closeFilesMenu } from "../agentpane/files.ts";
+import { viewerKeys } from "../chat/media.ts";
+import { newTerminal } from "../agentpane/media.ts";
+import { drawMemories, M, memKeys, renderMemories } from "../lists/memories.ts";
+import { canPickModel, modelKeys, renderModel } from "../settings/model.ts";
+import { closeRerunMenu } from "../chat/rerun.ts";
+import { drawResearches, research, researchKeys, researchShortcut, RL } from "../research/researches.ts";
+import { createRoutine, drawGrants, GR, grantKeys, R, renderGrants, renderRoutineNew, renderRoutines, routineAction, routineKeys } from "../lists/routines.ts";
+import { renderSettings } from "../settings/settings.ts";
+import { K, renderSkills, skillAction, skillKeys } from "../lists/skills.ts";
 import { answerWork, waitingQuestion } from "./work.ts";
-import { windowTakes } from "../windowkeys.ts";
+import { windowTakes } from "../center/windowkeys.ts";
 
 // ---------- Keys ----------
 

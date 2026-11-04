@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { KeptBranches, ReviewDeps, ReviewView } from "../src/review.ts";
-import { PageCache } from "../src/pagecache.ts";
-import { makeReviews, reviewState, mergeBlock, staleText } from "../src/review.ts";
+import type { KeptBranches, ReviewDeps, ReviewView } from "../src/review/review.ts";
+import { PageCache } from "../src/project/pagecache.ts";
+import { makeReviews, reviewState, mergeBlock, staleText } from "../src/review/review.ts";
 
 const ago = () => "12 min";
 

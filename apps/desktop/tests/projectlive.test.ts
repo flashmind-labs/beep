@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeProjectLive } from "../src/projectlive.ts";
-import type { MakeEl } from "../src/projects-state.ts";
+import { makeProjectLive } from "../src/project/projectlive.ts";
+import type { MakeEl } from "../src/project/projects-state.ts";
 
 interface Fake { cls: string; text: string; title: string }
 const h = ((_tag: string, cls: string, ...kids: string[]) => ({ cls, text: kids.join(""), title: "" })) as unknown as MakeEl;

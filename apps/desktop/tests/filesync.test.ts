@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conflictList, originalOf, waitingList } from "../src/filesync.ts";
-import type { MachineDetail, SyncDetail } from "../src/filesync.ts";
+import { conflictList, originalOf, waitingList } from "../src/project/filesync.ts";
+import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
 
 function machine(over: Partial<MachineDetail> = {}): MachineDetail {
   return {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splice, endsForGood } from "../src/terminals.ts";
+import { splice, endsForGood } from "../src/terminals/terminals.ts";
 
 test("output already on the screen is skipped, and a gap is noted", () => {
   // Fresh: everything from the start.

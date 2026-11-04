@@ -2,9 +2,9 @@ import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, agentHints, agentKeys, interruptAgent, pollAgent, sendAgentMessage, switchSessionModel } from "../src/bar/agents.ts";
-import type { Waiting } from "../src/bar/agentqueue.ts";
-import { MN } from "../src/bar/workdrop.ts";
+import { AG, type AgentPage, type AgentRow, agentHints, agentKeys, interruptAgent, pollAgent, sendAgentMessage, switchSessionModel } from "../src/agents/agents.ts";
+import type { Waiting } from "../src/agents/agentqueue.ts";
+import { MN } from "../src/agents/workdrop.ts";
 
 (globalThis.document as { visibilityState?: string }).visibilityState = "visible";
 

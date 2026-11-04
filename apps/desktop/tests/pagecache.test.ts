@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PAGE_CACHE_FORMAT, PageCache, REFRESH_MS, backgroundTick, evict } from "../src/pagecache.ts";
+import { PAGE_CACHE_FORMAT, PageCache, REFRESH_MS, backgroundTick, evict } from "../src/project/pagecache.ts";
 
 /// A clock the test moves by hand.
 function clock(start = 1_000_000) {

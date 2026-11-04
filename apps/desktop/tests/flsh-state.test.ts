@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EMPTY, flshChanged, flshDraft, flshInput, flshProblem, type FlshSettings } from "../src/flsh-state.ts";
+import { EMPTY, flshChanged, flshDraft, flshInput, flshProblem, type FlshSettings } from "../src/settings/flsh-state.ts";
 
 const saved: FlshSettings = {
   zdr: true,

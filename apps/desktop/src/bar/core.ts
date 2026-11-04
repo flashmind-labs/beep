@@ -1,7 +1,7 @@
 // The bar's page, and the pane the command center window shows it in.
-import type { GroupState } from "./groups.ts";
+import type { GroupState } from "../chat/groups.ts";
 
-export { invoke, Channel, listen } from "../tauri.ts";
+export { invoke, Channel, listen } from "../ui/tauri.ts";
 
 export const ICON = {
   check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -110,7 +110,7 @@ export const S: BarState = new Proxy<BarState>({
   },
 });
 
-export { esc } from "../components/format.ts";
+export { esc } from "../ui/format.ts";
 /// The first element of `html`.
 export function h<T extends Element = HTMLElement>(html: string): T {
   const t = document.createElement("template");

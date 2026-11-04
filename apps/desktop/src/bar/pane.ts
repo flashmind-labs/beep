@@ -1,24 +1,24 @@
 // The pane: the bar's views drawn inside the command center window, which
 // drives them through `pane`.
 import "./events.ts";
-import { type AgentPlace, renderAgentNew } from "./agentnew.ts";
-import { type AgentRow, loadAgentHosts, openAgent, renderAgents } from "./agents.ts";
-import { renderApps } from "./apps.ts";
-import { body, focusAsk, grow, newChat, renderChat, send } from "./chat.ts";
-import { renderChats, rows, type SessionSummary } from "./chats.ts";
+import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
+import { type AgentRow, loadAgentHosts, openAgent, renderAgents } from "../agents/agents.ts";
+import { renderApps } from "../settings/apps.ts";
+import { body, focusAsk, grow, newChat, renderChat, send } from "../chat/chat.ts";
+import { renderChats, rows, type SessionSummary } from "../chat/chats.ts";
 import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, invoke, live, type PaneNow, S } from "./core.ts";
-import { type GroupSummary, renderGroup } from "./groups.ts";
+import { type GroupSummary, renderGroup } from "../chat/groups.ts";
 import { refreshHints } from "./hints.ts";
-import { drawChatTop, openSession } from "./history.ts";
+import { drawChatTop, openSession } from "../chat/history.ts";
 import { mountPane } from "./keys.ts";
 import { renderInvitePhone, renderLink, renderRevoked } from "./link.ts";
-import { renderMachines } from "./machines.ts";
-import { renderMemories } from "./memories.ts";
-import { loadModels } from "./model.ts";
-import { loadResearches, RESEARCHES } from "./researches.ts";
-import { renderRoutines, routineWhen } from "./routines.ts";
-import { renderSettings, settingsBack } from "./settings.ts";
-import { renderSkills } from "./skills.ts";
+import { renderMachines } from "../machines/machines.ts";
+import { renderMemories } from "../lists/memories.ts";
+import { loadModels } from "../settings/model.ts";
+import { loadResearches, RESEARCHES } from "../research/researches.ts";
+import { renderRoutines, routineWhen } from "../lists/routines.ts";
+import { renderSettings, settingsBack } from "../settings/settings.ts";
+import { renderSkills } from "../lists/skills.ts";
 import type { Status } from "./views.ts";
 
 /// What the window can open in the pane: a CenterTarget in its JSON form,

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentModels } from "../src/bar/agentmodels.ts";
-import { checkoutLabel, formProjects, harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, projectAt, startPlace } from "../src/bar/agentpick.ts";
+import type { AgentModels } from "../src/agents/agentmodels.ts";
+import { checkoutLabel, formProjects, harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, projectAt, startPlace } from "../src/agents/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 

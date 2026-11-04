@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, next, withSearch } from "../src/addmachine-state.ts";
+import { START, next, withSearch } from "../src/machines/addmachine-state.ts";
 
 const created = { type: "created", token: "bk1-x", command: "beep-node setup bk1-x", expiresAt: 600_000 } as const;
 

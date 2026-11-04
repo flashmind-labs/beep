@@ -1,11 +1,11 @@
 import { answers, bar, removed } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { body, follow, newTurn, startRun } from "../src/bar/chat.ts";
-import type { BarEvent } from "../src/bar/chat.ts";
+import { body, follow, newTurn, startRun } from "../src/chat/chat.ts";
+import type { BarEvent } from "../src/chat/chat.ts";
 import { S } from "../src/bar/core.ts";
-import { refreshSession } from "../src/bar/history.ts";
-import type { HistoryTurn } from "../src/bar/history.ts";
+import { refreshSession } from "../src/chat/history.ts";
+import type { HistoryTurn } from "../src/chat/history.ts";
 
 const SESSION = "00000000-0000-4000-8000-000000000001";
 const PROMPT = "Will it rain tomorrow?";

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eachLimited, tickable, toImport } from "../src/addproject-state.ts";
-import type { ImportState } from "../src/addproject-state.ts";
+import { eachLimited, tickable, toImport } from "../src/addproject/addproject-state.ts";
+import type { ImportState } from "../src/addproject/addproject-state.ts";
 
 test("done and importing rows cannot be ticked or imported again", () => {
   const status = new Map<string, ImportState>([

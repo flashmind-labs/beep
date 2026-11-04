@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { RunningAgent, RunningRow } from "../src/home.ts";
-import type { ProjectRow } from "../src/projects-state.ts";
-import { START, importRoot, folderUnder, next, looksLikeRepo, mergeProjects, progressText, doneText, cleanError, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn } from "../src/projects-state.ts";
+import type { RunningAgent, RunningRow } from "../src/center/home-state.ts";
+import type { ProjectRow } from "../src/project/projects-state.ts";
+import { START, importRoot, folderUnder, next, looksLikeRepo, mergeProjects, progressText, doneText, cleanError, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn } from "../src/project/projects-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },

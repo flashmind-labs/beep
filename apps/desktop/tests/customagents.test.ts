@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentColor } from "../src/customagents-state.ts";
+import { agentColor } from "../src/project/customagents-state.ts";
 
 test("only named or hex colours reach a style", () => {
   assert.equal(agentColor("Blue"), "#3B82F6");
