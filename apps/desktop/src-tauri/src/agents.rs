@@ -10,14 +10,16 @@ use crate::{
     error::{DesktopError, Result},
     markdown,
     projects::unknown_op,
+    work_copy,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentEntry, AgentEntryKind, AgentFileChunk, AgentHost, AgentModel,
-    AgentModels, AgentQuestion, AgentSessionUsage, AgentSessionView, AgentSteer, ApiError, GetAgentFile,
-    GetAgentImage, GetAgentSession, GetAgentSessionUsage, ListAgentHosts, ListAgentModels, ListAgentSessions,
-    MAX_AGENT_FILE, MachinePick, MachineSession, ModelId, PreviewAgentMachine, ResumeAgentSession,
-    StartAgentSession, SteerAgentSession, Upload, check_agent_images, image_key,
+    AgentModels, AgentQuestion, AgentSessionUsage, AgentSessionView, AgentSteer, ApiError,
+    GetAgentFile, GetAgentImage, GetAgentSession, GetAgentSessionUsage, ListAgentHosts,
+    ListAgentModels, ListAgentSessions, MAX_AGENT_FILE, MachinePick, MachineSession, ModelId,
+    PreviewAgentMachine, ResumeAgentSession, StartAgentSession, SteerAgentSession, Upload,
+    check_agent_images, image_key,
     node::agent::{CheckoutPlan, Effort},
 };
 use serde::{Deserialize, Serialize};
@@ -626,6 +628,10 @@ async fn file_chunk(
     path: String,
     offset: u64,
 ) -> Result<AgentFileChunk> {
+    let len = u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?;
+    if let Some(chunk) = work_copy::read(beep, &machine_id, &path, offset, len).await {
+        return Ok(chunk);
+    }
     let chunk = beep
         .call(GetAgentFile {
             machine_id,
