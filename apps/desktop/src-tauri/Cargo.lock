@@ -509,6 +509,7 @@ dependencies = [
  "log",
  "notify",
  "portable-pty",
+ "rand 0.9.5",
  "rmp-serde",
  "roxmltree",
  "rusqlite",
