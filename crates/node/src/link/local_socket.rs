@@ -60,10 +60,10 @@ mod windows {
     };
     use tokio::{
         io::{AsyncRead, AsyncWrite, ReadBuf},
-        time::sleep,
         net::windows::named_pipe::{
             ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
         },
+        time::sleep,
     };
 
     /// What a connection reads from and writes to.
@@ -203,8 +203,12 @@ mod tests {
             }
         });
         assert!(is_listening(&socket));
-        let mut first = connect(&socket).await.expect("the second connection reaches the node");
+        let mut first = connect(&socket)
+            .await
+            .expect("the second connection reaches the node");
         first.shutdown().await.ok();
-        connect(&socket).await.expect("the third connection reaches the node");
+        connect(&socket)
+            .await
+            .expect("the third connection reaches the node");
     }
 }

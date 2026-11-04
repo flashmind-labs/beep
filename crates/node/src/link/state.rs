@@ -291,6 +291,20 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A machine that joins a mesh before it ever ran has no folder: starting
+    /// its state makes the folder and key a service launch needs.
+    #[test]
+    fn a_mesh_only_node_gets_its_folder_and_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("not").join("yet");
+        assert!(!dir.exists());
+        let state = State::load_or_start(&dir, "box").unwrap();
+        assert!(dir.canonicalize().is_ok());
+        assert!(state.server.is_none());
+        let again = State::load_or_start(&dir, "other name").unwrap();
+        assert_eq!(again.key.public(), state.key.public());
+    }
+
     #[test]
     fn linking_again_keeps_the_key() {
         let temp = tempfile::tempdir().unwrap();
