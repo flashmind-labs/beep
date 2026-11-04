@@ -41,6 +41,12 @@ impl Dir {
         })
     }
 
+    /// There is no flush of a whole disk here: each file is flushed on its
+    /// own instead.
+    pub(crate) fn sync_disk(&self) -> io::Result<()> {
+        Ok(())
+    }
+
     pub(crate) fn try_clone(&self) -> io::Result<Self> {
         Ok(Self {
             path: self.path.clone(),

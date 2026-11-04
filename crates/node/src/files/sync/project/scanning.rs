@@ -11,12 +11,16 @@ use crate::files::sync::{
 use crate::{read_lock, write_lock};
 use anyhow::{Result, bail};
 use beep_proto::node::sync::State as SyncState;
+use futures::future::join_all;
 use iroh_blobs::Hash;
 use std::{
     collections::{BTreeSet, HashSet},
     mem,
 };
 use tokio::task::spawn_blocking;
+
+/// How many files a scan hashes at once.
+const MAX_IMPORTS: usize = 16;
 
 impl Task {
     /// Looks for edits on disk and records them in the list.
@@ -82,6 +86,7 @@ impl Task {
         // Hashing reads the files; the list is locked only to record.
         let mut tags = Vec::new();
         let mut hashed = Vec::new();
+        let mut changed = Vec::new();
         for (found, prior) in walked.files.iter().zip(prior) {
             if let Some(prior) = &prior
                 && same(&found.stat, &prior.stat)
@@ -95,16 +100,24 @@ impl Task {
             {
                 continue;
             }
+            changed.push((found, prior));
+        }
+        for batch in changed.chunks(MAX_IMPORTS) {
             if self.shared.stop.is_cancelled() {
                 bail!("stopped");
             }
-            match scan::import(&self.parts.store, found).await {
-                Ok(tag) => {
-                    hashed.push((found, *tag.hash().as_bytes(), prior));
-                    tags.push(tag);
+            let imports = batch
+                .iter()
+                .map(|(found, _)| scan::import(&self.parts.store, found));
+            for ((found, prior), imported) in batch.iter().zip(join_all(imports).await) {
+                match imported {
+                    Ok(tag) => {
+                        hashed.push((*found, *tag.hash().as_bytes(), prior.clone()));
+                        tags.push(tag);
+                    }
+                    // Changed while it was hashed: the next scan sees it again.
+                    Err(e) => log::debug!("{}: {e:#}", self.shared.name),
                 }
-                // Changed while it was hashed: the next scan sees it again.
-                Err(e) => log::debug!("{}: {e:#}", self.shared.name),
             }
         }
         {

@@ -13,6 +13,8 @@
 #              restart and a 30 s network cut, resuming each time
 #   scale      20000 files 8 folders deep both ways and a whole-tree
 #              delete, timed against budgets
+#   powercut   a node rebooted without a flush while it takes in a tree keeps
+#              only whole files, catches up, and nothing counts as an edit
 #   multinode  four nodes (two more VMs): changes from all at once, one path
 #              changed on all at one moment, one node offline and catching up
 #   all      (default) every scenario, one after another on one fleet
@@ -38,7 +40,7 @@ source "$E2E/lib/boat.sh"
 # shellcheck source=lib/beep.sh
 source "$E2E/lib/beep.sh"
 
-SCENARIOS=(sync reconnect interrupt scale multinode)
+SCENARIOS=(sync reconnect interrupt scale powercut multinode)
 scenario="${1:-all}"
 action="${2:-run}"
 

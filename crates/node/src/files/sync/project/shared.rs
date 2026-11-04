@@ -18,7 +18,7 @@ use beep_proto::node::sync::{Keep, ProjectStatus};
 use iroh::{EndpointAddr, EndpointId};
 use iroh_blobs::Hash;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
     time::Duration,
@@ -56,6 +56,9 @@ pub(in crate::files::sync) struct Shared {
     pub(super) stop: CancellationToken,
     /// Why this node will not merge with a peer yet (`first_contact`).
     holds: Mutex<BTreeMap<EndpointId, String>>,
+    /// The peers yet to send what they had, or to prove out of reach. Until
+    /// they have, this node cannot say it is in sync.
+    unheard: Mutex<HashSet<EndpointId>>,
 }
 
 /// What is needed to start a project.
@@ -76,6 +79,7 @@ impl Shared {
         let rules = Rules::load(start.root.path())?;
         let replica = saved.map.replica();
         let seq = saved.map.seq();
+        let unheard = start.peers.iter().map(|addr| addr.id).collect();
         let status = ProjectStatus {
             name: start.name.clone(),
             folder: start.root.path().to_string_lossy().into_owned(),
@@ -99,6 +103,7 @@ impl Shared {
             paused: watch::Sender::new(start.paused),
             stop: CancellationToken::new(),
             holds: Mutex::default(),
+            unheard: Mutex::new(unheard),
         }))
     }
 
@@ -158,6 +163,28 @@ impl Shared {
     /// Whether this node holds `hash` of the project, to serve it.
     pub(in crate::files::sync) fn has(&self, hash: &Hash) -> bool {
         self.lock().have.contains_key(hash.as_bytes())
+    }
+
+    /// The last change after `since`, if there is one.
+    pub(in crate::files::sync) fn last_change_after(&self, since: u64) -> Option<u64> {
+        Some(self.lock().saved.map.last_change()).filter(|&last| last > since)
+    }
+
+    /// The pulls start over: every peer has to be heard again.
+    pub(super) fn listen_again(&self) {
+        *crate::lock(&self.unheard) = self.peer_ids().into_iter().collect();
+    }
+
+    /// `peer` sent what it had, or could not be asked.
+    pub(in crate::files::sync) fn heard(&self, peer: &EndpointId) {
+        if crate::lock(&self.unheard).remove(peer) {
+            // Publishes the status again.
+            self.merged.notify_one();
+        }
+    }
+
+    pub(super) fn heard_all(&self) -> bool {
+        crate::lock(&self.unheard).is_empty()
     }
 
     pub(in crate::files::sync) fn changes(&self, since: u64, limit: usize) -> Changes {

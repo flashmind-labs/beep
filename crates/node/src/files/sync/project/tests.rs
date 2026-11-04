@@ -277,6 +277,21 @@ async fn only_an_unchanged_conflict_copy_is_settled() {
 }
 
 #[tokio::test]
+async fn a_project_is_not_in_sync_before_its_peers_are_heard() {
+    let project = Project::new(&["a.txt"]).await;
+    let shared = &project.task.shared;
+    let peer = SecretKey::from_bytes(&[9; 32]).public();
+    shared.set_peers(vec![EndpointAddr::new(peer)]);
+    shared.listen_again();
+    project.task.publish_status(None);
+    assert_eq!(shared.status().state, SyncState::Syncing);
+    shared.heard(&peer);
+    project.task.publish_status(None);
+    assert_eq!(shared.status().state, SyncState::Idle);
+    project.stop().await;
+}
+
+#[tokio::test]
 async fn a_paused_project_says_so_and_settles_nothing() {
     let project = Project::new(&["a.txt", COPY]).await;
     project.task.shared.set_paused(true);
