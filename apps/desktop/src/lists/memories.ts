@@ -72,7 +72,7 @@ export const confirmCard = (title: string, text: string, buttons: string, cls = 
 /// buttons carry `attr` as `<verb>-yes` and `list`.
 export const confirmRow = (i: number, question: string, attr: string, verb: string) =>
   `<div class="drt" aria-selected="true" data-i="${i}"><span class="tt"><b>${question}</b></span>
-          <span class="acts"><button class="dbtn warn" ${attr}="${verb.toLowerCase()}-yes">${verb}</button><button class="dbtn" ${attr}="list">Cancel</button></span></div>`;
+          <span class="acts"><button class="dbtn warn" ${attr}="${verb.toLowerCase()}-yes">${verb}</button><button class="dbtn quiet" ${attr}="list">Cancel</button></span></div>`;
 
 /// How many days from `from` to `to`, by the calendar.
 export function dayDiff(from: Date, to: Date) {
@@ -262,7 +262,7 @@ export function drawMemories() {
   const today = dateValue(new Date());
   let html = M.error ? `<div class="derr dpad">${esc(M.error)}</div>` : "";
   if (M.mode === "clear") {
-    html += confirmCard("Forget everything?", `Beep will forget all ${M.all.length} memories. This cannot be undone.`, '<button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn" data-m="list">Cancel</button>', "dm8");
+    html += confirmCard("Forget everything?", `Beep will forget all ${M.all.length} memories. This cannot be undone.`, '<button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn quiet" data-m="list">Cancel</button>', "dm8");
   } else if (M.loaded && !M.all.length) {
     html += emptyPage(MEM_ICON, "Nothing remembered yet.", 'Beep learns as you chat, or tell it "remember that…"');
   } else {

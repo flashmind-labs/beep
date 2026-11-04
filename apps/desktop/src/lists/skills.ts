@@ -117,11 +117,11 @@ export function drawSkill(): void {
         <label class="dfield"><span>Name</span><input id="kname" maxlength="60" value="${esc(k.name)}" spellcheck="false"></label>
         <label class="dfield"><span>When it applies</span><input id="kdesc" maxlength="200" value="${esc(k.description)}"></label>
         <label class="dfield"><span>Instructions</span><textarea id="kbody" rows="12">${esc(k.body)}</textarea></label>
-        <div class="dline"><button class="dbtn pri" data-k="save">Save<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" data-k="view">Cancel</button></div>
+        <div class="dline"><button class="dbtn pri" data-k="save">Save<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn quiet" data-k="view">Cancel</button></div>
       </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]])}`;
     return $$("#kbody").focus();
   }
-  const confirm = K.mode === "vdelete" ? confirmCard("Delete this skill?", `Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.`, `<button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn" data-k="view">Cancel</button>`, "dcardm") : "";
+  const confirm = K.mode === "vdelete" ? confirmCard("Delete this skill?", `Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.`, `<button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-k="view">Cancel</button>`, "dcardm") : "";
   const undo = k.can_undo ? `<div class="dmuted dtop dpt"><span class="dfill">${k.edited ? "You changed this last." : "Beep changed this last."}</span><button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>${esc(k.name)}</b><small>${esc(k.group_name ? `${k.group_name} · ${k.description}` : k.description)}</small></span>
       <button class="dswitch" role="switch" aria-checked="${k.enabled}" aria-label="Use this skill" data-k="toggle"></button>

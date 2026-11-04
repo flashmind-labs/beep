@@ -369,7 +369,7 @@ function keyRow(esc: Esc, ago: Ago, p: Provider, cred: Credential | undefined) {
   const use = !cred.unreadable && cred.to_machines ? `your machines as ${esc(p.env_var)}` : "not given to your machines";
   return `${start}
     <span class="ddot"></span><span class="dstack"><b>${esc(p.name)}</b><span class="dsub dell">${shown(esc, cred, "key")} · ${use} · added ${esc(ago(cred.created_at))}</span></span>
-    <span class="dacts"><button class="dbtn small" data-cred-edit="api:${esc(p.slug)}">Replace</button><button class="dbtn quiet small" data-cred-remove="${esc(cred.id)}" aria-label="Remove the ${esc(p.name)} key">Remove</button></span></div>`;
+    <span class="dacts"><button class="dbtn small" data-cred-edit="api:${esc(p.slug)}">Replace</button><button class="dbtn quiet warn small" data-cred-remove="${esc(cred.id)}" aria-label="Remove the ${esc(p.name)} key">Remove</button></span></div>`;
 }
 
 /// The GitHub accounts: from `ListGitHubAccounts` when the server answered

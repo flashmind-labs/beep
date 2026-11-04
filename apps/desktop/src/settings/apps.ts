@@ -247,7 +247,7 @@ function drawServers(servers: McpServer[]) {
       : A.busy === m.id ? SPIN
       : m.connected ? `<span class="dtag ok">${plural(m.tools.length, "tool", "tools")}</span><span class="dmuted">${ICON.chev}</span>`
       : `<span class="dtag ask">${m.sign_in ? "Sign-in expired" : "Not connected"}</span><button class="dbtn pri" data-mconnect="${esc(m.id)}">${m.sign_in ? "Sign in" : "Retry"}</button>`
-        + `<button class="dbtn quiet" data-mremove="${esc(m.id)}">Remove</button>`;
+        + `<button class="dbtn quiet warn" data-mremove="${esc(m.id)}">Remove</button>`;
     const open = m.connected && A.waiting !== m.id && A.busy !== m.id ? ` data-mopen="${esc(m.id)}" role="button" tabindex="0"` : "";
     return `<div class="dappr${open ? " on" : ""}"${open}>${letterLogo(m.name)}<span class="tt"><b>${esc(m.name)}</b><small>${esc(hostOf(m.url))}</small></span>${end}</div>`;
   };
@@ -491,7 +491,7 @@ function drawAccounts(app: App, accounts: AppAccount[]) {
     const end = A.busy === "account:" + a.id ? SPIN
       : A.removing === a.id ? `<span class="dmuted">${accounts.length === 1 ? `Disconnects ${esc(app.name)}` : "Beep stops using this account"}</span>`
         + `<button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-remove="${esc(a.id)}">Remove</button>`
-      : `<button class="dbtn quiet" data-removing="${esc(a.id)}">Remove</button>`;
+      : `<button class="dbtn quiet warn" data-removing="${esc(a.id)}">Remove</button>`;
     return `<div class="daction"><span>${name}${first}</span>${end}</div>`;
   }).join("");
   html += A.connecting === app.slug

@@ -165,7 +165,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     const acts = h("div", "in-acts", saveBtn,
       button("History", "", () => setTab("history")),
       button("Import from machines", "", () => setTab("import")));
-    if (dirty()) acts.insertBefore(button("Discard", "", () => { st.draft = null; st.note = ""; draw(); }), acts.children[1]);
+    if (dirty()) acts.insertBefore(button("Discard", "quiet", () => { st.draft = null; st.note = ""; draw(); }), acts.children[1]);
     const err = st.error ? h("div", "cc-err", st.error) : null;
     const summary = st.files ? syncSummary(st.files) : null;
     const files = h("div", "cc-panel cc-row in-side",

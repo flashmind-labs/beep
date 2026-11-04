@@ -340,7 +340,7 @@ function removeParts(m: Machine) {
     button: "",
     ask: `<div class="ask"><span>Remove ${esc(m.name)} from your account? ${what} To use it again, add it with a new setup command.</span>
       ${asking.error ? `<span class="derr">${esc(asking.error)}</span>` : ""}
-      <span class="acts"><button class="dbtn warn" id="rmYes"${asking.busy ? " disabled" : ""}>Remove</button><button class="dbtn" id="rmNo">Cancel</button></span></div>`,
+      <span class="acts"><button class="dbtn warn" id="rmYes"${asking.busy ? " disabled" : ""}>Remove</button><button class="dbtn quiet" id="rmNo">Cancel</button></span></div>`,
   };
 }
 

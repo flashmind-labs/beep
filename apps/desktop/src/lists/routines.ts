@@ -263,7 +263,7 @@ export function drawRoutineNew() {
       ${task}
       ${schedule}
       ${NR.error && !missing ? `<div class="derr">${esc(NR.error)}</div>` : ""}
-      <div class="dline"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>${go}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="nrno">Cancel</button>
+      <div class="dline"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>${go}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn quiet" id="nrno">Cancel</button>
         <span class="dmuted dpush">${edit ? "To change what it does, ask Beep in a chat" : "Or just tell Beep in a chat"}</span></div>
     </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]])}`;
   const bind = (id: string, key: "label" | "prompt" | "time" | "date" | "cron") =>

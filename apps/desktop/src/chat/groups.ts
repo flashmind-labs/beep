@@ -396,7 +396,7 @@ function groupReminders(g: GroupSummary) {
   const you = g.members.find(m => m.you)?.name;
   return `<div class="dinfo">${list.map(r => `<div class="member dalignt">
     <span class="dcol"><b>${esc(r.label)}</b><small>${esc(r.message)}</small><small>${esc(describeSchedule(r.schedule))} · set by ${esc(r.set_by === you ? "you" : r.set_by)}</small></span>
-    <button class="dbtn" data-rem="${esc(r.id)}" aria-label="Delete reminder">Delete</button></div>`).join("")}
+    <button class="dbtn warn" data-rem="${esc(r.id)}" aria-label="Delete reminder">Delete</button></div>`).join("")}
     <div class="dfine">${esc(ask)}</div></div>`;
 }
 
@@ -420,7 +420,7 @@ function drawGroupInfo() {
       <button class="dswitch" id="gapps" role="switch" aria-checked="${g.apps_shared}" aria-label="Share my apps with Beep here"></button></div>
     <div class="dsec flat">Privacy</div>
     <div class="dinfo dmut"><div>Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.</div><div>Beep's thinking and tool calls are hidden in groups. Members only see its replies.</div></div>
-    ${G.leave ? `<div class="dcard"><div class="dask dline wrap"><span class="dfill">Leave ${esc(g.name)}? You stop getting its messages, and need a new code to come back.</span><button class="dbtn" id="gstay">Cancel</button><button class="dbtn warn" id="gleave">Leave</button></div></div>`
+    ${G.leave ? `<div class="dcard"><div class="dask dline wrap"><span class="dfill">Leave ${esc(g.name)}? You stop getting its messages, and need a new code to come back.</span><button class="dbtn quiet" id="gstay">Cancel</button><button class="dbtn warn" id="gleave">Leave</button></div></div>`
       : '<div><button class="dbtn warn" id="gaskleave">Leave group</button></div>'}`;
   // A refusal shows above the info, which stays as it was.
   const fail = (e: unknown) => b.insertAdjacentHTML("afterbegin", `<div class="derr">${esc(e)}</div>`);
@@ -515,7 +515,7 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
       <label class="dfield">Your name in the group<input id="jme" maxlength="40" autocomplete="off" spellcheck="false" value="${esc(memberName())}"></label>
       <div class="dmuted dblock">You get a code to send to people. Anyone with Beep who enters it can join.</div>
       ${J.error ? `<div class="derr">${esc(J.error)}</div>` : ""}
-      <div class="row"><button class="dbtn" id="jcode">Join with a code</button><span class="dfill"></span><button class="dbtn" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Create<kbd>${ICON.ret}</kbd></button></div>
+      <div class="row"><button class="dbtn" id="jcode">Join with a code</button><span class="dfill"></span><button class="dbtn quiet" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Create<kbd>${ICON.ret}</kbd></button></div>
     </div>` + hints([[ICON.ret, "create"], ["tab", "next field"], ["esc", "back"]]);
     $$("#jcode").addEventListener("click", () => renderGroupNew("code"));
     first = "#jname";
@@ -523,7 +523,7 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
     bar.innerHTML = head("Join a group", "Enter the code someone sent you", logo) + `<div class="dform">
       <label class="dfield${J.error ? " err" : ""}">Invite code<input id="jtoken" class="mono" maxlength="80" autocomplete="off" spellcheck="false" placeholder="K7QM4-X9TRP">
         <span class="note">${esc(J.error || "Ten letters and digits, like K7QM4-X9TRP. A beep://group link works too.")}</span></label>
-      <div class="row"><button class="dbtn" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Find group<kbd>${ICON.ret}</kbd></button></div>
+      <div class="row"><button class="dbtn quiet" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Find group<kbd>${ICON.ret}</kbd></button></div>
     </div>` + hints([[ICON.ret, "find"], ["esc", "back"]]);
     cancel = () => renderGroupNew("new");
     first = "#jtoken";
