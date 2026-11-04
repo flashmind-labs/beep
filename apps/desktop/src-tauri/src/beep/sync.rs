@@ -5,8 +5,9 @@
 
 use crate::{
     beep::state::LinkState,
-    beep::{self, Beep, Field, Turn},
+    beep::{Beep, Field},
     chat::groups::{Author, GroupChatView, GroupView, MessageView},
+    chat::history::{self, Turn},
     chat::markdown,
     error::Result,
 };
@@ -428,8 +429,8 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                     model: String::new(),
                 });
             }
-            MessageBody::Tool { name, output, .. } if name == beep::SUGGEST_REPLIES => {
-                if let Some(replies) = beep::suggested_replies(output) {
+            MessageBody::Tool { name, output, .. } if name == history::SUGGEST_REPLIES => {
+                if let Some(replies) = history::suggested_replies(output) {
                     open.replies = replies;
                 }
             }
@@ -440,7 +441,7 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
                 success,
             } => open
                 .tools
-                .push(beep::tool_step(name, call_id, output, *success)),
+                .push(history::tool_step(name, call_id, output, *success)),
             MessageBody::Approval { query_id, approval } => {
                 open.approvals.push(Turn::Approval {
                     query_id: query_id.clone(),
@@ -462,7 +463,7 @@ struct OpenTurn {
     id: Option<i64>,
     /// Where the turn's latest reply is in the output.
     reply: Option<usize>,
-    tools: Vec<beep::ToolStep>,
+    tools: Vec<history::ToolStep>,
     replies: Vec<String>,
     approvals: Vec<Turn>,
     /// The model that answered, from the message that opened the turn.
@@ -680,7 +681,7 @@ mod tests {
             in_turn(1, reply(3, "Here it is.")),
             in_turn(
                 1,
-                tool(4, beep::SUGGEST_REPLIES, r#"{"replies":["Thanks"]}"#),
+                tool(4, history::SUGGEST_REPLIES, r#"{"replies":["Thanks"]}"#),
             ),
             user(5, "Remind me"),
             in_turn(5, tool(6, "cron_create", "failed")),

@@ -9,4 +9,6 @@ pub(crate) mod files;
 pub(crate) mod flsh_settings;
 pub(crate) mod harnesses;
 pub(crate) mod instructions;
+pub(crate) mod media;
 pub(crate) mod sessions;
+pub(crate) mod steer;

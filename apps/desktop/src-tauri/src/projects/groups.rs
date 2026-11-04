@@ -6,7 +6,7 @@ use crate::{
     center::kept,
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
-    projects::unknown_op,
+    projects::{needs_update, unknown_op},
 };
 use beep_proto::{DeleteProjectGroup, ListProjectGroups, ProjectGroup, SaveProjectGroup};
 use std::sync::Arc;
@@ -49,11 +49,5 @@ pub async fn project_group_delete(beep: Service<'_>, id: Uuid) -> Result<()> {
 }
 
 fn too_old(e: DesktopError) -> DesktopError {
-    if unknown_op(&e) {
-        DesktopError::BadRequest(
-            "The server needs an update before projects can be grouped.".into(),
-        )
-    } else {
-        e
-    }
+    needs_update(e, "before projects can be grouped")
 }

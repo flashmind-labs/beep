@@ -6,6 +6,7 @@
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
+    projects::needs_update,
 };
 use beep_proto::{
     AddMachineOverSsh, ApiError, CreateNodeToken, GetMachineSearch, GetNodeToken, ListSshHosts,
@@ -16,9 +17,6 @@ use std::{sync::Arc, time::Duration};
 use tauri::State;
 
 type Service<'a> = State<'a, Arc<Beep>>;
-
-/// What an old server answers a request it does not know.
-const UNKNOWN_OP: &str = "unknown op";
 
 /// A token as the sheet shows it.
 #[derive(Debug, Serialize)]
@@ -107,14 +105,7 @@ pub async fn set_machine_search(
 
 /// An old server's refusal, in words the sheet shows.
 fn outdated(e: DesktopError) -> DesktopError {
-    match e {
-        DesktopError::Api(ApiError::BadRequest { message }) if message.starts_with(UNKNOWN_OP) => {
-            DesktopError::BadRequest(
-                "The server needs an update before machines can be added from here.".into(),
-            )
-        }
-        other => other,
-    }
+    needs_update(e, "before machines can be added from here")
 }
 
 #[cfg(test)]

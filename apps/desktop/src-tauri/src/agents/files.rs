@@ -4,8 +4,8 @@
 //! into the folder a part at a time.
 
 use crate::{
-    bar::commands::{GONE, file_name, free_name},
     beep::Beep,
+    chat::files::{GONE, file_name, free_name},
     error::{DesktopError, Result},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
