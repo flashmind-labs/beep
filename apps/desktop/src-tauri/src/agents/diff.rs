@@ -5,7 +5,7 @@ use crate::{
     beep::Service,
     error::Result,
     fleet::{Machines, files as direct},
-    projects::branches::places,
+    projects::branches::{Placed, placed},
 };
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetBranchDiff,
@@ -174,8 +174,10 @@ pub async fn branch_diff(
     only: Vec<String>,
     lockfiles: bool,
 ) -> Result<DiffView> {
-    if let Some(place) = places(&beep, &fleet, &project).await.into_iter().next() {
-        let diff = direct::branch_diff(&fleet, &place, &branch, only, lockfiles).await?;
+    if let Placed::Mesh(places) = placed(&beep, &fleet, &project).await?
+        && let Some(place) = places.first()
+    {
+        let diff = direct::branch_diff(&fleet, place, &branch, only, lockfiles).await?;
         return Ok(view(diff));
     }
     let diff = beep

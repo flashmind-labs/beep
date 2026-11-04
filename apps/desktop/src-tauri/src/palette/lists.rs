@@ -11,13 +11,15 @@ use crate::{
         section,
         view_cache::{View, ViewCache, cache_view},
     },
+    error::DesktopError,
     fleet::Fleet,
     machines::list::{self as machine_list, Outside},
+    projects::reviews::read_branches as read_project_branches,
 };
 use beep_proto::{
     Cron, GitItem, GitItemKind, ImportedProject, ListCrons, ListGitItems, ListImportedProjects,
-    ListMemories, ListProjectBranches, ListProjects, ListSessions, Machine, MachineSession, Memory,
-    ProjectAgent, Session,
+    ListMemories, ListProjects, ListSessions, Machine, MachineSession, Memory, ProjectAgent,
+    Session,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -314,12 +316,11 @@ async fn read_branches(app: &AppHandle, beep: &Arc<Beep>) {
     let mut reads = JoinSet::new();
     for project in projects {
         let beep = Arc::clone(beep);
+        let fleet = app.state::<Arc<Fleet>>().inner().clone();
         reads.spawn(async move {
-            let read = beep
-                .call(ListProjectBranches {
-                    project: project.clone(),
-                })
-                .await;
+            let read = read_project_branches(&beep, &fleet, project.clone())
+                .await
+                .and_then(|found| found.ok_or(DesktopError::NoServer));
             (project, read)
         });
     }
