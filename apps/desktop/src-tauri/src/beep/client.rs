@@ -9,8 +9,8 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    ApiError, Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions, Session,
-    SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription,
+    ApiError, Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions,
+    Session, SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription,
     client::{Client, Node, OnNotice, Replies, Uplink},
 };
 use iroh::{Endpoint, EndpointId};
