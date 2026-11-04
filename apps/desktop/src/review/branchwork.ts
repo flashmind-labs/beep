@@ -1,7 +1,7 @@
 // Branches with work outside the review screen: the machines a branch can get
 // a worktree on, what the import sheet asks for, and the open PRs and issues
 // in repos without a project.
-import type { GitItemRow } from "../center/openitems.ts";
+import type { GitItemRow } from "../center/openitems-state.ts";
 
 /// A checkout of the repository found on a machine (CheckoutRow).
 export interface CheckoutRow {

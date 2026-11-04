@@ -1,146 +1,219 @@
-// Home's open PRs and issues, broken down by project: what each row says,
-// apart from the DOM so it can be tested.
-import type { Project } from "../project/projects-state.ts";
+// Home's Open PRs and issues tab, and importing a repo from it.
+import { ago, plural } from "../ui/format.ts";
+import { dbtn as button, note, svgEl as icon } from "../ui/parts.ts";
+import { invoke } from "../ui/tauri.ts";
+import { pane } from "../bar/pane.ts";
+import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
+import { folderUnder, reason, el as h, type Kid, type ProjectRow } from "../project/projects-state.ts";
+import { openMenu } from "../ui/menu.ts";
+import { ITEMS_SHOWN, itemChips, projectsWithOpen, replyPrompt, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { IC, state } from "./state.ts";
+import { projectDot, section, tag, rowButton, line } from "./pieces.ts";
+import { draw } from "./home.ts";
+import { shown, go } from "./views.ts";
+import { reloadChats, projectRows, openProjects } from "./sidebar.ts";
+import { type LabelFilter, labelFilter, labelChip } from "../project/split.ts";
+import { refresh } from "./refresh.ts";
 
-/// A saved git host, as `git_items` lists it (GitHostRow).
-export interface GitHostRow {
-  host: string;
-  forgejo: boolean;
-  account: string | null;
-  error: string | null;
+export function openUrl(url: string) {
+  invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
 }
 
-/// An open PR or issue, as `git_items` lists it (GitItemRow).
-export interface GitItemRow {
-  host: string;
-  repo: string;
-  number: number;
-  kind: "pull_request" | "issue";
-  title: string;
-  url: string;
-  /// In milliseconds since the Unix epoch.
-  updated_at: number;
-  authored: boolean;
-  assigned: boolean;
-  review_requested: boolean;
-  draft: boolean;
-  /// `none`, `approved` or `changes_requested`.
-  review: string;
-  checks_failing: boolean;
-  comments: number;
-  /// Missing from a list kept by an older app.
-  labels?: string[];
+/// What Review needs of a project: where it is checked out.
+type ReviewProject = Parameters<typeof reviewStart>[1];
+
+/// Review prefills Start a coding agent: in the project's folder on an
+/// online machine when it is imported, else on Auto.
+function reviewItem(item: GitItemRow, project: ReviewProject) {
+  const start = reviewStart(item, project, state.home?.machines);
+  go("pane", { agentnew: start });
 }
 
-/// What `git_items` gives (GitItemsView).
-export interface GitItemsView {
-  items: GitItemRow[];
-  hosts: GitHostRow[];
+/// Reply opens a new chat with Beep that asks for help with the item; Beep
+/// reads it with its GitHub tools, and posting asks first.
+async function replyItem(item: GitItemRow) {
+  go("pane", { chat: { session: null } });
+  try {
+    await pane.compose(replyPrompt(item));
+  } catch (e) {
+    console.warn("starting a reply:", e);
+  }
+  reloadChats();
 }
 
-/// The fields of an item the helpers read.
-type Item = Pick<GitItemRow, "kind" | "review_requested" | "authored" | "review" | "checks_failing">;
-
-/// A project as the open rows need it.
-type OpenProject = Pick<Project, "name" | "imported" | "machines">;
-
-/// One repository's row: its counts and items. `P` is the project row.
-export interface OpenRow<P = OpenProject> {
-  key: string;
-  repo: string;
-  host: string;
-  url: string;
-  /// The imported project it belongs to, when there is one.
-  project: P | null;
-  prs: number;
-  issues: number;
-  waiting: number;
-  last: number;
-  items: GitItemRow[];
+export function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelFilter) {
+  const kindIcon = icon(item.kind === "pull_request" ? IC.pr : IC.issue);
+  const tags = (item.labels || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l));
+  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title), ...tags);
+  title.type = "button";
+  title.title = item.url;
+  const right = [
+    ...itemChips(item).map(c => tag(c.cls, c.text)),
+    h("span", "age", ago(item.updated_at)),
+    item.kind === "pull_request" ? rowButton("Review", "small", () => reviewItem(item, project)) : null,
+    rowButton("Reply", "small", () => replyItem(item)),
+  ];
+  const row = h("div", "cc-row cc-line cc-gr it", h("span", "ic", kindIcon), title, h("span", "r", ...right));
+  row.addEventListener("click", () => openUrl(item.url));
+  return row;
 }
 
-/// A state chip: its text and class.
-export interface Chip {
-  text: string;
-  cls: string;
+/// A repository's head row among open items.
+export function repoLine(i: number | undefined, repo: string, sub: string, right: Kid[], open: () => void) {
+  const head = line(projectDot(i), repo, sub, right, open);
+  head.classList.add("cc-gr");
+  return head;
 }
 
-/// Items a project shows before "Show all".
-export const ITEMS_SHOWN = 3;
+type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
 
-/// Whether an item waits on the user: a PR asking for their review, or
-/// one of theirs with changes requested or failing checks.
-export function waitsOnYou(item: Item) {
-  if (item.kind !== "pull_request") return false;
-  return item.review_requested || (item.authored && (item.review === "changes_requested" || item.checks_failing));
+/// One project's row, its counts and its newest items.
+function openProjectRows(p: OpenRepo, i: number, f?: LabelFilter) {
+  const counts = [p.prs ? plural(p.prs, "PR", "PRs") : null, p.issues ? plural(p.issues, "issue", "issues") : null]
+    .filter(Boolean).map(t => h("span", "", t));
+  const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
+  const sub = p.project ? p.host : `${p.host} · not imported`;
+  if (!p.project) right.push(rowImportButton(p));
+  const head = repoLine(i, p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
+  if (!p.project) {
+    head.addEventListener("contextmenu", e => openMenu(e, p.repo, [
+      { label: "Import…", on: () => quickImport(p) },
+      { label: "Import with settings…", on: () => importWithSettings(p) },
+    ]));
+  }
+  const all = state.gitAll.has(p.key);
+  const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project, f))];
+  if (p.items.length > ITEMS_SHOWN) {
+    const more = button(all ? "Show fewer" : `Show all ${p.items.length}`, "quiet small", () => {
+      if (all) state.gitAll.delete(p.key); else state.gitAll.add(p.key);
+      draw();
+    });
+    rows.push(h("div", "cc-gr it more", more));
+  }
+  return rows;
 }
 
-/// Orders items: those waiting on the user first, then the newest.
-export function waitingFirst(a: Item & Pick<GitItemRow, "updated_at">, b: Item & Pick<GitItemRow, "updated_at">) {
-  return Number(waitsOnYou(b)) - Number(waitsOnYou(a)) || b.updated_at - a.updated_at;
+/// Repositories being imported from their row, by key, and why one failed.
+const rowImports = new Map<string, "busy" | { error: string }>();
+
+/// What `import_project` takes for an open-items repository: `org/repo`
+/// on GitHub, its URL elsewhere.
+function importRepo(p: OpenRepo) {
+  return p.host === "github.com" ? p.repo : p.url;
 }
 
-/// The repository's web page from an item's.
-export function repoUrl(url: string | null | undefined) {
-  return String(url || "").replace(/\/(pull|pulls|issues)\/\d+([/?#].*)?$/, "");
+/// The row's Import button, or how its import stands.
+function rowImportButton(p: OpenRepo): HTMLElement {
+  const now = rowImports.get(p.key);
+  if (now === "busy") return h("span", "age", h("span", "dspin"), " Importing…");
+  const b = rowButton("Import", "small", () => quickImport(p));
+  b.title = importTitle(p);
+  if (now) {
+    const failed = tag("bad", "Import failed");
+    failed.title = now.error;
+    return h("span", "", failed, " ", b);
+  }
+  return b;
 }
 
-/// One row per repository with its counts and its items, newest first.
-export function projectsWithOpen<P extends OpenProject>(
-  view: { items?: readonly GitItemRow[] } | null | undefined,
-  projects: readonly P[] | null | undefined,
-) {
-  const byName = new Map((projects || []).filter(p => p.imported).map(p => [p.name.toLowerCase(), p]));
-  const rows = new Map<string, OpenRow<P>>();
-  for (const item of view?.items || []) {
-    const key = `${item.host} ${item.repo}`;
-    let row = rows.get(key);
-    if (!row) {
-      const project = byName.get(item.repo.toLowerCase()) || null;
-      row = { key, repo: item.repo, host: item.host, url: repoUrl(item.url), project, prs: 0, issues: 0, waiting: 0, last: 0, items: [] };
-      rows.set(key, row);
+/// Where Import puts it: the last machine and folder used, else the server's
+/// default on the first online machine.
+function importPlace(p: OpenRepo) {
+  const machines = (state.home?.machines || []).filter(m => m.online);
+  const last = lastImport();
+  const machine = machines.find(m => m.id === last?.machine) || machines[0] || null;
+  const folder = machine && last?.root && machine.id === last.machine ? folderUnder(last.root, importRepo(p)) : null;
+  return { machine, folder };
+}
+
+function importTitle(p: OpenRepo) {
+  const { machine, folder } = importPlace(p);
+  if (!machine) return "No machine is online; Import opens the sheet";
+  return `Imports on ${machine.name}${folder ? `, into ${folder}` : ""}. Right-click for Import with settings…`;
+}
+
+/// Imports from the row with the last machine and folder; the row turns
+/// into the project once it is in. With no machine online, the sheet.
+async function quickImport(p: OpenRepo) {
+  if (rowImports.get(p.key) === "busy") return;
+  const { machine, folder } = importPlace(p);
+  if (!machine) return importWithSettings(p);
+  rowImports.set(p.key, "busy");
+  draw();
+  try {
+    const project = await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder, worktrees: [] });
+    keepLastImport(project);
+    rowImports.delete(p.key);
+    await refresh();
+  } catch (e) {
+    const error = reason(e);
+    rowImports.set(p.key, { error });
+    console.warn(`importing ${p.repo}:`, error);
+  }
+  draw();
+}
+
+/// The Import a project sheet for the row's repository, on the last
+/// machine and folder used.
+function importWithSettings(p: OpenRepo) {
+  const { machine, folder } = importPlace(p);
+  openImportProject({
+    machines: state.home?.machines || [],
+    macId: state.mac?.id || null,
+    repo: importRepo(p),
+    machine: machine?.id ?? null,
+    folder,
+    onDone: () => refresh(),
+  });
+}
+
+/// Open PRs beside open issues on the user's git hosts, each a row per
+/// project with its items under it. A host that failed says why above.
+export function gitSection(view: GitItemsView) {
+  const all = projectRows() || [];
+  const column = (kind: GitItemRow["kind"], title: string, none: string) => {
+    const { items, labels: f } = labelFilter(`home:${kind}`, view.items.filter(i => i.kind === kind), i => i.labels, draw);
+    const chips = f.all.length ? h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))) : null;
+    const body = items.length ? projectsWithOpen({ items }, all).flatMap((p, n) => openProjectRows(p, n, f)) : [h("div", "cc-empty", h("span", "", none))];
+    return section("", title, items.length, null, h("div", "cc-panel cc-open", chips, ...body));
+  };
+  const el = h("div", "cc-git", ...view.hosts.filter(x => x.error).map(x => note("bad", x.error)),
+    h("div", "cc-cols", column("pull_request", "Pull requests", "No open pull requests."), column("issue", "Issues", "No open issues.")));
+  el.id = "sec-git";
+  return el;
+}
+
+/// An open PR or issue in an Overview box: number and title, its repo and
+/// first state chip, opening it on its host.
+export function itemLine(item: GitItemRow) {
+  const chip = itemChips(item)[0];
+  const row = line(icon(item.kind === "pull_request" ? IC.pr : IC.issue), `#${item.number} ${item.title}`, item.repo,
+    [chip ? tag(chip.cls, chip.text) : null, ago(item.updated_at)], () => openUrl(item.url));
+  row.title = item.url;
+  return row;
+}
+
+/// `load` run so that a call while one runs is dropped.
+export function single(load: () => Promise<void>) {
+  let running = false;
+  return async () => {
+    if (running) return;
+    running = true;
+    try {
+      await load();
+    } finally {
+      running = false;
     }
-    if (item.kind === "pull_request") row.prs++;
-    else row.issues++;
-    if (waitsOnYou(item)) row.waiting++;
-    row.last = Math.max(row.last, item.updated_at);
-    row.items.push(item);
+  };
+}
+
+/// Asks the server for the open items; it keeps them a few minutes, so
+/// this runs less often than Home's refresh.
+export const refreshGit = single(async () => {
+  try {
+    state.git = await invoke<GitItemsView | null>("git_items");
+  } catch (e) {
+    console.warn("open PRs and issues:", e);
   }
-  for (const row of rows.values()) row.items.sort(waitingFirst);
-  return [...rows.values()].sort((a, b) => (Math.sign(b.waiting) - Math.sign(a.waiting)) || b.last - a.last);
-}
-
-/// The state chips of an item.
-export function itemChips(item: Item & Pick<GitItemRow, "draft" | "assigned">) {
-  const out: Chip[] = [];
-  if (item.kind === "pull_request") {
-    if (item.review_requested) out.push({ text: "your review", cls: "wait" });
-    if (item.draft) out.push({ text: "draft", cls: "" });
-    if (item.review === "changes_requested") out.push({ text: "changes requested", cls: "wait" });
-    else if (item.review === "approved") out.push({ text: "approved", cls: "run" });
-    if (item.checks_failing) out.push({ text: "checks failing", cls: "bad" });
-  } else if (item.assigned) {
-    out.push({ text: "assigned", cls: "" });
-  }
-  return out;
-}
-
-/// What Review prefills in Start a coding agent: the prompt and, when the
-/// project is imported, the folder on an online machine that has it.
-export function reviewStart(
-  item: Pick<GitItemRow, "host" | "url">,
-  project: { name?: string; machines?: readonly { id: string; folder: string }[] } | null | undefined,
-  machines: readonly { id: string; online: boolean }[] | null | undefined,
-) {
-  const tool = item.host === "github.com" ? "gh" : "teacli";
-  const prompt = `Review PR ${item.url}. Read the diff with ${tool}, and post your review only after I approve it.`;
-  const online = new Set((machines || []).filter(m => m.online).map(m => m.id));
-  const at = project?.machines?.find(m => online.has(m.id) && m.folder) || null;
-  const places = (project?.machines || []).filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
-  return { prompt, at: at ? { machine: at.id, cwd: at.folder, places, ...(project?.name ? { project: project.name } : {}) } : null };
-}
-
-/// The first message of the chat Reply opens.
-export function replyPrompt(item: Pick<GitItemRow, "url">) {
-  return `Help me reply to ${item.url}`;
-}
+  if (shown === "home") draw();
+});
