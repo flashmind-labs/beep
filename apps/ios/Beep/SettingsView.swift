@@ -15,9 +15,7 @@ struct SettingsView: View {
             BackBar(title: "Settings", back: { path.removeAll() })
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    LookPicker()
-                    AvatarPicker()
-                    TalkToBeepCard { path.removeAll(); model.live.start(from: .actionButton) }
+                    workspaceSwitch
                     if let models = model.models, !models.choices.isEmpty {
                         modelPicker(models)
                     }
@@ -39,9 +37,10 @@ struct SettingsView: View {
                             row("checkmark.shield", "Routine grants", "What routines may do without asking")
                         }
                         divider
-                        Button { path.append(.machines) } label: {
-                            row("server.rack", "Machines", "Where Beep runs commands and coding agents")
+                        if model.workspace.expanded {
+                            Button { path.append(.machines) } label: { row("server.rack", "Machines", "Commands and coding agents") }
                         }
+                        Button { path.append(.apps) } label: { row("puzzlepiece.extension", "Apps", "Connected apps and permissions") }
                         divider
                         Button { if !model.connected { model.connect() } } label: {
                             row("server.rack", "Server", model.connected ? "Connected"
@@ -51,6 +50,8 @@ struct SettingsView: View {
                         divider
                     }
                     .buttonStyle(.plain)
+                    TalkToBeepCard { path.removeAll(); model.live.start(from: .actionButton) }
+                    AvatarPicker()
                 }
                 .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
@@ -59,6 +60,16 @@ struct SettingsView: View {
         .task(id: model.models?.choices.isEmpty == false) {
             if model.models?.choices.isEmpty == false { agents = await model.agents() }
         }
+    }
+
+    private var workspaceSwitch: some View {
+        @Bindable var workspace = model.workspace
+        return Toggle(isOn: $workspace.showAll) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Show everything").font(.body(14, .medium)).foregroundStyle(Mint.ink)
+                Text("Projects, coding agents, machines and terminals").font(.body(12)).foregroundStyle(Mint.muted)
+            }
+        }.tint(Mint.accent).padding(12).card()
     }
 
     private var divider: some View { Rectangle().fill(Mint.soft).frame(height: 1) }
@@ -200,45 +211,6 @@ struct SettingsView: View {
         guard (try? data.write(to: url, options: [.atomic, .completeFileProtection])) != nil
         else { return nil }
         return url
-    }
-}
-
-/// Small previews of the looks. Tapping one switches the whole app.
-private struct LookPicker: View {
-    @State private var appearance = Appearance.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Look").font(.body(12, .semibold)).foregroundStyle(Mint.muted).padding(.bottom, 8)
-            VStack(spacing: 6) {
-                ForEach(BeepStyle.allCases) { style in
-                    let p = Palette.of(style)
-                    let selected = style == appearance.style
-                    Button { withAnimation(.snappy) { appearance.style = style } } label: {
-                        HStack(spacing: 12) {
-                            HStack(spacing: 4) {
-                                Circle().fill(p.user).frame(width: 14, height: 14)
-                                    .overlay(Circle().stroke(p.line, lineWidth: p.outline > 0 ? 1.5 : 0))
-                                Circle().fill(p.accent).frame(width: 14, height: 14)
-                                Circle().fill(p.ok.mix(with: p.page, by: 0.15)).frame(width: 14, height: 14)
-                            }
-                            Text(style.label).font(.body(14, .medium))
-                                .foregroundStyle(p.ink).lineLimit(1)
-                            Spacer(minLength: 0)
-                            if selected {
-                                Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(p.ink)
-                            }
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: Mint.radius).fill(p.page))
-                        .overlay(RoundedRectangle(cornerRadius: Mint.radius)
-                            .strokeBorder(selected ? Mint.ink : Mint.soft, lineWidth: selected ? 2 : 1))
-                        .contentShape(RoundedRectangle(cornerRadius: Mint.radius))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
     }
 }
 

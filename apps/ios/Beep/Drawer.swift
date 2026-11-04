@@ -69,6 +69,7 @@ struct ChatsDrawer<Content: View>: View {
                 await model.refreshSessions()
                 await model.refreshGroups()
                 await model.refreshResearches()
+                await model.workspace.refresh()
             }
         }
         .task(id: query) {
@@ -138,8 +139,9 @@ struct ChatsDrawer<Content: View>: View {
 
     private var sheet: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if model.workspace.expanded, text.isEmpty { workspaceLinks }
             HStack {
-                Text("Your chats").font(.display(18)).foregroundStyle(Mint.ink)
+                Text("Your chats").font(.display(26)).foregroundStyle(Mint.ink)
                 Spacer()
                 Button(action: newGroup) { Image(systemName: "person.badge.plus") }
                     .buttonStyle(ChunkyButton(size: 40))
@@ -172,12 +174,19 @@ struct ChatsDrawer<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Mint.soft).frame(height: 1).padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             HStack(spacing: 6) {
-                footerButton("Settings", "gearshape") { show(.settings) }
-                footerButton("More", "ellipsis") { if !swiping { more = true } }
+                if !model.workspace.expanded {
+                    Button("Memories") { show(.memories) }.buttonStyle(TextAction(color: Mint.muted))
+                    Button("Routines") { show(.routines) }.buttonStyle(TextAction(color: Mint.muted))
+                }
+                if model.workspace.expanded { footerButton("Settings", "gearshape") { show(.settings) } }
+                else { Button("Settings") { show(.settings) }.buttonStyle(TextAction(color: Mint.muted)) }
+                if model.workspace.expanded { footerButton("More", "ellipsis") { if !swiping { more = true } } }
                 Spacer()
-                ConnectionDot(connected: model.connected)
-                Text(model.connected ? "Connected" : "Disconnected").font(.body(11)).foregroundStyle(Mint.muted)
-                    .padding(.trailing, 12)
+                if model.workspace.expanded {
+                    ConnectionDot(connected: model.connected)
+                    Text(model.connected ? "Connected" : "Disconnected").font(.body(11)).foregroundStyle(Mint.muted)
+                        .padding(.trailing, 12)
+                }
             }
             .padding(.horizontal, 10).padding(.bottom, 12)
         }
@@ -185,7 +194,7 @@ struct ChatsDrawer<Content: View>: View {
 
     private func footerButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: icon).font(.system(size: 16))
                 Text(title).font(.body(14, .medium)).lineLimit(1)
             }
@@ -193,6 +202,21 @@ struct ChatsDrawer<Content: View>: View {
             .padding(.horizontal, 12).frame(minHeight: 40).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private var workspaceLinks: some View {
+        WorkspaceBox {
+            WorkspaceRow(icon: "folder", title: "Projects") { show(.projects) }
+            Divider().overlay(Mint.soft)
+            WorkspaceRow(icon: "bubble.left.and.text.bubble.right", title: "Coding agents") { show(.codingAgents) }
+            Divider().overlay(Mint.soft)
+            WorkspaceRow(icon: "server.rack", title: "Machines") { show(.machines) }
+
+            Divider().overlay(Mint.soft)
+            WorkspaceRow(icon: "flask", title: "Research") { show(.researches) }
+            Divider().overlay(Mint.soft)
+            WorkspaceRow(icon: "bell", title: "Notifications") { show(.notifications) }
+        }.padding(.horizontal, 16).padding(.bottom, 12)
     }
 
     private var moreSheet: some View {
@@ -284,7 +308,7 @@ struct ChatsDrawer<Content: View>: View {
             }
         }
         .padding(.horizontal, Mint.pageInset)
-        .frame(minHeight: 52)
+        .frame(minHeight: 46)
         .background(RoundedRectangle(cornerRadius: Mint.radius).fill(Mint.surface))
         .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.soft, lineWidth: 1))
         .padding(.horizontal, Mint.pageInset).padding(.vertical, 10)

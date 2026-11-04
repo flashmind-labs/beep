@@ -45,7 +45,7 @@ struct Palette {
         return Palette(page: page, surface: surface, raised: raised, ink: ink,
             muted: .adaptive(0x676C76, 0x8A8F98), dim: .adaptive(0x767B85, 0x5B5F65),
             line: line, soft: line,
-            user: accent.opacity(0.22), onUser: ink,
+            user: .adaptive(0xD5D9F1, 0x202439), onUser: ink,
             brand: .adaptive(0x4F5BC0, 0x8A9CF0), accent: accent, onAccent: .white,
             ok: .adaptive(0x268557, 0x4CB782), warn: .adaptive(0x946B00, 0xF2C94C),
             error: .adaptive(0xC33838, 0xEB5757),
@@ -166,8 +166,8 @@ struct Chunky: ViewModifier {
 
 /// A message bubble's shape, with the corner by its sender pinched.
 func bubbleShape(user: Bool, radius: CGFloat = Mint.radius) -> UnevenRoundedRectangle {
-    user ? UnevenRoundedRectangle(topLeadingRadius: radius, bottomLeadingRadius: radius,
-                                  bottomTrailingRadius: 6, topTrailingRadius: radius)
+    user ? UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
+                                  bottomTrailingRadius: 4, topTrailingRadius: 12)
         : UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: radius,
                                  bottomTrailingRadius: radius, topTrailingRadius: radius)
 }
@@ -249,7 +249,8 @@ struct BackBar<Trailing: View>: View {
             trailing
         }
         .padding(.leading, 6).padding(.trailing, 18)
-        .frame(minHeight: 56)
+        .frame(minHeight: 54)
+        .overlay(alignment: .bottom) { Rectangle().fill(Mint.soft).frame(height: 1) }
     }
 }
 
@@ -259,7 +260,7 @@ struct BackArrow: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "arrow.left").font(.system(size: 20, weight: .medium)).foregroundStyle(Mint.ink)
+            Image(systemName: "chevron.left").font(.system(size: 20, weight: .medium)).foregroundStyle(Mint.ink)
                 .frame(width: 48, height: 48).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -303,7 +304,7 @@ struct PrimaryButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let shape = RoundedRectangle(cornerRadius: Mint.radius)
         configuration.label
-            .font(.body(16, .semibold))
+            .font(.body(14, .semibold))
             .foregroundStyle(Mint.on(fill))
             .frame(maxWidth: .infinity, minHeight: 44)
             .background(shape.fill(fill))

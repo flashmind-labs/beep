@@ -6,6 +6,7 @@ import SwiftUI
 struct MachinesView: View {
     @Environment(AppModel.self) private var model
     let back: () -> Void
+    var terminals: (() -> Void)? = nil
     @State private var machines: [Machine]?
     @State private var stats: [String: MachineStats] = [:]
     @State private var open: String?
@@ -14,7 +15,9 @@ struct MachinesView: View {
     var body: some View {
         let shown = machines?.first { $0.id == open }
         VStack(spacing: 0) {
-            BackBar(title: shown?.name ?? "Machines", back: { if shown != nil { open = nil } else { back() } })
+            BackBar(title: shown?.name ?? "Machines", back: { if shown != nil { open = nil } else { back() } }) {
+                if let terminals { Button("Terminals", action: terminals).buttonStyle(TextAction()) }
+            }
             if let shown {
                 MachineDetail(machine: shown, stats: stats[shown.id])
             } else {
@@ -32,7 +35,7 @@ struct MachinesView: View {
                     if !error.isEmpty { Text(error).font(.body(12)).foregroundStyle(Mint.error) }
                     if let machines {
                         if machines.isEmpty {
-                            Text("No machines yet.\nRun beep-node link on a Mac or Linux box, then paste its link here.")
+                            Text("No machines yet.\nLink a machine to run commands and coding agents.")
                                 .font(.body(13)).foregroundStyle(Mint.muted).lineSpacing(5)
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity).padding(.vertical, 40).padding(.horizontal, 12)
@@ -41,11 +44,9 @@ struct MachinesView: View {
                                 Button { open = machine.id } label: { MachineCard(machine: machine, stats: stats[machine.id]) }
                                     .buttonStyle(.plain)
                             }
-                            Text("Beep runs commands and coding agents on these when you ask. Each one runs beep-node and is linked like a computer.")
-                                .font(.body(12)).foregroundStyle(Mint.muted).lineSpacing(4).padding(.horizontal, 4)
                         }
                     } else if error.isEmpty {
-                        ProgressView().frame(maxWidth: .infinity).padding(40)
+                        WorkspaceLoading()
                     }
                 }
                 .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
@@ -62,6 +63,7 @@ struct MachinesView: View {
             let list = try await model.machines()
             stats = await live
             machines = list
+            await model.workspace.refresh()
             error = ""
         } catch {
             self.error = describe(error)

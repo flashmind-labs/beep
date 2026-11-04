@@ -292,6 +292,7 @@ final class AppModel {
         Task {
             do {
                 try await client.health()
+                await workspace.refresh()
             } catch {
                 guard connectTask == nil else { return }
                 connected = false
@@ -313,6 +314,7 @@ final class AppModel {
         location.refresh()
         await refreshPlaces()
         if chat.busy { launchRun() }
+        await workspace.refresh()
     }
 
     // MARK: Push
@@ -336,6 +338,8 @@ final class AppModel {
         // The server sends the queue as soon as the connection opens.
         try? await Task.sleep(for: .seconds(3))
     }
+
+    @ObservationIgnored lazy var workspace = WorkspaceStore(account: accountName) { [unowned self] in try self.api() }
 
     private func api() throws -> BeepClient {
         guard let client else { throw BeepError.Connection(reason: "Not connected yet") }
@@ -1538,6 +1542,7 @@ final class AppModel {
         reportedTimezone = nil
         places = []
         location.watch([])
+        workspace.clear(account: accountName)
         await refreshAfterConnect()
     }
 
@@ -1564,6 +1569,7 @@ final class AppModel {
         groups = []
         waitingWork = [:]
         ChatStore.clear()
+        workspace.clear(account: accountName)
         await refreshAfterConnect()
     }
 
