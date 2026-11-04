@@ -1,14 +1,18 @@
 //! The "Add a machine" sheet: a one-time setup token the machine claims
 //! with `beep-node setup <token>`. While open, the sheet polls
-//! `node_token_machine` to learn which machine claimed it.
+//! `node_token_machine` to learn which machine claimed it. Or another
+//! machine of the account installs beep-node over its own ssh.
 
 use crate::{
     beep::{Beep, epoch_ms},
     error::{DesktopError, Result},
 };
-use beep_proto::{ApiError, CreateNodeToken, GetNodeToken, RevokeNodeToken, setup::setup_command};
+use beep_proto::{
+    AddMachineOverSsh, ApiError, CreateNodeToken, GetNodeToken, ListSshHosts, RevokeNodeToken,
+    SshAdd, setup::setup_command,
+};
 use serde::Serialize;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tauri::State;
 
 type Service<'a> = State<'a, Arc<Beep>>;
@@ -53,6 +57,29 @@ pub async fn revoke_node_token(beep: Service<'_>, token: String) -> Result<()> {
         Ok(()) | Err(DesktopError::Api(ApiError::NotFound {})) => Ok(()),
         Err(e) => Err(outdated(e)),
     }
+}
+
+/// Longer than the server gives the node to install and link.
+const SSH_ADD_TIMEOUT: Duration = Duration::from_secs(9 * 60);
+
+/// The hosts `machine_id`'s ssh knows, to pick from.
+#[tauri::command]
+pub async fn ssh_hosts(beep: Service<'_>, machine_id: String) -> Result<Vec<String>> {
+    beep.call(ListSshHosts { machine_id })
+        .await
+        .map_err(outdated)
+}
+
+/// Has `machine_id` install beep-node on `target` over ssh and link it.
+#[tauri::command]
+pub async fn add_machine_over_ssh(
+    beep: Service<'_>,
+    machine_id: String,
+    target: String,
+) -> Result<SshAdd> {
+    beep.call_within(AddMachineOverSsh { machine_id, target }, SSH_ADD_TIMEOUT)
+        .await
+        .map_err(outdated)
 }
 
 /// An old server's refusal, in words the sheet shows.

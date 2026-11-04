@@ -25,6 +25,7 @@ pub(crate) mod restart;
 pub mod service;
 pub mod setup;
 mod shell;
+mod ssh;
 pub mod state;
 mod stats;
 pub mod sync;
