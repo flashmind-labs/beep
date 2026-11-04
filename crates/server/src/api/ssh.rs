@@ -1,4 +1,5 @@
-//! Adding a machine over the ssh of another of the caller's machines.
+//! Adding a machine over the ssh of another of the caller's machines, and
+//! where a machine looks for git checkouts.
 
 use super::Reply;
 use crate::{
@@ -28,20 +29,31 @@ pub(super) async fn list_ssh_hosts(
 /// run it is an error.
 pub(super) async fn add_machine_over_ssh(
     cx: Cx,
-    AddMachineOverSsh { machine_id, target }: AddMachineOverSsh,
+    AddMachineOverSsh {
+        machine_id,
+        target,
+        search,
+    }: AddMachineOverSsh,
 ) -> Reply<SshAdd> {
-    let target = target.trim();
+    let (target, search) = (target.trim(), search.trim());
     if target.is_empty() {
         return Err(ApiError::bad_request("Name a host, such as user@host."));
     }
     let online = ssh_node(&cx, &machine_id).await?;
+    // An older node installs without passing the folder on.
+    if !search.is_empty() && !online.runs_search() {
+        return Err(ApiError::bad_request(format!(
+            "Update beep-node on {} to pick where the new machine looks for projects.",
+            online.name
+        )));
+    }
     let made = match nodes::create_token(&cx.app, &cx.user, None).await {
         Ok(made) => made,
         Err(TokenRefusal::Failed(e)) => return Err(e.into()),
         Err(refusal) => return Err(ApiError::bad_request(refusal.to_string())),
     };
     let hash = made.token.hash();
-    let done = online.add_over_ssh(target, &made.token).await;
+    let done = online.add_over_ssh(target, &made.token, search).await;
     let failed = |system: String, error: String, output: Vec<String>| SshAdd {
         machine_id: None,
         system,
@@ -83,9 +95,55 @@ pub(super) async fn add_machine_over_ssh(
     }
 }
 
-/// One of the caller's online machines that runs `ssh/1`. Another
-/// account's machine is `NotFound`, as one that does not exist.
+/// One of the caller's online machines that runs `ssh/1`.
 async fn ssh_node(cx: &Cx, machine_id: &str) -> Result<Online, ApiError> {
+    let (name, online) = owned_online(cx, machine_id).await?;
+    if !online.runs_ssh() {
+        return Err(ApiError::bad_request(format!(
+            "Update beep-node on {name} to add machines over ssh from it."
+        )));
+    }
+    Ok(online)
+}
+
+/// Where `machine_id` looks for git checkouts.
+pub(super) async fn get_machine_search(
+    cx: Cx,
+    GetMachineSearch { machine_id }: GetMachineSearch,
+) -> Reply<String> {
+    let online = search_node(&cx, &machine_id).await?;
+    online
+        .search()
+        .await
+        .map_err(|e| ApiError::bad_request(format!("{e:#}")))
+}
+
+/// Has `machine_id` look for git checkouts in `search` and walk it again.
+pub(super) async fn set_machine_search(
+    cx: Cx,
+    SetMachineSearch { machine_id, search }: SetMachineSearch,
+) -> Reply<String> {
+    let online = search_node(&cx, &machine_id).await?;
+    online
+        .set_search(search.trim())
+        .await
+        .map_err(|e| ApiError::bad_request(format!("{e:#}")))
+}
+
+/// One of the caller's online machines that runs `search/1`.
+async fn search_node(cx: &Cx, machine_id: &str) -> Result<Online, ApiError> {
+    let (name, online) = owned_online(cx, machine_id).await?;
+    if !online.runs_search() {
+        return Err(ApiError::bad_request(format!(
+            "Update beep-node on {name} to pick where it looks for projects."
+        )));
+    }
+    Ok(online)
+}
+
+/// One of the caller's online machines, with its name. Another account's
+/// machine is `NotFound`, as one that does not exist.
+async fn owned_online(cx: &Cx, machine_id: &str) -> Result<(String, Online), ApiError> {
     let owned = cx
         .user
         .nodes()
@@ -99,13 +157,7 @@ async fn ssh_node(cx: &Cx, machine_id: &str) -> Result<Online, ApiError> {
         .online(machine_id)
         .filter(|online| online.user == cx.user.id())
         .ok_or_else(|| ApiError::bad_request(format!("{} is offline.", owned.name)))?;
-    if !online.runs_ssh() {
-        return Err(ApiError::bad_request(format!(
-            "Update beep-node on {} to add machines over ssh from it.",
-            owned.name
-        )));
-    }
-    Ok(online)
+    Ok((owned.name, online))
 }
 
 /// An unused token stops working; a revoke that fails only leaves it to

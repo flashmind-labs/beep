@@ -293,6 +293,8 @@ pub fn router() -> Router {
         .call(machine_tools::update_machine_tool)
         .call(ssh::list_ssh_hosts)
         .call(ssh::add_machine_over_ssh)
+        .call(ssh::get_machine_search)
+        .call(ssh::set_machine_search)
         .call(credentials::list_credentials)
         .call(credentials::save_credential)
         .call(credentials::remove_credential)

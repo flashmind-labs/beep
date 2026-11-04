@@ -192,6 +192,8 @@ fn main() {
             add_machine::node_token_machine,
             add_machine::ssh_hosts,
             add_machine::add_machine_over_ssh,
+            add_machine::machine_search,
+            add_machine::set_machine_search,
             agents::agent_hosts,
             agents::agent_sessions,
             agents::agent_start,

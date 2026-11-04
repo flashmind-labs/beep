@@ -13,13 +13,16 @@ use tokio::{fs, io::AsyncWriteExt, process::Command, time::timeout};
 
 const INSTALL_SH: &str = "curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh";
 const INSTALL_PS1: &str = "irm https://releases.flashmind.com/beep/node/install.ps1 | iex";
-/// Reads the token from stdin, so it is in no command line. install.sh
-/// puts the binary in ~/.local/bin, which a non-login shell may not have on
-/// its PATH.
-const LINK_SH: &str = r#"sh -c 'read -r t && "$HOME/.local/bin/beep-node" setup --no-run "$t" && "$HOME/.local/bin/beep-node" service install'"#;
+/// Reads the token, then the search folder, from stdin, so the token is in
+/// no command line and the folder needs no quoting. install.sh puts the
+/// binary in ~/.local/bin, which a non-login shell may not have on its PATH.
+const LINK_SH: &str = r#"sh -c 'read -r t && read -r s; set -- setup --no-run "$t"; [ -n "$s" ] && set -- "$@" --search "$s"; "$HOME/.local/bin/beep-node" "$@" && "$HOME/.local/bin/beep-node" service install'"#;
 const LINK_PS1: &str = r"$t = [Console]::In.ReadLine()
+$s = [Console]::In.ReadLine()
 $b = Join-Path $env:LOCALAPPDATA 'Programs\beep-node\beep-node.exe'
-& $b setup --no-run $t
+$a = @('setup', '--no-run', $t)
+if ($s) { $a += @('--search', $s) }
+& $b @a
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 & $b service install
 exit $LASTEXITCODE";
@@ -64,7 +67,11 @@ async fn serve(program: OsString, mut tx: LinkTx, mut rx: LinkRx) -> anyhow::Res
                 None => Vec::new(),
             },
         },
-        Some(Request::Add { target, token }) => add(&program, &target, token.expose()).await,
+        Some(Request::Add {
+            target,
+            token,
+            search,
+        }) => add(&program, &target, token.expose(), &search).await,
         _ => return Ok(()),
     };
     tx.send(&event).await?;
@@ -158,9 +165,11 @@ struct Failure {
     output: String,
 }
 
-async fn add(program: &OsString, target: &str, token: &str) -> Event {
+async fn add(program: &OsString, target: &str, token: &str, search: &str) -> Event {
     let mut system = String::new();
-    match steps(program, target, token, &mut system).await {
+    // One line each on stdin.
+    let input = format!("{token}\n{}", search.replace(['\r', '\n'], ""));
+    match steps(program, target, &input, &mut system).await {
         Ok(()) => Event::Added { system },
         Err(Failure { reason, output }) => {
             log::info!("adding a machine over ssh failed; target={target} reason={reason}");
@@ -173,10 +182,11 @@ async fn add(program: &OsString, target: &str, token: &str) -> Event {
     }
 }
 
+/// `input` goes to the link step's stdin: the token, then the search folder.
 async fn steps(
     program: &OsString,
     target: &str,
-    token: &str,
+    input: &str,
     system: &mut String,
 ) -> Result<(), Failure> {
     if target.is_empty() || target.starts_with('-') || target.contains(char::is_whitespace) {
@@ -215,7 +225,7 @@ async fn steps(
     let linked = ssh
         .run(Remote {
             command: link,
-            stdin: Some(token),
+            stdin: Some(input),
             limit: LINK_TIMEOUT,
         })
         .await?;
@@ -393,7 +403,7 @@ case "$target:$cmd" in
   win:uname*) echo "'uname' is not recognized as an internal or external command" >&2; exit 1;;
   *PROCESSOR_ARCHITECTURE*) echo "Windows AMD64";;
   *install.sh*|*install.ps1*) echo "Installed beep-node";;
-  *setup*) read -r t; echo "claiming $t"; [ "$target" = bad-box ] && { echo "token refused" >&2; exit 1; }; [ "$t" = bk1-test-token ] || exit 3;;
+  *setup*) read -r t; read -r s; printf 'search=%s\n' "$s" >> "$(dirname "$0")/calls"; echo "claiming $t"; [ "$target" = bad-box ] && { echo "token refused" >&2; exit 1; }; [ "$t" = bk1-test-token ] || exit 3;;
   *) exit 9;;
 esac
 "#;
@@ -407,14 +417,14 @@ esac
             .expect("the fake ssh is executable");
         let program = ssh.into_os_string();
 
-        let linux = add(&program, "user@linux-box", TOKEN).await;
+        let linux = add(&program, "user@linux-box", TOKEN, "~/My Projects").await;
         assert_eq!(
             linux,
             Event::Added {
                 system: "Linux x86_64".into()
             }
         );
-        let windows = add(&program, "win", TOKEN).await;
+        let windows = add(&program, "win", TOKEN, "").await;
         assert_eq!(
             windows,
             Event::Added {
@@ -422,19 +432,20 @@ esac
             }
         );
 
-        let Event::Failed { reason, output, .. } = add(&program, "down-box", TOKEN).await else {
+        let Event::Failed { reason, output, .. } = add(&program, "down-box", TOKEN, "").await
+        else {
             panic!("an unreachable host fails");
         };
         assert!(reason.starts_with("Connecting failed"), "{reason}");
         assert!(output[0].contains("Connection refused"), "{output:?}");
 
-        let Event::Failed { reason, system, .. } = add(&program, "old-mac", TOKEN).await else {
+        let Event::Failed { reason, system, .. } = add(&program, "old-mac", TOKEN, "").await else {
             panic!("an Intel Mac is refused");
         };
         assert!(reason.contains("Intel"), "{reason}");
         assert_eq!(system, "Darwin x86_64");
 
-        let Event::Failed { reason, output, .. } = add(&program, "bad-box", TOKEN).await else {
+        let Event::Failed { reason, output, .. } = add(&program, "bad-box", TOKEN, "").await else {
             panic!("a failed setup fails");
         };
         assert!(reason.starts_with("Linking failed"), "{reason}");
@@ -444,6 +455,7 @@ esac
         assert!(!calls.contains(TOKEN), "the token went on a command line");
         assert!(calls.contains("user@linux-box|uname -sm"));
         assert!(calls.contains("user@linux-box|curl -fsSL"));
+        assert!(calls.contains("search=~/My Projects\n"));
         assert!(calls.contains("win|powershell -NoProfile"));
         // Nothing past the refusal ran on the Intel Mac.
         assert_eq!(calls.matches("old-mac|").count(), 1);
