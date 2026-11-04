@@ -3,23 +3,30 @@
 import { since } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, note } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, thisMacRow, type MacControl, type MachineCard, type MacRow, type MachineSyncing } from "../center/home-state.ts";
+import { machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineProjects, thisMacRow, type MacControl, type MachineCard, type MachineProject, type MacRow } from "../center/home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
 import { ALL, byMachine } from "../terminals/terminals.ts";
 import { OFFLINE_NOTE_MS, state } from "../center/state.ts";
+import { shown } from "../center/views.ts";
 import { dot, section, plusLabel, rowButton } from "../center/pieces.ts";
 import { draw } from "../center/home.ts";
 import { allTerms, termMachines, openTerminals, terminalRow } from "../terminals/view.ts";
-import { reloadGroup, openAddMachine } from "../center/sidebar.ts";
+import { reloadGroup, openAddMachine, openProjects } from "../center/sidebar.ts";
+import { fsync } from "../project/sections.ts";
+import { openTile } from "../project/split.ts";
 import { refresh } from "../center/refresh.ts";
 
 export const addMachineButton = (cls: string) => plusLabel("Add a machine", cls, openAddMachine);
 
+/// How old the table lets a moving project's detail get.
+const MOVING_MAX_AGE_MS = 5000;
+
 /// One machine per row: name and OS, agents, free disk, memory in use, what
-/// it can run, what it is doing now and New terminal, with its terminals
-/// indented under it. Right-click a machine to remove it.
+/// it can run, what it is doing now and New terminal, with its terminals and
+/// synced projects indented under it. Right-click a machine to remove it.
 function machineTable(machines: MachineCard[]) {
+  readSyncDetails();
   const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Can run", "Now", ""].map(t => h("span", "th", t)));
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
   for (const m of machines) {
@@ -30,8 +37,7 @@ function machineTable(machines: MachineCard[]) {
     const caps = machineCaps(m);
     const can = h("span", `caps${off}`, caps.join(" · ") || "–");
     if (caps.length) can.title = [...caps, ...m.gpus.map(g => g.model)].join(", ");
-    const sync = m.online ? machineSync(m.id, state.sync) : null;
-    const now = sync ? syncCell(sync) : h("span", `num${off}`, machineNow(m));
+    const now = h("span", `num${off}`, machineNow(m));
     if (!m.online) now.title = `Seen ${since(m.seen_at)}`;
     const d = machineDisk(m), mem = machineMemory(m);
     const disk = h("span", `num${off}${d.low ? " low" : ""}`, d.text);
@@ -45,19 +51,42 @@ function machineTable(machines: MachineCard[]) {
     table.append(name, agents, disk, memory, can, now, act);
     machineMenu(m, name, agents, disk, memory, can, now, act);
     for (const t of terms.find(x => x.id === m.id)?.terms || []) table.append(terminalRow(t, m.online));
+    for (const p of machineProjects(m.id, state.sync, fsync.detail)) table.append(projectRow(p));
   }
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
   return table;
 }
 
-/// The Now cell of a machine fetching a synced project: a bar and how far.
-function syncCell(sync: MachineSyncing) {
-  const fill = sync.pct == null ? null : h("i");
-  if (fill) fill.style.width = `${sync.pct}%`;
-  const cell = h("span", "num sync", h("span", "bar", fill), h("small", "", sync.text));
-  cell.title = [`${sync.text.split(",")[0]} ${sync.project}`, sync.files].filter(Boolean).join(": ");
-  return cell;
+/// Reads the sync detail of the projects in `state.sync` that are due, then
+/// draws them, while Home shows.
+function readSyncDetails() {
+  if (shown !== "home") return;
+  const moving = new Set(state.sync.filter(r => r.status === "syncing" || r.status === "scanning").map(r => r.project));
+  const reads = [...new Set(state.sync.map(r => r.project))].map(p => fsync.ensure(p, moving.has(p) ? MOVING_MAX_AGE_MS : undefined)).filter(r => r);
+  if (reads.length) Promise.all(reads).then(draw);
+}
+
+/// A synced project under its machine: how far it is, or its state. Opens the
+/// project's File sync.
+function projectRow(p: MachineProject) {
+  let right: HTMLElement;
+  if (p.pct == null) {
+    right = h("span", `pb-chip${p.chip.wait ? " wait" : ""}`, p.chip.text);
+  } else {
+    const fill = h("i");
+    fill.style.width = `${p.pct}%`;
+    right = h("span", "fs-pct", h("span", "fs-bar", fill), `${p.pct}%`);
+  }
+  const row = h("button", "cc-row tl-row", h("span", `ddot${p.off ? " off" : ""}`),
+    h("span", "t", h("b", "", p.project), h("span", "", p.meta.join(" · "))), h("span", "r", right));
+  row.type = "button";
+  row.title = p.title;
+  row.addEventListener("click", () => {
+    openProjects(p.project);
+    openTile("sync");
+  });
+  return row;
 }
 
 /// This Mac's row while the server does not list it: its state across the

@@ -2,6 +2,7 @@
 // so it can be tested.
 import type { ApprovalField } from "../chat/chat.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
+import { conflictCount, machineMeta, rowDetail, stateChip, syncPct, type SyncDetail } from "../project/filesync.ts";
 
 /// A tool found on a machine's `PATH` (MachineTool).
 export interface MachineTool {
@@ -196,24 +197,44 @@ export function machineNow(m: Pick<MachineCard, "online" | "agents">) {
   return !m.online ? "offline" : m.agents ? "working" : "idle";
 }
 
-/// What a machine is fetching or scanning for a synced project now.
-export interface MachineSyncing {
-  project: string;
-  /// Null while it scans.
-  pct: number | null;
-  text: string;
-  files?: string;
+/// How far machine `id` is with a synced project it fetches or scans now,
+/// from the `project_sync` rows: `pct` is null while it scans. Null when it
+/// is idle or in step.
+export function machineSync(id: string | undefined, rows: readonly Pick<SyncRow, "machine_id" | "status" | "files" | "pending">[] | null | undefined): { pct: number | null } | null {
+  const r = (rows || []).find(x => x.machine_id === id && (x.status === "syncing" || x.status === "scanning"));
+  return r ? { pct: syncPct(rowDetail(r)) } : null;
 }
 
-/// What machine `id` is fetching or scanning for a synced project now, from
-/// the `project_sync` rows, or null when it is idle or in step.
-export function machineSync(id: string | undefined, rows: readonly Pick<SyncRow, "project" | "machine_id" | "status" | "files" | "pending">[] | null | undefined): MachineSyncing | null {
-  const r = (rows || []).find(x => x.machine_id === id && (x.status === "syncing" || x.status === "scanning"));
-  if (!r) return null;
-  if (r.status === "scanning") return { project: r.project, pct: null, text: "Scanning" };
-  const total = r.files + r.pending;
-  const pct = total ? Math.floor((100 * r.files) / total) : 0;
-  return { project: r.project, pct, text: `Syncing, ${pct}%`, files: `${r.files} of ${total} files` };
+/// One project a machine syncs, as its row under the machine shows it.
+export interface MachineProject {
+  project: string;
+  off: boolean;
+  /// How far it is while it moves files; null shows `chip`.
+  pct: number | null;
+  chip: { text: string; wait: boolean };
+  meta: string[];
+  title: string;
+}
+
+/// The projects machine `id` syncs, what needs a look first. `detailOf` gives
+/// a project's read detail, which has the rate, time left, pause and
+/// conflicts; a detail that no longer agrees with the newer row is left out.
+export function machineProjects(id: string, rows: readonly SyncRow[], detailOf: (project: string) => SyncDetail | null | undefined): MachineProject[] {
+  const out = rows.filter(r => r.machine_id === id).map(r => {
+    const read = detailOf(r.project)?.machines.find(m => m.machine_id === id);
+    const m = read?.status === r.status ? read : rowDetail(r);
+    const chip = stateChip(m), n = m.conflicts.length;
+    return {
+      project: r.project,
+      off: m.paused || m.status === "offline",
+      pct: m.paused ? null : syncPct(m),
+      chip: { text: chip.text[0].toUpperCase() + chip.text.slice(1), wait: chip.wait },
+      meta: [...machineMeta(m), ...(n ? [conflictCount(n)] : [])],
+      title: m.error || m.folder || r.project,
+    };
+  });
+  const look = (p: MachineProject) => p.pct != null || p.chip.wait ? 0 : 1;
+  return out.sort((a, b) => look(a) - look(b));
 }
 
 /// A size in bytes, decimal as disks are sold: "850 MB", "4.3 GB",
