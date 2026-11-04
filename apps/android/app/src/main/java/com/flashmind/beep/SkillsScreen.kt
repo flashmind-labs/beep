@@ -94,17 +94,17 @@ internal fun SkillsScreen(repository: ChatRepository, onBack: () -> Unit) {
             }
         }, color = Coral, contentColor = Color.White) { Text("Delete", fontWeight = FontWeight.SemiBold) } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-        title = { Text(displayText("Delete this skill?"), style = displayStyle(22.sp)) },
+        title = { Text(displayText("Delete this skill?"), style = displayStyle(18.sp)) },
         text = { Text("Beep forgets how you like \"${open.name}\" done. It may learn it again if you keep asking for it.", color = TextMuted) },
         containerColor = Surface)
 
     Scaffold(containerColor = Ink, snackbarHost = {
-        SnackbarHost(snackbar) { Snackbar(it, actionColor = Beep.colors.ok, shape = RoundedCornerShape(12.dp)) }
+        SnackbarHost(snackbar) { Snackbar(it, actionColor = Beep.colors.ok, shape = RoundedCornerShape(Beep.shapes.smallRadius)) }
     }, topBar = {
-        if (open == null) TopAppBar(title = { Text(displayText("Skills"), style = displayStyle(24.sp)) },
+        if (open == null) TopAppBar(title = { Text(displayText("Skills"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
-        else TopAppBar(title = { Text(open.name, style = displayStyle(20.sp), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        else TopAppBar(title = { Text(open.name, style = displayStyle(18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = { openId = null }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = {
                 IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, "Edit") }
@@ -162,7 +162,7 @@ private fun SectionLabel(text: String) {
 @Composable
 private fun SkillCard(skill: Skill, onClick: () -> Unit) {
     BeepCard(Modifier.fillMaxWidth().alpha(if (skill.enabled) 1f else 0.65f).clickable(onClick = onClick)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(skill.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(skill.description, fontSize = 12.sp, lineHeight = 17.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -185,7 +185,7 @@ private fun SkillDetail(skill: Skill, onToggle: (Boolean) -> Unit, onUndo: () ->
         }
         if (skill.description.isNotBlank()) Text(skill.description, fontSize = 14.sp, lineHeight = 20.sp, color = TextMuted)
         BeepCard(Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Use this skill", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Text(if (skill.enabled) usage(skill) else "Paused: Beep works it out each time", fontSize = 12.sp, color = TextMuted)
@@ -197,8 +197,8 @@ private fun SkillDetail(skill: Skill, onToggle: (Boolean) -> Unit, onUndo: () ->
         BeepCard(Modifier.fillMaxWidth()) {
             Box(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) { MessageContent(skill.body, "assistant", compact = true, padded = false) }
         }
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Beep.colors.tints[1])
-            .border(1.5.dp, Beep.colors.line, RoundedCornerShape(14.dp)).padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(Beep.shapes.radius)).background(Beep.colors.tints[1])
+            .border(1.5.dp, Beep.colors.line, RoundedCornerShape(Beep.shapes.radius)).padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
@@ -222,7 +222,7 @@ private fun EditSkillDialog(skill: Skill, onDismiss: () -> Unit, onSave: suspend
     val fieldColors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Surface, focusedContainerColor = Surface,
         unfocusedBorderColor = Border, focusedBorderColor = Moss)
     AlertDialog(onDismissRequest = onDismiss, containerColor = Surface,
-        title = { Text(displayText("Edit skill"), style = displayStyle(22.sp)) },
+        title = { Text(displayText("Edit skill"), style = displayStyle(18.sp)) },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { name = it; error = "" }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = fieldColors)
             OutlinedTextField(description, { description = it }, label = { Text("When it applies") }, maxLines = 3, modifier = Modifier.fillMaxWidth(), colors = fieldColors)

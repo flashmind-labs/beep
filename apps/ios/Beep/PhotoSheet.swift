@@ -84,7 +84,7 @@ struct PhotoSheet: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16).padding(.top, 26)
+        .padding(.horizontal, Mint.pageInset).padding(.top, 26)
         .background(Mint.page)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -113,8 +113,8 @@ struct PhotoSheet: View {
                         .background(Mint.tints[2])
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.ledge, lineWidth: cameraAllowed ? 0 : 1.5))
+                .clipShape(RoundedRectangle(cornerRadius: Mint.smallRadius))
+                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.ledge, lineWidth: cameraAllowed ? 0 : 1.5))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Take a photo")
@@ -131,10 +131,10 @@ struct PhotoSheet: View {
         } label: {
             Color.clear.aspectRatio(1, contentMode: .fit)
                 .overlay { AssetThumb(asset: asset) }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: Mint.smallRadius))
                 .overlay {
                     if number != nil {
-                        RoundedRectangle(cornerRadius: 12).strokeBorder(Mint.brand, lineWidth: 3)
+                        RoundedRectangle(cornerRadius: Mint.smallRadius).strokeBorder(Mint.brand, lineWidth: 3)
                     }
                 }
                 .overlay(alignment: .topTrailing) {

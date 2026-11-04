@@ -78,7 +78,7 @@ struct RouteCardView: View {
                 .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 14)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: Mint.radius))
         .card()
         .task(id: callId) {
             card = await model.route(callId: callId)
@@ -180,8 +180,8 @@ private struct RideLeg: View {
             Text(badge).font(.body(11, .bold)).lineLimit(1)
                 .foregroundStyle(Color(hexString: leg.textColor) ?? .white)
                 .padding(.horizontal, 5).frame(minWidth: 34, minHeight: 22)
-                .background(RoundedRectangle(cornerRadius: 6).fill(color))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Mint.ledge, lineWidth: 1.5))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(color))
+                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.ledge, lineWidth: 1.5))
             VStack(alignment: .leading, spacing: 2) {
                 Text(leg.name.isEmpty ? badge : leg.name).fontWeight(.semibold)
                     + Text(leg.headsign.isEmpty ? "" : " toward \(leg.headsign)").foregroundStyle(Mint.muted)

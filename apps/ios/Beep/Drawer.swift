@@ -136,7 +136,7 @@ struct ChatsDrawer<Content: View>: View {
     private var sheet: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Your chats").font(.display(26)).foregroundStyle(Mint.ink)
+                Text("Your chats").font(.display(18)).foregroundStyle(Mint.ink)
                 Spacer()
                 Button(action: newGroup) { Image(systemName: "person.badge.plus") }
                     .buttonStyle(ChunkyButton(size: 40))
@@ -167,7 +167,7 @@ struct ChatsDrawer<Content: View>: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(Mint.soft).frame(height: 1).padding(.horizontal, 20).padding(.vertical, 8)
+            Rectangle().fill(Mint.soft).frame(height: 1).padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     tile("Memories", "brain", Mint.tints[0], .memories)
@@ -180,7 +180,7 @@ struct ChatsDrawer<Content: View>: View {
                     tile("Research", "flask", Mint.tints[2], .researches)
                 }
             }
-            .padding(.horizontal, 16).padding(.bottom, 8)
+            .padding(.horizontal, Mint.pageInset).padding(.bottom, 8)
             HStack(spacing: 6) {
                 Button { show(.settings) } label: {
                     HStack(spacing: 8) {
@@ -204,7 +204,7 @@ struct ChatsDrawer<Content: View>: View {
         let all = Set(rows.map(\.id))
         let everything = !all.isEmpty && ids.isSuperset(of: all)
         return HStack(spacing: 4) {
-            Text("\(ids.count) selected").font(.body(15, .semibold)).foregroundStyle(Mint.ink)
+            Text("\(ids.count) selected").font(.body(14, .semibold)).foregroundStyle(Mint.ink)
             Spacer()
             Button(everything ? "None" : "All") { picked = everything ? [] : ids.union(all) }
                 .buttonStyle(TextAction())
@@ -268,11 +268,11 @@ struct ChatsDrawer<Content: View>: View {
                     .accessibilityLabel("Clear")
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Mint.pageInset)
         .frame(minHeight: 52)
-        .background(RoundedRectangle(cornerRadius: 18).fill(Mint.surface))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Mint.soft, lineWidth: 1))
-        .padding(.horizontal, 20).padding(.vertical, 14)
+        .background(RoundedRectangle(cornerRadius: Mint.radius).fill(Mint.surface))
+        .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.soft, lineWidth: 1))
+        .padding(.horizontal, Mint.pageInset).padding(.vertical, 10)
     }
 
     // MARK: Rows
@@ -376,7 +376,7 @@ struct ChatsDrawer<Content: View>: View {
                     .lineLimit(2).multilineTextAlignment(.leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16).padding(.vertical, 8)
+            .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             .contentShape(Rectangle())
             .padding(.horizontal, 12).padding(.vertical, 2)
         }
@@ -432,8 +432,8 @@ private extension View {
     /// A drawer row: rounded, filled with the user colour when it is the chat on screen.
     func rowFrame(highlighted: Bool) -> some View {
         frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-            .padding(.horizontal, 16).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 12).fill(highlighted ? Mint.user : .clear))
+            .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(highlighted ? Mint.user : .clear))
             .contentShape(Rectangle())
             .padding(.horizontal, 12).padding(.vertical, 2)
     }
@@ -444,14 +444,12 @@ private struct TileButton: ButtonStyle {
     let fill: Color
 
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 12)
-        let down: CGFloat = configuration.isPressed ? 3 : 0
+        let shape = RoundedRectangle(cornerRadius: Mint.smallRadius)
         configuration.label
             .background(shape.fill(fill))
-            .overlay(shape.stroke(Mint.ledge, lineWidth: 2))
-            .offset(x: down, y: down)
+            .overlay(shape.stroke(Mint.soft, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.7 : 1)
             .animation(.sink, value: configuration.isPressed)
-            .dropShadow(shape, fill: fill)
     }
 }
 
@@ -538,7 +536,7 @@ private struct SwipeHint: View {
                 .foregroundStyle(Mint.ink)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(ready ? Mint.accent : Mint.surface))
-                .overlay(Circle().stroke(Mint.ledge, lineWidth: 2))
+                .overlay(Circle().stroke(Mint.soft, lineWidth: 1))
             Text(label).font(.body(11, .semibold)).foregroundStyle(Mint.muted)
         }
         .opacity(progress)
@@ -621,7 +619,7 @@ extension View {
     }
 }
 
-/// A round avatar with a ledge outline: Beep's "b" or a group's initials.
+/// A group avatar.
 struct ChatAvatar: View {
     let text: String
     let fill: Color

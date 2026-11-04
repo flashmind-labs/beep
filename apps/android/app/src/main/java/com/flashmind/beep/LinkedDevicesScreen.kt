@@ -131,7 +131,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
     if (showingCode) ShowCodeSheet(repository, onDismiss = { showingCode = false; refresh() })
 
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Linked devices"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Linked devices"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
@@ -151,14 +151,14 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
             }
             if (devices != null) {
                 Button(onClick = codes::scan, modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(Beep.shapes.radius),
                     colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                     Icon(Icons.Outlined.Laptop, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                     Text("Scan a computer's code", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(10.dp))
                 ChunkyButton(onClick = { showingCode = true }, modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(16.dp)) {
+                    shape = RoundedCornerShape(Beep.shapes.radius)) {
                     Icon(Icons.Outlined.PhoneAndroid, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
                     Text("Show a code for a new device", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
@@ -192,7 +192,7 @@ private fun DeviceRow(device: LinkedDevice, machine: Boolean, canRemove: Boolean
         }
         if (device.primary) {
             Text("Owner", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink,
-                modifier = Modifier.background(Beep.colors.tints[1], RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp))
+                modifier = Modifier.background(Beep.colors.tints[1], RoundedCornerShape(Beep.shapes.smallRadius)).padding(horizontal = 8.dp, vertical = 3.dp))
         } else if (canRemove) {
             TextButton(onClick = onRemove) { Text("Remove", color = Beep.colors.error) }
         }
@@ -220,7 +220,7 @@ private fun LinkSheet(preview: LinkPreview, onCancel: () -> Unit, onLink: () -> 
             }
         }
         Text("It will see your chats and memories.", fontSize = 15.sp, lineHeight = 22.sp, color = Beep.colors.ink)
-        Column(Modifier.fillMaxWidth().background(Beep.colors.raised, RoundedCornerShape(14.dp))
+        Column(Modifier.fillMaxWidth().background(Beep.colors.raised, RoundedCornerShape(Beep.shapes.radius))
             .padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row {
                 Text("Code", fontSize = 13.sp, color = Beep.colors.muted, modifier = Modifier.width(84.dp))
@@ -235,7 +235,7 @@ private fun LinkSheet(preview: LinkPreview, onCancel: () -> Unit, onLink: () -> 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onCancel) { Text("Cancel") }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = onLink, shape = RoundedCornerShape(14.dp),
+            Button(onClick = onLink, shape = RoundedCornerShape(Beep.shapes.radius),
                 colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                 Text("Link")
             }
@@ -266,7 +266,7 @@ private fun JoinSheet(preview: JoinPreview, onCancel: () -> Unit, onJoin: () -> 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onCancel) { Text("Cancel") }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = onJoin, shape = RoundedCornerShape(14.dp),
+            Button(onClick = onJoin, shape = RoundedCornerShape(Beep.shapes.radius),
                 colors = ButtonDefaults.buttonColors(containerColor = Beep.colors.accent, contentColor = Beep.colors.onAccent)) {
                 Text("Join")
             }
@@ -392,7 +392,7 @@ internal fun LinkCodeSheets(codes: LinkCodes) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(text, { text = it }, singleLine = true, placeholder = { Text("K7QM4-X9TRP") },
                         textStyle = TextStyle(fontFamily = FontFamily.Monospace),
-                        shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth())
+                        shape = RoundedCornerShape(Beep.shapes.smallRadius), modifier = Modifier.fillMaxWidth())
                     Text("The code your other device shows under Settings, Devices, or the link beep-node link prints.",
                         fontSize = 12.sp, color = Beep.colors.muted)
                 }
@@ -436,15 +436,15 @@ private fun ShowCodeSheet(repository: ChatRepository, onDismiss: () -> Unit) {
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Beep.colors.surface) {
         Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(displayText("Add a device"), style = displayStyle(24.sp), color = Beep.colors.ink)
+            Text(displayText("Add a device"), style = displayStyle(18.sp), color = Beep.colors.ink)
             Text("On the new phone or computer, scan this in Beep: Settings, Linked devices, or Using Beep on a computer on iPhone. " +
                 "Its chats and memories move to this account.",
                 fontSize = 13.sp, lineHeight = 19.sp, color = Beep.colors.muted)
-            Box(Modifier.size(180.dp).align(Alignment.CenterHorizontally).background(QR_PAPER, RoundedCornerShape(12.dp)).padding(12.dp),
+            Box(Modifier.size(180.dp).align(Alignment.CenterHorizontally).background(QR_PAPER, RoundedCornerShape(Beep.shapes.smallRadius)).padding(12.dp),
                 contentAlignment = Alignment.Center) {
                 invite?.let { QrCode(it.uri, Modifier.fillMaxSize().alpha(if (expired) 0.15f else 1f)) }
             }
-            Box(Modifier.fillMaxWidth().height(56.dp).background(Beep.colors.page, RoundedCornerShape(12.dp)),
+            Box(Modifier.fillMaxWidth().height(56.dp).background(Beep.colors.page, RoundedCornerShape(Beep.shapes.smallRadius)),
                 contentAlignment = Alignment.Center) {
                 val shown = invite
                 if (shown == null) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Beep.colors.muted)
@@ -464,7 +464,7 @@ private fun ShowCodeSheet(repository: ChatRepository, onDismiss: () -> Unit) {
                 }, enabled = invite != null) { Text("Copy code") }
                 Spacer(Modifier.weight(1f))
                 ChunkyButton(onClick = onDismiss, color = Beep.colors.accent, contentColor = Beep.colors.onAccent,
-                    shape = RoundedCornerShape(12.dp)) { Text("Done", fontWeight = FontWeight.SemiBold) }
+                    shape = RoundedCornerShape(Beep.shapes.smallRadius)) { Text("Done", fontWeight = FontWeight.SemiBold) }
             }
         }
     }

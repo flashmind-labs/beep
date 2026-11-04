@@ -154,7 +154,6 @@ struct RecRow: View {
 
 private struct RecCardView: View {
     @Environment(\.openURL) private var openURL
-    @Environment(AppModel.self) private var model
     let card: RecCard
     @State private var addingEvent = false
 
@@ -165,7 +164,7 @@ private struct RecCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                if let place { openURL(mapsLink(place, directions: false)) } else { model.openBrowser(card.url) }
+                if let place { openURL(mapsLink(place, directions: false)) } else { openURL(card.url) }
             } label: { content }
                 .buttonStyle(.plain)
                 .accessibilityHint(place != nil ? "Opens in Maps" : "Opens the page")
@@ -176,8 +175,8 @@ private struct RecCardView: View {
                         Button(action: action.run) {
                             Text(action.label).font(.body(12.5, .semibold)).foregroundStyle(Mint.ink).lineLimit(1)
                                 .frame(maxWidth: .infinity, minHeight: 32)
-                                .background(RoundedRectangle(cornerRadius: 9).fill(Mint.surface))
-                                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Mint.ledge, lineWidth: 1.5))
+                                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+                                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.ledge, lineWidth: 1.5))
                         }
                         .buttonStyle(.plain)
                     }
@@ -188,7 +187,7 @@ private struct RecCardView: View {
             }
         }
         .background(Mint.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: Mint.radius))
         .chunky(Mint.surface, radius: 16)
         .sheet(isPresented: $addingEvent) {
             if let event { EventEditor(title: card.title, event: event, notes: card.url, place: event.venue ?? card.subtitle) }
@@ -247,11 +246,11 @@ private struct RecCardView: View {
         var out: [Action] = []
         if let place {
             out.append(Action(label: "Directions") { openURL(mapsLink(place, directions: true)) })
-            if let booking = place.bookingURL { out.append(Action(label: "Book") { model.openBrowser(booking) }) }
+            if let booking = place.bookingURL { out.append(Action(label: "Book") { openURL(booking) }) }
         }
         if let event {
             out.append(Action(label: "Calendar") { addingEvent = true })
-            if let tickets = event.ticketsURL { out.append(Action(label: "Tickets") { model.openBrowser(tickets) }) }
+            if let tickets = event.ticketsURL { out.append(Action(label: "Tickets") { openURL(tickets) }) }
         }
         if let media, let watch = media.watchURL {
             let name = media.watch.map { $0.hasPrefix("Rent on ") ? String($0.dropFirst(8)) : $0 } ?? "page"
@@ -295,10 +294,10 @@ private struct RecPicture: View {
             if let event {
                 VStack(spacing: 0) {
                     Text(day(event, "EEE").uppercased()).font(.body(9.5, .semibold)).foregroundStyle(Mint.accent)
-                    Text(day(event, "d")).font(.body(17, .bold)).foregroundStyle(Mint.ink)
+                    Text(day(event, "d")).font(.body(14, .bold)).foregroundStyle(Mint.ink)
                 }
                 .frame(width: 42).padding(.vertical, 4)
-                .chunky(Mint.surface, radius: 10, drop: 2)
+                .chunky(Mint.surface, radius: 10)
                 .padding(10)
             }
         }

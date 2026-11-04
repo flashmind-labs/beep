@@ -228,7 +228,7 @@ fun AppsScreen(repository: ChatRepository, onBack: () -> Unit) {
 
     val t = Beep.colors
     Scaffold(containerColor = t.page, topBar = {
-        TopAppBar(title = { Text(displayText("Apps"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Apps"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = t.page))
     }) { padding ->
@@ -293,7 +293,7 @@ private fun SectionLabel(text: String) {
 private fun AppRow(app: AppIntegration, busy: Boolean, onConnect: () -> Unit, onOpen: () -> Unit, detail: String? = null) {
     val t = Beep.colors
     BeepCard(Modifier.fillMaxWidth().then(if (app.connected) Modifier.clickable(onClick = onOpen) else Modifier)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.CenterVertically) {
             AppLogo(app)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
@@ -327,7 +327,7 @@ private fun mcpToolLabel(name: String): String =
 private fun McpServerRow(server: McpServer, busy: Boolean, onSignIn: () -> Unit, onOpen: () -> Unit) {
     val t = Beep.colors
     BeepCard(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.CenterVertically) {
             AppLogo(server.id, server.name)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
@@ -370,7 +370,7 @@ private fun AddMcpServerDialog(repository: ChatRepository, onDismiss: () -> Unit
     } }
     val fieldColors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = t.surface, focusedContainerColor = t.surface)
     AlertDialog(onDismissRequest = { if (!working) onDismiss() }, containerColor = t.surface,
-        title = { Text(displayText("Add MCP server"), style = displayStyle(22.sp)) },
+        title = { Text(displayText("Add MCP server"), style = displayStyle(18.sp)) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { name = it.take(60) }, label = { Text("Name") }, singleLine = true, enabled = !working,
                 modifier = Modifier.fillMaxWidth(), placeholder = { Text("Team wiki") }, colors = fieldColors,
@@ -428,7 +428,7 @@ private fun McpServerScreen(repository: ChatRepository, server: McpServer, busy:
     asking?.let { tool ->
         val limit = tools?.limit ?: 25u
         AlertDialog(onDismissRequest = { asking = null }, containerColor = t.surface,
-            title = { Text(displayText("Turn on more than $limit tools?"), style = displayStyle(22.sp)) },
+            title = { Text(displayText("Turn on more than $limit tools?"), style = displayStyle(18.sp)) },
             text = { Text("Beep works best with $limit tools or fewer from one server. With more, replies get slower and Beep is more likely to pick the wrong tool.",
                 fontSize = 14.sp, color = t.muted, lineHeight = 20.sp) },
             confirmButton = { ChunkyButton(onClick = { asking = null; set(tool, true) }, color = t.accent, contentColor = t.onAccent) {
@@ -611,7 +611,7 @@ private fun AppPermissionsScreen(repository: ChatRepository, app: AppIntegration
                     BeepCard(Modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton) {
                         if (!selected) save(current.copy(level = level))
                     }) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(selected, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = t.ok))
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {

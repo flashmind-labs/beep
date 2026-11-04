@@ -56,8 +56,8 @@ struct ChatCamera: View {
                 ZStack(alignment: .bottomTrailing) {
                     if let last = shots.last {
                         PhotoThumb(data: last).frame(width: 48, height: 48)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white, lineWidth: 2))
+                            .clipShape(RoundedRectangle(cornerRadius: Mint.smallRadius))
+                            .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(.white, lineWidth: 2))
                         Text("\(shots.count)").font(.body(11, .bold)).foregroundStyle(Mint.ink)
                             .frame(minWidth: 18, minHeight: 18).background(Capsule().fill(Mint.accent)).padding(2)
                     }
@@ -141,7 +141,7 @@ struct ChatCamera: View {
                 }
                 .buttonStyle(PillButton(fill: Mint.accent))
             }
-            .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 22)
+            .padding(.horizontal, Mint.pageInset).padding(.top, 8).padding(.bottom, 22)
         }
     }
 

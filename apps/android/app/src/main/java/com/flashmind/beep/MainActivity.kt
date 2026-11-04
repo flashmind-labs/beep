@@ -235,10 +235,7 @@ open class MainActivity : ComponentActivity() {
         // A recreated activity (theme or font change) keeps the chat it was on.
         if (savedInstanceState == null) takeIntent(intent)
         setContent {
-            BeepTheme { CompositionLocalProvider(LocalUriHandler provides OutsideUriHandler(this), LocalOpenLink provides { url: String ->
-                // The bubble has no room for the browser, so its links go to the phone's own.
-                if (bubble) ExternalBrowser.open(this, url) else repository.openBrowser(url)
-            }) {
+            BeepTheme { CompositionLocalProvider(LocalUriHandler provides OutsideUriHandler(this)) {
                 BeepApp(repository, bubble, locationPermission = locationPermission, focusInput = pendingFocusInput, openApps = pendingOpenApps, openRead = pendingOpenRead, shareToken = pendingShareToken, groupToken = pendingGroupToken, groupToOpen = pendingGroup, chatToOpen = pendingChat, clipboardContent = clipboardContent, onFloat = {
                     if (Bubble.kind(this) == BubbleKind.System || Bubble.allowed(this) || Bubble.asked(this)) float()
                     else { Bubble.markAsked(this); pendingFloat = true; Bubble.settings(this) }
@@ -255,12 +252,12 @@ open class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (!bubble) Bubble.appShown(true)
-        (application as BeepApplication).repository.chatScreenShown(true, bubble)
+        (application as BeepApplication).repository.chatScreenShown(true)
     }
     override fun onStop() {
         super.onStop()
         if (!bubble) Bubble.appShown(false)
-        (application as BeepApplication).repository.chatScreenShown(false, bubble)
+        (application as BeepApplication).repository.chatScreenShown(false)
     }
     /** Float Beep: the overlay bubble when picked and allowed, otherwise the system bubble. */
     private fun float() {
@@ -341,7 +338,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val connected by repository.connected.collectAsStateWithLifecycle()
     val pendingAppIntent by repository.pendingIntent.collectAsStateWithLifecycle()
     val pendingAlarm by repository.pendingAlarm.collectAsStateWithLifecycle()
-    val browserOpen by repository.browserOpen.collectAsStateWithLifecycle()
     var drawerOpen by remember { mutableStateOf(false) }
     var bubbleMenu by remember { mutableStateOf(false) }
     // The system bubble lives in the notification shade, so it is checked again each time the app comes back.
@@ -572,7 +568,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
             Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(displayText("Your chats"), Modifier.weight(1f), style = displayStyle(26.sp))
+                Text(displayText("Your chats"), Modifier.weight(1f), style = displayStyle(18.sp))
                 if (!bubble) ChunkyButton(onClick = { newGroup = true }, shape = RoundedCornerShape(Beep.shapes.smallRadius),
                     modifier = Modifier.size(40.dp), contentPadding = PaddingValues(0.dp)) {
                     Icon(Icons.Outlined.GroupAdd, "New group", Modifier.size(20.dp))
@@ -721,7 +717,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     }) { Text("Rename") } },
                     dismissButton = { TextButton(onClick = { showRenameDialog = null }) { Text("Cancel") } },
                     title = { Text("Rename conversation") },
-                    text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true, shape = RoundedCornerShape(12.dp),
+                    text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true, shape = RoundedCornerShape(Beep.shapes.smallRadius),
                         modifier = Modifier.fillMaxWidth()) },
                     containerColor = Surface)
             }
@@ -775,13 +771,13 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             val searching = historyQuery.isNotBlank()
             if (!bubble && !cover && !searching) {
                 HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = Border)
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.padding(horizontal = BeepSpace.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Memories; drawerOpen = false }
                     DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Crons; drawerOpen = false }
                     DrawerTile("Skills", Icons.Outlined.AutoAwesome, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Skills; drawerOpen = false }
                 }
                 Spacer(Modifier.height(8.dp))
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.padding(horizontal = BeepSpace.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DrawerTile("Places", Icons.Outlined.Place, Beep.colors.tints[1], Modifier.weight(1f)) { screen = Screen.Places; drawerOpen = false }
                     DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[0], Modifier.weight(1f)) { screen = Screen.Integrations; drawerOpen = false }
                     DrawerTile("Research", Icons.Outlined.Science, Beep.colors.tints[2], Modifier.weight(1f)) { screen = Screen.Researches; drawerOpen = false }
@@ -895,12 +891,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
     inviting?.let { invite ->
         GroupInviteSheet(repository, invite.id, invite.name, onDismiss = { inviting = null })
-    }
-    // Browser overlay, never in the bubble
-    AnimatedVisibility(visible = browserOpen && !bubble,
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it }) {
-        BrowserScreen(onClose = { repository.closeBrowser() })
     }
 }
 

@@ -58,7 +58,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.flashmind.beep.proto.Agents
 import com.flashmind.beep.proto.ModelChoice
-import com.flashmind.beep.proto.Models
 import com.flashmind.beep.proto.ReasoningLevel
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +76,7 @@ fun SettingsScreen(
     onGrants: () -> Unit,
 ) {
     Scaffold(containerColor = Beep.colors.page, topBar = {
-        TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(24.sp)) },
+        TopAppBar(title = { Text(displayText("Settings"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Beep.colors.page))
     }) { padding ->
@@ -150,7 +149,7 @@ private fun BubblePicker(onBubbleSettings: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             BubbleKind.entries.forEach { option ->
                 val selected = option == kind
-                val shape = RoundedCornerShape(14.dp)
+                val shape = RoundedCornerShape(Beep.shapes.radius)
                 Row(Modifier.fillMaxWidth()
                     .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
                     .clip(shape)
@@ -254,7 +253,7 @@ private fun ModelPicker(repository: ChatRepository, agentsOn: Boolean) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 current.choices.forEach { choice ->
                     val selected = choice.id == current.selected
-                    val shape = RoundedCornerShape(14.dp)
+                    val shape = RoundedCornerShape(Beep.shapes.radius)
                     Row(Modifier.fillMaxWidth()
                         .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
                         .clip(shape)

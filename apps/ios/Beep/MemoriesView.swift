@@ -35,11 +35,11 @@ struct MemoriesView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(minHeight: 50)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Mint.surface))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Mint.soft, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.surface))
+                .overlay(RoundedRectangle(cornerRadius: Mint.smallRadius).stroke(Mint.soft, lineWidth: 1))
                 Text("\(shown.count)").font(.body(12)).foregroundStyle(Mint.muted)
             }
-            .padding(.horizontal, 20).padding(.vertical, 8)
+            .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             if !reads.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -48,18 +48,18 @@ struct MemoriesView: View {
                             ReadChip(label: readLabel(r), count: r.memories.count, selected: r.id == readId) { readId = r.id }
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, Mint.pageInset)
                 }
             }
             if !scopes.isEmpty { subjectChips }
             if let read {
                 Text("What Beep learned or confirmed reading \(read.source) \(readDate(read)).")
                     .font(.body(12)).foregroundStyle(Mint.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Mint.pageInset).padding(.vertical, 6)
             }
             if !error.isEmpty {
                 Text(error).font(.body(12)).foregroundStyle(Mint.error)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Mint.pageInset)
             }
             if !loaded, memories.isEmpty {
                 ProgressView().padding(40)
@@ -87,7 +87,7 @@ struct MemoriesView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
                 }
                 .refreshable { await load() }
             }
@@ -137,14 +137,14 @@ struct MemoriesView: View {
                     ReadChip(label: scopeLabel(entry.value), count: counts[entry.key], selected: about == entry.key) { about = entry.key }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, Mint.pageInset)
         }
         .padding(.vertical, 4)
         if let about {
             let what = about == userSubject ? "you" : named[about].map(scopeSubject) ?? "this"
             Text("What Beep knows about \(what).")
                 .font(.body(12)).foregroundStyle(Mint.muted)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Mint.pageInset).padding(.vertical, 6)
         }
     }
 
@@ -231,7 +231,7 @@ private struct MemoryCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Forget")
         }
-        .padding(14)
+        .padding(Mint.spacing)
         .card()
         .contentShape(Rectangle())
         .onTapGesture(perform: edit)

@@ -124,7 +124,7 @@ struct LiveDock: View {
                     } else {
                         // The newest words, when there are more than the dock holds.
                         Text(view.words.count > 140 ? "…" + String(view.words.suffix(140)) : view.words)
-                            .font(.body(15, .medium)).foregroundStyle(Mint.ink).lineLimit(3)
+                            .font(.body(14, .medium)).foregroundStyle(Mint.ink).lineLimit(3)
                     }
                 case .thinking:
                     if let said = live.said { previous(said) }
@@ -132,7 +132,7 @@ struct LiveDock: View {
                 case .speaking:
                     if let prev = view.prev { previous(prev) }
                     if let line = view.line {
-                        Text(line).font(.body(15, .medium)).foregroundStyle(Mint.ink).lineLimit(4)
+                        Text(line).font(.body(14, .medium)).foregroundStyle(Mint.ink).lineLimit(4)
                     }
                     if let step = view.step { StepRow(text: step).padding(.top, 2) }
                 }
@@ -148,7 +148,7 @@ struct LiveDock: View {
     }
 
     private func placeholder(_ text: String) -> some View {
-        Text(text).font(.body(15)).foregroundStyle(Mint.dim)
+        Text(text).font(.body(14)).foregroundStyle(Mint.dim)
     }
 
     /// The line before, small and on one line above the caption.
@@ -198,12 +198,9 @@ struct LiveDock: View {
 
 /// The colors live voice adds to the app's own.
 enum LiveColors {
-    static let listen = Color(hex: 0x3B9B7A)
-    /// Darker than the orb's coral, so the word reads on the dock.
-    static let speak = Color(hex: 0xD9604F)
-    /// Around the edge: coral, peach, butter, mint, green, sky, rose.
-    static let glow: [Color] = ([0xF07A6A, 0xFFB59E, 0xFFE08A, 0xA6EBCF, 0x3B9B7A, 0x6FC3D9, 0xF59A8C, 0xF07A6A] as [UInt32])
-        .map { Color(hex: $0) }
+    static var listen: Color { Mint.ok }
+    static var speak: Color { Mint.brand }
+
 }
 
 /// The orb, which takes the dock's taps: a tap leaves while listening or stops the answer,
@@ -286,48 +283,22 @@ struct LiveOrb: View {
     var still: Bool
     var size: CGFloat = 32
 
-    private struct Tones {
-        var light, mid, deep, glow: Color
-    }
-
-    private var tones: Tones {
+    private var tone: Color {
         switch mood {
-        case .idle: Tones(light: Color(hex: 0x9FC2B2), mid: Color(hex: 0x4F6E61), deep: Color(hex: 0x1E2E27), glow: Color(hex: 0x92A59A))
-        case .listen: Tones(light: Color(hex: 0xA6EBCF), mid: Color(hex: 0x3B9B7A), deep: Color(hex: 0x0F3B2C), glow: Color(hex: 0x3B9B7A))
-        case .think: Tones(light: Color(hex: 0x7FBFA6), mid: Color(hex: 0x2E6F59), deep: Color(hex: 0x0D2A20), glow: Color(hex: 0x3B9B7A))
-        case .speak: Tones(light: Color(hex: 0xFFD0C7), mid: Color(hex: 0xF07A6A), deep: Color(hex: 0x5A231C), glow: Color(hex: 0xF07A6A))
+        case .idle: Mint.muted
+        case .listen: Mint.ok
+        case .think, .speak: Mint.accent
         }
     }
 
     var body: some View {
-        // The shadow and the inner shade were drawn for a 112 point orb.
-        let scale = size / 112
-        TimelineView(.animation(paused: still || mood != .think)) { context in
-            let breath = mood == .think && !still
-                ? 1 + 0.04 * sin(context.date.timeIntervalSinceReferenceDate * 2 * .pi / 2.4) : 1
-            let palette = tones
-            ZStack {
-                Circle().stroke(palette.glow.opacity(0.07 + level * 0.2), lineWidth: 1.5)
-                    .frame(width: size, height: size).scaleEffect(1.18 + level * 0.55)
-                Circle().stroke(palette.glow.opacity(0.16 + level * 0.35), lineWidth: 1.5)
-                    .frame(width: size, height: size).scaleEffect(1.05 + level * 0.35)
-                Circle()
-                    .fill(RadialGradient(stops: [
-                        .init(color: palette.light, location: 0),
-                        .init(color: palette.mid, location: 0.46),
-                        .init(color: palette.deep, location: 1),
-                    ], center: UnitPoint(x: 0.36, y: 0.3), startRadius: 0, endRadius: size * 0.75))
-                    .overlay(Circle().stroke(.black.opacity(0.15), lineWidth: 6 * scale).blur(radius: 6 * scale)
-                        .offset(y: -3 * scale).clipShape(Circle()))
-                    .frame(width: size, height: size)
-                    .shadow(color: palette.glow.opacity(0.3 + level * 0.4), radius: (11 + level * 25) * scale)
-                    .scaleEffect(1 + level * 0.2)
-            }
-            .scaleEffect(breath)
-            .frame(width: size * 1.5, height: size * 1.5)
-            .animation(still ? nil : .linear(duration: 0.08), value: level)
-            .animation(.easeInOut(duration: 0.3), value: mood)
+        ZStack {
+            Circle().fill(tone.opacity(0.15 + level * 0.25))
+                .frame(width: size, height: size).scaleEffect(1.1 + level * 0.35)
+            Circle().fill(tone).frame(width: size, height: size)
         }
+        .frame(width: size * 1.5, height: size * 1.5)
+        .animation(still ? nil : .linear(duration: 0.08), value: level)
     }
 }
 

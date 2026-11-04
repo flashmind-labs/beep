@@ -30,11 +30,11 @@ struct LinkedDevicesView: View {
                         Text(error).font(.body(12)).foregroundStyle(Mint.error).padding(.top, 8)
                     }
                 }
-                .padding(.horizontal, 20).padding(.vertical, 8)
+                .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
             if devices != nil {
                 ComputerCard(buttons: true) { Task { await refresh() } }
-                    .padding(.horizontal, 20).padding(.bottom, 8)
+                    .padding(.horizontal, Mint.pageInset).padding(.bottom, 8)
             }
         }
         .background(Mint.page)
@@ -77,17 +77,17 @@ struct LinkedDevicesView: View {
             Image(systemName: machine ? "server.rack" : computer ? "laptopcomputer" : "iphone")
                 .font(.system(size: 18)).foregroundStyle(Mint.ink)
                 .frame(width: 40, height: 40)
-                .background(RoundedRectangle(cornerRadius: 11).fill(Mint.tints[machine ? 2 : computer ? 0 : 1]))
+                .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[machine ? 2 : computer ? 0 : 1]))
             VStack(alignment: .leading, spacing: 1) {
                 Text(device.thisDevice && !computer ? UIDevice.current.name : device.name)
-                    .font(.body(15, .medium)).foregroundStyle(Mint.ink)
+                    .font(.body(14, .medium)).foregroundStyle(Mint.ink)
                 Text(note).font(.body(12)).foregroundStyle(Mint.muted)
             }
             Spacer(minLength: 0)
             if device.primary {
                 Text("Owner").font(.body(12, .medium)).foregroundStyle(Mint.ink)
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Mint.tints[1]))
+                    .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[1]))
             } else if canRemove {
                 Button("Remove") { removing = device }.buttonStyle(TextAction(color: Mint.error))
             }

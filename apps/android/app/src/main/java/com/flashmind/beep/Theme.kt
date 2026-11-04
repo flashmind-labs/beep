@@ -1,13 +1,13 @@
 package com.flashmind.beep
 
-import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import android.content.Context
 import android.provider.Settings as SystemSettings
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.Shapes
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -39,23 +38,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawOutline
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -91,7 +86,6 @@ data class BeepColors(
     val ledge: Color,
     val user: Color,
     val onUser: Color,
-    val userLedge: Color,
     /** Links, connection state, brand marks. */
     val brand: Color,
     /** The main action, such as send. */
@@ -106,34 +100,16 @@ data class BeepColors(
     val onCode: Color,
 )
 
-/** How cards and message bubbles are set off from the page. */
-enum class CardLook {
-    /** Outline plus hard offset shadow, same as buttons. */
-    Chunky,
-    /** No outline, a solid ledge underneath. */
-    Ledge,
-    /** Thin soft border, no shadow. */
-    Hairline,
-}
-
 @Immutable
 data class BeepShapes(
-    /** Outline width on pressable things. */
-    val outline: Dp,
-    /** Hard shadow offset. Pressing moves the piece onto it. */
-    val drop: DpOffset,
     val radius: Dp,
     val smallRadius: Dp,
-    val card: CardLook,
-    /** Whether assistant replies sit in a bubble or read as plain text. */
-    val botBubble: Boolean,
 )
 
 @Immutable
 data class BeepFonts(
     val display: FontFamily,
     val displayWeight: FontWeight,
-    val displayUppercase: Boolean,
     val displayTracking: TextUnit,
     val body: FontFamily,
 )
@@ -141,101 +117,51 @@ data class BeepFonts(
 @Immutable
 data class BeepTokens(val style: BeepStyle, val colors: BeepColors, val shapes: BeepShapes, val fonts: BeepFonts) {
     companion object {
-        fun of(style: BeepStyle) = when (style) {
-            BeepStyle.MintQuiet -> MintQuiet
-            BeepStyle.SoftClay -> SoftClay
-            BeepStyle.Bubblegum -> Bubblegum
-            BeepStyle.Rodeo -> Rodeo
-        }
+        fun of(style: BeepStyle, dark: Boolean = false) = linearTokens(style, dark)
     }
 }
 
 @OptIn(ExperimentalTextApi::class)
-private fun variableFamily(resource: Int, vararg weights: Int, extra: List<FontVariation.Setting> = emptyList()) =
-    FontFamily(weights.map { weight ->
-        Font(resource, FontWeight(weight),
-            variationSettings = FontVariation.Settings(*(listOf(FontVariation.weight(weight)) + extra).toTypedArray()))
+private val Inter = FontFamily(listOf(400, 500, 600, 700).map { weight ->
+    Font(R.font.inter, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+})
+
+internal const val LINEAR_ACCENT = 0xFF5E6AD2
+
+/** Linear's dark palette, with a matching light palette and saved accent choices. */
+private fun linearTokens(style: BeepStyle, dark: Boolean): BeepTokens {
+    val page = Color(if (dark) 0xFF0F1011 else 0xFFF7F8FA)
+    val surface = Color(if (dark) 0xFF151617 else 0xFFFFFFFF)
+    val raised = Color(if (dark) 0xFF1C1D1F else 0xFFF0F1F4)
+    val ink = Color(if (dark) 0xFFE3E4E6 else 0xFF202126)
+    val border = Color(if (dark) 0xFF222326 else 0xFFE1E3E8)
+    val accent = Color(when (style) {
+        BeepStyle.MintQuiet -> LINEAR_ACCENT
+        BeepStyle.SoftClay -> 0xFF8B6CD2
+        BeepStyle.Bubblegum -> if (dark) 0xFFE18BC7 else 0xFF9C357F
+        BeepStyle.Rodeo -> if (dark) 0xFF8A8F98 else 0xFF676C76
     })
+    return BeepTokens(style, BeepColors(
+        page = page, surface = surface, raised = raised, ink = ink,
+        muted = Color(if (dark) 0xFF8A8F98 else 0xFF676C76),
+        dim = Color(if (dark) 0xFF5B5F65 else 0xFF767B85),
+        line = border, softLine = border, ledge = border,
+        user = lerp(page, accent, 0.22f), onUser = ink,
+        brand = Color(if (dark) 0xFF8A9CF0 else 0xFF4F5BC0), accent = accent, onAccent = Color.White,
+        ok = Color(if (dark) 0xFF4CB782 else 0xFF268557),
+        warn = Color(if (dark) 0xFFF2C94C else 0xFF946B00),
+        error = Color(if (dark) 0xFFEB5757 else 0xFFC33838),
+        tints = listOf(raised, surface, lerp(page, accent, 0.12f)), code = raised, onCode = ink,
+    ), BeepShapes(radius = 8.dp, smallRadius = 6.dp),
+        BeepFonts(Inter, FontWeight.SemiBold, 0.em, Inter))
+}
 
-private val Bricolage = variableFamily(R.font.bricolage_grotesque, 500, 600, 700, 800,
-    extra = listOf(FontVariation.Setting("opsz", 48f)))
-private val Rubik = variableFamily(R.font.rubik, 400, 500, 600, 700)
-private val Fredoka = variableFamily(R.font.fredoka, 400, 500, 600, 700)
-private val Nunito = variableFamily(R.font.nunito, 400, 500, 600, 700, 800)
-private val Sniglet = FontFamily(
-    Font(R.font.sniglet_regular, FontWeight.Normal),
-    Font(R.font.sniglet_extrabold, FontWeight.ExtraBold),
-)
+val LocalBeep = staticCompositionLocalOf { linearTokens(BeepStyle.MintQuiet, false) }
 
-private val MintQuiet = BeepTokens(
-    BeepStyle.MintQuiet,
-    BeepColors(
-        page = Color(0xFFF4F8F5), surface = Color.White, raised = Color(0xFFE9F2EC),
-        ink = Color(0xFF10201A), muted = Color(0xFF5C6E64), dim = Color(0xFF94A49B),
-        line = Color(0xFF1F3A2E), softLine = Color(0xFFCFE0D6), ledge = Color(0xFF1F3A2E),
-        user = Color(0xFFD5F1E3), onUser = Color(0xFF10201A), userLedge = Color(0xFF1F3A2E),
-        brand = Color(0xFF2F8A69), accent = Color(0xFFF07A6A), onAccent = Color(0xFF10201A),
-        ok = Color(0xFF3B9B7A), warn = Color(0xFFE0A630), error = Color(0xFFD9473A),
-        tints = listOf(Color(0xFFFDE7E2), Color(0xFFE2F4EA), Color(0xFFFFF4CC)),
-        code = Color(0xFFECF3EE), onCode = Color(0xFF1C2E26),
-    ),
-    BeepShapes(outline = 2.dp, drop = DpOffset(3.dp, 3.dp), radius = 18.dp, smallRadius = 12.dp,
-        card = CardLook.Hairline, botBubble = false),
-    BeepFonts(Bricolage, FontWeight.ExtraBold, displayUppercase = false, displayTracking = (-0.03).em, body = Rubik),
-)
-
-private val SoftClay = BeepTokens(
-    BeepStyle.SoftClay,
-    BeepColors(
-        page = Color(0xFFF2EEFA), surface = Color.White, raised = Color(0xFFEAE4F8),
-        ink = Color(0xFF2E2547), muted = Color(0xFF7A7194), dim = Color(0xFFABA4C2),
-        line = Color.Transparent, softLine = Color(0xFFE2DBF2), ledge = Color(0xFFDCD3F0),
-        user = Color(0xFFFFD3B4), onUser = Color(0xFF4A2A12), userLedge = Color(0xFFF2BC96),
-        brand = Color(0xFF6E52E0), accent = Color(0xFF8B6CFF), onAccent = Color.White,
-        ok = Color(0xFF2FBF7A), warn = Color(0xFFE6A23C), error = Color(0xFFE0523F),
-        tints = listOf(Color(0xFFE4DCFF), Color(0xFFFFE3D0), Color(0xFFD3F5E3)),
-        code = Color(0xFFF1EDFA), onCode = Color(0xFF3A3058),
-    ),
-    BeepShapes(outline = 0.dp, drop = DpOffset(0.dp, 5.dp), radius = 24.dp, smallRadius = 16.dp,
-        card = CardLook.Ledge, botBubble = true),
-    BeepFonts(Fredoka, FontWeight.SemiBold, displayUppercase = false, displayTracking = (-0.01).em, body = Nunito),
-)
-
-private val Bubblegum = BeepTokens(
-    BeepStyle.Bubblegum,
-    BeepColors(
-        page = Color(0xFFFAF4F0), surface = Color.White, raised = Color(0xFFF4ECE6),
-        ink = Color(0xFF161616), muted = Color(0xFF6E6862), dim = Color(0xFFA39C95),
-        line = Color(0xFF161616), softLine = Color(0xFFE6DDD5), ledge = Color(0xFF161616),
-        user = Color(0xFFFF90E8), onUser = Color(0xFF161616), userLedge = Color(0xFF161616),
-        brand = Color(0xFF2563EB), accent = Color(0xFFFFC900), onAccent = Color(0xFF161616),
-        ok = Color(0xFF29CC6A), warn = Color(0xFFDCAE01), error = Color(0xFFE40C0C),
-        tints = listOf(Color(0xFFDBEAFE), Color(0xFFFFD3B4), Color(0xFFC7F9C6)),
-        code = Color(0xFFF7F0EA), onCode = Color(0xFF161616),
-    ),
-    BeepShapes(outline = 2.dp, drop = DpOffset(3.dp, 3.dp), radius = 16.dp, smallRadius = 10.dp,
-        card = CardLook.Chunky, botBubble = true),
-    BeepFonts(Sniglet, FontWeight.ExtraBold, displayUppercase = true, displayTracking = 0.em, body = FontFamily.Default),
-)
-
-private val Rodeo = BeepTokens(
-    BeepStyle.Rodeo,
-    BeepColors(
-        page = Color(0xFFF3EFE7), surface = Color(0xFFFBF9F5), raised = Color(0xFFE9E4DA),
-        ink = Color(0xFF111111), muted = Color(0xFF77736C), dim = Color(0xFFA9A49B),
-        line = Color(0xFF111111), softLine = Color(0xFFE2DCD1), ledge = Color(0xFF111111),
-        user = Color(0xFF111111), onUser = Color.White, userLedge = Color(0xFF111111),
-        brand = Color(0xFF3B6FD9), accent = Color(0xFF111111), onAccent = Color.White,
-        ok = Color(0xFF3B6FD9), warn = Color(0xFFD9932B), error = Color(0xFFDC3B2E),
-        tints = listOf(Color(0xFFEDE4D3), Color(0xFFE2E9F3), Color(0xFFF5E1DC)),
-        code = Color(0xFFEAE5DB), onCode = Color(0xFF111111),
-    ),
-    BeepShapes(outline = 1.5.dp, drop = DpOffset(0.dp, 0.dp), radius = 16.dp, smallRadius = 12.dp,
-        card = CardLook.Hairline, botBubble = false),
-    BeepFonts(Bricolage, FontWeight.ExtraBold, displayUppercase = false, displayTracking = (-0.04).em, body = FontFamily.Default),
-)
-
-val LocalBeep = staticCompositionLocalOf { MintQuiet }
+object BeepSpace {
+    val page = 16.dp
+    val row = 12.dp
+}
 
 /** Shorthand for the current tokens. */
 object Beep {
@@ -268,32 +194,35 @@ object Appearance {
 fun BeepTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     remember { Appearance.load(context.applicationContext) }
-    val tokens = BeepTokens.of(Appearance.style.value)
+    val dark = isSystemInDarkTheme()
+    val tokens = BeepTokens.of(Appearance.style.value, dark)
     val c = tokens.colors
-    val scheme = lightColorScheme(
-        primary = c.brand, onPrimary = Color.White, primaryContainer = c.user, onPrimaryContainer = c.onUser,
-        secondary = c.brand, onSecondary = Color.White, secondaryContainer = c.user, onSecondaryContainer = c.onUser,
-        background = c.page, onBackground = c.ink, surface = c.page, onSurface = c.ink,
+    val scheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
+        primary = c.accent, onPrimary = c.onAccent, primaryContainer = c.user, onPrimaryContainer = c.onUser,
+        secondary = c.accent, onSecondary = c.onAccent, secondaryContainer = c.user, onSecondaryContainer = c.onUser,
+        background = c.page, onBackground = c.ink, surface = c.surface, onSurface = c.ink, surfaceTint = Color.Transparent,
         surfaceVariant = c.raised, onSurfaceVariant = c.muted,
         surfaceContainerLowest = c.surface, surfaceContainerLow = c.surface, surfaceContainer = c.surface,
         surfaceContainerHigh = c.surface, surfaceContainerHighest = c.raised,
         outline = c.softLine, outlineVariant = c.softLine, error = c.error,
         inverseSurface = c.ink, inverseOnSurface = c.page,
     )
-    MaterialTheme(colorScheme = scheme, typography = typographyFor(tokens.fonts)) {
+    MaterialTheme(colorScheme = scheme, shapes = Shapes(
+        extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(6.dp), medium = RoundedCornerShape(8.dp),
+        large = RoundedCornerShape(8.dp), extraLarge = RoundedCornerShape(8.dp)), typography = typographyFor(tokens.fonts)) {
         CompositionLocalProvider(LocalBeep provides tokens, content = content)
     }
 }
 
 private fun typographyFor(fonts: BeepFonts): Typography {
     val base = Typography()
-    fun TextStyle.body() = copy(fontFamily = fonts.body)
+    fun TextStyle.body() = copy(fontFamily = fonts.body, letterSpacing = 0.sp)
     fun TextStyle.display() = copy(fontFamily = fonts.display, fontWeight = fonts.displayWeight, letterSpacing = fonts.displayTracking)
     return base.copy(
         displayLarge = base.displayLarge.display(), displayMedium = base.displayMedium.display(), displaySmall = base.displaySmall.display(),
         headlineLarge = base.headlineLarge.display(), headlineMedium = base.headlineMedium.display(), headlineSmall = base.headlineSmall.display(),
-        titleLarge = base.titleLarge.display(), titleMedium = base.titleMedium.body(), titleSmall = base.titleSmall.body(),
-        bodyLarge = base.bodyLarge.body(), bodyMedium = base.bodyMedium.body(), bodySmall = base.bodySmall.body(),
+        titleLarge = base.titleLarge.display().copy(fontSize = 18.sp, lineHeight = 24.sp), titleMedium = base.titleMedium.body(), titleSmall = base.titleSmall.body(),
+        bodyLarge = base.bodyLarge.body().copy(fontSize = 14.sp, lineHeight = 21.sp), bodyMedium = base.bodyMedium.body().copy(fontSize = 13.sp, lineHeight = 20.sp), bodySmall = base.bodySmall.body(),
         labelLarge = base.labelLarge.body(), labelMedium = base.labelMedium.body(), labelSmall = base.labelSmall.body(),
     )
 }
@@ -307,10 +236,10 @@ fun displayStyle(size: TextUnit, lineHeight: TextUnit = TextUnit.Unspecified): T
         lineHeight = lineHeight, letterSpacing = f.displayTracking)
 }
 
-/** Text for display use, uppercased when the look asks for it. */
+/** Text for headings. */
 @Composable
 @ReadOnlyComposable
-fun displayText(text: String) = if (Beep.fonts.displayUppercase) text.uppercase() else text
+fun displayText(text: String) = text
 
 /** Returns true when the system "Remove animations" / "Animator duration scale = 0" setting is on. */
 @Composable
@@ -323,58 +252,26 @@ fun reduceMotion(): Boolean {
     }
 }
 
-/** Ledge colour for a piece filled with [fill]: the look's ledge for plain surfaces, a darker shade otherwise. */
-@Composable
-@ReadOnlyComposable
-private fun ledgeFor(fill: Color): Color {
-    val t = LocalBeep.current
-    return when {
-        t.shapes.outline > 0.dp -> t.colors.ledge
-        fill == t.colors.surface -> t.colors.ledge
-        fill == t.colors.user -> t.colors.userLedge
-        else -> lerp(fill, Color.Black, 0.18f)
-    }
-}
-
-/** Draws [shape] in [color] behind the content, shifted by [offset]. */
-private fun Modifier.hardShadow(shape: Shape, color: Color, offset: DrawScope.() -> Offset) = drawBehind {
-    val o = offset()
-    if (o == Offset.Zero) return@drawBehind
-    val outline = shape.createOutline(size, layoutDirection, this)
-    translate(o.x, o.y) { drawOutline(outline, color) }
-}
-
-/**
- * A button that sits on a hard shadow (or a clay ledge) and sinks onto it when pressed.
- * The shadow stays put while the face moves, which is what makes it feel like a key.
- */
+/** A bordered button with press feedback. */
 @Composable
 fun ChunkyButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     color: Color = Beep.colors.surface,
     contentColor: Color = Beep.colors.ink,
-    shape: Shape = CircleShape,
+    shape: Shape = RoundedCornerShape(Beep.shapes.smallRadius),
     enabled: Boolean = true,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
     onLongClick: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     val t = LocalBeep.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val sink by animateFloatAsState(if (pressed && enabled) 1f else 0f,
-        spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessHigh), label = "chunky-sink")
-    val drop = t.shapes.drop
-    val ledge = ledgeFor(color)
     Row(
         modifier
-            .graphicsLayer { translationX = drop.x.toPx() * sink; translationY = drop.y.toPx() * sink }
-            .alpha(if (enabled) 1f else 0.45f)
-            .hardShadow(shape, ledge) {
-                if (!enabled) Offset.Zero else Offset(drop.x.toPx() * (1 - sink), drop.y.toPx() * (1 - sink))
-            }
-            .then(if (t.shapes.outline > 0.dp) Modifier.border(t.shapes.outline, t.colors.line, shape) else Modifier)
+            .alpha(if (!enabled) 0.45f else if (pressed) 0.75f else 1f)
+            .border(1.dp, t.colors.softLine, shape)
             .clip(shape)
             .background(color)
             .combinedClickable(interactionSource = interaction, indication = null, enabled = enabled, onLongClick = onLongClick, onClick = onClick)
@@ -386,27 +283,10 @@ fun ChunkyButton(
     }
 }
 
-/** Sets a piece of content off from the page the way the current look does it. */
-fun Modifier.cardFrame(look: CardLook, shape: Shape, fill: Color, ledge: Color, line: Color, softLine: Color,
-                       outline: Dp, drop: DpOffset): Modifier = when (look) {
-    CardLook.Chunky -> hardShadow(shape, ledge) { Offset(drop.x.toPx(), drop.y.toPx()) }
-        .border(outline, line, shape).clip(shape).background(fill)
-    CardLook.Ledge -> hardShadow(shape, ledge) { Offset(drop.x.toPx(), drop.y.toPx()) }
-        .clip(shape).background(fill)
-    CardLook.Hairline -> border(1.5.dp, softLine, shape).clip(shape).background(fill)
-}
-
-/** Frames a piece in the current look. */
+/** Frames content with Linear's border and surface. */
 @Composable
-fun Modifier.beepFrame(shape: Shape, fill: Color, look: CardLook = Beep.shapes.card): Modifier {
-    val t = LocalBeep.current
-    return cardFrame(look, shape, fill, ledgeFor(fill), t.colors.line, t.colors.softLine, t.shapes.outline, t.shapes.drop)
-}
-
-/** The frame for things you touch, like the composer. Quiet looks still give these weight. */
-@Composable
-@ReadOnlyComposable
-fun pressableLook(): CardLook = Beep.shapes.card.let { if (it == CardLook.Hairline) CardLook.Chunky else it }
+fun Modifier.beepFrame(shape: Shape, fill: Color): Modifier =
+    border(1.dp, Beep.colors.softLine, shape).clip(shape).background(fill)
 
 /** A card for content (places, links, code). Not pressable on its own. */
 @Composable
@@ -414,10 +294,9 @@ fun BeepCard(
     modifier: Modifier = Modifier,
     color: Color = Beep.colors.surface,
     shape: Shape = RoundedCornerShape(Beep.shapes.radius),
-    look: CardLook = Beep.shapes.card,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(modifier.beepFrame(shape, color, look), content = content)
+    Column(modifier.beepFrame(shape, color), content = content)
 }
 
 /**
@@ -434,9 +313,9 @@ fun Modifier.popIn(key: Any, play: Boolean = true, origin: TransformOrigin = Tra
     return graphicsLayer {
         val v = progress.value
         alpha = v.coerceIn(0f, 1f)
-        val scale = 0.86f + 0.14f * v
+        val scale = 0.98f + 0.02f * v
         scaleX = scale; scaleY = scale
-        translationY = (1 - v) * 10.dp.toPx()
+        translationY = (1 - v) * 4.dp.toPx()
         transformOrigin = origin
     }
 }
