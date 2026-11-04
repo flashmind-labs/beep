@@ -7,9 +7,9 @@ use super::{
     projects::{project_entries, session_entries},
 };
 use crate::{agents::sessions::SessionRow, beep::Service, center::section, error::Result};
-use beep_proto::{ApiProvider, SearchSessions, Session, SessionMatch};
+use beep_proto::{ApiProvider, Session, SessionMatch};
 use serde::Serialize;
-use std::{cmp::Reverse, sync::Arc};
+use std::cmp::Reverse;
 use strum::IntoEnumIterator;
 
 /// Chat text is searched from this many characters.
@@ -266,25 +266,14 @@ pub(crate) fn build_index(lists: &PaletteLists) -> Index {
     }
 }
 
-/// The chats whose messages hold `query`: from the local copy, off the async
-/// workers since it walks every message, or from the server before the copy
-/// is ready. The window asks one at a time.
+/// The chats whose messages hold `query`. The window asks one at a time.
 #[tauri::command]
 pub async fn center_find_text(beep: Service<'_>, query: String) -> Result<Vec<Entry>> {
     let query = query.trim().to_owned();
     if query.chars().count() < MIN_TEXT_QUERY {
         return Ok(Vec::new());
     }
-    let copy = {
-        let (reader, query) = (Arc::clone(beep.inner()), query.clone());
-        tauri::async_runtime::spawn_blocking(move || reader.chats().search(&query))
-            .await
-            .map_err(anyhow::Error::from)?
-    };
-    let found = match copy {
-        Some(found) => found,
-        None => section("chat text", beep.call(SearchSessions { query }).await).unwrap_or_default(),
-    };
+    let found = section("chat text", beep.search(query).await).unwrap_or_default();
     Ok(found.into_iter().map(text_entry).collect())
 }
 
