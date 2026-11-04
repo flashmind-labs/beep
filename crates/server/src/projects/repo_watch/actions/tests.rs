@@ -142,3 +142,16 @@ fn the_failing_steps_lines_are_cut_from_a_github_log() {
         "##[error]Process completed with exit code 101.\nPost job cleanup."
     );
 }
+
+#[test]
+fn forgejo_sends_jobs_as_a_bare_list() {
+    let reply: JobsReply = serde_json::from_str(
+        r#"[{"id": 9, "run_id": 7, "name": "image", "status": "running", "needs": null},
+            {"id": 8, "run_id": 7, "name": "check", "status": "failure"}]"#,
+    )
+    .expect("the list reads");
+    let jobs = reply.jobs();
+    assert_eq!(jobs[0].name, "image");
+    assert!(jobs[0].state == RunState::Running {});
+    assert!(jobs[1].state == RunState::Failed {});
+}
