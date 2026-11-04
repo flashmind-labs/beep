@@ -94,3 +94,8 @@
 .ip-branch code { font-family: var(--mono) }
 .ip-branch .m { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .ip-branch .lbl { margin-left: auto; color: var(--muted); font-size: 11.5px }
+.am-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px }
+.am-kind { display: grid; gap: 2px; text-align: left; height: auto; padding: 9px 12px }
+.am-kind span { font-size: 12px; color: var(--muted); font-weight: 400 }
+.am-kind[aria-checked="true"] { border-color: var(--accent) }
+.am-sheet input.am-code { width: 100%; box-sizing: border-box; margin-bottom: 12px; color: inherit }

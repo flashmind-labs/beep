@@ -397,5 +397,6 @@ export function agentBack() {
   if (S.view === "agent" && (closeModelPicker() || closeChild())) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
+  if (S.link === "unlinked" && !windowHooks) return void invoke("hide_bar");
   return S.session ? openSession(S.session) : renderChat();
 }

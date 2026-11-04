@@ -72,6 +72,9 @@ export const CONNECT_RETRY_MS = 3000;
 
 /// `since` is when the window started waiting for its first Home.
 export const state = {
+  /// Signed in to a subscription: chats, memories and the rest of the assistant. Without one the
+  /// window runs on the mesh alone.
+  subscribed: false,
   home: null as HomeView | null,
   mac: null as MacControl | null,
   error: null as string | null,

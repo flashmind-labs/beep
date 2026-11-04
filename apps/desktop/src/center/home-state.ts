@@ -65,6 +65,8 @@ export interface CardStats {
 
 /// A machine on Home, with what it reported and what runs on it (MachineCard).
 export interface MachineCard extends MachineView {
+  /// In the mesh; false for one only the account lists, which still works through it.
+  joined: boolean;
   apps: { name: string; version: string | null }[];
   gpus: MachineGpu[];
   capabilities: string[];
