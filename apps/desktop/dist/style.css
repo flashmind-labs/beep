@@ -70,7 +70,9 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dstep .s { width: 16px; height: 16px; display: grid; place-items: center; flex: none }
 .dstep.run { color: var(--fg) }
 .dhost { padding: 0 5px; border-radius: 4px; background: var(--elev); border: 1px solid var(--border); color: var(--muted); font-size: 11.5px }
-.dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block }
+/* Spinners show work in progress, so they still turn. */
+.dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block; animation: spin .8s linear infinite }
+@keyframes spin { to { transform: rotate(360deg) } }
 .dok { color: var(--accent); display: grid } .dbad { color: var(--err); display: grid }
 .drow { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); border: 0; background: transparent; padding: 0; text-align: left }
 .drow:hover { color: var(--fg) }
