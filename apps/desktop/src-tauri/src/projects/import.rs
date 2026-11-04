@@ -1,29 +1,29 @@
 //! The Add a project sheet: checkouts and host repositories to pick from,
 //! the folder choice, and importing a project onto a machine.
 
-use super::{known, list::ProjectRow, needs_update};
+use super::{list::ProjectRow, needs_update};
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::{Machines, extra, files as direct},
+    fleet::{
+        Machines, extra, files as direct,
+        projects::{FleetState, desk, mirror_import},
+    },
     machines::list::Outside,
 };
+use beep_fleet::ImportJob;
 use beep_proto::{
     ApiError, BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos,
-    ImportProject, ListFoundFolders, ListHostRepos, ListMachineFolder, MachineFolder,
+    ListFoundFolders, ListMachineFolder, MachineFolder,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     process::Command,
-    time::Duration,
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
-
-/// The server stops a clone after 30 minutes; this leaves it time to say so.
-pub(super) const IMPORT_TIMEOUT: Duration = Duration::from_secs(31 * 60);
 
 /// A branch the import sheet gives a worktree, on `machine_id` or, without
 /// one, the machine the project lands on.
@@ -60,20 +60,29 @@ impl From<FoundProject> for FoundRow {
 }
 
 /// The checkouts the user's coding agents worked in that are not projects
-/// yet; none from a server too old to look.
+/// yet.
 #[tauri::command]
 pub async fn found_projects(
     app: AppHandle,
     beep: Service<'_>,
     fleet: Machines<'_>,
+    session: FleetState<'_>,
     held: State<'_, Outside>,
 ) -> Result<Vec<FoundRow>> {
-    let (b, f) = (beep.inner().clone(), fleet.inner().clone());
+    let (b, f, d) = (
+        beep.inner().clone(),
+        fleet.inner().clone(),
+        session.inner().clone(),
+    );
     let found = held.found.refreshed(
         &app,
         async move {
             let here = direct::found_folders(&f).await;
-            let mut found = beep_projects::imports::found::group(here, &[], &[]);
+            // What the mesh already has as a project is not offered again.
+            let mut found = match desk(&d).await {
+                Ok(desk) => desk.group_found(here),
+                Err(_) => beep_projects::imports::found::group(here, &[], &[]),
+            };
             let others = extra(b.call(ListFoundFolders {}).await);
             found.extend(others.into_iter().filter(|project| {
                 project
@@ -127,16 +136,11 @@ impl From<HostRepos> for HostReposRow {
     }
 }
 
-/// The user's repositories on their git hosts, to clone; none from a
-/// server too old to list them.
+/// The user's repositories on their git hosts, to clone.
 #[tauri::command]
-pub async fn host_repos(beep: Service<'_>) -> Result<Vec<HostReposRow>> {
-    let hosts = known(beep.call(ListHostRepos {}).await)?;
-    Ok(hosts
-        .into_iter()
-        .flatten()
-        .map(HostReposRow::from)
-        .collect())
+pub async fn host_repos(fleet: FleetState<'_>) -> Result<Vec<HostReposRow>> {
+    let hosts = desk(&fleet).await?.host_repos().await?;
+    Ok(hosts.into_iter().map(HostReposRow::from).collect())
 }
 
 /// Shows a project's folder on this Mac in Finder.
@@ -159,11 +163,12 @@ fn openable(path: &Path) -> bool {
     path.is_absolute() && path.is_dir()
 }
 
-/// Clones `repo` onto `machine_id`, or the machine the server picks, into
+/// Clones `repo` onto `machine_id`, or the machine that fits best, into
 /// `folder` when the user chose one, else the machine's projects folder,
 /// then gives each of `worktrees` its worktree.
 #[tauri::command]
 pub async fn import_project(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     repo: String,
     machine_id: Option<String>,
@@ -174,7 +179,7 @@ pub async fn import_project(
     let machine_id = machine_id.filter(|id| !id.is_empty());
     let folder = folder.filter(|folder| !folder.trim().is_empty());
     let parent = parent.filter(|parent| !parent.trim().is_empty());
-    let worktrees = worktrees
+    let worktrees: Vec<BranchPlace> = worktrees
         .unwrap_or_default()
         .into_iter()
         .map(|w| BranchPlace {
@@ -182,19 +187,18 @@ pub async fn import_project(
             machine_id: w.machine_id.filter(|id| !id.is_empty()),
         })
         .collect();
-    beep.call_within(
-        ImportProject {
-            repo,
-            machine_id,
-            folder,
-            worktrees,
-            parent,
-        },
-        IMPORT_TIMEOUT,
-    )
-    .await
-    .map(ProjectRow::from)
-    .map_err(outdated)
+    let imported = desk(&fleet)
+        .await?
+        .import(ImportJob {
+            repo: &repo,
+            machine_id: machine_id.as_deref(),
+            folder: folder.as_deref(),
+            parent: parent.as_deref(),
+            worktrees: &worktrees,
+        })
+        .await?;
+    mirror_import(&beep, &imported).await;
+    Ok(imported.into())
 }
 
 /// One folder on `machine_id`, for the sheet's folder browser and to see

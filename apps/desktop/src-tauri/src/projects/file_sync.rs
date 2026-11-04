@@ -6,12 +6,13 @@ use crate::{
     beep::Service,
     center::kept,
     center::view_cache::{View, ViewCache},
-    error::{DesktopError, Result},
-    projects::{known, needs_update},
+    error::Result,
+    fleet::projects::{FleetState, desk, desk_or_server},
+    projects::known,
 };
 use beep_proto::{
     ConflictKeep, GetProjectSyncDetail, ListProjectSync, MachineSync, MachineSyncDetail,
-    PauseProjectSync, ProjectSync, ProjectSyncDetail, ResolveSyncConflict, SyncProgress,
+    PauseProjectSync, ProjectSync, ProjectSyncDetail, SyncProgress,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -48,11 +49,34 @@ impl SyncRow {
 /// server too old to sync projects.
 #[tauri::command]
 pub async fn project_sync(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Vec<SyncRow>> {
-    let rows = known(beep.call(ListProjectSync {}).await)
-        .map(|projects| projects.map_or_else(Vec::new, rows));
+    let rows = match desk_or_server(&fleet, &beep).await {
+        Ok(desk) => {
+            let mut ours = match desk {
+                Some(desk) => desk.sync().await,
+                None => Vec::new(),
+            };
+            // The projects only the server syncs, until they are moved into the mesh.
+            if beep.server().is_some() {
+                match known(beep.call(ListProjectSync {}).await) {
+                    Ok(theirs) => {
+                        let theirs: Vec<ProjectSync> = theirs
+                            .into_iter()
+                            .flatten()
+                            .filter(|one| !ours.iter().any(|ours| ours.project == one.project))
+                            .collect();
+                        ours.extend(theirs);
+                    }
+                    Err(e) => log::info!("the server's sync did not read: {e}"),
+                }
+            }
+            Ok(rows(ours))
+        }
+        Err(e) => Err(e),
+    };
     kept(&cache, View::Sync, rows)
 }
 
@@ -144,38 +168,54 @@ impl From<ProjectSyncDetail> for SyncDetailView {
     }
 }
 
-fn outdated(e: DesktopError) -> DesktopError {
-    needs_update(e, "before it pauses sync or settles conflicts")
-}
-
-/// `project`'s sync in detail; `None` from a server too old to give it.
+/// `project`'s sync in detail; `None` for a project no machines sync.
 #[tauri::command]
 pub async fn project_sync_detail(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     project: String,
 ) -> Result<Option<SyncDetailView>> {
-    Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
+    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
+        return Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into));
+    };
+    match desk.sync_detail(&project).await {
+        Ok(detail) => Ok(Some(detail.into())),
+        // Synced by the server alone, until the project is moved into the mesh.
+        Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
+            Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
+        }
+        Err(beep_fleet::FleetError::NotFound) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Pauses `project`'s sync on every machine, or resumes it.
 #[tauri::command]
 pub async fn project_sync_pause(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     project: String,
     paused: bool,
 ) -> Result<SyncDetailView> {
-    let detail = beep
-        .call(PauseProjectSync { project, paused })
-        .await
-        .map_err(outdated)?;
-    Ok(detail.into())
+    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
+        let detail = beep.call(PauseProjectSync { project, paused }).await?;
+        return Ok(detail.into());
+    };
+    match desk.pause_sync(&project, paused).await {
+        Ok(detail) => Ok(detail.into()),
+        Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
+            let detail = beep.call(PauseProjectSync { project, paused }).await?;
+            Ok(detail.into())
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Settles the conflict copy at `path` on `machine_id`: keeps the copy in
 /// place of the file beside it, or keeps that file and deletes the copy.
 #[tauri::command]
 pub async fn project_sync_resolve(
-    beep: Service<'_>,
+    fleet: FleetState<'_>,
     project: String,
     machine_id: String,
     path: String,
@@ -186,14 +226,10 @@ pub async fn project_sync_resolve(
     } else {
         ConflictKeep::Original {}
     };
-    beep.call(ResolveSyncConflict {
-        project,
-        machine_id,
-        path,
-        keep,
-    })
-    .await
-    .map_err(outdated)
+    Ok(desk(&fleet)
+        .await?
+        .resolve_conflict(&project, &machine_id, &path, keep)
+        .await?)
 }
 
 fn rows(projects: Vec<ProjectSync>) -> Vec<SyncRow> {

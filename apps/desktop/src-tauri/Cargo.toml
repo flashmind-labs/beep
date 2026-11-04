@@ -17,6 +17,7 @@ anyhow = "1"
 async-trait = "0.1"
 ammonia = "4"
 base64 = "0.22"
+beep-fleet = { path = "../../../crates/fleet" }
 beep-live = { path = "../../../crates/live" }
 beep-mesh = { path = "../../../crates/mesh" }
 beep-node = { path = "../../../crates/node", default-features = false }

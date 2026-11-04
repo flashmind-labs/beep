@@ -481,6 +481,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-fleet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "beep-mesh",
+ "beep-projects",
+ "beep-proto",
+ "chrono",
+ "futures",
+ "iroh",
+ "log",
+ "reqwest 0.12.28",
+ "rmp-serde",
+ "secrecy",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "beep-live"
 version = "0.1.0"
 dependencies = [

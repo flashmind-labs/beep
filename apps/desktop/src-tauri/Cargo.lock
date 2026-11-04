@@ -439,6 +439,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "beep-fleet",
  "beep-live",
  "beep-mesh",
  "beep-node",
@@ -483,6 +484,28 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "beep-fleet"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "beep-mesh",
+ "beep-projects",
+ "beep-proto",
+ "chrono",
+ "futures",
+ "iroh",
+ "log",
+ "reqwest 0.12.28",
+ "rmp-serde",
+ "secrecy",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
  "uuid",
 ]
 
@@ -7722,6 +7745,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

@@ -8,7 +8,6 @@ use super::{
     own_nodes::{linked_keys, online},
 };
 use crate::{
-    account::credentials::last4,
     api::router::Cx,
     nodes::Online,
     protocol::{node::EnvReport, *},
@@ -16,6 +15,7 @@ use crate::{
 };
 use beep_mesh::{PeerClient, machine::codex_login};
 use beep_projects::credentials::Slot;
+use beep_projects::credentials::last4;
 use futures::{StreamExt, stream};
 use secrecy::ExposeSecret;
 use std::{

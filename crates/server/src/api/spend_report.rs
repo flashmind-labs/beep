@@ -1,9 +1,6 @@
 //! What the caller's coding agents cost, metered spend apart from subscription use.
 
-use super::{
-    Reply,
-    usage::{limits, project_of},
-};
+use super::{Reply, usage::limits};
 use crate::{
     api::router::Cx,
     protocol::{
@@ -12,7 +9,7 @@ use crate::{
     },
     store::{DayModelRow, DaySpendRow},
 };
-use beep_projects::imports::records::ImportRow;
+use beep_projects::imports::records::{ImportRow, project_of};
 use chrono::NaiveDate;
 use iroh::EndpointId;
 use std::{
