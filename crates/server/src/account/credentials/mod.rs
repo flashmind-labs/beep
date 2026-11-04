@@ -5,7 +5,7 @@ pub(crate) mod machines;
 mod net;
 mod seal;
 
-pub use check::{Checked, Checker, MAX_ORGS, host_client};
+pub use check::host_client;
 pub use seal::{CredentialKey, HarnessOwner, Owner, WebhookOwner};
 
 use crate::protocol::{
@@ -23,17 +23,6 @@ use secrecy::ExposeSecret;
 /// Whether every address `url`'s host resolves to is public.
 pub async fn is_public(url: &ForgejoUrl) -> bool {
     net::resolves_public(url.url()).await
-}
-
-/// The last four characters of `secret`, never more than a quarter of one shorter than 16.
-pub fn last4(secret: &str) -> String {
-    let chars: Vec<char> = secret.chars().collect();
-    let shown = if chars.len() >= 16 {
-        4
-    } else {
-        chars.len() / 4
-    };
-    chars[chars.len() - shown..].iter().collect()
 }
 
 /// What the machines get: `GH_TOKEN` for the default, plus a [`github_owner_var`] per owner on another account.
@@ -124,12 +113,5 @@ mod tests {
                 ("GH_TOKEN", "tok-one"),
             ]
         );
-    }
-
-    #[test]
-    fn last4_shows_little_of_short_secrets() {
-        assert_eq!(last4("ghp_abcdefghijkl4f2a"), "4f2a");
-        assert_eq!(last4("short123"), "23");
-        assert_eq!(last4(""), "");
     }
 }

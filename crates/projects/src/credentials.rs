@@ -6,6 +6,17 @@ use secrecy::SecretString;
 use std::str::FromStr;
 use thiserror::Error;
 
+/// The last four characters of `secret`, never more than a quarter of one shorter than 16.
+pub fn last4(secret: &str) -> String {
+    let chars: Vec<char> = secret.chars().collect();
+    let shown = if chars.len() >= 16 {
+        4
+    } else {
+        chars.len() / 4
+    };
+    chars[chars.len() - shown..].iter().collect()
+}
+
 /// Which credential a value is; a user has at most one of each.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Slot {
@@ -134,5 +145,12 @@ mod tests {
         assert_eq!(token(github_for(&opened, "shared")), "tok-one");
         assert_eq!(token(github_for(&opened, "someone-else")), "tok-one");
         assert!(github_for(&[], "acme").is_none());
+    }
+
+    #[test]
+    fn last4_shows_little_of_short_secrets() {
+        assert_eq!(last4("ghp_abcdefghijkl4f2a"), "4f2a");
+        assert_eq!(last4("short123"), "23");
+        assert_eq!(last4(""), "");
     }
 }
