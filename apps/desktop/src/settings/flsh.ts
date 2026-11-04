@@ -5,7 +5,7 @@ import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { EMPTY, QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshInput, flshProblem, toggleQuantization } from "./flsh-state.ts";
 import type { FlshDraft, FlshSettings, Sort } from "./flsh-state.ts";
 
-export interface FlshDeps {
+interface FlshDeps {
   invoke: typeof Invoke;
   h: MakeEl;
   button: MakeButton;
@@ -58,19 +58,22 @@ export function flshPanel(deps: FlshDeps) {
     return h("div", "hv-f", h("span", "", h("b", "", label), h("small", "", help)), ctl);
   }
 
-  /// A row of chips where one is pressed; `on` picks it.
-  function seg<T>(opts: [string, T][], now: T, label: string, on: (v: T) => void) {
-    const row = h("span", "fl-seg");
+  /// A row of chips, pressed where `pressed` says; `on` takes a click.
+  function chips<T>(cls: string, label: string, opts: [string, T][], pressed: (v: T) => boolean, on: (v: T) => void) {
+    const row = h("span", cls);
     row.setAttribute("role", "group");
     row.setAttribute("aria-label", label);
     for (const [text, v] of opts) {
       const b = button(text, "dchip", () => on(v));
       b.className = "dchip";
-      b.setAttribute("aria-pressed", String(v === now));
+      b.setAttribute("aria-pressed", String(pressed(v)));
       row.append(b);
     }
     return row;
   }
+
+  /// A row of chips where one is pressed; `on` picks it.
+  const seg = <T>(opts: [string, T][], now: T, label: string, on: (v: T) => void) => chips("fl-seg", label, opts, v => v === now, on);
 
   function input(value: string, placeholder: string, label: string, onInput: (v: string) => void) {
     const i = h("input", "hv-in");
@@ -112,16 +115,9 @@ export function flshPanel(deps: FlshDeps) {
     out.push(field("Zero data retention", "Only endpoints that keep no prompts.",
       seg<boolean | null>([["Account setting", null], ["Require", true], ["Off", false]], d.zdr, "Zero data retention", v => set({ zdr: v }))));
 
-    const chips = h("span", "fl-chips");
-    chips.setAttribute("role", "group");
-    chips.setAttribute("aria-label", "Allowed quantizations");
-    for (const q of QUANTIZATIONS) {
-      const b = button(q, "dchip", () => set({ quantizations: toggleQuantization(d, q) }));
-      b.className = "dchip";
-      b.setAttribute("aria-pressed", String(d.quantizations.includes(q)));
-      chips.append(b);
-    }
-    out.push(field("Allowed quantizations", d.quantizations.length ? "Weight precisions providers may serve." : "None picked: any precision.", chips));
+    const quants = chips("fl-chips", "Allowed quantizations", QUANTIZATIONS.map(q => [q, q]), q => d.quantizations.includes(q),
+      q => set({ quantizations: toggleQuantization(d, q) }));
+    out.push(field("Allowed quantizations", d.quantizations.length ? "Weight precisions providers may serve." : "None picked: any precision.", quants));
 
     const sorts: [string, Sort | null][] = [["Default", null], ...SORTS.map(s => [s[0].toUpperCase() + s.slice(1), s] as [string, Sort])];
     out.push(field("Sort providers by", "Default: OpenRouter balances price and uptime.",

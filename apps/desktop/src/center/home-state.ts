@@ -173,20 +173,13 @@ export interface MacControl {
   permissions: unknown;
 }
 
-/// A coding agent's badge: its class, initials and name.
-export interface AgentBadge {
-  cls: string;
-  ini: string;
-  name: string;
-}
-
 const CAPS: Record<string, string> = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
-const AGENTS: Record<string, AgentBadge> = { claude: { cls: "claude", ini: "CC", name: "Claude Code" }, codex: { cls: "codex", ini: "CX", name: "Codex" }, opencode: { cls: "opencode", ini: "OC", name: "OpenCode" } };
+const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
 
 export function base(path: string | null | undefined) { return String(path || "").split("/").filter(Boolean).pop() || ""; }
 
-export function agentOf(name: string | null | undefined): AgentBadge {
-  return AGENTS[name ?? ""] || { cls: "", ini: String(name || "?").slice(0, 2).toUpperCase(), name: name || "Agent" };
+function agentName(name: string | null | undefined) {
+  return AGENTS[name ?? ""] || name || "Agent";
 }
 
 /// What a machine can run: its abilities, graphics cards and apps, once
@@ -200,8 +193,7 @@ export function machineCaps(m: { gpus: readonly { model: string }[]; capabilitie
 
 /// The machine table's Now column.
 export function machineNow(m: Pick<MachineCard, "online" | "agents">) {
-  if (!m.online) return "offline";
-  return m.agents ? "working" : "idle";
+  return !m.online ? "offline" : m.agents ? "working" : "idle";
 }
 
 /// What a machine is fetching or scanning for a synced project now.
@@ -274,8 +266,8 @@ export function runningLine(
   projects: readonly ProjectFolder[] = [],
 ) {
   if (r.kind === "research") return { title: r.topic, sub: `Research · round ${r.round}` };
-  const ag = agentOf(r.agent), project = repoOf(r, projects);
-  return { title: r.title || project || ag.name, sub: [project, r.machine_name].filter(Boolean).join(" · ") };
+  const project = repoOf(r, projects);
+  return { title: r.title || project || agentName(r.agent), sub: [project, r.machine_name].filter(Boolean).join(" · ") };
 }
 
 /// When a Running now row last moved: an agent's last step or reply (its
@@ -324,7 +316,7 @@ export function needsLine(n:
     const action = a.action ? a.action[0].toUpperCase() + a.action.slice(1) : "Allow this";
     return { title: `${action}?`, sub: [a.app, n.session_title].filter(Boolean).join(" · "), button: "Allow" };
   }
-  return { title: n.question.text, sub: [agentOf(n.agent).name, n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
+  return { title: n.question.text, sub: [agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
 }
 
 /// Home's "This Mac" row: its state, and the button that turns it on.

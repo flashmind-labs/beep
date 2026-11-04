@@ -64,13 +64,13 @@ export type CredCheck =
   | { state: "unreachable"; message: string };
 
 /// The row whose token is being typed, as a `data-cred-edit` value names it.
-export type CredEdit =
+type CredEdit =
   | { kind: "github"; id?: string }
   | { kind: "forgejo"; id?: string; url?: string }
   | { kind: "api_key"; provider: string; toMachines: boolean };
 
 /// What `save_credential` takes (NewCredential).
-export type NewCredential =
+type NewCredential =
   | { kind: "github"; secret: string; to_machines: boolean }
   | { kind: "forgejo"; url: string; secret: string; to_machines: boolean }
   | { kind: "api_key"; provider: string; secret: string; to_machines: boolean };
@@ -93,40 +93,17 @@ export interface CredState {
 }
 
 /// A machine as far as the tools it reports.
-export interface ToolMachine {
+interface ToolMachine {
   name: string;
   env?: { tools?: { name: string }[] } | null;
 }
 
 /// `git.example.com` from `https://git.example.com/`.
-export function hostOf(url: string | null | undefined) {
+function hostOf(url: string | null | undefined) {
   return String(url || "").replace(/^[a-z]+:\/\//i, "").replace(/\/+$/, "");
 }
 
-/// The names of the machines that report `tool`, or null when the machines
-/// are not known (the list could not be read).
-export function machinesWith(machines: ToolMachine[] | null, tool: string) {
-  if (!Array.isArray(machines)) return null;
-  return machines.filter(m => m.env?.tools?.some(t => t.name === tool)).map(m => m.name);
-}
-
-/// Where a CLI is, as one short chip: "gh on build-box" or "gh on 3 machines"
-/// with their names as `title`, or null when the machines are not known.
-export function toolChip(cli: string, machines: ToolMachine[] | null) {
-  const on = machinesWith(machines, cli);
-  if (on === null) return null;
-  if (!on.length) return { text: `${cli} on no machine yet`, title: "" };
-  return { text: on.length === 1 ? `${cli} on ${on[0]}` : `${cli} on ${on.length} machines`, title: on.join(", ") };
-}
-
-/// The orgs shown as chips: the first `max`, and the rest folded into one
-/// "+N" chip.
-export function foldOrgs(orgs: readonly string[] | null | undefined, max = 3) {
-  const all = orgs ?? [];
-  return all.length > max ? { shown: all.slice(0, max), more: all.slice(max) } : { shown: [...all], more: [] };
-}
-
-export type Draft = { error: string; credential?: undefined } | { credential: NewCredential; error?: undefined };
+type Draft = { error: string; credential?: undefined } | { credential: NewCredential; error?: undefined };
 
 /// What Save sends for the row being edited, or an error to show.
 export function draft(edit: CredEdit | null | undefined, url: string | undefined, secret: string | undefined, toMachines?: boolean): Draft {
@@ -143,7 +120,7 @@ export function draft(edit: CredEdit | null | undefined, url: string | undefined
 }
 
 /// GitHub's page for a new token with what gh and Beep need.
-export const GITHUB_TOKEN_PAGE = "https://github.com/settings/tokens/new?scopes=repo,read:org,workflow&description=Beep";
+const GITHUB_TOKEN_PAGE = "https://github.com/settings/tokens/new?scopes=repo,read:org,workflow&description=Beep";
 
 /// Whether two server URLs name the same server (scheme, host and port).
 export function sameServer(a: string | undefined, b: string | undefined) {
@@ -157,7 +134,7 @@ export function sameServer(a: string | undefined, b: string | undefined) {
 
 /// A Forgejo server's page for new access tokens, or null for a URL that
 /// is not one.
-export function forgejoTokenPage(url: string) {
+function forgejoTokenPage(url: string) {
   try {
     const u = new URL(String(url || "").trim());
     if (!/^https?:$/.test(u.protocol)) return null;
@@ -196,13 +173,12 @@ const REMOVE_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none"
 interface FormText {
   title: string;
   url?: string;
-  note?: string;
   noteHtml?: string;
   env?: string;
 }
 
 /// The inline form for adding or replacing one credential.
-function form(state: CredState, esc: Esc, { title, note, noteHtml, env, url }: FormText) {
+function form(state: CredState, esc: Esc, { title, noteHtml, env, url }: FormText) {
   const e = state.edit!;
   const urlField = e.kind === "forgejo" && !e.id
     ? `<input id="credUrl" class="url" type="url" placeholder="https://git.example.com" autocomplete="off" spellcheck="false" value="${esc(e.url ?? "")}" aria-label="Server URL">`
@@ -216,7 +192,7 @@ function form(state: CredState, esc: Esc, { title, note, noteHtml, env, url }: F
     <div class="dfield${state.error ? " err" : ""}" style="gap:8px">${urlField}
       <div style="display:flex;gap:8px"><input id="credSecret" type="password" style="flex:1;font-family:var(--mono);font-size:12.5px" placeholder="Paste the token" autocomplete="off" spellcheck="false" aria-label="Token">
       <button class="dbtn pri" id="credSave"${state.busy ? " disabled" : ""}>${state.busy ? "Checking…" : label}</button><button class="dbtn quiet" id="credCancel">Cancel</button></div></div>
-    ${check}${note || noteHtml ? `<span style="font-size:11.5px;color:var(--muted)">${noteHtml ?? esc(note)}</span>` : ""}
+    ${check}${noteHtml ? note(noteHtml) : ""}
     <div class="derr" id="credErr">${esc(state.error || "")}</div></div>`;
 }
 
@@ -241,10 +217,13 @@ const rowError = (esc: Esc, error: string | undefined) => error ? `<span class="
 const chip = (esc: Esc, text: string, title = "", kind = "") =>
   `<span class="dgchip${kind ? ` ${kind}` : ""}"${title ? ` title="${esc(title)}"` : ""}>${esc(text)}</span>`;
 
-/// The chip for where a CLI is, or "" when the machines are not known.
+/// Where a CLI is, as one chip: "gh on build-box" or "gh on 3 machines" with
+/// their names as its title, or "" when the machines are not known.
 function cliChip(esc: Esc, cli: string, machines: ToolMachine[] | null) {
-  const c = toolChip(cli, machines);
-  return c ? chip(esc, c.text, c.title) : "";
+  if (!Array.isArray(machines)) return "";
+  const on = machines.filter(m => m.env?.tools?.some(t => t.name === cli)).map(m => m.name);
+  if (!on.length) return chip(esc, `${cli} on no machine yet`);
+  return chip(esc, on.length === 1 ? `${cli} on ${on[0]}` : `${cli} on ${on.length} machines`, on.join(", "));
 }
 
 /// A small icon button with its label as tooltip, carrying `attr`.
@@ -294,7 +273,7 @@ function gitRow(esc: Esc, { icon, name, account, tag, usable, acts, chips, more 
 
 /// What a git host row offers when nothing usable is saved: the account
 /// line, the buttons, help under it and a body under that.
-export interface Offer {
+interface Offer {
   account?: string;
   acts: string;
   help: string;
@@ -303,7 +282,7 @@ export interface Offer {
 
 /// What the GitHub row offers when no usable token is saved, from this Mac's
 /// gh: its sign-in, signing it in, or a link to make a token.
-export function ghOffer(esc: Esc, gh: CliLogin | null | undefined, busy: boolean, flow: GhFlow | null | undefined): Offer {
+function ghOffer(esc: Esc, gh: CliLogin | null | undefined, busy: boolean, flow: GhFlow | null | undefined): Offer {
   const paste = (quiet: boolean) => `<button class="dbtn${quiet ? " quiet" : ""}" ${sm} data-cred-edit="github">Paste a token</button>`;
   if (flow) return { acts: `<button class="dbtn quiet" ${sm} data-cred-gh-cancel>Cancel</button>`, help: "", body: ghWaiting(esc, flow) };
   switch (gh?.state) {
@@ -367,7 +346,7 @@ function hostRow(esc: Esc, { icon, name, cred, cli, machines, editKey, offer, cl
 
 /// What a saved Forgejo token's check says, as one chip: where it was checked
 /// from, that it is being checked, or why it could not be.
-export function checkChip(esc: Esc, host: string, known: boolean, check: CredCheck | undefined) {
+function checkChip(esc: Esc, host: string, known: boolean, check: CredCheck | undefined) {
   switch (check?.state) {
     case "checking":
       return chip(esc, "checking from your machines…");
@@ -432,9 +411,10 @@ function accountRow(esc: Esc, acc: GitHubAccount, { machines, cli, busy, error }
   const use = !usable && ghHere ? useButton(esc, "github", "Use gh sign-in", busy) : "";
   const make = acc.default ? "" : `<button class="dbtn" ${sm} data-cred-gh-default="${esc(acc.id)}">Make default</button>`;
   const what = acc.login ? `@${acc.login}` : "GitHub";
-  const { shown: orgs, more } = foldOrgs(acc.orgs);
+  // The first three orgs, the rest folded into one "+N" chip.
+  const orgs = acc.orgs ?? [], more = orgs.slice(3);
   const chips = (usable ? "" : chip(esc, "Re-enter this token", "", "err"))
-    + orgs.map(o => chip(esc, o)).join("")
+    + orgs.slice(0, 3).map(o => chip(esc, o)).join("")
     + (more.length ? chip(esc, `+${more.length}`, more.join(", ")) : "")
     + cliChip(esc, "gh", machines);
   return gitRow(esc, {

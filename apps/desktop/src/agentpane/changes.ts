@@ -30,8 +30,7 @@ export function changesView() {
     open: { label: "Open in a tab", run: openWorkFile },
   });
   el.append(view.el);
-  C.el = el;
-  C.view = view;
+  Object.assign(C, { el, view });
   return el;
 }
 
@@ -43,9 +42,7 @@ export function madeChangesView() {
 /// Lets go of the view, as the pane starts another session or closes.
 export function dropChanges() {
   C.el?.remove();
-  C.el = null;
-  C.view = null;
-  C.key = "";
+  Object.assign(C, { el: null, view: null, key: "" });
 }
 
 /// Reads the changes again, as the tab shows once more.

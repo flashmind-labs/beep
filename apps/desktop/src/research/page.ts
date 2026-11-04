@@ -77,9 +77,7 @@ function researchField() {
   const start = button(research.starting ? "Starting…" : "Research", "pri small", () => startResearch());
   start.disabled = research.starting;
   input.addEventListener("input", () => { research.draft = input.value; });
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); startResearch(); }
-  });
+  input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); startResearch(); } });
   return h("div", "cc-rnew", icon(IC.doc), input, start);
 }
 

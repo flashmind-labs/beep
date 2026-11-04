@@ -1,3 +1,5 @@
+// agents/: coding agents in the bar: the start form, the picker, one
+// session's log and messages, and every session. Entry: this file.
 // Start a coding agent on one of the user's machines, follow it live and
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike. This
@@ -87,7 +89,6 @@ export interface Started {
   session: AgentSession;
   why: string;
 }
-
 
 /// The session the view follows, as the node knows it.
 export interface OpenAgent {

@@ -20,6 +20,9 @@ const eachIn = (el: Element) => <T extends HTMLElement = HTMLButtonElement>(attr
   el.querySelectorAll<T>(`[${attr}]`).forEach(fn);
 /// The value typed in the input `sel` names on the Settings page, if any.
 const typed = (sel: string) => setRoot().querySelector<HTMLInputElement>(sel)?.value;
+/// Redraws Credentials once listed, unless a token is being typed: the
+/// redraw would drop it.
+const redrawCreds = () => { if (setShown() && CRED.list && !typed("#credSecret")) fillSection("creds", setCredsHtml()); };
 
 export function setCredsHtml() {
   if (CRED.list === undefined || !CRED.mod) return setSkeleton(2);
@@ -37,22 +40,20 @@ async function loadCliLogins() {
     console.warn(e);
     CRED.cli = null;
   }
-  // Not while a token is typed: the redraw would drop it.
-  if (setShown() && CRED.list && !typed("#credSecret")) fillSection("creds", setCredsHtml());
+  redrawCreds();
 }
 
 /// Checks each saved Forgejo token the server could not check when it was
 /// saved, once per token: from the server, else from a machine with teacli.
 function checkForgejo(list: Credential[]) {
   const checks = (CRED.checks ??= {});
-  const redraw = () => { if (setShown() && CRED.list && !typed("#credSecret")) fillSection("creds", setCredsHtml()); };
   for (const c of list) {
     if (c.kind !== "forgejo" || c.unreadable || c.account || checks[c.id]) continue;
     checks[c.id] = { state: "checking" };
     invoke<CredCheck>("check_credential", { id: c.id })
       .then(check => { checks[c.id] = check; })
       .catch(e => { console.warn(e); delete checks[c.id]; })
-      .finally(redraw);
+      .finally(redrawCreds);
   }
 }
 
@@ -212,7 +213,7 @@ export function bindCreds(el: Element) {
 
 /// Settings, Agent accounts (`agentaccounts.ts` draws it, loaded on first use
 /// into `mod`).
-export const ACC: AgentAccountsState & {
+const ACC: AgentAccountsState & {
   mod: typeof AgentAccountsModule | null;
   busy: string;
   codex: Record<string, CodexFlow>;

@@ -1,7 +1,7 @@
 // The Artifacts tab of a coding agent session: the pages and documents the
 // agent made, read from its log.
 
-import { imageLines, parseTool } from "../agents/agentlog.ts";
+import { attr, imageLines, parseTool } from "../agents/agentlog.ts";
 import { baseName, extension, resolvePath } from "./media-state.ts";
 
 /// How the tab shows an artifact.
@@ -147,8 +147,6 @@ export function relativeTo(cwd: string, path: string) {
   const place = readPlace(cwd, path);
   return place.inside ? place.path : null;
 }
-
-const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
 /// The frame an HTML artifact shows in: the page served from its own origin
 /// (`src`), sandboxed to run scripts and nothing more, sent no referrer.

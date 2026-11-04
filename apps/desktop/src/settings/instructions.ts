@@ -7,19 +7,19 @@ import { plural } from "../ui/format.ts";
 import { emptyPanel, note } from "../ui/parts.ts";
 
 /// The view's tabs.
-export type InstructionsTab = "editor" | "import" | "sync" | "history";
+type InstructionsTab = "editor" | "import" | "sync" | "history";
 
 const TABS: [InstructionsTab, string][] = [["editor", "Editor"], ["import", "Import"], ["sync", "Sync"], ["history", "History"]];
 
 /// The view as the window registers it.
-export interface InstructionsView {
+interface InstructionsView {
   title: () => { title: string; sub: string; tools: Node[] };
   /// `arg.tab` opens on that tab.
   mount(root: HTMLElement, arg?: unknown): void;
 }
 
 /// What the window hands `registerInstructions`.
-export interface InstructionsDeps {
+interface InstructionsDeps {
   registerView: (name: string, view: InstructionsView) => void;
   invoke: typeof Invoke;
   h: MakeEl;
@@ -199,10 +199,6 @@ export function registerInstructions(deps: InstructionsDeps) {
     return h("div", "in-mach", head, right || h("span", ""), h("div", "in-files", ...rows));
   }
 
-  function loading(what: string) {
-    return emptyPanel(h("b", "", what));
-  }
-
   /// A machine's line when it has no file rows: why it could not be read,
   /// or that it has no coding agent.
   function missRow(text: string) {
@@ -212,7 +208,7 @@ export function registerInstructions(deps: InstructionsDeps) {
   /// What the Import and Sync tabs show before the files are read, or
   /// when reading them failed; null once they are there.
   function notRead() {
-    if (st.files === undefined || (st.reading && !st.files)) return [loading("Reading the agent files on your machines…")];
+    if (st.files === undefined || (st.reading && !st.files)) return [emptyPanel(h("b", "", "Reading the agent files on your machines…"))];
     if (st.files === null) return [h("div", "cc-err", st.error || "Could not read the agent files.")];
     return null;
   }
@@ -282,7 +278,7 @@ export function registerInstructions(deps: InstructionsDeps) {
   }
 
   function historyTab() {
-    if (st.versions === undefined) return [loading("Loading the versions…")];
+    if (st.versions === undefined) return [emptyPanel(h("b", "", "Loading the versions…"))];
     if (st.versions === null) return [h("div", "cc-err", st.error || "Could not load the versions.")];
     if (!st.versions.length) return [emptyPanel(h("b", "", "No versions yet"), h("span", "", "Each save makes one."))];
     const rows = st.versions.map(v => {
@@ -300,7 +296,7 @@ export function registerInstructions(deps: InstructionsDeps) {
   function draw() {
     if (!el) return;
     const view = h("div", "cc-view in-view", tabs());
-    if (st.newest === undefined) view.append(loading("Loading your instructions…"));
+    if (st.newest === undefined) view.append(emptyPanel(h("b", "", "Loading your instructions…")));
     else if (st.tab === "editor") view.append(editor());
     else if (st.tab === "import") view.append(...importTab());
     else if (st.tab === "sync") view.append(...syncTab());

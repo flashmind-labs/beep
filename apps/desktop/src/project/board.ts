@@ -5,19 +5,13 @@ import { machineSync } from "../center/home-state.ts";
 import type { RunningAgent, SyncRow } from "../center/home-state.ts";
 import type { SessionRow, WhereRow } from "./projects-state.ts";
 
-/// A chip on a tile row: its class and text.
-export interface TileChip {
-  cls: string;
-  text: string;
-}
-
 /// One row of a tile: an optional dot, its text with an optional code
 /// before it, and a chip or a muted note. A row with `url` opens it.
 export interface TileRow {
   text?: string;
   code?: string;
   url?: string;
-  chip?: TileChip | null;
+  chip?: { cls: string; text: string } | null;
   note?: string;
   dot?: string;
   title?: string;

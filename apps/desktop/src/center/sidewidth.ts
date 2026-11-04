@@ -14,13 +14,6 @@ export function clampWidth(w: number | string | null): number {
   return Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, n)));
 }
 
-/// The width after `key` on the handle, or null for a key it ignores.
-export function stepWidth(w: number, key: string): number | null {
-  if (key === "ArrowLeft") return clampWidth(w - SIDE_STEP);
-  if (key === "ArrowRight") return clampWidth(w + SIDE_STEP);
-  return null;
-}
-
 function load() {
   try { return clampWidth(localStorage.getItem(KEY)); } catch { return SIDE_DEFAULT; }
 }
@@ -62,12 +55,12 @@ export function initSideResize(win: HTMLElement, grip: HTMLElement) {
   });
   grip.addEventListener("dblclick", () => { apply(SIDE_DEFAULT); save(width); });
   grip.addEventListener("keydown", e => {
-    const next = stepWidth(width, e.key);
-    if (next === null) return;
+    const step = e.key === "ArrowLeft" ? -SIDE_STEP : e.key === "ArrowRight" ? SIDE_STEP : 0;
+    if (!step) return;
     // The page's own arrow keys are for its lists, not for this.
     e.preventDefault();
     e.stopPropagation();
-    apply(next);
+    apply(clampWidth(width + step));
     save(width);
   });
 }

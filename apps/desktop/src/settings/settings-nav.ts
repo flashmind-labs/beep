@@ -2,7 +2,7 @@
 // and the subpage open under it, such as Apps then Gmail.
 
 /// The pages of Settings, in the order the left pane lists them.
-export const SETTINGS_PAGES = [
+const SETTINGS_PAGES = [
   ["general", "General"],
   ["appearance", "Appearance"],
   ["models", "Models"],
@@ -28,11 +28,6 @@ export type SettingsSub =
 /// The coding agents Settings lists under Agent accounts, in order. Each
 /// opens its own subpage, nested in the left pane like Apps and Machines.
 export const CODING_AGENTS = ["claude", "codex", "gemini", "pi", "opencode", "flsh"] as const;
-
-/// The subpages Agent accounts nests: one per coding agent.
-export function agentSubs(): SettingsSub[] {
-  return CODING_AGENTS.map(id => ({ kind: "agent", id }));
-}
 
 /// Which page each kind of subpage sits under.
 const SUB_PAGE: Record<SettingsSub["kind"], SettingsPage> = { app: "apps", mcp: "apps", machine: "machines", agent: "agents" };
@@ -110,7 +105,7 @@ export function parsePath(key: string | null | undefined): SettingsPath | null {
 }
 
 /// Where the last picked page is kept, per Mac.
-export const REMEMBER_KEY = "beep.settings.page";
+const REMEMBER_KEY = "beep.settings.page";
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 
@@ -124,8 +119,7 @@ export function recallPath(store: Store | null | undefined): SettingsPath {
   }
 }
 
-/// Keeps `path` for the next time Settings opens. Storage that throws
-/// only means the next open starts on General.
+/// Keeps `path` for the next time Settings opens.
 export function rememberPath(store: Store | null | undefined, path: SettingsPath) {
   try {
     store?.setItem(REMEMBER_KEY, pathKey(path));
@@ -142,7 +136,7 @@ export function crumbs(path: SettingsPath, subLabel: (sub: SettingsSub) => strin
 }
 
 /// One entry of the left pane: a page, or a subpage nested under it.
-export interface NavEntry {
+interface NavEntry {
   page: SettingsPage;
   sub: SettingsSub | null;
   /// The entry open in the right pane.

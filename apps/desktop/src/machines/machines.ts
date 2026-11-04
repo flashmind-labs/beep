@@ -1,3 +1,5 @@
+// machines/: the Machines list, Home's machine table (table.ts) and the
+// Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
 import { harnessTile } from "../agents/harnessicon.ts";
 import { bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, specLine, toolChips, updatedTo } from "./machines-state.ts";
@@ -387,7 +389,8 @@ function drawMachines() {
   if (open) {
     el.innerHTML = errLine(MC.error) + machinePage(open);
   } else if (at?.machine) {
-    el.innerHTML = setSkeletonRows();
+    // Rows that stand in for the machine until the list comes.
+    el.innerHTML = `<div class="dskel-rows">${[78, 56, 68].map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
   } else {
     const list = MC.list ?? [], on = list.filter(m => m.online).length;
     const sum = !MC.list ? "" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
@@ -417,12 +420,8 @@ function drawMachines() {
   }
   el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) renderMachines(hosted()?.machine ?? null); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
-  for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) {
-    b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
-  }
-  for (const b of el.querySelectorAll<HTMLElement>("[data-toolup]")) {
-    b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
-  }
+  for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
+  for (const b of el.querySelectorAll<HTMLElement>("[data-toolup]")) b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
   el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });
   el.querySelector("#mcSearchEdit")?.addEventListener("click", () => {
     if (!search) return;
@@ -445,6 +444,3 @@ function stopEditing() {
   search.error = "";
   drawMachines();
 }
-
-/// Rows that stand in for a machine until the list comes.
-const setSkeletonRows = () => `<div class="dskel-rows">${[78, 56, 68].map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;

@@ -17,7 +17,8 @@ let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: 
 export function openSettings(section?: string) {
   // A project window has no Settings of its own: the main window opens them.
   if (windowProject) return toMain("settings");
-  if (settingsOpen) return section && showSection(settingsOpen.scrim, section);
+  // Already open: show page `section`, such as "machines".
+  if (settingsOpen) return section && settingsOpen.scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
   const sheet = h("div", "cc-set");
   sheet.setAttribute("role", "dialog");
   sheet.setAttribute("aria-modal", "true");
@@ -43,11 +44,6 @@ export function openSettings(section?: string) {
   settingsOpen = { scrim, keys, back };
   sheet.focus();
   pane.settings(sheet, section).catch(e => console.warn("settings:", e));
-}
-
-/// Shows page `section` of the open sheet, such as "machines".
-function showSection(scrim: HTMLElement, section: string) {
-  scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
 }
 
 /// A window view the Settings sheet draws in its right pane, such as
@@ -107,7 +103,6 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
   if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet)) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
-
 
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => {

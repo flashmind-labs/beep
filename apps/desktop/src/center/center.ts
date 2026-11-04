@@ -1,5 +1,5 @@
-// The command center window: a sidebar, Home, and the bar's page as a pane
-// (src/bar, loaded with this module) for chats, memories and routines.
+// center/: the command center window: sidebar, Home, palette, usage pill and
+// the window's shared state (state.ts). Entry: this file (dist/center.js).
 import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
@@ -13,7 +13,7 @@ import { agentFor, shortName, newChatProject } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { windowTakes } from "./windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
-import { type ViewArg, $, IC, state, pagesAccount, keepPagesFile } from "./state.ts";
+import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
 import { dismissedUpdates, draw, jump } from "./home.ts";
 import { shown, windowProject, toMain, go, setWindowProject } from "./views.ts";
 import { reloadGroup, paneOn, reloadChats, openProjects, addProject } from "./sidebar.ts";
@@ -34,14 +34,14 @@ followSkin();
 initSideResize($(".cwin"), $("#side-grip"));
 mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
 
-initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); }, findIcon: IC.find });
+initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
 
 /// ⌘ and a letter: the pane page it opens.
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
 
 document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too.
-  if (inTerminal(e)) return;
+  if (e.target instanceof Element && e.target.closest(".tm-xterm")) return;
   // Esc goes back to the project list's first row.
   if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
     e.preventDefault();
@@ -69,11 +69,6 @@ document.addEventListener("keydown", e => {
 /// The machines online in `home`, as a key that changes when one connects.
 export function onlineMachines(home: HomeView | null) {
   return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
-}
-
-/// Whether `e` was typed into a terminal's screen.
-function inTerminal(e: KeyboardEvent) {
-  return e.target instanceof Element && !!e.target.closest(".tm-xterm");
 }
 
 /// ⌘N: the project's chat while a project or its chat shows, else a new general

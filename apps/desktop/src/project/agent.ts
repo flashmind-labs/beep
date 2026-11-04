@@ -247,15 +247,10 @@ function acts(b: HTMLButtonElement, err: string | null | undefined) {
   return el("span", "acts", b, err ? el("span", "cc-err", err) : null);
 }
 
-/// An empty section's note.
-function empty(text: string) {
-  return emptyPanel(el("span", "", text));
-}
-
 /// The Tasks section. `act.change(task, change)` drops or reopens one.
 export function tasksSection(view: ProjectView, act: RowActs) {
   const tasks = view.tasks;
-  if (!tasks.length) return section("sec-tasks", "Tasks", "", empty("No tasks yet. Ask the project agent below and it plans them."));
+  if (!tasks.length) return section("sec-tasks", "Tasks", "", emptyPanel(el("span", "", "No tasks yet. Ask the project agent below and it plans them.")));
   const rows = tasks.map(t => {
     const meta = el("span", "m", ...taskMeta(t, tasks, view.workers).map(m =>
       m.url ? link(m.text, m.url, act.openUrl) : m.code ? el("code", "", m.text) : el("span", "", m.text)));

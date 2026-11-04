@@ -10,15 +10,6 @@ import { fileKind, fileSize, GONE } from "./media.ts";
 
 // ---------- Attached images and files ----------
 
-/// A file waiting in the prompt, its bytes in base64 (`FileUpload`, and
-/// its size).
-export interface Attachment {
-  name: string;
-  mime: string;
-  size: number;
-  data: string;
-}
-
 /// A file a prompt carried: one just sent, or one the server keeps
 /// (`FileRef`), which has an id to open it by.
 export interface AskFile {
@@ -27,6 +18,10 @@ export interface AskFile {
   size: number;
   id?: string;
 }
+
+/// A file waiting in the prompt, its bytes in base64 (`FileUpload`, and
+/// its size).
+export type Attachment = Omit<AskFile, "id"> & { data: string };
 
 // Pictures and files pasted or dropped into the prompt, sent with the next
 // message. Each picture is shrunk and sent as JPEG, as the phone does; other
@@ -62,7 +57,7 @@ export function askFiles(files: AskFile[]) {
       if (chip.classList.contains("gone")) return;
       try { await invoke("open_file", { id: file.id, name: file.name }); }
       catch (e) {
-        chip.querySelector(".sz")!.textContent = String(e) === GONE ? GONE : String(e);
+        chip.querySelector(".sz")!.textContent = String(e);
         if (String(e) === GONE) chip.classList.add("gone");
       }
     });

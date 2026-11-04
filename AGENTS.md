@@ -150,6 +150,28 @@ tray menu; quitting installs it too. The update signing key is the
 `TAURI_SIGNING_PRIVATE_KEY` secret, with its public half in `tauri.conf.json`;
 losing it means installed apps can no longer update.
 
+### Code map
+
+`apps/desktop/src` is grouped by feature. `foo-state.ts` next to `foo.ts`
+holds its pure, tested logic. Each window's bundle starts at the entry named
+in `build.mjs`.
+
+- `bar/`: the bar's page (entry `app.ts`), its views, keys and live voice.
+- `center/`: the command center window (entry `center.ts`): sidebar, Home.
+- `project/`: the Projects page and one project's page.
+- `addproject/`: the Add a project and Import a project sheets.
+- `review/`: branches, reviews and the diff viewer.
+- `agents/`: coding agents: start form, picker, a session's log, the list.
+- `agentpane/`: a session's side pane: media, files, changes, artifacts.
+- `chat/`: chats, groups, the composer and reply cards.
+- `lists/`: Memories, Routines and Skills.
+- `machines/`: the Machines list, Home's machine table, Add a machine.
+- `terminals/`: terminals kept running on the machines.
+- `settings/`: the Settings pages and sheet.
+- `research/`: the research window (entry `research.ts`) and its lists.
+- `orb/`: the orb window (entry `orb.ts`).
+- `ui/`: shared helpers: Tauri bindings, DOM builders, formatting, menus.
+
 ## beep-node releases
 
 `just node-release 0.1.1` sets the version in `crates/node/Cargo.toml`,

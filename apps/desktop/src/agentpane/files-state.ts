@@ -3,6 +3,7 @@
 // paths mentioned in a message, files dropped to upload, and the simple
 // highlighting of the text view. No page here, so the tests load it.
 import { esc } from "../ui/format.ts";
+import { extension } from "./media-state.ts";
 
 /// How git sees an entry changed (WorkEntry.change).
 export type GitChange = "untracked" | "added" | "modified" | "conflicted";
@@ -126,8 +127,7 @@ export function mentionText(paths: readonly string[]) {
 
 /// The text a message sends: what was typed, then its mentions.
 export function withMentions(text: string, paths: readonly string[]) {
-  const m = mentionText(paths);
-  return [text.trim(), m].filter(Boolean).join("\n\n");
+  return [text.trim(), mentionText(paths)].filter(Boolean).join("\n\n");
 }
 
 /// Where dropped files go unless a folder is picked.
@@ -152,8 +152,7 @@ export function uploadParts(size: number, part = UPLOAD_PART) {
 
 /// Why a dropped file cannot be uploaded, or "" when it can.
 export function uploadRefusal(f: { name: string; size: number }) {
-  if (f.size > MAX_UPLOAD) return `${f.name || "That file"} is over ${MAX_UPLOAD >> 20} MB, the most a drop uploads`;
-  return "";
+  return f.size > MAX_UPLOAD ? `${f.name || "That file"} is over ${MAX_UPLOAD >> 20} MB, the most a drop uploads` : "";
 }
 
 /// A file's size in short words.
@@ -177,16 +176,13 @@ const LANGS: Record<string, string> = {
 
 /// The language a file is in by its extension, or "".
 export function languageOf(path: string) {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? LANGS[name.slice(dot + 1).toLowerCase()] ?? "" : "";
+  return LANGS[extension(path)] ?? "";
 }
 
 const KEYWORDS = new Set(("as async await break case catch class const continue crate def default defer del do elif else enum export extends "
   + "false fn for from func function go if impl import in interface is let loop match mod module mut new nil None null package pass "
   + "private pub raise return self Self static struct super switch this throw trait true True False try type typeof use var where while with yield").split(" "));
 const HASH_COMMENT = new Set(["Python", "Shell", "Ruby", "TOML", "YAML"]);
-
 
 /// One line as HTML, its strings, comments, numbers and keywords in spans (`s`,
 /// `c`, `n`, `k`).

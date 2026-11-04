@@ -1,3 +1,5 @@
+// lists/: Memories, Routines and Skills, each a list with one row picked.
+// Entry: this file, which holds the shared list parts.
 import { mark } from "../chat/chats.ts";
 import { $, $$, bar, esc, ICON, invoke, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
@@ -344,14 +346,9 @@ export function memKeys(e: KeyboardEvent, cmd: boolean) {
     const at = Math.max(0, filters.findIndex(f => f.key === M.filter));
     M.filter = filters[(at + (e.shiftKey ? filters.length - 1 : 1)) % filters.length].key;
     M.sel = 0;
-    drawMemories();
-  } else if (arrowKey(e, M)) {
-    drawMemories();
-  } else if (e.key === "Enter" && !e.isComposing && M.list.length) {
-    e.preventDefault();
-    memAction("edit");
-  } else if (cmd && e.key === "Backspace" && M.list.length) {
-    e.preventDefault();
-    memAction("forget");
+    return drawMemories();
   }
+  if (arrowKey(e, M)) return drawMemories();
+  if (e.key === "Enter" && !e.isComposing && M.list.length) { e.preventDefault(); return memAction("edit"); }
+  if (cmd && e.key === "Backspace" && M.list.length) { e.preventDefault(); return memAction("forget"); }
 }

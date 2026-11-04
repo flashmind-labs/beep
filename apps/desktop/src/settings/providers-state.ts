@@ -2,7 +2,7 @@
 // tested without Tauri. providers.ts draws the page.
 
 /// How a harness signs in (SignInView).
-export interface SignInView {
+interface SignInView {
   state: "unknown" | "signed_in" | "signed_out" | "beep_token";
   account: string | null;
   plan: string | null;
@@ -10,7 +10,7 @@ export interface SignInView {
 }
 
 /// The user's settings for one harness (SettingsView): env holds names only.
-export interface SettingsView {
+interface SettingsView {
   enabled: boolean;
   program: string;
   home: string;
@@ -43,7 +43,7 @@ export interface HarnessesView {
 }
 
 /// A row of the list on the left.
-export interface HarnessRow {
+interface HarnessRow {
   agent: string;
   name: string;
   initials: string;
@@ -59,7 +59,7 @@ export interface HarnessRow {
 
 /// An env var row as the form holds it: `saved` when the server has a value
 /// for it, `value` what was typed (empty keeps the saved one).
-export interface EnvDraft {
+interface EnvDraft {
   name: string;
   value: string;
   saved: boolean;
@@ -74,7 +74,7 @@ export interface HarnessDraft {
 }
 
 /// What `harness_settings_save` takes.
-export interface SettingsInput {
+interface SettingsInput {
   enabled: boolean;
   program: string;
   home: string;
@@ -113,10 +113,8 @@ export function hasUpdate(h: HarnessView) {
   return h.installed && !!h.version && !!h.latest && isNewer(h.latest, h.version);
 }
 
-/// "Max", "ChatGPT Pro": a plan name as the agent gives it, capitalised.
-function planName(plan: string) {
-  return plan.length ? plan[0].toUpperCase() + plan.slice(1) : plan;
-}
+/// " · Max plan": the plan as the agent gives it, capitalised, or "".
+export const planOf = (s: SignInView) => (s.plan ? ` · ${s.plan[0].toUpperCase()}${s.plan.slice(1)} plan` : "");
 
 /// The line under a harness's name: its sign-in, or why it cannot run.
 export function statusLine(h: HarnessView): { text: string; bad: boolean } {
@@ -125,10 +123,7 @@ export function statusLine(h: HarnessView): { text: string; bad: boolean } {
   const s = h.sign_in;
   if (s.state === "beep_token") return { text: `Signs in with Beep's token …${s.last4 ?? ""}`, bad: false };
   if (s.state === "signed_out") return { text: "Not signed in on this machine", bad: true };
-  if (s.state === "signed_in") {
-    const plan = s.plan ? ` · ${planName(s.plan)} plan` : "";
-    return { text: `Signed in${plan}`, bad: false };
-  }
+  if (s.state === "signed_in") return { text: `Signed in${planOf(s)}`, bad: false };
   if (!h.runnable) return { text: "Installed; Beep cannot start it yet", bad: true };
   return { text: "Installed", bad: false };
 }
@@ -137,10 +132,7 @@ export function statusLine(h: HarnessView): { text: string; bad: boolean } {
 /// naming the account it is signed in with.
 export function summaryLine(h: HarnessView): { text: string; bad: boolean } {
   const s = h.sign_in;
-  if (h.installed && h.settings.enabled && s.state === "signed_in" && s.account) {
-    const plan = s.plan ? ` · ${planName(s.plan)} plan` : "";
-    return { text: `Signed in as ${s.account}${plan}`, bad: false };
-  }
+  if (h.installed && h.settings.enabled && s.state === "signed_in" && s.account) return { text: `Signed in as ${s.account}${planOf(s)}`, bad: false };
   return statusLine(h);
 }
 

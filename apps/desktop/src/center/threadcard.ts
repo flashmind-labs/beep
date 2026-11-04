@@ -21,7 +21,6 @@ export let threadsLoading: Promise<void> | null = null;
 
 // ---------- Chats about one thread ----------
 
-
 /// Reads which chats are about one thread, for every project, then redraws what
 /// lists or heads them.
 export function loadThreadChats() {
@@ -109,10 +108,7 @@ const clip = (text: string, all: boolean) => all || text.length <= THREAD_TEXT ?
 function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
   const v = card.view, label = threadLabel(t.kind, t.number);
   card.el.hidden = v === null;
-  if (v === undefined) {
-    card.el.replaceChildren(card.error ? h("span", "who", card.error) : h("span", "who", h("span", "dspin"), ` Reading ${label}…`));
-    return;
-  }
+  if (v === undefined) return card.el.replaceChildren(card.error ? h("span", "who", card.error) : h("span", "who", h("span", "dspin"), ` Reading ${label}…`));
   if (!v) return card.el.replaceChildren();
   const total = v.earlier + v.comments.length;
   const where = openLabel(v.url) === "Open on GitHub" ? "On GitHub" : "On its host";

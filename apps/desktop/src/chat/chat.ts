@@ -1,7 +1,9 @@
+// chat/: chats and groups in the bar: the open chat, the list, the composer,
+// attachments and the cards under a reply. Entry: this file.
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
-import { chartRow } from "./charts.ts";
+import { type Chart, chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
 import { coderCard } from "./codercard.ts";
 import { composeField } from "./compose.ts";
@@ -22,9 +24,6 @@ import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel, VISIBLE_STEPS } from "./t
 import { refreshStatus } from "../bar/views.ts";
 
 // ---------- Chat ----------
-
-/// A chart a tool drew, as charts.ts draws it.
-type Chart = Parameters<typeof chartRow>[1];
 
 /// One line of an approval card.
 export interface ApprovalField {
@@ -449,12 +448,8 @@ export function follow(id: string | null, turn: Turn) {
         entry(id).run = { id: ev.run_id, turn };
         if (id === S.session) refreshHints();
         break;
-      case "text":
-        reply(turn).innerHTML = ev.html + CARET;
-        break;
-      case "reasoning":
-        thinking(turn, ev.delta);
-        break;
+      case "text": reply(turn).innerHTML = ev.html + CARET; break;
+      case "reasoning": thinking(turn, ev.delta); break;
       case "tool_started":
         if (QUIET_TOOLS.has(ev.name)) break;
         turn.steps.push({ id: ev.call_id, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
@@ -467,15 +462,9 @@ export function follow(id: string | null, turn: Turn) {
         toolOutput(turn, ev, ev.name === "get_route" && ev.success && ev.call_id ? ev.call_id : null);
         break;
       }
-      case "sources":
-        sourceRow(turn, ev.sources);
-        break;
-      case "replies":
-        suggestions(turn, ev.replies);
-        break;
-      case "transcript":
-        heard(turn, ev.text);
-        break;
+      case "sources": sourceRow(turn, ev.sources); break;
+      case "replies": suggestions(turn, ev.replies); break;
+      case "transcript": heard(turn, ev.text); break;
       case "auto_picked":
         turn.model = ev.model;
         ranOn(turn, ev.model, ev.thinking);
@@ -484,9 +473,7 @@ export function follow(id: string | null, turn: Turn) {
         turn.querySelector(".caret")?.remove();
         approvalCard(id, turn, ev);
         break;
-      case "error":
-        failed(turn, ev.message);
-        break;
+      case "error": failed(turn, ev.message); break;
       case "finished":
         turn.status = ev.status;
         if (ev.status === "cancelled") stoppedRow(turn);

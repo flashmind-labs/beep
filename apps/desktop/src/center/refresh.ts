@@ -54,9 +54,7 @@ export async function refresh() {
     fresh = true;
     // A machine came online: its harnesses' models are read ahead of the
     // picker.
-    if (onlineMachines(home) !== was) {
-      invoke<AgentHost[]>("agent_hosts").then(preloadModels).catch(e => console.warn("agent hosts:", e));
-    }
+    if (onlineMachines(home) !== was) invoke<AgentHost[]>("agent_hosts").then(preloadModels).catch(e => console.warn("agent hosts:", e));
     state.error = null;
     const live = new Set(state.home.needs_you.map(cardKey));
     for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);
@@ -120,9 +118,5 @@ window.addEventListener("focus", () => { if (shown === "home") refreshGit(); });
 setInterval(() => { if (onScreen() && shown === "home") refreshGit(); }, 60000);
 // Signed out or removed: the kept project pages go with the account.
 listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); keepPagesFile(undefined); } });
-for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) {
-  listen(name, () => refresh());
-}
-for (const name of ["sessions-changed", "group-changed", "reconnected"]) {
-  listen(name, () => reloadChats());
-}
+for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) listen(name, () => refresh());
+for (const name of ["sessions-changed", "group-changed", "reconnected"]) listen(name, () => reloadChats());

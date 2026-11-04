@@ -1,3 +1,5 @@
+// ui/: helpers every window shares: Tauri bindings, DOM builders,
+// formatting, menus, skins and banners. Main file: this one.
 // Building elements: `el` and `button`, and the types views take them as.
 
 /// A child for `el`: a node, text, or an empty slot, which is left out.

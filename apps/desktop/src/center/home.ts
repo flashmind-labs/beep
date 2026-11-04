@@ -31,7 +31,6 @@ export function runningRow(r: RunningRow) {
   return row;
 }
 
-
 // ---------- Needs you ----------
 
 type ChatNeed = Extract<NeedsYou, { kind: "chat" }>;
@@ -70,18 +69,11 @@ function needsRow(n: NeedsYou) {
     lead = harnessEl(n.agent);
     open = act = () => openAsking(n);
   }
-  let right;
-  if (out?.said) right = [h("span", "ok", out.said)];
-  else if (out?.final) right = [h("span", "err", out.error)];
-  else right = [rowButton(label, "pri small", act)];
+  const right = out?.said ? [h("span", "ok", out.said)] : out?.final ? [h("span", "err", out.error)] : [rowButton(label, "pri small", act)];
   const row = line(lead, title, sub, right, open);
   if (out?.error && !out.final) row.querySelector(".t > span")!.replaceChildren(h("span", "err", out.error));
   if (out?.said) row.style.opacity = ".55";
   return row;
-}
-
-function needsSection(needs: NeedsYou[]) {
-  return section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow)));
 }
 
 // ---------- Coming up ----------
@@ -259,7 +251,7 @@ export function overview(home: HomeView) {
       coming?.length ? homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)) : null],
   ].filter(r => r.some(b => b));
   const out: HTMLElement[] = [];
-  if (needs.length) out.push(needsSection(needs));
+  if (needs.length) out.push(section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow))));
   if (updates?.length) out.push(updatesSection(updates));
   for (const [a, b] of rows) out.push(h("div", "cc-cols", a, b));
   if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
@@ -304,9 +296,7 @@ function connecting() {
     return box;
   }
   const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
-  if (!stuck()) {
-    return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"));
-  }
+  if (!stuck()) return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"));
   return h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), h("span", "why", waitText()), h("div", "acts", retryButton("Retry now", "pri"), logButton()));
 }
 
@@ -343,7 +333,6 @@ export function draw() {
   $<HTMLInputElement>("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
-
 
 registerView("home", {
   el: $("#home-box"),

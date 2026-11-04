@@ -78,10 +78,6 @@ export type TaskLink = Pick<TaskRow, "id" | "title" | "state" | "pr_url" | "issu
 /// A branch review as the pull request rows read it.
 export type PrReview = Pick<ReviewView, "branch"> & Parameters<typeof reviewState>[0];
 
-/// How long after a try the lists may be read again unasked: the page
-/// cache's time for the code host's lists.
-const REFRESH_GAP = REFRESH_MS;
-
 /// "#52", "PR #41".
 export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
   return t.kind === "pr" ? `PR #${t.number}` : `#${t.number}`;
@@ -224,16 +220,6 @@ export function issueBranch(number: number, title: string) {
   return slug ? `issue-${number}-${slug}` : `issue-${number}`;
 }
 
-/// What Work on it puts in the start form.
-export function issuePrompt(i: Pick<IssueRow, "number" | "title" | "url">) {
-  return `Work on issue #${i.number}: ${i.title} (${i.url}). Read the issue and its comments first, then propose and implement a fix.`;
-}
-
-/// What Continue puts in the start form.
-export function prPrompt(p: Pick<PullRequestRow, "number" | "title" | "url">) {
-  return `Continue PR #${p.number}: ${p.title} (${p.url}). Read the review comments and failing checks first.`;
-}
-
 /// The project's lists as the server keeps them (ListsRow).
 export interface ListsRow {
   prs: PullRequestRow[];
@@ -270,8 +256,6 @@ export interface ThreadDeps {
   changed: () => unknown;
   /// Where the lists are kept between windows; in memory only without it.
   kept?: SectionStore<KeptThreads>;
-  /// The chip saying whether the project is live or polling.
-  mode?: (id: string) => HTMLElement | null;
 }
 
 /// A project's lists as the page cache keeps them.
@@ -326,8 +310,9 @@ export function makeThreads(deps: ThreadDeps) {
   const tried = new Map<string, number>();
 
   /// Reads `id` when it is due: never read, or `every` passed since the last
-  /// try (the refresh time by default; opening the project asks sooner).
-  function ensure(id: string, every = REFRESH_GAP): Promise<void> | undefined {
+  /// try (the page cache's refresh time by default; opening the project asks
+  /// sooner).
+  function ensure(id: string, every = REFRESH_MS): Promise<void> | undefined {
     const last = tried.get(id);
     const due = last === undefined ? kept.due(id, every) : Date.now() - last >= every;
     if (due && !reading.has(id)) return load(id);
@@ -441,6 +426,12 @@ export function makeThreads(deps: ThreadDeps) {
     return a;
   }
 
+  /// Let the agent reply on thread `number`.
+  const replyButton = (agent: Agent, repo: string, number: number) =>
+    button(of(agent.project_id).busy.has(`r${number}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${number}`, async () => {
+      openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo, number }));
+    }));
+
   /// A row's actions and why its last one failed.
   function actsEl(s: ProjectThreads, keys: string[], buttons: HTMLButtonElement[]) {
     const err = keys.map(k => s.failed.get(k)).find(Boolean);
@@ -454,11 +445,7 @@ export function makeThreads(deps: ThreadDeps) {
     const s = of(agent.project_id);
     const n = l.pr.number;
     const buttons: HTMLButtonElement[] = [];
-    if (l.needs_reply) {
-      buttons.push(button(s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${n}`, async () => {
-        openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n }));
-      })));
-    }
+    if (l.needs_reply) buttons.push(replyButton(agent, l.repo || agent.name, n));
     const cont = button(s.busy.has(`c${n}`) ? "Reading…" : "Continue", l.needs_reply ? "" : "pri", () => act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)));
     cont.disabled = s.busy.has(`c${n}`);
     cont.title = "Start a coding agent on this pull request's branch";
@@ -500,11 +487,7 @@ export function makeThreads(deps: ThreadDeps) {
         const st = t.needs_reply ? stateChip("blocked", "needs reply") : stateChip("done", "nothing to answer");
         const row = h("div", "pj-task pj-issue", h("span", "t", link(threadCode(t), t.url), ` ${t.title}`), st, h("span", "m", threadMeta(t, ago)));
         const acts = h("span", "acts");
-        if (t.needs_reply) {
-          acts.append(button(s.busy.has(`r${t.number}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${t.number}`, async () => {
-            openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: t.repo, number: t.number }));
-          })));
-        }
+        if (t.needs_reply) acts.append(replyButton(agent, t.repo, t.number));
         acts.append(button(s.busy.has(`d${t.number}`) ? "Opening…" : "Discuss", "", () => discuss(agent, t.number)),
           button("Open", "", () => openUrl(t.url)));
         row.append(acts);
@@ -526,7 +509,6 @@ export function makeThreads(deps: ThreadDeps) {
     load,
     ensure,
     loading: (id: string) => reading.has(id),
-    at: (id: string) => kept.at(id),
     issues: (id: string) => of(id).issues,
     issuesError: (id: string) => of(id).issuesError,
     threads: (id: string) => of(id).threads,

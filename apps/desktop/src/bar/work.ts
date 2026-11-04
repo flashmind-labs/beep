@@ -69,7 +69,7 @@ export async function answerWork(id: string | null, q: HeldQuestion | undefined,
   if ((decision === "always" || decision === "session") && forRoutine(q.action)) decision = "allow";
   q.answer = decision;
   answeredWork.mark(q.query_id, id);
-  if (id === S.session) { drawWorkQuestions(); refreshHints(); }
+  redrawIfOpen(id);
   try {
     if (await invoke<"delivered" | "withdrawn">("answer_work", { session: id, queryId: q.query_id, decision }) === "withdrawn") {
       q.answer = null;
@@ -80,7 +80,7 @@ export async function answerWork(id: string | null, q: HeldQuestion | undefined,
     answeredWork.forget(q.query_id);
     if (id === S.session) notice(String(err), { bad: true });
   }
-  if (id === S.session) { drawWorkQuestions(); refreshHints(); }
+  redrawIfOpen(id);
 }
 
 /// After the chat is drawn again from the server: answered questions go,

@@ -6,11 +6,11 @@ export const SORTS = ["price", "throughput", "latency"] as const;
 export type Sort = (typeof SORTS)[number];
 
 /// The bounds the server holds a compaction threshold to.
-export const MIN_TOKENS = 1_000;
-export const MAX_TOKENS = 10_000_000;
+const MIN_TOKENS = 1_000;
+const MAX_TOKENS = 10_000_000;
 
-export interface AutoCompact { enabled: boolean; tokens: number | null }
-export interface ModelRule { model: string; enabled: boolean; tokens: number | null }
+interface AutoCompact { enabled: boolean; tokens: number | null }
+interface ModelRule { model: string; enabled: boolean; tokens: number | null }
 
 /// What `flsh_settings_get` gives and `flsh_settings_save` takes. Null or
 /// empty is flsh's own default.
@@ -50,7 +50,7 @@ export function flshDraft(s: FlshSettings): FlshDraft {
 
 /// "300000", "300k" or "300,000" as a number; null when empty, NaN when
 /// it is not a count.
-export function parseTokens(text: string): number | null {
+function parseTokens(text: string): number | null {
   const t = text.trim().toLowerCase().replace(/[_,\s]/g, "");
   if (!t) return null;
   const m = /^(\d+)(k?)$/.exec(t);

@@ -8,10 +8,6 @@ import type { ResearchRow, ResearchStatus } from "./research-list.ts";
 
 // ---------- Research ----------
 
-export type { ResearchStatus } from "./research-list.ts";
-/// A research on the account (ResearchItem).
-export type Research = ResearchRow;
-
 /// Chats started as researches, which open in their own window.
 export const RESEARCHES = new Set<string>();
 export async function loadResearches() {
@@ -36,7 +32,7 @@ export async function research(topic: string) {
 
 /// The bar's Research view: every research on the account, newest first, from
 /// the server, so ones started on another computer show too.
-export const RL: { list: Research[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
+export const RL: { list: ResearchRow[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
 export const RSTATUS: Record<ResearchStatus, string> = {
   planning: "Waiting for your go", researching: "Researching", reviewing: "Reviewing",
   writing: "Writing", done: "Done", failed: "Failed", stopped: "Stopped", interrupted: "Interrupted",
@@ -55,7 +51,7 @@ export function renderResearches(topic = "") {
 
 export async function loadResearchList() {
   try {
-    RL.list = await invoke<Research[]>("list_researches");
+    RL.list = await invoke<ResearchRow[]>("list_researches");
     for (const r of RL.list) RESEARCHES.add(r.session);
     RL.loaded = true;
     RL.error = "";
@@ -65,7 +61,7 @@ export async function loadResearchList() {
   if (S.view === "research") drawResearches();
 }
 
-export function researchLine(r: Research) {
+export function researchLine(r: ResearchRow) {
   const parts = [RSTATUS[r.status] ?? r.status];
   if (r.round > 1) parts.unshift(`Round ${r.round}`);
   if (r.sources) parts.push(`${r.sources} source${r.sources === 1 ? "" : "s"}`);

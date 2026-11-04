@@ -80,7 +80,7 @@ export function renderModel() {
   MODELS.sel = Math.max(0, m.choices.findIndex(c => c.id === m.selected));
   drawModel();
 }
-export function drawModel() {
+function drawModel() {
   const m = MODELS.info!, agents = MODELS.agents;
   const autoSub = m.auto ? (agents ? "Jev picks an agent for each prompt" : "Jev picks the thinking for each prompt") : "Off";
   const auto = m.auto_available
@@ -112,11 +112,8 @@ async function change<T>(command: string, args: Record<string, unknown>, take: (
   }
   if (S.view === "model") drawModel();
 }
-export function changeModel(command: string, args: Record<string, unknown>) {
+function changeModel(command: string, args: Record<string, unknown>) {
   return change<Models>(command, args, m => { MODELS.info = m; });
-}
-export function setAgents(enabled: boolean) {
-  return change("set_agents", { enabled }, takeAgents);
 }
 const pickModel = () => changeModel("set_model", { id: MODELS.info!.choices[MODELS.sel].id });
 export function modelClick(e: MouseEvent) {
@@ -126,7 +123,7 @@ export function modelClick(e: MouseEvent) {
   const level = t.closest<HTMLElement>("[data-level]");
   if (level) return changeModel("set_thinking", { level: level.dataset.level });
   if (t.closest('[data-act="auto"]')) return changeModel("set_auto_model", { enabled: !MODELS.info!.auto });
-  if (t.closest('[data-act="agents"]')) return setAgents(!MODELS.agents);
+  if (t.closest('[data-act="agents"]')) return change("set_agents", { enabled: !MODELS.agents }, takeAgents);
 }
 export function modelKeys(e: KeyboardEvent) {
   const m = MODELS.info!;

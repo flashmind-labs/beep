@@ -1,3 +1,5 @@
+// terminals/: terminals kept running on the machines, and the window's
+// Terminals page (view.ts). Entry: makeTerminals here.
 // Terminals: commands and shells kept running on the user's machines, apart
 // from any chat, like tmux sessions: the node owns them, so they keep running
 // with the window closed and can be attached to again.
@@ -474,8 +476,7 @@ export function makeTerminals(deps: TerminalDeps) {
     t.open = id;
     t.form = null;
     t.output = null;
-    const row = (t.list || []).find(x => x.id === id);
-    if (row) {
+    if ((t.list || []).some(x => x.id === id)) {
       const live = liveOf(name, id);
       queueMicrotask(() => live.screen.focus());
     }

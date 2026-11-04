@@ -1,4 +1,5 @@
 import { hostOf } from "../settings/apps.ts";
+import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk } from "./chat.ts";
 import { $, bar, COPY_ICON, esc, h, ICON, invoke } from "../bar/core.ts";
 import type { Turn } from "../bar/core.ts";
@@ -73,12 +74,11 @@ export function sentFile(turn: Turn, file: SentFile) {
   mime ? replyPic(turn, { file: { ...file, mime }, caption: "" }) : fileCard(turn, file);
 }
 
-export const PIC_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 /// The picture type of `file`, by its MIME type or else its name, or null.
 export function picMime(file: SentFile) {
-  if (Object.values(PIC_TYPES).includes(file.mime)) return file.mime;
+  if (Object.values(IMAGE_TYPES).includes(file.mime)) return file.mime;
   const ext = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
-  return file.mime === "application/octet-stream" || !file.mime ? PIC_TYPES[ext] ?? null : null;
+  return file.mime === "application/octet-stream" || !file.mime ? IMAGE_TYPES[ext] ?? null : null;
 }
 
 /// A file Beep sent. Opening it downloads it once, then hands it to its app.

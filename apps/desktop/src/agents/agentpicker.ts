@@ -11,9 +11,6 @@ import { harnessTile } from "./harnessicon.ts";
 const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
 
-/// A harness's badge, the window's `cc-ag` tile with its mark.
-export const badge = (agent: string) => harnessTile(agent);
-
 // ----- Models -----
 
 /// The models each machine's agents offer, by `machine/agent`: `null` when it
@@ -68,11 +65,14 @@ function askModels(key: string, machine: string, agent: string, loaded: (() => v
     });
 }
 
+/// Whether `e` holds an answer read lately.
+const fresh = (e: ModelsEntry | undefined) => !!e && e.list !== undefined && Date.now() - e.at <= MODELS_KEPT_MS;
+
 /// The models `agent` offers on `machine` as known now: `undefined` only before
 /// the first answer.
 export function modelsOn(machine: string, agent: string, loaded: () => void): AgentModels | null | undefined {
   const key = `${machine}/${agent}`, known = MODELS.get(key);
-  if (known && known.list !== undefined && Date.now() - known.at <= MODELS_KEPT_MS) return known.list;
+  if (fresh(known)) return known!.list;
   askModels(key, machine, agent, loaded);
   return known?.list;
 }
@@ -82,9 +82,8 @@ export function modelsOn(machine: string, agent: string, loaded: () => void): Ag
 export function preloadModels(hosts: readonly { machine_id: string; agents: readonly string[] }[]) {
   for (const h of hosts) {
     for (const agent of h.agents) {
-      const key = `${h.machine_id}/${agent}`, known = MODELS.get(key);
-      if (known && known.list !== undefined && Date.now() - known.at <= MODELS_KEPT_MS) continue;
-      askModels(key, h.machine_id, agent, null);
+      const key = `${h.machine_id}/${agent}`;
+      if (!fresh(MODELS.get(key))) askModels(key, h.machine_id, agent, null);
     }
   }
 }
@@ -124,7 +123,7 @@ export interface PickerOpts {
 /// thinking picked.
 export function pillInner(agent: string, model: string, effort: string | null, machine: string | null) {
   const detail = pillDetail(modelLabel(knownModels(machine, agent), model), agent, effort);
-  return `${badge(agent)}${esc(agentKind(agent).name)} <small>${esc(detail)}</small>${CARET}`;
+  return `${harnessTile(agent)}${esc(agentKind(agent).name)} <small>${esc(detail)}</small>${CARET}`;
 }
 
 /// The picker open now, for placing it again on resize and scroll.
@@ -137,7 +136,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   const rail = railOf(o.offered, o.everywhere).map(r => {
     const k = agentKind(r.agent);
     const why = r.enabled ? k.name : `${k.name} (not on ${o.machine ? o.machine.name : "any machine"})`;
-    return `<button type="button" data-agh="${esc(r.agent)}" aria-pressed="${r.agent === p.agent}" title="${esc(why)}"${r.enabled ? "" : " disabled"}>${badge(r.agent)}</button>`;
+    return `<button type="button" data-agh="${esc(r.agent)}" aria-pressed="${r.agent === p.agent}" title="${esc(why)}"${r.enabled ? "" : " disabled"}>${harnessTile(r.agent)}</button>`;
   }).join("");
   const think = levels.length
     ? [`<button type="button" data-age="" class="${p.effort ? "" : "on"}">Default${p.effort ? "" : CHECK}</button>`,

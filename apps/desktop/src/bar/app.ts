@@ -1,3 +1,5 @@
+// bar/: the bar's page, its views, keys, hints and live voice, and the pane
+// the command center embeds it as. Entry: this file (dist/app.js).
 // The bar: the popover the Option double tap opens.
 import { followSkin } from "../ui/skin.ts";
 followSkin();

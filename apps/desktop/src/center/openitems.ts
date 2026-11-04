@@ -8,7 +8,7 @@ import { folderUnder, reason } from "../addproject/importproject-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { type ProjectRow } from "../project/projects-state.ts";
 import { openMenu } from "../ui/menu.ts";
-import { ITEMS_SHOWN, itemChips, projectsWithOpen, replyPrompt, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { ITEMS_SHOWN, itemChips, projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { IC, state } from "./state.ts";
 import { projectDot, section, tag, rowButton, line } from "./pieces.ts";
 import { draw } from "./home.ts";
@@ -24,19 +24,12 @@ export function openUrl(url: string) {
 /// What Review needs of a project: where it is checked out.
 type ReviewProject = Parameters<typeof reviewStart>[1];
 
-/// Review prefills Start a coding agent: in the project's folder on an
-/// online machine when it is imported, else on Auto.
-function reviewItem(item: GitItemRow, project: ReviewProject) {
-  const start = reviewStart(item, project, state.home?.machines);
-  go("pane", { agentnew: start });
-}
-
 /// Reply opens a new chat with Beep that asks for help with the item; Beep
 /// reads it with its GitHub tools, and posting asks first.
 async function replyItem(item: GitItemRow) {
   go("pane", { chat: { session: null } });
   try {
-    await pane.compose(replyPrompt(item));
+    await pane.compose(`Help me reply to ${item.url}`);
   } catch (e) {
     console.warn("starting a reply:", e);
   }
@@ -52,7 +45,9 @@ export function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelF
   const right = [
     ...itemChips(item).map(c => tag(c.cls, c.text)),
     h("span", "age", ago(item.updated_at)),
-    item.kind === "pull_request" ? rowButton("Review", "small", () => reviewItem(item, project)) : null,
+    // Review prefills Start a coding agent: in the project's folder on an
+    // online machine when it is imported, else on Auto.
+    item.kind === "pull_request" ? rowButton("Review", "small", () => go("pane", { agentnew: reviewStart(item, project, state.home?.machines) })) : null,
     rowButton("Reply", "small", () => replyItem(item)),
   ];
   const row = h("div", "cc-row cc-line cc-gr it", h("span", "ic", kindIcon), title, h("span", "r", ...right));

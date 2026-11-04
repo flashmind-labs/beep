@@ -44,11 +44,10 @@ export interface Batch {
 /// images would pass what one message takes.
 export function batches(items: Waiting[], maxImages: number, maxBytes: number): Batch[] {
   const out: Batch[] = [];
+  const bytes = (b: Batch) => b.images.reduce((n, a) => n + a.size, 0);
   for (const item of items) {
     const last = out[out.length - 1];
-    const bytes = (b: Batch) => b.images.reduce((n, a) => n + a.size, 0);
-    const fits = last && last.images.length + item.images.length <= maxImages
-      && bytes(last) + item.images.reduce((n, a) => n + a.size, 0) <= maxBytes;
+    const fits = last && last.images.length + item.images.length <= maxImages && bytes(last) + bytes(item) <= maxBytes;
     if (fits) {
       last.text = [last.text, item.text].filter(Boolean).join("\n\n");
       last.images = [...last.images, ...item.images];
@@ -67,12 +66,9 @@ export function markDelivered(items: Waiting[], waiting: number, read: number, n
   return gone > 0;
 }
 
-/// Drops the delivered steers shown long enough. True when one went.
+/// Drops the delivered steers shown long enough.
 export function dropDelivered(items: Waiting[], now = Date.now()) {
-  const before = items.length;
-  const kept = items.filter(q => q.state !== "delivered" || now - (q.at ?? now) < DELIVERED_SHOWN_MS);
-  items.splice(0, items.length, ...kept);
-  return kept.length !== before;
+  items.splice(0, items.length, ...items.filter(q => q.state !== "delivered" || now - (q.at ?? now) < DELIVERED_SHOWN_MS));
 }
 
 /// Esc: the steers not delivered yet go once the stop lands, with the

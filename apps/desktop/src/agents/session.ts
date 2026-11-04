@@ -1,6 +1,5 @@
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
-// ----- One session -----
 import { markDelivered } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S } from "../bar/core.ts";
@@ -302,5 +301,3 @@ export function userImages(text: string) {
   }
   return { text: lines.join("\n"), names };
 }
-
-/// A step's mark: done, failed, running or did not finish.

@@ -12,7 +12,7 @@ import { readFile, readError, drawTermStatus } from "./read.ts";
 
 export function viewOf(t: MediaTab): HTMLElement {
   if (t.error) return h(`<div class="agpview"><div class="agpmsg derr">${esc(t.error)}</div></div>`);
-  if (t.kind === "text") return t.text ? textView(t, t.text) : waiting(t);
+  if (t.kind === "text") return t.text ? textView(t, t.text) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Reading ${esc(t.name)} from ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
   if (t.kind === "term") return t.term ? termView(t, t.term) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Opening a terminal on ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
   if (!t.url) {
     const where = P.session?.machine_name ?? "the machine";
@@ -22,10 +22,6 @@ export function viewOf(t: MediaTab): HTMLElement {
   if (t.kind === "video") return videoView(t);
   if (t.kind === "pdf") return pdfView(t);
   return modelView(t);
-}
-
-function waiting(t: MediaTab) {
-  return h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Reading ${esc(t.name)} from ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
 }
 
 /// A file of the Files tab as text: numbered lines, lightly highlighted,
@@ -103,6 +99,7 @@ function imageView(t: MediaTab) {
     el.querySelector('[data-fit="0"]')!.classList.toggle("on", !im.view.fit && im.view.scale === 1);
   };
   const fit = () => { if (t.image) { t.image.view = fitView(t.image.w, t.image.h, stage.clientWidth, stage.clientHeight); apply(); } };
+  const actual = () => { if (t.image) { t.image.view = actualView(t.image.w, t.image.h, stage.clientWidth, stage.clientHeight); apply(); } };
   img.onload = () => {
     t.image = { view: { scale: 1, x: 0, y: 0, fit: true }, w: img.naturalWidth, h: img.naturalHeight };
     el.querySelector(".meta")!.textContent = `${img.naturalWidth}×${img.naturalHeight}${t.size ? ` · ${fileSize(t.size)}` : ""}`;
@@ -150,16 +147,9 @@ function imageView(t: MediaTab) {
     stage.addEventListener("pointermove", move);
     stage.addEventListener("pointerup", up);
   });
-  stage.addEventListener("dblclick", () => {
-    if (!t.image) return;
-    t.image.view.fit ? (t.image.view = actualView(t.image.w, t.image.h, stage.clientWidth, stage.clientHeight), apply()) : fit();
-  });
+  stage.addEventListener("dblclick", () => { if (t.image?.view.fit) actual(); else fit(); });
   el.querySelector('[data-fit="1"]')!.addEventListener("click", fit);
-  el.querySelector('[data-fit="0"]')!.addEventListener("click", () => {
-    if (!t.image) return;
-    t.image.view = actualView(t.image.w, t.image.h, stage.clientWidth, stage.clientHeight);
-    apply();
-  });
+  el.querySelector('[data-fit="0"]')!.addEventListener("click", actual);
   el.querySelector("[data-full]")?.addEventListener("click", () =>
     openViewer([{ url: t.url!, name: t.name, caption: "", saves: t.url!.startsWith("data:") }], 0));
   wireFileButtons(t, el);

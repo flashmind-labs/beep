@@ -1,5 +1,5 @@
 // The command center's Research page and sidebar group: which researches
-// show, in what order, and how each row reads. Drawing is in center.ts.
+// show, in what order, and how each row reads. Drawing is in page.ts.
 import { plural } from "../ui/format.ts";
 
 /// Where a research is, as `list_researches` says it (ResearchStatus).

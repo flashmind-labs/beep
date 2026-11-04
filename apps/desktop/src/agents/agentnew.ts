@@ -192,11 +192,14 @@ function drawParts() {
   $$("#aghelp").innerHTML = !AG.hosts ? '<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>' : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
       <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Run <code>beep-node link</code> there.</li><li>Paste the link it prints into a chat here.</li></ol>
       <div><button class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
-  if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") {
-    const field = $<HTMLInputElement>(focused);
-    field?.focus();
-    field?.setSelectionRange(field.value.length, field.value.length);
-  }
+  if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") focusEnd(focused);
+}
+
+/// Focuses the field at `sel` with the caret at its end.
+function focusEnd(sel: string) {
+  const field = $<HTMLInputElement>(sel);
+  field?.focus();
+  field?.setSelectionRange(field.value.length, field.value.length);
 }
 
 function drawPill(none: boolean) {
@@ -205,7 +208,7 @@ function drawPill(none: boolean) {
     el.innerHTML = `<button class="agc-pill" disabled>No agent</button>`;
     return;
   }
-  const inner = pillInner(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? formModelMachine() : null);
+  const inner = pillInner(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? f.machine || null : null);
   el.innerHTML = `<button class="agc-pill" id="agpillb" aria-expanded="${f.open === "pick"}" title="Harness, model and thinking (⌘M)">${inner}</button>`;
 }
 
@@ -213,7 +216,7 @@ function drawPill(none: boolean) {
 function drawPicker() {
   const f = AG.form, el = $$("#agpick");
   if (f.open !== "pick" || !f.agent) { el.innerHTML = ""; closedPicker(el); return; }
-  const host = formHost(), machine = f.modelFor ? formModelMachine() : null;
+  const host = formHost(), machine = f.modelFor ? f.machine || null : null;
   const name = machine ? AG.hosts?.find(m => m.machine_id === machine)?.machine_name ?? machine : null;
   const picked: Picked = { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, query: f.query ?? "" };
   drawPickerIn(el, {
@@ -370,7 +373,7 @@ function hostMenu() {
 function checkoutHere() {
   const f = AG.form, cwd = f.cwd.trim();
   if (!cwd || !f.places?.length) return false;
-  const machine = formModelMachine();
+  const machine = f.machine || null;
   return f.places.some(p => (!machine || p.machine === machine) && (p.cwd === cwd || folderOn(p.cwd, null, null) === cwd));
 }
 
@@ -392,7 +395,7 @@ function folderMenu(checkout: boolean) {
   const places = [...new Set((f.places ?? []).filter(p => !machine || p.machine === machine).map(p => machine ? p.cwd : folderOn(p.cwd, null, null)))];
   const pick = f.checkout ?? DEFAULT_CHECKOUT;
   const same = (p: CheckoutPick) => JSON.stringify(p) === JSON.stringify(pick);
-  const trees = checkout ? knownWorktrees(AG.sessions, formModelMachine(), f.cwd) : [];
+  const trees = checkout ? knownWorktrees(AG.sessions, f.machine || null, f.cwd) : [];
   const workspace = host?.workspace ? tildePath(host.workspace, host.home) : "~";
   const rows = [
     ...places.map(p => `<button data-agf="${esc(p)}" class="${f.cwd.trim() === p ? "on" : ""}"><span></span><span class="mono">${esc(tildePath(p, host?.home))}</span><small>checkout</small></button>`),
@@ -456,10 +459,7 @@ function onClick(e: MouseEvent) {
     f.typing = true;
     f.open = null;
     drawParts();
-    const input = $<HTMLInputElement>("#agcwd");
-    input?.focus();
-    input?.setSelectionRange(input.value.length, input.value.length);
-    return;
+    return focusEnd("#agcwd");
   }
   // A click anywhere else closes what is open.
   if (f.open && !at(".agc-pick, .agc-menu")) { f.open = null; drawParts(); }
@@ -471,9 +471,7 @@ function typeBase() {
   f.baseTyping = true;
   f.open = null;
   drawParts();
-  const input = $<HTMLInputElement>("#agbase");
-  input?.focus();
-  input?.setSelectionRange(input.value.length, input.value.length);
+  focusEnd("#agbase");
 }
 
 /// Opens or closes the picker; open, the search takes the keys.
@@ -541,7 +539,7 @@ function doneTyping() {
 /// before one is.
 function lookFolders(input: HTMLInputElement) {
   clearTimeout(lookupTimer);
-  const ask = ++lookup, machine = formModelMachine(), typed = splitTyped(input.value);
+  const ask = ++lookup, machine = AG.form.machine || null, typed = splitTyped(input.value);
   if (!machine || !typed) return showMenu(input, NO_MENU);
   const key = `${machine}\n${typed.dir}`;
   const offer = (folders: readonly string[]) => { if (ask === lookup) showMenu(input, menuOf(typed.dir, suggest(folders, typed.prefix))); };
@@ -578,15 +576,10 @@ function showMenu(input: HTMLInputElement, next: FolderMenu) {
 
 // ----- Models -----
 
-/// The machine the picker lists models on: the one picked, or null.
-function formModelMachine() {
-  return AG.form.machine || null;
-}
-
 /// Keeps the model with the machine and harness it was picked for, and
 /// asks for their models when not known lately.
 function syncModel() {
-  const f = AG.form, machine = formModelMachine();
+  const f = AG.form, machine = f.machine || null;
   const key = machine && f.agent ? `${machine}/${f.agent}` : "";
   if (f.modelFor !== key) { f.model = ""; f.modelFor = key; }
   if (!key) return;
@@ -606,8 +599,7 @@ export async function startAgent() {
   drawParts();
   try {
     const model = f.model?.trim() && f.modelFor ? f.model.trim() : null;
-    const machine = f.machine;
-    keepMachine(f.project, machine);
+    keepMachine(f.project, f.machine);
     // In a project's checkout, an existing worktree is a folder to start
     // in, and the node makes a new branch or worktree before it starts
     // only when one is picked.
@@ -615,7 +607,7 @@ export async function startAgent() {
       ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
     const started = await invoke<Started>("agent_start", {
-      machineId: machine,
+      machineId: f.machine,
       agent: f.agent,
       cwd: cwd || null,
       prompt: composeMessage(f.prompt),

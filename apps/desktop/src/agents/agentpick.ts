@@ -52,8 +52,7 @@ export const effortsOf = (agent: string | null): readonly Effort[] => (agent && 
 
 /// What the Thinking column says for a harness without levels.
 export function effortNote(agent: string, name: string): string {
-  if (agent === "flsh") return "flsh sets thinking in its own config.";
-  return `${name} has no thinking setting Beep can pass.`;
+  return agent === "flsh" ? "flsh sets thinking in its own config." : `${name} has no thinking setting Beep can pass.`;
 }
 
 /// The level kept when the harness changes: the same one when the new
@@ -210,16 +209,14 @@ export interface BaseBranches {
 /// The most branches the Base menu lists.
 export const MAX_BASES = 30;
 
-/// The Base menu's branches: the default branch first, then the others
-/// matching `query`, newest commit first, at most `MAX_BASES`.
-export function baseRows(list: BaseBranches | null | undefined, query = ""): string[] {
-  const q = query.trim().toLowerCase();
+/// The Base menu's branches: the default branch first, then the others,
+/// newest commit first, at most `MAX_BASES`.
+export function baseRows(list: BaseBranches | null | undefined): string[] {
   const rest = [...(list?.branches ?? [])]
     .filter(b => b.name !== list?.default_branch)
     .sort((a, b) => b.committed_at - a.committed_at)
     .map(b => b.name);
-  const all = [...new Set([list?.default_branch || "", ...rest])].filter(Boolean);
-  return all.filter(name => !q || name.toLowerCase().includes(q)).slice(0, MAX_BASES);
+  return [...new Set([list?.default_branch || "", ...rest])].filter(Boolean).slice(0, MAX_BASES);
 }
 
 /// The base a start sends: the one picked, else the project's default
@@ -344,9 +341,8 @@ export interface Placement {
   maxHeight: number | null;
 }
 
-/// Places a popover of `size` by `anchor` inside a `view` of that size: above
-/// it with right edges lined up when it fits there, else below, else on the
-/// roomier side cut to fit.
+/// Places a menu of `size` by `anchor` inside `area`: below when it fits,
+/// else above when there is more room there, cut to fit.
 export function placeMenuAt(anchor: Rect, size: { width: number; height: number }, area: { top: number; bottom: number; width: number }, margin = 8, gap = 4) {
   const below = area.bottom - margin - (anchor.top + anchor.height + gap);
   const above = anchor.top - gap - (area.top + margin);
@@ -358,6 +354,9 @@ export function placeMenuAt(anchor: Rect, size: { width: number; height: number 
   return { top, left, maxHeight: room, up };
 }
 
+/// Places a popover of `size` by `anchor` inside a `view` of that size: above
+/// it with right edges lined up when it fits there, else below, else on the
+/// roomier side cut to fit.
 export function placePopover(anchor: Rect, size: { width: number; height: number }, view: { width: number; height: number }, margin = 8, gap = 6): Placement {
   const width = Math.min(size.width, Math.max(0, view.width - 2 * margin));
   const left = Math.max(margin, Math.min(anchor.left + anchor.width - width, view.width - margin - width));

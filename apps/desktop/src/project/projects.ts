@@ -7,7 +7,8 @@ import { byRecent, type RunningAgent } from "../center/home-state.ts";
 import { whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { agentFor } from "./agent.ts";
-import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace, makeCustomAgents } from "./customagents.ts";
+import { makeCustomAgents } from "./customagents.ts";
+import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { IC, state, warm, pageFresh } from "../center/state.ts";
 import { projectDot, section, plusLabel } from "../center/pieces.ts";
 import { machineMenu } from "../machines/table.ts";
@@ -177,9 +178,8 @@ const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWith
 /// with one. Named apart from "Agents", the ones running now.
 export function customAgentsSection(rows: WhereRow[]) {
   const place = agentsPlace(rows);
-  const { body, note, count } = cags.view(place);
-  return section("sec-custom-agents", "Custom agents", count || "", place ? button("Reload", "quiet small", () => cags.reload(place)) : null, body,
-    note && h("small", "", note));
+  const { body, count } = cags.view(place);
+  return section("sec-custom-agents", "Custom agents", count || "", place ? button("Reload", "quiet small", () => cags.reload(place)) : null, body);
 }
 
 /// Start on a custom agent: the bar on the machine it was read on, with

@@ -105,13 +105,6 @@ class FakeElement extends FakeNode {
   hasAttribute(k: string) { return this.attrs.has(k); }
   get children() { return this.childNodes.filter((n): n is FakeElement => n instanceof FakeElement); }
   get firstElementChild(): FakeElement | null { return this.children[0] ?? null; }
-  get lastElementChild(): FakeElement | null { return this.children.at(-1) ?? null; }
-  get nextElementSibling(): FakeElement | null {
-    const p = this.parentNode;
-    if (!p) return null;
-    const kids = p.children;
-    return kids[kids.indexOf(this) + 1] ?? null;
-  }
   override get textContent(): string { return this.childNodes.map(n => n.textContent).join(""); }
   override set textContent(v: string) { this.clear(); if (v) this.insert([v], null); }
   get innerText() { return this.textContent; }

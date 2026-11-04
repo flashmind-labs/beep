@@ -181,9 +181,6 @@ function update(event: ImportEvent) {
   else if (root) syncForm();
 }
 
-/// Import, or Enter.
-const goImport = () => submit();
-
 /// The parent a clone goes under: the one typed, else the default; null on
 /// Auto or with a folder chosen.
 function parentFolder() {
@@ -224,8 +221,7 @@ function draw() {
   const was = document.activeElement;
   const typing = was instanceof HTMLInputElement && was.classList.contains("ip-dir") ? was.selectionStart ?? was.value.length : null;
   const keep = menu;
-  const head = el("div", "am-head", el("b", "", "Import a project"), el("kbd", "", "esc"));
-  box.replaceChildren(head, ...present(body()));
+  box.replaceChildren(el("div", "am-head", el("b", "", "Import a project"), el("kbd", "", "esc")), ...present(body()));
   const field = box.querySelector("input");
   const pick = box.querySelector<HTMLElement>(".ip-browse .dirs button");
   const dir = box.querySelector<HTMLInputElement>(".ip-dir");
@@ -319,13 +315,13 @@ function form() {
   input.setAttribute("aria-label", "Repository");
   input.value = state.repo;
   input.addEventListener("input", () => { update({ type: "edit", repo: input.value }); schedulePreview(); });
-  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); goImport(); } });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
   const chips = el("div", "dchips", ...machineChips(machines).map(c => {
     const b = button(c.label, "dchip", () => { update({ type: "pick", machine: c.id }); learnBase(); });
     b.setAttribute("aria-pressed", String(c.id === state.machine));
     return b;
   }));
-  const go = button("Import", "dbtn pri ip-go", goImport);
+  const go = button("Import", "dbtn pri ip-go", submit);
   go.disabled = !looksLikeRepo(state.repo);
   return [
     el("div", "am-label", "Repository"),
@@ -392,12 +388,6 @@ function defaultParent() {
   return `${base.replace(/\/+$/, "")}/${os === "linux" ? "projects" : "Projects"}`;
 }
 
-/// The folder the field shows before anything is typed: the one chosen,
-/// else the default parent.
-function shownFolder() {
-  return state.chosen?.path ?? defaultParent();
-}
-
 /// "Goes in <parent>/<org>/<repo>." under the parent field.
 function goesIn() {
   const parent = parentFolder();
@@ -420,7 +410,7 @@ function folderLine() {
   path.placeholder = state.machine ? "The machine's projects folder" : "The default folder on the machine Beep picks";
   // On Auto there is no machine to name a folder on.
   path.disabled = !state.machine;
-  path.value = path.title = state.machine ? folderText ?? shownFolder() ?? "" : "";
+  path.value = path.title = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
   path.addEventListener("input", () => {
     // Typing over a chosen folder makes it a parent again.
     if (state.chosen) { const text = path.value; update({ type: "unchoose" }); folderText = text; draw(); return; }
@@ -449,7 +439,7 @@ function resetFolder() {
 function onFolderKey(e: KeyboardEvent, field: HTMLInputElement) {
   const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
   if (act.type === "none") {
-    if (e.key === "Enter") { e.preventDefault(); goImport(); }
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
     return;
   }
   e.preventDefault();
@@ -535,9 +525,8 @@ function browser(listing: MachineFolder) {
   }));
   if (!listing.folders.length) dirs.append(el("span", "none", listing.exists ? "No folders in here" : "Not there yet"));
   if (listing.more) dirs.append(el("span", "none", `and ${listing.more} more`));
-  const use = button("Use this folder", "dbtn pri", () => update({ type: "choose", listing }));
-  const cancel = button("Cancel", "dbtn quiet", () => update({ type: "browse", listing: null }));
-  const foot = el("div", "foot", el("span", "note", folderNote(listing, state.repo)), cancel, use);
+  const foot = el("div", "foot", el("span", "note", folderNote(listing, state.repo)),
+    button("Cancel", "dbtn quiet", () => update({ type: "browse", listing: null })), button("Use this folder", "dbtn pri", () => update({ type: "choose", listing })));
   return el("div", "ip-browse", el("div", "at", up, where), dirs, foot);
 }
 

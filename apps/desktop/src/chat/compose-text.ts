@@ -146,7 +146,7 @@ export function pillAt(pills: readonly Pill[], pos: number, back: boolean) {
 
 // ----- Pasted picture paths -----
 
-const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+export const IMAGE_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 
 /// The picture a paste names when it is just a path to one: quoted, as a
 /// `file://` URL or with backslash-escaped spaces, as terminals and Finder

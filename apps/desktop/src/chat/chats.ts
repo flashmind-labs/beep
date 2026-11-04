@@ -8,8 +8,6 @@ import { RESEARCHES } from "../research/researches.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { withoutResearch } from "../research/research-list.ts";
 
-export type { GroupSummary } from "./groups.ts";
-
 // ---------- Chats ----------
 
 /// A chat as `list_sessions` lists it (Session). A search adds the words

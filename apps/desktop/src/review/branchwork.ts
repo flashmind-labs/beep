@@ -63,9 +63,8 @@ export interface OutsideRow<T> {
 /// The online machines a worktree can go on: the one the branches were
 /// read on first, then the rest by name.
 export function worktreeMachines(machines: readonly (Place & { online: boolean })[] | null | undefined, readOn: string | null | undefined) {
-  const online: Place[] = (machines || []).filter(m => m.online).map(m => ({ id: m.id, name: m.name }));
-  online.sort((a, b) => (Number(b.id === readOn) - Number(a.id === readOn)) || a.name.localeCompare(b.name));
-  return online;
+  return (machines || []).filter(m => m.online).map((m): Place => ({ id: m.id, name: m.name }))
+    .sort((a, b) => (Number(b.id === readOn) - Number(a.id === readOn)) || a.name.localeCompare(b.name));
 }
 
 /// ".worktrees/fix-it" from "fix/it", as the server names a worktree.
@@ -91,13 +90,9 @@ export function defaultPlaces(preview: Preview | null | undefined) {
 /// checkout, or the one it is imported on when none has one.
 export function placeChoices(preview: Preview | null | undefined, machines: readonly Place[] | null | undefined) {
   const names = new Map((machines || []).map(m => [m.id, m.name]));
-  const seen = new Set<string>();
   const out: Place[] = [];
-  for (const c of preview?.checkouts || []) {
-    if (seen.has(c.machine_id)) continue;
-    seen.add(c.machine_id);
-    out.push({ id: c.machine_id, name: c.machine_name || names.get(c.machine_id) || c.machine_id });
-  }
+  for (const c of preview?.checkouts || [])
+    if (!out.some(p => p.id === c.machine_id)) out.push({ id: c.machine_id, name: c.machine_name || names.get(c.machine_id) || c.machine_id });
   if (!out.length) out.push({ id: "", name: "Where it is imported" });
   return out;
 }

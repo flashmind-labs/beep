@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prLines, prMeta, prChip, issueLines, issueBranch, issuePrompt, prPrompt, prNumber, makeThreads, type ThreadDeps } from "../src/project/threads.ts";
+import { prLines, prMeta, prChip, issueLines, issueBranch, prNumber, makeThreads, type ThreadDeps } from "../src/project/threads.ts";
 import type { KeptThreads } from "../src/project/threads.ts";
 import { PageCache } from "../src/project/pagecache.ts";
 
@@ -67,15 +67,11 @@ test("the issues are the untracked ones, then the tasks' still going", () => {
   assert.equal(lines[1].url, "u44");
 });
 
-test("Work on it and Continue fill the start form", () => {
+test("Work on it names a branch after the issue", () => {
   assert.equal(issueBranch(52, "App crashes when the phone rotates during a call"), "issue-52-app-crashes-when-the-phone");
   assert.equal(issueBranch(7, "Fix: the *login* bug!"), "issue-7-fix-the-login-bug");
   assert.equal(issueBranch(8, "????"), "issue-8");
   assert.equal(issueBranch(9, "Supercalifragilisticexpialidocious-and-more"), "issue-9-supercalifragilisticexpialidoc");
-  assert.equal(issuePrompt({ number: 52, title: "Crash", url: "https://example.com/i/52" }),
-    "Work on issue #52: Crash (https://example.com/i/52). Read the issue and its comments first, then propose and implement a fix.");
-  assert.equal(prPrompt({ number: 41, title: "Login copy", url: "https://example.com/p/41" }),
-    "Continue PR #41: Login copy (https://example.com/p/41). Read the review comments and failing checks first.");
 });
 
 test("a second load while the lists first load asks the server once", async () => {

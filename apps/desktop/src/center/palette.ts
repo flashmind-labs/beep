@@ -7,6 +7,7 @@ import { el, type Kid } from "../ui/dom.ts";
 import { svgEl as svg } from "../ui/parts.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";
+import { IC } from "./state.ts";
 
 /// The groups of hits (HitKind).
 type HitKind = "action" | "setting" | "code" | "branch" | "project" | "project_chat" | "folder" | "agent_session" | "chat" | "memory" | "routine" | "machine";
@@ -45,25 +46,18 @@ export interface PaletteDeps {
   openChat(id: string): void;
   /// Whether a chat is a research, which lists under Research, not Chats.
   research(id: string): boolean;
-  /// The search icon's markup.
-  findIcon: string;
 }
 
-const ICONS: Record<Exclude<HitKind, "branch" | "machine" | "project_chat" | "folder"> | "research", string> = {
-  setting: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
+/// The icons the window's IC has none of.
+const ICONS = {
   code: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8M18 16V9a3 3 0 00-3-3h-4"/><path d="M13 4l-2 2 2 2"/></svg>',
   project: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>',
   agent_session: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>',
-  action: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
-  chat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
-  memory: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
-  research: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
-  routine: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 01-3 3H3"/></svg>',
 };
 
 const GROUPS: Record<HitKind, string> = { action: "Actions", setting: "Settings", project: "Projects", project_chat: "Projects", folder: "Projects", agent_session: "Coding agents", code: "Projects and code", branch: "Projects and code", chat: "Chats", memory: "Memories", routine: "Routines", machine: "Machines" };
-/// The icon each kind draws with.
-const ICON_OF: Partial<Record<HitKind, keyof typeof ICONS>> = { branch: "code", project_chat: "project", folder: "project" };
+/// The icon each kind draws with, from ICONS or IC; one not here has its own name.
+const ICON_OF: Partial<Record<HitKind | "research", keyof typeof ICONS | keyof typeof IC>> = { branch: "code", project_chat: "project", folder: "project", setting: "gear", action: "plus", chat: "chat", memory: "mem", research: "doc", routine: "loop" };
 /// Where each action goes: a pane view, or Home.
 const ACTION_VIEWS: Record<string, string> = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
@@ -73,7 +67,6 @@ let hits: Hit[] = [], sel = 0;
 let searching: PaletteSearch<Hit> | null = null, back: HTMLElement | null = null;
 
 export function initPalette(window_: PaletteDeps) { deps = window_; }
-
 
 /// `text` with the first match of `q` wrapped in <mark>; never markup.
 function marked(text: string, q: string): Kid[] {
@@ -97,13 +90,13 @@ export function openPalette() {
   input.setAttribute("role", "combobox");
   input.setAttribute("aria-controls", "pal-list");
   input.setAttribute("aria-expanded", "true");
-  input.addEventListener("input", onType);
+  input.addEventListener("input", () => searching?.type(input!.value));
   list = el("div", "res");
   list.setAttribute("role", "listbox");
   list.id = "pal-list";
   const foot = el("div", "foot");
   for (const [k, t] of [["↑↓", "move"], ["↵", "open"], ["⌘↵", "ask Beep"], ["esc", "close"]]) foot.append(el("span", "", el("kbd", "", k), t));
-  const box = el("div", "cc-pal", el("div", "q", svg(deps.findIcon), input), list, foot);
+  const box = el("div", "cc-pal", el("div", "q", svg(IC.find), input), list, foot);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", "Search");
   const scrim = root = el("div", "cc-scrim", box);
@@ -139,10 +132,6 @@ function close() {
   (to?.isConnected ? to : document.querySelector<HTMLElement>(".cc-search"))?.focus();
 }
 
-function onType() {
-  searching?.type(input!.value);
-}
-
 function draw(q: string) {
   const rows: HTMLElement[] = [];
   let group: string | null = null;
@@ -163,8 +152,9 @@ function row(hit: Hit, i: number, q: string) {
   const note = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? el("small", "", hit.detail) : null;
   const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? el("span", "w", hit.detail) : null;
   // A research is a chat; it keeps its paper's icon here.
-  const kind = hit.kind === "chat" && deps!.research(hit.id) ? "research" : ICON_OF[hit.kind] || (hit.kind as keyof typeof ICONS);
-  const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(ICONS[kind]);
+  const name = ICON_OF[hit.kind === "chat" && deps!.research(hit.id) ? "research" : hit.kind] ?? hit.kind;
+  const markup = name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
+  const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(markup);
   const b = el("button", "it", lead, el("span", "t", el("span", "", ...marked(hit.title, q)), note), side);
   b.type = "button";
   b.tabIndex = -1;

@@ -1,5 +1,4 @@
 // The model and thinking pill by a session's field, and switching them.
-// ----- Model and thinking -----
 import { closedPicker, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
 import { $, bar, esc } from "../bar/core.ts";
 import { type AgentRow, AG, agentKind } from "./agents.ts";
