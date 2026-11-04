@@ -7,17 +7,17 @@ bundle and uploads it to Play, and the phone updates from Play:
 
 - Only an `android-v` tag builds and uploads; a manual run of the workflow
   goes to the internal track.
-- `just android-release 1.2.3` sets `versionName`, commits and tags
-  `android-v1.2.3` (it needs a clean tree on main). Push it with
-  `git push origin main android-v1.2.3`.
-- A patch tag (`1.2.3`) goes to the `beta` track, or to the track in the
-  repository variable `PLAY_BETA_TRACK`. A minor or major tag (`1.3.0`,
-  `2.0.0`) goes to production. A tag that does not match `versionName` fails.
+- `just android-release 0.2.3` sets `versionName`, commits and tags
+  `android-v0.2.3` (it needs a clean tree on main). Push it with
+  `git push origin main android-v0.2.3`.
+- A tag goes to the `beta` track, or to the track in the repository variable
+  `PLAY_BETA_TRACK`. Nothing goes to production while we are on 0.x. A tag that
+  does not match `versionName` fails.
 - Releases stay drafts until the repository variable `PLAY_RELEASE_STATUS` is
   `completed`.
 
-iOS works the same way: `just ios-release 1.2.3` sets `MARKETING_VERSION` in
-`apps/ios/project.yml`, commits and tags `ios-v1.2.3`. Pushing the tag uploads
+iOS works the same way: `just ios-release 0.2.3` sets `MARKETING_VERSION` in
+`apps/ios/project.yml`, commits and tags `ios-v0.2.3`. Pushing the tag uploads
 it to TestFlight.
 
 To release Android, the desktop app, beep-node and iOS together, run
@@ -80,7 +80,8 @@ Push to main, then `just deploy-server`. It waits for the image CI builds for
 HEAD, copies the dev config and key to the remote host and restarts the
 container.
 
-Every app stays on 0.x until production is ready: minor or patch bumps only.
+We are in beta: every app stays on 0.x until production is ready, minor or
+patch bumps only, and the release recipes refuse anything else.
 
 Tag a deployed server with `just server-release 0.4.0` (it tags HEAD
 `server-v0.4.0`). To roll back, `just deploy-server server-v0.3.2` deploys
