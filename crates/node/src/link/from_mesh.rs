@@ -26,7 +26,7 @@ use beep_proto::{
 };
 use iroh::{EndpointAddr, EndpointId};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tokio::sync::{broadcast::error::RecvError, watch};
@@ -198,6 +198,8 @@ struct Applied {
     credentials: Option<MachineCredentials>,
     settings: Option<AgentSettings>,
     projects: Option<Vec<Project>>,
+    /// The projects among them that name a machine that has not joined.
+    pending: BTreeSet<String>,
     /// The last spec of each project that read, for a key that stops reading.
     specs: BTreeMap<Key, SyncSpec>,
 }
@@ -259,11 +261,11 @@ impl Applied {
         if let Some(transfers) = &offers.transfers
             && owned.contains(&Family::Sync)
         {
-            let projects = projects(mesh, me, &mut self.specs);
-            if self.projects.as_ref() != Some(&projects) {
+            let (projects, pending) = projects(mesh, me, &mut self.specs);
+            if self.projects.as_ref() != Some(&projects) || self.pending != pending {
                 for refused in transfers
                     .syncs()
-                    .configure_from_mesh(projects.clone())
+                    .configure_from_mesh(projects.clone(), pending.clone())
                     .await
                 {
                     log::warn!("not syncing {}: {}", refused.project, refused.message);
@@ -276,6 +278,7 @@ impl Applied {
                     );
                 }
                 self.projects = Some(projects);
+                self.pending = pending;
             }
         }
     }
@@ -406,9 +409,14 @@ fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessCo
 }
 
 /// The projects this device syncs: those whose spec names it, with the
-/// other devices of the spec that are in the mesh now. A spec that stops
-/// reading keeps the last one that did, in `specs`.
-fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) -> Vec<Project> {
+/// other devices of the spec that are in the mesh now, and the names of those
+/// that name a machine that is neither in the mesh nor removed from it. A
+/// spec that stops reading keeps the last one that did, in `specs`.
+fn projects(
+    mesh: &Mesh,
+    me: EndpointId,
+    specs: &mut BTreeMap<Key, SyncSpec>,
+) -> (Vec<Project>, BTreeSet<String>) {
     let devices = mesh.devices();
     let mut now = BTreeMap::new();
     for (key, bytes) in mesh.scan("sync/") {
@@ -425,7 +433,20 @@ fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) ->
         }
     }
     *specs = now;
-    specs
+    let pending = specs
+        .iter()
+        .filter_map(|(key, spec)| match key {
+            Key::Sync(name) => Some((name, spec)),
+            _ => None,
+        })
+        .filter(|(_, spec)| {
+            spec.folders
+                .keys()
+                .any(|id| *id != me && !mesh.is_member(*id) && !mesh.is_removed(*id))
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    let projects = specs
         .iter()
         .filter_map(|(key, spec)| {
             let Key::Sync(name) = key else {
@@ -453,7 +474,8 @@ fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) ->
                 paused: spec.paused,
             })
         })
-        .collect()
+        .collect();
+    (projects, pending)
 }
 
 #[cfg(test)]
@@ -483,6 +505,26 @@ mod tests {
 
     async fn drop_key(mesh: &Mesh, key: Key) {
         mesh.set(key, None).await.expect("deleted");
+    }
+
+    #[tokio::test]
+    async fn a_project_naming_a_machine_that_has_not_joined_is_pending() {
+        let (mesh, _dir) = lone_mesh().await;
+        let (me, other) = (mesh.me(), SecretKey::generate().public());
+        let spec = |ids: &[EndpointId]| SyncSpec {
+            folders: ids.iter().map(|id| (*id, "/srv/app".to_owned())).collect(),
+            paused: false,
+        };
+        for (name, ids) in [("alone", vec![me]), ("waiting", vec![me, other])] {
+            let bytes = spec(&ids).to_bytes().expect("a spec encodes");
+            mesh.set(Key::Sync(name.to_owned()), Some(bytes))
+                .await
+                .expect("written");
+        }
+        let (projects, pending) = projects(&mesh, me, &mut BTreeMap::new());
+        assert_eq!(projects.len(), 2);
+        assert_eq!(pending, BTreeSet::from(["waiting".to_owned()]));
+        assert!(projects.iter().all(|project| project.peers.is_empty()));
     }
 
     #[test]

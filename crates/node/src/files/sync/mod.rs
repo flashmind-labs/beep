@@ -24,9 +24,10 @@ use beep_proto::node::{
 };
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 use iroh_blobs::{Hash, store::fs::FsStore};
+use lists::Lists;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
@@ -42,6 +43,7 @@ use tokio_util::task::AbortOnDropHandle;
 mod disk;
 mod gitconfig;
 mod gitdir;
+mod lists;
 mod map;
 #[cfg(test)]
 mod map_sim;
@@ -134,6 +136,8 @@ struct Inner {
     /// The mesh this node follows, once it is in one: it names the
     /// projects, and its device list says who may sync them.
     mesh: Mutex<Option<Mesh>>,
+    /// What the mesh and the server each say of the projects.
+    lists: Mutex<Lists>,
 }
 
 /// Stops `running` and waits for its task, which saves its state, a while.
@@ -171,14 +175,6 @@ impl Inner {
             .as_ref()
             .is_some_and(|mesh| mesh.is_removed(*peer))
     }
-
-    /// Whether `peer` may sync: when the mesh owns the project list, only a
-    /// device of the mesh may. A list the server set names its own peers.
-    fn sync_allows(&self, peer: &EndpointId) -> bool {
-        lock(&self.mesh)
-            .as_ref()
-            .is_none_or(|mesh| !mesh.has_held("sync/") || mesh.is_member(*peer))
-    }
 }
 
 impl Access for Inner {
@@ -187,14 +183,14 @@ impl Access for Inner {
     }
 
     fn may_connect(&self, peer: &EndpointId) -> bool {
-        self.sync_allows(peer)
+        self.allows(peer)
             && lock(&self.projects)
                 .values()
                 .any(|running| running.shared.has_peer(peer))
     }
 
     fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
-        self.sync_allows(peer)
+        self.allows(peer)
             && lock(&self.projects)
                 .values()
                 .any(|running| running.shared.has_peer(peer) && running.shared.has(hash))
@@ -245,8 +241,11 @@ impl Syncs {
                 configuring: AsyncMutex::new(()),
                 serving: Arc::default(),
                 mesh: Mutex::default(),
+                lists: Mutex::default(),
             }),
         };
+        // What the server set before keeps its peers while the mesh waits for a machine.
+        lock(&syncs.inner.lists).set_server(&config.projects);
         for refused in syncs.configure_from(config.projects, Source::Saved).await {
             log::warn!("not syncing {}: {}", refused.project, refused.message);
         }
@@ -273,6 +272,7 @@ impl Syncs {
     /// Syncthing keeps in step is refused when it is new here, and held
     /// when the server set it before.
     pub async fn configure(&self, projects: Vec<Project>) -> Vec<Refused> {
+        lock(&self.inner.lists).set_server(&projects);
         self.configure_from(projects, Source::Server).await
     }
 
@@ -285,6 +285,7 @@ impl Syncs {
     /// Lets go of the mesh `follow` took.
     pub(crate) fn unfollow(&self) {
         *lock(&self.inner.mesh) = None;
+        lock(&self.inner.lists).clear_mesh();
     }
 
     /// Whether the mesh owns the project list, so the server's is ignored.
@@ -294,8 +295,52 @@ impl Syncs {
             .is_some_and(|mesh| mesh.has_held("sync/"))
     }
 
-    /// Syncs exactly `projects`, as the mesh names them.
-    pub(crate) async fn configure_from_mesh(&self, projects: Vec<Project>) -> Vec<Refused> {
+    /// Syncs the projects the mesh names, `pending` being those that still name
+    /// a machine that has not joined it: those keep the peers the server set.
+    pub(crate) async fn configure_from_mesh(
+        &self,
+        projects: Vec<Project>,
+        pending: BTreeSet<String>,
+    ) -> Vec<Refused> {
+        lock(&self.inner.lists).set_mesh(projects, pending);
+        self.apply_lists().await
+    }
+
+    /// The server's list while the mesh owns it: only the peers of a project
+    /// still waiting for a machine are taken. It says which of its projects
+    /// the mesh does not name, which do not sync here.
+    pub(crate) async fn configure_beside_mesh(&self, projects: Vec<Project>) -> Vec<Refused> {
+        let ignored: Vec<Refused> = {
+            let mut lists = lock(&self.inner.lists);
+            lists.set_server(&projects);
+            lists
+                .not_in_mesh(&projects)
+                .into_iter()
+                .map(|name| Refused {
+                    project: name.to_owned(),
+                    message: "this machine takes its projects from its mesh".to_owned(),
+                })
+                .collect()
+        };
+        if !ignored.is_empty() {
+            log::info!(
+                "ignored the server's sync list for {} projects: the mesh sets them",
+                ignored.len()
+            );
+        }
+        // Before the mesh has been read there is nothing to put it beside.
+        let mut refused = if lock(&self.inner.lists).has_mesh() {
+            self.apply_lists().await
+        } else {
+            Vec::new()
+        };
+        refused.extend(ignored);
+        refused
+    }
+
+    async fn apply_lists(&self) -> Vec<Refused> {
+        let me = self.inner.parts.endpoint.id();
+        let projects = lock(&self.inner.lists).effective(me, |peer| self.inner.removed(peer));
         self.configure_from(projects, Source::Server).await
     }
 
@@ -604,10 +649,10 @@ impl Syncs {
         self.inner.may_connect(peer)
     }
 
-    /// Whether `peer` may still make requests: it is not out of the mesh
-    /// that owns the project list.
+    /// Whether `peer` may still make requests: it was not removed from the
+    /// mesh.
     fn allows(&self, peer: &EndpointId) -> bool {
-        self.inner.sync_allows(peer)
+        self.inner.allows(peer)
     }
 }
 
@@ -670,13 +715,10 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         return Ok(());
     };
     let reply = match request {
-        Request::Configure { .. } if syncs.follows_mesh() => {
-            log::info!("ignored the server's sync list: this node takes it from its mesh");
-            Reply::Configured {
-                refused: Vec::new(),
-                addr: syncs.addr(),
-            }
-        }
+        Request::Configure { projects } if syncs.follows_mesh() => Reply::Configured {
+            refused: syncs.configure_beside_mesh(projects).await,
+            addr: syncs.addr(),
+        },
         Request::Configure { projects } => Reply::Configured {
             refused: syncs.configure(projects).await,
             addr: syncs.addr(),
@@ -716,6 +758,80 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN, transport_config};
+    use iroh::{SecretKey, endpoint::presets, protocol::Router};
+    use tempfile::TempDir;
+
+    async fn bind() -> Endpoint {
+        Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .transport_config(transport_config())
+            .bind()
+            .await
+            .expect("an endpoint binds")
+    }
+
+    #[tokio::test]
+    async fn a_removed_device_is_refused_on_a_list_the_server_set() {
+        // A desktop's mesh with a node that joins it, and no `sync/` key:
+        // the server sets the project list.
+        let desktop_dir = TempDir::new().expect("a temp folder");
+        let desktop = bind().await;
+        let mesh = Mesh::create(desktop_dir.path(), desktop.clone(), "desktop")
+            .await
+            .expect("the mesh is made");
+        let (peer, join) = mesh.protocols();
+        let _router = Router::builder(desktop)
+            .accept(PEER_ALPN, peer)
+            .accept(JOIN_ALPN, join)
+            .spawn();
+        let ticket = mesh
+            .invite(DeviceKind::Node, Duration::from_secs(60))
+            .await
+            .expect("a ticket");
+        let (node_dir, node) = (TempDir::new().expect("a temp folder"), bind().await);
+        let joined = Mesh::join(node_dir.path(), node.clone(), &ticket, "node")
+            .await
+            .expect("the node joins");
+
+        let shared = TempDir::new().expect("a temp folder");
+        std::fs::create_dir(shared.path().join("proj")).expect("a project folder");
+        let state = TempDir::new().expect("a temp folder");
+        let here = bind().await;
+        let syncthing = Syncthing::at(vec![state.path().join("syncthing")], None);
+        let transfers = crate::files::transfer::Transfers::start_with(
+            &here,
+            state.path(),
+            Folders::new(&[shared.path().to_owned()]),
+            syncthing,
+        )
+        .await
+        .expect("the transfers start");
+        let syncs = transfers.syncs();
+        syncs.follow(mesh.clone());
+        let refused = syncs
+            .configure(vec![Project {
+                name: "proj".to_owned(),
+                folder: shared
+                    .path()
+                    .join("proj")
+                    .canonicalize()
+                    .expect("the folder exists")
+                    .display()
+                    .to_string(),
+                peers: vec![node.addr()],
+                paused: false,
+            }])
+            .await;
+        assert!(refused.is_empty(), "{refused:?}");
+        let id = node.id();
+        assert!(syncs.inner.may_connect(&id), "a peer of the list connects");
+
+        mesh.remove(id).await.expect("the removal is signed");
+        assert!(!syncs.inner.may_connect(&id), "a removed device does not");
+        joined.close().await.ok();
+        transfers.shutdown().await.expect("the node stops");
+    }
 
     #[test]
     fn a_project_in_another_folder_keeps_other_state() {
