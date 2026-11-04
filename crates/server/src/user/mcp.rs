@@ -20,7 +20,10 @@ use crate::{
     store::{CustomMcp, McpServerRow},
 };
 use anyhow::{Result, bail};
-use flashmind::{tools::mcp::McpRegistry, types::Tool};
+use flashmind::{
+    tools::mcp::{McpRegistry, McpToolCallResult},
+    types::Tool,
+};
 use reqwest::Url;
 use serde_json::{Value, json};
 use std::{
@@ -524,6 +527,22 @@ impl User {
 
     /// Calls one tool outside any run; JSON text in the result is parsed.
     pub async fn call_mcp(&self, server: &str, tool: &str, arguments: Value) -> Result<Value> {
+        let result = self.call_mcp_content(server, tool, arguments).await?;
+        let text: String = result
+            .content
+            .iter()
+            .filter_map(|content| content.as_text())
+            .collect();
+        Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
+    }
+
+    /// Calls one tool outside any run, keeping any files it returns.
+    pub(crate) async fn call_mcp_content(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<McpToolCallResult> {
         let registry = self.mcp_registry().await;
         let result = self.mcp.call(&registry, server, tool, arguments).await;
         let result = match result {
@@ -535,17 +554,18 @@ impl User {
                 return Err(error);
             }
         };
-        let text: String = result
-            .content
-            .iter()
-            .filter_map(|content| content.as_text())
-            .collect();
         if result.is_error {
             // Error text says what went wrong; it is clipped in case it echoes content.
-            let reason: String = text.chars().take(200).collect();
+            let reason: String = result
+                .content
+                .iter()
+                .filter_map(|content| content.as_text())
+                .flat_map(str::chars)
+                .take(200)
+                .collect();
             bail!("{server} {tool} returned an error: {reason}");
         }
-        Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
+        Ok(result)
     }
 
     /// Starts a Fastmail sign-in and returns its URL; `add` signs in another account.
