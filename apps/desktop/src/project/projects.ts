@@ -4,12 +4,12 @@ import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, freshNote, svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { byRecent, type RunningAgent } from "../center/home-state.ts";
-import { whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type WhereRow } from "./projects-state.ts";
+import { whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { agentFor } from "./agent.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
-import { IC, state, warm, pageFresh } from "../center/state.ts";
+import { IC, pages, state, warm, pageFresh } from "../center/state.ts";
 import { projectDot, section, plusLabel } from "../center/pieces.ts";
 import { machineMenu } from "../machines/table.ts";
 import { runningRow } from "../center/home.ts";
@@ -130,8 +130,10 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   } else {
     card.append(h("span", "line", c.imported ? "No project agent yet" : "From running agents"));
   }
-  const on = c.machines.map(m => m.name);
-  card.append(h("span", "line", on.length ? `On ${[...new Set(on)].join(", ")}` : "On no machine yet"));
+  // Only a project's page reads what Syncthing keeps, so that is what shows
+  // here: no read per card.
+  const sync = syncedBy(c.name, state.sync, state.where.get(c.name) ?? pages.get<ProjectMachineRow[]>("where", c.name));
+  if (sync) card.append(h("span", "line sync", sync));
   const open = () => openProjects(c.name);
   newWindowOn(card, card, c.name);
   card.addEventListener("click", open);

@@ -11,7 +11,7 @@ import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound } from "../addproject/addproject.ts";
 import { openNewProject } from "../addproject/newproject.ts";
-import { mergeProjects, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type Placed, type Project } from "../project/projects-state.ts";
+import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
 import { button, el as h, type Kid } from "../ui/dom.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
@@ -408,6 +408,28 @@ export function projectRows() {
   return mergeProjects(home.projects, home.running);
 }
 
+/// The project headings folded in the sidebar, kept between launches. Only
+/// the main window has a sidebar.
+const FOLDED_KEY = "beep.sideFolded";
+let folded = new Set<string>();
+try { folded = parseFolded(localStorage.getItem(FOLDED_KEY)); } catch {}
+
+/// Makes `head` fold the projects under it. Folded, it lights up while it
+/// holds the open project.
+function foldable(head: HTMLButtonElement, p: OrgHeading | GroupHeading) {
+  head.type = "button";
+  head.prepend(h("span", `twist${p.folded ? "" : " open"}`, icon(IC.twist)));
+  head.setAttribute("aria-expanded", String(!p.folded));
+  if (shown === "projects" && state.picked && p.folded?.includes(state.picked)) head.setAttribute("aria-current", "true");
+  head.addEventListener("click", () => {
+    const key = foldKey(p);
+    if (!folded.delete(key)) folded.add(key);
+    try { localStorage.setItem(FOLDED_KEY, JSON.stringify([...folded])); } catch { /* kept for this launch only */ }
+    reloadGroup("projects");
+  });
+  return head;
+}
+
 /// A small + button for a group's heading or the footer.
 export function plusButton(label: string, on: () => void) {
   const b = button(icon(IC.plus)!, "", e => { e.stopPropagation(); on(); });
@@ -510,13 +532,13 @@ registerSidebarGroup("projects", {
   load: async () => {
     const rows = projectRows();
     // Those pinned to the top show under Pinned instead.
-    return rows ? sideProjects(splitOnTop(rows, state.top).rest, state.groups) : null;
+    return rows ? sideProjects(splitOnTop(rows, state.top).rest, state.groups, folded) : null;
   },
   row(p) {
     // A group's heading, under it the projects' whole names; an org's,
     // under it only the repo names.
-    if (p.group) return groupHeading(p.group);
-    if (p.org !== undefined) return h("div", "cc-org", `${p.org}/`);
+    if (p.group) return foldable(groupHeading(p.group), p);
+    if (p.org !== undefined) return foldable(h("button", "cc-org", `${p.org}/`), p);
     const row = projectRow(p, p.repo ?? p.name, false);
     if (!p.repo) row.classList.remove("pj-repo");
     return withThreads(row, p.name);
