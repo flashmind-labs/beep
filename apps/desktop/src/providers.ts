@@ -99,7 +99,8 @@ export function registerProviders(deps: ProvidersDeps) {
   function pickMachine(id: string) {
     if (st.machine === id) return;
     st.machine = id;
-    st.picked = null;
+    // In Settings the left pane picked the agent; it stays across machines.
+    if (!inSettings) st.picked = null;
     deps.redrawTop();
     draw();
     if (!st.views.has(id)) load(false);
