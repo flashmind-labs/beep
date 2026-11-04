@@ -2,6 +2,7 @@
 // center. Entry: this file (dist/research.js).
 // A research window: the lead's chat on the left, the team's workspace in the
 // middle and its agents on the right.
+import "../ui/loopclock.ts";
 import { followSkin } from "../ui/skin.ts";
 import { writeClipboard } from "../ui/parts.ts";
 followSkin();

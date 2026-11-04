@@ -1,5 +1,6 @@
 // orb/: the orb window. Entry: this file (dist/orb.js).
 // The orb window: live mode while the bar is hidden.
+import "../ui/loopclock.ts";
 import { followSkin } from "../ui/skin.ts";
 followSkin();
 import { invoke, Channel, listen } from "../ui/tauri.ts";

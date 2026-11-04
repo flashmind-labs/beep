@@ -1,5 +1,6 @@
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
+import "../ui/loopclock.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";

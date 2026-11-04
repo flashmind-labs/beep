@@ -195,15 +195,6 @@ export function runSpan(r: Pick<RunRow, "started_at" | "finished_at">, now = Dat
   return span((r.finished_at ?? now) - r.started_at);
 }
 
-/// A spinner already at the turn the clock says (.dspin takes 800 ms a turn),
-/// so redrawing the row neither restarts nor holds it.
-function spinner() {
-  const spin = document.createElement("span");
-  spin.className = "dspin";
-  spin.style.animationDelay = `-${performance.now() % 800}ms`;
-  return spin;
-}
-
 /// A state's chip: its class, its word and whether it spins.
 export function runChip(state: RunState): { cls: string; text: string; spin: boolean } {
   switch (state) {
@@ -442,7 +433,7 @@ export function makeRuns(deps: RunDeps) {
       badge.title = `${hostLabel(r.host, hosts)} Actions on ${r.host}`;
     }
     const mark = h("span", `rr-st ${chip.cls || "idle"}`);
-    if (chip.spin) mark.append(spinner());
+    if (chip.spin) mark.append(h("span", "dspin"));
     else mark.innerHTML = RUN_MARKS[r.state] ?? "";
     mark.title = chip.text;
     const took = going(r.state) ? "" : runSpan(r);
