@@ -13,6 +13,7 @@ import { renderChat } from "../chat/chat.ts";
 import { $, type BackTo, bar, esc, h, ICON, invoke, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
+import { money, tokenCount } from "../center/usage.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, turnRuns } from "./session.ts";
 import { closeChild } from "./logview.ts";
@@ -82,6 +83,22 @@ export interface AgentPage {
   /// The newest entries, and how many came before them.
   entries: AgentEntry[];
   earlier: number;
+}
+
+/// What a session used, as `agent_usage` returns it.
+export interface AgentUsage {
+  context: { used: number; size: number } | null;
+  tokens: number;
+  cost_usd: number | null;
+}
+
+/// "62% context · 184K tokens · $1.42", leaving out what is not known.
+export function usageLine(u: AgentUsage) {
+  const parts: string[] = [];
+  if (u.context?.size) parts.push(`${Math.round((u.context.used * 100) / u.context.size)}% context`);
+  if (u.tokens) parts.push(`${tokenCount(u.tokens)} tokens`);
+  if (u.cost_usd != null) parts.push(money(u.cost_usd));
+  return parts.join(" · ");
 }
 
 /// A session `agent_start` or `agent_resume` started, and why Auto picked its machine.

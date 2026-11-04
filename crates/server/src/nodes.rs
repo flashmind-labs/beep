@@ -47,6 +47,7 @@ mod files;
 mod follow;
 mod harness;
 mod images;
+mod retry;
 mod search;
 mod shell;
 mod ssh;
@@ -69,6 +70,7 @@ pub(crate) use agent::{News, NodeFile, NodeWork, SessionRefused, WorkRead, WorkW
 pub(crate) use deliver::agent_name;
 pub use deliver::{Ask, Deliveries, Post};
 pub use follow::{Follower, Follows};
+pub(crate) use retry::{NODE_BACK, Repeat};
 pub use shell::{Exited, Ran};
 pub use stats::Sampled;
 pub use sync::{Refusal, SyncState, push_sync};
