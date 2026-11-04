@@ -8,19 +8,16 @@ use beep_node::{
     link::{self, Offers},
     mcp,
     provision::Provision,
+    reconnect::Backoff,
 };
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
 };
 use tauri::async_runtime::{self, JoinHandle};
 use tokio::time::sleep;
-
-const FIRST_RETRY: Duration = Duration::from_secs(1);
-const LAST_RETRY: Duration = Duration::from_secs(60);
 
 /// Where the link stands, as Settings shows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
@@ -167,7 +164,8 @@ fn lock(link: &Mutex<Link>) -> MutexGuard<'_, Link> {
     link.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Keeps the node link up, waiting longer after each failure, until aborted.
+/// Keeps the node link up, as `beep-node` does but never waiting long:
+/// the user is at this Mac. Until aborted.
 async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHome>, name: String) {
     let set = |now: Status| *lock(&shared) = Link::new(now);
     // Installs gh, teacli and the agent skills, and takes the credentials
@@ -184,7 +182,7 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
         log::warn!("not serving the Beep MCP server: {e}");
     }
     let _mcp = mcp::start(&home.dir, &offers);
-    let mut wait = FIRST_RETRY;
+    let mut backoff = Backoff::eager();
     loop {
         // A Mac removed from the account has nothing to sign in with.
         if beep.link_state() != LinkState::Linked {
@@ -200,28 +198,27 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
             Ok(linked) => {
                 log::info!("this Mac's node link is open");
                 set(Status::Connected);
-                wait = FIRST_RETRY;
+                backoff.reset();
                 match linked.serve().await {
                     Ok(()) => log::info!("the server closed this Mac's node link"),
                     Err(e) => log::warn!("node link lost: {e:#}"),
                 }
             }
             Err(e) => {
+                let wait = backoff.pause();
                 log::info!(
-                    "this Mac's node link failed, trying again in {}s: {e:#}",
-                    wait.as_secs()
+                    "this Mac's node link failed, trying again in {:.1}s: {e:#}",
+                    wait.as_secs_f32()
                 );
                 *lock(&shared) = Link {
                     status: Status::Failed,
                     error: Some(format!("{e:#}")),
                 };
                 sleep(wait).await;
-                wait = (wait * 2).min(LAST_RETRY);
                 continue;
             }
         }
         set(Status::Connecting);
-        sleep(wait).await;
-        wait = (wait * 2).min(LAST_RETRY);
+        sleep(backoff.pause()).await;
     }
 }

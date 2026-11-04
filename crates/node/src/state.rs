@@ -2,6 +2,7 @@
 
 use crate::agents::AgentKind;
 use anyhow::{Context, Result, bail};
+use beep_proto::port::NODE_PORT;
 use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -33,6 +34,10 @@ struct Settings {
     /// Unset, only GitHub repositories get live updates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     webhook_listen: Option<SocketAddr>,
+    /// The UDP port the node's iroh endpoint binds, for a firewall rule;
+    /// `NODE_PORT` unset, random at 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
 }
 
 pub struct State {
@@ -47,6 +52,8 @@ pub struct State {
     /// Where webhooks for live project updates come to from Forgejo and
     /// Gitea servers (`webhook_listen` in `node.toml`).
     pub webhook_listen: Option<SocketAddr>,
+    /// The UDP port to bind (`port` in `node.toml`).
+    pub port: u16,
 }
 
 pub fn default_dir() -> Result<PathBuf> {
@@ -68,9 +75,9 @@ impl State {
     pub fn save(dir: &Path, key: SecretKey, server: EndpointId, name: &str) -> Result<Self> {
         // Linking again keeps the agents and folders set by hand, and
         // refuses rather than drop settings it cannot read.
-        let (agents, files, webhook_listen) = if dir.join(SETTINGS_FILE).exists() {
+        let (agents, files, webhook_listen, port) = if dir.join(SETTINGS_FILE).exists() {
             let old = read_settings(dir)?;
-            (old.agents, old.files, old.webhook_listen)
+            (old.agents, old.files, old.webhook_listen, old.port)
         } else {
             Default::default()
         };
@@ -80,6 +87,7 @@ impl State {
             agents,
             files,
             webhook_listen,
+            port,
         };
         fs::write(dir.join(SETTINGS_FILE), toml::to_string(&settings)?)?;
         Ok(Self {
@@ -90,6 +98,7 @@ impl State {
             agents: settings.agents,
             files: settings.files,
             webhook_listen: settings.webhook_listen,
+            port: settings.port.unwrap_or(NODE_PORT),
         })
     }
 
@@ -112,6 +121,7 @@ impl State {
             agents: settings.agents,
             files: settings.files,
             webhook_listen: settings.webhook_listen,
+            port: settings.port.unwrap_or(NODE_PORT),
         })
     }
 }

@@ -151,10 +151,9 @@ async fn main() -> Result<()> {
         }
     });
 
-    let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(secret_key.clone())
-        .bind()
-        .await?;
+    let builder = || Endpoint::builder(presets::N0).secret_key(secret_key.clone());
+    let port = config.port.unwrap_or(beep_proto::port::SERVER_PORT);
+    let endpoint = beep_proto::port::bind_on(builder, port).await?;
 
     log::info!("iroh endpoint bound; node_id={}", endpoint.id());
     if let Some(instance) = app.instance() {

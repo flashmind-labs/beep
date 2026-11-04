@@ -21,6 +21,7 @@ mod local_socket;
 pub mod mcp;
 mod process;
 pub mod provision;
+pub mod reconnect;
 pub(crate) mod restart;
 pub mod service;
 pub mod setup;
