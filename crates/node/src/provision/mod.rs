@@ -1,9 +1,9 @@
-//! Readies the machine for the agents Beep runs on it: installs `gh` and
-//! `teacli` where they are missing and Beep's GitHub and Forgejo skills,
-//! and hands the processes the node starts the user's credentials (see
-//! `Down::Credentials`), which it keeps in memory. Forgejo tokens are the
-//! exception: teacli reads them only from a config file, written readable
-//! by the owner only.
+//! Readies the machine for the agents Beep runs on it: installs `gh`,
+//! `teacli` and `flsh` where they are missing and Beep's GitHub and
+//! Forgejo skills, and hands the processes the node starts the user's
+//! credentials (see `Down::Credentials`), which it keeps in memory. Forgejo
+//! tokens are the exception: teacli reads them only from a config file,
+//! written readable by the owner only.
 
 mod skills;
 pub(crate) mod spawn_env;
@@ -89,18 +89,17 @@ impl Provision {
     async fn install_tools(&self) -> bool {
         let _one = self.installing.lock().await;
         let mut installed = false;
+        let missing = |name| which::which_in(name, Some(self.tool_path()), "/").is_err();
         for tool in tools::PINNED {
-            if which::which_in(tool.name, Some(self.tool_path()), "/").is_ok() {
-                continue;
+            if missing(tool.name) {
+                log::info!("installing {}", tool.name);
+                installed |= installed_ok(tool.name, tool.install(&self.bin()).await);
             }
-            log::info!("installing {}", tool.name);
-            match tool.install(&self.bin()).await {
-                Ok(path) => {
-                    log::info!("installed {} at {}", tool.name, path.display());
-                    installed = true;
-                }
-                Err(e) => log::warn!("{} not installed: {e:#}", tool.name),
-            }
+        }
+        if missing("flsh") && tools::flsh_target(env::consts::OS, env::consts::ARCH).is_some() {
+            log::info!("installing flsh");
+            let result = tools::install_newest(Tool::Flsh, &self.bin()).await;
+            installed |= installed_ok("flsh", result);
         }
         installed
     }
@@ -207,6 +206,20 @@ impl Provision {
         let inherited = env::var_os("PATH").unwrap_or_default();
         let dirs = std::iter::once(self.bin()).chain(env::split_paths(&inherited));
         env::join_paths(dirs).unwrap_or(inherited)
+    }
+}
+
+/// Logs how installing `name` went; whether it was installed.
+fn installed_ok(name: &str, result: Result<PathBuf>) -> bool {
+    match result {
+        Ok(path) => {
+            log::info!("installed {name} at {}", path.display());
+            true
+        }
+        Err(e) => {
+            log::warn!("{name} not installed: {e:#}");
+            false
+        }
     }
 }
 

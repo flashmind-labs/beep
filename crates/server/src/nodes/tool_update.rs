@@ -1,10 +1,10 @@
-//! Newer `gh` and `teacli` for the machines: the newest release of each,
-//! looked up on GitHub every few hours, and installing it on a node over
+//! Newer `gh`, `teacli` and `flsh` for the machines: the newest release of
+//! each, looked up every few hours, and installing it on a node over
 //! `tool-update/1` (see `beep_proto::node::tool_update`).
 
 use super::Online;
 use crate::AsyncMutex;
-use crate::protocol::node::tool_update::{PROTOCOL, Reply, Request, Tool};
+use crate::protocol::node::tool_update::{FLSH, PROTOCOL, Releases, Reply, Request, Tool};
 use anyhow::{Context, Result, bail};
 use reqwest::{Client, header::USER_AGENT};
 use serde::Deserialize;
@@ -43,7 +43,7 @@ struct Release {
 
 impl ToolReleases {
     /// The newest release of `tool`, such as `2.103.3`; the last one found
-    /// while GitHub cannot be reached, and `None` before any was.
+    /// while the releases cannot be reached, and `None` before any was.
     pub(crate) async fn latest(&self, tool: Tool) -> Option<String> {
         let mut found = self.found.lock().await;
         if let Some(found) = found.get(&tool) {
@@ -79,10 +79,22 @@ impl ToolReleases {
     }
 
     async fn lookup(&self, tool: Tool) -> Result<String> {
-        let url = format!(
-            "https://api.github.com/repos/{}/releases/latest",
-            tool.repo()
-        );
+        let repo = match tool.releases() {
+            Releases::GitHub(repo) => repo,
+            Releases::Channel(base) => {
+                let text = self
+                    .http
+                    .get(format!("{base}/latest.txt"))
+                    .header(USER_AGENT, "beep-server")
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .text()
+                    .await?;
+                return Ok(text.trim().to_owned());
+            }
+        };
+        let url = format!("https://api.github.com/repos/{repo}/releases/latest");
         let release: Release = self
             .http
             .get(&url)
@@ -101,6 +113,11 @@ impl Online {
     /// Whether it installs newer tools over `tool-update/1`.
     pub(crate) fn installs_tools(&self) -> bool {
         self.offers(PROTOCOL)
+    }
+
+    /// Whether it installs newer releases of `tool`.
+    pub(crate) fn installs(&self, tool: Tool) -> bool {
+        self.installs_tools() && (tool != Tool::Flsh || self.offers(FLSH))
     }
 
     /// Has the node install release `version` of `tool`. `Err` holds the
