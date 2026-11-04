@@ -1,7 +1,7 @@
 # Builds the release APK for a tag android-vX.Y.Z (made by
 # `just android-release`) and keeps it as a run artifact. With the
 # PLAY_SERVICE_ACCOUNT_JSON secret it goes to Play as an app bundle: the beta
-# track when Z is not 0, production for a minor or major release (X.Y.0). A
+# track while X is 0, then production for a minor or major release (X.Y.0). A
 # manual run goes to the internal track. The repository variable
 # PLAY_BETA_TRACK picks another testing track, such as alpha for closed testing. Releases stay drafts until the
 # repository variable PLAY_RELEASE_STATUS says `completed`, which Play only
@@ -108,7 +108,7 @@ jobs:
           if [[ "$REF" =~ ^refs/tags/android-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             name=$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' apps/android/app/build.gradle.kts)
             [ "$name" = "${REF#refs/tags/android-v}" ] || { echo "Tag does not match versionName $name"; exit 1; }
-            if [ "${BASH_REMATCH[3]}" = 0 ]; then track=production; else track='${{ vars.PLAY_BETA_TRACK || 'beta' }}'; fi
+            if [ "${BASH_REMATCH[1]}" != 0 ] && [ "${BASH_REMATCH[3]}" = 0 ]; then track=production; else track='${{ vars.PLAY_BETA_TRACK || 'beta' }}'; fi
           fi
           if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
             echo "No Play service account, skipping the upload."

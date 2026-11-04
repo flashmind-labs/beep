@@ -37,7 +37,7 @@ desktop-build:
 server-release version:
     #!/usr/bin/env bash
     set -euo pipefail
-    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     git tag -a "server-v{{version}}" -m "Beep server {{version}}"
@@ -49,7 +49,7 @@ server-release version:
 desktop-release version:
     #!/usr/bin/env bash
     set -euo pipefail
-    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/desktop-v{{version}}" > /dev/null || { echo "desktop-v{{version}} already exists" >&2; exit 1; }
@@ -60,12 +60,11 @@ desktop-release version:
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
 # Set the Android app's version, commit it and tag android-v<version>. Pushing
-# the tag uploads it to Play: a patch release (1.2.3) to the beta track, a minor
-# or major one (1.3.0, 2.0.0) to production.
+# the tag uploads it to Play's beta track.
 android-release version:
     #!/usr/bin/env bash
     set -euo pipefail
-    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/android-v{{version}}" > /dev/null || { echo "android-v{{version}} already exists" >&2; exit 1; }
@@ -79,7 +78,7 @@ android-release version:
 ios-release version:
     #!/usr/bin/env bash
     set -euo pipefail
-    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/ios-v{{version}}" > /dev/null || { echo "ios-v{{version}} already exists" >&2; exit 1; }
@@ -94,7 +93,7 @@ ios-release version:
 node-release version:
     #!/usr/bin/env bash
     set -euo pipefail
-    [[ "{{version}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 1.2.3" >&2; exit 1; }
+    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/node-v{{version}}" > /dev/null || { echo "node-v{{version}} already exists" >&2; exit 1; }
@@ -127,7 +126,7 @@ release android="" desktop="" node="" ios="":
     if [[ -n $ios ]]; then tags+=("ios-v$ios"); fi
     # Checked before tagging anything, so a bad version leaves no tags behind.
     for tag in "${tags[@]}"; do
-        [[ ${tag#*-v} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "$tag: version must be like 1.2.3" >&2; exit 1; }
+        [[ ${tag#*-v} =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "$tag: version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
         ! git rev-parse -q --verify "refs/tags/$tag" > /dev/null || { echo "$tag already exists" >&2; exit 1; }
     done
     echo "Releasing Android $android, desktop $desktop${node:+, node $node}${ios:+, iOS $ios}"
