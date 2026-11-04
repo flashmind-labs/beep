@@ -1,5 +1,5 @@
 //! Keeping agent sessions across a node restart: an update holds new
-//! prompts until no turn runs, the stopping node notes the sessions it
+//! prompts until no turn runs, the node notes the sessions it has open or
 //! stopped, and the next start resumes each by the agent's own id, which
 //! the server knows it by, with the prompts that still waited.
 
@@ -75,16 +75,17 @@ impl Agents {
         }
     }
 
-    /// The sessions that ended with the node and can be resumed: those the
-    /// agent gave its own id.
-    pub(crate) fn stopped_sessions(&self) -> Vec<OpenSession> {
+    /// The sessions to resume when the node starts again: those that run
+    /// or ended with the node, once the agent gave them its own id. One
+    /// the user closed or that failed stays ended.
+    pub(crate) fn open_sessions(&self) -> Vec<OpenSession> {
         self.lock()
             .values()
             .filter_map(|session| {
                 let live = session.live.borrow();
-                let stopped = live.status() == Status::Ended
-                    && live.info.state.error.as_deref() == Some(NODE_STOPPED);
-                if !stopped {
+                let open = live.status() != Status::Ended
+                    || live.info.state.error.as_deref() == Some(NODE_STOPPED);
+                if !open {
                     return None;
                 }
                 Some(OpenSession {
@@ -152,7 +153,10 @@ impl Agents {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::agents::{AgentKind, Session, live::Live};
+    use crate::{
+        agents::{AgentKind, Session, live::Live},
+        restart::{self, Reopen},
+    };
     use std::{collections::BTreeMap, path::Path, sync::Arc};
 
     /// An ACP adapter in shell that logs each line it reads to `$1`. It
@@ -279,7 +283,7 @@ done
         let before = Agents::new(vec![kind.clone()]);
         let (_session, _hold) = held_after_a_turn(&before, &kind, dir.path()).await;
         before.shutdown().await;
-        let stopped = before.stopped_sessions();
+        let stopped = before.open_sessions();
         assert_eq!(stopped.len(), 1);
         assert_eq!(stopped[0].session, "held-1");
         assert_eq!(stopped[0].held, [Prompt::from("after".to_owned())]);
@@ -295,6 +299,50 @@ done
         let read = std::fs::read_to_string(&log).expect("the adapter's log");
         assert!(read.contains("session/load"), "{read}");
         assert!(read.contains(r#""text":"after""#), "{read}");
+        after.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_session_comes_back_after_a_crash() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let log = dir.path().join("log");
+        let kind = adapter(&log);
+        let before = Arc::new(Agents::new(vec![kind.clone()]));
+        let keeping = {
+            let (dir, agents) = (dir.path().to_path_buf(), before.clone());
+            tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+                restart::keep(&dir, &agents).await;
+            }))
+        };
+        let session = before
+            .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        until(&mut live, |live| live.info.turns == 1).await;
+        let noted = timeout(Duration::from_secs(20), async {
+            loop {
+                let note = Reopen::read(dir.path());
+                if !note.sessions.is_empty() {
+                    break note;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the running session is noted");
+        // The node dies here: nothing stops, the note is what is left.
+        drop(keeping);
+        assert_eq!(Reopen::read(dir.path()).sessions, noted.sessions);
+
+        let after = Agents::new(vec![kind]);
+        after.settings_arrived();
+        after.reopen(noted.sessions).await;
+        let resumed = after.get("held-1").expect("resumed under the agent's id");
+        let mut live = resumed.live.clone();
+        until(&mut live, |live| live.status() == Status::Idle).await;
+        let read = std::fs::read_to_string(&log).expect("the adapter's log");
+        assert!(read.contains("session/load"), "{read}");
+        before.shutdown().await;
         after.shutdown().await;
     }
 }

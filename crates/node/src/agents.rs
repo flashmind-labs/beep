@@ -1004,6 +1004,7 @@ impl Agents {
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
         sessions.insert(id, session.clone());
+        crate::restart::changed();
         Ok(session)
     }
 }
