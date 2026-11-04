@@ -13,7 +13,7 @@ import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
 import { IC, state } from "../center/state.ts";
-import { tag, line } from "../center/pieces.ts";
+import { tag, line, section } from "../center/pieces.ts";
 import { homeBox } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
@@ -127,12 +127,12 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     const waiting = threads.filter(t => t.needs_reply).length;
     project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
   }
-  groups.push({ title: "Project", items: project });
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
     right: r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r)), open: () => go("pane", { agent: r }),
   }));
   if (runItems.length) groups.push({ title: "Running", items: runItems });
+  groups.push({ title: "Project", items: project });
   const past = sessions ? pastSessions(sessions, running) : [];
   groups.push({ title: "Work", items: [
     { key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] },
@@ -164,7 +164,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     h("div", "pj-labels", ...issueFilter.labels.all.map(l => labelChip(l, issueFilter.labels, "button"))),
     h("div", "pj-rows", ...issueFilter.items.map(i => splitRow(i, null, issueFilter.labels))),
   ] });
-  const overview = projectOverview(p, runItems, prItems, issueItems, machineTile(rows, sync));
+  const overview = projectOverview(p, running, { run: runItems, prs: prItems, issues: issueItems, prNote: hostNote(prs, thr.prsError(pid), "No open pull requests."), issueNote }, machineTile(rows, sync));
   groups.unshift({ title: "", items: [{ key: "overview", title: "Overview", sub: overview.sub, detail: () => [overview.body] }] });
   // A review opens from Branches and an issue from Issues, each keeping its row lit.
   const all = groups.flatMap(g => g.items);
@@ -188,25 +188,34 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   return [h("div", "pj-split", list, det)];
 }
 
-/// The project's Overview: a box per list, each title opening that row of
-/// the list, and its one line for the list.
-function projectOverview(p: Project, run: SplitItem[], prs: SplitItem[], issues: SplitItem[], where: ReturnType<typeof machineTile>) {
+/// The project's Overview: what runs and ran on the left, the open work on
+/// the right, each title opening that row of the list. Issues scroll in their box.
+function projectOverview(p: Project, running: RunningAgent[], open: { run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: Kid; issueNote: Kid }, where: ReturnType<typeof machineTile>) {
+  const { run, prs, issues } = open;
   // A copy: the list beside it takes the lead node itself.
-  const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead.cloneNode(true) : null, i.title, i.sub, [i.right], i.open || (() => openTile(i.key))));
+  const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead.cloneNode(true) : null, i.title, i.sub, [i.right, ...(i.tags || []).slice(0, 3).map(l => h("i", "pj-tag", l))], i.open || (() => openTile(i.key))));
   const box = (title: string, items: SplitItem[], key: string) => items.length ? homeBox("", title, items.length, () => openTile(key), rowsOf(items)) : null;
+  const tile = runs.tile(agentFor(state.agents, p.name)?.project_id || "");
+  const ran = tile.rows.map(r => line(null, r.text || "", r.code || "", [r.chip ? stateChip(r.chip.cls, r.chip.text, r.chip.cls === "running") : null], () => openTile("actions")));
   const list = terms.list(p.name) || [];
   const machines = where.rows.map(r => {
     const row = line(h("span", `ddot${r.dot ? " off" : ""}`), r.text || "", r.note || "", [], () => openTile("machines"));
     row.title = r.title || r.text || "";
     return row;
   });
-  const boxes = [
+  const left = [
     box("Running", run, "agents"),
-    box("Pull requests", prs, prs[0]?.key),
-    box("Issues", issues, issues[0]?.key),
-    list.length ? homeBox("", "Terminals", list.length, () => openTile("machines"), list.map(t => terminalLine(t, () => openTile("machines")))) : null,
+    sessionsSection(p, running),
+    ran.length ? homeBox("", "Actions", tile.count, () => openTile("actions"), ran) : null,
     machines.length ? homeBox("", "Machines", where.count, () => openTile("machines"), machines) : null,
-  ].filter(b => b !== null);
+    list.length ? homeBox("", "Terminals", list.length, () => openTile("machines"), list.map(t => terminalLine(t, () => openTile("machines")))) : null,
+  ];
+  const right = [
+    prs.length ? box("Pull requests", prs, prs[0].key) : section("", "Pull requests", "", null, emptyPanel(h("span", "", open.prNote))),
+    issues.length
+      ? section("", button("Issues", "lk", () => openTile("issues")), issues.length, null, h("div", "cc-panel pj-scroll", ...rowsOf(issues)))
+      : section("", "Issues", "", null, emptyPanel(h("span", "", open.issueNote))),
+  ];
   const sub = [run.length ? `${run.length} running` : "", prs.length ? plural(prs.length, "PR", "PRs") : "", issues.length ? plural(issues.length, "issue", "issues") : ""].filter(Boolean).join(" · ");
-  return { sub, body: boxes.length ? h("div", "cc-hgrid", ...boxes) : emptyPanel(h("span", "", "Nothing running or open here.")) };
+  return { sub, body: h("div", "pj-ov", h("div", "", ...left), h("div", "", ...right)) };
 }
