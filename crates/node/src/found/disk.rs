@@ -8,11 +8,12 @@
 
 use super::git::{self, Checkout};
 use anyhow::{Context, Result};
-use ignore::{DirEntry, WalkBuilder};
+use ignore::{DirEntry, WalkBuilder, WalkState};
 use std::{
     fs,
     io::ErrorKind,
     path::Path,
+    sync::{Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -62,29 +63,43 @@ fn save(dir: &Path, found: &[Checkout]) -> Result<()> {
     fs::rename(&temp, &path).with_context(|| format!("writing {}", path.display()))
 }
 
-/// The main checkouts under `home`, with their `origin` remotes.
+/// The main checkouts under `home`, with their `origin` remotes, walked
+/// on several threads: a large home takes minutes on one.
 fn checkouts(home: &Path) -> Vec<Checkout> {
     let deadline = Instant::now() + WALK_FOR;
-    let walk = WalkBuilder::new(home)
+    let found = Mutex::new(Vec::new());
+    WalkBuilder::new(home)
         .max_depth(Some(MAX_DEPTH))
         .parents(false)
         .filter_entry(walked)
-        .build();
-    let mut out = Vec::new();
-    for entry in walk {
-        if out.len() >= MAX_CHECKOUTS || Instant::now() > deadline {
-            break;
-        }
-        let Ok(entry) = entry else { continue };
-        let root = entry.path();
-        if entry.depth() > 0 && root.join(".git").is_dir() {
-            out.push(Checkout {
-                root: root.to_owned(),
-                origin: git::origin(root),
-            });
-        }
-    }
-    out
+        .build_parallel()
+        .run(|| {
+            Box::new(|entry| {
+                if Instant::now() > deadline {
+                    return WalkState::Quit;
+                }
+                let Ok(entry) = entry else {
+                    return WalkState::Continue;
+                };
+                let root = entry.path();
+                if entry.depth() == 0 || !root.join(".git").is_dir() {
+                    return WalkState::Continue;
+                }
+                let checkout = Checkout {
+                    root: root.to_owned(),
+                    origin: git::origin(root),
+                };
+                let mut found = found.lock().unwrap_or_else(PoisonError::into_inner);
+                found.push(checkout);
+                if found.len() >= MAX_CHECKOUTS {
+                    WalkState::Quit
+                } else {
+                    // Nothing below a checkout's top is looked at.
+                    WalkState::Skip
+                }
+            })
+        });
+    found.into_inner().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Whether the walk goes into `entry`: a folder, not pruned, and not
