@@ -363,17 +363,20 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
         <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
       ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}${agentNoticesRow(set.agent_notices)}</section>`]];
   out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
-  if (!linked) return [...out, ["devices", sec("devices", "Subscription", setDevicesHtml(linked, set))]];
+  const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
+  const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
+  const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
+  // Without a subscription these work over the mesh; the rest is the assistant's.
+  if (!linked) return [...out, creds, machines, instr, ["devices", sec("devices", "Subscription", setDevicesHtml(linked, set))]];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
   if (mac) out.push(["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]);
-  out.push(["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())]);
+  out.push(machines);
   // The Coding agents rows sit outside #set-agents, which redraws alone.
   const sub = SET.path?.sub;
   out.push(["agents", sheet && sub?.kind === "agent" ? host("agents")
     : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">Agent accounts</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}<div id="set-agents">${setAgentsHtml()}</div>${sheet ? codingAgentsHtml() : ""}</section>`]);
-  out.push(["creds", sec("creds", "Credentials", setCredsHtml())]);
-  out.push(["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)]);
+  out.push(creds, instr);
   out.push(["devices", sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`)]);
   return out;
 }
@@ -616,8 +619,21 @@ export async function renderSettings(confirm = false, root?: HTMLElement, page?:
       <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
     bindSettings(el);
   }
-  if (!linked) return;
   // The server's parts, side by side; each fills its section as it answers.
+  if (linked) loadServerParts(set, alive);
+  invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
+    .then(() => {
+      if (!alive()) return;
+      if (SET.root) drawChrome(); else fillSection("machines", setMachinesHtml());
+      // The git hosts say which machines have gh and teacli.
+      if (CRED.list) fillSection("creds", setCredsHtml());
+    });
+  loadCreds();
+  if (linked) loadAgentAccounts();
+}
+
+/// The subscription's parts of Settings, which fill their sections as each answers.
+function loadServerParts(set: MacSettings, alive: () => boolean) {
   invoke<Device[]>("list_devices").then(d => { SET.devices = d; }, e => { console.warn(e); SET.devices ??= []; })
     .then(() => { if (alive()) fillSection("devices", `<div id="set-account">${setAccountHtml(true)}</div>${setDevicesHtml(true, set)}`); });
   invoke<Models>("get_models").then(m => { MODELS.info = m; SET.modelsError = false; }, e => { console.warn(e); SET.modelsError = !MODELS.info; })
@@ -634,15 +650,6 @@ export async function renderSettings(confirm = false, root?: HTMLElement, page?:
       if (!alive()) return;
       if (SET.root) drawChrome(); else fillSection("apps", setAppsHtml());
     });
-  invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
-    .then(() => {
-      if (!alive()) return;
-      if (SET.root) drawChrome(); else fillSection("machines", setMachinesHtml());
-      // The git hosts say which machines have gh and teacli.
-      if (CRED.list) fillSection("creds", setCredsHtml());
-    });
-  loadCreds();
-  loadAgentAccounts();
 }
 
 // Signing in changes which pages Settings has.

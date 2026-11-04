@@ -261,8 +261,6 @@ function body() {
     }
     case "expired":
       return [el("div", "am-msg", "This ticket expired. A ticket works once and lasts an hour."), button("New ticket", "dbtn pri", start)];
-    case "outdated":
-      return [el("div", "am-msg", "The server needs an update before machines can be added from here."), button("Close", "dbtn", closeAddMachine)];
     default:
       return [
         el("div", "am-msg bad", state.message || "Could not make a ticket."),

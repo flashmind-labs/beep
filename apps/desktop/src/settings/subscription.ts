@@ -21,3 +21,30 @@ export function beepViews<T extends { view: string }>(views: readonly T[], subsc
 export function signInWay(hosted: boolean) {
   return hosted ? "browser" : "here";
 }
+
+/// ⌘ and a letter that open the assistant's pages: memories, routines, skills, research, groups
+/// and the chat list.
+const ASSISTANT_KEYS = ["m", "j", "l", "r", "g", "k"];
+
+/// Whether ⌘ and `key` does nothing without a subscription.
+export function keyHidden(key: string, subscribed: boolean) {
+  return !subscribed && ASSISTANT_KEYS.includes(key);
+}
+
+/// Pane pages that are the assistant's.
+const ASSISTANT_PAGES = ["chats", "memories", "routines", "rnew", "grants", "skills", "apps", "mcp", "appperms", "research", "model", "group", "ginfo", "gnew", "invite"];
+
+/// Whether going to window view `name` with `arg` opens something only a subscription has, such as
+/// a deep link from the tray, another window or a notification. The window shows Home instead.
+export function viewHidden(name: string, arg: unknown, subscribed: boolean) {
+  if (subscribed) return false;
+  if (name === "research") return true;
+  if (name !== "pane") return false;
+  if (typeof arg === "string") return ASSISTANT_PAGES.includes(arg);
+  return typeof arg === "object" && arg !== null && ("chat" in arg || "group" in arg);
+}
+
+/// Whether the first-run window shows: only with no subscription and before it was answered.
+export function firstRunDue(subscribed: boolean, kept: string | null) {
+  return !subscribed && kept === null;
+}

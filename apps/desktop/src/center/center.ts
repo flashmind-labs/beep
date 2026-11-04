@@ -13,6 +13,7 @@ import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
 import { agentFor, shortName, newChatProject } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
+import { firstRun } from "./firstrun.ts";
 import { windowTakes } from "./windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
@@ -197,4 +198,4 @@ listen<string>("link-state", e => {
 });
 
 // A reload starts with no chat open, as the window just opened does.
-Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(start).then(() => { if (state.subscribed) loadAgents(); });
+Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {})).then(start).then(() => { if (state.subscribed) loadAgents(); });
