@@ -32,6 +32,7 @@ mod instructions;
 mod logfile;
 mod login_path;
 mod machine;
+mod machine_tools;
 mod machines;
 mod markdown;
 mod mcp_command;
@@ -265,6 +266,8 @@ fn main() {
             machines::remove_machine,
             machines::updatable_machines,
             machines::update_machine,
+            machine_tools::tool_updates,
+            machine_tools::update_machine_tool,
             credentials::credential_providers,
             credentials::list_credentials,
             credentials::save_credential,

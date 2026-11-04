@@ -49,7 +49,19 @@ export const MC: {
   updatable: Set<string>;
   /// Update's progress by machine.
   updates: Map<string, NodeUpdate>;
-} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map() };
+  /// Tools behind their newest release (ToolUpdate).
+  tools: ToolUpdate[];
+  /// A tool's Update by "<machine> <tool>": installing, or why it failed.
+  toolUps: Map<string, { busy: boolean; error: string }>;
+} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map(), tools: [], toolUps: new Map() };
+
+/// A tool on a machine with a newer release (ToolUpdate).
+interface ToolUpdate {
+  machine_id: string;
+  tool: string;
+  version: string;
+  latest: string;
+}
 const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
 
 // ---------- Where Machines draws ----------
@@ -101,6 +113,31 @@ export async function renderMachines(id: string | null = null) {
     MC.error = "";
   } catch (e) {
     MC.error = String(e);
+  }
+  if (shown()) drawMachines();
+  // Looking the newest releases up can take a while; the page shows first.
+  try {
+    MC.tools = await invoke<ToolUpdate[]>("tool_updates");
+    if (shown()) drawMachines();
+  } catch (e) {
+    console.warn("tool updates:", e);
+  }
+}
+
+/// Installs the newest release of `tool` on machine `id`.
+async function updateTool(id: string, tool: string) {
+  const key = `${id} ${tool}`;
+  if (MC.toolUps.get(key)?.busy) return;
+  MC.toolUps.set(key, { busy: true, error: "" });
+  if (shown()) drawMachines();
+  try {
+    const to = await invoke<string>("update_machine_tool", { machineId: id, tool });
+    MC.toolUps.delete(key);
+    MC.tools = MC.tools.filter(u => !(u.machine_id === id && u.tool === tool));
+    const found = MC.list?.find(m => m.id === id)?.env?.tools.find(t => t.name === tool);
+    if (found) found.version = to;
+  } catch (e) {
+    MC.toolUps.set(key, { busy: false, error: errorText(e) });
   }
   if (shown()) drawMachines();
 }
@@ -273,10 +310,21 @@ function machinePage(m: Machine) {
   }
   if (env?.tools.length) {
     const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
-    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(bareVersion(t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
+    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td>${toolVersion(m, t)}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
     html += `<div class="dset-h">Tools</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
+    html += [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([, up]) => errLine(up.error)).join("");
   }
   return html + `<div class="dmach dset-rm">${button ? `<span class="nm">${button}</span>` : ""}${ask}</div>`;
+}
+
+/// A tool's version on a machine's page, with "to <latest>" and Update
+/// when a newer release is out.
+function toolVersion(m: Machine, t: MachineEnv["tools"][number]) {
+  const version = `<span class="dmono">${esc(bareVersion(t.name, t.version) ?? "")}</span>`;
+  const up = MC.tools.find(u => u.machine_id === m.id && u.tool === t.name);
+  if (!up || !m.online) return version;
+  const busy = MC.toolUps.get(`${m.id} ${t.name}`)?.busy;
+  return `${version} <span class="dmuted">to</span> <span class="dmono">${esc(up.latest)}</span> <button class="dbtn" data-toolup="${esc(t.name)}" data-id="${esc(m.id)}"${busy ? " disabled" : ""}>${busy ? "Updating…" : "Update"}</button>`;
 }
 
 /// Add a machine, which opens the same sheet as the window's Home; the
@@ -326,6 +374,9 @@ function drawMachines() {
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
   for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) {
     b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
+  }
+  for (const b of el.querySelectorAll<HTMLElement>("[data-toolup]")) {
+    b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
   }
   el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });
 }

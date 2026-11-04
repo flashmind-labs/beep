@@ -52,6 +52,7 @@ mod stats;
 mod sync;
 mod tasks;
 mod terminals;
+mod tool_update;
 pub mod transfer;
 mod update;
 mod usage;
@@ -122,6 +123,8 @@ pub struct Nodes {
     left: Mutex<HashMap<EndpointId, Instant>>,
     /// Woken when a node connects or drops, for calls waiting on one.
     changed: Notify,
+    /// The newest `gh` and `teacli` releases, for `ListToolUpdates`.
+    pub releases: tool_update::ToolReleases,
 }
 
 /// How long after a node drops a call still waits for it to come back:
