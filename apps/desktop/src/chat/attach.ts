@@ -1,4 +1,4 @@
-import { AGENT_IMAGE_TYPES, AGENT_MAX_IMAGE } from "../agents/agents.ts";
+import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
 import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
@@ -160,6 +160,9 @@ document.addEventListener("paste", e => {
   agent ? agentDrop(files) : attach(files);
 });
 
+/// The largest image a coding agent gets as it is; a larger one is converted.
+const AGENT_IMAGE_KEPT = 2 * 1024 * 1024;
+
 /// `file` as a shrunk JPEG, for an agent that cannot take it as it is.
 async function agentJpeg(file: File) {
   const data = (await shrinkPic(file)).split(",")[1];
@@ -174,7 +177,7 @@ async function agentJpeg(file: File) {
 async function agentDrop(files: Iterable<File>) {
   const pics: File[] = [], rest: File[] = [];
   for (const f of files) {
-    if (AGENT_IMAGE_TYPES.includes(f.type) && f.size <= AGENT_MAX_IMAGE) pics.push(f);
+    if (AGENT_IMAGE_TYPES.includes(f.type) && f.size <= AGENT_IMAGE_KEPT) pics.push(f);
     else if (f.type.startsWith("image/")) await agentJpeg(f).then(jpeg => pics.push(jpeg), () => rest.push(f));
     else rest.push(f);
   }
