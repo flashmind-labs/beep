@@ -1,31 +1,40 @@
 //! What carries over a node restart. `beep-node update` asks the running
 //! node, over a socket in its folder, to hold new prompts and say once no
-//! agent turn runs, and restarts it then. The stopping node writes down
-//! the agent sessions and terminals it had open, and the next start opens
-//! them again: sessions resumed by the agent's own id, terminals as new
-//! shells in their folders.
+//! agent turn runs, and restarts it then. The node keeps a note of the
+//! agent sessions and terminals it has open, rewritten as they open and
+//! close and once more as it stops, and the next start opens them again,
+//! after a crash too: sessions resumed by the agent's own id, terminals as
+//! new shells in their folders.
 
 use crate::{
     agents::{Agents, OpenSession},
     local_socket::{Listener, Stream},
-    terminal::OpenTerminal,
+    terminal::{self, OpenTerminal},
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs, io::ErrorKind, path::Path, sync::Arc};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split},
+    sync::Notify,
+};
 
 /// The socket an update reaches the node on, in the node's folder.
 const SOCKET: &str = "control.sock";
-/// What the node had open when it stopped, in its folder.
+/// What the node has open, in its folder.
 const FILE: &str = "reopen.json";
+/// Written first, then renamed over `FILE`.
+const TEMP: &str = "reopen.json.tmp";
+
+/// Woken when a session or terminal opens or closes.
+static CHANGED: Notify = Notify::const_new();
 
 /// The update's request: hold prompts and say when the sessions are idle.
 const DRAIN: &str = "drain";
 /// The node's answer: no turn runs.
 const IDLE: &str = "idle";
 
-/// What the node had open when it stopped.
+/// What the node has open, or had when it stopped.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Reopen {
     pub(crate) sessions: Vec<OpenSession>,
@@ -33,9 +42,10 @@ pub(crate) struct Reopen {
 }
 
 impl Reopen {
-    /// What the node in `dir` left when it stopped, once: the note goes.
+    /// What the node in `dir` had open. The note stays until the next
+    /// write, so a start that dies before it took over still finds it.
     /// Nothing when there is none or it cannot be read.
-    pub(crate) fn take(dir: &Path) -> Self {
+    pub(crate) fn read(dir: &Path) -> Self {
         let path = dir.join(FILE);
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
@@ -45,20 +55,42 @@ impl Reopen {
                 return Self::default();
             }
         };
-        if let Err(e) = fs::remove_file(&path) {
-            log::warn!("could not remove {}: {e}", path.display());
-        }
         serde_json::from_str(&text).unwrap_or_else(|e| {
             log::warn!("ignored {}: {e}", path.display());
             Self::default()
         })
     }
 
-    /// Writes this down in `dir` for the next start.
+    /// What `agents` and the terminals have open now.
+    pub(crate) fn now(agents: &Agents) -> Self {
+        Self {
+            sessions: agents.open_sessions(),
+            terminals: terminal::running(),
+        }
+    }
+
+    /// Writes this down in `dir` for the next start, whole or not at all.
     pub(crate) fn save(&self, dir: &Path) -> Result<()> {
-        let path = dir.join(FILE);
+        let (temp, path) = (dir.join(TEMP), dir.join(FILE));
         let text = serde_json::to_string(self).context("writing what was open")?;
-        fs::write(&path, text).with_context(|| format!("writing {}", path.display()))
+        fs::write(&temp, text).with_context(|| format!("writing {}", temp.display()))?;
+        fs::rename(&temp, &path).with_context(|| format!("writing {}", path.display()))
+    }
+}
+
+/// Says a session or terminal opened or closed.
+pub(crate) fn changed() {
+    CHANGED.notify_one();
+}
+
+/// Keeps the note in `dir` to what is open: written now, then after each
+/// change. Changes that come while it writes make one more write.
+pub(crate) async fn keep(dir: &Path, agents: &Agents) {
+    loop {
+        if let Err(e) = Reopen::now(agents).save(dir) {
+            log::warn!("what is open would not open again after a crash: {e:#}");
+        }
+        CHANGED.notified().await;
     }
 }
 
@@ -158,16 +190,6 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::time::timeout;
-
-    #[test]
-    fn what_was_open_is_read_once() {
-        let dir = tempfile::tempdir().expect("a temporary folder");
-        Reopen::default().save(dir.path()).expect("written");
-        assert!(dir.path().join(FILE).exists());
-        let read = Reopen::take(dir.path());
-        assert!(read.sessions.is_empty() && read.terminals.is_empty());
-        assert!(!dir.path().join(FILE).exists(), "the note goes once read");
-    }
 
     #[tokio::test]
     async fn an_update_holds_prompts_while_it_stays_connected() {

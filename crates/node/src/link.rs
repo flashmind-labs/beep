@@ -166,13 +166,17 @@ pub async fn serve(
             log::warn!("updates cannot wait for idle sessions: {e:#}");
         }
     }));
-    // What was open before a restart opens again: terminals now, sessions
-    // once the server sent the agent settings they start with.
-    let reopen = Reopen::take(&state.dir);
+    // What was open before a restart or crash opens again: terminals now,
+    // sessions once the server sent the agent settings they start with.
+    // Only then is the note kept to what is open, so a start that dies
+    // before leaves it as it was.
+    let reopen = Reopen::read(&state.dir);
     terminal::reopen(reopen.terminals);
     let agents = offers.agents.clone();
-    let _reopen = AbortOnDropHandle::new(tokio::spawn(async move {
+    let note_dir = state.dir.clone();
+    let mut keeping = AbortOnDropHandle::new(tokio::spawn(async move {
         agents.reopen(reopen.sessions).await;
+        restart::keep(&note_dir, &agents).await;
     }));
     let stay = async {
         let mut wait = FIRST_RETRY;
@@ -204,8 +208,16 @@ pub async fn serve(
     let terminals = terminal::running();
     log::info!("stopping the agent sessions");
     offers.agents.shutdown().await;
+    // The last word is the shutdown's: the keeper stops first, and its
+    // write in flight lands before this one.
+    keeping.abort();
+    if let Err(e) = (&mut keeping).await
+        && !e.is_cancelled()
+    {
+        log::warn!("the note of what is open was not kept: {e}");
+    }
     let reopen = Reopen {
-        sessions: offers.agents.stopped_sessions(),
+        sessions: offers.agents.open_sessions(),
         terminals,
     };
     if let Err(e) = reopen.save(&state.dir) {

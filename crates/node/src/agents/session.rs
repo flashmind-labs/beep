@@ -578,6 +578,7 @@ impl Actor {
                 live.info.state.error = Some(reason);
             }
         });
+        crate::restart::changed();
     }
 
     async fn serve(
@@ -875,6 +876,7 @@ impl Actor {
             live.agent_session = Some(session.to_string());
             live.info.id = session.to_string();
         });
+        crate::restart::changed();
         let Some(model) = self.model.take() else {
             self.think(cx);
             return None;

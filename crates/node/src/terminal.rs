@@ -542,6 +542,8 @@ fn open(
         let live = live.clone();
         move || wait_exit(&live, child, &drained_rx)
     })?;
+    // Seen once the caller, which holds the terminals, kept it.
+    crate::restart::changed();
     Ok(Term {
         live,
         killer,
@@ -621,6 +623,7 @@ fn wait_exit(
     };
     lock(&live.screen).state = state;
     live.changed.send_modify(|n| *n += 1);
+    crate::restart::changed();
 }
 
 /// Streams terminal `live` from byte `from` and types what the server
