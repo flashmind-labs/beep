@@ -5,21 +5,14 @@ use super::Online;
 use crate::{
     account::user::User,
     app::{Reach, UserNotice},
-    nodes::deliver::agent_name,
     protocol::{
-        AgentNoticeKey, Notice,
-        node::agent::{
-            Alert, AlertKind, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest, StopReason,
-        },
+        Notice,
+        node::agent::{Alert, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
     },
     store::SessionOn,
 };
 use anyhow::{Result, bail};
 use iroh::EndpointId;
-use std::path::Path;
-
-/// The longest body, in characters; the session has the rest.
-const MAX_BODY: usize = 240;
 
 impl Online {
     /// Tells the user what the node's sessions did until the stream or the connection ends.
@@ -87,27 +80,16 @@ struct Host {
 /// `alert` as a notice for `user`'s devices in `to`.
 fn user_notice(user: &str, host: &Host, alert: &Alert, to: Reach) -> UserNotice {
     let notice = Notice {
-        title: title(host, alert),
-        body: body(alert),
+        title: alert.notice_title(&host.name),
+        body: alert.notice_body(),
         session_id: String::new(),
         app: None,
         approval: None,
         changed: false,
         group: false,
     };
-    let question = match &alert.kind {
-        AlertKind::Asks { question } => Some(question.id),
-        _ => None,
-    };
-    let key = AgentNoticeKey {
-        machine_id: host.id.clone(),
-        agent: alert.agent.clone(),
-        session: alert.session.clone(),
-        question,
-        machine_name: host.name.clone(),
-    };
     let desktop = Notice {
-        session_id: key.to_string(),
+        session_id: alert.key(&host.id, &host.name).to_string(),
         ..notice.clone()
     };
     UserNotice {
@@ -118,76 +100,13 @@ fn user_notice(user: &str, host: &Host, alert: &Alert, to: Reach) -> UserNotice 
     }
 }
 
-/// "Claude Code on build-box asks".
-fn title(host: &Host, alert: &Alert) -> String {
-    let what = match &alert.kind {
-        AlertKind::Asks { .. } => "asks",
-        AlertKind::TurnEnded { stop_reason, .. } => match stop_reason {
-            StopReason::EndTurn => "finished",
-            StopReason::Failed => "failed",
-            _ => "stopped",
-        },
-        AlertKind::Failed { .. } => "failed",
-        // A kind from a newer node still says something happened.
-        _ => "needs a look",
-    };
-    format!("{} on {} {what}", agent_name(&alert.agent), host.name)
-}
-
-/// What the session is about, then what happened, on one short line.
-fn body(alert: &Alert) -> String {
-    let said = match &alert.kind {
-        AlertKind::Asks { question } => match &question.detail {
-            Some(detail) => format!("{} ({detail})", question.text),
-            None => question.text.clone(),
-        },
-        AlertKind::TurnEnded {
-            stop_reason,
-            last_message,
-            error,
-        } => {
-            let fallback = || stop_reason.to_string();
-            match stop_reason {
-                StopReason::EndTurn => Some(last_message.as_str())
-                    .filter(|message| !message.trim().is_empty())
-                    .map_or_else(fallback, str::to_owned),
-                StopReason::Failed => error.clone().unwrap_or_else(fallback),
-                _ => fallback(),
-            }
-        }
-        AlertKind::Failed { reason } => reason.clone(),
-        _ => String::new(),
-    };
-    clip(&format!("{}: {said}", about(alert)))
-}
-
-/// The session's title, or else its folder's name, or else its id.
-fn about(alert: &Alert) -> String {
-    if let Some(title) = alert.title.as_deref().filter(|t| !t.trim().is_empty()) {
-        return title.trim().to_owned();
-    }
-    Path::new(&alert.cwd)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or(&alert.session)
-        .to_owned()
-}
-
-/// `text` on one line without markdown marks, cut to `MAX_BODY` characters.
-fn clip(text: &str) -> String {
-    let plain = text.replace("**", "").replace('`', "");
-    let line = plain.split_whitespace().collect::<Vec<_>>().join(" ");
-    match line.char_indices().nth(MAX_BODY) {
-        Some((end, _)) => format!("{}...", line[..end].trim_end()),
-        None => line,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::node::agent::Question;
+    use crate::protocol::{
+        AgentNoticeKey,
+        node::agent::{AlertKind, Question},
+    };
 
     fn host() -> Host {
         Host {

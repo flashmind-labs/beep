@@ -29,6 +29,7 @@ pub use steer::{
 
 use crate::MeshError;
 use anyhow::anyhow;
+pub use beep_proto::agent_name;
 
 /// What the node said in place of an answer, as the error a caller shows.
 pub(crate) fn said(message: impl Into<String>) -> MeshError {
@@ -38,17 +39,4 @@ pub(crate) fn said(message: impl Into<String>) -> MeshError {
 /// The node answered with something this request never gets.
 pub(crate) fn unexpected(reply: &impl std::fmt::Debug) -> MeshError {
     MeshError::Unexpected(format!("{reply:?}"))
-}
-
-/// What the apps call `agent`.
-pub fn agent_name(agent: &str) -> &str {
-    match agent {
-        "claude" => "Claude Code",
-        "codex" => "Codex",
-        "gemini" => "Gemini CLI",
-        "pi" => "pi",
-        "flsh" => "flsh",
-        "opencode" => "OpenCode",
-        other => other,
-    }
 }

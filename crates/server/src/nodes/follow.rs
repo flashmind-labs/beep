@@ -1,7 +1,8 @@
 //! Following agent sessions started outside Beep, posting what they do to the chat that follows.
 //! Follows live in memory: a server restart forgets them.
 
-use super::{Online, Post, deliver::agent_name};
+use super::{Online, Post};
+use crate::protocol::agent_name;
 use crate::{
     account::user::User,
     app::App,

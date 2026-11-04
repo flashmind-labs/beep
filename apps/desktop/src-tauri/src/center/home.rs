@@ -9,16 +9,16 @@ use super::{
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
-    fleet::Fleet,
+    fleet::{Fleet, alerts},
     machines::list::{self as machine_list, Outside},
     projects::{ProjectRow, known},
 };
 use beep_proto::{
-    AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate, ChatApproval, Cron,
-    DismissUpdates, ImportedProject, ListCrons, ListImportedProjects, ListPendingApprovals,
-    ListResearches, ListUpdates, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv,
-    MachineGpu, MachineSession, MachineStats, OpenUpdateChat, PendingApproval, ResearchStatus,
-    ResearchSummary, Session,
+    AgentNoticeKey, AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate,
+    ChatApproval, Cron, DismissUpdates, ImportedProject, ListCrons, ListImportedProjects,
+    ListPendingApprovals, ListResearches, ListUpdates, Machine, MachineApp, MachineDetails,
+    MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats, OpenUpdateChat,
+    PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
 use serde::Serialize;
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
@@ -30,12 +30,24 @@ use uuid::Uuid;
 #[tauri::command]
 pub async fn center_answer_agent(
     beep: Service<'_>,
+    fleet: State<'_, Arc<Fleet>>,
     machine_id: String,
     agent: String,
     session: String,
     question: u32,
     reply: String,
 ) -> Result<()> {
+    // A machine of the mesh is asked directly; any other through the server.
+    if alerts::reaches(&fleet, &machine_id) {
+        let key = AgentNoticeKey {
+            machine_id,
+            agent,
+            session,
+            question: Some(question),
+            machine_name: String::new(),
+        };
+        return alerts::answer(&fleet, &key, &reply).await;
+    }
     beep.call(AnswerAgentQuestion {
         machine_id,
         agent,

@@ -7,6 +7,7 @@
 //! device, off the main thread. Nothing the first paint needs waits on it.
 
 pub(crate) mod agents;
+pub(crate) mod alerts;
 mod carry;
 pub(crate) mod files;
 mod mesh;
