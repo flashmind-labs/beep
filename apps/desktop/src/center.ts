@@ -1019,7 +1019,7 @@ function drawSide() {
   head.setAttribute("data-tauri-drag-region", "");
   const top = h("div", "cc-grp",
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
-    sideItem(IC.home, "App", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
+    sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
   if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   // Terminals on every machine, once the server lists them.
@@ -1774,7 +1774,7 @@ function draw() {
 
 registerView("home", {
   el: $("#home-box"),
-  title: () => ({ title: "App", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
+  title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
   mount() { refresh(); refreshGit(); },
 });
 
