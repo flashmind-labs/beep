@@ -1,8 +1,6 @@
 //! The models a coding agent can run on here, for the start form's Model
-//! field. flsh lists them with `flsh models` and names its default in its
-//! `config.toml`; the others say in their answer to `session/new`, so a
-//! session is made once to ask and then closed. Each agent's list is kept a
-//! few minutes, and one agent is asked at a time.
+//! field (`find`, `ModelCache`). flsh lists them with `flsh models`; the
+//! others are read from a `session/new` made only to ask.
 
 use super::{
     AgentKind,
@@ -11,9 +9,10 @@ use super::{
 };
 use crate::{
     AsyncMutex,
-    found::Agent,
-    process::{GroupLeader, STOP_GRACE, command, own_group},
-    provision::spawn_env::{self, Scope},
+    agents::found::Agent,
+    lock,
+    machine::provision::spawn_env::{self, Scope},
+    run::process::{GroupLeader, STOP_GRACE, command, own_group},
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use anyhow::{Context, Result};
@@ -28,7 +27,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     str::FromStr,
-    sync::{Mutex, PoisonError},
+    sync::Mutex,
     time::Duration,
 };
 use tokio::{io::AsyncReadExt, sync::mpsc, task::spawn_blocking, time::Instant};
@@ -81,7 +80,7 @@ impl ModelCache {
 
     /// `agent`'s list as of `now`, when it was found less than `KEEP` ago.
     fn recent(&self, agent: &str, now: Instant) -> Option<ModelList> {
-        let found = self.found.lock().unwrap_or_else(PoisonError::into_inner);
+        let found = lock(&self.found);
         found
             .get(agent)
             .filter(|found| now.saturating_duration_since(found.at) < KEEP)
@@ -89,7 +88,7 @@ impl ModelCache {
     }
 
     fn keep(&self, agent: &str, list: ModelList, at: Instant) {
-        let mut found = self.found.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut found = lock(&self.found);
         found.insert(agent.to_owned(), Found { list, at });
     }
 }
@@ -189,13 +188,7 @@ async fn ask(child: &mut tokio::process::Child, cwd: &Path) -> Result<Offered> {
 /// flsh's models: `flsh models` lists every configured provider's, and its
 /// `config.toml` names the default. With no list, any name can be given.
 async fn flsh(kind: &AgentKind) -> ModelList {
-    // flsh runs with the kind's variables on top of the node's own.
-    let env = |name: &str| match kind.env.get(name) {
-        Some(value) => Some(OsString::from(value)),
-        None => std::env::var_os(name),
-    };
-    let config = flsh_config_dir(&env, dirs::home_dir().as_deref());
-    let current = match config {
+    let current = match flsh_dir_of(kind) {
         Some(dir) => spawn_blocking(move || flsh_default_model(&dir.join("config.toml")))
             .await
             .unwrap_or_else(|e| {
@@ -268,13 +261,20 @@ fn flsh_listing(output: &str) -> Vec<ModelOption> {
         .collect()
 }
 
+/// Where `kind` keeps flsh's `config.toml`: flsh runs with the kind's
+/// variables on top of the node's own.
+pub(super) fn flsh_dir_of(kind: &AgentKind) -> Option<PathBuf> {
+    let env = |name: &str| match kind.env.get(name) {
+        Some(value) => Some(OsString::from(value)),
+        None => std::env::var_os(name),
+    };
+    flsh_config_dir(&env, dirs::home_dir().as_deref())
+}
+
 /// Where flsh keeps `config.toml`, as flsh finds it: `$FLASHMIND_HOME`,
 /// else `~/.flashmind` when it exists, else the platform's config folder
 /// (`$XDG_CONFIG_HOME` or `~/.config` outside Windows) plus `flashmind`.
-pub(super) fn flsh_config_dir(
-    env: &dyn Fn(&str) -> Option<OsString>,
-    home: Option<&Path>,
-) -> Option<PathBuf> {
+fn flsh_config_dir(env: &dyn Fn(&str) -> Option<OsString>, home: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = env("FLASHMIND_HOME").filter(|dir| !dir.is_empty()) {
         let dir = PathBuf::from(dir);
         return dir.is_absolute().then_some(dir);

@@ -1,11 +1,6 @@
-//! A coding agent session's working folder, for the apps' Files tab: its
-//! folders listed, one or a tree of them, with what git ignores and sees
-//! changed, any file in it read a part at a time, and files dropped on the
-//! session written into it (`SessionsRequest::Folder`, `ReadFile` and
-//! `WriteFile`). Nothing outside
-//! the folder is read or written: every path is checked once its symlinks
-//! resolve. The Mac app reads a synced copy of a project the same way
-//! (`local_tree`, `local_read`).
+//! A session's working folder for the apps' Files tab (`WorkRoot`): `list`,
+//! `tree`, `read` a part at a time and `write` dropped files. The Mac app
+//! reads a synced project's copy through `local_tree` and `local_read`.
 
 use super::media_file::Chunk;
 use anyhow::{Context, Result, bail};
@@ -30,7 +25,8 @@ const PART: &str = ".beep-part";
 /// `.gitignore` so they stay out of commits.
 const BEEP_FOLDER: &str = ".beep";
 
-/// A session's working folder, its symlinks resolved.
+/// A session's working folder, its symlinks resolved. Nothing outside it
+/// is read or written: every path is checked once its symlinks resolve.
 pub(super) struct WorkRoot {
     root: PathBuf,
 }
@@ -311,7 +307,7 @@ fn git_status(dir: &Path) -> Option<GitStatus> {
 
 /// What `git <args>` printed in `dir`, when it succeeded. Takes no locks,
 /// so a running agent's own git commands are never in its way.
-fn git(dir: &Path, args: &[&str]) -> Option<String> {
+pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
         .args(args)
         .current_dir(dir)
@@ -368,7 +364,7 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
         return Ok(None);
     };
     let mut file =
-        crate::fsat::open_read(&full).with_context(|| format!("could not open {path}"))?;
+        crate::files::fsat::open_read(&full).with_context(|| format!("could not open {path}"))?;
     let meta = file
         .metadata()
         .with_context(|| format!("could not read {path}"))?;
@@ -533,6 +529,7 @@ fn keep_out_of_git(beep: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::checkout::tests::{has_git, run as run_git};
     use tempfile::TempDir;
 
     fn root_in(dir: &TempDir) -> WorkRoot {
@@ -542,26 +539,6 @@ mod tests {
 
     fn names_of(folder: &WorkFolder) -> Vec<&str> {
         folder.entries.iter().map(|e| e.name.as_str()).collect()
-    }
-
-    fn has_git() -> bool {
-        Command::new("git").arg("--version").output().is_ok()
-    }
-
-    fn run_git(dir: &Path, args: &[&str]) {
-        let ok = Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@example.com")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@example.com")
-            .status()
-            .expect("git runs")
-            .success();
-        assert!(ok, "git {args:?}");
     }
 
     #[test]

@@ -6,8 +6,7 @@
 use crate::{beep::Beep, error::Result, projects::unknown_op};
 use beep_node::{
     agents::{local_read, local_tree},
-    sync::keeps,
-    syncthing::Syncthing,
+    files::{sync::keeps, syncthing::Syncthing},
 };
 use beep_proto::{
     AgentFileChunk, GetProjectSyncDetail, ImportedProject, ListImportedProjects, ListProjectSync,
