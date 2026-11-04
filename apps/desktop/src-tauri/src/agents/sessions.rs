@@ -280,7 +280,7 @@ pub async fn agent_start(
 async fn goes_direct(fleet: &Fleet, machine: Option<&str>) -> bool {
     match machine {
         Some(machine) => fleet.member(machine).is_some(),
-        None => !direct::hosts(fleet).await.is_empty(),
+        None => !direct::hosts(fleet).is_empty(),
     }
 }
 
