@@ -14,7 +14,7 @@ import { startView, windowTitle } from "../project/projectwindow.ts";
 import { agentFor, shortName, newChatProject } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { firstRun } from "./firstrun.ts";
-import { viewHidden } from "../settings/subscription.ts";
+import { viewHidden, keyHidden } from "../settings/subscription.ts";
 import { windowTakes } from "./windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
@@ -60,6 +60,8 @@ document.addEventListener("keydown", e => {
   // ⌘W closes the focused pane's tab, else this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
   if (key === "w" && !e.shiftKey) { e.preventDefault(); if (closeFocusedTab()) return; invoke("center_close_window").catch(() => window.close()); return; }
+  // Without a subscription the assistant's pages are not there. ⌘K still searches.
+  if (key !== "k" && keyHidden(key, state.subscribed)) { e.preventDefault(); return; }
   // ⌘M on the pane's start form and ⌘R in its chats list are the pane's.
   if (windowTakes(key, shown === "pane" ? paneOn().view : undefined)) {
     e.preventDefault();
