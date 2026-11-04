@@ -3,7 +3,7 @@
 //! desktop control and the coding agents installed here, with the sessions
 //! they ran. On for a fresh install.
 
-use crate::{beep::Beep, beep::state::LinkState, machines::desktop, platform::logfile};
+use crate::{beep::Beep, machines::desktop, platform::logfile};
 use beep_node::{
     agents::mcp,
     link::{self, Offers, reconnect::Backoff},
@@ -12,6 +12,7 @@ use beep_node::{
 use beep_proto::node::desktop::{Permission, Permissions};
 use serde::Serialize;
 use std::{
+    future::pending,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
@@ -112,6 +113,24 @@ impl Machine {
         }
     }
 
+    /// Installs gh, teacli and the agent skills, and serves the agents' Beep
+    /// MCP server, for the run of the app: agents on this Mac get the
+    /// machine tools with or without a server. Sessions run this app's
+    /// executable as the server's command (`mcp_command`), which pipes to
+    /// the socket the node bound, named in the session's environment.
+    pub fn start(&self) {
+        let home = self.home.clone();
+        async_runtime::spawn(async move {
+            let _provision = home.provision.start();
+            if let Err(e) = std::fs::create_dir_all(&home.dir) {
+                log::warn!("not serving the Beep MCP server: {e}");
+            }
+            let _mcp = mcp::start(&home.dir, &home.offers);
+            // Both stop when this task does, with the app.
+            pending::<()>().await;
+        });
+    }
+
     /// What this node serves.
     pub fn offers(&self) -> Offers {
         self.home.offers.clone()
@@ -143,8 +162,7 @@ impl Machine {
         // Other devices of the mesh get a shell, tasks and the screen only while it is on.
         self.home.offers.lend_to_peers(beep.use_mac());
         let mut task = self.task.lock().unwrap_or_else(PoisonError::into_inner);
-        let wanted =
-            beep.use_mac() && beep.link_state() == LinkState::Linked && beep.server().is_some();
+        let wanted = beep.use_mac() && beep.linked();
         let running = task
             .as_ref()
             .is_some_and(|task| !task.inner().is_finished());
@@ -193,29 +211,15 @@ fn lock(link: &Mutex<Link>) -> MutexGuard<'_, Link> {
 /// the user is at this Mac. Until aborted.
 async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHome>, name: String) {
     let set = |now: Status| *lock(&shared) = Link::new(now);
-    // Installs gh, teacli and the agent skills, and takes the credentials
-    // the server sends; the work stops with this task.
-    let _provision = home.provision.start();
     let offers = &home.offers;
-    // The agents' Beep MCP server: sessions run this app's executable as
-    // its command (`mcp_command`), which pipes to the socket the node
-    // bound, named in the session's environment. It stops with this task.
-    if let Err(e) = std::fs::create_dir_all(&home.dir) {
-        log::warn!("not serving the Beep MCP server: {e}");
-    }
-    let _mcp = mcp::start(&home.dir, offers);
     let mut backoff = Backoff::eager();
     loop {
         // A Mac removed from the account has nothing to sign in with, and
         // one with no server has nowhere to.
-        let Some(server) = beep.server() else {
+        let Some(server) = beep.server().filter(|_| beep.linked()) else {
             set(Status::Unlinked);
             return;
         };
-        if beep.link_state() != LinkState::Linked {
-            set(Status::Unlinked);
-            return;
-        }
         // After a failure, it says so until a try works.
         if lock(&shared).status != Status::Failed {
             set(Status::Connecting);
