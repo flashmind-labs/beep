@@ -140,10 +140,12 @@ mod tests {
         let dir = temp.path().join("node");
         let server = SecretKey::generate().public().to_string();
         State::create(&dir, &server, "box").expect("the node's settings");
-        // Saved checkouts, so starting walks nothing.
-        fs::write(dir.join("checkouts.json"), "[]").expect("checkouts saved");
+        // Walks this empty folder, not the home of whoever runs the test.
+        let empty = temp.path().join("empty");
+        fs::create_dir(&empty).expect("a folder");
         let agents = Arc::new(Agents::new(Vec::new()));
-        let searches = Searches::start(dir.clone(), agents, &Search::default());
+        let start = Search::parse(&empty.display().to_string());
+        let searches = Searches::start(dir.clone(), agents, &start);
         let home = Reply::Folder {
             folder: "~/".into(),
         };
