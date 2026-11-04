@@ -44,6 +44,22 @@ pub(super) fn uninstall() -> Result<()> {
     Ok(())
 }
 
+/// Starts the service from its existing plist, loading it first when it is
+/// not loaded.
+pub(super) fn start() -> Result<()> {
+    let domain = domain()?;
+    let service = format!("{domain}/{LABEL}");
+    run("launchctl", &["enable", &service])?;
+    // Fails, harmlessly, when the plist is already loaded.
+    let _ = Command::new("launchctl")
+        .args(["bootstrap", &domain, &plist_path()?.display().to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    run("launchctl", &["kickstart", &service])
+}
+
 /// Restarts the loaded service; `reload` loads its rewritten plist anew.
 pub(super) fn restart(reload: bool) -> Result<()> {
     let domain = domain()?;
