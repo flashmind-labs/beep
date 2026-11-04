@@ -1,15 +1,12 @@
 //! Each user's open items across their git hosts, kept for a few minutes.
 
-use super::{
-    forgejo, github,
-    host::{Caller, Found, HostError},
-};
 use crate::{
     AsyncMutex,
     account::credentials::{Slot, host_client},
     protocol::{GitHost, GitHostKind, GitItem, GitItems, LabeledGitItems},
     store::GitLogin,
 };
+use beep_projects::git_items::{Caller, HostError, forgejo, github, host::Found};
 use futures::future::join_all;
 use reqwest::Client;
 use std::{
@@ -124,7 +121,8 @@ async fn read(client: &Client, calls: &Arc<Semaphore>, logins: &[GitLogin]) -> L
             token: &login.secret,
         };
         let result = match &login.slot {
-            Slot::Forgejo(url) => forgejo::items(&caller, url).await,
+            Slot::Forgejo(url) if !url.is_public().await => Err(HostError::Private(host.clone())),
+            Slot::Forgejo(url) => forgejo::items(&caller, url.as_str()).await,
             _ => github::items(&caller).await,
         };
         Some(Answer {

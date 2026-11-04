@@ -1,10 +1,7 @@
 //! Open pull requests and issues on a Forgejo or Gitea server.
 
 use super::host::{Caller, Found, HostError, Label, label_names};
-use crate::{
-    account::credentials::ForgejoUrl,
-    protocol::{GitItem, GitItemKind, GitReview},
-};
+use beep_proto::{GitItem, GitItemKind, GitReview};
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::Deserialize;
@@ -71,11 +68,8 @@ struct Repository {
 }
 
 /// The user's open items on the server at `url` with `caller`'s token.
-pub async fn items(caller: &Caller<'_>, url: &ForgejoUrl) -> Result<Vec<Found>, HostError> {
-    if !url.is_public().await {
-        return Err(HostError::Private(caller.host.to_owned()));
-    }
-    let search = format!("{}/api/v1/repos/issues/search", url.as_str());
+pub async fn items(caller: &Caller<'_>, base: &str) -> Result<Vec<Found>, HostError> {
+    let search = format!("{base}/api/v1/repos/issues/search");
     let asked = join_all(Query::ALL.map(|query| {
         let search = &search;
         async move {

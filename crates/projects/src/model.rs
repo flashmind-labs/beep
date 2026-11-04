@@ -287,6 +287,29 @@ pub struct IssueRef {
     pub url: String,
 }
 
+/// The longest branch name taken.
+const MAX_BRANCH: usize = 250;
+
+/// A branch name git accepts: one line, not an option, no `..` or bad ref characters.
+pub fn branch_name(text: &str) -> Option<&str> {
+    let text = text.trim();
+    let bad = text.is_empty()
+        || text.len() > MAX_BRANCH
+        || text.starts_with('-')
+        || text.starts_with('/')
+        || text.ends_with('/')
+        || text.ends_with(".lock")
+        || text.contains("..")
+        || text.contains("//")
+        || text.contains("@{")
+        || text.contains(|c: char| {
+            c.is_control()
+                || c.is_whitespace()
+                || matches!(c, ':' | '~' | '^' | '?' | '*' | '[' | '\\')
+        });
+    (!bad).then_some(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,6 +340,16 @@ mod tests {
         assert_eq!(project.join("../x").as_str(), "/srv/project/x");
         for bad in ["/srv/../etc", "srv/project", "/srv/project/", "", "/srv//x"] {
             assert!(MachinePath::parse(bad).is_err(), "{bad} should not parse");
+        }
+    }
+
+    #[test]
+    fn branch_names_git_refuses_are_refused() {
+        assert_eq!(branch_name(" beep/login "), Some("beep/login"));
+        for bad in [
+            "", "-x", "a b", "a..b", "a:b", "a~1", "/a", "a/", "x.lock", "a\nb",
+        ] {
+            assert_eq!(branch_name(bad), None, "{bad:?}");
         }
     }
 }

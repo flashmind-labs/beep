@@ -15,8 +15,6 @@ use anyhow::{Result, bail};
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
-/// The longest branch name taken.
-const MAX_BRANCH: usize = 250;
 /// How long adding a worktree may take, fetch included.
 const ADD_LIMIT: Duration = Duration::from_secs(120);
 /// How long listing branches or pull requests may take.
@@ -24,25 +22,7 @@ pub(crate) const READ_LIMIT: Duration = Duration::from_secs(30);
 /// The most open pull requests read.
 const MAX_PRS: u32 = 50;
 
-/// A branch name git accepts: one line, not an option, no `..` or bad ref characters.
-pub(crate) fn branch_name(text: &str) -> Option<&str> {
-    let text = text.trim();
-    let bad = text.is_empty()
-        || text.len() > MAX_BRANCH
-        || text.starts_with('-')
-        || text.starts_with('/')
-        || text.ends_with('/')
-        || text.ends_with(".lock")
-        || text.contains("..")
-        || text.contains("//")
-        || text.contains("@{")
-        || text.contains(|c: char| {
-            c.is_control()
-                || c.is_whitespace()
-                || matches!(c, ':' | '~' | '^' | '?' | '*' | '[' | '\\')
-        });
-    (!bad).then_some(text)
-}
+pub(crate) use beep_projects::model::branch_name;
 
 /// The branch's worktree path: `.worktrees/` plus the name with `/` as `-`.
 pub(crate) fn worktree_path(branch: &str) -> String {
@@ -293,16 +273,6 @@ mod tests {
         assert!(!got[3].in_checkout);
         assert_eq!(got[4].worktree.as_deref(), Some("/srv/project"));
         assert!(branches_with_work(&[], &[], "main").is_empty());
-    }
-
-    #[test]
-    fn branch_names_git_refuses_are_refused() {
-        assert_eq!(branch_name(" beep/login "), Some("beep/login"));
-        for bad in [
-            "", "-x", "a b", "a..b", "a:b", "a~1", "/a", "a/", "x.lock", "a\nb",
-        ] {
-            assert_eq!(branch_name(bad), None, "{bad:?}");
-        }
     }
 
     fn git(dir: &Path, args: &[&str]) {

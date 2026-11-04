@@ -1,6 +1,6 @@
 //! One git host API call with a user's token, and its failure in plain words.
 
-use crate::protocol::GitItem;
+use beep_proto::GitItem;
 use reqwest::{Client, Response, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -138,7 +138,7 @@ fn next_link(link: &str) -> Option<&str> {
 }
 
 /// Why a call that got no reply failed.
-pub(crate) fn send_error(host: &str, error: &reqwest::Error) -> HostError {
+pub fn send_error(host: &str, error: &reqwest::Error) -> HostError {
     if error.is_timeout() {
         return HostError::Timeout(host.to_owned());
     }
@@ -147,7 +147,7 @@ pub(crate) fn send_error(host: &str, error: &reqwest::Error) -> HostError {
 }
 
 /// Why a reply with the unsuccessful `status` failed.
-pub(crate) fn status_error(host: String, status: StatusCode, headers: &HeaderMap) -> HostError {
+pub fn status_error(host: String, status: StatusCode, headers: &HeaderMap) -> HostError {
     let out_of_calls = headers
         .get("x-ratelimit-remaining")
         .is_some_and(|left| left.as_bytes() == b"0");
