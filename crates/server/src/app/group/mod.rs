@@ -650,7 +650,7 @@ impl App {
             .await;
 
         let mut conversation = Conversation::new();
-        conversation.set_system(include_str!("../../prompts/group.md"));
+        conversation.set_system(include_str!("../../../prompts/group.md"));
         for row in earlier {
             conversation.add(match row.author_id {
                 Some(_) => ConversationEntry::user(said(&row.author_name, &row.content)),

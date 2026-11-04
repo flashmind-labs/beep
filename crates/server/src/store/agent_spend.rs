@@ -1,5 +1,6 @@
 //! What agent sessions spent per their logs, and daily spend this month including watched turns no log covers.
 
+use super::agent_usage::name;
 use super::{
     Store,
     agent_usage::{agent_of, endpoint_of},
@@ -72,13 +73,6 @@ pub(crate) struct DayModelRow {
 
 fn billing_of(row: &PgRow) -> Result<Billing> {
     Ok(Billing::from_name(&row.try_get::<String, _>("billing")?))
-}
-
-fn name(what: &str, value: &str, max: usize) -> Result<()> {
-    if value.is_empty() || value.len() > max {
-        bail!("the {what} is empty or too long");
-    }
-    Ok(())
 }
 
 impl Store {

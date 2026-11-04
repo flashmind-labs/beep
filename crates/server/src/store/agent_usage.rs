@@ -58,7 +58,7 @@ pub(crate) struct PlanRow {
 const TODAY: &str =
     "(now() AT TIME ZONE COALESCE((SELECT timezone FROM users WHERE id=$1), 'UTC'))::date";
 
-fn name(what: &str, value: &str, max: usize) -> Result<()> {
+pub(super) fn name(what: &str, value: &str, max: usize) -> Result<()> {
     if value.is_empty() || value.len() > max {
         bail!("the {what} is empty or too long");
     }

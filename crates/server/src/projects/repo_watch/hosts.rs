@@ -282,7 +282,6 @@ mod tests {
             visibility: Visibility::Public,
             default_branch: "main".to_owned(),
             pin: None,
-            created_at: chrono::Utc::now(),
         }
     }
 

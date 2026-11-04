@@ -1,6 +1,7 @@
 //! Reports from a node session to its chat: a finished turn or unwaited question starts a turn there.
 
 use super::{AgentLinks, LinkOrder, Watched, order};
+use crate::projects::lifecycle::quote;
 use crate::{
     app::App,
     nodes::{Ask, Follower, Post, deliver::agent_name},
@@ -17,9 +18,6 @@ use std::{
     },
 };
 use tokio::sync::{mpsc, watch};
-
-/// The longest last message a report quotes.
-const MAX_QUOTED: usize = 4000;
 
 /// What a session did that its chat hears about.
 #[derive(Debug, Clone)]
@@ -200,11 +198,4 @@ fn question_report(node: &str, agent: &str, session: &str, question: &Question) 
         options.join(", ")
     );
     text
-}
-
-fn quote(text: &str) -> String {
-    match text.char_indices().nth(MAX_QUOTED) {
-        Some((end, _)) => format!("{}...", &text[..end]),
-        None => text.to_owned(),
-    }
 }

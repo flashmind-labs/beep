@@ -1,5 +1,6 @@
 //! The user's open PRs and issues on a project's host: replies due, reading, replying, chats.
 
+use super::issues::head;
 use super::{
     commands::{HostCommand, Shell, gh_account, json, parse_login, quote, text},
     fleet::Fleet,
@@ -102,15 +103,6 @@ pub(crate) fn needs_reply(comments: &[ThreadComment], me: &str) -> bool {
         (Some(_), None) => true,
         (Some(other), Some(mine)) => other > mine,
     }
-}
-
-/// The start of `text`, at most `max` bytes, cut on a character boundary.
-fn head(text: &str, max: usize) -> &str {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
 }
 
 /// "sam: Can we cut it down?": the newest non-bot comment by someone else, on one line.
