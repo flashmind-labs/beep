@@ -6,7 +6,7 @@ import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts
 import { runningKey, runningLine, runningWhen, byRecent, type RunningAgent } from "../center/home-state.ts";
 import { pastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
-import { agentFor, tasksSection, workersSection, cardsSection } from "./agent.ts";
+import { agentFor, pageAgent, tasksSection, workersSection, cardsSection } from "./agent.ts";
 import { terminalTile } from "../terminals/terminals.ts";
 import { branchTile } from "../review/review.ts";
 import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
@@ -21,9 +21,11 @@ import { customAgentsSection, whereSection, agentsSection } from "./projects.ts"
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
 
-/// The split shows for an imported project whose agent's view has loaded.
+/// The split shows for an imported project whose agent's view has loaded, and with no
+/// subscription for every imported project: it has no agent to wait for.
 export function splitOn(p: Project) {
-  return p.imported && !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view;
+  if (!p.imported) return false;
+  return state.subscribed ? !!agentFor(state.agents, p.name) && !!state.pview.get(p.name)?.view : true;
 }
 
 /// Picks item `key` of the split's list, or the first one with null, and
@@ -103,8 +105,9 @@ function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter) {
 /// The project page: everything going on in one list at the left, the
 /// picked row's detail and actions at the right.
 export function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): Node[] {
-  const view = state.pview.get(p.name)!.view!;
-  const agent = agentFor(state.agents, p.name)!;
+  // No view and no agent chat without a subscription: no card, tasks or plan.
+  const view = state.pview.get(p.name)?.view ?? null;
+  const agent = pageAgent(state.agents, p.name, state.subscribed)!;
   const pid = agent.project_id;
   const sessions = state.sessions.get(p.name);
   if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
@@ -113,7 +116,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   thr.ensure(pid);
   const acts = repoActs(p);
   const sync = state.sync.filter(s => s.project === p.name);
-  const cards = cardsSection(view, { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) });
+  const cards = view && cardsSection(view, { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) });
   const groups: SplitGroup[] = [];
   if (cards) groups.push({ title: "Needs you", items: [{ key: "needs", title: "The project agent waits on you", sub: plural(view.cards.length, "card", "cards"), detail: () => [cards] }] });
   const project: SplitItem[] = [
@@ -135,7 +138,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   groups.push({ title: "Project", items: project });
   const past = sessions ? pastSessions(sessions, running) : [];
   groups.push({ title: "Work", items: [
-    { key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] },
+    ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] }] : []),
     { key: "agents", title: "Agents", sub: agentTile(running, past).count || "None running", detail: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)] },
     { key: "branches", title: "Branches", sub: branchTile(revs.branches(p.name), revs.reviews(p.name), ago).count || "", detail: () => revs.branchesPanel(p.name) },
   ] });
@@ -195,7 +198,7 @@ function projectOverview(p: Project, running: RunningAgent[], open: { run: Split
   // A copy: the list beside it takes the lead node itself.
   const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead.cloneNode(true) : null, i.title, i.sub, [i.right, ...(i.tags || []).slice(0, 3).map(l => h("i", "pj-tag", l))], i.open || (() => openTile(i.key))));
   const box = (title: string, items: SplitItem[], key: string) => items.length ? homeBox("", title, items.length, () => openTile(key), rowsOf(items)) : null;
-  const tile = runs.tile(agentFor(state.agents, p.name)?.project_id || "");
+  const tile = runs.tile(pageAgent(state.agents, p.name, state.subscribed)?.project_id || "");
   const ran = tile.rows.map(r => line(null, r.text || "", r.code || "", [r.chip ? stateChip(r.chip.cls, r.chip.text, r.chip.cls === "running") : null], () => openTile("actions")));
   const list = terms.list(p.name) || [];
   const machines = where.rows.map(r => {
