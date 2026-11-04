@@ -15,8 +15,8 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream, SessionFn,
-    StreamHandler,
+    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream,
+    SessionFn, StreamHandler,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, status::Report};
 use iroh::{
@@ -213,7 +213,7 @@ impl Peers {
         let mesh = match old {
             Some(old) => {
                 self.leave().await;
-                old.close().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                close_within(old).await?;
                 Mesh::join_replacing_lone(
                     &self.inner.dir,
                     self.inner.endpoint.clone(),
@@ -243,7 +243,7 @@ impl Peers {
         let old = self.active().map(|active| active.mesh);
         self.leave().await;
         if let Some(old) = old {
-            old.close().await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            close_within(old).await?;
         }
         Mesh::forget(&self.inner.dir)
             .await
@@ -460,6 +460,29 @@ where
                 tx.send(&Report::Stats(stats::sample(folders).await)).await?;
             }
             _ = traffic.tick() => tx.send(&Report::Traffic(offers.traffic.report())).await?,
+        }
+    }
+}
+
+/// How long a close waits for the tasks that still hold the mesh to let go.
+const CLOSE_WAIT: Duration = Duration::from_secs(5);
+/// How often a close looks again while it waits.
+const CLOSE_POLL: Duration = Duration::from_millis(25);
+
+/// Closes `mesh`, trying again while a task that was just stopped still holds
+/// a handle, for at most `CLOSE_WAIT`.
+async fn close_within(mut mesh: Mesh) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + CLOSE_WAIT;
+    loop {
+        match mesh.close().await {
+            Ok(()) => return Ok(()),
+            Err(in_use) if tokio::time::Instant::now() >= deadline => {
+                bail!("{in_use}")
+            }
+            Err(InUse(back)) => {
+                mesh = back;
+                tokio::time::sleep(CLOSE_POLL).await;
+            }
         }
     }
 }
