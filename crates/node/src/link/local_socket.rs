@@ -56,9 +56,11 @@ mod windows {
         mem,
         pin::Pin,
         task::{self, Poll},
+        time::{Duration, Instant},
     };
     use tokio::{
         io::{AsyncRead, AsyncWrite, ReadBuf},
+        time::sleep,
         net::windows::named_pipe::{
             ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
         },
@@ -145,10 +147,24 @@ mod windows {
         }
     }
 
+    /// `ERROR_PIPE_BUSY`: every instance has a client and the node has not
+    /// made the next one yet.
+    const PIPE_BUSY: i32 = 231;
+    /// How long a connection waits for the node to make the next instance.
+    const BUSY_LIMIT: Duration = Duration::from_secs(5);
+
     pub(crate) async fn connect(socket: &Path) -> io::Result<Stream> {
-        ClientOptions::new()
-            .open(pipe_name(socket))
-            .map(Stream::Client)
+        let name = pipe_name(socket);
+        let start = Instant::now();
+        loop {
+            match ClientOptions::new().open(&name) {
+                Ok(client) => return Ok(Stream::Client(client)),
+                Err(e) if e.raw_os_error() == Some(PIPE_BUSY) && start.elapsed() < BUSY_LIMIT => {
+                    sleep(Duration::from_millis(10)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 
     /// Whether a node has the pipe open. Opening it takes one connection,
@@ -167,4 +183,28 @@ pub(crate) fn shown(socket: &Path) -> String {
     return windows::pipe_name(socket);
     #[cfg(unix)]
     socket.display().to_string()
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+
+    /// `mesh join` checks that a node listens, waits for its socket, then
+    /// connects to send the ticket: three connections in a row, each of
+    /// which may find the node between two pipe instances.
+    #[tokio::test]
+    async fn connections_in_a_row_each_reach_the_node() {
+        let socket = std::env::temp_dir().join(format!("beep-pipe-test-{}", std::process::id()));
+        let mut listener = Listener::bind(&socket).expect("the pipe is made");
+        tokio::spawn(async move {
+            while let Ok(stream) = listener.accept().await {
+                drop(stream);
+            }
+        });
+        assert!(is_listening(&socket));
+        let mut first = connect(&socket).await.expect("the second connection reaches the node");
+        first.shutdown().await.ok();
+        connect(&socket).await.expect("the third connection reaches the node");
+    }
 }
