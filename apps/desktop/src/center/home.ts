@@ -1,7 +1,7 @@
 // Home: its tabs, the Running now, Needs you, Coming up and Updates
 // sections, and the Connecting page before Home first loads.
 import { harnessEl } from "../agents/harnessicon.ts";
-import { ago, plural } from "../ui/format.ts";
+import { plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
