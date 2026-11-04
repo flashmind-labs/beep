@@ -151,7 +151,7 @@ export const loadOverview = single(async () => {
 });
 
 /// One project: where it lives on every machine, with "Start an agent here"
-/// per folder and "Clone here" where it is not, and the coding agents
+/// per folder and "Copy here" where it is not, and the coding agents
 /// running in it now.
 export function projectDetail(p: Project) {
   if (p.imported) warm(p.name);
