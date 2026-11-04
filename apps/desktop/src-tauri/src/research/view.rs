@@ -1,17 +1,15 @@
 //! A research as the window draws it: the team's agents, entries, sources
 //! and paper, cached here so a window asks only for newer entries.
 
-use crate::{beep::Beep, chat::markdown, error::Result};
+use crate::{beep::Service, chat::markdown, error::Result};
 use beep_proto::{GetResearch, Research, ResearchEntryBody};
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Mutex, PoisonError},
 };
 use tauri::State;
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// What this Mac last heard of each research, every entry included, so a
 /// window opens from it and asks the server only for entries it lacks.

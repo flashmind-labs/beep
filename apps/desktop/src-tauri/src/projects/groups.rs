@@ -2,18 +2,16 @@
 //! under, in place of their org. The page matches projects to them.
 
 use crate::{
-    beep::Beep,
+    beep::Service,
     center::kept,
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
-    projects::{needs_update, unknown_op},
+    projects::{known, needs_update},
 };
 use beep_proto::{DeleteProjectGroup, ListProjectGroups, ProjectGroup, SaveProjectGroup};
 use std::sync::Arc;
 use tauri::State;
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// The user's groups, oldest first; `None` from a server too old to keep
 /// them, when the page offers none.
@@ -22,11 +20,7 @@ pub async fn project_groups(
     beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Option<Vec<ProjectGroup>>> {
-    let groups = match beep.call(ListProjectGroups {}).await {
-        Ok(groups) => Ok(Some(groups)),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    };
+    let groups = known(beep.call(ListProjectGroups {}).await);
     kept(&cache, View::Groups, groups)
 }
 

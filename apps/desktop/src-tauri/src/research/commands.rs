@@ -4,7 +4,7 @@
 use super::window::open_window;
 use crate::{
     bar,
-    beep::{BarEvent, Beep, Pick, Sent, Turn},
+    beep::{BarEvent, Pick, Sent, Service, Turn},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
 };
@@ -14,12 +14,10 @@ use std::{
     collections::HashMap,
     fs,
     path::PathBuf,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Mutex, PoisonError},
 };
 use tauri::{AppHandle, Manager, State, ipc::Channel};
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// Topics typed in the bar, waiting for their window to send them.
 #[derive(Default)]

@@ -1,9 +1,9 @@
 //! The projects the sidebar, Home and the Projects page list: imported
 //! rows, project agents, pins to the top, and removing one.
 
-use super::{needs_update, unknown_op};
+use super::{known, needs_update};
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     center::view_cache::{View, ViewCache},
     center::{self, kept},
     error::Result,
@@ -14,8 +14,6 @@ use beep_proto::{
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// One imported project as the window shows it.
 #[derive(Debug, Serialize)]
@@ -67,11 +65,7 @@ pub async fn projects_on_top(
     beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Vec<String>> {
-    let names = match beep.call(ListProjectsOnTop {}).await {
-        Ok(names) => Ok(names),
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        Err(e) => Err(e),
-    };
+    let names = known(beep.call(ListProjectsOnTop {}).await).map(Option::unwrap_or_default);
     kept(&cache, View::Top, names)
 }
 

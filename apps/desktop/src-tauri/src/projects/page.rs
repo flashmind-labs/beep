@@ -1,10 +1,10 @@
 //! A project's page: its machines and sessions, and the project agent's
 //! tasks, workers and chat.
 
-use super::{import::outdated, unknown_op};
+use super::{import::outdated, known};
 use crate::{
     agents::sessions::SessionRow,
-    beep::{BarEvent, Beep, Pick, Sent, Turn, epoch_ms},
+    beep::{BarEvent, Pick, Sent, Service, Turn, epoch_ms},
     center::{self, Chat},
     error::Result,
 };
@@ -15,22 +15,21 @@ use beep_proto::{
     StopProjectWorker, SyncthingPlace, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Reverse, sync::Arc};
-use tauri::{State, WebviewWindow, ipc::Channel};
+use std::cmp::Reverse;
+use tauri::{WebviewWindow, ipc::Channel};
 use tokio::join;
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// The sessions coding agents ran in `project`'s folders, newest first;
 /// none from a server too old to list them.
 #[tauri::command]
 pub async fn project_sessions(beep: Service<'_>, project: String) -> Result<Vec<SessionRow>> {
-    match beep.call(ListProjectSessions { project }).await {
-        Ok(sessions) => Ok(sessions.into_iter().map(SessionRow::from).collect()),
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        Err(e) => Err(e),
-    }
+    let sessions = known(beep.call(ListProjectSessions { project }).await)?;
+    Ok(sessions
+        .into_iter()
+        .flatten()
+        .map(SessionRow::from)
+        .collect())
 }
 
 /// One of the user's machines as a project's page lists it.
@@ -68,24 +67,15 @@ pub async fn project_machines(
     beep: Service<'_>,
     project: String,
 ) -> Result<Option<Vec<ProjectMachineRow>>> {
-    match beep.call(ListProjectMachines { project }).await {
-        Ok(machines) => Ok(Some(
-            machines.into_iter().map(ProjectMachineRow::from).collect(),
-        )),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(ListProjectMachines { project }).await)?
+        .map(|machines| machines.into_iter().map(ProjectMachineRow::from).collect()))
 }
 
 /// The machines on which Syncthing keeps `project`'s folder in step. Empty
 /// from a server too old to say.
 #[tauri::command]
 pub async fn project_syncthing(beep: Service<'_>, project: String) -> Result<Vec<SyncthingPlace>> {
-    match beep.call(ListProjectSyncthing { project }).await {
-        Ok(places) => Ok(places),
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(ListProjectSyncthing { project }).await)?.unwrap_or_default())
 }
 
 /// The project agent of `name` (`org/repo`), made with its chat on the

@@ -3,7 +3,7 @@
 //! reading one in full. `steer` steers it, `media` reads its files.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     center::AgentsShown,
     chat::markdown,
     error::Result,
@@ -16,11 +16,9 @@ use beep_proto::{
     node::agent::{CheckoutPlan, Effort},
 };
 use serde::Serialize;
-use std::{sync::Arc, time::Instant};
+use std::time::Instant;
 use tauri::{State, WebviewWindow};
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// A machine that can run a coding agent.
 #[derive(Debug, Serialize)]

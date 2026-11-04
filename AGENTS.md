@@ -172,6 +172,24 @@ in `build.mjs`.
 - `orb/`: the orb window (entry `orb.ts`).
 - `ui/`: shared helpers: Tauri bindings, DOM builders, formatting, menus.
 
+`apps/desktop/src-tauri/src` is grouped by domain. `main.rs` starts the app
+and lists every Tauri command; each `mod.rs` only declares and re-exports.
+
+- `beep/`: the server connection (`Beep`), runs, saved state, chat sync, identity.
+- `bar/`: the bar window and its app-wide, live and window commands.
+- `chat/`: chats, groups, approvals, files, history and reply rendering.
+- `voice/`: live mode, voice notes, audio, the Option hotkey, the orb.
+- `center/`: the command center window, Home, view cache, usage, what is shown.
+- `palette/`: the Cmd+K search.
+- `projects/`: project list, import, page, issues, PRs, runs, reviews, sync.
+- `agents/`: coding agent sessions, files, diffs, artifacts, harnesses, sign-ins.
+- `machines/`: the account's machines, terminals, and this Mac as a node.
+- `settings/`: apps, credentials, git sign-ins, grants, memories, routines, skills, models.
+- `research/`: research windows and their commands.
+- `notices/`: routing server notices, macOS notifications, sub-agent questions.
+- `tray/`: the tray menu and what waits on the user.
+- `platform/`: log file, login `PATH`, editors, app updates.
+
 ## beep-node releases
 
 `just node-release 0.1.1` sets the version in `crates/node/Cargo.toml`,

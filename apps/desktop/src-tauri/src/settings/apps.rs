@@ -12,7 +12,7 @@
 use crate::{
     bar,
     bar::app::open_url,
-    beep::Beep,
+    beep::{Beep, Service},
     error::{DesktopError, Result},
 };
 use beep_proto::{
@@ -35,8 +35,6 @@ use tokio::{
     time::timeout,
 };
 use url::Url;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// How long a browser sign-in may take before the listener gives up.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);

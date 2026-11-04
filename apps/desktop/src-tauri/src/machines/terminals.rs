@@ -3,7 +3,7 @@
 //! an interactive one live while typing into it.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
     projects::{needs_update, unknown_op},
 };
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard, PoisonError},
 };
 use tauri::{State, ipc::Channel};
 use tokio::sync::mpsc;
@@ -25,8 +25,6 @@ use uuid::Uuid;
 
 /// Keys and sizes waiting to go up one attached terminal's stream.
 const INPUT_QUEUE: usize = 64;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// One terminal as the window shows it.
 #[derive(Debug, Serialize)]

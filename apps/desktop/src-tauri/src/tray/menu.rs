@@ -5,7 +5,7 @@ use super::waiting::{self, WaitingList};
 use crate::{
     bar,
     beep::{Beep, state::LinkState},
-    center,
+    center::{self, CenterTarget},
     machines::this_mac::Machine,
     platform::update,
 };
@@ -178,14 +178,14 @@ pub(crate) async fn refresh_recent(app: AppHandle) {
 }
 
 /// The window view a tray item opens once linked, if it opens one.
-fn tray_target(id: &str) -> Option<center::CenterTarget> {
+fn tray_target(id: &str) -> Option<CenterTarget> {
     match id {
-        "apps" => Some(center::CenterTarget::Apps),
-        "memories" => Some(center::CenterTarget::Memories),
-        "routines" => Some(center::CenterTarget::Routines),
-        "skills" => Some(center::CenterTarget::Skills),
-        "settings" => Some(center::CenterTarget::Settings),
-        waiting::MORE => Some(center::CenterTarget::Home),
+        "apps" => Some(CenterTarget::Apps),
+        "memories" => Some(CenterTarget::Memories),
+        "routines" => Some(CenterTarget::Routines),
+        "skills" => Some(CenterTarget::Skills),
+        "settings" => Some(CenterTarget::Settings),
+        waiting::MORE => Some(CenterTarget::Home),
         _ => None,
     }
 }
@@ -197,7 +197,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
         let target = app
             .state::<WaitingList>()
             .target(event.id().as_ref())
-            .unwrap_or(center::CenterTarget::Home);
+            .unwrap_or(CenterTarget::Home);
         let pending = app.state::<center::Pending>();
         if let Err(e) = center::open_on(app, &pending, target) {
             log::warn!("opening what waits: {e}");
@@ -259,16 +259,10 @@ mod tests {
 
     #[test]
     fn tray_items_name_their_view() {
-        assert_eq!(
-            tray_target("memories"),
-            Some(center::CenterTarget::Memories)
-        );
-        assert_eq!(
-            tray_target("settings"),
-            Some(center::CenterTarget::Settings)
-        );
+        assert_eq!(tray_target("memories"), Some(CenterTarget::Memories));
+        assert_eq!(tray_target("settings"), Some(CenterTarget::Settings));
         assert_eq!(tray_target("research"), None);
         assert_eq!(tray_target("check-update"), None);
-        assert_eq!(tray_target(waiting::MORE), Some(center::CenterTarget::Home));
+        assert_eq!(tray_target(waiting::MORE), Some(CenterTarget::Home));
     }
 }

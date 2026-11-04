@@ -27,6 +27,15 @@ pub(crate) fn unknown_op(e: &DesktopError) -> bool {
     matches!(e, DesktopError::Api(ApiError::BadRequest { message }) if message.starts_with(UNKNOWN_OP))
 }
 
+/// `None` from a server too old to know the request.
+pub(crate) fn known<T>(result: Result<T, DesktopError>) -> Result<Option<T>, DesktopError> {
+    match result {
+        Ok(found) => Ok(Some(found)),
+        Err(e) if unknown_op(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// An old server's refusal as "The server needs an update `what`."; any
 /// other error as it was.
 pub(crate) fn needs_update(e: DesktopError, what: &str) -> DesktopError {

@@ -6,7 +6,7 @@
 //! server runs there, or uses an API key the server hands out.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Beep, Service, epoch_ms},
     error::{DesktopError, Result},
     projects::unknown_op,
     settings::cli_login::{find_tool, refused},
@@ -23,7 +23,7 @@ use std::{
     path::Path,
     process::Stdio,
     str::FromStr,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Mutex, PoisonError},
     time::Duration,
 };
 use tauri::State;
@@ -34,8 +34,6 @@ use tokio::{
     sync::oneshot,
     time::timeout,
 };
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// How long the browser sign-in may take.
 const SIGN_IN_LIMIT: Duration = Duration::from_secs(10 * 60);

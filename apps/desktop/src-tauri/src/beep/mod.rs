@@ -14,7 +14,7 @@ pub use client::{AsyncMutex, Beep, Notices};
 pub use link::{LinkView, qr_svg};
 pub use run::{
     Asking, BarEvent, DataImage, Decision, Field, FileUpload, Pick, RunNews, Sent, chat_id,
-    image_uris,
+    image_uris, session_uuid,
 };
 
 use std::{sync::Arc, time::SystemTime};

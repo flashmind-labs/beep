@@ -2,7 +2,7 @@
 //! its machine through the server: shown, opened or saved here.
 
 use crate::{
-    beep::Beep,
+    beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name, image_mime},
     error::{DesktopError, Result},
 };
@@ -12,10 +12,8 @@ use beep_proto::{
     image_key,
 };
 use serde::Serialize;
-use std::{fs, path::PathBuf, process::Command, sync::Arc};
-use tauri::{AppHandle, Manager, State};
-
-type Service<'a> = State<'a, Arc<Beep>>;
+use std::{fs, path::PathBuf, process::Command};
+use tauri::{AppHandle, Manager};
 
 /// The picture of the `[image: image-<key>]` line of `session`, read from
 /// its machine through the server, as a data URL the bar can draw.

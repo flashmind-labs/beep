@@ -98,7 +98,6 @@ impl Beep {
         self.update_saved(|s| s.set_use_mac(on));
     }
 
-    /// The chats copied from the server.
     pub fn chats(&self) -> &Chats {
         &self.chats
     }

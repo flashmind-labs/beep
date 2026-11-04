@@ -3,10 +3,10 @@
 //! and the chats about one thread.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     chat::markdown::untrusted_html,
     error::{DesktopError, Result},
-    projects::{needs_update, unknown_op},
+    projects::{known, needs_update},
 };
 use beep_proto::{
     GetProjectThread, GetPullRequestHead, GetThreadDetail, GitItemKind, IssueStart,
@@ -15,11 +15,7 @@ use beep_proto::{
     ReplyToThread, ThreadChat, ThreadDetail, ThreadPost, ThreadView, TrackProjectIssue,
 };
 use serde::Serialize;
-use std::sync::Arc;
-use tauri::State;
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 fn outdated(e: DesktopError) -> DesktopError {
     needs_update(e, "for this")
@@ -206,11 +202,8 @@ pub async fn center_project_issues(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<IssueRow>>> {
-    match beep.call(ListProjectIssues { project_id }).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(ListProjectIssues { project_id }).await)?
+        .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
 
 /// Makes a task of issue `number`: with `agent`, a worker starts on it on
@@ -243,11 +236,8 @@ pub async fn center_project_threads(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<ThreadRow>>> {
-    match beep.call(ListProjectThreads { project_id }).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(ListProjectThreads { project_id }).await)?
+        .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
 
 /// Every open pull request of the project, newest first; `None` from a
@@ -257,11 +247,10 @@ pub async fn center_project_pull_requests(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<PullRequestRow>>> {
-    match beep.call(ListProjectPullRequests { project_id }).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(
+        known(beep.call(ListProjectPullRequests { project_id }).await)?
+            .map(|rows| rows.into_iter().map(Into::into).collect()),
+    )
 }
 
 /// The branch pull request `number` is made from, for Continue.
@@ -317,11 +306,8 @@ pub async fn center_thread_chats(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<ThreadChatRow>>> {
-    match beep.call(ListThreadChats { project_id }).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(ListThreadChats { project_id }).await)?
+        .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
 
 /// Thread `number` of `repo` read from its host now; `None` from a server
@@ -338,11 +324,7 @@ pub async fn center_thread_view(
         repo,
         number,
     });
-    match read.await {
-        Ok(thread) => Ok(Some(thread.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(read.await)?.map(Into::into))
 }
 
 /// A comment or review with its text as cleaned HTML.
@@ -416,9 +398,5 @@ pub async fn center_thread_detail(
     project_id: Uuid,
     number: u64,
 ) -> Result<Option<ThreadDetailRow>> {
-    match beep.call(GetThreadDetail { project_id, number }).await {
-        Ok(thread) => Ok(Some(thread.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(known(beep.call(GetThreadDetail { project_id, number }).await)?.map(Into::into))
 }

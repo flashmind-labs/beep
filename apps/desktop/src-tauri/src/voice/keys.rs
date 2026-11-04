@@ -150,13 +150,8 @@ impl Voice {
 
     /// Closes the microphone opened for press `press`, or for any press.
     fn cool(&self, press: Option<u64>) {
-        let mut state = self.state();
-        if state
+        self.state()
             .warm
-            .as_ref()
-            .is_some_and(|(p, _)| press.is_none_or(|press| *p == press))
-        {
-            state.warm = None;
-        }
+            .take_if(|(p, _)| press.is_none_or(|press| *p == press));
     }
 }

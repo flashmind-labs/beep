@@ -16,6 +16,7 @@ mod settings;
 mod tray;
 mod voice;
 
+use agents::artifacts;
 use anyhow::Context;
 use beep::{
     Beep,
@@ -51,34 +52,31 @@ fn main() {
             MacosLauncher::LaunchAgent,
             Some(vec![LOGIN_ARG]),
         ))
-        .manage(agents::artifacts::Pages::default())
-        .register_asynchronous_uri_scheme_protocol(
-            agents::artifacts::SCHEME,
-            |ctx, request, responder| {
-                let app = ctx.app_handle();
-                match agents::artifacts::route(&app.state::<agents::artifacts::Pages>(), &request) {
-                    agents::artifacts::Route::Done(response) => responder.respond(response),
-                    // A file beside a page is read from its machine first.
-                    agents::artifacts::Route::Read(file) => {
-                        let beep = app
-                            .try_state::<Arc<Beep>>()
-                            .map(|beep| beep.inner().clone());
-                        tauri::async_runtime::spawn(async move {
-                            let response = match beep {
-                                Some(beep) => {
-                                    file.serve(|at| async move {
-                                        agents::artifacts::read_sibling(&beep, at).await
-                                    })
-                                    .await
-                                }
-                                None => agents::artifacts::unavailable(),
-                            };
-                            responder.respond(response);
-                        });
-                    }
+        .manage(artifacts::Pages::default())
+        .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
+            let app = ctx.app_handle();
+            match artifacts::route(&app.state::<artifacts::Pages>(), &request) {
+                artifacts::Route::Done(response) => responder.respond(response),
+                // A file beside a page is read from its machine first.
+                artifacts::Route::Read(file) => {
+                    let beep = app
+                        .try_state::<Arc<Beep>>()
+                        .map(|beep| beep.inner().clone());
+                    tauri::async_runtime::spawn(async move {
+                        let response = match beep {
+                            Some(beep) => {
+                                file.serve(
+                                    |at| async move { artifacts::read_sibling(&beep, at).await },
+                                )
+                                .await
+                            }
+                            None => artifacts::unavailable(),
+                        };
+                        responder.respond(response);
+                    });
                 }
-            },
-        )
+            }
+        })
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
             // Only the bar is a popover; research windows stay put. Live

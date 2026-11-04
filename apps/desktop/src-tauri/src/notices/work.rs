@@ -2,7 +2,7 @@
 //! end of their chat.
 
 use crate::{
-    beep::{Beep, Decision, Field},
+    beep::{Beep, Decision, Field, Service, session_uuid},
     error::{DesktopError, Result},
     voice::Voice,
 };
@@ -10,9 +10,6 @@ use beep_proto::{AnswerApproval, ApiError, ListQuestions, PendingApproval};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
-use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// How the server answers a delivered answer to background work: no run
 /// resumes, so it says so as a conflict.
@@ -73,17 +70,13 @@ pub enum WorkAnswer {
     Withdrawn,
 }
 
-fn session_id(session: &str) -> Result<Uuid> {
-    Uuid::parse_str(session).map_err(|_| DesktopError::BadRequest("bad session".into()))
-}
-
 /// The questions background work in chat `session` still waits on, oldest
 /// first, so their cards outlive a restart and show on every device.
 #[tauri::command]
 pub async fn list_questions(beep: Service<'_>, session: String) -> Result<Vec<WorkQuestion>> {
     let pending = beep
         .call(ListQuestions {
-            session_id: session_id(&session)?,
+            session_id: session_uuid(&session)?,
         })
         .await?;
     Ok(pending
@@ -116,7 +109,7 @@ pub(crate) async fn answer(
 ) -> Result<WorkAnswer> {
     let asked = beep
         .call(AnswerApproval {
-            session_id: session_id(session)?,
+            session_id: session_uuid(session)?,
             query_id,
             decision: decision.into(),
             for_session: decision.for_session(),

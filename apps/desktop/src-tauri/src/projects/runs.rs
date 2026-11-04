@@ -6,30 +6,23 @@
 //! gives the primary host's runs alone.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::Result,
+    projects::known,
     projects::threads::{IssueRow, PullRequestRow},
-    projects::unknown_op,
 };
 use beep_proto::{
     GetLabeledProjectLists, GetProjectRun, GetProjectRunOn, GitHostKind, HostedChecks, HostedRun,
     HostedRuns, LabeledProjectLists, ListProjectRuns, ListProjectRunsAll, PrChecks,
-    ProjectRunDetail, ProjectRuns, RunJob, RunLog, RunProgress, RunState, RunStep, RunsHost,
-    StepProgress, WorkflowRun,
+    ProjectRunDetail, ProjectRuns, RunJob, RunLog, RunProgress, RunStep, RunsHost, StepProgress,
+    WorkflowRun,
 };
 use serde::Serialize;
-use std::{sync::Arc, time::SystemTime};
-use tauri::State;
+use std::time::SystemTime;
 use uuid::Uuid;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 fn ms(at: Option<SystemTime>) -> Option<u64> {
     at.map(epoch_ms)
-}
-
-fn state(state: RunState) -> &'static str {
-    state.into()
 }
 
 /// The project's lists and when they were read (ProjectLists).
@@ -52,14 +45,13 @@ pub async fn center_project_lists(
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
-    match beep
-        .call(GetLabeledProjectLists {
-            project_id,
-            refresh,
-        })
-        .await
-    {
-        Ok(LabeledProjectLists { lists, pr_labels }) => Ok(Some(ListsRow {
+    let read = GetLabeledProjectLists {
+        project_id,
+        refresh,
+    };
+    let found = known(beep.call(read).await)?;
+    Ok(
+        found.map(|LabeledProjectLists { lists, pr_labels }| ListsRow {
             prs: lists
                 .pull_requests
                 .into_iter()
@@ -70,10 +62,8 @@ pub async fn center_project_lists(
             issues: lists.issues.into_iter().map(Into::into).collect(),
             issues_error: lists.issues_error,
             synced_at: ms(lists.synced_at),
-        })),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+        }),
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -147,7 +137,7 @@ impl From<WorkflowRun> for RunRow {
             branch: r.branch,
             event: r.event,
             actor: r.actor,
-            state: state(r.state),
+            state: r.state.into(),
             url: r.url,
             started_at: ms(r.started_at),
             finished_at: ms(r.finished_at),
@@ -181,7 +171,7 @@ impl From<PrChecks> for ChecksRow {
         Self {
             host: None,
             number: c.number,
-            state: state(c.state),
+            state: c.state.into(),
             run_id: c.run_id,
             progress: c.progress.map(Into::into),
         }
@@ -275,28 +265,18 @@ pub async fn center_project_runs(
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<RunsRow>> {
-    match beep
-        .call(ListProjectRunsAll {
-            project_id,
-            refresh,
-        })
-        .await
-    {
-        Ok(runs) => return Ok(Some(runs.into())),
-        Err(e) if unknown_op(&e) => {}
-        Err(e) => return Err(e),
+    let all = ListProjectRunsAll {
+        project_id,
+        refresh,
+    };
+    if let Some(runs) = known(beep.call(all).await)? {
+        return Ok(Some(runs.into()));
     }
-    match beep
-        .call(ListProjectRuns {
-            project_id,
-            refresh,
-        })
-        .await
-    {
-        Ok(runs) => Ok(Some(runs.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    let primary = ListProjectRuns {
+        project_id,
+        refresh,
+    };
+    Ok(known(beep.call(primary).await)?.map(Into::into))
 }
 
 #[derive(Debug, Serialize)]
@@ -313,7 +293,7 @@ impl From<RunStep> for RunStepRow {
         Self {
             number: s.number,
             name: s.name,
-            state: state(s.state),
+            state: s.state.into(),
             started_at: ms(s.started_at),
             finished_at: ms(s.finished_at),
         }
@@ -336,30 +316,11 @@ impl From<RunJob> for RunJobRow {
         Self {
             id: j.id,
             name: j.name,
-            state: state(j.state),
+            state: j.state.into(),
             started_at: ms(j.started_at),
             finished_at: ms(j.finished_at),
             steps: j.steps.into_iter().map(Into::into).collect(),
             url: j.url,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct RunLogRow {
-    job: String,
-    step: Option<String>,
-    text: String,
-    truncated: bool,
-}
-
-impl From<RunLog> for RunLogRow {
-    fn from(l: RunLog) -> Self {
-        Self {
-            job: l.job,
-            step: l.step,
-            text: l.text,
-            truncated: l.truncated,
         }
     }
 }
@@ -369,7 +330,7 @@ impl From<RunLog> for RunLogRow {
 pub struct RunDetailRow {
     run: RunRow,
     jobs: Vec<RunJobRow>,
-    log: Option<RunLogRow>,
+    log: Option<RunLog>,
     error: Option<String>,
     rate_limited_until: Option<u64>,
 }
@@ -379,7 +340,7 @@ impl From<ProjectRunDetail> for RunDetailRow {
         Self {
             run: d.run.into(),
             jobs: d.jobs.into_iter().map(Into::into).collect(),
-            log: d.log.map(Into::into),
+            log: d.log,
             error: d.error,
             rate_limited_until: ms(d.rate_limited_until),
         }
@@ -397,21 +358,15 @@ pub async fn center_project_run(
     host: Option<String>,
 ) -> Result<RunDetailRow> {
     if let Some(host) = host {
-        match beep
-            .call(GetProjectRunOn {
-                project_id,
-                host: host.clone(),
-                run_id,
-            })
-            .await
-        {
-            Ok(detail) => {
-                let mut row: RunDetailRow = detail.into();
-                row.run.host = Some(host);
-                return Ok(row);
-            }
-            Err(e) if unknown_op(&e) => {}
-            Err(e) => return Err(e),
+        let on = GetProjectRunOn {
+            project_id,
+            host: host.clone(),
+            run_id,
+        };
+        if let Some(detail) = known(beep.call(on).await)? {
+            let mut row: RunDetailRow = detail.into();
+            row.run.host = Some(host);
+            return Ok(row);
         }
     }
     let detail = beep.call(GetProjectRun { project_id, run_id }).await?;

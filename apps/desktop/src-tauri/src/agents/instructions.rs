@@ -3,7 +3,7 @@
 //! machines to import from and write into.
 
 use crate::{
-    beep::{Beep, epoch_ms},
+    beep::{Service, epoch_ms},
     error::{DesktopError, Result},
     projects::needs_update,
 };
@@ -12,10 +12,6 @@ use beep_proto::{
     ReadAgentFiles, SaveInstructions, SyncAgentFiles,
 };
 use serde::Serialize;
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// One saved version as the view shows it.
 #[derive(Debug, Serialize)]

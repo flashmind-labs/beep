@@ -23,8 +23,15 @@ const CASCADE: f64 = 28.0;
 const HIDDEN_EVENT: &str = "center-hidden";
 const SHOWN_EVENT: &str = "center-shown";
 
-/// Where the window opens: most of the screen under the mouse, centered.
-fn frame<R: Runtime>(app: &AppHandle<R>) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
+/// Where a window opens: `share` of the screen under the mouse, at least
+/// `min` where the screen allows, centered, then moved down and right by
+/// `step` as far as the screen allows.
+pub(crate) fn frame<R: Runtime>(
+    app: &AppHandle<R>,
+    share: f64,
+    min: LogicalSize<f64>,
+    step: f64,
+) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
     let cursor = app.cursor_position().ok()?;
     let monitor = app
         .monitor_from_point(cursor.x, cursor.y)
@@ -37,12 +44,14 @@ fn frame<R: Runtime>(app: &AppHandle<R>) -> Option<(LogicalPosition<f64>, Logica
     let top = f64::from(area.position.y) / scale;
     let full_w = f64::from(area.size.width) / scale;
     let full_h = f64::from(area.size.height) / scale;
-    let width = (full_w * SHARE).max(MIN_WIDTH.min(full_w));
-    let height = (full_h * SHARE).max(MIN_HEIGHT.min(full_h));
-    Some((
-        LogicalPosition::new(left + (full_w - width) / 2.0, top + (full_h - height) / 2.0),
-        LogicalSize::new(width, height),
-    ))
+    let width = (full_w * share).max(min.width.min(full_w));
+    let height = (full_h * share).max(min.height.min(full_h));
+    let x = left + ((full_w - width) / 2.0 + step).min(full_w - width).max(0.0);
+    let y = top
+        + ((full_h - height) / 2.0 + step)
+            .min(full_h - height)
+            .max(0.0);
+    Some((LogicalPosition::new(x, y), LogicalSize::new(width, height)))
 }
 
 fn bring_up<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
@@ -54,7 +63,7 @@ fn bring_up<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     Ok(())
 }
 
-fn join_dock<R: Runtime>(app: &AppHandle<R>) {
+pub(crate) fn join_dock<R: Runtime>(app: &AppHandle<R>) {
     if let Err(e) = app.set_activation_policy(ActivationPolicy::Regular) {
         log::warn!("joining the Dock: {e}");
     }
@@ -75,7 +84,7 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         // Files dragged in from Finder reach the page as HTML drops, as in
         // the bar: a coding agent session uploads them to its machine.
         .disable_drag_drop_handler();
-    builder = match frame(app) {
+    builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
         Some((position, size)) => builder
             .position(position.x + offset, position.y + offset)
             .inner_size(size.width, size.height),

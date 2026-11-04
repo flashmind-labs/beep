@@ -2,7 +2,7 @@
 //! message for the running turn, switching model, cancel and close.
 
 use crate::{
-    beep::Beep,
+    beep::{Beep, Service},
     error::{DesktopError, Result},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -11,10 +11,6 @@ use beep_proto::{
     node::agent::Effort,
 };
 use serde::Deserialize;
-use std::sync::Arc;
-use tauri::State;
-
-type Service<'a> = State<'a, Arc<Beep>>;
 
 /// What `agent_steer` does to a session, as the page sends it.
 #[derive(Debug, Deserialize)]
@@ -117,20 +113,11 @@ fn queued_instead(steer: &AgentSteer) -> Option<AgentSteer> {
     })
 }
 
-/// True when the server did not know `Steer`, op 5 of `AgentSteer`.
-fn older_than_steer(error: &DesktopError) -> bool {
-    matches!(error, DesktopError::Api(ApiError::BadRequest { message }) if message.contains("unknown op 5") || message.contains("unknown op 6"))
-}
-
-/// True when the server did not know `PromptImages`: one from before it
-/// reads op 3 of `AgentSteer` as unknown.
-fn older_than_images(error: &DesktopError) -> bool {
-    matches!(error, DesktopError::Api(ApiError::BadRequest { message }) if message.contains("unknown op 3"))
-}
-
-/// True when the server did not know `Configure`, op 4 of `AgentSteer`.
-fn older_than_configure(error: &DesktopError) -> bool {
-    matches!(error, DesktopError::Api(ApiError::BadRequest { message }) if message.contains("unknown op 4"))
+/// True when the server refused one of `ops` of `AgentSteer` as unknown:
+/// 3 `PromptImages`, 4 `Configure`, 5 and 6 `Steer`.
+fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
+    matches!(error, DesktopError::Api(ApiError::BadRequest { message })
+        if ops.iter().any(|op| message.contains(&format!("unknown op {op}"))))
 }
 
 #[tauri::command]
@@ -161,17 +148,17 @@ pub async fn agent_steer(
     let sent = match (beep.call(call(steer)).await, fallback) {
         // A server from before steering takes it as a message for after
         // the turn, which is the nearest it can do.
-        (Err(e), Some(prompt)) if older_than_steer(&e) => beep.call(call(prompt)).await,
+        (Err(e), Some(prompt)) if older_than(&e, &[5, 6]) => beep.call(call(prompt)).await,
         (sent, _) => sent,
     };
     match sent {
-        Err(e) if images && older_than_images(&e) => Err(DesktopError::BadRequest(
+        Err(e) if images && older_than(&e, &[3]) => Err(DesktopError::BadRequest(
             "This Beep server does not take images yet. Send the message without them.".into(),
         )),
-        Err(e) if configure && older_than_configure(&e) => Err(DesktopError::BadRequest(
+        Err(e) if configure && older_than(&e, &[4]) => Err(DesktopError::BadRequest(
             "This Beep server cannot switch a running session's model yet.".into(),
         )),
-        Err(e) if older_than_steer(&e) => Err(DesktopError::BadRequest(
+        Err(e) if older_than(&e, &[5, 6]) => Err(DesktopError::BadRequest(
             "This Beep server cannot take a message back yet.".into(),
         )),
         other => other.map(|()| keys),
@@ -237,15 +224,16 @@ mod tests {
             Some(AgentSteer::PromptImages { text, .. }) if text == "use the fixture"
         ));
         let old = DesktopError::Api(ApiError::bad_request("unknown op 5"));
-        assert!(older_than_steer(&old));
+        assert!(older_than(&old, &[5, 6]));
     }
 
     #[test]
     fn an_old_server_is_told_apart() {
         let old = DesktopError::Api(ApiError::bad_request("unknown op 3"));
-        assert!(older_than_images(&old));
-        assert!(!older_than_images(&DesktopError::Api(
-            ApiError::bad_request("The message is empty.")
-        )));
+        assert!(older_than(&old, &[3]));
+        assert!(!older_than(
+            &DesktopError::Api(ApiError::bad_request("The message is empty.")),
+            &[3]
+        ));
     }
 }
