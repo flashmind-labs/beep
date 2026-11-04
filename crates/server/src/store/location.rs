@@ -1,7 +1,7 @@
 //! The phone's last position, and the user's timezone.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::Row;

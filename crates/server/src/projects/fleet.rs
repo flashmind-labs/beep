@@ -7,8 +7,9 @@ use super::{
     worker::{self, StartError, Started},
 };
 use crate::{
+    account::user::User,
     app::App,
-    leak::PublicText,
+    memory::leak::PublicText,
     nodes::{Follower, Online, SHELL},
     protocol::node::{
         Capability, SyncthingFolder,
@@ -17,7 +18,6 @@ use crate::{
     },
     store::{ProjectRow, TaskRow, WorkerRow},
     tools::machines::command_name,
-    user::User,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -25,7 +25,6 @@ use iroh::EndpointId;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// One of the user's machines.
 #[derive(Debug, Clone)]
 pub(crate) struct Machine {
     pub(crate) id: EndpointId,
@@ -73,7 +72,6 @@ pub(crate) trait Fleet: Send + Sync {
         request: &StartRequest,
     ) -> Result<Started, StartError>;
 
-    /// Sends `request` to the worker's session.
     async fn send_session(&self, worker: &WorkerRow, request: AgentRequest) -> Result<()>;
 
     /// Puts the worker's `question` to the user as a card of `chat`.

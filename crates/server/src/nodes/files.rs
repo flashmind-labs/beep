@@ -1,10 +1,10 @@
 //! Files in a node's shared folders (`files/1`), one stream per call.
 
-use super::{NODE_BACK, Online, Repeat, retry::Unsent};
+use super::{Online, Repeat, retry::Unsent};
 use crate::protocol::node::files::{PROTOCOL, Reply, Request};
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
-use tokio::time::{Instant, timeout};
+use tokio::time::timeout;
 
 /// How long one request may take, such as a large read on a slow disk.
 const LIMIT: Duration = Duration::from_secs(30);
@@ -21,18 +21,8 @@ impl Online {
             );
         }
         let repeat = Repeat::when(!matches!(request, Request::Write { append: true, .. }));
-        let until = Instant::now() + NODE_BACK;
-        let mut on = self.clone();
-        loop {
-            let error = match on.files_once(request).await {
-                Ok(reply) => return Ok(reply),
-                Err(error) => error,
-            };
-            match on.again(&error, repeat, until).await {
-                Some(back) => on = back,
-                None => return Err(error),
-            }
-        }
+        self.retrying(repeat, |on| async move { on.files_once(request).await })
+            .await
     }
 
     async fn files_once(&self, request: &Request) -> Result<Reply> {

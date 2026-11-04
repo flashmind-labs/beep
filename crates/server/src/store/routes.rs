@@ -1,7 +1,7 @@
 //! Route cards: what a `get_route` call found, by the call's id.
 
 use super::Store;
-use crate::{protocol::RouteCard, user::UserKey};
+use crate::{account::user::UserKey, protocol::RouteCard};
 use anyhow::Result;
 use serde_json::Value;
 use uuid::Uuid;
@@ -46,9 +46,9 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use crate::{
+        account::user::UserKey,
         protocol::{RouteCard, RouteOption},
         store::{TestDb, test_chat, test_turn},
-        user::UserKey,
     };
 
     fn card(minutes: u32) -> RouteCard {

@@ -6,7 +6,7 @@ use super::{
     messages::insert_steps,
     updates::{Readers, UpdateOp, log_chat, log_messages},
 };
-use crate::{steps, user::UserKey};
+use crate::{account::user::UserKey, agent::steps};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use flashmind::core::Conversation;
@@ -156,8 +156,8 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::user::{User, UserKey};
     use crate::store::{StoredMessage, TestDb, test_chat, test_turn};
-    use crate::user::{User, UserKey};
     use flashmind::core::ConversationEntry;
 
     fn texts(conversation: &Conversation) -> Vec<&str> {

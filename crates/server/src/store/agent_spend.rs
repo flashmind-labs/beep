@@ -2,14 +2,14 @@
 
 use super::{
     Store,
-    agent_usage::{agent_of, endpoint_of},
+    agent_usage::{agent_of, endpoint_of, name},
 };
 use crate::{
+    account::user::UserKey,
     protocol::{
         AgentSlug, ModelId,
         node::usage::{Billing, MAX_SESSION_HOURS, SessionSpend},
     },
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -72,13 +72,6 @@ pub(crate) struct DayModelRow {
 
 fn billing_of(row: &PgRow) -> Result<Billing> {
     Ok(Billing::from_name(&row.try_get::<String, _>("billing")?))
-}
-
-fn name(what: &str, value: &str, max: usize) -> Result<()> {
-    if value.is_empty() || value.len() > max {
-        bail!("the {what} is empty or too long");
-    }
-    Ok(())
 }
 
 impl Store {

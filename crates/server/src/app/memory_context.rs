@@ -1,7 +1,7 @@
 //! Recalled memories kept in a chat until they change or the chat is compacted.
 
 use crate::{
-    memories::days,
+    memory::memories::days,
     store::{MemoryRow, Scored},
 };
 use chrono::NaiveDate;

@@ -1,7 +1,9 @@
 //! Auto: Jev picks the thinking of a user's prompts on their chosen model; on unless turned off.
 
 use super::{App, learning::earlier_turns};
-use crate::{memories::clip, models::AutoModel, store::TurnRecord, user::User};
+use crate::{
+    account::user::User, agent::models::AutoModel, memory::memories::clip, store::TurnRecord,
+};
 use chrono::Utc;
 use flashmind::{
     core::Conversation,

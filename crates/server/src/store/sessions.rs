@@ -5,7 +5,7 @@ use super::{
     chats::{SESSION_TITLE, delete_chat, touch},
     updates::{Readers, UpdateOp, log_chat, log_messages},
 };
-use crate::{protocol::Session, user::UserKey};
+use crate::{account::user::UserKey, protocol::Session};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use flashmind::core::{Conversation, EntryKind};
@@ -531,8 +531,8 @@ mod tests {
 
     #[tokio::test]
     async fn search_finds_words_inside_messages() {
+        use crate::account::user::User;
         use crate::store::{TestDb, test_chat, test_turn};
-        use crate::user::User;
 
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();

@@ -5,9 +5,10 @@
 use async_trait::async_trait;
 use beep_node::link::Offers;
 use beep_server::{
+    agent::models::ModelChoices,
+    api::transport,
     app::{App, ServerTools},
     client::{Client, Node},
-    models::ModelChoices,
     nodes,
     protocol::{
         AttachTerminal, DeviceKind, ListTerminals, OpenTerminal, TerminalEvent, TerminalInput,
@@ -15,7 +16,6 @@ use beep_server::{
     },
     push::Pusher,
     store::{NewKey, TestDb},
-    transport,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,

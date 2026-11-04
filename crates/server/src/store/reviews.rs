@@ -2,8 +2,8 @@
 
 use super::Store;
 use crate::{
+    account::user::UserKey,
     protocol::{ReviewChecks, ReviewSeverity},
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};

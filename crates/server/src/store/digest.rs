@@ -1,7 +1,7 @@
 //! Emails flagged for the evening digest, and the digest routine itself.
 
 use super::{Feed, Store, cron_jobs::encode_schedule};
-use crate::{digest::DIGEST_KIND, feeds::mail::Mailbox, user::UserKey};
+use crate::{account::user::UserKey, apps::feeds::mail::Mailbox, routines::digest::DIGEST_KIND};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use flashmind::cron::CronJob;

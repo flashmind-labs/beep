@@ -17,6 +17,7 @@ use super::{
     turn::read_personas,
 };
 use crate::{
+    account::user::User,
     app::App,
     nodes::{Follower, Online, SHELL, StartOn},
     protocol::node::{
@@ -29,7 +30,6 @@ use crate::{
         copy::{self, FileNode, MAX_COPY},
         transfer,
     },
-    user::User,
 };
 use anyhow::{Context, Result, anyhow};
 use iroh::EndpointId;

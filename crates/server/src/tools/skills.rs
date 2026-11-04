@@ -2,7 +2,7 @@
 
 use super::memory::{arg, opt_arg, reply};
 use crate::{
-    skills,
+    memory::skills,
     store::{NewSkill, SkillOwner, SkillPatch, Store},
 };
 use anyhow::{Result, anyhow};
@@ -211,7 +211,7 @@ fn limits() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{store::TestDb, user::UserKey};
+    use crate::{account::user::UserKey, store::TestDb};
     use flashmind::core::CancellationToken;
 
     async fn call(tool: &SkillTool, args: Value) -> ToolResult {

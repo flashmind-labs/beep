@@ -5,7 +5,7 @@ use super::{
     chats::{DeletedChat, delete_chat, touch},
     updates::{Readers, UpdateOp, log_chat, log_messages},
 };
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row, postgres::PgRow};

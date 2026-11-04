@@ -10,8 +10,8 @@ use beep_node::{
     link::{Offers, Protocol},
 };
 use beep_server::{
+    agent::models::ModelChoices,
     app::{App, ServerTools},
-    models::ModelChoices,
     nodes::{self, Online, transfer::Progress},
     protocol::{DeviceKind, node::transfer::Stage},
     store::{NewKey, TestDb},
@@ -61,7 +61,7 @@ struct Server {
     _db: TestDb,
     app: Arc<App>,
     router: Router,
-    user: Arc<beep_server::user::User>,
+    user: Arc<beep_server::account::user::User>,
 }
 
 async fn server() -> Server {

@@ -1,15 +1,15 @@
-//! Importing projects onto the caller's machines and browsing their folders (`crate::imports`).
+//! Importing projects onto the caller's machines and browsing their folders (`crate::projects::imports`).
 
 use super::{Reply, branch_work::add_import_worktrees};
 use crate::{
-    imports::{self, Import, ImportError},
+    api::router::Cx,
+    projects::imports::{self, Import, ImportError},
     protocol::{
         ApiError, CopyProject, FindImportFork, HostRepos, ImportFork, ImportPreview, ImportProject,
         ImportedProject, ListHostRepos, ListImportedProjects, ListMachineFolder,
         ListProjectMachines, MachineFolder, PreviewImport, ProjectCopy, ProjectMachine,
         RemoveProject,
     },
-    router::Cx,
 };
 
 fn refusal(e: ImportError) -> ApiError {

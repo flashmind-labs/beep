@@ -1,7 +1,7 @@
 //! Accounts and the model settings each user picks.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 
 impl Store {

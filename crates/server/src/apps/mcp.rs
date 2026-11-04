@@ -1,7 +1,7 @@
 //! Remote MCP servers each user connects with OAuth, starting with Fastmail.
 //! Tokens live in `mcp_servers` and never reach the phone.
 
-use crate::{AsyncMutex, permissions::Acts, user::User};
+use crate::{AsyncMutex, account::user::User, apps::permissions::Acts};
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use flashmind::{
@@ -49,7 +49,6 @@ pub(crate) fn fastmail_name(n: usize) -> String {
     }
 }
 
-/// One connected Fastmail account.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FastmailAccount {
     /// Its server name, such as `fastmail-2`.
@@ -297,13 +296,7 @@ impl McpConfigProvider for StoreProvider {
     }
 
     async fn load_credentials(&self, name: &str) -> Result<Option<Value>> {
-        Ok(self
-            .user()?
-            .mcp_servers()
-            .await?
-            .into_iter()
-            .find(|row| row.name == name)
-            .and_then(|row| row.credentials))
+        self.user()?.mcp_credentials(name).await
     }
 }
 

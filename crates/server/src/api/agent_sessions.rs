@@ -2,6 +2,8 @@
 
 use super::{Reply, own_nodes::linked_keys};
 use crate::{
+    account::user::User,
+    api::router::Cx,
     app::App,
     nodes::Online,
     protocol::{
@@ -11,8 +13,6 @@ use crate::{
         },
         *,
     },
-    router::Cx,
-    user::User,
 };
 use anyhow::{Context, Result};
 use futures::{StreamExt, future::join_all, stream};

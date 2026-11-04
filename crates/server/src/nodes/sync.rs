@@ -3,12 +3,12 @@
 use super::{Nodes, Online};
 use crate::{
     AsyncMutex,
+    account::user::User,
     protocol::node::sync::{
         CONTROLS, Keep, MAX_SKIPPED, PROTOCOL, Project, ProjectStatus, RESCAN, Refused, Reply,
         Request, Skipped,
     },
     store::SyncRow,
-    user::User,
 };
 use anyhow::{Context, Result, bail};
 use iroh::{EndpointAddr, EndpointId};

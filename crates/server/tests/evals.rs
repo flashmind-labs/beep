@@ -4,21 +4,21 @@
 //! default. `just eval` runs them with the dev config, and `just eval wake`
 //! runs only the woken-agent cases.
 use beep_server::{
+    account::user::User,
+    agent::decision::DecisionTool,
+    agent::models::ModelChoices,
+    api::transport,
     app::{App, ServerTools},
     client::Node,
     config::Config,
-    decision::DecisionTool,
-    memories,
-    models::ModelChoices,
+    memory::memories,
+    memory::starters::Generator,
     protocol::{Chat, GetEvents, MemorySource, RunEvent},
     push::Pusher,
-    search::SearchTool,
-    starters::Generator,
+    routines::wake,
     store::{Fact, Location, TestDb, Validity},
     tools::Transitous,
-    transport,
-    user::User,
-    wake,
+    tools::search::SearchTool,
 };
 use chrono::{Duration as Days, Local, NaiveDate, Utc};
 use flashmind::{
