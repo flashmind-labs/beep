@@ -488,6 +488,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-mesh"
+version = "0.1.0"
+dependencies = [
+ "iroh",
+ "iroh-tickets",
+ "postcard",
+ "serde",
+ "strum 0.28.0",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "beep-node"
 version = "0.2.2"
 dependencies = [
