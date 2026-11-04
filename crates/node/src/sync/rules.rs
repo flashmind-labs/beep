@@ -221,6 +221,12 @@ pub(super) fn is_own(name: &str) -> bool {
         || (name.starts_with(".beep-") && (name.ends_with(".partial") || name.ends_with(".tmp")))
 }
 
+/// Whether `name` is a folder Syncthing keeps for itself. Its marker would
+/// tell a peer that Syncthing keeps the project there.
+pub(super) fn is_syncthings(name: &str) -> bool {
+    name == ".stfolder" || name == ".stversions"
+}
+
 impl Rules {
     /// Reads the rules of the project in `root`: the defaults for the
     /// marker files in it and its first-level folders, and its
@@ -250,6 +256,9 @@ impl Rules {
             };
             if name == ".git" {
                 return Some(Skip::rule(Rule::Git));
+            }
+            if name.to_str().is_some_and(is_syncthings) {
+                return Some(Skip::Own);
             }
             if parts.peek().is_none() && name.to_str().is_some_and(is_own) {
                 return Some(Skip::Own);
