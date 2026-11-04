@@ -7,7 +7,7 @@
 //! mesh, so `join` takes effect without a restart.
 
 use crate::{
-    link::connection::{Offers, Protocol, Who, changed, session, session_over},
+    link::connection::{Offers, Protocol, Who, changed, read_open, serve_open},
     link::local_socket::{Listener, Stream},
     machine::{env, stats},
 };
@@ -16,7 +16,7 @@ use beep_mesh::{
     DeviceKind, DeviceStatus, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream, SessionFn,
     StreamHandler,
 };
-use beep_proto::node::{LinkRx, LinkTx, status::Report};
+use beep_proto::node::{LinkRx, LinkTx, link, status::Report};
 use iroh::{
     Endpoint,
     endpoint::Connection,
@@ -25,6 +25,7 @@ use iroh::{
 use iroh_tickets::Ticket;
 use serde::de::IgnoredAny;
 use std::{
+    collections::BTreeSet,
     fmt::Write,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
@@ -32,6 +33,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
+    sync::watch,
     task::JoinSet,
     time::{MissedTickBehavior, interval, timeout},
 };
@@ -64,12 +66,30 @@ struct Inner {
     dir: PathBuf,
     name: String,
     offers: Mutex<Offers>,
+    /// Protocols a host will offer once its services are up.
+    later: watch::Sender<BTreeSet<String>>,
     active: Mutex<Option<Active>>,
 }
 
 impl Inner {
     fn offers(&self) -> MutexGuard<'_, Offers> {
         self.offers.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Serves a stream a peer, or this process, opened.
+    async fn serve(&self, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
+        let open = read_open(&mut rx).await?;
+        // A protocol still on its way is waited for; the others are not held up.
+        let mut later = self.later.subscribe();
+        if later
+            .wait_for(|later| !later.contains(&open.protocol))
+            .await
+            .is_err()
+        {
+            bail!("the node stopped");
+        }
+        let offers = self.offers().clone();
+        serve_open(tx, rx, open, offers, who).await
     }
 }
 
@@ -89,6 +109,7 @@ impl Peers {
                 dir,
                 name,
                 offers: Mutex::new(offers),
+                later: watch::channel(BTreeSet::new()).0,
                 active: Mutex::new(None),
             }),
         }
@@ -98,6 +119,28 @@ impl Peers {
     /// after the node is up.
     pub fn offer(&self, protocol: Arc<dyn Protocol>) {
         self.inner.offers().extra.push(protocol);
+    }
+
+    /// Names protocols a later `offer` will add, so a session that opens one
+    /// waits for it instead of being refused. `settle` ends the wait.
+    pub fn expect(&self, protocols: &[&str]) {
+        self.inner.later.send_modify(|later| {
+            later.extend(protocols.iter().map(|name| (*name).to_owned()));
+        });
+    }
+
+    /// Nothing more is coming: waiting sessions go on, to be served or refused.
+    pub fn settle(&self) {
+        self.inner.later.send_modify(BTreeSet::clear);
+    }
+
+    /// Lets go of the mesh, so it can stop. Peers are refused until `install`.
+    pub fn leave(&self) {
+        self.inner
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
     }
 
     /// The `beep-peer/1` handler.
@@ -189,9 +232,9 @@ impl Peers {
     pub fn local_session(&self) -> SessionFn {
         let peers = self.clone();
         Arc::new(move |tx: LinkTx, rx: LinkRx| {
-            let offers = peers.inner.offers().clone();
+            let peers = peers.clone();
             Box::pin(async move {
-                if let Err(e) = session_over(tx, rx, offers, Who::Everything).await {
+                if let Err(e) = peers.inner.serve(tx, rx, Who::Everything).await {
                     log::debug!("a local session ended: {e:#}");
                 }
             })
@@ -208,8 +251,10 @@ impl Peers {
                 let Some(inner) = peers.upgrade() else {
                     return;
                 };
-                let offers = inner.offers().clone();
-                let desktop_here = Peers { inner }.is_desktop();
+                let desktop_here = Peers {
+                    inner: inner.clone(),
+                }
+                .is_desktop();
                 let PeerStream {
                     peer,
                     kind,
@@ -220,7 +265,8 @@ impl Peers {
                     DeviceKind::Desktop => Who::Everything,
                     DeviceKind::Node => Who::Node { peer, desktop_here },
                 };
-                if let Err(e) = session(send, recv, offers, who).await {
+                let (tx, rx) = link(send, recv);
+                if let Err(e) = inner.serve(tx, rx, who).await {
                     log::debug!("a stream from {peer} ended: {e:#}");
                 }
             })

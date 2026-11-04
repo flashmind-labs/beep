@@ -171,6 +171,84 @@ async fn a_third_device_joins_through_one_member_and_reaches_the_other() {
 }
 
 #[tokio::test]
+async fn a_lone_device_leaves_its_mesh_for_another() {
+    let studio = create("Studio").await;
+    let ticket = studio
+        .mesh
+        .invite(DeviceKind::Desktop, Duration::from_secs(3600))
+        .await
+        .expect("ticket");
+    let lone = create("Laptop").await;
+    let (key, dir) = lone.stop().await;
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::join_replacing_lone(dir.path(), endpoint.clone(), &ticket, "Laptop")
+        .await
+        .expect("the lone device joins");
+    assert_eq!(mesh.devices().len(), 2);
+    until(&studio.mesh, |m| m.devices().len() == 2).await;
+    // The next start opens the new mesh, and nothing waits aside.
+    drop(mesh);
+    endpoint.close().await;
+    assert!(!dir.path().join("mesh.old").exists());
+    let again = Mesh::open(dir.path(), bind(&key).await)
+        .await
+        .expect("opens")
+        .expect("in a mesh");
+    assert_eq!(again.devices().len(), 2);
+}
+
+#[tokio::test]
+async fn a_device_with_company_does_not_leave_its_mesh() {
+    let studio = create("Studio").await;
+    let laptop = join(&studio, DeviceKind::Desktop, "Laptop").await;
+    let other = create("Other").await;
+    let ticket = other
+        .mesh
+        .invite(DeviceKind::Desktop, Duration::from_secs(3600))
+        .await
+        .expect("ticket");
+    let (key, dir) = laptop.stop().await;
+    let result = Mesh::join_replacing_lone(dir.path(), bind(&key).await, &ticket, "Laptop").await;
+    assert!(
+        matches!(result, Err(MeshError::NotLone)),
+        "{:?}",
+        result.map(|_| ())
+    );
+    // Still the old mesh.
+    let kept = Mesh::open(dir.path(), bind(&key).await)
+        .await
+        .expect("opens")
+        .expect("in a mesh");
+    assert_eq!(kept.devices().len(), 2);
+}
+
+#[tokio::test]
+async fn a_swap_cut_short_leaves_the_old_mesh_or_the_new_one() {
+    let lone = create("Laptop").await;
+    let (key, dir) = lone.stop().await;
+    let mesh_dir = dir.path().join("mesh");
+    let aside = dir.path().join("mesh.old");
+    // Cut after the old mesh moved aside, with the new one half written.
+    copy_dir(&mesh_dir, &aside);
+    std::fs::remove_file(mesh_dir.join("devices.bin")).expect("half written");
+    let opened = Mesh::open(dir.path(), bind(&key).await)
+        .await
+        .expect("opens")
+        .expect("the old mesh came back");
+    assert_eq!(opened.devices().len(), 1);
+    assert!(!aside.exists());
+    // Cut after the new mesh was complete, before the old one was removed.
+    drop(opened);
+    copy_dir(&mesh_dir, &aside);
+    let opened = Mesh::open(dir.path(), bind(&key).await)
+        .await
+        .expect("opens")
+        .expect("the new mesh stays");
+    assert_eq!(opened.devices().len(), 1);
+    assert!(!aside.exists());
+}
+
+#[tokio::test]
 async fn a_ticket_works_once() {
     let a = create("a").await;
     let ticket = a
