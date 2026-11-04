@@ -7,12 +7,12 @@ use anyhow::{Context, Result};
 use std::{
     fmt,
     fs::{self, File, OpenOptions},
-    io::{self, IsTerminal, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tracing::{Event, Level, Subscriber};
+use tracing::{Event, Subscriber};
 use tracing_log::NormalizeEvent;
 use tracing_subscriber::{
     EnvFilter,
@@ -34,7 +34,7 @@ pub fn start(default_filter: &str, stderr: bool, file: Option<RollingFile>) -> R
     let stderr = stderr.then(|| {
         tracing_subscriber::fmt::layer()
             .event_format(TextLayout)
-            .with_ansi(io::stderr().is_terminal())
+            .with_ansi(false)
             .with_writer(io::stderr)
     });
     let file = file.map(|file| {
@@ -70,11 +70,7 @@ where
         let meta = normalized.as_ref().unwrap_or_else(|| event.metadata());
         Utc.format_time(&mut writer)?;
         let level = meta.level();
-        if writer.has_ansi_escapes() {
-            write!(writer, "\x1b[{}m {level:>6}\x1b[0m", color(*level))?;
-        } else {
-            write!(writer, " {level:>6}")?;
-        }
+        write!(writer, " {level:>6}")?;
         let file = meta
             .file()
             .map(|file| {
@@ -87,17 +83,6 @@ where
         write!(writer, " {}: {file}:{line} ", meta.target())?;
         ctx.format_fields(writer.by_ref(), event)?;
         writeln!(writer)
-    }
-}
-
-/// The ANSI color of a level on a terminal.
-fn color(level: Level) -> u8 {
-    match level {
-        Level::ERROR => 31,
-        Level::WARN => 33,
-        Level::INFO => 32,
-        Level::DEBUG => 34,
-        Level::TRACE => 35,
     }
 }
 
