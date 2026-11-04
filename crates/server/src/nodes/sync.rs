@@ -8,9 +8,9 @@ use crate::{
         CONTROLS, Keep, MAX_SKIPPED, PROTOCOL, Project, ProjectStatus, RESCAN, Refused, Reply,
         Request, Skipped,
     },
-    store::SyncRow,
 };
 use anyhow::{Context, Result, bail};
+use beep_projects::imports::records::SyncRow;
 use iroh::{EndpointAddr, EndpointId};
 use std::{
     collections::{HashMap, HashSet},

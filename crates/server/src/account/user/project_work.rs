@@ -2,10 +2,7 @@
 
 use super::User;
 use crate::{
-    projects::model::{
-        IssueHost, IssueRef, MachinePath, ProjectId, RepoName, Roles, StartRequest, TaskId,
-        TaskState, Visibility, WorkerId, WorkerState,
-    },
+    projects::model::{ProjectId, StartRequest, TaskId, TaskState, WorkerId, WorkerState},
     protocol::PendingApproval,
     store::{
         CheckoutRow, IssueAuthor, NewTask, NewThreadChat, NewWorker, OpenCounts, ProjectRow,
@@ -13,6 +10,7 @@ use crate::{
     },
 };
 use anyhow::Result;
+use beep_projects::model::{IssueHost, IssueRef, MachinePath, RepoName, Roles, Visibility};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
 use uuid::Uuid;

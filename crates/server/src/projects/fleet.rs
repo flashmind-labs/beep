@@ -2,14 +2,12 @@
 
 use super::{
     Projects,
-    commands::Shell,
-    model::{MachinePath, StartRequest, WorkerAgent},
+    model::{StartRequest, WorkerAgent},
     worker::{self, StartError, Started},
 };
 use crate::{
     account::user::User,
     app::App,
-    memory::leak::PublicText,
     nodes::{Follower, Online, SHELL},
     protocol::node::{
         Capability, SyncthingFolder,
@@ -21,9 +19,32 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use beep_projects::{Shell, model::MachinePath};
+use beep_projects::{
+    issues::{MachineName, Machines},
+    leak::PublicText,
+};
 use iroh::EndpointId;
 use std::sync::Arc;
 use uuid::Uuid;
+
+/// Every machine's name, for messages; empty when they are unknown, since names only make a
+/// message clearer.
+pub(crate) async fn names_of(fleet: &(impl Fleet + ?Sized)) -> Vec<MachineName> {
+    match fleet.machines().await {
+        Ok(machines) => machines
+            .into_iter()
+            .map(|machine| MachineName {
+                id: machine.id,
+                name: machine.name,
+            })
+            .collect(),
+        Err(error) => {
+            log::info!("projects: the machines' names are unknown: {error:#}");
+            Vec::new()
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Machine {
@@ -40,12 +61,9 @@ pub(crate) struct Machine {
 }
 
 #[async_trait]
-pub(crate) trait Fleet: Send + Sync {
+pub(crate) trait Fleet: Machines {
     /// Every machine of the user's, online or not.
     async fn machines(&self) -> Result<Vec<Machine>>;
-
-    /// A shell on `machine`, while it is online and offers one.
-    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>>;
 
     /// Sends `request` to the files `machine` shares.
     async fn files(&self, machine: &EndpointId, request: &Request) -> Result<Reply>;
@@ -114,6 +132,25 @@ impl NodeFleet {
 }
 
 #[async_trait]
+impl Machines for NodeFleet {
+    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>> {
+        let online = self.online(machine).filter(|online| online.offers(SHELL))?;
+        #[cfg(test)]
+        if let Some(prefix) = self.app.projects.shell_prefix() {
+            return Some(Arc::new(super::testing::Prefixed {
+                prefix,
+                shell: Arc::new(online),
+            }));
+        }
+        Some(Arc::new(online))
+    }
+
+    async fn names(&self) -> Vec<MachineName> {
+        names_of(self).await
+    }
+}
+
+#[async_trait]
 impl Fleet for NodeFleet {
     async fn machines(&self) -> Result<Vec<Machine>> {
         let rows = self.user.nodes().await?;
@@ -142,18 +179,6 @@ impl Fleet for NodeFleet {
             });
         }
         Ok(machines)
-    }
-
-    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>> {
-        let online = self.online(machine).filter(|online| online.offers(SHELL))?;
-        #[cfg(test)]
-        if let Some(prefix) = self.app.projects.shell_prefix() {
-            return Some(Arc::new(super::testing::Prefixed {
-                prefix,
-                shell: Arc::new(online),
-            }));
-        }
-        Some(Arc::new(online))
     }
 
     async fn files(&self, machine: &EndpointId, request: &Request) -> Result<Reply> {

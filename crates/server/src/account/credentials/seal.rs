@@ -1,7 +1,7 @@
 //! Seals credentials with a key derived from the server's secret key, so the database alone opens nothing.
 
-use super::Slot;
 use anyhow::{Result, anyhow, ensure};
+use beep_projects::credentials::Slot;
 use chacha20poly1305::{
     ChaCha20Poly1305, Key, KeyInit, Nonce,
     aead::{Aead, OsRng, Payload, rand_core::RngCore},

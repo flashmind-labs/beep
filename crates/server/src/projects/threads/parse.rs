@@ -1,13 +1,11 @@
 //! Issue and pull request threads as the hosts' CLIs print them.
 
-use super::{
-    super::{
-        commands::{json, text},
-        issues::head,
-    },
-    LAST_LINE, ThreadKind,
-};
+use super::{LAST_LINE, ThreadKind};
 use anyhow::{Result, anyhow};
+use beep_projects::{
+    commands::{json, text},
+    issues::head,
+};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 

@@ -2,11 +2,14 @@
 
 use super::{super::Store, ACCOUNT, AGENT_TOKEN, AgentTokenRow, account_from, opens, slot_from};
 use crate::{
-    account::credentials::{CredentialKey, GitHubLogin, Opened, Owner, Slot},
-    account::user::UserKey,
+    account::{
+        credentials::{CredentialKey, Owner},
+        user::UserKey,
+    },
     protocol::AgentAccount,
 };
 use anyhow::Result;
+use beep_projects::credentials::{GitHubLogin, Opened, Slot};
 use sqlx::Row;
 
 impl Store {

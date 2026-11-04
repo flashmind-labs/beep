@@ -563,6 +563,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-projects"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "beep-proto",
+ "bytes",
+ "chrono",
+ "futures",
+ "iroh",
+ "log",
+ "reqwest 0.12.28",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "shlex 1.3.0",
+ "strum 0.28.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "beep-proto"
 version = "0.1.0"
 dependencies = [
@@ -601,6 +625,7 @@ dependencies = [
  "base64 0.22.1",
  "beep-mesh",
  "beep-node",
+ "beep-projects",
  "beep-proto",
  "blake3",
  "bytes",

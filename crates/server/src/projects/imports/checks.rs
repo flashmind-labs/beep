@@ -2,26 +2,24 @@
 //! the paths its folders on other machines suggest, then through the found-folders scan. Looks run
 //! in the background under [`Checkouts`], bounded per machine, server-wide and in queue.
 
-use super::{
-    folder::FolderPath,
-    preview::{parse_remotes, remotes_script},
-    remove,
-    repo::same_repo,
-};
+use super::remove;
 use crate::{
-    account::credentials::ForgejoUrl,
     account::user::User,
     app::App,
     lock,
     nodes::SHELL,
-    projects::{branches::run_script, commands::Shell},
     protocol::{
         ProjectMachine,
         node::agent::{SESSIONS_PROTOCOL, SessionFolder},
     },
-    store::{ImportRow, NewImport, NodeRow},
+    store::NodeRow,
 };
 use anyhow::Context;
+use beep_projects::branches::run_script;
+use beep_projects::imports::preview::{parse_remotes, remotes_script};
+use beep_projects::imports::records::{ImportRow, NewImport};
+use beep_projects::imports::{folder::FolderPath, repo::same_repo};
+use beep_projects::{Shell, model::ForgejoUrl};
 use chrono::{DateTime, TimeDelta, Utc};
 use std::{
     cmp::Reverse,
@@ -227,7 +225,7 @@ async fn look_through(app: &Arc<App>, user: &Arc<User>, endpoint: &str) -> anyho
 
 /// The Forgejo servers the user has a token for.
 pub(super) async fn forgejo_servers(app: &App, user: &User) -> anyhow::Result<Vec<ForgejoUrl>> {
-    Ok(super::service::forgejo_of(
+    Ok(beep_projects::imports::hosts::forgejo_of(
         &user.git_credentials(&app.credential_key).await?,
     ))
 }
@@ -474,11 +472,11 @@ mod tests {
     use super::*;
     use crate::{
         memory::watchers::testing::{Harness, Scripted},
-        projects::commands::CommandOutput,
         protocol::node::{EnvReport, agent::AgentSessions},
         store::NewNode,
     };
     use async_trait::async_trait;
+    use beep_projects::ShellOutput;
     use iroh::SecretKey;
     use std::{path::Path, process::Command};
 
@@ -626,11 +624,12 @@ mod tests {
 
     #[async_trait]
     impl Shell for Local {
-        async fn run(&self, command: &str, _limit: Duration) -> anyhow::Result<CommandOutput> {
+        async fn run(&self, command: &str, _limit: Duration) -> anyhow::Result<ShellOutput> {
             let ran = Command::new("sh").arg("-c").arg(command).output()?;
-            Ok(CommandOutput {
-                code: ran.status.code(),
-                out: String::from_utf8_lossy(&ran.stdout).into_owned(),
+            Ok(ShellOutput {
+                exit_code: ran.status.code(),
+                timed_out: false,
+                output: String::from_utf8_lossy(&ran.stdout).into_owned(),
             })
         }
     }

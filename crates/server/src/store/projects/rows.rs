@@ -2,13 +2,15 @@
 
 use crate::{
     projects::model::{
-        IssueHost, IssueRef, MAX_MACHINE_WORKERS, MAX_PROJECT_WORKERS, MAX_USER_WORKERS,
-        MachinePath, ProjectId, RepoName, Roles, StartRequest, TaskId, TaskSlug, TaskState,
-        Visibility, WorkerAgent, WorkerId, WorkerState,
+        MAX_MACHINE_WORKERS, MAX_PROJECT_WORKERS, MAX_USER_WORKERS, ProjectId, StartRequest,
+        TaskId, TaskState, WorkerAgent, WorkerId, WorkerState,
     },
     protocol::{TaskCounts, node::Capability},
 };
 use anyhow::{Context, Result, anyhow};
+use beep_projects::model::{
+    IssueHost, IssueRef, MachinePath, RepoName, Roles, TaskSlug, Visibility,
+};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
 use sqlx::{Row, postgres::PgRow};

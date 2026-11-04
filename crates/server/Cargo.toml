@@ -17,6 +17,7 @@ async-trait = "0.1"
 base64 = "0.22"
 beep-mesh = { path = "../mesh" }
 beep-proto = { path = "../proto", features = ["logging"] }
+beep-projects = { path = "../projects" }
 blake3 = "1"
 bytes = "1"
 chacha20poly1305 = "0.10"
@@ -66,6 +67,7 @@ typst-pdf = { version = "0.15", optional = true }
 typst-kit = { version = "0.15", default-features = false, features = ["embedded-fonts"], optional = true }
 
 [dev-dependencies]
+beep-projects = { path = "../projects", features = ["testing"] }
 async-stream = "0.3"
 # The node tests run a real node against the server.
 beep-node = { path = "../node" }

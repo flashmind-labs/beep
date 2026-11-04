@@ -7,12 +7,13 @@ use super::{
 };
 use crate::{
     api::router::Cx,
-    projects::imports::{self, MachineFound},
+    projects::imports,
     protocol::{
         node::agent::{ExternalSession, Presence, SESSIONS_PROTOCOL},
         *,
     },
 };
+use beep_projects::imports::found::MachineFound;
 use futures::{StreamExt, stream};
 use std::{
     cmp::Reverse,

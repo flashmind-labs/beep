@@ -2,10 +2,8 @@
 
 use super::{
     super::{
-        commands::{HostCommand, PrState, parse_pr, pr_fingerprint},
         fleet::{self, Fleet},
-        issues::run_host,
-        model::{CHECK_EVERY, IssueHost, ProjectId, TaskState, pr_number},
+        model::{CHECK_EVERY, ProjectId, TaskState},
         schedule::Due,
         turn::CHECK_LABEL,
     },
@@ -18,6 +16,11 @@ use crate::{
     store::{ProjectRow, TaskRow},
 };
 use anyhow::{Context, Result};
+use beep_projects::{
+    commands::{HostCommand, PrState, parse_pr, pr_fingerprint},
+    issues::run_host,
+    model::{IssueHost, pr_number},
+};
 use chrono::{DateTime, Utc};
 use std::{fmt::Write, sync::Arc};
 use tokio::time::timeout;
@@ -143,9 +146,12 @@ pub(super) async fn pr_status(
         .await
         .map_err(anyhow::Error::msg)?;
     let command = HostCommand::PrStatus { number };
-    let out = timeout(PR_LIMIT, run_host(home.as_ref(), prs, project, command))
-        .await
-        .context("the host did not answer in time")??;
+    let out = timeout(
+        PR_LIMIT,
+        run_host(home.as_ref(), prs, &project.name, command),
+    )
+    .await
+    .context("the host did not answer in time")??;
     parse_pr(prs, &out)
 }
 

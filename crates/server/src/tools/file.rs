@@ -4,12 +4,11 @@ use super::{
     args::text,
     machines::{Machines, Need, copy, transfer},
 };
-use crate::{
-    account::user::User, nodes::workspace::Workspace, projects::model::MachinePath, tools::fetch,
-};
+use crate::{account::user::User, nodes::workspace::Workspace, tools::fetch};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_projects::model::MachinePath;
 use flashmind::{
     tools::mcp::{McpContent, McpToolCallResult},
     types::tool::{Tool, ToolContext, ToolResult},

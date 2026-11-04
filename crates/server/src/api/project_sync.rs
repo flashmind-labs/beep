@@ -11,8 +11,9 @@ use crate::{
         node::sync::{Keep, Progress, ProjectStatus, Rule, SkippedPath, State},
         *,
     },
-    store::{ImportRow, NodeRow, SyncRow},
+    store::NodeRow,
 };
+use beep_projects::imports::records::{ImportRow, SyncRow};
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use std::collections::{BTreeMap, HashMap, HashSet};

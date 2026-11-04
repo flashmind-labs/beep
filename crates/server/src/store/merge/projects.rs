@@ -1,10 +1,8 @@
 //! A merged account's projects, matched by case-insensitive name; a clash renames the moved one via [`copy_name`].
 
-use crate::{
-    api::project_sync::MAX_NAME,
-    projects::model::{MAX_REPO_PART, RepoName},
-};
+use crate::api::project_sync::MAX_NAME;
 use anyhow::Result;
+use beep_projects::model::{MAX_REPO_PART, RepoName};
 use sqlx::PgConnection;
 use std::collections::HashSet;
 
@@ -116,19 +114,17 @@ async fn names(tx: &mut PgConnection, user: &str) -> Result<Vec<Name>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        api::project_sync::project_name,
-        projects::imports::{
-            place::{Folders, checkout_folder},
-            repo::RepoRef,
-        },
+    use crate::{api::project_sync::project_name, projects::model::memory_scope};
+    use beep_projects::imports::{
+        place::{Folders, checkout_folder},
+        repo::RepoRef,
     };
 
     /// Every rule a project name must pass across imports, sync, memory and checkout folders.
     fn passes_every_rule(name: &str) {
         let repo = RepoName::parse(name).unwrap_or_else(|e| panic!("{name}: {e}"));
         // A project's memories are scoped by its repository part.
-        repo.memory_scope().expect("a memory scope");
+        memory_scope(&repo).expect("a memory scope");
         assert_eq!(project_name(name).ok(), Some(name));
         let import = RepoRef::parse(name, &[]).unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert_eq!(import.project(), name);

@@ -3,10 +3,11 @@
 use super::{super::Store, MAX_SLUG_SUFFIX, TASK_COLUMNS, end, task_from};
 use crate::{
     account::user::UserKey,
-    projects::model::{IssueHost, IssueRef, ProjectId, StartRequest, TaskId, TaskSlug, TaskState},
+    projects::model::{ProjectId, StartRequest, TaskId, TaskState},
     store::{After, IssueAuthor, NewTask, TaskRow, TrackedIssue},
 };
 use anyhow::{Context, Result, bail};
+use beep_projects::model::{IssueHost, IssueRef, TaskSlug};
 use sqlx::PgConnection;
 use std::collections::HashSet;
 use uuid::Uuid;
