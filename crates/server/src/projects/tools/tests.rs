@@ -1,8 +1,17 @@
+use super::super::{
+    gate::{GatedExec, GatedProcess, ProjectGate},
+    issues::{self},
+    model::{IssueHost, MachinePath, TaskState, Visibility},
+};
 use super::*;
+use crate::{
+    account::user::User,
+    protocol::{Approval, node::Capability},
+    store::{CheckoutRow, NewTask, ProjectRow, TaskRow},
+};
 use crate::{
     apps::permissions::{ApprovalPayload, Rules},
     projects::{
-        gate::GatedProcess,
         model::{IssueRef, RepoName, Roles},
         testing::{FakeFleet, FakeShell, RecordingTool},
     },
@@ -10,7 +19,11 @@ use crate::{
     store::{AppPermissionRow, IssueAuthor, TestDb, TrackedIssue},
 };
 use flashmind::core::CancellationToken;
+use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use iroh::EndpointId;
+use serde_json::{Value, json};
+use std::sync::Arc;
+use uuid::Uuid;
 
 const ISSUE_URL: &str = "https://github.com/acme/widget/issues/";
 

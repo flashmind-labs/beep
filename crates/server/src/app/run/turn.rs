@@ -1,6 +1,6 @@
-//! Runs one turn of the agent and saves it.
+//! One turn of the assistant: tools, context, the model loop and its checks.
 
-use super::{
+use super::super::{
     App, Message,
     auto::Prompt,
     device::Parked,
@@ -10,6 +10,16 @@ use super::{
     },
     memory_context, research,
 };
+use super::IDLE_TIMEOUT;
+use super::MAX_CONTINUES;
+use super::MAX_RUN;
+use super::MEMORY_RECALL_TIMEOUT;
+use super::SCHEDULED_TASK_CHARS;
+use super::TOOL_IDLE_TIMEOUT;
+use super::keep_stopped;
+use super::languages_line;
+use super::register_web_tools;
+use super::system_prompt;
 use crate::{
     account::user::User,
     agent::followups,
@@ -45,13 +55,8 @@ use anyhow::Result;
 use chrono::Utc;
 use flashmind::{
     core::{Agent, Conversation, ConversationEntry},
-    tools::{
-        firecrawl::{WebCrawlTool, WebExtractTool, WebMapTool, WebScrapeTool},
-        search_cache::{SearchCacheRef, SearchResultCache},
-        search_read::WebSearchReadTool,
-    },
     types::{
-        AgentEvent, AgentInput, ContentPart, ToolRegistry,
+        AgentEvent, AgentInput, ContentPart,
         tool::{Tool, ToolResult},
     },
 };
@@ -64,34 +69,13 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
-use tokio::{
-    sync::RwLock,
-    time::{Instant, sleep, timeout},
-};
+use tokio::time::{Instant, sleep, timeout};
 use uuid::Uuid;
 
-/// The system prompt of every chat turn.
-const ASSISTANT_PROMPT: &str = include_str!("../../prompts/assistant.md");
-
-/// The longest any run may take; the repeat guards stop a looping model sooner.
-const MAX_RUN: Duration = Duration::from_secs(15 * 60);
-/// How many times a reply that stopped partway through the task is sent back to continue.
-const MAX_CONTINUES: usize = 6;
-
-/// How long a run may go without a single event from the model or a tool.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
-/// The idle limit while a tool runs: crawls poll quietly for up to two minutes.
-const TOOL_IDLE_TIMEOUT: Duration = Duration::from_secs(150);
-/// A slow embedding must not hold up the conversation indefinitely.
-const MEMORY_RECALL_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// How much of a scheduled task the reply checks read.
-const SCHEDULED_TASK_CHARS: usize = 160;
-
 impl App {
-    pub(super) async fn execute(
+    pub(in crate::app) async fn execute(
         self: &Arc<Self>,
         user: &Arc<User>,
         run: &Run,
@@ -1307,7 +1291,7 @@ impl App {
     }
 
     /// Ends a run stopped before the model started, saving nothing of the turn.
-    async fn stopped_early(&self, user: &User, run: &Run, live: &LiveRun) -> Result<()> {
+    pub(super) async fn stopped_early(&self, user: &User, run: &Run, live: &LiveRun) -> Result<()> {
         let status = self.stopped();
         user.finish(run, None, status).await?;
         live.push(RunEvent::RunFinished {
@@ -1318,7 +1302,7 @@ impl App {
     }
 
     /// The media tools `user`'s API keys enable; none when keys are missing or unreadable.
-    async fn media_tools(
+    pub(super) async fn media_tools(
         &self,
         user: &Arc<User>,
         chat: Uuid,
@@ -1348,7 +1332,7 @@ impl App {
     }
 
     /// The tasks `user` has scheduled other than `running`, one line each.
-    async fn scheduled_tasks(&self, user: &User, running: Option<&str>) -> Vec<String> {
+    pub(super) async fn scheduled_tasks(&self, user: &User, running: Option<&str>) -> Vec<String> {
         let jobs = match self.store.cron_jobs(Some(user.id())).await {
             Ok(jobs) => jobs,
             Err(error) => {
@@ -1366,7 +1350,7 @@ impl App {
     }
 
     /// How a run ends when it is told to stop: shutting down interrupts it.
-    fn stopped(&self) -> RunStatus {
+    pub(super) fn stopped(&self) -> RunStatus {
         if self.shutting_down.load(Ordering::Relaxed) {
             RunStatus::Interrupted
         } else {
@@ -1374,75 +1358,3 @@ impl App {
         }
     }
 }
-
-/// What the user saw of a run they stopped, kept in `conversation` so the
-/// chat shows it and the model reads it next turn: each call still running
-/// answered as stopped, then the text and reasoning streamed since the last
-/// tool calls, ending in a note that the user stopped it. Returns the
-/// stopped calls.
-pub(super) fn keep_stopped(
-    conversation: &mut Conversation,
-    said: String,
-    thought: String,
-) -> Vec<String> {
-    let open: Vec<String> = permissions::open_calls(conversation)
-        .into_iter()
-        .map(|call| call.id)
-        .collect();
-    permissions::close_open_calls(conversation, STOPPED_CALL);
-    let said = said.trim_end();
-    let content = if said.is_empty() {
-        STOPPED.to_owned()
-    } else {
-        format!("{said}\n\n{STOPPED}")
-    };
-    let thought = Some(thought).filter(|thought| !thought.trim().is_empty());
-    conversation.add(ConversationEntry::assistant_with_reasoning(
-        content, thought,
-    ));
-    open
-}
-
-/// A call's result when the user stopped the run while it ran.
-const STOPPED_CALL: &str = "Stopped by the user before it finished.";
-/// The note a stopped turn ends with.
-pub(super) const STOPPED: &str = "_Stopped_";
-
-/// Firecrawl's page tools, with a per-run cache so `web_search_read` only reaches this run's pages.
-pub(super) fn register_web_tools(registry: &mut ToolRegistry, key: &str) {
-    for tool in web_tools(key) {
-        registry.register(tool);
-    }
-}
-
-/// Firecrawl's page tools, sharing one cache.
-pub(super) fn web_tools(key: &str) -> Vec<Arc<dyn Tool>> {
-    let cache: SearchCacheRef = Arc::new(RwLock::new(SearchResultCache::new()));
-    vec![
-        Arc::new(WebScrapeTool::new(key.to_owned())),
-        Arc::new(WebMapTool::new(key.to_owned())),
-        Arc::new(WebCrawlTool::new(key.to_owned(), cache.clone())),
-        Arc::new(WebExtractTool::new(key.to_owned())),
-        Arc::new(WebSearchReadTool::new(cache)),
-    ]
-}
-
-/// The server-owned system prompt: a research lead's, a project agent's, or the assistant's.
-fn system_prompt(research: bool, project: bool) -> &'static str {
-    match (research, project) {
-        (true, _) => research::LEAD_PROMPT,
-        (false, true) => project_turn::PROJECT_PROMPT,
-        (false, false) => ASSISTANT_PROMPT,
-    }
-}
-
-fn languages_line(languages: &str) -> String {
-    format!(
-        "Languages: {languages} Reply in the language of the user's message. When it mixes \
-         languages, or a stray word or a misspelling makes it look like one they do not \
-         speak, reply in English if they speak it, else in the first language they speak."
-    )
-}
-
-#[cfg(test)]
-mod tests;
