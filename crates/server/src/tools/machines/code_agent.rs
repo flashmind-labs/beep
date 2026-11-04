@@ -5,7 +5,7 @@ use super::{
     agents::{self, Asker, DEFAULT_LAST, DEFAULT_WAIT_SECS, MAX_WAIT_SECS, Order},
     finish, in_parameter,
 };
-use crate::protocol::node::agent;
+use crate::protocol::node::agent::{self, Steer};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -29,8 +29,13 @@ const DESCRIPTION: &str = "Run coding agents (Claude Code, Codex, Gemini CLI, pi
     started themselves (in a terminal or IDE): `sessions` with `all: true` lists them too, \
     `transcript` reads one, `follow` posts in this chat when it finishes a turn or waits for \
     the user (`unfollow` stops), and `takeover` resumes one that nothing runs any more as a \
-    session here, with an optional `prompt`. One open in the user's terminal can only be \
-    followed. Start a session on a machine that can do the work: iOS and Mac apps build only \
+    session here, with an optional `prompt`. One open in the user's terminal can be checked \
+    and steered through beep-node's hooks: `live` says what it does now (working or waiting, \
+    the tool running and for how long, last error, todos, files changed, last message), \
+    `steer` sends it `prompt`, which Claude reads after the current tool call or instead of \
+    ending its turn, and `interrupt` stops it at its next tool call. One idle at its prompt \
+    cannot be steered. In a spoken reply, say `live`'s first line and offer to dig in (test \
+    output, the diff) rather than reading the details aloud. Start a session on a machine that can do the work: iOS and Mac apps build only \
     on macOS with xcode. Agents run with their own permission prompts off, so they act without \
     asking; a question that still comes is one the agent puts to the user. Answer it yourself \
     if the answer is clearly within what the user asked. When it is risky, destructive or \
@@ -59,6 +64,9 @@ enum Action {
     Follow,
     Unfollow,
     Takeover,
+    Live,
+    Steer,
+    Interrupt,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -170,6 +178,17 @@ impl Args {
                 prompt: self.prompt(),
                 wait: self.wait(),
             },
+            Action::Live => Order::Live { id: self.id()? },
+            Action::Steer => Order::Steer {
+                id: self.id()?,
+                steer: Steer::Message {
+                    text: self.needs_prompt()?,
+                },
+            },
+            Action::Interrupt => Order::Steer {
+                id: self.id()?,
+                steer: Steer::Stop {},
+            },
         }))
     }
 }
@@ -198,11 +217,11 @@ impl Tool for CodeAgentTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["start", "status", "sessions", "prompt", "answer", "cancel", "close", "transcript", "follow", "unfollow", "takeover"]
+                    "enum": ["start", "status", "sessions", "prompt", "answer", "cancel", "close", "transcript", "follow", "unfollow", "takeover", "live", "steer", "interrupt"]
                 },
                 "agent": { "type": "string", "enum": ["claude", "codex", "gemini", "pi", "flsh", "opencode"] },
                 "id": { "type": "string", "description": "The session id" },
-                "prompt": { "type": "string", "description": "The prompt for start, prompt and takeover, or the answer for answer" },
+                "prompt": { "type": "string", "description": "The prompt for start, prompt and takeover, the message for steer, or the answer for answer" },
                 "cwd": { "type": "string", "description": "The folder start runs the agent in" },
                 "wait_secs": { "type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECS },
                 "last": { "type": "integer", "minimum": 1, "description": "How many transcript entries" },
@@ -226,7 +245,8 @@ impl Tool for CodeAgentTool {
             Some("follow") => format!("Following {agent}"),
             Some("unfollow") => format!("Unfollowing {agent}"),
             Some("takeover") => format!("Taking over {agent}"),
-            Some("prompt") => format!("Messaging {agent}"),
+            Some("prompt" | "steer") => format!("Messaging {agent}"),
+            Some("interrupt") => format!("Stopping {agent}"),
             Some("answer") => format!("Answering {agent}"),
             Some("cancel" | "close") => format!("Stopping {agent}"),
             _ => format!("Checking {agent}"),

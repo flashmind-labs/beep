@@ -46,6 +46,8 @@ pub(crate) enum Acts {
     WhenMoving,
     /// Only when `to` names one of the user's machines.
     WhenToMachine,
+    /// Only when it steers a coding agent session the user runs.
+    WhenSteering,
 }
 
 impl Acts {
@@ -59,6 +61,10 @@ impl Acts {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .is_some_and(|to| !to.is_empty() && !to.eq_ignore_ascii_case("user")),
+            Acts::WhenSteering => matches!(
+                args.get("action").and_then(Value::as_str),
+                Some("steer" | "interrupt")
+            ),
         }
     }
 
@@ -70,6 +76,8 @@ impl Acts {
 
 /// `send_file` as rules keep it.
 const SEND_FILE: &str = "SEND_FILE";
+/// `code_agent` as rules keep it: steering a session the user runs acts.
+const CODE_AGENT: &str = "CODE_AGENT";
 /// `add_machine` as rules keep it: a setup token grants account access, so it acts.
 const ADD_MACHINE: &str = "ADD_MACHINE";
 /// `import_project` as rules keep it: it clones with the user's tokens.
@@ -180,6 +188,9 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = tool.as_str();
     if tool == SEND_FILE {
         return Some((ToolApp::Machines, Acts::WhenToMachine));
+    }
+    if tool == CODE_AGENT {
+        return Some((ToolApp::Machines, Acts::WhenSteering));
     }
     if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, SEND_FILES].contains(&tool) {
         return Some((ToolApp::Machines, Acts::Always));
@@ -1264,6 +1275,11 @@ mod tests {
         );
         assert!(call_acts("MCP_MY-NOTES_SEARCH_PAGES", &Value::Null).is_none());
         assert!(lookup("MCP_").is_none());
+        let (app, acts) = lookup("code_agent").unwrap();
+        assert_eq!((app.slug(), acts), (MACHINES_APP, Acts::WhenSteering));
+        assert!(acts.on(&json!({ "action": "steer", "id": "a", "prompt": "stop" })));
+        assert!(acts.on(&json!({ "action": "interrupt", "id": "a" })));
+        assert!(!acts.on(&json!({ "action": "live", "id": "a" })));
     }
 
     #[test]
