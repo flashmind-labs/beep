@@ -422,4 +422,25 @@ mod tests {
             assert_eq!(branch_name(bad), None, "{bad:?}");
         }
     }
+
+    #[test]
+    fn forgejo_urls_are_made_canonical() {
+        let url: ForgejoUrl = " https://git.example.com/api/v1/?x=1 ".parse().unwrap();
+        assert_eq!(url.as_str(), "https://git.example.com");
+        let url: ForgejoUrl = "https://code.example.org:3000/forge/".parse().unwrap();
+        assert_eq!(url.as_str(), "https://code.example.org:3000/forge");
+        assert_eq!(url.host(), "code.example.org:3000");
+        let url: ForgejoUrl = "http://forge.local:3000".parse().unwrap();
+        assert_eq!(url.as_str(), "http://forge.local:3000");
+        // Over a VPN a server named like one on the internet can be plain http.
+        let url: ForgejoUrl = "http://git.example.com:8087".parse().unwrap();
+        assert_eq!(url.as_str(), "http://git.example.com:8087");
+        assert!("ftp://git.example.com".parse::<ForgejoUrl>().is_err());
+        assert!("git.example.com".parse::<ForgejoUrl>().is_err());
+        assert!(
+            "https://me:pw@git.example.com"
+                .parse::<ForgejoUrl>()
+                .is_err()
+        );
+    }
 }

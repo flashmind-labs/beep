@@ -3,7 +3,7 @@
 use super::Reply;
 use crate::{
     account::credentials::{
-        Checked, Checker, Slot, is_public, last4,
+        Checked, Checker, is_public, last4,
         machines::{MAX_MACHINES, Reach, check_from},
     },
     api::router::Cx,
@@ -15,6 +15,7 @@ use crate::{
     },
     store::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount},
 };
+use beep_projects::credentials::Slot;
 use secrecy::{ExposeSecret, SecretString};
 use std::{sync::Arc, time::SystemTime};
 

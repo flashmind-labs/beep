@@ -8,11 +8,14 @@ mod tokens;
 
 use super::Store;
 use crate::{
-    account::credentials::{CredentialKey, Owner, Slot},
-    account::user::UserKey,
+    account::{
+        credentials::{CredentialKey, Owner},
+        user::UserKey,
+    },
     protocol::{AgentAccount, ApiProvider, CredentialKind},
 };
 use anyhow::{Result, bail};
+use beep_projects::credentials::Slot;
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use sqlx::{PgConnection, Row};

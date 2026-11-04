@@ -2,9 +2,10 @@
 
 use super::credential_of;
 use crate::{
-    account::credentials::{Opened, Slot, host_client, is_public},
+    account::credentials::{host_client, is_public},
     app::App,
 };
+use beep_projects::credentials::{Opened, Slot};
 use beep_projects::{
     git_items::{Caller, forks::Api},
     imports::{
