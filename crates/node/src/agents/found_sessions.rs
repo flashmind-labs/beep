@@ -2,7 +2,7 @@
 
 use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted, holders, images,
+    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted, holders,
 };
 use crate::{
     agents::claude::{self, External},
@@ -307,8 +307,8 @@ impl Agents {
         let Some(file) = self.session_file(session).await? else {
             return Ok(None);
         };
-        let wanted = key.to_owned();
-        let found = spawn_blocking(move || images::find_in_file(&file, &wanted))
+        let (images, wanted) = (self.images.clone(), key.to_owned());
+        let found = spawn_blocking(move || images.find_in_file(&file, &wanted))
             .await?
             .context("reading the session's file")?;
         let Some(picture) = found else {

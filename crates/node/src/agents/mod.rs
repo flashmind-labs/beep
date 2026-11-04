@@ -25,6 +25,7 @@ mod found_sessions;
 mod harnesses;
 mod holders;
 mod image_files;
+mod image_index;
 mod images;
 mod kinds;
 mod live;
