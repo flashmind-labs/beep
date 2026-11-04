@@ -24,10 +24,10 @@ const RESERVE_PERCENT: u64 = 10;
 const MIN_RESERVE: u64 = 512;
 
 /// What raises the watch limit.
-const WATCHES_HINT: &str = "Beep rescans this folder every 45 s because the inotify watch limit \
+const WATCHES_HINT: &str = "Beep rescans this folder every 5 minutes because the inotify watch limit \
     is reached. Raise it with `sudo sysctl fs.inotify.max_user_watches=524288`, and add \
     `fs.inotify.max_user_watches=524288` to a file in /etc/sysctl.d/ to keep it.";
-const INSTANCES_HINT: &str = "Beep rescans this folder every 45 s because no inotify instance \
+const INSTANCES_HINT: &str = "Beep rescans this folder every 5 minutes because no inotify instance \
     is left. Raise the limit with `sudo sysctl fs.inotify.max_user_instances=512`, and add \
     `fs.inotify.max_user_instances=512` to a file in /etc/sysctl.d/ to keep it.";
 
