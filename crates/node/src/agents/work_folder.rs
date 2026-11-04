@@ -4,13 +4,14 @@
 //! session written into it (`SessionsRequest::Folder`, `ReadFile` and
 //! `WriteFile`). Nothing outside
 //! the folder is read or written: every path is checked once its symlinks
-//! resolve.
+//! resolve. The Mac app reads a synced copy of a project the same way
+//! (`local_tree`, `local_read`).
 
 use super::media_file::Chunk;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
-    AGENT_FILE_CHUNK, GitChange, MAX_TREE_DEPTH, MAX_TREE_ENTRIES, MAX_WORK_ENTRIES,
-    MAX_WORK_UPLOAD, WorkEntry, WorkFolder, WorkTree, media_mime,
+    AGENT_FILE_CHUNK, AgentFileChunk, GitChange, MAX_TREE_DEPTH, MAX_TREE_ENTRIES,
+    MAX_WORK_ENTRIES, MAX_WORK_UPLOAD, WorkEntry, WorkFolder, WorkTree, media_mime,
 };
 use ignore::WalkBuilder;
 use std::{
@@ -391,6 +392,34 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
     }))
 }
 
+/// The folder `path` inside the folder `root` on this machine and those
+/// under it, as `tree` reads them. Blocks on the file system and git.
+pub fn local_tree(root: &Path, path: &str, ignored: bool, depth: u32) -> Result<WorkTree> {
+    tree(&local_root(root)?, path, ignored, depth)
+}
+
+/// Part of the file `path` inside the folder `root` on this machine, as
+/// `read` gives it. Blocks on the file system.
+pub fn local_read(
+    root: &Path,
+    path: &str,
+    offset: u64,
+    len: u32,
+) -> Result<Option<AgentFileChunk>> {
+    let chunk = read(&local_root(root)?, path, offset, len)?;
+    Ok(chunk.map(|chunk| AgentFileChunk {
+        size: chunk.size,
+        mime: chunk.mime.to_owned(),
+        data: chunk.data,
+    }))
+}
+
+fn local_root(root: &Path) -> Result<WorkRoot> {
+    let real = fs::canonicalize(root)
+        .with_context(|| format!("the folder {} is not there", root.display()))?;
+    WorkRoot::at(&real)
+}
+
 /// One part of a file written to `path` inside `root`, as
 /// `WriteWorkFile` sends it; the path it writes to, relative to `root`.
 /// The first part takes a free name; the file shows under it once the
@@ -696,6 +725,28 @@ mod tests {
         assert_eq!(top.get("src"), Some(&GitChange::Conflicted {}));
         assert_eq!(top.get("top.rs"), Some(&GitChange::Modified {}));
         assert_eq!(top.get("old"), None);
+    }
+
+    #[test]
+    fn a_local_copy_reads_by_path_and_a_file_not_there_is_none() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("models")).unwrap();
+        fs::write(dir.path().join("models/robot.glb"), b"glTF").unwrap();
+
+        let part = local_read(dir.path(), "models/robot.glb", 0, 16)
+            .unwrap()
+            .expect("the file is there");
+        assert_eq!(part.size, 4);
+        assert_eq!(part.mime, "model/gltf-binary");
+        assert_eq!(part.data, b"glTF");
+        assert!(
+            local_read(dir.path(), "models/late.glb", 0, 16)
+                .unwrap()
+                .is_none()
+        );
+        let tree = local_tree(dir.path(), "", false, 2).unwrap();
+        assert_eq!(tree.folders[1].path, "models");
+        assert!(local_tree(&dir.path().join("gone"), "", false, 2).is_err());
     }
 
     #[test]
