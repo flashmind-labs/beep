@@ -112,4 +112,4 @@ export function queueRowHtml(q: { label: string; cls: string; text: string; tip:
 
 /// The Stop button's face, and while the stop lands.
 export const stopFace = (stopping = false) => stopping ? '<span class="dspin"></span>Stopping'
-  : '<span style="width:9px;height:9px;border-radius:2px;background:currentColor"></span>Stop';
+  : '<span class="dstopico"></span>Stop';

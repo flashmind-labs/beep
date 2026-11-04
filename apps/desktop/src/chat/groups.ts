@@ -181,7 +181,7 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   G.leave = false;
   S.view = "group";
   const name = G.chat?.group.name ?? "the group";
-  bar.innerHTML = `${groupHead()}<div class="dbody" id="gbody" style="padding-left:18px;padding-top:12px"></div><div id="mention"></div>
+  bar.innerHTML = `${groupHead()}<div class="dbody pt dgroupbody" id="gbody"></div><div id="mention"></div>
     <div class="dinput small"><textarea id="gask" rows="1" placeholder="Message ${esc(name)}, @beep to ask Beep" autocomplete="off" spellcheck="true"></textarea></div>${groupHints()}`;
   wireHead();
   const ask = $$<HTMLTextAreaElement>("#gask");
@@ -239,7 +239,7 @@ export function drawGroup(jump = false) {
     html += groupMessage(m);
   }
   for (const p of G.pending) html += `<div class="dg me pending"><div class="b">${mentions(p.text)}</div></div>`;
-  if (!msgs.length && !G.pending.length) html += '<div class="dmuted" style="display:block;text-align:center;white-space:pre-line;padding:12px 0">No messages yet.\nSay hi. Beep joins in when it can help.</div>';
+  if (!msgs.length && !G.pending.length) html += '<div class="dmuted dblock dnomsg">No messages yet.\nSay hi. Beep joins in when it can help.</div>';
   if (G.chat.group.beep_typing) html += '<div class="dmuted"><span class="dtyping"><i></i><i></i><i></i></span>Beep is typing</div>';
   if (G.error) html += `<div class="derr">${esc(G.error)}</div>`;
   b.innerHTML = html;
@@ -262,7 +262,7 @@ function groupMessage(m: GroupMessage) {
 /// Beep asks the member whose apps it would use. The card waits on the group.
 function groupApproval(a: GroupApproval) {
   const card = h(`<div class="dcard">
-    <div class="head">${appTile(a.app)}<div style="flex:1;min-width:0;display:grid"><b>${esc(a.action)}?</b><small>${esc(a.app)} asks you first</small></div></div>
+    <div class="head">${appTile(a.app)}<div class="dcol"><b>${esc(a.action)}?</b><small>${esc(a.app)} asks you first</small></div></div>
     ${a.fields.length ? `<div class="kv">${a.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
     <div class="acts"><button class="dbtn pri" data-allow="1">Allow</button><button class="dbtn warn" data-allow="">Deny</button></div></div>`);
   fillAppTiles(card);
@@ -356,7 +356,7 @@ export function renderGroupInfo(leave = false) {
   S.view = "ginfo";
   G.leave = leave;
   G.mention = null;
-  bar.innerHTML = `${groupHead()}<div class="dbody" id="ginfobody" style="padding-left:18px;padding-top:12px;gap:14px"></div>${hints([["esc", "back to the chat"], ["⌘K", "chats"]])}`;
+  bar.innerHTML = `${groupHead()}<div class="dbody pt dgroupbody" id="ginfobody"></div>${hints([["esc", "back to the chat"], ["⌘K", "chats"]])}`;
   wireHead();
   G.reminders = null;
   drawGroupInfo();
@@ -392,12 +392,12 @@ function groupReminders(g: GroupSummary) {
   const ask = 'Ask Beep in the chat to add one, like "remind us at 10 to check out".';
   const list = G.reminders;
   if (!list) return '<div class="dmuted"><span class="dspin"></span>Loading…</div>';
-  if (!list.length) return `<div class="dinfo" style="color:var(--muted)">No reminders yet. ${esc(ask)}</div>`;
+  if (!list.length) return `<div class="dinfo dmut">No reminders yet. ${esc(ask)}</div>`;
   const you = g.members.find(m => m.you)?.name;
-  return `<div class="dinfo">${list.map(r => `<div class="member" style="align-items:flex-start">
-    <span style="flex:1;min-width:0"><b style="font-weight:500">${esc(r.label)}</b><small>${esc(r.message)}</small><small>${esc(describeSchedule(r.schedule))} · set by ${esc(r.set_by === you ? "you" : r.set_by)}</small></span>
+  return `<div class="dinfo">${list.map(r => `<div class="member dalignt">
+    <span class="dcol"><b>${esc(r.label)}</b><small>${esc(r.message)}</small><small>${esc(describeSchedule(r.schedule))} · set by ${esc(r.set_by === you ? "you" : r.set_by)}</small></span>
     <button class="dbtn" data-rem="${esc(r.id)}" aria-label="Delete reminder">Delete</button></div>`).join("")}
-    <div style="font-size:12px;color:var(--muted)">${esc(ask)}</div></div>`;
+    <div class="dfine">${esc(ask)}</div></div>`;
 }
 
 function drawGroupInfo() {
@@ -405,7 +405,7 @@ function drawGroupInfo() {
   if (!b) return;
   if (!g) { b.innerHTML = '<div class="dmuted"><span class="dspin"></span>Loading…</div>'; return; }
   const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  const member = (name: string, label: string, note: string) => `<div class="member">${av(name, label)}<span><b style="font-weight:500">${esc(name)}</b><small>${esc(note)}</small></span></div>`;
+  const member = (name: string, label: string, note: string) => `<div class="member">${av(name, label)}<span><b>${esc(name)}</b><small>${esc(note)}</small></span></div>`;
   const members = youFirst(g.members).map(m => m.you
     ? member("You", m.name, `${m.name}, ${m.creator ? "created the group" : `joined ${date(m.joined_at)}`}`)
     : member(m.name, m.name, m.creator ? "Created the group" : `Joined ${date(m.joined_at)}`)).join("");
@@ -419,8 +419,8 @@ function drawGroupInfo() {
       : "Only when you ask"}</small></span>
       <button class="dswitch" id="gapps" role="switch" aria-checked="${g.apps_shared}" aria-label="Share my apps with Beep here"></button></div>
     <div class="dsec flat">Privacy</div>
-    <div class="dinfo" style="color:var(--muted)"><div>Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.</div><div>Beep's thinking and tool calls are hidden in groups. Members only see its replies.</div></div>
-    ${G.leave ? `<div class="dcard"><div style="padding:10px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="flex:1;font-size:13px">Leave ${esc(g.name)}? You stop getting its messages, and need a new code to come back.</span><button class="dbtn" id="gstay">Cancel</button><button class="dbtn warn" id="gleave">Leave</button></div></div>`
+    <div class="dinfo dmut"><div>Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.</div><div>Beep's thinking and tool calls are hidden in groups. Members only see its replies.</div></div>
+    ${G.leave ? `<div class="dcard"><div class="dask dline wrap"><span class="dfill">Leave ${esc(g.name)}? You stop getting its messages, and need a new code to come back.</span><button class="dbtn" id="gstay">Cancel</button><button class="dbtn warn" id="gleave">Leave</button></div></div>`
       : '<div><button class="dbtn warn" id="gaskleave">Leave group</button></div>'}`;
   // A refusal shows above the info, which stays as it was.
   const fail = (e: unknown) => b.insertAdjacentHTML("afterbegin", `<div class="derr">${esc(e)}</div>`);
@@ -465,9 +465,9 @@ export async function renderInvite(id: string, name?: string | null, reset = fal
     const link = await invoke<GroupInvite>("group_invite", { id, reset });
     if (S.view !== "invite" || G.id !== id) return;
     bar.innerHTML = `<div class="dwin"><h4>Invite to ${esc(title)}</h4><p>They scan it with Beep on their phone, or enter the code under New group, Join with a code.</p>
-      <div class="qr">${link.qr_svg}</div><div class="code" style="font-size:22px;font-weight:600">${esc(link.code)}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="dbtn pri" id="icode">Copy code</button><button class="dbtn" id="ilink">Copy link</button><button class="dbtn warn" id="ireset">Reset code</button></div>
-      <p style="font-size:12px">${reset ? "New code made. The old one no longer works. " : ""}Everyone who joins sees the whole chat. Beep never shows one person's memories to the others.</p></div>`;
+      <div class="qr">${link.qr_svg}</div><div class="code big">${esc(link.code)}</div>
+      <div class="dline wrap dcenter"><button class="dbtn pri" id="icode">Copy code</button><button class="dbtn" id="ilink">Copy link</button><button class="dbtn warn" id="ireset">Reset code</button></div>
+      <p class="dfine">${reset ? "New code made. The old one no longer works. " : ""}Everyone who joins sees the whole chat. Beep never shows one person's memories to the others.</p></div>`;
     $$("#icode").addEventListener("click", e => copy(link.code, e.currentTarget as HTMLElement));
     $$("#ilink").addEventListener("click", e => copy(link.url, e.currentTarget as HTMLElement));
     $$("#ireset").addEventListener("click", () => renderInvite(id, title, true));
@@ -510,17 +510,17 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
   // Each form's Cancel and the field that takes focus.
   let cancel: () => unknown = renderChats, first: string;
   if (mode === "new") {
-    bar.innerHTML = head("New group", "Chat with people, and Beep helps when it can", logo) + `<div class="dform" style="padding-top:12px">
+    bar.innerHTML = head("New group", "Chat with people, and Beep helps when it can", logo) + `<div class="dform">
       <label class="dfield">Group name<input id="jname" maxlength="80" autocomplete="off" spellcheck="false" value="${esc(J.name ?? "")}"></label>
       <label class="dfield">Your name in the group<input id="jme" maxlength="40" autocomplete="off" spellcheck="false" value="${esc(memberName())}"></label>
-      <div class="dmuted" style="display:block">You get a code to send to people. Anyone with Beep who enters it can join.</div>
+      <div class="dmuted dblock">You get a code to send to people. Anyone with Beep who enters it can join.</div>
       ${J.error ? `<div class="derr">${esc(J.error)}</div>` : ""}
-      <div class="row"><button class="dbtn" id="jcode">Join with a code</button><span style="flex:1"></span><button class="dbtn" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Create<kbd>${ICON.ret}</kbd></button></div>
+      <div class="row"><button class="dbtn" id="jcode">Join with a code</button><span class="dfill"></span><button class="dbtn" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Create<kbd>${ICON.ret}</kbd></button></div>
     </div>` + hints([[ICON.ret, "create"], ["tab", "next field"], ["esc", "back"]]);
     $$("#jcode").addEventListener("click", () => renderGroupNew("code"));
     first = "#jname";
   } else if (mode === "code") {
-    bar.innerHTML = head("Join a group", "Enter the code someone sent you", logo) + `<div class="dform" style="padding-top:12px">
+    bar.innerHTML = head("Join a group", "Enter the code someone sent you", logo) + `<div class="dform">
       <label class="dfield${J.error ? " err" : ""}">Invite code<input id="jtoken" class="mono" maxlength="80" autocomplete="off" spellcheck="false" placeholder="K7QM4-X9TRP">
         <span class="note">${esc(J.error || "Ten letters and digits, like K7QM4-X9TRP. A beep://group link works too.")}</span></label>
       <div class="row"><button class="dbtn" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Find group<kbd>${ICON.ret}</kbd></button></div>
@@ -530,8 +530,8 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
   } else {
     const p = J.found!.preview;
     const others = p.members.length ? `${p.members.join(", ")} and Beep are in it` : "Beep is in it";
-    bar.innerHTML = head(`Join ${p.name}?`, others, `<span class="davs">${p.members.slice(0, 3).map(n => av(n)).join("")}${av("Beep")}</span>`) + `<div class="dform" style="padding-top:12px">
-      <div class="dinfo" style="color:var(--muted)"><div>Beep can use your memories to help the group. It never shows or quotes them to others.</div><div>When Beep answers you, it runs with your apps and your account, never someone else's.</div><div>You get a notification for each new message.</div></div>
+    bar.innerHTML = head(`Join ${p.name}?`, others, `<span class="davs">${p.members.slice(0, 3).map(n => av(n)).join("")}${av("Beep")}</span>`) + `<div class="dform">
+      <div class="dinfo dmut"><div>Beep can use your memories to help the group. It never shows or quotes them to others.</div><div>When Beep answers you, it runs with your apps and your account, never someone else's.</div><div>You get a notification for each new message.</div></div>
       <label class="dfield${J.error ? " err" : ""}">Your name in the group<input id="jme" maxlength="40" autocomplete="off" spellcheck="false" value="${esc(memberName())}">
         <span class="note">${esc(J.error || "The others see this name next to your messages")}</span></label>
       <div class="row"><button class="dbtn" id="jcancel">Not now</button><button class="dbtn pri" id="jgo">Join group<kbd>${ICON.ret}</kbd></button></div>

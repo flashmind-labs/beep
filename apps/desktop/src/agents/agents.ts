@@ -5,6 +5,7 @@
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
+import { emptyPage } from "../lists/memories.ts";
 import { preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "./harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
@@ -338,10 +339,9 @@ export function drawAgents(loading: boolean) {
   const machines = new Set(list.map(s => s.machine_id)).size;
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
-    ${AG.error ? `<div class="derr" style="padding:8px 18px 0">${esc(AG.error)}</div>` : ""}
-    ${list.length ? `<div class="dlist" role="listbox" style="padding-top:6px">${list.map(sessionRow).join("")}</div>`
-      : loading ? "" : `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--dim);display:grid">${AGENT_ICON}</span><b style="font-size:14px">No sessions running.</b>
-        <span class="dmuted" style="display:block">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>`}
+    ${AG.error ? `<div class="derr dpadx">${esc(AG.error)}</div>` : ""}
+    ${list.length ? `<div class="dlist top" role="listbox">${list.map(sessionRow).join("")}</div>`
+      : loading ? "" : emptyPage(AGENT_ICON, "No sessions running.", "Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.")}
     ${hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`;
   bar.onclick = e => {
     if (S.view !== "agents") return;

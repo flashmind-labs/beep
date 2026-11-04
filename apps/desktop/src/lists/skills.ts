@@ -1,6 +1,6 @@
 import { $$, bar, esc, ICON, invoke, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
-import { arrowKey, clampSel, confirmKey, confirmRow, dayDiff, emptyPage, errLine, type ListState, loadList, readDay } from "./memories.ts";
+import { arrowKey, clampSel, confirmCard, confirmKey, confirmRow, dayDiff, emptyPage, errLine, type ListState, loadList, readDay } from "./memories.ts";
 import { plural } from "../ui/format.ts";
 
 // ---------- Skills ----------
@@ -74,7 +74,7 @@ function skillRow(k: Skill, i: number) {
   const tail = cur && K.mode === "actions"
     ? `<span class="acts"><button class="dbtn" data-k="view">Open<kbd>${ICON.ret}</kbd></button>${k.can_undo ? `<button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button>` : ""}<button class="dbtn warn" data-k="delete">Delete<kbd>⌘⌫</kbd></button></span>`
     : `<button class="dswitch" role="switch" aria-checked="${k.enabled}" aria-label="Use ${name}" data-k="toggle" data-i="${i}"></button>`;
-  return `<div class="drt${k.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}" style="cursor:pointer"><span class="ic">${SKILL_ICON}</span>
+  return `<div class="drt${k.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${SKILL_ICON}</span>
         <span class="tt"><b>${name}</b><span>${esc(k.description)}</span><small>${esc(skillMeta(k))}</small></span>${tail}</div>`;
 }
 
@@ -85,7 +85,7 @@ export function drawSkills(): void {
   const sum = !K.loaded ? "" : !K.list.length ? "None yet" : [plural(K.list.length, "skill", "skills"), paused && `${paused} paused`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Skills</b><small>${sum}</small></span></div>`;
   if (K.loaded && !K.list.length) {
-    bar.innerHTML = head + errLine(K.error) + emptyPage(SKILL_ICON, "No skills yet.", "Beep saves how you like things done here.", "", ";max-width:44ch")
+    bar.innerHTML = head + errLine(K.error) + emptyPage(SKILL_ICON, "No skills yet.", "Beep saves how you like things done here.")
       + hints([["esc", "back"]]);
   } else {
     // Under a heading for each owner: the user, then each group.
@@ -93,11 +93,11 @@ export function drawSkills(): void {
     K.list.forEach((k, i) => {
       if (k.group_id !== owner || i === 0) {
         owner = k.group_id;
-        html += `${i ? "</div>" : ""}<div class="dsec flat" style="padding:8px 10px 4px">${esc(k.group_name || (k.group_id ? "Group" : "Yours"))}</div><div class="dlist" style="padding:0">`;
+        html += `${i ? "</div>" : ""}<div class="dsec flat dpad">${esc(k.group_name || (k.group_id ? "Group" : "Yours"))}</div><div class="dlist dflush">`;
       }
       html += skillRow(k, i);
     });
-    bar.innerHTML = head + errLine(K.error) + `<div class="dlist" id="klist" role="listbox" aria-label="Skills" style="padding-top:4px;overflow:auto;scrollbar-width:none">${html}</div></div>`
+    bar.innerHTML = head + errLine(K.error) + `<div class="dlist top" id="klist" role="listbox" aria-label="Skills">${html}</div></div>`
       + hints(K.mode === "actions" ? [[ICON.ret, "open"], ["⌘Z", "undo"], ["⌘⌫", "delete"], ["tab", "hide actions"], ["esc", "back"]]
         : [["↑↓", "move"], [ICON.ret, "open"], ["space", "on or off"], ["tab", "actions"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -113,22 +113,20 @@ export function drawSkill(): void {
   bar.onclick = skillClick;
   if (K.mode === "edit") {
     bar.innerHTML = `<div class="dhead"><span class="tt"><b>Edit skill</b><small>Beep keeps the old version, so you can undo</small></span></div>${err}
-      <div class="dform" style="padding-top:12px;overflow:auto;scrollbar-width:none">
+      <div class="dform dscroll">
         <label class="dfield"><span>Name</span><input id="kname" maxlength="60" value="${esc(k.name)}" spellcheck="false"></label>
         <label class="dfield"><span>When it applies</span><input id="kdesc" maxlength="200" value="${esc(k.description)}"></label>
-        <label class="dfield"><span>Instructions</span><textarea id="kbody" rows="12" style="font-size:13px;line-height:19px">${esc(k.body)}</textarea></label>
-        <div style="display:flex;gap:8px"><button class="dbtn pri" data-k="save">Save<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" data-k="view">Cancel</button></div>
+        <label class="dfield"><span>Instructions</span><textarea id="kbody" rows="12">${esc(k.body)}</textarea></label>
+        <div class="dline"><button class="dbtn pri" data-k="save">Save<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" data-k="view">Cancel</button></div>
       </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]])}`;
     return $$("#kbody").focus();
   }
-  const confirm = K.mode === "vdelete" ? `<div class="dcard" style="margin:12px 16px 0"><div style="padding:10px 12px;display:grid;gap:8px">
-      <b style="font-size:13.5px">Delete this skill?</b><div class="dmuted" style="display:block">Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.</div>
-      <div style="display:flex;gap:8px"><button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn" data-k="view">Cancel</button></div></div></div>` : "";
-  const undo = k.can_undo ? `<div class="dmuted" style="border-top:1px solid var(--border);padding-top:10px"><span style="flex:1">${k.edited ? "You changed this last." : "Beep changed this last."}</span><button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button></div>` : "";
+  const confirm = K.mode === "vdelete" ? confirmCard("Delete this skill?", `Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.`, `<button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn" data-k="view">Cancel</button>`, "dcardm") : "";
+  const undo = k.can_undo ? `<div class="dmuted dtop dpt"><span class="dfill">${k.edited ? "You changed this last." : "Beep changed this last."}</span><button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>${esc(k.name)}</b><small>${esc(k.group_name ? `${k.group_name} · ${k.description}` : k.description)}</small></span>
       <button class="dswitch" role="switch" aria-checked="${k.enabled}" aria-label="Use this skill" data-k="toggle"></button>
       <button class="dbtn" data-k="edit">Edit<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn warn" data-k="vdelete">Delete<kbd>⌘⌫</kbd></button></div>${err}${confirm}
-    <div class="dbody" style="padding-top:12px"><div class="dmuted">${esc(skillMeta(k))}</div><div class="reply">${k.html}</div>${undo}</div>`
+    <div class="dbody pt"><div class="dmuted">${esc(skillMeta(k))}</div><div class="reply">${k.html}</div>${undo}</div>`
     + hints(K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]]);
 }
 

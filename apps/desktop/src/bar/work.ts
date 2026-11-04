@@ -52,11 +52,11 @@ export function drawWorkQuestions() {
   const card = (q: HeldQuestion) => q.withdrawn || q.answer
     ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : SAID[forRoutine(q.action) && q.answer === "allow" ? "grant" : q.answer!])}</div>`
     : `<div class="dcard" data-q="${esc(q.query_id)}">
-    <div class="head">${appTile(q.app)}<div style="flex:1;min-width:0;display:grid"><b>${esc(q.action)}?</b><small>Background work asks first</small></div></div>
+    <div class="head">${appTile(q.app)}<div class="dcol"><b>${esc(q.action)}?</b><small>Background work asks first</small></div></div>
     ${q.fields.length ? `<div class="kv">${q.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
     <div class="acts">${BUTTONS.filter(([d]) => (d !== "always" && d !== "session") || !forRoutine(q.action)).map(([d, t, cls, k]) =>
       `<button class="dbtn ${cls}" data-d="${d}">${t}${q === first && !here()?.approval ? `<kbd>${k}</kbd>` : ""}</button>`).join("")}</div></div>`;
-  const box = h(`<div class="dworkq" style="display:grid;gap:8px"><div class="dmuted" style="justify-content:center;font-size:11.5px;color:var(--dim)">${first ? "Background work is waiting for you" : "Background work"}</div>${qs.map(card).join("")}</div>`);
+  const box = h(`<div class="dworkq dgrid8"><div class="dmuted">${first ? "Background work is waiting for you" : "Background work"}</div>${qs.map(card).join("")}</div>`);
   box.querySelectorAll<HTMLElement>(".dcard").forEach(c => c.querySelectorAll<HTMLElement>("[data-d]").forEach(btn => btn.addEventListener("click", () =>
     answerWork(S.session, qs.find(q => q.query_id === c.dataset.q), btn.dataset.d as Decision))));
   fillAppTiles(box);
