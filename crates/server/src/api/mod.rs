@@ -46,6 +46,7 @@ mod machine_tools;
 mod machine_traffic;
 mod machines;
 mod memories;
+mod mesh;
 mod own_nodes;
 mod project_groups;
 mod project_import;
