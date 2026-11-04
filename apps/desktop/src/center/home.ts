@@ -11,7 +11,7 @@ import { el as h } from "../ui/dom.ts";
 import { waitingFirst } from "./openitems-state.ts";
 import { ALL } from "../terminals/terminals.ts";
 import { type Outcome, $, IC, CONNECT_STUCK_MS, state } from "./state.ts";
-import { whenOf, scheduleText, failure, conflict, dot, section, avatar, tag, rowButton, bare, line } from "./pieces.ts";
+import { whenOf, scheduleText, failure, conflict, dot, section, avatar, tag, rowButton, line } from "./pieces.ts";
 import { addMachineButton, useThisMac, machineMenu, machinesSection, offlineNote } from "../machines/table.ts";
 import { allTerms, openTerminals, terminalLine } from "../terminals/view.ts";
 import { gitSection, itemLine, refreshGit } from "./openitems.ts";
@@ -24,7 +24,7 @@ export function runningRow(r: RunningRow) {
   const { title, sub } = runningLine(r, state.home?.projects || []);
   const right = [r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r))];
   const row = r.kind === "research"
-    ? bare(line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {})))
+    ? line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {}))
     // The pane's agent view follows and answers it.
     : line(harnessEl(r.agent), title, sub, right, () => go("pane", { agent: r }));
   row.dataset.key = runningKey(r);
