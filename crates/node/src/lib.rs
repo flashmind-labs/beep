@@ -1,7 +1,7 @@
 //! `beep-node` runs on a machine so Beep can run work there. Its modules are
 //! `agents`, `files`, `link`, `machine` and `run`.
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub mod agents;
 pub mod files;
@@ -28,4 +28,14 @@ pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 /// Locks `mutex`, carrying on with what a holder that panicked left.
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `lock` for reading an `RwLock`.
+pub(crate) fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `lock` for writing an `RwLock`.
+pub(crate) fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(PoisonError::into_inner)
 }

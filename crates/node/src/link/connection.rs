@@ -247,23 +247,13 @@ pub async fn connect(
     name: &str,
     offers: &Offers,
 ) -> Result<()> {
-    let hello = Hello {
-        name,
-        workspace: None,
-        setup: None,
-    };
-    connect_as(endpoint, server, &hello, offers).await
+    connect_as(endpoint, server, &Hello::named(name), offers).await
 }
 
 /// Stays connected to `server` as `name`, connecting again after each
 /// drop. Never returns.
 pub async fn stay(endpoint: &Endpoint, server: EndpointAddr, name: &str, offers: &Offers) {
-    let hello = Hello {
-        name,
-        workspace: None,
-        setup: None,
-    };
-    stay_as(endpoint, server, &hello, offers).await
+    stay_as(endpoint, server, &Hello::named(name), offers).await
 }
 
 async fn stay_as(endpoint: &Endpoint, server: EndpointAddr, hello: &Hello<'_>, offers: &Offers) {
@@ -290,6 +280,16 @@ struct Hello<'a> {
     workspace: Option<&'a str>,
     /// A setup token to claim (`beep-node setup`).
     setup: Option<&'a NodeSetup>,
+}
+
+impl<'a> Hello<'a> {
+    fn named(name: &'a str) -> Self {
+        Self {
+            name,
+            workspace: None,
+            setup: None,
+        }
+    }
 }
 
 /// What claiming a setup token gave.
@@ -407,12 +407,7 @@ pub async fn open(
     name: &str,
     offers: &Offers,
 ) -> Result<Linked> {
-    let hello = Hello {
-        name,
-        workspace: None,
-        setup: None,
-    };
-    open_as(endpoint, server, &hello, offers).await
+    open_as(endpoint, server, &Hello::named(name), offers).await
 }
 
 async fn open_as(

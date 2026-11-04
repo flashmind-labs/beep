@@ -4,9 +4,9 @@
 
 mod install;
 
-use super::{Adapter, AgentKind, KNOWN, flsh_config, models::flsh_config_dir, unix_now};
+use super::{Adapter, AgentKind, KNOWN, flsh_config, models::flsh_dir_of, unix_now};
 use crate::{
-    AsyncMutex,
+    AsyncMutex, lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
     machine::provision::spawn_env::{self, Scope},
 };
@@ -20,7 +20,7 @@ use std::{
     ffi::OsString,
     path::PathBuf,
     process::Stdio,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 use tokio::{sync::OnceCell, time::timeout};
@@ -48,10 +48,6 @@ struct Saved {
 }
 
 impl Settings {
-    fn lock(&self) -> MutexGuard<'_, Saved> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// Takes `settings` in place of the ones before.
     pub(super) fn set(&self, settings: AgentSettings) {
         let harnesses: HashMap<String, HarnessConfig> = settings
@@ -69,7 +65,7 @@ impl Settings {
                 "unset"
             },
         );
-        *self.lock() = Saved {
+        *lock(&self.0) = Saved {
             harnesses,
             flsh: settings.flsh,
         };
@@ -84,16 +80,10 @@ impl Settings {
         if AgentSlug::FLSH != kind.name.as_str() {
             return Ok(());
         }
-        let Some(flsh) = self.lock().flsh.clone() else {
+        let Some(flsh) = lock(&self.0).flsh.clone() else {
             return Ok(());
         };
-        // flsh runs with the kind's variables on top of the node's own.
-        let env = |name: &str| match kind.env.get(name) {
-            Some(value) => Some(OsString::from(value)),
-            None => std::env::var_os(name),
-        };
-        let dir = flsh_config_dir(&env, dirs::home_dir().as_deref())
-            .context("flsh's config folder is not known")?;
+        let dir = flsh_dir_of(kind).context("flsh's config folder is not known")?;
         tokio::task::spawn_blocking(move || flsh_config::apply(&dir, &flsh))
             .await
             .context("writing flsh's settings stopped")?
@@ -103,7 +93,7 @@ impl Settings {
     /// How `kind` starts with the user's settings; an error when they
     /// turned it off.
     pub(super) fn configured(&self, kind: &AgentKind) -> Result<AgentKind> {
-        match self.lock().harnesses.get(&kind.name) {
+        match lock(&self.0).harnesses.get(&kind.name) {
             Some(config) => {
                 ensure!(
                     config.enabled,
@@ -117,7 +107,7 @@ impl Settings {
     }
 
     fn get(&self, agent: &str) -> Option<HarnessConfig> {
-        self.lock().harnesses.get(agent).cloned()
+        lock(&self.0).harnesses.get(agent).cloned()
     }
 }
 
@@ -200,10 +190,6 @@ impl Latest {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, LatestFound> {
-        self.found.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// The newest version of each of `packages`, looked up again when
     /// `refresh` says so or the last look is old. Gives when that was.
     async fn versions(
@@ -212,7 +198,7 @@ impl Latest {
         refresh: bool,
     ) -> (HashMap<&'static str, String>, u64) {
         {
-            let found = self.lock();
+            let found = lock(&self.found);
             let fresh = found.at.is_some_and(|at| at.elapsed() < LATEST_FOR);
             let all = packages.iter().all(|p| found.versions.contains_key(p));
             if !refresh && fresh && all {
@@ -220,7 +206,7 @@ impl Latest {
             }
         }
         if find("npm").is_none() {
-            let found = self.lock();
+            let found = lock(&self.found);
             return (found.versions.clone(), found.checked_at);
         }
         let looked = futures::future::join_all(packages.iter().map(|package| async move {
@@ -233,7 +219,7 @@ impl Latest {
             (*package, version)
         }))
         .await;
-        let mut found = self.lock();
+        let mut found = lock(&self.found);
         for (package, version) in looked {
             if let Some(version) = version {
                 found.versions.insert(package, version);

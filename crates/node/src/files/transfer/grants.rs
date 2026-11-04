@@ -2,6 +2,7 @@
 //! peer one root while its offer is open; the blobs protocol asks the
 //! handler here about every connection and request, and refuses the rest.
 
+use crate::lock;
 use iroh::EndpointId;
 use iroh_blobs::{
     BlobFormat, Hash, HashAndFormat,
@@ -14,7 +15,7 @@ use iroh_blobs::{
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
+    sync::{Arc, Mutex, OnceLock},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -65,18 +66,14 @@ pub(crate) struct GrantGuard {
 
 impl Drop for GrantGuard {
     fn drop(&mut self) {
-        self.grants.lock().grants.remove(&self.id);
+        lock(&self.grants.inner).grants.remove(&self.id);
     }
 }
 
 impl Grants {
-    fn lock(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// Lets `peer` fetch `content` until the guard drops.
     pub(crate) fn grant(self: &Arc<Self>, peer: EndpointId, content: HashAndFormat) -> GrantGuard {
-        let mut inner = self.lock();
+        let mut inner = lock(&self.inner);
         let id = inner.next;
         inner.next += 1;
         inner.grants.insert(id, Grant { peer, content });
@@ -99,7 +96,7 @@ impl Grants {
                 .get()
                 .is_some_and(|access| access.may_connect(&peer))
         });
-        let mut inner = self.lock();
+        let mut inner = lock(&self.inner);
         match peer {
             Some(peer) if synced || inner.grants.values().any(|grant| grant.peer == peer) => {
                 inner.connections.insert(connection, peer);
@@ -110,13 +107,13 @@ impl Grants {
     }
 
     fn closed(&self, connection: u64) {
-        self.lock().connections.remove(&connection);
+        lock(&self.inner).connections.remove(&connection);
     }
 
     /// Whether the peer on `connection` may make `request`: a root it was
     /// granted, and for a file only the blob itself.
     fn get(&self, connection: u64, request: &GetRequest) -> Result<(), AbortReason> {
-        let inner = self.lock();
+        let inner = lock(&self.inner);
         let peer = inner
             .connections
             .get(&connection)

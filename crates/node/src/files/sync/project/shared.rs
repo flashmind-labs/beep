@@ -18,7 +18,7 @@ use iroh::{EndpointAddr, EndpointId};
 use iroh_blobs::Hash;
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
     time::Duration,
 };
 use tokio::{
@@ -98,7 +98,7 @@ impl Shared {
     }
 
     pub(super) fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::lock(&self.state)
     }
 
     pub(in crate::files::sync) fn name(&self) -> &str {

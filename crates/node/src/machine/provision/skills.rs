@@ -184,32 +184,26 @@ mod tests {
         text: "---\nname: github\ndescription: Use for GitHub.\n---\n\n# GitHub\n\nUse gh, newer.\n",
     };
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("beep-node-skills-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        dir
-    }
-
     fn record(dir: &Path) -> Installed {
         Installed::load(&dir.join("node/installed-skills")).unwrap()
     }
 
     #[test]
     fn beep_updates_its_own_file_and_keeps_an_edited_one() {
-        let dir = temp_dir("update");
-        let mut installed = record(&dir);
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let mut installed = record(dir);
         let path = dir.join("github/SKILL.md");
         assert_eq!(
-            install(&dir, &SKILL, &mut installed).unwrap(),
+            install(dir, &SKILL, &mut installed).unwrap(),
             Outcome::Written
         );
         assert_eq!(
-            install(&dir, &SKILL, &mut installed).unwrap(),
+            install(dir, &SKILL, &mut installed).unwrap(),
             Outcome::Current
         );
         assert_eq!(
-            install(&dir, &NEWER, &mut installed).unwrap(),
+            install(dir, &NEWER, &mut installed).unwrap(),
             Outcome::Written
         );
         assert!(fs::read_to_string(&path).unwrap().contains("newer"));
@@ -219,44 +213,40 @@ mod tests {
             .unwrap()
             .replace("newer", "my way");
         fs::write(&path, &edited).unwrap();
-        assert_eq!(
-            install(&dir, &SKILL, &mut installed).unwrap(),
-            Outcome::Kept
-        );
+        assert_eq!(install(dir, &SKILL, &mut installed).unwrap(), Outcome::Kept);
         assert_eq!(fs::read_to_string(&path).unwrap(), edited);
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn a_users_own_skill_is_kept() {
-        let dir = temp_dir("own");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let path = dir.join("github/SKILL.md");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "my own github skill\n").unwrap();
         assert_eq!(
-            install(&dir, &SKILL, &mut record(&dir)).unwrap(),
+            install(dir, &SKILL, &mut record(dir)).unwrap(),
             Outcome::Kept
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "my own github skill\n");
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn a_skill_the_user_deleted_stays_deleted() {
-        let dir = temp_dir("deleted");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let path = dir.join("github/SKILL.md");
         assert_eq!(
-            install(&dir, &SKILL, &mut record(&dir)).unwrap(),
+            install(dir, &SKILL, &mut record(dir)).unwrap(),
             Outcome::Written
         );
         fs::remove_file(&path).unwrap();
         // A later node process reads the record back.
         assert_eq!(
-            install(&dir, &NEWER, &mut record(&dir)).unwrap(),
+            install(dir, &NEWER, &mut record(dir)).unwrap(),
             Outcome::Deleted
         );
         assert!(!path.exists());
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -1,26 +1,13 @@
 //! Reading what the agent sends: pictures, cut text and thoughts.
 
 use super::MAX_LINE;
-use crate::agents::images::{Picture, data_url};
+use crate::agents::images::{Picture, data_url, picture_of};
 use agent_client_protocol::schema::v1::{ImageContent, ToolCallId};
-use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::Value;
 
 /// The picture of an ACP image block.
 pub(super) fn image_picture(image: &ImageContent) -> Option<Picture> {
     picture_of(&image.mime_type, &image.data)
-}
-
-/// The picture `data`, in base64, holds when `mime` is an image type.
-pub(super) fn picture_of(mime: &str, data: &str) -> Option<Picture> {
-    if !mime.starts_with("image/") {
-        return None;
-    }
-    let data = STANDARD.decode(data.trim()).ok()?;
-    Some(Picture {
-        mime: mime.to_owned(),
-        data,
-    })
 }
 
 /// What a permission question would act on: the command, the file, or the

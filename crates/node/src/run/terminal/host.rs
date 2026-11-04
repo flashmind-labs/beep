@@ -214,7 +214,7 @@ async fn keep(dir: &Path, host: &Host<'_>) {
     loop {
         // Terminals waiting to open again stay noted as they were.
         if lock(&host.noted).is_none()
-            && let Err(e) = save_note(dir, &host.terminals.running())
+            && let Err(e) = note::write_json(&dir.join(NOTE), &host.terminals.running())
         {
             log::warn!("terminals would not open again after a reboot: {e:#}");
         }
@@ -230,10 +230,6 @@ async fn keep(dir: &Path, host: &Host<'_>) {
 
 fn read_note(dir: &Path) -> Vec<OpenTerminal> {
     note::read(&dir.join(NOTE))
-}
-
-fn save_note(dir: &Path, running: &[OpenTerminal]) -> Result<()> {
-    note::write_json(&dir.join(NOTE), &running)
 }
 
 /// Remembers the node's folder for `relay`, and starts a host there when

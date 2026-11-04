@@ -2,7 +2,7 @@
 //! falls back to a rescan every `RESCAN` for a folder it cannot watch.
 
 use super::rules::Rules;
-use crate::lock;
+use crate::{lock, read_lock};
 use notify::{
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _,
     event::{AccessKind, AccessMode},
@@ -10,7 +10,7 @@ use notify::{
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 use tokio::{sync::mpsc, task::spawn_blocking};
@@ -93,11 +93,6 @@ impl Budget {
 
     pub(super) fn release(&mut self, key: Key) {
         self.used.remove(&key);
-    }
-
-    /// Takes in the latest count of other programs' watches.
-    fn others_now(&mut self, others: u64) {
-        self.others = others;
     }
 }
 
@@ -210,11 +205,7 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
         let Ok(relative) = path.strip_prefix(&route.root) else {
             continue;
         };
-        let skipped = route
-            .rules
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .skips_any(relative, path.is_dir());
+        let skipped = read_lock(&route.rules).skips_any(relative, path.is_dir());
         if !skipped {
             // Full means a scan is due already.
             let _ = route.wake.try_send(());
@@ -389,7 +380,7 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
         if wanted.len() != watched.dirs.len()
             && let Some(recount) = recount
         {
-            budget.others_now(recount());
+            budget.others = recount();
         }
         if !budget.admit(key, wanted.len() as u64) {
             return fall_back(inner, key, watched, WATCHES_HINT);

@@ -424,16 +424,10 @@ async fn remove_dir(dir: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = env::temp_dir().join(format!("beep-node-tools-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
     #[test]
     fn the_checksum_refuses_another_file() {
-        let dir = temp_dir("verify");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let file = dir.join("teacli");
         fs::write(&file, b"hello\n").unwrap();
         // `printf 'hello\n' | sha256sum`
@@ -443,7 +437,6 @@ mod tests {
         fs::write(&file, b"hello, tampered\n").unwrap();
         let err = verify(&file, right).unwrap_err();
         assert!(format!("{err:#}").contains("not the expected"), "{err:#}");
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

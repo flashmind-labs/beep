@@ -1,9 +1,7 @@
 use super::*;
+use crate::lock;
 use beep_proto::SecretText;
-use std::{
-    collections::BTreeSet,
-    sync::{Mutex, PoisonError},
-};
+use std::{collections::BTreeSet, sync::Mutex};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -37,7 +35,7 @@ impl FakeHost {
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, HostState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     fn hooks(&self) -> Vec<u64> {

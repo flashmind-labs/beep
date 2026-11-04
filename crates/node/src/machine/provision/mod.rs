@@ -7,7 +7,7 @@ pub(crate) mod spawn_env;
 mod teacli;
 mod tools;
 
-use crate::AsyncMutex;
+use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     ForgejoLogin, LinkRx, LinkTx, MachineCredentials,
@@ -18,7 +18,7 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 use tokio::{sync::Notify, task::spawn_blocking};
 use tokio_util::task::AbortOnDropHandle;
@@ -143,7 +143,7 @@ impl Provision {
             forgejo.len()
         );
         spawn_env::set_vars(env);
-        *self.forgejo.lock().unwrap_or_else(PoisonError::into_inner) = forgejo;
+        *lock(&self.forgejo) = forgejo;
         self.configure_teacli().await;
     }
 
@@ -151,10 +151,7 @@ impl Provision {
     /// the server can no longer say they are current.
     pub async fn forget(&self) {
         spawn_env::set_vars(Vec::new());
-        self.forgejo
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
+        lock(&self.forgejo).clear();
         self.configure_teacli().await;
     }
 
@@ -168,11 +165,7 @@ impl Provision {
     /// reads them only from a config file.
     async fn configure_teacli(&self) {
         let _writing = self.teacli.lock().await;
-        let logins = self
-            .forgejo
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let logins = lock(&self.forgejo).clone();
         let dir = self.dir.clone();
         let teacli = which::which_in("teacli", Some(self.tool_path()), "/").ok();
         let configured = spawn_blocking(move || {

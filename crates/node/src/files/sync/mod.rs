@@ -11,6 +11,7 @@ use crate::{
         place::{Journal, Room, open_target},
     },
     link::{Protocol, Session},
+    lock,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
@@ -29,7 +30,7 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError, Weak,
+        Arc, Mutex, Weak,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -157,29 +158,15 @@ pub struct Syncs {
 
 impl Access for Inner {
     fn may_connect(&self, peer: &EndpointId) -> bool {
-        self.lock()
+        lock(&self.projects)
             .values()
             .any(|running| running.shared.has_peer(peer))
     }
 
     fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
-        self.lock()
+        lock(&self.projects)
             .values()
             .any(|running| running.shared.has_peer(peer) && running.shared.has(hash))
-    }
-}
-
-impl Inner {
-    fn lock(&self) -> MutexGuard<'_, BTreeMap<String, Running>> {
-        self.projects.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn held(&self) -> MutexGuard<'_, BTreeMap<String, Held>> {
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn checking(&self) -> MutexGuard<'_, Option<AbortOnDropHandle<()>>> {
-        self.checking.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -232,7 +219,7 @@ impl Syncs {
             log::warn!("not syncing {}: {}", refused.project, refused.message);
         }
         let task = tokio::spawn(check_syncthing(Arc::downgrade(&syncs.inner)));
-        *syncs.inner.checking() = Some(AbortOnDropHandle::new(task));
+        *lock(&syncs.inner.checking) = Some(AbortOnDropHandle::new(task));
         Ok(syncs)
     }
 
@@ -263,7 +250,7 @@ impl Syncs {
         let mut replaced = Vec::new();
         let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
         {
-            let mut running = self.inner.lock();
+            let mut running = lock(&self.inner.projects);
             let gone: Vec<String> = running
                 .keys()
                 .filter(|name| !names.contains(&name.as_str()))
@@ -272,14 +259,12 @@ impl Syncs {
             for name in gone {
                 stopping.extend(running.remove(&name));
             }
-            self.inner
-                .held()
-                .retain(|name, _| names.contains(&name.as_str()));
+            lock(&self.inner.held).retain(|name, _| names.contains(&name.as_str()));
         }
         for mut project in projects {
             project.peers.retain(|peer| peer.id != me);
             let same = {
-                let mut running = self.inner.lock();
+                let mut running = lock(&self.inner.projects);
                 running
                     .get_mut(&project.name)
                     .filter(|running| running.project.folder == project.folder)
@@ -296,13 +281,11 @@ impl Syncs {
             }
             // Stopped before its replacement starts: the same folder named
             // another way has the same key, watches and state file.
-            let old = self.inner.lock().remove(&project.name);
+            let old = lock(&self.inner.projects).remove(&project.name);
             if let Some(old) = old {
                 replaced.push(halt(old).await);
             }
-            let was_held = self
-                .inner
-                .held()
+            let was_held = lock(&self.inner.held)
                 .remove(&project.name)
                 .is_some_and(|held| held.project.folder == project.folder);
             if let Some(managed) = self
@@ -313,7 +296,7 @@ impl Syncs {
             {
                 if was_held || from == Source::Saved {
                     log::info!("not syncing {}: {}", project.name, managed.reason());
-                    self.inner.held().insert(
+                    lock(&self.inner.held).insert(
                         project.name.clone(),
                         Held {
                             project: project.clone(),
@@ -331,7 +314,7 @@ impl Syncs {
             }
             match self.run(&project).await {
                 Ok(running) => {
-                    self.inner.lock().insert(project.name.clone(), running);
+                    lock(&self.inner.projects).insert(project.name.clone(), running);
                     kept.push(project);
                 }
                 Err(e) => refused.push(Refused {
@@ -394,9 +377,7 @@ impl Syncs {
         let name = shared.name();
         let key = shared.key();
         // The same folder may have started again under the same key.
-        if self
-            .inner
-            .lock()
+        if lock(&self.inner.projects)
             .values()
             .any(|other| other.shared.key() == key)
         {
@@ -433,9 +414,7 @@ impl Syncs {
     /// Syncthing let go of starts again, from a fresh scan.
     pub async fn check_syncthing(&self) {
         let _one = self.inner.configuring.lock().await;
-        let running: Vec<Project> = self
-            .inner
-            .lock()
+        let running: Vec<Project> = lock(&self.inner.projects)
             .values()
             .map(|running| running.project.clone())
             .collect();
@@ -444,17 +423,13 @@ impl Syncs {
                 continue;
             };
             log::info!("stopped syncing {}: {}", project.name, managed.reason());
-            let stopped = self.inner.lock().remove(&project.name);
-            self.inner
-                .held()
-                .insert(project.name.clone(), Held { project, managed });
+            let stopped = lock(&self.inner.projects).remove(&project.name);
+            lock(&self.inner.held).insert(project.name.clone(), Held { project, managed });
             if let Some(stopped) = stopped {
                 self.stop(stopped).await;
             }
         }
-        let held: Vec<Project> = self
-            .inner
-            .held()
+        let held: Vec<Project> = lock(&self.inner.held)
             .values()
             .map(|held| held.project.clone())
             .collect();
@@ -471,8 +446,8 @@ impl Syncs {
             match self.run(&project).await {
                 Ok(running) => {
                     log::info!("syncing {} again: Syncthing let go of it", project.name);
-                    self.inner.held().remove(&project.name);
-                    self.inner.lock().insert(project.name.clone(), running);
+                    lock(&self.inner.held).remove(&project.name);
+                    lock(&self.inner.projects).insert(project.name.clone(), running);
                 }
                 Err(e) => log::warn!("{} does not sync yet: {e:#}", project.name),
             }
@@ -481,10 +456,10 @@ impl Syncs {
 
     /// Stops every project, saving its state.
     pub(crate) async fn shutdown(&self) {
-        let checking = self.inner.checking().take();
+        let checking = lock(&self.inner.checking).take();
         drop(checking);
         let _one = self.inner.configuring.lock().await;
-        let running = std::mem::take(&mut *self.inner.lock());
+        let running = std::mem::take(&mut *lock(&self.inner.projects));
         for running in running.into_values() {
             halt(running).await;
         }
@@ -492,13 +467,11 @@ impl Syncs {
 
     /// How each project stands.
     pub fn status(&self) -> Vec<ProjectStatus> {
-        let mut out: Vec<ProjectStatus> = self
-            .inner
-            .lock()
+        let mut out: Vec<ProjectStatus> = lock(&self.inner.projects)
             .values()
             .map(|running| running.shared.status())
             .collect();
-        out.extend(self.inner.held().values().map(Held::status));
+        out.extend(lock(&self.inner.held).values().map(Held::status));
         out
     }
 
@@ -566,8 +539,7 @@ impl Syncs {
     }
 
     fn project(&self, name: &str) -> Option<Arc<Shared>> {
-        self.inner
-            .lock()
+        lock(&self.inner.projects)
             .get(name)
             .map(|running| running.shared.clone())
     }

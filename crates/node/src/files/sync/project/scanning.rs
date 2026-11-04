@@ -7,13 +7,13 @@ use crate::files::sync::{
     rules::{MARKER, Rules},
     scan,
 };
+use crate::{read_lock, write_lock};
 use anyhow::{Result, bail};
 use beep_proto::node::sync::State as SyncState;
 use iroh_blobs::Hash;
 use std::{
     collections::{BTreeSet, HashSet},
     mem,
-    sync::PoisonError,
 };
 use tokio::task::spawn_blocking;
 
@@ -41,15 +41,11 @@ impl Task {
             let root = root.clone();
             spawn_blocking(move || Rules::load(&root)).await??
         };
-        *self
-            .shared
-            .rules
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = rules;
+        *write_lock(&self.shared.rules) = rules;
         let walked = {
             let (root, rules) = (root.clone(), self.shared.rules.clone());
             spawn_blocking(move || {
-                let rules = rules.read().unwrap_or_else(PoisonError::into_inner);
+                let rules = read_lock(&rules);
                 scan::walk(&root, &rules, 0)
             })
             .await??

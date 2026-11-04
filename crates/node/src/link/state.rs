@@ -166,17 +166,7 @@ impl State {
             search,
         };
         fs::write(dir.join(SETTINGS_FILE), toml::to_string(&settings)?)?;
-        Ok(Self {
-            dir: dir.to_owned(),
-            key,
-            server,
-            name: settings.name,
-            agents: settings.agents,
-            files: settings.files,
-            webhook_listen: settings.webhook_listen,
-            port: settings.port.unwrap_or(NODE_PORT),
-            search: Search(settings.search),
-        })
+        Ok(Self::of(dir, key, server, settings))
     }
 
     pub fn load(dir: &Path) -> Result<Self> {
@@ -187,20 +177,25 @@ impl State {
             );
         };
         let settings = read_settings(dir)?;
-        Ok(Self {
+        let server = settings
+            .server
+            .parse()
+            .context("the server in node.toml is not an endpoint id")?;
+        Ok(Self::of(dir, key, server, settings))
+    }
+
+    fn of(dir: &Path, key: SecretKey, server: EndpointId, settings: Settings) -> Self {
+        Self {
             dir: dir.to_owned(),
             key,
-            server: settings
-                .server
-                .parse()
-                .context("the server in node.toml is not an endpoint id")?,
+            server,
             name: settings.name,
             agents: settings.agents,
             files: settings.files,
             webhook_listen: settings.webhook_listen,
             port: settings.port.unwrap_or(NODE_PORT),
             search: Search(settings.search),
-        })
+        }
     }
 }
 
@@ -278,35 +273,28 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("beep-node-test-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        dir
-    }
-
     #[test]
     fn linking_again_keeps_the_key() {
-        let dir = temp_dir("relink");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let server = SecretKey::generate().public().to_string();
-        let first = State::create(&dir, &server, "box").unwrap();
-        let second = State::create(&dir, &server, "build box").unwrap();
+        let first = State::create(dir, &server, "box").unwrap();
+        let second = State::create(dir, &server, "build box").unwrap();
         assert_eq!(first.key.public(), second.key.public());
-        let loaded = State::load(&dir).unwrap();
+        let loaded = State::load(dir).unwrap();
         assert_eq!(loaded.name, "build box");
         assert_eq!(loaded.key.public(), first.key.public());
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn linking_again_keeps_settings_it_cannot_read() {
-        let dir = temp_dir("relink-broken");
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let server = SecretKey::generate().public().to_string();
-        State::create(&dir, &server, "box").unwrap();
+        State::create(dir, &server, "box").unwrap();
         let broken = "files = [\"/srv/project\"\n";
         fs::write(dir.join(SETTINGS_FILE), broken).unwrap();
-        assert!(State::create(&dir, &server, "box").is_err());
+        assert!(State::create(dir, &server, "box").is_err());
         assert_eq!(fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap(), broken);
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

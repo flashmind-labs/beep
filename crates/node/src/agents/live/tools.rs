@@ -2,12 +2,12 @@
 
 use super::{
     ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS,
-    content::{cut, image_picture, parent_tool, picture_of},
+    content::{cut, image_picture, parent_tool},
 };
 use crate::agents::mcp::calls::Tool as BeepTool;
 use crate::agents::{
     acp::wire_name,
-    images::Picture,
+    images::{Picture, picture_of},
     subagent::{Activity, Run, Subagent},
     tool_diff::diff_text,
 };
@@ -113,7 +113,7 @@ impl Live {
                 self.write_tool(&parent);
             }
             None => {
-                tool.entry = self.push_entry(EntryKind::Tool, tool.entry_text());
+                tool.entry = self.push_entry(EntryKind::Tool, tool.entry_with(&[], None));
                 self.tools.insert(call.tool_call_id.clone(), tool);
             }
         }
@@ -257,11 +257,6 @@ pub(super) struct Step<'a> {
 }
 
 impl ToolCall {
-    /// Its title and status, what it showed, then its image lines whole.
-    fn entry_text(&self) -> String {
-        self.entry_with(&[], None)
-    }
-
     /// How the call stands as its entry shows it: a Codex subagent works
     /// until it says it ended, or its rollout says it finished.
     fn shown_status(&self, run: Option<&Run>) -> ToolCallStatus {
