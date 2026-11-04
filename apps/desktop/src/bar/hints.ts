@@ -86,7 +86,7 @@ export const SHORTCUTS: [string, Hint[]][] = [
 ];
 
 /// The sections of a key sheet: each title, then its keys and what they do.
-export const keyGroups = (sections: [string, Hint[]][]) =>
+export const keyGroups = (sections: readonly (readonly [string, readonly Hint[]])[]) =>
   `<div class="dkeys">${sections.map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>`;
 
 /// Opens or closes the sheet of every key, over whatever the bar shows.
