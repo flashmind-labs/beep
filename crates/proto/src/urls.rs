@@ -35,9 +35,8 @@ pub struct McpCallback {
 /// `beep://oauth` with a `code` and a `state`.
 pub fn mcp_callback(url: &str) -> Option<McpCallback> {
     let url = url.trim();
-    let callback = format!("https://{LINK_HOST}/oauth/callback");
     let query = url
-        .strip_prefix(&callback)
+        .strip_prefix(&mcp_callback_url())
         .or_else(|| url.strip_prefix("beep://oauth"))?;
     let query = query.strip_prefix('/').unwrap_or(query).strip_prefix('?')?;
     let (mut code, mut state, mut issuer) = (None, None, None);
@@ -107,14 +106,18 @@ fn link_token<'a>(url: &'a str, path: &str, legacy: &str) -> Option<&'a str> {
 /// The invite code in what someone typed or pasted: a code with any case,
 /// spaces or dashes, or an invite link. None for other text.
 pub fn group_code(input: &str) -> Option<String> {
-    let input = group_token(input).unwrap_or(input.trim());
-    let code: String = input
+    let code = plain_code(group_token(input).unwrap_or(input.trim()));
+    let valid = (4..=64).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphanumeric());
+    valid.then_some(code)
+}
+
+/// A typed code in capitals, without spaces or dashes.
+pub(crate) fn plain_code(input: &str) -> String {
+    input
         .chars()
         .filter(|c| !c.is_whitespace() && *c != '-')
         .map(|c| c.to_ascii_uppercase())
-        .collect();
-    let valid = (4..=64).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphanumeric());
-    valid.then_some(code)
+        .collect()
 }
 
 /// `code` as people read it: `K7QM4-X9TRP` for a ten-character code.

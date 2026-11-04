@@ -71,6 +71,49 @@ macro_rules! wire_enum {
         }
     };
 }
+
+/// `wire_enum!` for an enum Kotlin and Swift see too.
+macro_rules! ffi_enum {
+    ($(#[$meta:meta])* pub enum $enum:ident $body:tt) => {
+        wire_enum! {
+            #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+            $(#[$meta])*
+            pub enum $enum $body
+        }
+    };
+}
+
+/// Plain structs on the wire: serde, the usual derives (`Debug`, `Clone`,
+/// `PartialEq`; a struct's own `#[derive]` adds to them), and the samples the
+/// compat test checks them with. They encode as their fields in order.
+macro_rules! wire_structs {
+    ($($(#[$meta:meta])* pub struct $name:ident {
+        $($(#[$fmeta:meta])* pub $field:ident: $ty:ty),* $(,)?
+    })*) => {$(
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        $(#[$meta])*
+        pub struct $name {
+            $($(#[$fmeta])* pub $field: $ty,)*
+        }
+
+        #[cfg(test)]
+        sample_struct!($name { $($field),* });
+    )*};
+}
+
+/// `wire_structs!` for structs Kotlin and Swift see too.
+macro_rules! ffi_structs {
+    ($($(#[$meta:meta])* pub struct $name:ident $body:tt)*) => {
+        wire_structs! {
+            $(
+                #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+                $(#[$meta])*
+                pub struct $name $body
+            )*
+        }
+    };
+}
+
 /// Declares every request: its op, its fields and what it replies with.
 macro_rules! requests {
     ($($(#[$meta:meta])* $op:literal $name:ident { $($(#[$fmeta:meta])* $field:ident: $ty:ty),* $(,)? } => $kind:ident<$reply:ty>)*) => {
@@ -90,7 +133,7 @@ macro_rules! requests {
 
         /// Hands `visit` every request type with its reply type, in op order.
         #[cfg(test)]
-        fn each_request(visit: &mut impl compat::Visit) {
+        pub(crate) fn each_request(visit: &mut impl $crate::compat::Visit) {
             $(visit.request::<$name, $reply>();)*
         }
 

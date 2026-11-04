@@ -1,100 +1,92 @@
 //! The user's machines: their state, tools, updates and terminals.
 
 use crate::{AttachTerminal, Duplex, node};
-use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use uuid::Uuid;
 
-/// A tool on a machine with a newer release (`ListToolUpdates`).
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolUpdate {
-    /// Its `Machine::id`.
-    pub machine_id: String,
-    /// Such as `gh`.
-    pub tool: String,
-    /// The version the machine runs.
-    pub version: String,
-    /// The newest release.
-    pub latest: String,
+ffi_structs! {
+    /// A tool on a machine with a newer release (`ListToolUpdates`).
+    #[derive(Eq)]
+    pub struct ToolUpdate {
+        /// Its `Machine::id`.
+        pub machine_id: String,
+        /// Such as `gh`.
+        pub tool: String,
+        /// The version the machine runs.
+        pub version: String,
+        /// The newest release.
+        pub latest: String,
+    }
+
+    /// What `AddMachineOverSsh` did.
+    #[derive(Eq)]
+    pub struct SshAdd {
+        /// The `Machine::id` it linked as; `None` when it failed.
+        pub machine_id: Option<String>,
+        /// What the target said it runs, such as "Linux x86_64"; empty before
+        /// that was read.
+        pub system: String,
+        /// Which step failed and why; empty when it linked.
+        pub error: String,
+        /// The failing command's last lines of output.
+        pub output: Vec<String>,
+    }
+
+    /// A machine `UpdateMachine` can update (`ListUpdatableMachines`).
+    #[derive(Eq)]
+    pub struct UpdatableMachine {
+        /// Its `Machine::id`.
+        pub id: String,
+        /// The agent sessions running on it, which an update waits for.
+        pub agent_sessions: u32,
+    }
+
+    /// What `UpdateMachine` did.
+    #[derive(Eq)]
+    pub struct MachineUpdate {
+        /// The beep-node version it ran.
+        pub from: String,
+        /// The version installed, or `from` when that is already the newest.
+        pub to: String,
+        /// It restarts on `to`: it goes offline and connects again shortly.
+        pub restarting: bool,
+        /// Why it does not restart, in words for the user; empty otherwise.
+        pub note: String,
+    }
+
+    /// The machine Auto would start a coding agent on, as
+    /// `PreviewAgentMachine` gives it.
+    pub struct MachinePick {
+        pub machine_id: String,
+        pub machine_name: String,
+        /// Why, such as "It has Xcode and runs the fewest sessions."
+        pub why: String,
+    }
+
+    /// A command kept running on one of the user's machines, for a project or
+    /// on its own.
+    pub struct Terminal {
+        pub id: Uuid,
+        /// `org/repo`, or empty for a terminal of no project.
+        pub project: String,
+        pub machine_id: String,
+        pub machine_name: String,
+        pub name: String,
+        pub command: String,
+        /// The folder it runs in.
+        pub cwd: String,
+        pub state: TerminalState,
+        pub started_at: SystemTime,
+    }
 }
 
-/// What `AddMachineOverSsh` did.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SshAdd {
-    /// The `Machine::id` it linked as; `None` when it failed.
-    pub machine_id: Option<String>,
-    /// What the target said it runs, such as "Linux x86_64"; empty before
-    /// that was read.
-    pub system: String,
-    /// Which step failed and why; empty when it linked.
-    pub error: String,
-    /// The failing command's last lines of output.
-    pub output: Vec<String>,
-}
-
-/// A machine `UpdateMachine` can update (`ListUpdatableMachines`).
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UpdatableMachine {
-    /// Its `Machine::id`.
-    pub id: String,
-    /// The agent sessions running on it, which an update waits for.
-    pub agent_sessions: u32,
-}
-
-/// What `UpdateMachine` did.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MachineUpdate {
-    /// The beep-node version it ran.
-    pub from: String,
-    /// The version installed, or `from` when that is already the newest.
-    pub to: String,
-    /// It restarts on `to`: it goes offline and connects again shortly.
-    pub restarting: bool,
-    /// Why it does not restart, in words for the user; empty otherwise.
-    pub note: String,
-}
-
-/// The machine Auto would start a coding agent on, as
-/// `PreviewAgentMachine` gives it.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachinePick {
-    pub machine_id: String,
-    pub machine_name: String,
-    /// Why, such as "It has Xcode and runs the fewest sessions."
-    pub why: String,
-}
-
-/// A command kept running on one of the user's machines, for a project or
-/// on its own.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Terminal {
-    pub id: Uuid,
-    /// `org/repo`, or empty for a terminal of no project.
-    pub project: String,
-    pub machine_id: String,
-    pub machine_name: String,
-    pub name: String,
-    pub command: String,
-    /// The folder it runs in.
-    pub cwd: String,
-    pub state: TerminalState,
-    pub started_at: SystemTime,
-}
-
-wire_enum! {
+ffi_enum! {
     /// How a terminal stands. `Exited` ended on its own (`code` is `None`
     /// when a signal ended it); `Offline` is not known while its machine
     /// is offline; `Gone` is no longer on its machine, such as after a
     /// restart.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
     #[strum(serialize_all = "snake_case")]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum TerminalState {
         0 Running {}
         1 Exited { code: Option<i32> }
@@ -104,15 +96,15 @@ wire_enum! {
     }
 }
 
-/// A terminal and the last of its output, as `GetTerminal` gives it.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TerminalOutput {
-    pub terminal: Terminal,
-    /// Oldest first.
-    pub lines: Vec<String>,
-    /// Lines were dropped before these.
-    pub earlier: bool,
+ffi_structs! {
+    /// A terminal and the last of its output, as `GetTerminal` gives it.
+    pub struct TerminalOutput {
+        pub terminal: Terminal,
+        /// Oldest first.
+        pub lines: Vec<String>,
+        /// Lines were dropped before these.
+        pub earlier: bool,
+    }
 }
 
 impl Duplex for AttachTerminal {
@@ -156,122 +148,105 @@ impl crate::compat::Sample for serde_bytes::ByteBuf {
     }
 }
 
-/// A folder on one of the caller's machines, as `ListMachineFolder` reads it.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineFolder {
-    /// Its absolute path on the machine.
-    pub path: String,
-    /// The folder above it; `None` at the root.
-    pub parent: Option<String>,
-    /// `false` for a folder that is not there yet; an import makes it.
-    pub exists: bool,
-    /// The folders in it by name, sorted, hidden ones left out.
-    pub folders: Vec<String>,
-    /// Folders left out past the limit.
-    pub more: u32,
-    /// It holds nothing, hidden files included.
-    pub empty: bool,
-    /// It is a git checkout: its `origin` remote, empty when it has none.
-    pub origin: Option<String>,
+ffi_structs! {
+    /// A folder on one of the caller's machines, as `ListMachineFolder` reads it.
+    pub struct MachineFolder {
+        /// Its absolute path on the machine.
+        pub path: String,
+        /// The folder above it; `None` at the root.
+        pub parent: Option<String>,
+        /// `false` for a folder that is not there yet; an import makes it.
+        pub exists: bool,
+        /// The folders in it by name, sorted, hidden ones left out.
+        pub folders: Vec<String>,
+        /// Folders left out past the limit.
+        pub more: u32,
+        /// It holds nothing, hidden files included.
+        pub empty: bool,
+        /// It is a git checkout: its `origin` remote, empty when it has none.
+        pub origin: Option<String>,
+    }
+
+    /// A setup token as `CreateNodeToken` made it.
+    pub struct NodeToken {
+        /// The token as text, such as `bk1-0f3ka-...`.
+        pub token: String,
+        pub expires_at: SystemTime,
+    }
+
+    /// The apps, graphics cards and abilities of one machine, as
+    /// `ListMachineDetails` lists them.
+    pub struct MachineDetails {
+        /// The `Machine::id` it describes.
+        pub id: String,
+        pub apps: Vec<MachineApp>,
+        pub gpus: Vec<MachineGpu>,
+        pub capabilities: Vec<MachineCapability>,
+    }
+
+    /// An app installed on a machine.
+    pub struct MachineApp {
+        /// Its display name, such as "Blender" or "Unreal Engine 5.4".
+        pub name: String,
+        pub version: Option<String>,
+    }
+
+    /// A graphics card in a machine.
+    pub struct MachineGpu {
+        /// Its maker, such as "NVIDIA" or "Apple".
+        pub vendor: String,
+        pub model: String,
+        /// Video memory in MB, when known.
+        pub vram_mb: Option<u64>,
+        pub driver: Option<String>,
+    }
+
+    /// A machine's live resources, as `ListMachineStats` lists them.
+    pub struct MachineStats {
+        /// The `Machine::id` it describes.
+        pub id: String,
+        /// When the server got the sample.
+        pub sampled_at: SystemTime,
+        /// The workspace's volume first, when the machine keeps one, then the
+        /// home folder's when it is on another volume.
+        pub disks: Vec<MachineDisk>,
+        pub memory_used_mb: u64,
+        pub memory_total_mb: u64,
+        /// The load average over the last minute, when the machine gives one.
+        pub load: Option<f64>,
+    }
+
+    /// What a machine moved over iroh since it first reported, as
+    /// `ListMachineTraffic` lists it.
+    pub struct MachineTraffic {
+        /// The `Machine::id` it describes.
+        pub id: String,
+        /// When the server last got a report.
+        pub updated_at: SystemTime,
+        /// Key and value, so a new counter needs no new shape.
+        pub counters: Vec<TrafficCounter>,
+    }
+
+    /// One lifetime total, such as `alpn.beep-sync/1.tx` or `endpoint.relay.rx`.
+    pub struct TrafficCounter {
+        pub key: String,
+        pub bytes: u64,
+    }
+
+    /// How full the volume holding one folder is.
+    pub struct MachineDisk {
+        /// The folder it was measured at.
+        pub path: String,
+        /// What a user may still write, in bytes.
+        pub free_bytes: u64,
+        pub total_bytes: u64,
+    }
 }
 
-/// A setup token as `CreateNodeToken` made it.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NodeToken {
-    /// The token as text, such as `bk1-0f3ka-...`.
-    pub token: String,
-    pub expires_at: SystemTime,
-}
-
-/// The apps, graphics cards and abilities of one machine, as
-/// `ListMachineDetails` lists them.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineDetails {
-    /// The `Machine::id` it describes.
-    pub id: String,
-    pub apps: Vec<MachineApp>,
-    pub gpus: Vec<MachineGpu>,
-    pub capabilities: Vec<MachineCapability>,
-}
-
-/// An app installed on a machine.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineApp {
-    /// Its display name, such as "Blender" or "Unreal Engine 5.4".
-    pub name: String,
-    pub version: Option<String>,
-}
-
-/// A graphics card in a machine.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineGpu {
-    /// Its maker, such as "NVIDIA" or "Apple".
-    pub vendor: String,
-    pub model: String,
-    /// Video memory in MB, when known.
-    pub vram_mb: Option<u64>,
-    pub driver: Option<String>,
-}
-
-/// A machine's live resources, as `ListMachineStats` lists them.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineStats {
-    /// The `Machine::id` it describes.
-    pub id: String,
-    /// When the server got the sample.
-    pub sampled_at: SystemTime,
-    /// The workspace's volume first, when the machine keeps one, then the
-    /// home folder's when it is on another volume.
-    pub disks: Vec<MachineDisk>,
-    pub memory_used_mb: u64,
-    pub memory_total_mb: u64,
-    /// The load average over the last minute, when the machine gives one.
-    pub load: Option<f64>,
-}
-
-/// What a machine moved over iroh since it first reported, as
-/// `ListMachineTraffic` lists it.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineTraffic {
-    /// The `Machine::id` it describes.
-    pub id: String,
-    /// When the server last got a report.
-    pub updated_at: SystemTime,
-    /// Key and value, so a new counter needs no new shape.
-    pub counters: Vec<TrafficCounter>,
-}
-
-/// One lifetime total, such as `alpn.beep-sync/1.tx` or `endpoint.relay.rx`.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TrafficCounter {
-    pub key: String,
-    pub bytes: u64,
-}
-
-/// How full the volume holding one folder is.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineDisk {
-    /// The folder it was measured at.
-    pub path: String,
-    /// What a user may still write, in bytes.
-    pub free_bytes: u64,
-    pub total_bytes: u64,
-}
-
-wire_enum! {
+ffi_enum! {
     /// What a machine can be asked to do.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
     #[strum(serialize_all = "lowercase")]
-    #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
     pub enum MachineCapability {
         0 Gpu {}
         1 Cuda {}
@@ -298,57 +273,51 @@ impl MachineCapability {
     }
 }
 
-/// A machine running beep-node, and what it last reported.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Machine {
-    /// Its key, the `LinkedDevice::id` it signs in with.
-    pub id: String,
-    pub name: String,
-    /// Connected to the server now.
-    pub online: bool,
-    /// When it last connected or reported.
-    pub seen_at: SystemTime,
-    /// The beep-node version, such as "0.1.0".
-    pub version: String,
-    /// `None` until its first report.
-    pub env: Option<MachineEnv>,
-}
+ffi_structs! {
+    /// A machine running beep-node, and what it last reported.
+    pub struct Machine {
+        /// Its key, the `LinkedDevice::id` it signs in with.
+        pub id: String,
+        pub name: String,
+        /// Connected to the server now.
+        pub online: bool,
+        /// When it last connected or reported.
+        pub seen_at: SystemTime,
+        /// The beep-node version, such as "0.1.0".
+        pub version: String,
+        /// `None` until its first report.
+        pub env: Option<MachineEnv>,
+    }
 
-/// What a machine reported about itself.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineEnv {
-    /// `linux` or `macos`.
-    pub os: String,
-    /// Such as "Ubuntu 24.04" or "macOS 26.3".
-    pub os_version: String,
-    pub arch: String,
-    pub hostname: String,
-    pub cpus: u32,
-    pub memory_mb: u64,
-    /// The folder commands start in.
-    pub home: String,
-    pub tools: Vec<MachineTool>,
-    pub logins: Vec<MachineLogin>,
-    /// Android virtual devices.
-    pub avds: Vec<String>,
-}
+    /// What a machine reported about itself.
+    pub struct MachineEnv {
+        /// `linux` or `macos`.
+        pub os: String,
+        /// Such as "Ubuntu 24.04" or "macOS 26.3".
+        pub os_version: String,
+        pub arch: String,
+        pub hostname: String,
+        pub cpus: u32,
+        pub memory_mb: u64,
+        /// The folder commands start in.
+        pub home: String,
+        pub tools: Vec<MachineTool>,
+        pub logins: Vec<MachineLogin>,
+        /// Android virtual devices.
+        pub avds: Vec<String>,
+    }
 
-/// A known tool found on a machine's `PATH`.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineTool {
-    pub name: String,
-    /// The first line of its version output.
-    pub version: Option<String>,
-}
+    /// A known tool found on a machine's `PATH`.
+    pub struct MachineTool {
+        pub name: String,
+        /// The first line of its version output.
+        pub version: Option<String>,
+    }
 
-/// Whether a CLI on a machine is signed in, such as `gh`.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MachineLogin {
-    pub tool: String,
-    pub signed_in: bool,
-    pub account: Option<String>,
+    /// Whether a CLI on a machine is signed in, such as `gh`.
+    pub struct MachineLogin {
+        pub tool: String,
+        pub signed_in: bool,
+        pub account: Option<String>,
+    }
 }

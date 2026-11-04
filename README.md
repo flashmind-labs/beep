@@ -80,7 +80,7 @@ build before they can install it.
 
 ALPN `beep/2`. Each request opens its own bi stream of length-delimited
 frames: a tag byte, then a msgpack body. The server pushes notices to clients
-on `beep-push/1`. See `crates/proto/src/wire.rs`.
+on `beep-push/1`. See `crates/proto/src/transport/wire.rs`.
 
 ## Tests
 
