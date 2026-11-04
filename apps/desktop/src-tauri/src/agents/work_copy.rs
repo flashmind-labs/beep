@@ -1,7 +1,7 @@
-//! Reads of a machine's project folder served from this Mac when the same
-//! project has a folder here. Sync, Syncthing's or Beep's, is trusted to carry
-//! the files, so nothing is compared with the machine and nothing asks whether
-//! sync is running. A project with no folder here, or a file not here yet, goes
+//! Reads of a machine's project folder served from this Mac when the machine
+//! is this Mac or the same project has a folder here. Sync, Syncthing's or
+//! Beep's, is trusted to carry the files, so nothing is compared with the
+//! machine and nothing asks whether sync is running. A project with no folder here, or a file not here yet, goes
 //! to the node as if this were not here. The log says why a folder has no copy.
 
 use crate::{
@@ -210,9 +210,12 @@ async fn look(beep: &Beep, machine_id: &str, dir: &str) -> Result<Result<LocalCo
 
 /// The copy here of `dir` on `machine_id`, when this Mac has the project.
 async fn copy_of(beep: &Beep, machine_id: &str, dir: &str) -> Option<LocalCopy> {
-    // The Mac's own files are already here, through its own node.
+    // The Mac's own folder is the copy: no trip through the server to its node.
     if beep.id().to_string() == machine_id {
-        return None;
+        return Some(LocalCopy {
+            remote: dir.to_owned(),
+            local: PathBuf::from(dir),
+        });
     }
     let asked = Asked {
         machine_id: machine_id.to_owned(),
@@ -253,9 +256,6 @@ fn place_or_top(local: PathBuf, rel: &str) -> PathBuf {
 
 /// The folder on this Mac for `dir` on `machine_id`, when this Mac has it.
 pub(crate) async fn folder_here(beep: &Beep, machine_id: &str, dir: &str) -> Option<PathBuf> {
-    if beep.id().to_string() == machine_id {
-        return Some(PathBuf::from(dir));
-    }
     let copy = copy_of(beep, machine_id, dir).await?;
     let rel = under(dir, &copy.remote)?.to_owned();
     spawn_blocking(move || place_or_top(copy.local, &rel))
