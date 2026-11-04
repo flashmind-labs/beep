@@ -6,6 +6,7 @@
 //! The mesh opens, or is made on first launch with this Mac as its first
 //! device, off the main thread. Nothing the first paint needs waits on it.
 
+pub(crate) mod alerts;
 mod carry;
 mod mesh;
 pub(crate) mod projects;
