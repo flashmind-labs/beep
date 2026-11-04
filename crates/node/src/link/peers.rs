@@ -18,7 +18,7 @@ use beep_mesh::{
     DeviceKind, DeviceStatus, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream, SessionFn,
     StreamHandler,
 };
-use beep_proto::node::{LinkRx, LinkTx, Opened, link, status::Report};
+use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, status::Report};
 use iroh::{
     Endpoint,
     endpoint::Connection,
@@ -29,6 +29,7 @@ use serde::de::IgnoredAny;
 use std::{
     collections::BTreeSet,
     fmt::Write,
+    future::Future,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
@@ -412,9 +413,22 @@ impl ProtocolHandler for JoinAlpn {
 
 /// Serves `status/1`: the offers, then the machine's reports until the peer
 /// closes the stream.
-pub(crate) async fn status(mut tx: LinkTx, mut rx: LinkRx, offers: Offers) -> Result<()> {
+pub(crate) async fn status(tx: LinkTx, rx: LinkRx, offers: Offers) -> Result<()> {
+    status_with(tx, rx, offers, env::probe).await
+}
+
+/// `status` with the way to probe the machine given. A probe runs a dozen
+/// commands and can take half a minute: it runs beside the loop, so the
+/// peer's close and the stats and traffic reports are not held up by it.
+async fn status_with<P, F>(mut tx: LinkTx, mut rx: LinkRx, offers: Offers, probe: P) -> Result<()>
+where
+    P: Fn() -> F,
+    F: Future<Output = EnvReport> + Send + 'static,
+{
     tx.send(&Report::Offers(offers.names())).await?;
     let mut reprobe = interval(REPROBE);
+    reprobe.tick().await;
+    let mut probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
     let mut resample = interval(RESAMPLE);
     resample.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut traffic = interval(REPORT_TRAFFIC);
@@ -427,11 +441,18 @@ pub(crate) async fn status(mut tx: LinkTx, mut rx: LinkRx, offers: Offers) -> Re
                 gone?;
                 return Ok(());
             }
-            _ = reprobe.tick() => {
-                let now = env::probe().await;
-                if reported.as_ref().is_none_or(|before| changed(before, &now)) {
-                    tx.send(&Report::Env(now.clone())).await?;
-                    reported = Some(now);
+            _ = reprobe.tick(), if probing.is_none() => {
+                probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
+            }
+            Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
+                probing = None;
+                match probed {
+                    Ok(now) if reported.as_ref().is_none_or(|before| changed(before, &now)) => {
+                        tx.send(&Report::Env(now.clone())).await?;
+                        reported = Some(now);
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::warn!("probing the machine failed: {e}"),
                 }
             }
             _ = resample.tick() => {
@@ -644,6 +665,60 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[tokio::test]
+    async fn status_reports_and_ends_while_the_probe_is_still_running() {
+        use iroh::{SecretKey, endpoint::presets};
+        const ALPN: &[u8] = b"status-test";
+        let bind = || async {
+            Endpoint::builder(presets::Minimal)
+                .secret_key(SecretKey::generate())
+                .alpns(vec![ALPN.to_vec()])
+                .bind()
+                .await
+                .expect("the endpoint binds")
+        };
+        let (node, desktop) = (bind().await, bind().await);
+        let addr = node.addr();
+        let dialing = tokio::spawn({
+            let desktop = desktop.clone();
+            async move { desktop.connect(addr, ALPN).await }
+        });
+        let incoming = node.accept().await.expect("a connection comes");
+        let from_desktop = incoming.await.expect("it is accepted");
+        let to_node = dialing.await.expect("joined").expect("connected");
+
+        // The node serves status with a probe that never finishes.
+        let serving = tokio::spawn(async move {
+            let (send, recv) = from_desktop.open_bi().await.expect("a stream opens");
+            let (tx, rx) = link(send, recv);
+            status_with(tx, rx, Offers::default(), std::future::pending).await
+        });
+        let (send, recv) = to_node.accept_bi().await.expect("the stream arrives");
+        let (client_tx, mut reports) = link(send, recv);
+        let (mut stats, mut traffic) = (false, false);
+        timeout(Duration::from_secs(30), async {
+            while !(stats && traffic) {
+                match reports.recv::<Report>().await.expect("a report reads") {
+                    Some(Report::Stats(_)) => stats = true,
+                    Some(Report::Traffic(_)) => traffic = true,
+                    Some(Report::Env(_)) => panic!("the probe never finished"),
+                    Some(_) => {}
+                    None => panic!("the stream ended"),
+                }
+            }
+        })
+        .await
+        .expect("the reports came while the probe ran");
+        // The desktop leaving ends the stream without waiting for the probe.
+        drop(client_tx);
+        to_node.close(0u32.into(), b"done");
+        timeout(Duration::from_secs(30), serving)
+            .await
+            .expect("status ended with the peer")
+            .expect("the task joined")
+            .ok();
     }
 
     #[tokio::test]
