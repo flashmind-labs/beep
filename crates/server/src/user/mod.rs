@@ -1127,6 +1127,11 @@ impl User {
         self.store.webhook_made(&self.key, id, hook).await
     }
 
+    /// See `Store::orphan_webhooks`.
+    pub(crate) async fn orphan_webhooks(&self) -> Result<Vec<crate::store::OrphanWebhooks>> {
+        self.store.orphan_webhooks(&self.key).await
+    }
+
     /// See `Store::webhook_removed`.
     pub(crate) async fn webhook_removed(&self, host: &str, repo: &str, hook: u64) -> Result<()> {
         self.store

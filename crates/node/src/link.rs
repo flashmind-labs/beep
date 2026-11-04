@@ -51,6 +51,8 @@ const RESAMPLE: Duration = Duration::from_secs(60);
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// The most sessions open at once; more are refused.
 const MAX_SESSIONS: usize = 32;
+/// How long a stopping node waits for the webhooks it made to be removed.
+const WEBHOOK_CLEANUP: Duration = Duration::from_secs(5);
 
 /// A session protocol a host serves beside the node's own, such as the Mac
 /// app's `desktop/1`.
@@ -103,10 +105,16 @@ pub async fn serve(
     offers.extra.push(Arc::new(crate::update::Updates));
     // Live project updates: GitHub through `gh webhook forward`, Forgejo
     // and Gitea on the private-network address the settings name.
-    match Webhooks::new(state.webhook_listen) {
-        Ok(webhooks) => offers.extra.push(Arc::new(webhooks)),
-        Err(e) => log::warn!("not taking webhooks: {e:#}"),
-    }
+    let webhooks = match Webhooks::new(state.webhook_listen) {
+        Ok(webhooks) => {
+            offers.extra.push(Arc::new(webhooks.clone()));
+            Some(webhooks)
+        }
+        Err(e) => {
+            log::warn!("not taking webhooks: {e:#}");
+            None
+        }
+    };
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
     let shared: Vec<_> = workspace
@@ -198,6 +206,11 @@ pub async fn serve(
     }
     // Agents that end from here on ended with the node, whatever their exit.
     offers.agents.begin_stopping();
+    // The webhooks of the dropped watches go while the tokens are still
+    // here; one left stays recorded on the server for the next watch.
+    if let Some(webhooks) = &webhooks {
+        webhooks.finish(WEBHOOK_CLEANUP).await;
+    }
     // Stopped, the machine keeps no token: teacli's config, its shim and
     // the env vars go.
     if let Some(provision) = &offers.provision {

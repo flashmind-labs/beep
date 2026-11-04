@@ -13,7 +13,7 @@ mod test_host;
 mod timing;
 mod watch;
 
-pub(crate) use forward::LiveState;
+pub(crate) use forward::{LiveState, sweep, sweep_any};
 pub(crate) use lists::ListsCopy;
 pub(crate) use watch::Changed;
 pub use watch::RepoWatch;
