@@ -4,7 +4,7 @@ use crate::{
     protocol::{ProjectTaskState, ProjectWorkerState},
     store::Scope,
 };
-pub(crate) use beep_projects::model::*;
+use beep_projects::model::RepoName;
 use beep_proto::node::agent;
 use serde::{Deserialize, Serialize};
 use std::{fmt, time::Duration};

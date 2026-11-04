@@ -184,18 +184,18 @@ impl Tool for RecordingTool {
 pub(crate) async fn widget_project(
     user: &crate::account::user::User,
     home: EndpointId,
-    roles: crate::projects::model::Roles,
-    visibility: crate::projects::model::Visibility,
+    roles: beep_projects::model::Roles,
+    visibility: beep_projects::model::Visibility,
 ) -> crate::store::ProjectRow {
     let project = user
-        .ensure_project(&crate::projects::model::RepoName::parse("acme/widget").unwrap())
+        .ensure_project(&beep_projects::model::RepoName::parse("acme/widget").unwrap())
         .await
         .unwrap();
     user.add_checkout(
         project.id,
         &crate::store::CheckoutRow {
             machine: home,
-            path: crate::projects::model::MachinePath::parse("/srv/widget").unwrap(),
+            path: beep_projects::model::MachinePath::parse("/srv/widget").unwrap(),
             home: true,
         },
     )
