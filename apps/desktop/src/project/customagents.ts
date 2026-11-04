@@ -2,7 +2,7 @@
 // harnesses define in the project's folder on one machine, and the user's own
 // there.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../machines/addmachine.ts";
 import { harnessEl } from "../agents/harnessicon.ts";
 import { dbtn, emptyPanel } from "../ui/parts.ts";
 import { agentLabel } from "./projects-state.ts";
@@ -92,7 +92,6 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {
-    linkSheetStyle();
     const back = document.activeElement;
     const { root, sheet } = sheetShell(`Custom agent ${a.name}`, "am-sheet ca-sheet");
     const close = () => {
