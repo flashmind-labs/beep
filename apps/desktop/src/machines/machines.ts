@@ -4,6 +4,8 @@ import { openAddMachine } from "./addmachine.ts";
 import { harnessTile } from "../agents/harnessicon.ts";
 import { bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, specLine, toolChips, updatedTo } from "./machines-state.ts";
 import { bar, esc, ICON, invoke, S } from "../bar/core.ts";
+import { bytes } from "../center/home-state.ts";
+import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
 import { emptyPage, errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";
@@ -55,7 +57,9 @@ export const MC: {
   tools: ToolUpdate[];
   /// A tool's Update by "<machine> <tool>": installing, or why it failed.
   toolUps: Map<string, { busy: boolean; error: string }>;
-} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map(), tools: [], toolUps: new Map() };
+  /// What each machine moved over iroh (ListMachineTraffic).
+  traffic: MachineTraffic[];
+} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map(), tools: [], toolUps: new Map(), traffic: [] };
 
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
@@ -110,12 +114,14 @@ export async function renderMachines(id: string | null = null) {
   if (id) void loadSearch(id);
   drawMachines();
   try {
-    const [list, mac, updatable] = await Promise.all([
+    const [list, mac, updatable, traffic] = await Promise.all([
       invoke<Machine[]>("list_machines"),
       invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this Mac's state:", e); return null; }),
       invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
+      invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
     ]);
     MC.list = list;
+    MC.traffic = traffic;
     MC.updatable = new Set(updatable.map(u => u.id));
     MC.mac = mac?.id || null;
     MC.error = "";
@@ -361,7 +367,18 @@ function machinePage(m: Machine) {
     html += `<div class="dset-h">Tools</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
     html += [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([, up]) => errLine(up.error)).join("");
   }
+  html += trafficTable(m);
   return html + `<div class="dmach dset-rm">${button ? `<span class="nm">${button}</span>` : ""}${ask}</div>`;
+}
+
+/// What the machine moved per protocol, once it has reported.
+function trafficTable(m: Machine) {
+  const traffic = MC.traffic.find(t => t.id === m.id), rows = trafficRows(traffic);
+  if (!rows.length) return "";
+  const body = rows.map(r => `<tr><td>${esc(r.label)}</td><td class="dmono">${bytes(r.sent)}</td><td class="dmono">${bytes(r.received)}</td></tr>`).join("");
+  const relay = relayLine(traffic);
+  return `<div class="dset-h">Traffic</div><table class="dset-box dset-tbl"><thead><tr><th>Protocol</th><th>Sent</th><th>Received</th></tr></thead><tbody>${body}</tbody></table>`
+    + (relay ? `<div class="dmuted">Through a relay: ${relay}.</div>` : "");
 }
 
 /// A tool's version on a machine's page, with "to <latest>" and Update

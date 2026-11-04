@@ -118,9 +118,13 @@ fn write_marker(root: &Path, id: &str) -> Result<String> {
 }
 
 /// Keeps the marker out of `git status` in a repository.
-fn exclude_from_git(root: &Path) {
+pub(super) fn exclude_from_git(root: &Path) {
     let info = root.join(".git/info");
-    if !info.is_dir() {
+    if !root.join(".git").is_dir() {
+        return;
+    }
+    if let Err(e) = fs::create_dir_all(&info) {
+        log::debug!("{MARKER} is not excluded from git: {e}");
         return;
     }
     let exclude = info.join("exclude");

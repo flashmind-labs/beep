@@ -82,13 +82,11 @@ export function skeleton(widths: number[]) {
 
 /// One row of Running now, Needs you, Updates or Coming up: a title and one
 /// muted line, opening `open` on a click, with `right` beside it.
-export function bare(row: HTMLElement) { row.classList.add("bare"); return row; }
-
 export function line(lead: Node | null, title: string, sub: string, right: Kid[], open: () => void) {
   const t = h("button", "t", h("b", "", title), h("span", "", sub));
   t.type = "button";
   t.title = title;
-  const row = h("div", "cc-row cc-line", lead, t, h("span", "r", ...right));
+  const row = h("div", `cc-row cc-line${lead ? "" : " bare"}`, lead, t, h("span", "r", ...right));
   row.addEventListener("click", open);
   return row;
 }

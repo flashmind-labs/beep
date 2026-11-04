@@ -6,6 +6,7 @@ use crate::{
         read,
     },
     grants::RoutineGrants,
+    nodes::agent_name,
     protocol::{
         AppAction, AppKind, AppPermissions, Approval, ApprovalField, HistoryEntry, PermissionLevel,
     },
@@ -46,8 +47,8 @@ pub(crate) enum Acts {
     WhenMoving,
     /// Only when `to` names one of the user's machines.
     WhenToMachine,
-    /// Only when it steers a coding agent session the user runs.
-    WhenSteering,
+    /// Only when it starts a coding agent session or gives one work.
+    WhenDirectingAgent,
 }
 
 impl Acts {
@@ -61,9 +62,10 @@ impl Acts {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .is_some_and(|to| !to.is_empty() && !to.eq_ignore_ascii_case("user")),
-            Acts::WhenSteering => matches!(
+            // `answer` counts: text that is no option goes to the agent as its next prompt.
+            Acts::WhenDirectingAgent => matches!(
                 args.get("action").and_then(Value::as_str),
-                Some("steer" | "interrupt")
+                Some("start" | "takeover" | "prompt" | "answer" | "steer" | "interrupt")
             ),
         }
     }
@@ -76,7 +78,7 @@ impl Acts {
 
 /// `send_file` as rules keep it.
 const SEND_FILE: &str = "SEND_FILE";
-/// `code_agent` as rules keep it: steering a session the user runs acts.
+/// `code_agent` as rules keep it: starting a session or giving one work acts.
 const CODE_AGENT: &str = "CODE_AGENT";
 /// `add_machine` as rules keep it: a setup token grants account access, so it acts.
 const ADD_MACHINE: &str = "ADD_MACHINE";
@@ -190,7 +192,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
         return Some((ToolApp::Machines, Acts::WhenToMachine));
     }
     if tool == CODE_AGENT {
-        return Some((ToolApp::Machines, Acts::WhenSteering));
+        return Some((ToolApp::Machines, Acts::WhenDirectingAgent));
     }
     if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, SEND_FILES].contains(&tool) {
         return Some((ToolApp::Machines, Acts::Always));
@@ -263,8 +265,44 @@ pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval 
 fn call_fields(app: &ToolApp, tool: &str, args: &Value) -> Vec<ApprovalField> {
     match (app, MediaKind::from_tool(tool)) {
         (ToolApp::Media, Some(kind)) => media::approval_fields(kind, args),
+        _ if ToolSlug::new(tool).as_str() == CODE_AGENT => code_agent_fields(args),
         _ => fields(args),
     }
+}
+
+/// A `code_agent` card; "Default" is what the call left for the server to pick when it runs.
+fn code_agent_fields(args: &Value) -> Vec<ApprovalField> {
+    const DEFAULT: &str = "Default";
+    let text = |key: &str| {
+        args.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let action = text("action").unwrap_or_default();
+    let starting = action == "start";
+    [
+        ("Action", Some(capitalize(action))),
+        (
+            "Agent",
+            Some(text("agent").map_or(DEFAULT, agent_name).to_owned()),
+        ),
+        ("Machine", Some(text("in").unwrap_or(DEFAULT).to_owned())),
+        (
+            "Folder",
+            starting.then(|| text("cwd").unwrap_or(DEFAULT).to_owned()),
+        ),
+        ("Session", text("id").map(str::to_owned)),
+        ("Prompt", text("prompt").map(str::to_owned)),
+    ]
+    .into_iter()
+    .filter_map(|(label, value)| {
+        Some(ApprovalField {
+            label: label.to_owned(),
+            value: shorten(&value?, MAX_VALUE_CHARS),
+        })
+    })
+    .collect()
 }
 
 /// The tools of `app` that can act; every project tool counts.
@@ -1276,10 +1314,29 @@ mod tests {
         assert!(call_acts("MCP_MY-NOTES_SEARCH_PAGES", &Value::Null).is_none());
         assert!(lookup("MCP_").is_none());
         let (app, acts) = lookup("code_agent").unwrap();
-        assert_eq!((app.slug(), acts), (MACHINES_APP, Acts::WhenSteering));
-        assert!(acts.on(&json!({ "action": "steer", "id": "a", "prompt": "stop" })));
-        assert!(acts.on(&json!({ "action": "interrupt", "id": "a" })));
-        assert!(!acts.on(&json!({ "action": "live", "id": "a" })));
+        assert_eq!((app.slug(), acts), (MACHINES_APP, Acts::WhenDirectingAgent));
+        for action in [
+            "start",
+            "takeover",
+            "prompt",
+            "answer",
+            "steer",
+            "interrupt",
+        ] {
+            assert!(acts.on(&json!({ "action": action })), "{action}");
+        }
+        for action in [
+            "status",
+            "sessions",
+            "transcript",
+            "live",
+            "follow",
+            "unfollow",
+            "cancel",
+            "close",
+        ] {
+            assert!(!acts.on(&json!({ "action": action })), "{action}");
+        }
     }
 
     #[test]
@@ -1382,6 +1439,84 @@ mod tests {
         assert!(run(json!({ "path": "a.pdf" })).await.is_success());
         let approval = approval_for(&app, "send_file", &json!({ "to": "laptop" }));
         assert_eq!(approval.action, "send file");
+    }
+
+    #[tokio::test]
+    async fn starting_a_coding_agent_asks_first_and_checking_on_one_does_not() {
+        let token = tokio_util::sync::CancellationToken::new();
+        let start = json!({
+            "action": "start",
+            "agent": "claude",
+            "in": "build-box",
+            "cwd": "/srv/project",
+            "prompt": "Fix the tests",
+            "wait_secs": 30,
+        });
+        let run = |rules: Rules, args: Value| {
+            let guarded = guard(
+                vec![Arc::new(Named("code_agent"))],
+                rules,
+                Approved(None),
+                &HashSet::new(),
+                None,
+            );
+            let token = token.clone();
+            async move {
+                guarded[0]
+                    .execute(ToolContext::new("call", args, None, &token))
+                    .await
+                    .unwrap()
+            }
+        };
+        assert!(run(Rules::default(), start.clone()).await.is_interrupt());
+        let status = run(Rules::default(), json!({ "action": "status" })).await;
+        assert!(status.is_success() && !status.is_interrupt());
+        // Read only refuses a start and keeps the checks.
+        let read_only = || {
+            Rules::from_rows(vec![AppPermissionRow {
+                app: MACHINES_APP.into(),
+                level: PermissionLevel::ReadOnly {},
+                allowed: Vec::new(),
+            }])
+        };
+        let refused = run(read_only(), start.clone()).await;
+        assert!(
+            refused.output().starts_with(READ_ONLY),
+            "{}",
+            refused.output()
+        );
+        let status = run(read_only(), json!({ "action": "status" })).await;
+        assert!(status.is_success() && !status.output().starts_with(READ_ONLY));
+
+        let approval = approval_for(&ToolApp::Machines, "code_agent", &start);
+        let shown: Vec<(&str, &str)> = approval
+            .fields
+            .iter()
+            .map(|field| (field.label.as_str(), field.value.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Action", "Start"),
+                ("Agent", "Claude Code"),
+                ("Machine", "build-box"),
+                ("Folder", "/srv/project"),
+                ("Prompt", "Fix the tests"),
+            ]
+        );
+        // What a call leaves out still has its line.
+        let approval = approval_for(
+            &ToolApp::Machines,
+            "code_agent",
+            &json!({ "action": "start", "prompt": "Fix it" }),
+        );
+        let default: Vec<&str> = approval
+            .fields
+            .iter()
+            .filter(|field| field.value == "Default")
+            .map(|field| field.label.as_str())
+            .collect();
+        assert_eq!(default, ["Agent", "Machine", "Folder"]);
     }
 
     #[tokio::test]

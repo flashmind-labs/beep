@@ -16,22 +16,23 @@ use beep_server::protocol::{
     ListHarnessSettings, SaveFlshSettings, SaveHarnessSettingsAll, SecretText,
 };
 use beep_server::{
-    app::{App, Reach, ServerTools},
+    app::{App, Draws, Message, Reach, ServerTools},
     client::{Client, Node},
     models::ModelChoices,
     nodes::{self, Follower, Online, StartOn},
     protocol::{
         AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk, AgentImageData, AgentModel,
         AgentModelPick, AgentModels, AgentNoticeKey, AgentSessionUsage, AgentSteer, AgentTokens,
-        ApiError, CreateNodeToken, CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind,
-        DiffFile, DiffStatus, GetAgentFile, GetAgentImage, GetAgentSession, GetAgentSessionUsage,
-        GetNodeToken, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
-        HarnessSettings, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
+        AnswerApproval, ApiError, Approval, ApprovalDecision, CreateNodeToken, CustomAgent,
+        CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile, DiffStatus, GetAgentFile,
+        GetAgentImage, GetAgentSession, GetAgentSessionUsage, GetNodeToken, GetSession,
+        GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange, HarnessSettings,
+        HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
         ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
         ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD, MachineCapability, MemoryScope,
         MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
-        RevokeNodeToken, SaveHarnessSettings, StartAgentSession, SteerAgentSession, Upload,
-        WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile, image_key,
+        RevokeNodeToken, RunEvent, SaveHarnessSettings, StartAgentSession, SteerAgentSession,
+        Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -48,26 +49,30 @@ use beep_server::{
         setup::SetupToken,
     },
     push::Pusher,
-    store::{Fact, NewKey, NewNode, Scope, TestDb},
+    store::{CreateRun, Fact, NewKey, NewNode, Scope, TestDb},
     transport,
     user::User,
 };
 use flashmind::types::{
-    AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
+    AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
+    StreamEvent,
 };
 use iroh::{
     Endpoint, EndpointAddr, SecretKey,
     endpoint::{VarInt, presets},
     protocol::Router,
 };
+use serde_json::{Value, json};
 use std::{
-    sync::Arc,
+    collections::VecDeque,
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::{Notify, mpsc},
+    sync::{Notify, Semaphore, mpsc},
     time::{sleep, timeout},
 };
+use uuid::Uuid;
 
 /// The node tests never run a model turn.
 struct NoModel;
@@ -262,6 +267,7 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
                 extra: vec![Arc::new(FakeDesktop)],
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, server, "build box", &offers).await
         }
@@ -342,7 +348,7 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
 fn fake_agent() -> AgentKind {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../node/testdata/fake_acp.py");
     AgentKind {
-        name: "fake".into(),
+        name: "pi".into(),
         program: "python3".into(),
         args: vec!["-I".into(), script.into()],
         env: Default::default(),
@@ -366,13 +372,14 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
                 extra: Vec::new(),
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         })
     };
     let served = connect();
     let live = online(app, &node_id).await;
-    assert!(live.offers("fake/1"), "{:?}", live.offers);
+    assert!(live.offers("pi/1"), "{:?}", live.offers);
     assert!(live.offers("agents/1"), "{:?}", live.offers);
 
     let cwd = std::env::temp_dir().join(format!("beep-agent-test-{}", std::process::id()));
@@ -382,7 +389,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     // A start that puts a choice to the user comes back with the question.
     let link = live
         .start_agent(
-            "fake",
+            "pi",
             Some(cwd.display().to_string()),
             "please pick the notes".into(),
             StartOn::default(),
@@ -404,7 +411,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     drop(link);
     let served = connect();
     let live = online_after(app, &node_id, Some(&live)).await;
-    let link = live.agent_session("fake", &id).await.unwrap();
+    let link = live.agent_session("pi", &id).await.unwrap();
     let now = link.now();
     assert_eq!(now.info.state.status, Status::Asking);
     assert_eq!(now.info.question.as_ref().map(|q| q.id), Some(question.id));
@@ -477,7 +484,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     let sessions = live.agent_sessions().await.unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, id);
-    assert_eq!(sessions[0].agent, "fake");
+    assert_eq!(sessions[0].agent, "pi");
     let (entries, earlier) = live.transcript(&id, 100, false).await.unwrap();
     assert_eq!(earlier, 0);
     assert_eq!(entries[0].kind, EntryKind::User);
@@ -505,7 +512,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
 
     let refused = live
         .start_agent(
-            "fake",
+            "pi",
             Some("/no/such/folder".into()),
             "hi".into(),
             StartOn::default(),
@@ -515,7 +522,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
         .expect("a missing folder is refused");
     assert!(format!("{refused:#}").contains("no folder"), "{refused:#}");
     let refused = live
-        .agent_session("fake", "000000")
+        .agent_session("pi", "000000")
         .await
         .err()
         .expect("no such session");
@@ -573,6 +580,7 @@ async fn a_machine_links_from_the_link_its_node_printed() {
                 extra: Vec::new(),
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
@@ -614,6 +622,7 @@ async fn a_real_claude_session_writes_a_file() {
                 extra: Vec::new(),
                 provision: None,
                 tools: Default::default(),
+                traffic: Default::default(),
             };
             beep_node::link::connect(&node, addr, "build box", &offers).await
         }
@@ -1286,6 +1295,7 @@ impl FakeAgents {
             ],
             provision: None,
             tools: Default::default(),
+            traffic: Default::default(),
         }
     }
 }
@@ -1653,14 +1663,18 @@ struct CommandCenter {
 
 impl CommandCenter {
     async fn new(users: usize) -> Self {
+        Self::with_model(users, Arc::new(NoModel)).await
+    }
+
+    async fn with_model(users: usize, provider: Arc<impl LlmProvider + 'static>) -> Self {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let keys: Vec<SecretKey> = (0..users).map(|_| SecretKey::generate()).collect();
         let model = "openai:test".parse().unwrap();
-        let models = ModelChoices::resolve(&NoModel, model, Vec::new()).await;
+        let models = ModelChoices::resolve(provider.as_ref(), model, Vec::new()).await;
         let app = App::new(
             store.clone(),
-            Arc::new(NoModel),
+            provider,
             AgentLlmConfig::new("openai:test".parse().unwrap()),
             ServerTools::default(),
             models,
@@ -1911,6 +1925,184 @@ async fn flsh_settings_save_read_back_and_refuse_bad_values() {
     ));
     // A refused save keeps the settings before.
     assert_eq!(client.call(&GetFlshSettings {}).await.unwrap(), settings);
+    center.shutdown().await;
+}
+
+/// Calls `code_agent` with the next arguments at the start of each turn, then answers. A turn
+/// waits for a permit, so the test can follow its run.
+struct CallsCodeAgent {
+    turns: Mutex<VecDeque<Value>>,
+    go: Arc<Semaphore>,
+}
+
+#[async_trait]
+impl LlmProvider for CallsCodeAgent {
+    fn name(&self) -> &str {
+        "test"
+    }
+    fn provider(&self) -> Provider {
+        Provider::OpenAi
+    }
+    fn complete(&self, request: CompletionRequest) -> CompletionStream {
+        let main = request.tools.iter().any(|tool| tool.name == "code_agent");
+        let after_tool = request
+            .messages
+            .last()
+            .is_some_and(|message| message.role == Role::Tool);
+        let args = (main && !after_tool)
+            .then(|| self.turns.lock().unwrap().pop_front())
+            .flatten();
+        let go = self.go.clone();
+        Box::pin(async_stream::stream! {
+            let Some(args) = args else {
+                yield Ok(StreamEvent::ContentDelta(if main { "Done." } else { "{}" }.into()));
+                yield Ok(StreamEvent::Finished(FinishReason::Stop));
+                return;
+            };
+            go.acquire().await.expect("the test keeps the semaphore").forget();
+            yield Ok(StreamEvent::ToolCallStart {
+                index: 0,
+                id: format!("call-{}", args["action"].as_str().expect("an action")),
+                name: "code_agent".into(),
+            });
+            yield Ok(StreamEvent::ToolCallDelta { index: 0, arguments: args.to_string() });
+            yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
+        })
+    }
+}
+
+/// Runs one turn in `chat` until it ends.
+async fn turn(center: &CommandCenter, go: &Semaphore, chat: Uuid) {
+    let message = Message {
+        session_id: chat,
+        request_id: Uuid::new_v4(),
+        message: "Go ahead".into(),
+        cron_id: None,
+        scheduled: None,
+        always_sent: false,
+        woken: None,
+        images: Vec::new(),
+        files: Vec::new(),
+        voice: None,
+        spoken: false,
+        answer: None,
+        model: None,
+        thinking: None,
+        origin: DeviceKind::Phone {},
+        platform: None,
+        draws: Draws::default(),
+        finished_research: false,
+    };
+    let CreateRun::Created(run) = center.app.submit(&center.users[0], message).await.unwrap()
+    else {
+        panic!("the run was not created");
+    };
+    let live = center
+        .app
+        .live(&run.id)
+        .await
+        .expect("the turn waits for its permit");
+    let mut events = live.subscribe(0);
+    go.add_permits(1);
+    timeout(Duration::from_secs(30), async {
+        let mut backlog = std::mem::take(&mut events.backlog).into_iter();
+        loop {
+            let event = match backlog.next() {
+                Some(event) => event,
+                None => events.live.recv().await.expect("the run streams"),
+            };
+            if matches!(event.event, RunEvent::RunFinished { .. }) {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the turn ends");
+}
+
+/// The card `chat` stopped on, with the call it answers.
+async fn card_in(client: &Client, chat: Uuid) -> Option<(String, Approval)> {
+    let id = chat.to_string();
+    let history = client.call(&GetSession { id }).await.unwrap();
+    history.into_iter().find_map(|entry| match entry {
+        HistoryEntry::Approval { query_id, approval } => Some((query_id, approval)),
+        _ => None,
+    })
+}
+
+/// A chat that starts a coding agent on a machine: nothing runs until the user allows the card.
+#[tokio::test]
+async fn permissions_ask_before_a_chat_starts_a_coding_agent() {
+    let go = Arc::new(Semaphore::new(0));
+    let model = CallsCodeAgent {
+        turns: Mutex::new(VecDeque::from([
+            json!({ "action": "status" }),
+            json!({
+                "action": "start",
+                "agent": "claude",
+                "in": "build-box",
+                "cwd": "/srv/project",
+                "prompt": "Fix the tests",
+                "wait_secs": 0,
+            }),
+        ])),
+        go: go.clone(),
+    };
+    let mut center = CommandCenter::with_model(1, Arc::new(model)).await;
+    let (orders, mut received) = mpsc::unbounded_channel();
+    center
+        .node(
+            0,
+            "build-box",
+            FakeAgents {
+                orders: Some(orders),
+                ..FakeAgents::default()
+            },
+        )
+        .await;
+    let (_node, client) = center.phone(0).await;
+
+    let chat = Uuid::new_v4();
+    turn(&center, &go, chat).await;
+    assert!(card_in(&client, chat).await.is_none(), "a status asked");
+
+    let chat = Uuid::new_v4();
+    turn(&center, &go, chat).await;
+    assert!(received.try_recv().is_err(), "the agent started unasked");
+    let (query_id, approval) = card_in(&client, chat).await.expect("the start's card");
+    let shown: Vec<(&str, &str)> = approval
+        .fields
+        .iter()
+        .map(|field| (field.label.as_str(), field.value.as_str()))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("Action", "Start"),
+            ("Agent", "Claude Code"),
+            ("Machine", "build-box"),
+            ("Folder", "/srv/project"),
+            ("Prompt", "Fix the tests"),
+        ]
+    );
+
+    client
+        .call(&AnswerApproval {
+            session_id: chat,
+            query_id,
+            decision: ApprovalDecision::Allow {},
+            for_session: false,
+        })
+        .await
+        .unwrap();
+    let order = timeout(Duration::from_secs(10), received.recv())
+        .await
+        .expect("the agent starts once allowed")
+        .expect("the fake still runs");
+    assert!(
+        matches!(&order, Request::Start { prompt, .. } if prompt == "Fix the tests"),
+        "{order:?}"
+    );
     center.shutdown().await;
 }
 
@@ -2861,6 +3053,7 @@ async fn an_unlinked_key_gets_only_a_small_hello_read() {
             .collect(),
         provision: None,
         tools: Default::default(),
+        traffic: Default::default(),
     };
     let refused = beep_node::link::connect(&stranger, addr, "stranger", &offers)
         .await

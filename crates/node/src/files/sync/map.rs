@@ -2,7 +2,10 @@
 //! or a tombstone, each with a `Version`. `merge` makes every node's copy
 //! converge whatever order entries arrive in.
 
-use super::rules::{is_own, is_syncthings};
+use super::{
+    gitdir,
+    rules::{is_own, is_syncthings},
+};
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Write as _};
 
@@ -106,21 +109,31 @@ fn rank(entry: &Entry) -> (bool, i64, [u8; 32]) {
 }
 
 /// The name a losing edit of `path` with content `hash` moves to:
-/// `notes (conflict 1a2b3c4d).txt` beside `notes.txt`.
-pub(super) fn conflict_path(path: &str, hash: &[u8; 32]) -> String {
-    let mut tag = String::with_capacity(8);
-    for byte in &hash[..4] {
-        // Writing to a string cannot fail.
-        let _ = write!(tag, "{byte:02x}");
+/// `notes (conflict 1a2b3c4d).txt` beside `notes.txt`. Never one inside
+/// `.git`, where such a name breaks git: a ref keeps its loser under another
+/// ref (`gitdir::conflict_ref`), and the rest of `.git` keeps no loser.
+pub(super) fn conflict_path(path: &str, hash: &[u8; 32]) -> Option<String> {
+    let tag = hash_tag(hash);
+    if gitdir::in_git(path) {
+        return gitdir::conflict_ref(path, &tag);
     }
     let name_at = path.rfind('/').map_or(0, |at| at + 1);
-    match path[name_at..].rfind('.').filter(|&at| at > 0) {
+    Some(match path[name_at..].rfind('.').filter(|&at| at > 0) {
         Some(dot) => {
             let dot = name_at + dot;
             format!("{} (conflict {tag}){}", &path[..dot], &path[dot..])
         }
         None => format!("{path} (conflict {tag})"),
+    })
+}
+
+fn hash_tag(hash: &[u8; 32]) -> String {
+    let mut tag = String::with_capacity(8);
+    for byte in &hash[..4] {
+        // Writing to a string cannot fail.
+        let _ = write!(tag, "{byte:02x}");
     }
+    tag
 }
 
 /// The longest path a peer may name.
@@ -128,7 +141,15 @@ const MAX_PATH: usize = 4096;
 
 /// Whether a peer may name `path`: plain names joined with `/`, none of
 /// them `.git`, in any case, or a name sync or Syncthing keeps for itself.
+/// The root's `.git` is the exception, for what `gitdir` lets travel.
 pub(super) fn valid_path(path: &str) -> bool {
+    if gitdir::in_git(path) {
+        return path.len() <= MAX_PATH
+            && path.split('/').all(|part| {
+                !part.is_empty() && part != "." && part != ".." && !part.contains(['\\', '\0'])
+            })
+            && gitdir::kind(path).is_some();
+    }
     !path.is_empty()
         && path.len() <= MAX_PATH
         && path.split('/').all(|part| {
@@ -144,6 +165,9 @@ pub(super) fn valid_path(path: &str) -> bool {
 
 /// Whether `path` is a conflict copy.
 pub(super) fn is_conflict(path: &str) -> bool {
+    if gitdir::in_git(path) {
+        return gitdir::original_ref(path).is_some();
+    }
     let name = path.rsplit('/').next().unwrap_or(path);
     name.contains(" (conflict ")
 }
@@ -151,6 +175,9 @@ pub(super) fn is_conflict(path: &str) -> bool {
 /// The file conflict copy `path` stands beside: `notes.txt` for
 /// `notes (conflict 1a2b3c4d).txt`. `None` when `path` is not a copy.
 pub(super) fn original_of(path: &str) -> Option<String> {
+    if gitdir::in_git(path) {
+        return gitdir::original_ref(path);
+    }
     const MARK: &str = " (conflict ";
     let name_at = path.rfind('/').map_or(0, |at| at + 1);
     let at = name_at + path[name_at..].rfind(MARK)?;
@@ -201,8 +228,8 @@ pub(super) fn merge(local: Option<&Entry>, incoming: &Entry) -> Merge {
     };
     let copy = match (&loser.file, &winner.file) {
         (Some(lost), Some(won)) if lost.hash == won.hash => None,
-        (Some(lost), _) => Some(Entry {
-            path: conflict_path(&local.path, &lost.hash),
+        (Some(lost), _) => conflict_path(&local.path, &lost.hash).map(|path| Entry {
+            path,
             version: loser.version.clone(),
             file: Some(lost.clone()),
         }),
@@ -385,6 +412,29 @@ mod tests {
         let other = merge(Some(&theirs), &mine);
         assert_eq!(other.entry, Some(kept));
         assert_eq!(other.copy, Some(copy));
+    }
+
+    #[test]
+    fn concurrent_edits_inside_git_never_make_a_conflict_copy_there() {
+        let mine = entry(".git/refs/heads/main", &[(1, 1)], file(1, 100));
+        let theirs = entry(".git/refs/heads/main", &[(2, 1)], file(2, 200));
+        let merged = merge(Some(&mine), &theirs);
+        assert_eq!(
+            merged.entry.expect("the later commit wins").file,
+            theirs.file
+        );
+        let copy = merged.copy.expect("the other commit stays reachable");
+        assert_eq!(copy.path, ".git/refs/beep-conflicts/heads/main-01010101");
+        assert!(valid_path(&copy.path));
+        assert!(is_conflict(&copy.path));
+        assert_eq!(
+            original_of(&copy.path).as_deref(),
+            Some(".git/refs/heads/main")
+        );
+
+        let mine = entry(".git/HEAD", &[(1, 1)], file(1, 100));
+        let theirs = entry(".git/HEAD", &[(2, 1)], file(2, 200));
+        assert_eq!(merge(Some(&mine), &theirs).copy, None);
     }
 
     #[test]
