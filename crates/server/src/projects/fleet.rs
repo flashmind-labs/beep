@@ -7,8 +7,9 @@ use super::{
     worker::{self, StartError, Started},
 };
 use crate::{
+    account::user::User,
     app::App,
-    leak::PublicText,
+    memory::leak::PublicText,
     nodes::{Follower, Online, SHELL},
     protocol::node::{
         Capability, SyncthingFolder,
@@ -17,7 +18,6 @@ use crate::{
     },
     store::{ProjectRow, TaskRow, WorkerRow},
     tools::machines::command_name,
-    user::User,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;

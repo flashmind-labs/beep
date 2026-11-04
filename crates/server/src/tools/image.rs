@@ -1,8 +1,8 @@
 use super::{args::text, file::clean_name};
 use crate::{
-    fetch::{content_type, follow_public},
-    user::User,
-    workspace::Workspace,
+    account::user::User,
+    nodes::workspace::Workspace,
+    tools::fetch::{content_type, follow_public},
 };
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};

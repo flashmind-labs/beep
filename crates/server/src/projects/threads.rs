@@ -8,9 +8,9 @@ use super::{
     turn::REPLY_LABEL,
 };
 use crate::{
+    account::user::User,
     protocol::{GitItemKind, ThreadPost, ThreadView},
     store::{NewThreadChat, ProjectRow, ThreadChatRow},
-    user::User,
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};

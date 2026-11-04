@@ -2,8 +2,8 @@
 
 use super::Online;
 use crate::{
+    account::user::User,
     protocol::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
-    user::User,
 };
 use anyhow::{Result, bail};
 

@@ -1,7 +1,7 @@
 //! Phones registered for push; a token belongs to the key that registered it, since notices are sealed to that key.
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::{Context, Result};
 use iroh::EndpointId;
 use strum::{EnumString, IntoStaticStr};

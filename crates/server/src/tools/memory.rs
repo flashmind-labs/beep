@@ -1,9 +1,9 @@
 use super::machines;
 use crate::{
-    memories::hit,
+    account::user::User,
+    memory::memories::hit,
     protocol::MemorySource,
     store::{Fact, MEMORY_CATEGORIES, NodeRow, Origin, Scope, Validity},
-    user::User,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;

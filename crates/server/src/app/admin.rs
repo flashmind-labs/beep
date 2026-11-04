@@ -4,7 +4,7 @@
 //! reviews one user's memories in batches.
 
 use super::App;
-use crate::profile;
+use crate::memory::profile;
 use anyhow::{Context, Result};
 use std::{
     fs,

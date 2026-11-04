@@ -9,9 +9,9 @@ use super::{
     tools,
 };
 use crate::{
+    account::user::{User, UserKey},
     protocol::ApiProvider,
     store::{ApiKey, TestDb, test_chat, test_turn},
-    user::{User, UserKey},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flashmind::types::{CompletionStream, tool::ToolContext};

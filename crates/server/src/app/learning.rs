@@ -2,10 +2,10 @@
 
 use super::App;
 use crate::{
-    decision::Criteria,
-    followups,
-    live::LiveRun,
-    memories::{self, Exchange, Hit, Turn},
+    agent::decision::Criteria,
+    agent::followups,
+    agent::live::LiveRun,
+    memory::memories::{self, Exchange, Hit, Turn},
     protocol::RunEvent,
     tools,
 };

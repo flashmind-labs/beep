@@ -6,7 +6,7 @@ use super::{
     projects::{WORKER_COLUMNS, live_states, worker_from},
     terminals::{self, TerminalRow},
 };
-use crate::{projects::model::ProjectId, store::WorkerRow, user::UserKey};
+use crate::{account::user::UserKey, projects::model::ProjectId, store::WorkerRow};
 use anyhow::Result;
 use sqlx::Row;
 use uuid::Uuid;

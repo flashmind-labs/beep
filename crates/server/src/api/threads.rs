@@ -5,6 +5,8 @@ use super::{
     projects::{issue_refusal, project_of},
 };
 use crate::{
+    account::user::User,
+    api::router::Cx,
     app::App,
     projects::{
         fleet::NodeFleet,
@@ -13,9 +15,7 @@ use crate::{
         threads::{self, ListedThread},
     },
     protocol::*,
-    router::Cx,
     store::ThreadChatRow,
-    user::User,
 };
 use std::sync::Arc;
 use uuid::Uuid;

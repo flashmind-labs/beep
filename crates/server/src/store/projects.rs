@@ -7,13 +7,13 @@ use super::{
     chats::{SessionChat, ensure_session},
 };
 use crate::{
+    account::user::UserKey,
     projects::model::{
         IssueHost, IssueRef, MAX_MACHINE_WORKERS, MAX_PROJECT_WORKERS, MAX_USER_WORKERS,
         MachinePath, ProjectId, RepoName, Roles, StartRequest, TaskId, TaskSlug, TaskState,
         Visibility, WorkerAgent, WorkerId, WorkerState,
     },
     protocol::{TaskCounts, node::Capability},
-    user::UserKey,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};

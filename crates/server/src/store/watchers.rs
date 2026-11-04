@@ -1,7 +1,7 @@
 //! What watchers know about each chat: its progress and how far each watcher read.
 
 use super::Store;
-use crate::watchers::{ChatActivity, WatcherKind, WatcherState};
+use crate::memory::watchers::{ChatActivity, WatcherKind, WatcherState};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use sqlx::{Row, postgres::PgRow};
@@ -137,8 +137,8 @@ impl Store {
 mod tests {
     use super::*;
     use crate::{
+        account::user::UserKey,
         store::{TestDb, test_chat, test_turn},
-        user::UserKey,
     };
     use chrono::TimeDelta;
 

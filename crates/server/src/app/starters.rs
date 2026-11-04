@@ -2,10 +2,10 @@
 
 use super::App;
 use crate::{
+    account::user::User,
+    memory::starters::{Done, LocalTime, MAX_DONE, MemoryNote, StarterContext},
     protocol::PromptSuggestions,
-    starters::{Done, LocalTime, MAX_DONE, MemoryNote, StarterContext},
     store::Location,
-    user::User,
 };
 use chrono::Utc;
 

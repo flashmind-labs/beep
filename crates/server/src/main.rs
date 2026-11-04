@@ -1,25 +1,26 @@
 use anyhow::{Context, Result};
 use beep_proto::logging::{self, RollingFile};
 use beep_server::{
-    apns::Apns,
+    account::credentials::CredentialKey,
+    account::instance,
+    agent::cache_session::SharedCacheSessions,
+    agent::decision::DecisionTool,
+    agent::metering::Metered,
+    agent::models::ModelChoices,
+    api::transport,
     app::{App, ServerTools, admin},
     apps::ComposioSettings,
-    cache_session::SharedCacheSessions,
     config::{self, Config},
-    credentials::CredentialKey,
-    decision::DecisionTool,
-    fcm::Firebase,
-    instance, memories,
-    metering::Metered,
-    models::ModelChoices,
+    memory::memories,
     nodes,
     push::Pusher,
-    remote::{Fallback, RemotePush},
-    search::SearchTool,
+    push::apns::Apns,
+    push::fcm::Firebase,
+    push::remote::{Fallback, RemotePush},
     store::Store,
-    stt::{MistralStt, RealtimeStt},
     tools::Transitous,
-    transport,
+    tools::search::SearchTool,
+    voice::stt::{MistralStt, RealtimeStt},
 };
 use flashmind::{
     llm::{MistralProvider, OpenRouterProvider},
@@ -127,24 +128,24 @@ async fn main() -> Result<()> {
     let notices = app.notifications.subscribe();
     app.start_users().await?;
     admin::serve(app.clone(), admin::default_path(Path::new(&config_path)))?;
-    beep_server::compaction::start(app.clone());
-    beep_server::titles::start(app.clone());
+    beep_server::agent::compaction::start(app.clone());
+    beep_server::agent::titles::start(app.clone());
     beep_server::projects::start(app.clone());
-    beep_server::repo_watch::start(&app);
-    beep_server::memories::start_purge(app.clone());
+    beep_server::projects::repo_watch::start(&app);
+    beep_server::memory::memories::start_purge(app.clone());
     beep_server::store::start_pruning(app.store.clone());
-    beep_server::events::start(
+    beep_server::routines::events::start(
         &app,
-        beep_server::events::Settings {
+        beep_server::routines::events::Settings {
             triage: config.events.triage_model.clone(),
-            ..beep_server::events::Settings::default()
+            ..beep_server::routines::events::Settings::default()
         },
     );
-    beep_server::watchers::start(
+    beep_server::memory::watchers::start(
         &app,
-        beep_server::watchers::Settings::new(&config.watchers, app.llm()),
+        beep_server::memory::watchers::Settings::new(&config.watchers, app.llm()),
     );
-    let cron_runner = beep_server::cron::start(app.clone(), &config.log_dir());
+    let cron_runner = beep_server::routines::cron::start(app.clone(), &config.log_dir());
     tokio::spawn(async move {
         if let Err(e) = cron_runner.start().await {
             log::error!("cron runner failed: {e}");

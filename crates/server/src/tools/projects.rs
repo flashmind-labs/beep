@@ -1,12 +1,12 @@
 //! `projects`: the user's projects, checkouts, open items and agents. Read only.
 
 use crate::{
+    account::user::User,
     api::machine_sessions,
     app::App,
     projects::model::RepoName,
     protocol::{AgentStatus, GitItem, GitItemKind, GitReview, MachineSession},
     store::TaskRow,
-    user::User,
 };
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};

@@ -12,10 +12,10 @@ use super::{
     worker::Started,
 };
 use crate::{
-    leak::PublicText,
+    account::user::User,
+    memory::leak::PublicText,
     store::{IssueAuthor, NewTask, ProjectRow, TaskRow, TrackedIssue},
     tools::machines::command_name,
-    user::User,
 };
 use anyhow::{Result, anyhow, bail};
 use iroh::EndpointId;

@@ -1,6 +1,10 @@
 //! The curated app list, its Composio connections and the OAuth MCP servers.
 //! Errors reaching the client never carry provider bodies or keys.
 
+pub mod feeds;
+pub mod grants;
+pub mod permissions;
+
 pub(crate) mod custom_mcp;
 pub(crate) mod files;
 pub(crate) mod markdown;
@@ -8,8 +12,8 @@ pub mod mcp;
 
 use crate::{
     AsyncMutex,
-    feeds::slack::SLACK,
-    permissions::Acts,
+    apps::feeds::slack::SLACK,
+    apps::permissions::Acts,
     protocol::{ApiError, AppKind},
 };
 use anyhow::{Context, Result, bail};
@@ -496,8 +500,8 @@ pub(crate) fn internal(what: &'static str) -> impl Fn(anyhow::Error) -> ApiError
 mod tests {
     use super::*;
     use crate::{
+        account::user::User,
         store::{Store, TestDb},
-        user::User,
     };
     use serde_json::json;
     use std::sync::Arc;

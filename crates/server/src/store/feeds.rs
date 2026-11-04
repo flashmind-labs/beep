@@ -2,8 +2,8 @@
 
 use super::Store;
 use crate::{
-    feeds::{mail::Mailbox, slack::SLACK},
-    user::UserKey,
+    account::user::UserKey,
+    apps::feeds::{mail::Mailbox, slack::SLACK},
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};

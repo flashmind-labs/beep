@@ -4,7 +4,7 @@ use super::{
     Account, Bumped, NewKey, Store, credentials::reseal_for, groups::new_token,
     harness_settings::reseal_harnesses_for,
 };
-use crate::{credentials::CredentialKey, protocol::DeviceKind, user::UserKey};
+use crate::{account::credentials::CredentialKey, account::user::UserKey, protocol::DeviceKind};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;

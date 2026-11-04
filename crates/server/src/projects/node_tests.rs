@@ -16,13 +16,13 @@ use crate::protocol::node::{
     },
 };
 use crate::{
-    fetch,
-    images::Describer,
+    agent::images::Describer,
+    memory::watchers::testing::{Harness, Scripted},
     nodes::{self, Online},
     protocol::DeviceKind,
     store::{After, CheckoutRow, NewKey, NewTask, ProjectRow, TaskRow},
+    tools::fetch,
     tools::{AttachTool, SendFileTool, machines::Machines},
-    watchers::testing::{Harness, Scripted},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_node::{

@@ -2,9 +2,9 @@
 //! memories. Each case says whether the reply should be held back. They call
 //! the real model, so they are ignored by default; `just eval-leak` runs them.
 use beep_server::{
+    agent::decision::DecisionTool,
     config::Config,
-    decision::DecisionTool,
-    leak::{Gate, Said, Secret},
+    memory::leak::{Gate, Said, Secret},
 };
 use futures::future::join_all;
 use secrecy::SecretString;

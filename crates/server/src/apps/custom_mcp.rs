@@ -2,11 +2,11 @@
 //! Calls are rate limited per host and per user, and the URL must be https resolving only to public addresses.
 
 use crate::{
+    account::user::User,
     apps::mcp::lost_login,
     lock,
     protocol::{McpServer as McpServerInfo, McpTool, McpTools},
     store::{CustomMcp, McpServerRow},
-    user::User,
 };
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;

@@ -1,4 +1,4 @@
-use crate::{store::DuplicateHabit, user::User};
+use crate::{account::user::User, store::DuplicateHabit};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
@@ -139,7 +139,7 @@ impl Tool for HabitTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{store::TestDb, user::UserKey};
+    use crate::{account::user::UserKey, store::TestDb};
 
     #[tokio::test]
     async fn a_second_habit_of_the_same_name_is_a_duplicate() {

@@ -8,20 +8,20 @@ use super::{
     run::register_web_tools,
 };
 use crate::{
+    account::user::User,
+    agent::decision::Criteria,
+    agent::images::Picture,
     apps::markdown,
-    decision::Criteria,
-    images::Picture,
-    leak::{Gate, Said, Secret},
-    memories::{Reading, ReadingKind, profile_facts},
-    permissions::{self, Approved, Rules},
+    apps::permissions::{self, Approved, Rules},
+    memory::leak::{Gate, Said, Secret},
+    memory::memories::{Reading, ReadingKind, profile_facts},
+    memory::skills::{self, GROUP_INDEX_HEADER},
     protocol::{Group, GroupAuthor, GroupMember, GroupMessage, Notice},
-    skills::{self, GROUP_INDEX_HEADER},
     store::{JoinedGroup, MemberRow, MessageRow, NewMessage, PicturesOf, SkillOwner},
     tools::{
         group_memory::{self, Member, Secrets, shareable},
         skills::SkillTool,
     },
-    user::User,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -632,7 +632,7 @@ impl App {
             }
         }
 
-        crate::tool_cost::log("group", &registry);
+        crate::agent::tool_cost::log("group", &registry);
         let model = self.model_for(actor).await;
         let mut llm = self
             .llm

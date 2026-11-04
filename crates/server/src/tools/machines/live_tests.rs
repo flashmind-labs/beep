@@ -5,11 +5,11 @@
 
 use super::{Machines, exec::ExecTool, process::ProcessTool};
 use crate::{
+    memory::watchers::testing::{Harness, Scripted},
     nodes,
     protocol::DeviceKind,
     store::NewKey,
     tools::SendFileTool,
-    watchers::testing::{Harness, Scripted},
 };
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
@@ -271,7 +271,7 @@ async fn import_project_on_a_real_node() {
         app: app.clone(),
         user: harness.alice.clone(),
     };
-    let import = crate::imports::ImportProjectTool {
+    let import = crate::projects::imports::ImportProjectTool {
         machines: machines.clone(),
     };
     let exec = ExecTool { machines };
@@ -318,7 +318,7 @@ async fn import_project_on_a_real_node() {
         "Could not find octocat/no-such-repo-beep-test on GitHub. If it is private, add a \
          token for GitHub in Settings > Credentials."
     );
-    let listed = crate::imports::imported(&harness.alice)
+    let listed = crate::projects::imports::imported(&harness.alice)
         .await
         .expect("imports list");
     assert_eq!(listed.len(), 1);

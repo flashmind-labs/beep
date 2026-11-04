@@ -2,9 +2,9 @@
 
 use super::Reply;
 use crate::{
+    api::router::Cx,
     protocol::*,
     research::{Member, Plan, RoleModel, TeamMember},
-    router::Cx,
 };
 
 pub(super) async fn get_research(

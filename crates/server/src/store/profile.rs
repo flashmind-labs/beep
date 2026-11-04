@@ -1,7 +1,7 @@
-//! State and notes of the one-time profile pass (see `crate::profile`).
+//! State and notes of the one-time profile pass (see `crate::memory::profile`).
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::Row;

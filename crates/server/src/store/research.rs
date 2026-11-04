@@ -6,8 +6,8 @@ use super::{
     projects::end,
 };
 use crate::{
+    account::user::UserKey,
     research::{Entry, Member, Plan, Status},
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};

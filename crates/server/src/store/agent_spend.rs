@@ -5,11 +5,11 @@ use super::{
     agent_usage::{agent_of, endpoint_of},
 };
 use crate::{
+    account::user::UserKey,
     protocol::{
         AgentSlug, ModelId,
         node::usage::{Billing, MAX_SESSION_HOURS, SessionSpend},
     },
-    user::UserKey,
 };
 use anyhow::{Result, bail};
 use chrono::{DateTime, Duration, NaiveDate, Utc};

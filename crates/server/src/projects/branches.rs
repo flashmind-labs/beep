@@ -7,7 +7,7 @@ use super::{
     review::git::{branches_script, parse_branches},
 };
 use crate::{
-    credentials::github_owner_var,
+    account::credentials::github_owner_var,
     nodes::Online,
     protocol::{ProjectBranch, WorkBranch, node::agent},
 };

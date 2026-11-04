@@ -14,14 +14,14 @@ use super::{
     },
 };
 use crate::{
+    account::user::User,
     app::App,
-    leak::PublicText,
+    apps::permissions::PROJECT_APP,
+    memory::leak::PublicText,
     nodes::SHELL,
-    permissions::PROJECT_APP,
     protocol::{Approval, ApprovalField, node::Capability},
     store::{After, CheckoutRow, NewTask, ProjectRow, TaskRow},
     tools::machines::{Machines, command_name, exec::ExecTool, process::ProcessTool},
-    user::User,
 };
 use anyhow::Result;
 use async_trait::async_trait;

@@ -1,7 +1,7 @@
 //! Habits and their logs.
 
 use super::{Store, format_time};
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::{Result, bail};
 use chrono::{Days, NaiveDate, Utc};
 use serde_json::{Value, json};

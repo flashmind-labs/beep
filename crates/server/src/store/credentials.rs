@@ -1,10 +1,10 @@
-//! The credentials a user added, sealed (see `crate::credentials`).
+//! The credentials a user added, sealed (see `crate::account::credentials`).
 
 use super::Store;
 use crate::{
-    credentials::{CredentialKey, GitHubLogin, Opened, Owner, Slot},
+    account::credentials::{CredentialKey, GitHubLogin, Opened, Owner, Slot},
+    account::user::UserKey,
     protocol::{AgentAccount, ApiProvider, CredentialKind},
-    user::UserKey,
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
@@ -790,7 +790,7 @@ mod tests {
 
         // Machines get the default as GH_TOKEN and the other by owner.
         let opened = store.machine_credentials(&alice, &key).await.unwrap();
-        let env = crate::credentials::for_machines(opened).env;
+        let env = crate::account::credentials::for_machines(opened).env;
         let env: Vec<(&str, &str)> = env
             .iter()
             .map(|var| (var.name.as_str(), var.value.expose()))

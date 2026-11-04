@@ -5,6 +5,7 @@ use super::{
     own_nodes::{linked_keys, machine_names, online},
 };
 use crate::{
+    api::router::Cx,
     nodes::Online,
     protocol::{
         node::{
@@ -13,7 +14,6 @@ use crate::{
         },
         *,
     },
-    router::Cx,
     store::TerminalRow,
 };
 use anyhow::{Result, bail};

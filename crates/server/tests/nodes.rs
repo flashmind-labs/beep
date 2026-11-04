@@ -16,9 +16,11 @@ use beep_server::protocol::{
     ListHarnessSettings, SaveFlshSettings, SaveHarnessSettingsAll, SecretText,
 };
 use beep_server::{
+    account::user::User,
+    agent::models::ModelChoices,
+    api::transport,
     app::{App, Reach, ServerTools},
     client::{Client, Node},
-    models::ModelChoices,
     nodes::{self, Follower, Online, StartOn},
     protocol::{
         AgentCheckoutPlan, AgentEffort, AgentFileChunk, AgentImageData, AgentModel, AgentModelPick,
@@ -49,8 +51,6 @@ use beep_server::{
     },
     push::Pusher,
     store::{Fact, NewKey, NewNode, Scope, TestDb},
-    transport,
-    user::User,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,

@@ -1,7 +1,7 @@
-//! Grants: standing permissions for one routine and the calls they allowed (see `crate::grants`).
+//! Grants: standing permissions for one routine and the calls they allowed (see `crate::apps::grants`).
 
 use super::Store;
-use crate::user::UserKey;
+use crate::account::user::UserKey;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::Value;

@@ -1,7 +1,7 @@
 use super::image;
 use super::products::{clip, public_host};
-use crate::places::Point;
-use crate::user::User;
+use crate::account::user::User;
+use crate::routines::places::Point;
 use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset, Utc};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};

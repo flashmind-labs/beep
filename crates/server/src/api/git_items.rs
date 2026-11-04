@@ -2,8 +2,8 @@
 
 use super::Reply;
 use crate::{
+    api::router::Cx,
     protocol::{GitItems, LabeledGitItems, ListGitItems, ListLabeledGitItems},
-    router::Cx,
 };
 
 pub(super) async fn list_git_items(cx: Cx, _: ListGitItems) -> Reply<GitItems> {
