@@ -1244,6 +1244,18 @@ requests! {
     /// `NotFound` when the machine is not the caller's; `BadRequest` saying
     /// why when it is offline, too old or has no log to read.
     411 GetMachineLog { machine_id: String, lines: u32 } => Call<String>
+    /// The git hosts the caller has a token for, for the New project sheet,
+    /// with who a repository there can belong to. A host that cannot answer
+    /// says why in its `error`.
+    412 ListProjectForges {} => Call<Vec<ProjectForge>>
+    /// Makes a project called `name`. With `repository`, creates it on that
+    /// git host with the caller's token and clones it onto each of
+    /// `machine_ids`, which then sync it; a machine that fails is listed in
+    /// `failed` and the repository stays. Without, runs `git init` on the one
+    /// machine given and imports it there. `BadRequest` saying why when nothing
+    /// was made: the name is taken or not valid, the token may not create
+    /// there, or a machine is offline.
+    413 CreateProject { name: String, repository: Option<NewRepository>, machine_ids: Vec<String> } => Call<CreatedProject>
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@
 mod checks;
 mod clone;
 mod copy;
+mod create;
 mod folder;
 mod fork;
 mod found;
@@ -19,6 +20,7 @@ mod tool;
 
 pub use checks::Checkouts;
 pub(crate) use copy::copy_project;
+pub(crate) use create::{create_project, project_forges};
 pub(crate) use found::MachineFound;
 pub use host_repos::HostRepoCache;
 pub(crate) use host_repos::host_repos;
@@ -29,6 +31,7 @@ pub(crate) use service::{
 };
 pub(crate) use tool::ImportProjectTool;
 
+use super::git_items::HostError;
 use thiserror::Error;
 
 /// Why an import did not happen, in words for the user.
@@ -104,6 +107,28 @@ pub(crate) enum ImportError {
     NoCopyOnline(String),
     #[error("{machine} cannot sync it: {why}")]
     CannotSync { machine: String, why: String },
+    #[error("A name is letters, digits, '-', '_' and '.', and does not start with '.' or '-'.")]
+    BadName,
+    #[error("Pick a machine.")]
+    NoMachine,
+    #[error("A local project goes on one machine.")]
+    LocalOnOne,
+    #[error("You already have a project called {0}.")]
+    ProjectExists(String),
+    #[error("{0} has no git host, so it stays on its machine.")]
+    LocalOnly(String),
+    #[error("Add a token for {0} in Settings > Credentials first.")]
+    NoToken(String),
+    #[error("{repo} already exists on {host}.")]
+    NameTaken { repo: String, host: String },
+    #[error(
+        "Your token for {host} cannot create repositories in {owner}. Check its scopes in Settings > Credentials."
+    )]
+    CannotCreate { owner: String, host: String },
+    #[error("{0}")]
+    Forge(HostError),
+    #[error("git init failed on {machine}: {detail}")]
+    InitFailed { machine: String, detail: String },
     /// Beep's own failure, such as the database; not the user's to fix.
     #[error("Beep could not import the project.")]
     Internal,

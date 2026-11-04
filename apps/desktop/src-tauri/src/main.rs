@@ -293,6 +293,8 @@ fn main() {
             projects::groups::project_groups,
             projects::import::found_projects,
             projects::import::host_repos,
+            projects::create::create_project,
+            projects::create::project_forges,
             projects::import::import_project,
             projects::import::list_machine_folder,
             projects::import::open_folder,

@@ -1,10 +1,12 @@
-// addproject/: the Add a project and Import a project sheets. Entry:
-// openAddProject here, openImportProject in importproject.ts.
+// addproject/: the Add a project, Import a project and New project sheets.
+// Entry: openAddProject here, openImportProject in importproject.ts,
+// openNewProject in newproject.ts.
 // The "Add a project" sheet: the git checkouts your coding agents worked in
 // (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds),
 // each with Import, then the user's repositories on GitHub and Forgejo that no
 // machine has, each with Clone, then "Choose a folder…" and "Clone a
-// repository…", which open the Import a project sheet.
+// repository…", which open the Import a project sheet, and "New project…",
+// which opens the New project sheet.
 import { invoke } from "../ui/tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
@@ -24,6 +26,8 @@ export interface AddProjectOptions {
   onChoose?: () => void;
   /// Opens the Import a project sheet, with `repo` filled in when given.
   onClone?: (repo?: string) => void;
+  /// Opens the New project sheet.
+  onNew?: () => void;
 }
 
 /// One git host's repositories to clone.
@@ -223,7 +227,8 @@ function build() {
   remoteBox = el("div", "ap-remote");
   const ways = el("div", "ap-ways",
     way("Choose a folder…", "Anywhere on this Mac, or browse another machine", () => { closeAddProject(); opts.onChoose?.(); }),
-    way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }));
+    way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }),
+    way("New project…", "Create a repository and put it on your machines", () => { closeAddProject(); opts.onNew?.(); }));
   sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),
     el("div", "am-label", "Found on your machines"), search, bar, listBox, remoteBox, ways);
 }
@@ -401,7 +406,7 @@ export function injectStyle() {
     + " .ap-ag { padding: 1px 8px }"
     + " .ap-rm { gap: 14px; padding: 9px 0 }"
     + " .ap-remote .ap-list { max-height: 220px }"
-    + " .ap-ways { gap: 10px; margin-top: 18px }"
+    + " .ap-ways { gap: 10px; margin-top: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)) }"
     + " .ap-ways button { padding: 12px 14px }";
   document.head.append(style);
 }
