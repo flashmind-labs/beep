@@ -1,4 +1,5 @@
-import { AGENT_IMAGE_TYPES, agentAttach } from "../agents/agents.ts";
+import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
+import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { focusAsk } from "./chat.ts";

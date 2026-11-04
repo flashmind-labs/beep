@@ -2,7 +2,8 @@
 // drives them through `pane`.
 import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
-import { type AgentRow, loadAgentHosts, openAgent, renderAgents } from "../agents/agents.ts";
+import { type AgentRow, loadAgentHosts, renderAgents } from "../agents/agents.ts";
+import { openAgent } from "../agents/session.ts";
 import { renderApps } from "../settings/apps.ts";
 import { body, focusAsk, grow, newChat, renderChat, send } from "../chat/chat.ts";
 import { renderChats, rows, type SessionSummary } from "../chat/chats.ts";

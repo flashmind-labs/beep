@@ -2,7 +2,10 @@ import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, agentHints, agentKeys, interruptAgent, pollAgent, sendAgentMessage, switchSessionModel } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentRow, agentKeys } from "../src/agents/agents.ts";
+import { agentHints, pollAgent } from "../src/agents/session.ts";
+import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
+import { switchSessionModel } from "../src/agents/modelpill.ts";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 
