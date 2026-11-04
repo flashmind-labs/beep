@@ -5,7 +5,7 @@ import { dbtn as button, emptyPanel, fitRows, freshNote } from "../ui/parts.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "./pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
-import { base, type RunningAgent } from "../center/home-state.ts";
+import { base, machineSync, type RunningAgent } from "../center/home-state.ts";
 import { foundRow, injectStyle as injectAddProjectStyle } from "../addproject/addproject.ts";
 import { withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
@@ -152,6 +152,26 @@ export function projectPlaces(p: Project) {
   return p.machines.filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
 }
 
+/// What became of "Copy here", by project and machine.
+const copies = new Map<string, { state: "copying" | "already" | "failed"; text?: string }>();
+
+/// Copies `p` onto machine `m`; a server too old to clones instead.
+async function copyHere(p: Project, m: WhereRow, key: string) {
+  copies.set(key, { state: "copying" });
+  redrawProjectsPage();
+  try {
+    const copy = await invoke<{ folder: string; from: string | null } | null>("project_copy", { project: p.name, machineId: m.id });
+    copies.delete(key);
+    if (!copy) importSheet(false, repoFromRemote(p.url), m.id);
+    else if (!copy.from) copies.set(key, { state: "already" });
+    refresh();
+    await loadWhere(p.name);
+  } catch (e) {
+    copies.set(key, { state: "failed", text: reason(e) });
+  }
+  redrawProjectsPage();
+}
+
 /// One machine's row under "Where it lives": its folder and what to do
 /// there, or why there is none.
 export function whereRow(p: Project, m: WhereRow) {
@@ -165,6 +185,9 @@ export function whereRow(p: Project, m: WhereRow) {
     const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path }).catch(e => console.warn("open folder:", e))) : null;
     const folder = h("span", "nm", h("span", "os", path));
     folder.title = path;
+    const moving = machineSync(m.id, state.sync.filter(s => s.project === p.name));
+    const said = moving ? (moving.pct == null ? "Scanning" : `Syncing ${moving.pct}%`) : copies.get(`${p.name}\n${m.id}`)?.state === "already" ? "Already here" : "";
+    if (said) folder.append(" ", h("small", "", said));
     if (m.syncthing) {
       // Syncthing keeps it in step, so Beep's own sync stays off here.
       const note = h("small", "", "Synced by Syncthing");
@@ -173,9 +196,16 @@ export function whereRow(p: Project, m: WhereRow) {
     }
     return [name, folder, h("span", "acts", finder, copy, start)];
   }
-  const said = h("span", "os", m.text);
+  const key = `${p.name}\n${m.id}`;
+  const copied = copies.get(key);
+  const said = h("span", "os", copied?.text || m.text);
   if (m.kind === "none" && m.checked_at) said.title = `Checked ${since(m.checked_at)}`;
   const what = h("span", "nm", said);
+  if (m.kind === "none" && m.copy && copied?.state !== "failed") {
+    const copy = button(copied ? "Copying…" : "Copy here", "small", () => copyHere(p, m, key));
+    copy.disabled = !!copied;
+    return [name, what, h("span", "acts", copy)];
+  }
   const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(false, repoFromRemote(p.url), m.id)) : null;
   if (clone) return [name, what, h("span", "acts", clone)];
   // Nothing to do there, so the note takes the buttons' room too.
