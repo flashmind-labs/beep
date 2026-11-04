@@ -508,6 +508,9 @@ struct Task {
     held: BTreeSet<String>,
     /// The paths the last round could not bring, tried again later.
     waiting: Vec<String>,
+    /// Tags on what those fetches got so far: without one, the store's
+    /// collector deletes it between rounds and the file starts over.
+    unfinished: HashMap<Hash, TempTag>,
 }
 
 /// When held deletes are due: once the folder was quiet for
@@ -699,6 +702,7 @@ impl Task {
             saved_at: Instant::now(),
             held: BTreeSet::new(),
             waiting: Vec::new(),
+            unfinished: HashMap::new(),
         }
     }
 
@@ -975,6 +979,12 @@ impl Task {
                 .unwrap_or_else(PoisonError::into_inner);
             plan(&state, &rules)
         };
+        let wanted: HashSet<Hash> = work
+            .iter()
+            .filter_map(|item| item.file.as_ref())
+            .map(|file| Hash::from_bytes(file.hash))
+            .collect();
+        self.unfinished.retain(|hash, _| wanted.contains(hash));
         if work.is_empty() {
             self.pending = 0;
             self.waiting.clear();
@@ -1218,7 +1228,10 @@ impl Task {
             .await??
         };
         let content = HashAndFormat::raw(Hash::from_bytes(file.hash));
-        let tag = self.parts.store.tags().temp_tag(content).await?;
+        let tag = match self.unfinished.remove(&content.hash) {
+            Some(tag) => tag,
+            None => self.parts.store.tags().temp_tag(content).await?,
+        };
         let peers = self.shared.peers.borrow().clone();
         let mut last = None;
         for peer in peers {
@@ -1255,6 +1268,7 @@ impl Task {
                 }
             }
         }
+        self.unfinished.insert(content.hash, tag);
         Err(match last {
             Some(e) => e.context(format!("no machine that syncs it could send {path} now")),
             None => anyhow!("no other machine syncs {path}"),
@@ -1795,6 +1809,37 @@ mod tests {
             connection.closed().await;
             Ok(())
         }
+    }
+
+    /// What the store's collector keeps, apart from named tags.
+    async fn temp_roots(project: &Project) -> Vec<Hash> {
+        let tags = project.task.parts.store.tags();
+        let roots = tags.list_temp_tags().await.unwrap();
+        roots.map(|root| root.hash).collect().await
+    }
+
+    #[tokio::test]
+    async fn a_failed_fetch_keeps_what_came_until_the_file_is_not_wanted() {
+        let mut project = Project::new(&["notes.txt"]).await;
+        let mut peer = Map::new(7);
+        let version = peer.edit("big.bin", &Version::default(), Some(meta(5)));
+        let added = peer.since(0, usize::MAX).entries;
+        merge_peer(&mut project.task.shared.lock().saved.map, &added);
+        let hash = Hash::from_bytes([5; 32]);
+
+        // No machine can send it, so the next round has to pick it up, and
+        // the collector may run before that.
+        project.task.apply().await;
+        assert_eq!(project.task.pending, 1);
+        assert!(temp_roots(&project).await.contains(&hash));
+
+        // The peer deleted it: what came is no use any more.
+        peer.edit("big.bin", &version, None);
+        let deleted = peer.since(0, usize::MAX).entries;
+        merge_peer(&mut project.task.shared.lock().saved.map, &deleted);
+        project.task.apply().await;
+        assert!(!temp_roots(&project).await.contains(&hash));
+        project.stop().await;
     }
 
     #[tokio::test]
