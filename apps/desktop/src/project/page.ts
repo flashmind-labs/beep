@@ -1,7 +1,8 @@
 // The Projects page: drawing it, and the project rows Home lists.
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, svgEl as icon } from "../ui/parts.ts";
-import { filterProjects, whereRows, openOnLabel, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, el as h, type Project } from "./projects-state.ts";
+import { filterProjects, whereRows, openOnLabel, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { editorTools } from "./editors.ts";
 import { NEW_WINDOW } from "./projectwindow.ts";

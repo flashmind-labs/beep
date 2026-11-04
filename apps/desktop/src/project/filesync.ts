@@ -5,8 +5,8 @@
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { bytes } from "../center/home-state.ts";
 import type { SyncRow } from "../center/home-state.ts";
-import { reason } from "./projects-state.ts";
-import type { MakeButton, MakeEl } from "./projects-state.ts";
+import { reason } from "../addproject/importproject-state.ts";
+import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "./pagecache.ts";
 

@@ -3,7 +3,7 @@ import { ago } from "../ui/format.ts";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
 import { type ViewArg, views } from "../center/state.ts";

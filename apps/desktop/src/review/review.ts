@@ -1,8 +1,9 @@
 // A project's branches and the review of one before a merge.
 import { harnessEl } from "../agents/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { agentLabel, reason } from "../project/projects-state.ts";
-import type { Ago, MakeButton, MakeEl } from "../project/projects-state.ts";
+import { agentLabel } from "../project/projects-state.ts";
+import { reason } from "../addproject/importproject-state.ts";
+import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "../project/board.ts";

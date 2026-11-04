@@ -1,7 +1,7 @@
 // Whether the project page shown updates live (the host's webhook reaches Beep
 // through one of the user's machines) or by polling, and the reads it starts.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { MakeEl } from "./projects-state.ts";
+import type { MakeEl } from "../ui/dom.ts";
 
 /// What the server says of a followed project (LiveRow).
 export interface LiveRow {

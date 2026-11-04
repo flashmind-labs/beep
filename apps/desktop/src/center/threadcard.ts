@@ -4,15 +4,15 @@ import { dbtn as button, stateChip } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane, type PaneTarget } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import type { ThreadChatRow } from "../project/threads.ts";
 import { openLabel, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import { type ViewHead, type ChatItem, $, state } from "./state.ts";
-import { refusal } from "./pieces.ts";
 import { openUrl } from "./openitems.ts";
 import { shown, registerView, drawTop } from "./views.ts";
 import { reloadGroup, paneOn, drawSide, reloadChats, setPinned } from "./sidebar.ts";
 import { paneTitle, scopeTag } from "./pane.ts";
+import { reason } from "../addproject/importproject-state.ts";
 
 /// The chats about one pull request or issue, by chat id, read for each
 /// project; null until first read.
@@ -94,7 +94,7 @@ async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
     card.view = await invoke<ThreadCardView | null>("center_thread_view", { projectId: t.project_id, repo: t.repo, number: t.number });
     card.error = "";
   } catch (e) {
-    card.error = refusal(e);
+    card.error = reason(e);
   } finally {
     card.loading = false;
     card.at = Date.now();

@@ -1,6 +1,6 @@
 // The Instructions view: the user's rules for every agent Beep runs.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { Ago, Kid, MakeButton, MakeEl } from "../project/projects-state.ts";
+import type { Ago, Kid, MakeButton, MakeEl } from "../ui/dom.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, behind, versionLine, mineLayer } from "./instructions-state.ts";
 import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
 import { plural } from "../ui/format.ts";

@@ -5,7 +5,9 @@ import { invoke } from "../ui/tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
 import { harnessEl } from "../agents/harnessicon.ts";
 import { dbtn, emptyPanel } from "../ui/parts.ts";
-import { agentLabel, el, present, reason } from "./projects-state.ts";
+import { agentLabel } from "./projects-state.ts";
+import { el } from "../ui/dom.ts";
+import { present, reason } from "../addproject/importproject-state.ts";
 import { type AgentsPlace, type CustomAgentRow, agentColor, agentMeta } from "./customagents-state.ts";
 
 export { agentPrompt, agentsPlace } from "./customagents-state.ts";

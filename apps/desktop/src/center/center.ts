@@ -7,14 +7,13 @@ import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import type { HomeView, MacControl } from "./home-state.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
 import { agentFor, shortName, newChatProject } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { windowTakes } from "./windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, IC, state, pagesAccount, keepPagesFile } from "./state.ts";
-import { refusal } from "./pieces.ts";
 import { dismissedUpdates, draw, jump } from "./home.ts";
 import { shown, windowProject, toMain, go, setWindowProject } from "./views.ts";
 import { reloadGroup, paneOn, reloadChats, openProjects, addProject } from "./sidebar.ts";
@@ -26,6 +25,7 @@ import { loadAgents, takePending } from "./pane.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
+import { reason } from "../addproject/importproject-state.ts";
 
 followSkin();
 
@@ -122,7 +122,7 @@ $<HTMLFormElement>("#home-comp").addEventListener("submit", async e => {
     // Back on Home with the prompt as typed, where the error shows.
     input.value = prompt;
     go("home");
-    note.textContent = refusal(err);
+    note.textContent = reason(err);
   }
   reloadChats();
 });

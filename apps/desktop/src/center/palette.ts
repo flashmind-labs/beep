@@ -3,7 +3,7 @@
 import { invoke } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { el, type Kid } from "../project/projects-state.ts";
+import { el, type Kid } from "../ui/dom.ts";
 import { svgEl as svg } from "../ui/parts.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";

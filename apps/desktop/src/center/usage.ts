@@ -1,7 +1,8 @@
 // The pill at the right end of every command center header: how much of each
 // coding agent's plan is used and what the agents cost today.
 
-import { agentLabel, el as h } from "../project/projects-state.ts";
+import { agentLabel } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 
 export interface UsageWindow {
   minutes: number;

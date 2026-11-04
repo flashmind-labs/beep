@@ -4,7 +4,7 @@ import { since } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, note } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineSync, thisMacRow, type MacControl, type MachineCard, type MacRow, type MachineSyncing } from "../center/home-state.ts";
-import { el as h } from "../project/projects-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
 import { ALL, byMachine } from "../terminals/terminals.ts";
 import { OFFLINE_NOTE_MS, state } from "../center/state.ts";

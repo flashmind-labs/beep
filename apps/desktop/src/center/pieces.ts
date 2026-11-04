@@ -3,7 +3,7 @@ import { plural } from "../ui/format.ts";
 import { dbtn as button, svgEl as icon } from "../ui/parts.ts";
 import { pane } from "../bar/pane.ts";
 import type { MachineCard } from "./home-state.ts";
-import { el as h, type Kid } from "../project/projects-state.ts";
+import { el as h, type Kid } from "../ui/dom.ts";
 import { IC, PROJECT_COLORS } from "./state.ts";
 
 export function whenOf(iso: string) {
@@ -27,8 +27,6 @@ export function failure(e: unknown) {
   return conflict(e) ? "Already answered" : text.length > 90 ? text.slice(0, 90) + "..." : text;
 }
 export function conflict(e: unknown) { return /^conflict/i.test(String(e)); }
-/// A refusal without its "bad request:" or "error:" prefix.
-export function refusal(e: unknown) { return String(e).replace(/^(bad request|error):\s*/i, ""); }
 
 // ---------- Pieces ----------
 

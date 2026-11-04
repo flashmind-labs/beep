@@ -1,7 +1,8 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
 import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
-import { button, el, present, reason } from "../project/projects-state.ts";
+import { button, el } from "./dom.ts";
+import { present, reason } from "../addproject/importproject-state.ts";
 
 /// One line of a menu; `warn` reads it in red.
 export interface MenuItem {

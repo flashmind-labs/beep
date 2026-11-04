@@ -10,7 +10,8 @@ import type { MachineCard } from "./home-state.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound } from "../addproject/addproject.ts";
-import { mergeProjects, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, el as h, type FoundRow, type Kid, type Placed, type Project } from "../project/projects-state.ts";
+import { mergeProjects, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type Placed, type Project } from "../project/projects-state.ts";
+import { el as h, type Kid } from "../ui/dom.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminals.ts";
@@ -18,7 +19,7 @@ import { runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./
 import { withoutResearch } from "../research/research-list.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ChatItem, type ProjectPin, type SideChat, $, IC, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
-import { refusal, projectDot, skeleton } from "./pieces.ts";
+import { projectDot, skeleton } from "./pieces.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { single } from "./openitems.ts";
@@ -30,6 +31,7 @@ import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
 import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
 import { threadChats } from "./threadcard.ts";
+import { reason } from "../addproject/importproject-state.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
@@ -503,7 +505,7 @@ export async function importFromPage(row: FoundRow) {
     landed(project);
   } catch (e) {
     state.importing = null;
-    state.foundError = { name: row.name, message: refusal(e) };
+    state.foundError = { name: row.name, message: reason(e) };
     redrawProjects();
   }
 }

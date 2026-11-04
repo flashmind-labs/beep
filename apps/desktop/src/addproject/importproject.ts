@@ -3,8 +3,10 @@
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
-import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, folderUnder, folderNote, folderHelp, button, el, reason } from "../project/projects-state.ts";
-import type { ImportEvent, MachineFolder, ProjectRow } from "../project/projects-state.ts";
+import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, folderUnder, folderNote, folderHelp, reason } from "./importproject-state.ts";
+import { button, el } from "../ui/dom.ts";
+import type { ImportEvent } from "./importproject-state.ts";
+import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 import { checkoutNote, defaultPlaces, forkNote, placeChoices, previewLine, worktreesToAsk } from "../review/branchwork.ts";
 import type { BranchPicks, ImportFork, PreviewView } from "../review/branchwork.ts";
 import type { MachineCard } from "../center/home-state.ts";

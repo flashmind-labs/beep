@@ -3,7 +3,8 @@
 import { ago } from "../ui/format.ts";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
-import { el as h, type Project } from "./projects-state.ts";
+import { el as h } from "../ui/dom.ts";
+import { type Project } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { agentFor, workerSession, type ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
