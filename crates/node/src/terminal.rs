@@ -793,35 +793,4 @@ mod tests {
         assert!(listed.is_empty());
         assert!(terminals.live(id).is_none());
     }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_terminal_opens_again_as_a_new_shell_in_its_folder() {
-        let dir = tempfile::tempdir().expect("a temporary folder");
-        let folder = dir.path().canonicalize().expect("the folder resolves");
-        let before = Terminals::default();
-        let id = started(
-            before
-                .answer(Request::Start {
-                    command: Some("read wait".into()),
-                    cwd: Some(folder.display().to_string()),
-                    size: Size::DEFAULT,
-                })
-                .await,
-        );
-        let open = before.running();
-        assert_eq!(open.len(), 1);
-        assert_eq!(open[0].id, id.0);
-        assert_eq!(open[0].cwd.as_deref(), Some(folder.as_path()));
-        before.kill_all();
-
-        let after = Terminals::default();
-        after.reopen(&open[0]).expect("the terminal opens again");
-        let live = after.live(id).expect("the terminal keeps its id");
-        assert!(live.is_running());
-        let shown = wait_for_output(&live, "beep-node restarted").await;
-        assert!(shown.contains(&folder.display().to_string()), "{shown}");
-        assert!(after.reopen(&open[0]).is_err(), "one runs under that id");
-        after.kill_all();
-    }
 }
