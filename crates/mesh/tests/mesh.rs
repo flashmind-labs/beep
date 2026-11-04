@@ -436,15 +436,28 @@ async fn two_members_holding_different_addresses_for_a_third_settle() {
     a.mesh.hint_addr(high.clone(), now + 2_000).await;
     until(&b.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
     until(&a.mesh, |m| addr_of(m, c.id()).as_ref() == Some(&high)).await;
-    // A full round trip of state passes through every link.
-    let before = [&a, &b, &c].map(|d| d.mesh.addr_updates());
-    a.mesh
-        .set(project("barrier"), Some(b"1".to_vec()))
-        .await
-        .expect("write");
-    until(&b.mesh, |m| m.get(&project("barrier")).is_some()).await;
-    until(&c.mesh, |m| m.get(&project("barrier")).is_some()).await;
-    assert_eq!([&a, &b, &c].map(|d| d.mesh.addr_updates()), before);
+    // A note still in flight may land once. Trading notes forever would keep
+    // counting through every round trip of state.
+    let total = || {
+        [&a, &b, &c]
+            .map(|d| d.mesh.addr_updates())
+            .iter()
+            .sum::<u64>()
+    };
+    let before = total();
+    for round in 0..20u8 {
+        a.mesh
+            .set(project("barrier"), Some(vec![round]))
+            .await
+            .expect("write");
+        for peer in [&b, &c] {
+            until(&peer.mesh, |m| {
+                m.get(&project("barrier")) == Some(vec![round])
+            })
+            .await;
+        }
+    }
+    assert!(total() - before <= 3, "addresses kept changing hands");
 }
 
 /// Counts connections that reach the peer ALPN, then serves them.

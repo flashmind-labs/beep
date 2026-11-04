@@ -85,16 +85,7 @@ impl PeerClient {
         Self {
             via: Via::Peer(Arc::new(move || {
                 let mesh = mesh.clone();
-                Box::pin(async move {
-                    // One line to swap for `Mesh::open_bi` once it lands.
-                    let connection = mesh
-                        .peer(peer)
-                        .ok_or_else(|| MeshError::Link(anyhow!("{peer} is not connected")))?;
-                    connection
-                        .open_bi()
-                        .await
-                        .map_err(|e| MeshError::Link(e.into()))
-                })
+                Box::pin(async move { mesh.open_bi(peer).await })
             })),
         }
     }
