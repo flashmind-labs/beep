@@ -180,6 +180,7 @@ impl Desk {
         check_agent(agent)?;
         let settings = check_settings(settings)?;
         let key = Self::harness_key(agent);
+        let submitted: Vec<String> = settings.env.iter().map(|var| var.name.clone()).collect();
         let kept = read::<HarnessConfig>(&self.mesh, &key)
             .map(|config| config.env)
             .unwrap_or_default();
@@ -192,11 +193,12 @@ impl Desk {
             env: merged_env(kept, settings.env),
         };
         write(&self.mesh, key, Some(&config)).await?;
-        // A variable with a value is in the mesh now, so its record goes.
-        for var in &config.env {
-            let record = unmoved_env(agent, &var.name);
-            if self.mesh.get(&record).is_some() {
-                self.mesh.set(record, None).await?;
+        // A record goes once its variable has a value in the mesh, or was taken out. One submitted
+        // with no value stays: it is still only the server's.
+        for name in self.unmoved_env(agent) {
+            let entered = config.env.iter().any(|var| var.name == name);
+            if entered || !submitted.contains(&name) {
+                self.mesh.set(unmoved_env(agent, &name), None).await?;
             }
         }
         let blank = |text: String| Some(text).filter(|text| !text.is_empty());

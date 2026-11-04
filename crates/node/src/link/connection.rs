@@ -12,7 +12,7 @@ use crate::{
     link::state::State,
     link::traffic::Traffic,
     link::{
-        from_mesh::{Family, Membership},
+        from_mesh::{Family, Holds, Membership},
         peer_tools::{self, Caller},
         peers::{self, Peers},
     },
@@ -615,27 +615,32 @@ impl Linked {
         }
         let served = serve_linked(&connection, &mut tx, &mut rx, &offers, &measured).await;
         offers.tools.set(None);
-        // What the mesh owns is the mesh's, which the server's link does not
-        // touch.
-        if !offers.mesh.owns(Family::Credentials, offers.has_server()) {
-            // Revoked or only cut off, the node keeps no token it cannot hear
-            // about being removed; the server sends them again on reconnecting.
-            if let Some(provision) = &offers.provision {
-                provision.forget().await;
-            }
-        }
-        // The harnesses' env vars may be secrets too; the server sends the
-        // settings again on reconnecting. Each half goes unless the mesh owns it.
-        let mut settings = offers.agents.settings();
-        if !offers.mesh.owns(Family::Harnesses, offers.has_server()) {
-            settings.harnesses.clear();
-        }
-        if !offers.mesh.owns(Family::Flsh, offers.has_server()) {
-            settings.flsh = None;
-        }
-        offers.agents.set_settings(settings);
+        forget_after_link(&offers).await;
         served
     }
+}
+
+/// What the node lets go of when its server's link ends. What the mesh owns is the mesh's, and
+/// values still only the server's stay too: a dropped link erases nothing the node has.
+async fn forget_after_link(offers: &Offers) {
+    let has_server = offers.has_server();
+    if offers.mesh.holds(Family::Credentials, has_server) == Holds::Server {
+        // Revoked or only cut off, the node keeps no token it cannot hear
+        // about being removed; the server sends them again on reconnecting.
+        if let Some(provision) = &offers.provision {
+            provision.forget().await;
+        }
+    }
+    // The harnesses' env vars may be secrets too; the server sends the
+    // settings again on reconnecting. Each half goes unless the mesh holds it.
+    let mut settings = offers.agents.settings();
+    if offers.mesh.holds(Family::Harnesses, has_server) == Holds::Server {
+        settings.harnesses.clear();
+    }
+    if !offers.mesh.owns(Family::Flsh, has_server) {
+        settings.flsh = None;
+    }
+    offers.agents.set_settings(settings);
 }
 
 async fn serve_linked(
@@ -725,10 +730,18 @@ async fn serve_linked(
 
 /// The server's credentials, unless the mesh owns them.
 async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
-    if offers.mesh.owns(Family::Credentials, offers.has_server()) {
+    let holds = offers.mesh.holds(Family::Credentials, offers.has_server());
+    if holds == Holds::Mesh {
         log::info!("ignored credentials from the server: this node takes them from its mesh");
         return;
     }
+    offers.mesh.server().credentials = credentials.clone();
+    // Entered again in the mesh already: those go over what the server sent.
+    let credentials = if holds == Holds::Layered {
+        offers.mesh.layered_credentials(&credentials)
+    } else {
+        credentials
+    };
     match &offers.provision {
         Some(provision) => provision.apply(credentials).await,
         None => log::debug!("credentials came to a node that does not take them"),
@@ -737,8 +750,13 @@ async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
 
 /// The server's agent settings, except the parts the mesh owns.
 fn take_settings(offers: &Offers, mut settings: AgentSettings) {
+    let held = offers.mesh.holds(Family::Harnesses, offers.has_server());
+    offers.mesh.server().harnesses = settings.harnesses.clone();
+    if held == Holds::Layered {
+        settings.harnesses = offers.mesh.layered_harnesses(&settings.harnesses);
+    }
     let (harnesses, flsh) = (
-        offers.mesh.owns(Family::Harnesses, offers.has_server()),
+        held == Holds::Mesh,
         offers.mesh.owns(Family::Flsh, offers.has_server()),
     );
     if harnesses || flsh {
@@ -910,5 +928,104 @@ mod tests {
             },
         );
         assert_eq!(offers.agents.settings().harnesses, [off]);
+    }
+
+    use beep_mesh::{Key, Mesh, transport_config};
+    use beep_proto::{
+        SecretText,
+        node::{EnvSecret, mesh_state::StateValue},
+    };
+    use iroh::{Endpoint, SecretKey, endpoint::presets};
+
+    async fn mesh_in(dir: &std::path::Path) -> Mesh {
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .transport_config(transport_config())
+            .bind()
+            .await
+            .expect("the endpoint binds");
+        Mesh::create(dir, endpoint, "desktop")
+            .await
+            .expect("the mesh is made")
+    }
+
+    fn var(name: &str, value: &str) -> EnvSecret {
+        EnvSecret {
+            name: name.to_owned(),
+            value: SecretText::new(value),
+        }
+    }
+
+    fn codex(vars: Vec<EnvSecret>) -> HarnessConfig {
+        HarnessConfig {
+            env: vars,
+            ..HarnessConfig::new("codex")
+        }
+    }
+
+    /// The mesh holds `codex` with one variable entered again; the other is still only the server's.
+    async fn layered(dir: &std::path::Path) -> (Offers, Mesh) {
+        let offers = Offers::local(&[], Provision::new(dir), true);
+        let mesh = mesh_in(dir).await;
+        offers.mesh.set(mesh.clone());
+        let entered = codex(vec![var("B_KEY", "from-the-mesh")]);
+        mesh.set(
+            Key::Harness("codex".into()),
+            Some(entered.to_bytes().expect("encodes")),
+        )
+        .await
+        .expect("written");
+        mesh.set(Key::Unmoved("harness/codex/A_KEY".into()), Some(vec![1]))
+            .await
+            .expect("written");
+        (offers, mesh)
+    }
+
+    #[tokio::test]
+    async fn a_partly_reentered_list_gives_the_servers_values_and_the_meshes() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let (offers, _mesh) = layered(dir.path()).await;
+        assert_eq!(offers.mesh.holds(Family::Harnesses, true), Holds::Layered);
+        take_settings(
+            &offers,
+            AgentSettings {
+                harnesses: vec![codex(vec![var("A_KEY", "from-the-server")])],
+                flsh: None,
+            },
+        );
+        let got = offers.agents.settings().harnesses;
+        assert_eq!(got.len(), 1);
+        let names: Vec<(&str, &str)> = got[0]
+            .env
+            .iter()
+            .map(|v| (v.name.as_str(), v.value.expose()))
+            .collect();
+        assert_eq!(
+            names,
+            [("B_KEY", "from-the-mesh"), ("A_KEY", "from-the-server")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dropped_link_keeps_what_the_node_has() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let (offers, mesh) = layered(dir.path()).await;
+        let from_server = AgentSettings {
+            harnesses: vec![codex(vec![var("A_KEY", "from-the-server")])],
+            flsh: None,
+        };
+        take_settings(&offers, from_server.clone());
+        forget_after_link(&offers).await;
+        // Still partly the server's: nothing is erased.
+        assert_eq!(offers.agents.settings().harnesses.len(), 1);
+        assert_eq!(offers.agents.settings().harnesses[0].env.len(), 2);
+        // With no key of the family in the mesh, the server's go, as before.
+        mesh.set(Key::Harness("codex".into()), None)
+            .await
+            .expect("deleted");
+        let plain = Offers::local(&[], Provision::new(dir.path()), true);
+        take_settings(&plain, from_server);
+        forget_after_link(&plain).await;
+        assert!(plain.agents.settings().harnesses.is_empty());
     }
 }

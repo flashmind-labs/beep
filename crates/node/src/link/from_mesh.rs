@@ -25,7 +25,10 @@ use beep_proto::{
     },
 };
 use iroh::{EndpointAddr, EndpointId};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+};
 use tokio::sync::{broadcast::error::RecvError, watch};
 
 /// A kind of state the mesh can own on the node.
@@ -65,46 +68,104 @@ impl Family {
         }
     }
 
-    /// Whether the mesh owns this family on the node: it has ever held a key of it, and, for a
-    /// node with a server, no record says a value is still only the server's. Such a node keeps
-    /// what the server set until every one is entered again; a node with no server has nothing
-    /// else to keep, so it takes the mesh's at once.
-    pub(crate) fn owned_by(self, mesh: &Mesh, has_server: bool) -> bool {
-        mesh.has_held(self.prefix())
-            && !(has_server
-                && self
-                    .unmoved()
-                    .is_some_and(|prefix| !mesh.scan(prefix).is_empty()))
+    /// Who the node takes this family from. Until the mesh has held a key of it, the server. Once
+    /// it has, the mesh, unless the node has a server and a record says a value is still only the
+    /// server's: then the mesh's keys are laid over what the server set, until every one is
+    /// entered again. A node with no server has nothing else to keep, so the mesh's apply at once.
+    pub(crate) fn holds(self, mesh: &Mesh, has_server: bool) -> Holds {
+        if !mesh.has_held(self.prefix()) {
+            return Holds::Server;
+        }
+        let waiting = self
+            .unmoved()
+            .is_some_and(|prefix| !mesh.scan(prefix).is_empty());
+        if has_server && waiting {
+            Holds::Layered
+        } else {
+            Holds::Mesh
+        }
     }
+}
+
+/// Where a family comes from on the node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Holds {
+    /// The server's, as it always was.
+    Server,
+    /// The server's with the mesh's keys over it.
+    Layered,
+    /// The mesh's alone.
+    Mesh,
+}
+
+/// What the server last sent for the families that can be layered, kept so the mesh's keys go over
+/// it again when they change, and so a dropped link leaves it as it is.
+#[derive(Default)]
+pub(crate) struct ServerLayer {
+    pub(crate) credentials: MachineCredentials,
+    pub(crate) harnesses: Vec<HarnessConfig>,
 }
 
 /// The mesh the node belongs to, once it does.
 #[derive(Clone)]
-pub(crate) struct Membership(Arc<watch::Sender<Option<Mesh>>>);
+pub(crate) struct Membership {
+    mesh: Arc<watch::Sender<Option<Mesh>>>,
+    server: Arc<Mutex<ServerLayer>>,
+}
 
 impl Default for Membership {
     fn default() -> Self {
-        Self(Arc::new(watch::Sender::new(None)))
+        Self {
+            mesh: Arc::new(watch::Sender::new(None)),
+            server: Arc::default(),
+        }
     }
 }
 
 impl Membership {
     pub(crate) fn set(&self, mesh: Mesh) {
-        self.0.send_replace(Some(mesh));
+        self.mesh.send_replace(Some(mesh));
     }
 
     pub(crate) fn clear(&self) {
-        self.0.send_replace(None);
+        self.mesh.send_replace(None);
     }
 
     pub(crate) fn get(&self) -> Option<Mesh> {
-        self.0.borrow().clone()
+        self.mesh.borrow().clone()
     }
 
-    /// Whether the node is in a mesh that owns `family` now.
-    pub(crate) fn owns(&self, family: Family, has_server: bool) -> bool {
+    /// Where `family` comes from now.
+    pub(crate) fn holds(&self, family: Family, has_server: bool) -> Holds {
         self.get()
-            .is_some_and(|mesh| family.owned_by(&mesh, has_server))
+            .map_or(Holds::Server, |mesh| family.holds(&mesh, has_server))
+    }
+
+    /// Whether the node is in a mesh that owns `family` alone now.
+    pub(crate) fn owns(&self, family: Family, has_server: bool) -> bool {
+        self.holds(family, has_server) == Holds::Mesh
+    }
+
+    /// What the server last sent.
+    pub(crate) fn server(&self) -> MutexGuard<'_, ServerLayer> {
+        self.server.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The server's credentials with the mesh's laid over them, as the node holds them while some
+    /// are still only the server's.
+    pub(crate) fn layered_credentials(&self, server: &MachineCredentials) -> MachineCredentials {
+        match self.get() {
+            Some(mesh) => lay_credentials(server, credentials(&mesh)),
+            None => server.clone(),
+        }
+    }
+
+    /// The same for the harness settings.
+    pub(crate) fn layered_harnesses(&self, server: &[HarnessConfig]) -> Vec<HarnessConfig> {
+        match self.get() {
+            Some(mesh) => lay_harnesses(server, settings(&mesh).harnesses),
+            None => server.to_vec(),
+        }
     }
 }
 
@@ -143,9 +204,11 @@ struct Applied {
 
 impl Applied {
     async fn apply(&mut self, mesh: &Mesh, me: EndpointId, offers: &Offers) {
+        let has_server = offers.has_server();
+        let holds = |family: Family| family.holds(mesh, has_server);
         let owned: Vec<Family> = Family::ALL
             .into_iter()
-            .filter(|family| family.owned_by(mesh, offers.has_server()))
+            .filter(|family| holds(*family) != Holds::Server)
             .collect();
         if self.owned.as_ref() != Some(&owned) {
             log::info!("from the mesh: owns {owned:?}");
@@ -154,7 +217,11 @@ impl Applied {
         if let Some(provision) = &offers.provision
             && owned.contains(&Family::Credentials)
         {
-            let credentials = credentials(mesh);
+            let credentials = if holds(Family::Credentials) == Holds::Layered {
+                lay_credentials(&offers.mesh.server().credentials, credentials(mesh))
+            } else {
+                credentials(mesh)
+            };
             if self.credentials.as_ref() != Some(&credentials) {
                 provision.apply(credentials.clone()).await;
                 log::info!(
@@ -169,6 +236,10 @@ impl Applied {
         if harnesses || flsh {
             let now = offers.agents.settings();
             let mut settings = settings(mesh);
+            if holds(Family::Harnesses) == Holds::Layered {
+                settings.harnesses =
+                    lay_harnesses(&offers.mesh.server().harnesses, settings.harnesses);
+            }
             if !harnesses {
                 settings.harnesses = now.harnesses;
             }
@@ -208,6 +279,53 @@ impl Applied {
             }
         }
     }
+}
+
+/// `server`'s credentials with `mesh`'s over them: a value the mesh has replaces the server's of
+/// the same env var or Forgejo server.
+fn lay_credentials(server: &MachineCredentials, mesh: MachineCredentials) -> MachineCredentials {
+    let mut out = MachineCredentials {
+        env: server
+            .env
+            .iter()
+            .filter(|old| !mesh.env.iter().any(|new| new.name == old.name))
+            .cloned()
+            .collect(),
+        forgejo: server
+            .forgejo
+            .iter()
+            .filter(|old| !mesh.forgejo.iter().any(|new| new.url == old.url))
+            .cloned()
+            .collect(),
+    };
+    out.env.extend(mesh.env);
+    out.forgejo.extend(mesh.forgejo);
+    out
+}
+
+/// `server`'s harness settings with `mesh`'s over them: an agent the mesh has takes the mesh's
+/// switch, arguments and paths, and its env vars over the server's of other names.
+fn lay_harnesses(server: &[HarnessConfig], mesh: Vec<HarnessConfig>) -> Vec<HarnessConfig> {
+    let mut out: Vec<HarnessConfig> = server
+        .iter()
+        .filter(|old| !mesh.iter().any(|new| new.agent == old.agent))
+        .cloned()
+        .collect();
+    for mut config in mesh {
+        if let Some(old) = server.iter().find(|old| old.agent == config.agent) {
+            config.program = config.program.or_else(|| old.program.clone());
+            config.home = config.home.or_else(|| old.home.clone());
+            let own = config.env.clone();
+            config.env.extend(
+                old.env
+                    .iter()
+                    .filter(|var| !own.iter().any(|mine| mine.name == var.name))
+                    .cloned(),
+            );
+        }
+        out.push(config);
+    }
+    out
 }
 
 /// The values under `prefix` that read as `T`; one that does not is left
@@ -367,6 +485,30 @@ mod tests {
         mesh.set(key, None).await.expect("deleted");
     }
 
+    #[test]
+    fn credentials_entered_again_go_over_the_servers() {
+        use beep_proto::{SecretText, node::EnvSecret};
+        let var = |name: &str, value: &str| EnvSecret {
+            name: name.to_owned(),
+            value: SecretText::new(value),
+        };
+        let server = MachineCredentials {
+            env: vec![var("A", "server-a"), var("B", "server-b")],
+            forgejo: Vec::new(),
+        };
+        let mesh = MachineCredentials {
+            env: vec![var("B", "mesh-b")],
+            forgejo: Vec::new(),
+        };
+        let got = lay_credentials(&server, mesh);
+        let pairs: Vec<(&str, &str)> = got
+            .env
+            .iter()
+            .map(|v| (v.name.as_str(), v.value.expose()))
+            .collect();
+        assert_eq!(pairs, [("A", "server-a"), ("B", "mesh-b")]);
+    }
+
     #[tokio::test]
     async fn a_partly_reentered_credential_list_keeps_the_servers_until_all_are_back() {
         let (mesh, _dir) = lone_mesh().await;
@@ -374,18 +516,18 @@ mod tests {
         put(&mesh, Key::Unmoved("credential/a".into())).await;
         put(&mesh, Key::Unmoved("credential/b".into())).await;
         // The mesh holds a credential, but two are still only the server's.
-        assert!(!Family::Credentials.owned_by(&mesh, true));
+        assert!(!(Family::Credentials.holds(&mesh, true) == Holds::Mesh));
         drop_key(&mesh, Key::Unmoved("credential/a".into())).await;
-        assert!(!Family::Credentials.owned_by(&mesh, true));
+        assert!(!(Family::Credentials.holds(&mesh, true) == Holds::Mesh));
         drop_key(&mesh, Key::Unmoved("credential/b".into())).await;
-        assert!(Family::Credentials.owned_by(&mesh, true));
+        assert!((Family::Credentials.holds(&mesh, true) == Holds::Mesh));
         // Harness variables count for the harness family only.
         put(&mesh, Key::Harness("codex".into())).await;
         put(&mesh, Key::Unmoved("harness/codex/OPENAI_API_KEY".into())).await;
-        assert!(Family::Credentials.owned_by(&mesh, true));
-        assert!(!Family::Harnesses.owned_by(&mesh, true));
+        assert!((Family::Credentials.holds(&mesh, true) == Holds::Mesh));
+        assert!(!(Family::Harnesses.holds(&mesh, true) == Holds::Mesh));
         drop_key(&mesh, Key::Unmoved("harness/codex/OPENAI_API_KEY".into())).await;
-        assert!(Family::Harnesses.owned_by(&mesh, true));
+        assert!((Family::Harnesses.holds(&mesh, true) == Holds::Mesh));
     }
 
     #[tokio::test]
@@ -394,11 +536,11 @@ mod tests {
         put(&mesh, Key::Credential("api.1.anthropic".into())).await;
         put(&mesh, Key::Unmoved("credential/a".into())).await;
         // A node with no server has no values to keep: the mesh's apply at once.
-        assert!(Family::Credentials.owned_by(&mesh, false));
-        assert!(!Family::Credentials.owned_by(&mesh, true));
+        assert!((Family::Credentials.holds(&mesh, false) == Holds::Mesh));
+        assert!(!(Family::Credentials.holds(&mesh, true) == Holds::Mesh));
         drop_key(&mesh, Key::Unmoved("credential/a".into())).await;
-        assert!(Family::Credentials.owned_by(&mesh, true));
-        assert!(Family::Credentials.owned_by(&mesh, false));
+        assert!((Family::Credentials.holds(&mesh, true) == Holds::Mesh));
+        assert!((Family::Credentials.holds(&mesh, false) == Holds::Mesh));
     }
 
     fn config(agent: &str, program: Option<&str>) -> HarnessConfig {
