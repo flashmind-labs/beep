@@ -64,12 +64,6 @@ const STOP_LIMIT: Duration = Duration::from_secs(10);
 /// kept so sync goes on while the server is down.
 const CONFIG: &str = "projects.json";
 
-/// Beep's sync keeps `folder` on this machine: it holds the marker sync
-/// leaves in a project's root.
-pub fn keeps(folder: &Path) -> bool {
-    folder.join(rules::MARKER).is_file()
-}
-
 /// What sync shares with transfers.
 #[derive(Clone)]
 pub(crate) struct Parts {
