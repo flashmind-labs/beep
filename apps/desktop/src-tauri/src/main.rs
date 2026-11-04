@@ -262,7 +262,6 @@ fn main() {
             chat::sessions::share_session,
             chat::sessions::stock_chart,
             chat::sessions::unshare_session,
-            machines::add::create_node_token,
             machines::add::mesh_join,
             machines::add::mesh_invite,
             machines::add::machine_search,

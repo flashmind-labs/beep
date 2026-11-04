@@ -144,7 +144,7 @@ document.addEventListener("keydown", e => {
   if (S.view === "link" || S.view === "login" || S.view === "revoked") return;
   if (agentKeys(e, cmd)) return;
   const key = e.key.toLowerCase();
-  if (cmd && e.shiftKey && key === "a" && S.link === "linked") {
+  if (cmd && e.shiftKey && key === "a" && S.link !== "revoked") {
     e.preventDefault();
     return renderAgentNew(S.view === "chat" ? $<HTMLTextAreaElement>("#ask")?.value.trim() ?? "" : "", S.view === "agents" ? "agents" : "chat");
   }
@@ -159,7 +159,7 @@ document.addEventListener("keydown", e => {
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   // The window picks the chat: the project's while one of its chats shows.
-  if (cmd && key === "n") { e.preventDefault(); return windowHooks ? windowHooks.newChat() : newChat(); }
+  if (cmd && key === "n") { e.preventDefault(); return S.link === "unlinked" ? renderAgentNew("", "chat") : windowHooks ? windowHooks.newChat() : newChat(); }
   if (cmd && key === "e" && S.view === "routines" && R.list.length) { e.preventDefault(); return routineAction("edit"); }
   if (cmd && key === "g" && S.view === "routines") { e.preventDefault(); return renderGrants(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }

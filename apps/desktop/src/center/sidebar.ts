@@ -33,6 +33,7 @@ import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
 import { threadChats } from "./threadcard.ts";
 import { reason } from "../addproject/importproject-state.ts";
+import { beepViews, groupShown } from "../settings/subscription.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
@@ -363,7 +364,8 @@ registerSidebarGroup<SideChat>("pinned", {
   order: 2,
   title: "Pinned",
   async load() {
-    return [...splitPinned(await fetchChats(), SIDE_CHATS).pinned, ...pinnedProjects()];
+    const chats = state.subscribed ? splitPinned(await fetchChats(), SIDE_CHATS).pinned : [];
+    return [...chats, ...pinnedProjects()];
   },
   row: chatRow,
   onPick: pickChat,
@@ -380,6 +382,7 @@ registerSidebarGroup<SideChat>("chats", {
     return b;
   },
   async load() {
+    if (!groupShown("chats", state.subscribed)) return null;
     // Chats about one thread are listed under their project, researches
     // under Research.
     const rows = withoutResearch(await fetchChats(), RESEARCHES).filter(c => c.pinned || !threadChats?.has(c.id));
@@ -392,11 +395,11 @@ registerSidebarGroup<SideChat>("chats", {
 registerSidebarGroup("views", {
   order: 6,
   title: "Beep",
-  load: async () => [
+  load: async () => beepViews([
     { view: "memories", label: "Memories", svg: IC.mem },
     { view: "routines", label: "Routines", svg: IC.loop },
     { view: "settings", label: "Settings", svg: IC.gear },
-  ],
+  ], state.subscribed),
   row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? "⌘," : "" }),
   onPick: v => go("pane", v.view),
 });

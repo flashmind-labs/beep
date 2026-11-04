@@ -17,6 +17,8 @@ import { reloadGroup, openAddMachine, openProjects } from "../center/sidebar.ts"
 import { fsync } from "../project/sections.ts";
 import { openTile } from "../project/split.ts";
 import { refresh } from "../center/refresh.ts";
+import { notJoinedSection } from "./notjoined.ts";
+import { splitJoined } from "./notjoined-state.ts";
 
 export const addMachineButton = (cls: string) => plusLabel("Add a machine", cls, openAddMachine);
 
@@ -154,12 +156,16 @@ function removeMachine(m: Removable) {
 
 export function machinesSection(machines: MachineCard[]) {
   if (!machines.length && !thisMacRow(state.mac, machines)) {
-    return section("sec-machines", "Machines", "", addMachineButton("small"),
-      emptyPanel(h("b", "", "No machines linked yet"), addMachineButton("pri")));
+    return [section("sec-machines", "Machines", "", addMachineButton("small"),
+      emptyPanel(h("b", "", "No machines linked yet"), addMachineButton("pri")))];
   }
+  const { mesh, outside } = splitJoined(machines);
   const online = machines.filter(m => m.online).length;
   const count = machines.length ? `${online} of ${machines.length} online` : "";
-  return section("sec-machines", "Machines", count, addMachineButton("small"), machineTable(machines));
+  return [
+    section("sec-machines", outside.length ? "In the mesh" : "Machines", outside.length ? mesh.length : count, addMachineButton("small"), machineTable(mesh)),
+    ...(outside.length ? [notJoinedSection(outside)] : []),
+  ];
 }
 
 export function offlineNote(machines: MachineCard[]) {
