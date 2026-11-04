@@ -5,6 +5,7 @@
 
 pub mod agent;
 pub mod auto;
+pub mod codex_login;
 mod convert;
 pub mod listing;
 mod node;
@@ -14,8 +15,8 @@ pub mod terminals;
 
 pub use agent::{Opened, StartOn, open_agent, order};
 pub use convert::{
-    Host, agent_models, beep_session, beep_view, entries_for, external_session, past_session,
-    runs_now,
+    Host, agent_models, beep_session, beep_view, entries_for, external_session, machine_capability,
+    past_session, runs_now,
 };
 pub use node::{
     Exec, Tasks, Updated, exec, files, install_tool, log, search, set_search, task_request,
