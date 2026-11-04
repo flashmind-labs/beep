@@ -98,7 +98,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     }
     const author = d?.author || stub.author, opened = d?.opened_at || stub.opened_at;
     meta.append(h("span", "", `#${stub.number}`, author && " opened by ", author && h("b", "", author), opened ? ` ${ago(opened)}` : ""));
-    for (const l of d?.labels || []) meta.append(h("span", "cc-tag", l));
+    for (const l of d?.labels || []) meta.append(h("i", "pj-tag", l));
     if (d?.review === "approved") meta.append(stateChip("done", "approved"));
     if (d?.review === "changes_requested") meta.append(stateChip("blocked", "changes requested"));
     const checks = d?.checks ? CHECKS[d.checks] : null;
