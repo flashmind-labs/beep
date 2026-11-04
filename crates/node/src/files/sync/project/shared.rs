@@ -30,6 +30,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+/// The longest a scan before matching a peer may take; the pull tries again.
+const MATCH_SCAN: Duration = Duration::from_secs(30);
+
 /// What a project's task shares with the pulls and the node.
 pub(in crate::files::sync) struct Shared {
     pub(super) name: String,
@@ -229,9 +232,10 @@ impl Shared {
         peer: &EndpointId,
         theirs: Option<Oid>,
     ) -> Result<()> {
-        if self.lock().saved.matched.contains(&peer.to_string()) {
+        if self.is_matched(peer) {
             return Ok(());
         }
+        self.scan_before_matching().await?;
         let ours = self.head().await?;
         if let (Some(ours), Some(theirs)) = (ours, theirs)
             && ours != theirs
@@ -254,6 +258,24 @@ impl Shared {
         drop(state);
         // Publishes the status again, without the hold.
         self.merged.notify_one();
+        Ok(())
+    }
+
+    /// Whether this checkout was at one commit with `peer` before.
+    pub(in crate::files::sync) fn is_matched(&self, peer: &EndpointId) -> bool {
+        self.lock().saved.matched.contains(&peer.to_string())
+    }
+
+    /// Brings the list in line with the folder before it is compared with
+    /// a peer's that never matched it, or sent to one. The user may have
+    /// just moved the checkout to a commit with git, and a list from before
+    /// that has the old branch: merged with the peer's, it would move a
+    /// checkout that now agrees onto the commit the other one just left.
+    pub(in crate::files::sync) async fn scan_before_matching(&self) -> Result<()> {
+        if self.is_paused() {
+            return Ok(());
+        }
+        self.rescan(MATCH_SCAN).await?;
         Ok(())
     }
 
