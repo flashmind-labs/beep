@@ -1,7 +1,7 @@
 // The rows of a chat log, drawn the same in a Beep chat and a coding agent's
 // session: the prompt, a turn's heading, a thought, a tool call, the answer,
 // a failure, a queued message and the Stop button.
-import { clock, heading, thoughtLabel, type ToolKind, type TurnState } from "../agents/agentturns.ts";
+import { clock, duration, heading, thoughtLabel, type ToolKind, type TurnState } from "../agents/agentturns.ts";
 import { copy } from "../ui/parts.ts";
 import { esc, ICON } from "../bar/core.ts";
 import { endedHtml, liveHtml } from "../agents/thoughtlive.ts";
@@ -9,12 +9,19 @@ import { endedHtml, liveHtml } from "../agents/thoughtlive.ts";
 /// One pass of the "Thinking" letters, as in the CSS: 8 letters a second.
 const SWEEP_MS = 1500;
 
-/// "Thinking", its letters lit one after another in a loop that keeps its
-/// phase across redraws.
-const thinkingLabel = () => `<span class="lb" style="--ph:${Date.now() % SWEEP_MS}ms">${[..."Thinking"].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
+/// `word`, its letters lit one after another in a loop that keeps its phase
+/// across redraws.
+const sweptLabel = (word: string) => `<span class="lb" style="--ph:${Date.now() % SWEEP_MS}ms">${[...word].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
 
-/// A running turn thinking before it has words to show.
-export const thinkingRow = () => `<div class="dthink live">${thinkingLabel()}</div>`;
+/// A running turn's one live line: what it is at, its letters sweeping, how
+/// long it has run, and what it does now. Waiting on the user does not sweep.
+export function liveLineHtml(t: { state: TurnState; thinking: boolean; start?: number | null; doing?: string }) {
+  const waiting = t.state === "waiting";
+  const word = waiting ? `<span class="lb">Waiting for you</span>` : sweptLabel(t.thinking ? "Thinking" : "Working");
+  return `<div class="dthink dlive${waiting ? "" : " live"}">${word}`
+    + (t.start != null ? `<span class="since" data-since="${t.start}">${esc(duration(Date.now() - t.start))}</span>` : "")
+    + (t.doing ? `<span class="doing" title="${esc(t.doing)}">${esc(t.doing)}</span>` : "") + "</div>";
+}
 
 /// A thought, as one line that opens to its text. `live` streams and follows
 /// its newest line; `folding` just ended and folds now. `row` is its place in
@@ -24,7 +31,7 @@ export function thoughtHtml(t: { key: string; text: string; html?: string; ms?: 
     : t.folding ? `<div class="tx">${endedHtml(t.key, t.text)}</div>`
     : `<div class="tx md">${t.html ?? esc(t.text).replace(/\n/g, "<br>")}</div>`;
   return `<div class="dthink${t.live ? " live" : ""}${t.open ? " open" : ""}"${t.row != null ? ` data-row="${t.row}"` : ""}${t.folding ? " data-folding" : ""}>`
-    + `<button data-thought="${esc(t.row ?? t.key)}" aria-expanded="${t.open}">${t.live ? thinkingLabel() : `<span class="lb">${thoughtLabel(t.ms)}</span>`}<span class="cv">${ICON.chev}</span></button>`
+    + `<button data-thought="${esc(t.row ?? t.key)}" aria-expanded="${t.open}"><span class="lb">${thoughtLabel(t.ms)}</span><span class="cv">${ICON.chev}</span></button>`
     + `<div class="bd"><div>${body}</div></div></div>`;
 }
 
@@ -38,10 +45,13 @@ export function toggleThought(btn: Element) {
 
 /// A turn's heading: how long it worked and what it did. With a `key` it is
 /// a button that opens or folds the steps.
-export function turnHeadHtml(t: { state: TurnState; start?: number; ms: number | null; stats: string; key: string | number | null; opened: boolean }) {
-  const label = `<span${t.state !== "done" && t.start != null ? ` data-since="${t.start}" data-state="${t.state}"` : ""}>${esc(heading(t.state, t.ms))}</span>`
-    + (t.stats ? `<span class="stats">· ${esc(t.stats)}</span>` : "");
-  return `<div class="dcoderturn${t.state === "done" ? "" : " live"}">`
+export function turnHeadHtml(t: { state: TurnState; start?: number | null; ms: number | null; stats: string; key: string | number | null; opened: boolean }) {
+  const done = t.state === "done";
+  // A running turn's clock is on its live line; its head only folds the steps.
+  if (!done && t.key == null) return "";
+  const label = done ? `<span>${esc(heading(t.state, t.ms))}</span>` + (t.stats ? `<span class="stats">· ${esc(t.stats)}</span>` : "")
+    : `<span>${esc(t.stats || "Steps")}</span>`;
+  return `<div class="dcoderturn">`
     + (t.key == null ? `<span class="hd">${label}</span>`
       : `<button class="hd${t.opened ? " open" : ""}" data-turn="${esc(t.key)}" aria-expanded="${t.opened}" title="${t.opened ? "Fold the steps" : "Show the steps"}">${label}${ICON.chev}</button>`)
     + (t.start != null ? `<span class="when">${clock(t.start)}</span>` : "") + "</div>";
@@ -55,7 +65,7 @@ export function tickTurns() {
   turnTick = setInterval(() => {
     const els = document.querySelectorAll<HTMLElement>("[data-since]");
     if (!els.length) { clearInterval(turnTick); turnTick = undefined; return; }
-    for (const el of els) el.textContent = heading(el.dataset.state as TurnState, Date.now() - Number(el.dataset.since));
+    for (const el of els) el.textContent = duration(Date.now() - Number(el.dataset.since));
   }, 1000);
 }
 
