@@ -44,7 +44,7 @@ pub struct Device {
 enum OpBody {
     Genesis(Device),
     Add(Device),
-    Remove(EndpointId),
+    Remove { id: EndpointId, at_ms: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +101,30 @@ pub enum MeshError {
     NoGenesis,
     #[error("encoding failed: {0}")]
     Encode(#[from] postcard::Error),
+    #[error("state file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("not a state key: {0}")]
+    BadKey(String),
+    /// A replicated entry is stamped more than a day ahead of this clock.
+    #[error("entry from {0} is stamped too far ahead")]
+    Future(EndpointId),
+    /// The write clock cannot move past what it has seen.
+    #[error("write clock is exhausted")]
+    Clock,
+    #[error("record is too large")]
+    TooLarge,
+}
+
+/// How far a device's replicated writes are accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteLimit {
+    /// Not a desktop of this mesh.
+    Refused,
+    /// A removed desktop: entries stamped at or before this time still count,
+    /// so a fresh peer converges on what it wrote while a member.
+    Until(u64),
+    /// A current desktop.
+    Always,
 }
 
 /// What a merge did. Refused ops never hide the ones that counted.
@@ -139,7 +163,8 @@ pub struct Devices {
     ops: Vec<DeviceOp>,
     pending: Vec<DeviceOp>,
     added: BTreeMap<EndpointId, Entry>,
-    removed: BTreeSet<EndpointId>,
+    /// Removed key and the earliest `at_ms` of a `Remove` naming it.
+    removed: BTreeMap<EndpointId, u64>,
 }
 
 fn now_ms() -> u64 {
@@ -156,7 +181,7 @@ impl Devices {
             ops: Vec::new(),
             pending: Vec::new(),
             added: BTreeMap::new(),
-            removed: BTreeSet::new(),
+            removed: BTreeMap::new(),
         }
     }
 
@@ -204,13 +229,35 @@ impl Devices {
     }
 
     pub fn is_member(&self, id: EndpointId) -> bool {
-        self.added.contains_key(&id) && !self.removed.contains(&id)
+        self.added.contains_key(&id) && !self.removed.contains_key(&id)
+    }
+
+    pub fn is_desktop(&self, id: EndpointId) -> bool {
+        self.is_member(id)
+            && self
+                .added
+                .get(&id)
+                .is_some_and(|e| e.device.kind == DeviceKind::Desktop)
+    }
+
+    /// Which entries from `id` may still be taken.
+    pub fn write_limit(&self, id: &EndpointId) -> WriteLimit {
+        let Some(entry) = self.added.get(id) else {
+            return WriteLimit::Refused;
+        };
+        if entry.device.kind != DeviceKind::Desktop {
+            return WriteLimit::Refused;
+        }
+        match self.removed.get(id) {
+            None => WriteLimit::Always,
+            Some(at_ms) => WriteLimit::Until(*at_ms),
+        }
     }
 
     pub fn members(&self) -> Vec<Device> {
         self.added
             .iter()
-            .filter(|(id, _)| !self.removed.contains(*id))
+            .filter(|(id, _)| !self.removed.contains_key(*id))
             .map(|(_, entry)| entry.device.clone())
             .collect()
     }
@@ -218,7 +265,7 @@ impl Devices {
     /// Signs an `Add` as `key`, which must be a member desktop, and applies it.
     pub fn add(&mut self, key: &SecretKey, device: Device) -> Result<DeviceOp, MeshError> {
         self.gate(key.public())?;
-        if self.removed.contains(&device.id) {
+        if self.removed.contains_key(&device.id) {
             return Err(MeshError::Removed(device.id));
         }
         self.author(key, OpBody::Add(device))
@@ -227,7 +274,13 @@ impl Devices {
     /// Signs a `Remove` as `key`, which must be a member desktop, and applies it.
     pub fn remove(&mut self, key: &SecretKey, id: EndpointId) -> Result<DeviceOp, MeshError> {
         self.gate(key.public())?;
-        self.author(key, OpBody::Remove(id))
+        self.author(
+            key,
+            OpBody::Remove {
+                id,
+                at_ms: now_ms(),
+            },
+        )
     }
 
     fn author(&mut self, key: &SecretKey, body: OpBody) -> Result<DeviceOp, MeshError> {
@@ -295,7 +348,7 @@ impl Devices {
 
     /// Fails unless `author` is a member desktop.
     fn gate(&self, author: EndpointId) -> Result<(), MeshError> {
-        if self.removed.contains(&author) {
+        if self.removed.contains_key(&author) {
             return Err(MeshError::Removed(author));
         }
         match self.added.get(&author) {
@@ -319,7 +372,7 @@ impl Devices {
                     return Err(MeshError::NotDesktop(op.author));
                 }
             }
-            OpBody::Add(_) | OpBody::Remove(_) => self.gate(op.author)?,
+            OpBody::Add(_) | OpBody::Remove { .. } => self.gate(op.author)?,
         }
         self.insert(op.clone());
         Ok(true)
@@ -340,8 +393,9 @@ impl Devices {
                     self.added.insert(device.id, entry);
                 }
             }
-            OpBody::Remove(id) => {
-                self.removed.insert(*id);
+            OpBody::Remove { id, at_ms } => {
+                let first = self.removed.entry(*id).or_insert(*at_ms);
+                *first = (*first).min(*at_ms);
             }
         }
         self.ops.push(op);
@@ -688,7 +742,15 @@ mod tests {
             d.remove(&n, m.public()),
             Err(MeshError::NotDesktop(_))
         ));
-        let forged = DeviceOp::sign(&n, d.mesh(), OpBody::Remove(m.public())).unwrap();
+        let forged = DeviceOp::sign(
+            &n,
+            d.mesh(),
+            OpBody::Remove {
+                id: m.public(),
+                at_ms: 1,
+            },
+        )
+        .unwrap();
         let merged = d.merge(&[forged]);
         assert!(matches!(
             merged.rejected.as_slice(),
@@ -724,5 +786,24 @@ mod tests {
             Devices::from_ops(&[stranger_op(a.public())]),
             Err(MeshError::NoGenesis)
         ));
+    }
+
+    #[test]
+    fn write_limit_follows_kind_and_removal() {
+        let (a, d, n, x) = (key(), key(), key(), key());
+        let mut list = genesis(&a);
+        list.add(&a, device(&d, "d", DeviceKind::Desktop)).unwrap();
+        list.add(&a, device(&n, "n", DeviceKind::Node)).unwrap();
+        assert_eq!(list.write_limit(&a.public()), WriteLimit::Always);
+        assert_eq!(list.write_limit(&d.public()), WriteLimit::Always);
+        assert_eq!(list.write_limit(&n.public()), WriteLimit::Refused);
+        assert_eq!(list.write_limit(&x.public()), WriteLimit::Refused);
+        list.remove(&a, d.public()).unwrap();
+        list.remove(&a, n.public()).unwrap();
+        assert!(matches!(
+            list.write_limit(&d.public()),
+            WriteLimit::Until(_)
+        ));
+        assert_eq!(list.write_limit(&n.public()), WriteLimit::Refused);
     }
 }

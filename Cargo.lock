@@ -491,13 +491,16 @@ dependencies = [
 name = "beep-mesh"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "iroh",
  "iroh-tickets",
  "postcard",
  "serde",
  "strum 0.28.0",
  "subtle",
+ "tempfile",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
