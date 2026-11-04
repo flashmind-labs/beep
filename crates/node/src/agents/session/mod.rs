@@ -10,6 +10,7 @@ use super::{
     images::Images,
     known,
     live::Live,
+    mcp::Upstream,
     unix_now,
     usage::UsageHub,
 };
@@ -149,6 +150,8 @@ pub(super) struct Start<'a> {
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
+    /// Where to read the user's standing rules, which join the brief.
+    pub(super) rules: Option<Upstream>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -199,6 +202,7 @@ impl Session {
             note,
             brief,
             mcp,
+            rules,
             images,
             usage,
             alerts,
@@ -279,6 +283,7 @@ impl Session {
             stop_within,
             running: HashSet::new(),
             brief,
+            rules,
             mcp_servers: mcp.into_iter().collect(),
             resume,
             model,

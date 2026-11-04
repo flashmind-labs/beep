@@ -1,5 +1,6 @@
 //! The tools the agent calls, one file per tool or family; `route` and `search` reach outside.
 
+pub(crate) mod agent_memory;
 mod alarm;
 pub(crate) mod args;
 mod attach;

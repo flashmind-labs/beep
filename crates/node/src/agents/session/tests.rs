@@ -10,9 +10,15 @@ use crate::agents::{
     acp,
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY},
 };
-use beep_proto::node::agent::{Alert, AlertKind, OptionKind, StopReason};
+use beep_proto::node::{
+    Open, Opened,
+    agent::{Alert, AlertKind, OptionKind, StopReason},
+    link,
+    tools::{Reply, Request},
+};
 use beep_proto::{MAX_AGENT_IMAGES, Upload};
 use serde_json::Value;
+use tokio_util::task::AbortOnDropHandle;
 
 fn options() -> Vec<AnswerOption> {
     let option = |id: &str, name: &str, kind| AnswerOption {
@@ -142,6 +148,94 @@ async fn a_takeover_resumes_without_permission_prompts() {
             .iter()
             .any(|entry| entry.text == "Allowed: Run cargo test")
     );
+}
+
+/// A server that answers every `tools/1` call with `reply`, and the
+/// connection to it. Dropping what it returns closes them.
+async fn server_answering(reply: Reply) -> (Upstream, impl Sized) {
+    const ALPN: &[u8] = b"beep-test";
+    let endpoint = || iroh::Endpoint::builder(iroh::endpoint::presets::Minimal);
+    let server = endpoint()
+        .alpns(vec![ALPN.to_vec()])
+        .bind()
+        .await
+        .expect("the server binds");
+    let client = endpoint().bind().await.expect("the node binds");
+    let addr = server.addr();
+    let serving = tokio::spawn(async move {
+        let connection = server
+            .accept()
+            .await
+            .expect("a connection comes")
+            .await
+            .expect("it connects");
+        while let Ok((send, recv)) = connection.accept_bi().await {
+            let (mut tx, mut rx) = link(send, recv);
+            let _: Open = rx.recv().await.unwrap().unwrap();
+            tx.send(&Opened::Ready {}).await.unwrap();
+            let _: Request = rx.recv().await.unwrap().unwrap();
+            tx.send(&reply).await.unwrap();
+        }
+    });
+    let connection = client.connect(addr, ALPN).await.expect("the node connects");
+    let upstream = Upstream::default();
+    upstream.set(Some(connection));
+    (upstream, (client, AbortOnDropHandle::new(serving)))
+}
+
+/// The first prompt's text blocks of a session that reads its rules from
+/// `upstream`, once its first turn ended.
+async fn first_prompt(upstream: Upstream) -> Vec<String> {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", PLAIN_ADAPTER, &log);
+    let session = Session::start(Start {
+        brief: Some("Worktree first."),
+        rules: Some(upstream),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+    let sent = sent(&log);
+    assert_eq!(sent[2]["method"], "session/prompt");
+    sent[2]["params"]["prompt"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|block| block["text"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_first_prompt_carries_the_standing_rules() {
+    let rules = "Beep: the user's standing rules:\n- Use the render box for Blender.";
+    let (upstream, _server) = server_answering(Reply::Done {
+        text: rules.into(),
+        failed: false,
+    })
+    .await;
+    assert_eq!(
+        first_prompt(upstream).await,
+        [format!("Worktree first.\n\n{rules}"), "go".to_owned()]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_starts_without_rules_it_cannot_read() {
+    // A server from before the rules answers as it does any tool it does not know.
+    let (old, _server) = server_answering(Reply::Done {
+        text: "This server does not know that tool; it needs an update.".into(),
+        failed: true,
+    })
+    .await;
+    let without = ["Worktree first.".to_owned(), "go".to_owned()];
+    assert_eq!(first_prompt(old).await, without);
+    // No server takes the node's calls right now.
+    assert_eq!(first_prompt(Upstream::default()).await, without);
 }
 
 /// An adapter that starts a session and ends its first turn at once.
@@ -636,6 +730,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         note: None,
         brief: None,
         mcp: None,
+        rules: None,
         images: Arc::default(),
         usage: Arc::default(),
         alerts: Arc::default(),
