@@ -14,7 +14,7 @@ use beep_proto::node::transfer::{ContentKind, MAX_SUFFIX, numbered};
 use std::{
     collections::HashMap,
     ffi::OsStr,
-    fs::{self, File},
+    fs::{self},
     io::{self, ErrorKind},
     path::{Component, Path, PathBuf},
     sync::{
@@ -140,11 +140,6 @@ pub(crate) fn make_dirs_at(dir: &Dir, path: &Path) -> io::Result<Dir> {
         current = make_dir_at(&current, part.as_os_str())?;
     }
     Ok(current)
-}
-
-/// A new file `name` in `dir`; it never replaces one or follows a link.
-pub(crate) fn create_file_at(dir: &Dir, name: &OsStr, executable: bool) -> io::Result<File> {
-    dir.create_file(name, executable)
 }
 
 /// Moves the item `name` out of `partial` into its target folder as
@@ -490,7 +485,7 @@ mod tests {
     /// Writes `data` as `name` in a new partial folder of `target`.
     fn written(journal: &Journal, target: &Arc<Folder>, name: &str, data: &str) -> Partial {
         let partial = journal.start(target.clone()).unwrap();
-        let mut file = create_file_at(partial.dir(), OsStr::new(name), false).unwrap();
+        let mut file = partial.dir().create_file(OsStr::new(name), false).unwrap();
         file.write_all(data.as_bytes()).unwrap();
         partial
     }
@@ -564,7 +559,7 @@ mod tests {
         fs::write(folder.join("frames (2)"), "a file").expect("written");
         let partial = journal.start(target.clone()).unwrap();
         let frames = make_dir_at(partial.dir(), OsStr::new("frames")).unwrap();
-        create_file_at(&frames, OsStr::new("1.png"), false).unwrap();
+        frames.create_file(OsStr::new("1.png"), false).unwrap();
         let placed = place(&partial, "frames", ContentKind::Folder).unwrap();
         partial.finish().unwrap();
         assert_eq!(placed, folder.join("frames (3)"));
@@ -619,7 +614,7 @@ mod tests {
 
         let partial = journal.start(target.clone()).unwrap();
         let deep = make_dirs_at(partial.dir(), Path::new("a/b/c")).unwrap();
-        create_file_at(&deep, OsStr::new("x"), false).unwrap();
+        deep.create_file(OsStr::new("x"), false).unwrap();
         partial.remove().unwrap();
         assert!(entries(&folder).is_empty());
     }

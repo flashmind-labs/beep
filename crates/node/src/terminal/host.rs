@@ -13,6 +13,7 @@ use super::{OpenTerminal, Peer, Terminals, lock, unknown};
 use crate::{
     AsyncMutex,
     local_socket::{Listener, Stream, connect, is_listening},
+    note,
     provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, bail};
@@ -26,7 +27,7 @@ use beep_proto::{
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
-    fs, io,
+    io,
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
@@ -42,8 +43,6 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 const SOCKET: &str = "terminals.sock";
 /// What runs, in the node's folder.
 const NOTE: &str = "terminals.json";
-/// Written first, then renamed over `NOTE`.
-const NOTE_TEMP: &str = "terminals.json.tmp";
 /// How long the host stays with no terminal and no node.
 const IDLE_EXIT: Duration = Duration::from_secs(10);
 /// How long a node waits for a host it started to listen.
@@ -234,26 +233,11 @@ async fn keep(dir: &Path, host: &Host<'_>) {
 }
 
 fn read_note(dir: &Path) -> Vec<OpenTerminal> {
-    let path = dir.join(NOTE);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Vec::new(),
-        Err(e) => {
-            log::warn!("could not read {}: {e}", path.display());
-            return Vec::new();
-        }
-    };
-    serde_json::from_str(&text).unwrap_or_else(|e| {
-        log::warn!("ignored {}: {e}", path.display());
-        Vec::new()
-    })
+    note::read(&dir.join(NOTE))
 }
 
 fn save_note(dir: &Path, running: &[OpenTerminal]) -> Result<()> {
-    let (temp, path) = (dir.join(NOTE_TEMP), dir.join(NOTE));
-    let text = serde_json::to_string(running).context("writing what runs")?;
-    fs::write(&temp, text).with_context(|| format!("writing {}", temp.display()))?;
-    fs::rename(&temp, &path).with_context(|| format!("writing {}", path.display()))
+    note::write_json(&dir.join(NOTE), &running)
 }
 
 /// Remembers the node's folder for `relay`, and starts a host there when

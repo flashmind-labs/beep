@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 use std::{
     env, fmt,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
 };
 
 mod launchd;
@@ -294,6 +295,23 @@ pub fn uninstall() -> Result<()> {
         "windows" => Manager::TaskScheduler.uninstall(),
         other => bail!(Unusable::Os(other)),
     }
+}
+
+/// Runs `program` with `args`, failing with what it printed to stderr.
+fn run(program: &str, args: &[&str]) -> Result<()> {
+    let out = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("running {program}"))?;
+    if !out.status.success() {
+        bail!(
+            "{program} {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
 }
 
 /// Text escaped for XML.

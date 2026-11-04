@@ -199,10 +199,7 @@ pub(super) fn rename(root: &Folder, from: &str, to: &str, expected: &Stat) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        files::Folders,
-        transfer::place::{create_file_at, open_target},
-    };
+    use crate::{files::Folders, transfer::place::open_target};
     use std::{fs, io::Write};
     use tempfile::TempDir;
 
@@ -238,7 +235,7 @@ mod tests {
         let partial = dir.path().join(".beep-t.partial");
         fs::create_dir_all(&partial).unwrap();
         let fd = Dir::open(&partial).unwrap();
-        let mut file = create_file_at(&fd, OsStr::new("t"), false).unwrap();
+        let mut file = fd.create_file(OsStr::new("t"), false).unwrap();
         file.write_all(data.as_bytes()).unwrap();
         (fd, file)
     }

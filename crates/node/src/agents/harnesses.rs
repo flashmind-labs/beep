@@ -177,7 +177,7 @@ impl Latest {
     /// What the node knows of npm: whether it is there, and its global
     /// folders.
     async fn npm(&self) -> install::Npm {
-        if !found_program("npm") {
+        if find("npm").is_none() {
             return install::Npm::default();
         }
         let global = self
@@ -219,7 +219,7 @@ impl Latest {
                 return (found.versions.clone(), found.checked_at);
             }
         }
-        if !found_program("npm") {
+        if find("npm").is_none() {
             let found = self.lock();
             return (found.versions.clone(), found.checked_at);
         }
@@ -245,11 +245,7 @@ impl Latest {
     }
 }
 
-/// Whether `program` is found as the processes the node starts find it.
-fn found_program(program: &str) -> bool {
-    find(program).is_some()
-}
-
+/// Where `program` is found, as the processes the node starts find it.
 pub(super) fn find(program: &str) -> Option<PathBuf> {
     let path: Option<OsString> = spawn_env::search_path();
     which::which_in(program, path.as_ref(), "/").ok()

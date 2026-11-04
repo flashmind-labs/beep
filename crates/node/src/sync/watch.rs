@@ -10,6 +10,7 @@
 //! covers the whole tree, so there is nothing to count.
 
 use super::rules::Rules;
+use crate::lock;
 use notify::{
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _,
     event::{AccessKind, AccessMode},
@@ -17,7 +18,7 @@ use notify::{
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock},
+    sync::{Arc, Mutex, PoisonError, RwLock},
     time::Duration,
 };
 use tokio::{sync::mpsc, task::spawn_blocking};
@@ -184,10 +185,6 @@ pub(super) struct Watcher {
     // Separate from `inner`: the watcher's thread takes it for every
     // event, and must never wait on a lock held around `watch`.
     routes: Arc<Mutex<HashMap<Key, Route>>>,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Whether an event can mean a change: opening and reading files, as a

@@ -8,6 +8,7 @@
 //! checkouts come from the agents' logs.
 
 use super::git::{self, Checkout};
+use crate::note;
 use anyhow::{Context, Result};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use std::{
@@ -29,8 +30,6 @@ const WALK_FOR: Duration = Duration::from_secs(5 * 60);
 const PRUNED: &[&str] = &["node_modules", "target", "Library"];
 /// The checkouts the first walk found, in the node's folder.
 const FILE: &str = "checkouts.json";
-/// Written first, then renamed over `FILE`.
-const TEMP: &str = "checkouts.json.tmp";
 
 /// Drops the checkouts saved in `dir`, so the next start walks again.
 pub(crate) fn forget_checkouts(dir: &Path) -> Result<()> {
@@ -69,10 +68,7 @@ pub(crate) fn saved_checkouts(root: &Path, dir: &Path) -> Vec<Checkout> {
 
 /// Writes `found` down in `dir`, whole or not at all.
 fn save(dir: &Path, found: &[Checkout]) -> Result<()> {
-    let (temp, path) = (dir.join(TEMP), dir.join(FILE));
-    let text = serde_json::to_string(found).context("writing the checkouts")?;
-    fs::write(&temp, text).with_context(|| format!("writing {}", temp.display()))?;
-    fs::rename(&temp, &path).with_context(|| format!("writing {}", path.display()))
+    note::write_json(&dir.join(FILE), &found)
 }
 
 /// The main checkouts under `home`, with their `origin` remotes, walked

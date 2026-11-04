@@ -2,6 +2,7 @@
 //! stream that started them, so they outlive the turn; the node keeps at
 //! most `MAX_TASKS` and the last `MAX_LINES` lines of each.
 
+use crate::lock;
 use crate::{
     lines::read_piece,
     process::{Group, GroupLeader, STOP_GRACE, own_group},
@@ -17,7 +18,7 @@ use std::{
     collections::VecDeque,
     path::PathBuf,
     process::Stdio,
-    sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, LazyLock, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -103,10 +104,6 @@ struct Shared {
     state: TaskState,
     lines: VecDeque<String>,
     earlier: bool,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Tasks {

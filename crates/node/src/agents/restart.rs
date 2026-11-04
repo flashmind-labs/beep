@@ -148,12 +148,9 @@ impl Agents {
             &kind,
             Some(&cwd),
             Begin {
-                prompt: None,
                 resume: Some(open.session),
-                model: None,
-                effort: None,
                 note: Some(RESUMED.to_owned()),
-                brief: None,
+                ..Begin::default()
             },
         )?;
         for prompt in open.held {
@@ -214,11 +211,7 @@ done
     fn begin(prompt: &str) -> Begin {
         Begin {
             prompt: Some(prompt.into()),
-            resume: None,
-            model: None,
-            effort: None,
-            note: None,
-            brief: None,
+            ..Begin::default()
         }
     }
 

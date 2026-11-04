@@ -8,9 +8,7 @@
 
 use super::{
     Ticker,
-    place::{
-        self, Folder, Journal, Partial, Reserved, Room, create_file_at, make_dirs_at, relative_path,
-    },
+    place::{self, Folder, Journal, Partial, Reserved, Room, make_dirs_at, relative_path},
 };
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::{
@@ -382,7 +380,7 @@ async fn write_out(
             }
             let parent = make_dirs_at(&dir, path.parent().unwrap_or(Path::new("")))?;
             let name = path.file_name().ok_or(ErrorKind::InvalidInput)?;
-            create_file_at(&parent, name, executable).map(Some)
+            parent.create_file(name, executable).map(Some)
         })
         .await?
         .with_context(|| format!("creating {}", item.path.display()))?;
