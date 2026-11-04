@@ -50,13 +50,13 @@ head -c ${BIG_MB}M /dev/urandom > big.bin" || abort "could not write on node-a"
 # Apart from the first file arriving, so a slow first file shows whether the
 # scan or the way to the peer took the time.
 if poll 300 listed; then
-  measure "sync: in node-a's list" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_LISTED-30}"
+  measure "sync: in node-a's list" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_LISTED-15}"
 fi
 if poll 300 on node-b "find $P -type f ! -name '.beep-*' | grep -q ."; then
-  measure "sync: first file" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_FIRST-120}"
+  measure "sync: first file" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_FIRST-20}"
 fi
 if poll 300 same_files; then
-  measure "sync: all files" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_ALL-150}"
+  measure "sync: all files" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_ALL-30}"
 fi
 synced 60 "${BIG_MB} MB file, nested tree and small files on node-b"
 

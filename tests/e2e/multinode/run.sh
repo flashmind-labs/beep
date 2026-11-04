@@ -105,7 +105,7 @@ done
 wait
 if converged 300 "changes from every node"; then
   pass "all four hold one manifest after changes from every node"
-  measure "multinode: convergence (800 files, 80 MB)" "$(since "$t0")" s max "${E2E_BUDGET_MULTI_CONVERGE-240}"
+  measure "multinode: convergence (800 files, 80 MB)" "$(since "$t0")" s max "${E2E_BUDGET_MULTI_CONVERGE-90}"
   odd="$(on node-a "cd $P/conv && ls s?-1.txt s?-2.txt 2> /dev/null; find . -name '*(conflict*'")"
   if [[ -z "$odd" ]]; then pass "deletes and renames held, no conflict copies"; else
     fail "left after different-file changes: $odd"
@@ -277,7 +277,7 @@ while awk -v s="$(since "$t0")" 'BEGIN { exit !(s < 900) }'; do
 done
 if [[ -n "$real_sync" ]]; then
   pass "node-d holds the others' manifest and the server says in sync, after $real_sync s"
-  measure "multinode: offline catch-up" "$real_sync" s max "${E2E_BUDGET_MULTI_CATCHUP-300}"
+  measure "multinode: offline catch-up" "$real_sync" s max "${E2E_BUDGET_MULTI_CATCHUP-60}"
 else
   fail "node-d did not reach a real in sync (have $(digest node-d), want $want)"
   show_manifests
