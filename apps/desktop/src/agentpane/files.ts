@@ -2,7 +2,7 @@
 // on its machine as a tree, read three levels at a time, what git ignores left
 // out unless asked, git's marks beside what changed.
 
-import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, failedListing, mergeTree, parentPath, treeRows } from "./files-state.ts";
+import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, treeRows } from "./files-state.ts";
 import { resolvePath } from "./media-state.ts";
 import { esc, h, invoke } from "../bar/core.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
@@ -21,6 +21,10 @@ const F = {
   reading: new Set<string>(),
   /// The node reads one folder at a time (from before trees).
   flat: false,
+  /// A filter is reading the rest of the tree.
+  walking: false,
+  /// That read stopped at `WALK_ENTRIES`.
+  capped: false,
   timer: undefined as ReturnType<typeof setInterval> | undefined,
   open: new Set<string>(),
   filter: "",
@@ -43,6 +47,9 @@ const TWIST = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" strok
 
 /// How often an open Files view reads its folders again.
 const REFRESH_MS = 30_000;
+/// Reads of the tree a filter runs at once, and the entries it stops at.
+const WALK_AT_ONCE = 8;
+const WALK_ENTRIES = 50_000;
 
 /// The Files view of the pane's session, made once per session.
 export function filesView() {
@@ -52,7 +59,7 @@ export function filesView() {
   F.el?.remove();
   clearInterval(F.timer);
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, open: new Set(), filter: "", picked: null, reveal: null,
+    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, reveal: null,
     timer: setInterval(() => { if (F.el?.isConnected && !document.hidden) refresh(); }, REFRESH_MS),
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
@@ -106,8 +113,29 @@ function refresh() {
   for (const dir of F.roots) load(dir);
 }
 
-/// Reads the tree from `dir` down and merges it in.
-async function load(dir: string) {
+/// Reads the rest of the tree while a filter is typed, so it finds what no
+/// folder opened yet shows.
+async function readAll() {
+  if (F.walking) return;
+  const key = F.key;
+  F.walking = true;
+  draw();
+  while (F.key === key && F.filter.trim()) {
+    let entries = 0;
+    for (const listing of F.listings.values()) entries += listing.entries?.length ?? 0;
+    F.capped = entries >= WALK_ENTRIES;
+    const next = unreadFolders(F.listings).slice(0, WALK_AT_ONCE);
+    if (F.capped || !next.length) break;
+    await Promise.all(next.map(dir => load(dir, true)));
+  }
+  if (F.key !== key) return;
+  F.walking = false;
+  draw();
+}
+
+/// Reads the tree from `dir` down and merges it in. `deep` is a filter's
+/// read: as far as one read goes, and not read again on refresh.
+async function load(dir: string, deep = false) {
   const s = paneSession();
   if (!s || F.reading.has(dir)) return;
   const key = F.key;
@@ -116,10 +144,10 @@ async function load(dir: string) {
   F.reading.add(dir);
   draw();
   try {
-    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: s.cwd, path: dir, ignored: F.ignored });
+    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: s.cwd, path: dir, ignored: F.ignored, deep });
     if (F.key !== key) return;
     mergeTree(F.listings, got);
-    F.roots.add(dir);
+    if (!deep) F.roots.add(dir);
     const top = got.folders[0];
     F.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
   } catch (e) {
@@ -129,6 +157,7 @@ async function load(dir: string) {
     if (F.key === key) F.reading.delete(dir);
   }
   draw();
+  if (F.key === key && F.filter.trim()) readAll();
 }
 
 function rowHtml(r: TreeRow) {
@@ -150,8 +179,13 @@ function draw() {
   let html = rows.map(rowHtml).join("");
   if (top?.error) html = `<div class="agpmsg derr">${esc(top.error)}</div>`;
   else if (!top?.entries) html = `<div class="agpmsg"><span class="dspin"></span>Reading the folder…</div>`;
-  else if (!rows.length) html = `<div class="agpmsg">${F.filter ? "Nothing open here matches." : "This folder is empty."}</div>`;
+  else if (!rows.length && F.walking && F.filter.trim()) html = `<div class="agpmsg"><span class="dspin"></span>Reading folders…</div>`;
+  else if (!rows.length && !F.capped) html = `<div class="agpmsg">${F.filter ? "No files match." : "This folder is empty."}</div>`;
   else if (top.more) html += `<div class="agtr note" style="--d:0">${top.more} more not shown</div>`;
+  if (F.filter.trim() && top?.entries && !top.error) {
+    if (F.walking) { if (rows.length) html += `<div class="agtr note" style="--d:0"><span class="dspin"></span>Reading folders…</div>`; }
+    else if (F.capped) html += `<div class="agtr note" style="--d:0">Stopped reading at ${WALK_ENTRIES.toLocaleString()} files</div>`;
+  }
   const keep = tree.scrollTop;
   tree.innerHTML = html;
   tree.scrollTop = keep;
@@ -178,7 +212,7 @@ function dropFolder(row: HTMLElement | null) {
 function wire(el: HTMLElement) {
   const tree = el.querySelector<HTMLElement>(".agtree")!;
   const find = el.querySelector<HTMLInputElement>(".agffind")!;
-  find.addEventListener("input", () => { F.filter = find.value; draw(); });
+  find.addEventListener("input", () => { F.filter = find.value; draw(); if (F.filter.trim()) readAll(); });
   find.addEventListener("keydown", e => { if (e.key === "Escape" && find.value) { e.stopPropagation(); e.preventDefault(); find.value = ""; F.filter = ""; draw(); } });
   el.querySelector<HTMLInputElement>(".agfign input")!.addEventListener("change", e => {
     F.ignored = (e.target as HTMLInputElement).checked;

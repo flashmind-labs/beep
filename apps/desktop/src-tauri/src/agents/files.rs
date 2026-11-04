@@ -12,7 +12,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, ApiError, GitChange, ListWorkTree, MAX_AGENT_FILE,
-    ReadWorkFile, WriteWorkFile,
+    MAX_TREE_DEPTH, ReadWorkFile, WriteWorkFile,
 };
 use serde::Serialize;
 use std::{fs, path::PathBuf};
@@ -89,13 +89,14 @@ pub async fn agent_tree(
     root: String,
     path: String,
     ignored: bool,
+    deep: bool,
 ) -> Result<Tree> {
     let ask = ListWorkTree {
         machine_id,
         root,
         path,
         ignored,
-        depth: TREE_DEPTH,
+        depth: if deep { MAX_TREE_DEPTH } else { TREE_DEPTH },
     };
     let tree = match work_copy::tree(&beep, &ask).await {
         Some(tree) => tree,

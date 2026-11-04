@@ -38,6 +38,18 @@ export function mediaKind(path: string): MediaKind | null {
   return KINDS[extension(path)] ?? null;
 }
 
+/// The file a link in a reply points at, or null for a web address or a
+/// place in the page: its `#L12` or `:12` line is left off.
+export function linkedPath(href: string) {
+  if (!href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+  const path = href.replace(/[?#].*$/, "").replace(/:\d+(:\d+)?$/, "");
+  try {
+    return decodeURI(path);
+  } catch {
+    return path;
+  }
+}
+
 /// The last part of a path.
 export function baseName(path: string) {
   return path.replace(/\/+$/, "").split("/").pop() || path;

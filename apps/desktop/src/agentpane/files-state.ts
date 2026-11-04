@@ -44,6 +44,19 @@ export function atEdge(listings: ReadonlyMap<string, Listing>, dir: string) {
   return !entries || entries.some(e => e.folder && !e.ignored && !listings.get(joinPath(dir, e.name))?.entries);
 }
 
+/// Folders named in `listings` and not read yet, for a filter to read. The
+/// node does not read into what git ignores, so those stay out.
+export function unreadFolders(listings: ReadonlyMap<string, Listing>) {
+  const out: string[] = [];
+  for (const [dir, listing] of listings) {
+    for (const e of listing.entries ?? []) {
+      const path = joinPath(dir, e.name);
+      if (e.folder && !e.ignored && !listings.has(path)) out.push(path);
+    }
+  }
+  return out;
+}
+
 /// A folder's listing as the tab holds it: loading, read, or why not.
 export interface Listing {
   entries: TreeEntry[] | null;
