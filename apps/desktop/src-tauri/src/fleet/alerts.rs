@@ -284,18 +284,17 @@ mod tests {
 
     const LIMIT: Duration = Duration::from_secs(60);
 
-    /// An adapter that asks permission on its first prompt, ends the turn
+    /// An adapter that puts a choice to the user on its first prompt, ends the turn
     /// once it is answered, and does nothing more.
     const ASKING: &str = r#"
 id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
 reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
-log() { printf '%s\n' "$line" >> "$1"; }
-read -r line; log "$1"; reply '{"protocolVersion":1,"agentCapabilities":{}}'
-read -r line; log "$1"; reply '{"sessionId":"s"}'
-read -r line; log "$1"
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"s"}'
+read -r line
 prompt=$(id)
-echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"Run cargo test"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}'
-read -r line; log "$1"
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"},{"optionId":"choice-1","name":"other.txt","kind":"allow_once"}]}}'
+read -r line
 printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
 cat > /dev/null
 "#;
@@ -357,7 +356,7 @@ cat > /dev/null
         let agent = AgentKind {
             name: "pi".into(),
             program: "sh".into(),
-            args: vec!["-c".into(), ASKING.into(), "fake-adapter".into(), work.path().join("log").display().to_string()],
+            args: vec!["-c".into(), ASKING.into(), "fake-adapter".into()],
             env: BTreeMap::new(),
         };
         let offers = Offers::local(&[agent], Provision::new(dir.path()), false);
@@ -379,21 +378,19 @@ cat > /dev/null
         .await
         .expect("the start is sent");
         let asked = heard(&mut heard_from).await;
-        eprintln!("FIRST {asked:?} LOG {:?}", std::fs::read_to_string(work.path().join("log")));
-        loop { let n = heard(&mut heard_from).await; eprintln!("NEXT {n:?}"); }
         assert_eq!(asked.title, "pi on Studio asks");
-        assert!(asked.body.contains("Run cargo test"), "{}", asked.body);
+        assert!(asked.body.contains("Which file?"), "{}", asked.body);
         let key = asked.session_id.parse::<AgentNoticeKey>().expect("a key");
         assert_eq!(key.machine_id, fleet.id().to_string());
         assert!(key.question.is_some());
 
-        answer(&fleet, &key, "allow")
+        answer(&fleet, &key, "choice-0")
             .await
             .expect("the answer is taken");
         let done = heard(&mut heard_from).await;
         assert_eq!(done.title, "pi on Studio finished");
         // Answering it again: the session no longer asks.
-        let again = answer(&fleet, &key, "allow").await;
+        let again = answer(&fleet, &key, "choice-0").await;
         assert!(
             matches!(again, Err(DesktopError::Api(ApiError::Conflict { .. }))),
             "{again:?}"
