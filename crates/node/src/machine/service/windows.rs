@@ -79,6 +79,56 @@ pub(super) fn plan(exe: &Path) -> Result<Restart> {
     Ok(Restart::Restarted(Manager::TaskScheduler))
 }
 
+/// The folder the task passes as `--dir`.
+pub(super) fn dir_in(xml: &str) -> Option<PathBuf> {
+    let start = xml.find("<Arguments>")? + "<Arguments>".len();
+    let end = xml[start..].find("</Arguments>")? + start;
+    let line = super::existing::unescape(&xml[start..end]);
+    super::existing::dir_arg(&split(&line))
+}
+
+/// A command line split as `quote_arg` wrote it: backslashes are literal
+/// except before a quote, where pairs fold and an odd one escapes it.
+fn split(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let (mut in_word, mut quoted, mut slashes) = (false, false, 0);
+    for c in line.chars() {
+        match c {
+            '\\' => slashes += 1,
+            '"' => {
+                word.extend(std::iter::repeat_n('\\', slashes / 2));
+                if slashes % 2 == 1 {
+                    word.push('"');
+                } else {
+                    quoted = !quoted;
+                }
+                slashes = 0;
+                in_word = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                word.extend(std::iter::repeat_n('\\', slashes));
+                slashes = 0;
+                if in_word {
+                    words.push(std::mem::take(&mut word));
+                    in_word = false;
+                }
+            }
+            c => {
+                word.extend(std::iter::repeat_n('\\', slashes));
+                slashes = 0;
+                word.push(c);
+                in_word = true;
+            }
+        }
+    }
+    word.extend(std::iter::repeat_n('\\', slashes));
+    if in_word {
+        words.push(word);
+    }
+    words
+}
+
 /// Whether the task's `xml` starts the node from `exe`.
 fn runs(xml: &str, exe: &Path) -> bool {
     let program = format!("<Arguments>--headless {} ", escape(&quote_arg(&plain(exe))));
@@ -94,7 +144,7 @@ fn local_dir() -> Result<PathBuf> {
 }
 
 /// The task definition, kept to show what was installed.
-fn task_path() -> Result<PathBuf> {
+pub(super) fn task_path() -> Result<PathBuf> {
     Ok(local_dir()?.join("task.xml"))
 }
 
@@ -247,7 +297,7 @@ fn utf16(text: &str) -> Vec<u8> {
 }
 
 /// The task file `utf16` wrote, as text.
-fn from_utf16(bytes: &[u8]) -> String {
+pub(super) fn from_utf16(bytes: &[u8]) -> String {
     let units: Vec<u16> = bytes
         .as_chunks::<2>()
         .0
@@ -335,5 +385,18 @@ mod tests {
         let exe = r"\\?\C:\Users\user\AppData\Local\Programs\beep-node\beep-node.exe";
         assert!(runs(&xml, Path::new(exe)));
         assert!(!runs(&xml, Path::new(r"C:\Users\user\beep-node.exe")));
+    }
+
+    #[test]
+    fn the_task_names_its_folder() {
+        let xml = from_utf16(&utf16(&xml(&windows_launch(Some(r"D:\work & play\")))));
+        assert_eq!(
+            dir_in(&xml),
+            Some(PathBuf::from(r"C:\Users\user\AppData\Roaming\beep node"))
+        );
+        let sample = "<Exec><Command>c.exe</Command><Arguments>--headless C:\\n.exe --log-file C:\\l.log \
+            --with-parent --dir C:\\Users\\u\\.node run</Arguments></Exec>";
+        assert_eq!(dir_in(sample), Some(PathBuf::from(r"C:\Users\u\.node")));
+        assert_eq!(dir_in("<Exec/>"), None);
     }
 }

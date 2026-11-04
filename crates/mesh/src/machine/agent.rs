@@ -36,8 +36,7 @@ pub async fn open_agent(
     agent: &str,
     first: Request,
 ) -> Result<Opened, MeshError> {
-    let (mut tx, mut rx) = client.open(&agent::protocol(agent)).await?;
-    tx.send(&first).await.map_err(MeshError::Link)?;
+    let (tx, mut rx) = client.open_sending(&agent::protocol(agent), &first).await?;
     let event = timeout(CALL_TIMEOUT, rx.recv::<Event>())
         .await
         .map_err(|_| said("the node did not answer"))?
