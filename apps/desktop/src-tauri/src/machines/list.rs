@@ -5,6 +5,7 @@ use crate::{
     beep::{Service, epoch_ms},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
+    fleet::{Machines, files as direct},
     projects::unknown_op,
 };
 use beep_proto::{
@@ -101,7 +102,10 @@ pub async fn updatable_machines(beep: Service<'_>) -> Result<Vec<UpdatableMachin
 
 /// The recent log of one of the account's machines.
 #[tauri::command]
-pub async fn machine_log(beep: Service<'_>, id: String) -> Result<String> {
+pub async fn machine_log(beep: Service<'_>, fleet: Machines<'_>, id: String) -> Result<String> {
+    if let Some(machine) = fleet.member(&id) {
+        return direct::machine_log(&fleet, machine, MAX_LINES).await;
+    }
     let request = GetMachineLog {
         machine_id: id,
         lines: MAX_LINES,
@@ -128,7 +132,14 @@ pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<Pa
 /// Has one of the account's machines update its beep-node and restart
 /// once its agent sessions are idle.
 #[tauri::command]
-pub async fn update_machine(beep: Service<'_>, id: String) -> Result<MachineUpdate> {
+pub async fn update_machine(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    id: String,
+) -> Result<MachineUpdate> {
+    if let Some(machine) = fleet.member(&id) {
+        return direct::update_machine(&fleet, machine, false).await;
+    }
     let request = UpdateMachine {
         machine_id: id,
         stop_sessions: false,

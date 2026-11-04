@@ -8,6 +8,7 @@ use crate::{
     beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name},
     error::{DesktopError, Result},
+    fleet::{Fleet, Machines, files as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -60,13 +61,21 @@ pub struct TreeText {
 }
 
 /// One `ReadWorkFile`, with a file the machine no longer has as `GONE`.
-pub(crate) async fn read_part(beep: &Beep, read: ReadWorkFile) -> Result<AgentFileChunk> {
+pub(crate) async fn read_part(
+    beep: &Beep,
+    fleet: &Fleet,
+    read: ReadWorkFile,
+) -> Result<AgentFileChunk> {
     let full = work_copy::joined(&read.root, &read.path);
     if let Some(part) = work_copy::read(beep, &read.machine_id, &full, read.offset, read.len).await
     {
         return Ok(part);
     }
-    match beep.call(read).await {
+    let read = match fleet.member(&read.machine_id) {
+        Some(machine) => direct::read(fleet, machine, &read).await,
+        None => beep.call(read).await,
+    };
+    match read {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
         other => other,
     }
@@ -85,6 +94,7 @@ const TREE_DEPTH: u32 = 3;
 #[tauri::command]
 pub async fn agent_tree(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     root: String,
     path: String,
@@ -100,7 +110,10 @@ pub async fn agent_tree(
     };
     let tree = match work_copy::tree(&beep, &ask).await {
         Some(tree) => tree,
-        None => beep.call(ask).await?,
+        None => match fleet.member(&ask.machine_id) {
+            Some(machine) => direct::tree(&fleet, machine, &ask).await?,
+            None => beep.call(ask).await?,
+        },
     };
     let folders = tree
         .folders
@@ -132,12 +145,14 @@ pub async fn agent_tree(
 #[tauri::command]
 pub async fn agent_tree_text(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     root: String,
     path: String,
 ) -> Result<TreeText> {
     let part = read_part(
         &beep,
+        &fleet,
         ReadWorkFile {
             machine_id,
             root,
@@ -173,6 +188,7 @@ fn looks_binary(data: &[u8]) -> bool {
 pub async fn agent_tree_save(
     app: AppHandle,
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     root: String,
     path: String,
@@ -183,6 +199,7 @@ pub async fn agent_tree_save(
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let part = read_part(
             &beep,
+            &fleet,
             ReadWorkFile {
                 machine_id: machine_id.clone(),
                 root: root.clone(),
@@ -220,6 +237,7 @@ pub async fn agent_tree_save(
 #[tauri::command]
 pub async fn agent_tree_upload(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     machine_id: String,
     root: String,
     path: String,
@@ -230,13 +248,16 @@ pub async fn agent_tree_upload(
     let data = STANDARD
         .decode(data.as_bytes())
         .map_err(|e| DesktopError::BadRequest(format!("the file's bytes did not read: {e}")))?;
-    beep.call(WriteWorkFile {
+    let write = WriteWorkFile {
         machine_id,
         root,
         path,
         offset,
         size,
         data,
-    })
-    .await
+    };
+    match fleet.member(&write.machine_id) {
+        Some(machine) => direct::write(&fleet, machine, write).await,
+        None => beep.call(write).await,
+    }
 }

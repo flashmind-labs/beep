@@ -6,8 +6,11 @@
 //! The mesh opens, or is made on first launch with this Mac as its first
 //! device, off the main thread. Nothing the first paint needs waits on it.
 
+pub(crate) mod agents;
 mod carry;
+pub(crate) mod files;
 mod mesh;
+pub(crate) mod terminals;
 
 use crate::{
     beep::AsyncMutex,
@@ -19,11 +22,29 @@ use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
+use tauri::State;
 use tokio::{sync::watch, time::timeout};
+
+/// The machines of the mesh, as a command takes them.
+pub(crate) type Machines<'a> = State<'a, Arc<Fleet>>;
+
+/// What a server adds to a list of the mesh's machines: nothing when there
+/// is no server or it cannot answer.
+pub(crate) fn extra<T>(result: Result<Vec<T>>) -> Vec<T> {
+    match result {
+        Ok(rows) => rows,
+        Err(DesktopError::NoServer | DesktopError::Unlinked | DesktopError::Revoked) => Vec::new(),
+        Err(e) => {
+            log::warn!("the server's list was left out: {e}");
+            Vec::new()
+        }
+    }
+}
 
 /// How long a call to another machine waits for the mesh to open.
 const OPENING: Duration = Duration::from_secs(10);
@@ -50,6 +71,10 @@ pub struct Fleet {
     serving: Mutex<Option<Arc<Serving>>>,
     /// One `join` at a time.
     joining: AsyncMutex<()>,
+    /// What each machine last said it offers, for the agent start form.
+    hosts: Mutex<HashMap<EndpointId, agents::Probed>>,
+    /// The terminals this Mac keeps on the machines.
+    terminals: terminals::Store,
 }
 
 impl Fleet {
@@ -71,6 +96,8 @@ impl Fleet {
             mesh: watch::channel(Opened::Opening).0,
             serving: Mutex::default(),
             joining: AsyncMutex::new(()),
+            hosts: Mutex::default(),
+            terminals: terminals::Store::load(dir),
         }
     }
 
@@ -229,6 +256,22 @@ impl Fleet {
         with_deadline(machine, &mesh)
             .await
             .map_err(|_| DesktopError::Offline(self.name_of(machine)))
+    }
+
+    /// `machine` as a member of the mesh, or this Mac. `None` for a machine
+    /// the mesh does not hold, which only a server can reach.
+    pub fn member(&self, machine: &str) -> Option<EndpointId> {
+        let id: EndpointId = machine.parse().ok()?;
+        (id == self.me || self.mesh()?.is_member(id)).then_some(id)
+    }
+
+    /// The members that are online now, this Mac among them.
+    pub fn online(&self) -> Vec<EndpointId> {
+        self.machines()
+            .into_iter()
+            .filter(|status| status.online || status.device.id == self.me)
+            .map(|status| status.device.id)
+            .collect()
     }
 
     /// What the mesh calls `machine`, or its short id.

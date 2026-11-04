@@ -5,13 +5,19 @@
 use crate::{
     beep::{Service, epoch_ms},
     error::{DesktopError, Result},
+    fleet::{
+        Machines, extra,
+        terminals::{self as direct, Attached},
+    },
     projects::{needs_update, unknown_op},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
     AttachTerminal, CloseTerminal, GetTerminal, ListAllTerminals, ListTerminals,
     MAX_TERMINAL_INPUT, OpenTerminal, StartTerminal, Terminal, TerminalEvent, TerminalInput,
     TerminalOutput, TerminalState,
+    node::terminal::{Reply as PtyReply, Request as PtyRequest, Size},
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
@@ -82,24 +88,34 @@ fn outdated(e: DesktopError) -> DesktopError {
 #[tauri::command]
 pub async fn terminals_list(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     project: String,
 ) -> Result<Option<Vec<TerminalRow>>> {
-    match beep.call(ListTerminals { project }).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    let mut rows = direct::list(&fleet, &project).await?;
+    let others = extra(beep.call(ListTerminals { project }).await);
+    rows.extend(
+        others
+            .into_iter()
+            .filter(|t| fleet.member(&t.machine_id).is_none()),
+    );
+    Ok(Some(rows.into_iter().map(Into::into).collect()))
 }
 
 /// Every terminal on every machine; `None` from a server too old to list
 /// them.
 #[tauri::command]
-pub async fn terminals_all(beep: Service<'_>) -> Result<Option<Vec<TerminalRow>>> {
-    match beep.call(ListAllTerminals {}).await {
-        Ok(rows) => Ok(Some(rows.into_iter().map(Into::into).collect())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+pub async fn terminals_all(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+) -> Result<Option<Vec<TerminalRow>>> {
+    let mut rows = direct::list_all(&fleet).await?;
+    let others = extra(beep.call(ListAllTerminals {}).await);
+    rows.extend(
+        others
+            .into_iter()
+            .filter(|t| fleet.member(&t.machine_id).is_none()),
+    );
+    Ok(Some(rows.into_iter().map(Into::into).collect()))
 }
 
 /// The fields of a new terminal, as the form gives them.
@@ -114,7 +130,11 @@ pub struct NewTerminal {
 }
 
 #[tauri::command]
-pub async fn terminal_start(beep: Service<'_>, terminal: NewTerminal) -> Result<TerminalRow> {
+pub async fn terminal_start(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    terminal: NewTerminal,
+) -> Result<TerminalRow> {
     let NewTerminal {
         project,
         machine_id,
@@ -122,16 +142,17 @@ pub async fn terminal_start(beep: Service<'_>, terminal: NewTerminal) -> Result<
         command,
         cwd,
     } = terminal;
-    let started = beep
-        .call(StartTerminal {
-            project,
-            machine_id,
-            name,
-            command,
-            cwd,
-        })
-        .await
-        .map_err(outdated)?;
+    let request = StartTerminal {
+        project,
+        machine_id,
+        name,
+        command,
+        cwd,
+    };
+    let started = match fleet.member(&request.machine_id) {
+        Some(_) => direct::start(&fleet, request).await?,
+        None => beep.call(request).await.map_err(outdated)?,
+    };
     Ok(started.into())
 }
 
@@ -152,7 +173,11 @@ pub struct NewShell {
 /// Starts an interactive terminal; `None` from a server too old for them,
 /// which still starts view-only ones with `terminal_start`.
 #[tauri::command]
-pub async fn terminal_open(beep: Service<'_>, terminal: NewShell) -> Result<Option<TerminalRow>> {
+pub async fn terminal_open(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    terminal: NewShell,
+) -> Result<Option<TerminalRow>> {
     let NewShell {
         project,
         machine_id,
@@ -162,17 +187,19 @@ pub async fn terminal_open(beep: Service<'_>, terminal: NewShell) -> Result<Opti
         cols,
         rows,
     } = terminal;
-    let opened = beep
-        .call(OpenTerminal {
-            project,
-            machine_id,
-            name,
-            command,
-            cwd,
-            cols,
-            rows,
-        })
-        .await;
+    let request = OpenTerminal {
+        project,
+        machine_id,
+        name,
+        command,
+        cwd,
+        cols,
+        rows,
+    };
+    let opened = match fleet.member(&request.machine_id) {
+        Some(_) => direct::open(&fleet, request).await,
+        None => beep.call(request).await,
+    };
     match opened {
         Ok(row) => Ok(Some(row.into())),
         Err(e) if unknown_op(&e) => Ok(None),
@@ -181,12 +208,20 @@ pub async fn terminal_open(beep: Service<'_>, terminal: NewShell) -> Result<Opti
 }
 
 #[tauri::command]
-pub async fn terminal_output(beep: Service<'_>, id: Uuid) -> Result<OutputView> {
+pub async fn terminal_output(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    id: Uuid,
+) -> Result<OutputView> {
     let TerminalOutput {
         terminal,
         lines,
         earlier,
-    } = beep.call(GetTerminal { id }).await.map_err(outdated)?;
+    } = if direct::has(&fleet, id) {
+        direct::get(&fleet, id).await?
+    } else {
+        beep.call(GetTerminal { id }).await.map_err(outdated)?
+    };
     Ok(OutputView {
         terminal: terminal.into(),
         lines,
@@ -195,7 +230,10 @@ pub async fn terminal_output(beep: Service<'_>, id: Uuid) -> Result<OutputView> 
 }
 
 #[tauri::command]
-pub async fn terminal_close(beep: Service<'_>, id: Uuid) -> Result<()> {
+pub async fn terminal_close(beep: Service<'_>, fleet: Machines<'_>, id: Uuid) -> Result<()> {
+    if direct::has(&fleet, id) {
+        return direct::close(&fleet, id).await;
+    }
     beep.call(CloseTerminal { id }).await.map_err(outdated)
 }
 
@@ -319,6 +357,7 @@ impl Drop for Unfollow<'_> {
 #[allow(clippy::too_many_arguments)]
 pub async fn terminal_attach(
     beep: Service<'_>,
+    fleet: Machines<'_>,
     attached: State<'_, Attached>,
     id: Uuid,
     view: Uuid,
@@ -327,6 +366,57 @@ pub async fn terminal_attach(
     rows: u32,
     on_event: Channel<TermEvent>,
 ) -> Result<()> {
+    if direct::has(&fleet, id) {
+        let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
+            Attached::Live { tx, rx } => (tx, rx),
+            Attached::Over(event) => {
+                on_event.send(event.into())?;
+                return Ok(());
+            }
+        };
+        let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
+        let viewer = Viewer { terminal: id, view };
+        let serial = attached.follow(viewer, input_tx);
+        let _unfollow = Unfollow {
+            attached: &attached,
+            viewer,
+            serial,
+        };
+        on_event.send(TermEvent::Attached)?;
+        let ended = |state| TermEvent::from(TerminalEvent::Ended { state });
+        loop {
+            tokio::select! {
+                heard_from_node = rx.recv::<PtyReply>() => match heard_from_node {
+                    Ok(Some(reply)) => match heard(reply) {
+                        Heard::Show(event) => on_event.send(event.into())?,
+                        Heard::End(state) => {
+                            on_event.send(ended(state))?;
+                            return Ok(());
+                        }
+                        Heard::Ignore => {}
+                    },
+                    Ok(None) | Err(_) => {
+                        on_event.send(ended(TerminalState::Offline {}))?;
+                        return Ok(());
+                    }
+                },
+                typed = input.recv() => {
+                    let request = match typed {
+                        Some(TerminalInput::Keys { data }) => PtyRequest::Input { data },
+                        Some(TerminalInput::Resize { cols, rows }) => PtyRequest::Resize {
+                            size: Size::clamped(cols, rows),
+                        },
+                        // Detached: closing the node's stream detaches there too.
+                        None => return Ok(()),
+                    };
+                    if tx.send(&request).await.is_err() {
+                        on_event.send(ended(TerminalState::Offline {}))?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
     let (mut uplink, mut replies) = beep
         .duplex(AttachTerminal {
             id,

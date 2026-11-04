@@ -26,12 +26,10 @@ use crate::{
     store::SessionOn,
     tools::machines::command_name,
 };
-use beep_mesh::machine::{Makes, checkout_for, picked_effort, picked_model};
+use beep_mesh::machine::{Makes, checkout_for, pick_agent, picked_effort, picked_model};
 
 /// The most transcript entries one view reads.
 const MAX_ENTRIES: u32 = 200;
-/// The agent Auto starts when the request names none, most preferred first.
-const PREFERRED: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
 /// An online machine of the caller's that offers a coding agent.
 pub(super) struct Live {
@@ -53,28 +51,7 @@ impl Live {
 
     /// `named`, or the one this machine prefers when the call names none.
     pub(super) fn agent(&self, named: Option<&str>) -> Result<String, ApiError> {
-        if let Some(named) = named {
-            return if self.offers(named) {
-                Ok(named.to_owned())
-            } else {
-                Err(ApiError::bad_request(format!(
-                    "{} does not offer {}.",
-                    self.host.machine_name,
-                    agent_name(named)
-                )))
-            };
-        }
-        PREFERRED
-            .iter()
-            .find(|agent| self.offers(agent))
-            .map(|agent| (*agent).to_owned())
-            .or_else(|| self.host.agents.first().cloned())
-            .ok_or_else(|| {
-                ApiError::bad_request(format!(
-                    "{} offers no coding agent.",
-                    self.host.machine_name
-                ))
-            })
+        pick_agent(&self.host, named)
     }
 }
 
