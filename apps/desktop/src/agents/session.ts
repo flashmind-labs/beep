@@ -110,7 +110,7 @@ if (!PANE) {
 export const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
 
 /// Whether the open session's turn runs, so Enter steers, Option-Enter
-/// queues and Esc interrupts, as flsh does.
+/// queues and ⌘. stops.
 export const turnRuns = () => {
   const s = AG.page?.session;
   return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
@@ -133,7 +133,7 @@ export function agentHints() {
   if (turnRuns()) {
     const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
     if (stoppingNow()) return slim(keys);
-    return slim([...keys, ["esc", AG.queue.length ? "interrupt and send queued" : "interrupt"]]);
+    return slim([...keys, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["esc", "back"]]);
   }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
@@ -188,7 +188,7 @@ export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--border)">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (esc)">${stopFace()}</button></div><div id="agpickm"></div>`;
+    : `<div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${esc(k.name)} on ${esc(s.machine_name)}</b><small style="font-family:var(--mono)" title="${esc(s.cwd)}">${esc(shortCwd(s.cwd))}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
