@@ -145,7 +145,7 @@ pub async fn import_project(
     let machine_id = machine_id.filter(|id| !id.is_empty());
     let folder = folder.filter(|folder| !folder.trim().is_empty());
     let parent = parent.filter(|parent| !parent.trim().is_empty());
-    let worktrees = worktrees
+    let worktrees: Vec<BranchPlace> = worktrees
         .unwrap_or_default()
         .into_iter()
         .map(|w| BranchPlace {
