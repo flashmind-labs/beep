@@ -17,27 +17,41 @@ use beep_proto::{
 use serde::Serialize;
 use std::time::Duration;
 
-/// Where `project` has a checkout on a machine of the mesh that is online: from the mesh's
-/// records, else, for a project only the server has, as the server records it.
-pub(crate) async fn places(beep: &Beep, fleet: &Fleet, project: &str) -> Vec<Place> {
+/// Where a project's checkouts are.
+pub(crate) enum Placed {
+    /// On these machines of the mesh, which are online.
+    Mesh(Vec<Place>),
+    /// Only the server knows the project.
+    Server,
+}
+
+/// Where `project` has a checkout on a machine of the mesh that is online.
+/// A project the mesh records is never the server's: with no checkout of it
+/// online that is an error. A project only the server records, as the server
+/// places it on the mesh's machines, or else it stays the server's.
+pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<Placed> {
     let online = fleet.online();
-    let recorded: Vec<Place> = fleet
-        .mesh()
-        .map(|mesh| beep_fleet::places(&mesh, project))
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(machine, _)| online.contains(machine))
-        .map(|(machine, folder)| Place { machine, folder })
-        .collect();
-    if !recorded.is_empty() {
-        return recorded;
+    if let Some(mesh) = fleet.mesh()
+        && beep_fleet::has_project(&mesh, project)
+    {
+        let recorded: Vec<Place> = beep_fleet::places(&mesh, project)
+            .into_iter()
+            .filter(|(machine, _)| online.contains(machine))
+            .map(|(machine, folder)| Place { machine, folder })
+            .collect();
+        if recorded.is_empty() {
+            return Err(crate::error::DesktopError::BadRequest(
+                "No machine with a checkout of the project is online.".into(),
+            ));
+        }
+        return Ok(Placed::Mesh(recorded));
     }
     let machines = beep
         .call(ListProjectMachines {
             project: project.to_owned(),
         })
         .await;
-    crate::fleet::extra(machines)
+    let places: Vec<Place> = crate::fleet::extra(machines)
         .into_iter()
         .filter(|machine| machine.online)
         .filter_map(|machine| {
@@ -46,7 +60,12 @@ pub(crate) async fn places(beep: &Beep, fleet: &Fleet, project: &str) -> Vec<Pla
                 folder: machine.folder?,
             })
         })
-        .collect()
+        .collect();
+    Ok(if places.is_empty() {
+        Placed::Server
+    } else {
+        Placed::Mesh(places)
+    })
 }
 
 /// Adding a worktree may fetch the branch first.
@@ -139,15 +158,20 @@ pub async fn add_branch_worktree(
     branch: String,
     machine_id: String,
 ) -> Result<BranchRow> {
-    if let Some(machine) = fleet.member(&machine_id) {
-        let place = places(&beep, &fleet, &project)
-            .await
+    if let Some(machine) = fleet.member(&machine_id)
+        && let Placed::Mesh(places) = placed(&beep, &fleet, &project).await?
+    {
+        let place = places
             .into_iter()
-            .find(|place| place.machine == machine);
-        if let Some(place) = place {
-            let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
-            return Ok(added.into());
-        }
+            .find(|place| place.machine == machine)
+            .ok_or_else(|| {
+                crate::error::DesktopError::BadRequest(format!(
+                    "{} has no checkout of {project}.",
+                    fleet.name_of(machine)
+                ))
+            })?;
+        let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
+        return Ok(added.into());
     }
     let request = AddBranchWorktree {
         project,
