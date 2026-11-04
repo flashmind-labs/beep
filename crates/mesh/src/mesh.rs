@@ -341,11 +341,27 @@ impl Mesh {
         Self::run(endpoint, core, addrs)
     }
 
+    /// Stops this mesh and waits until its files are no longer written, so
+    /// another can take the directory. It must be the only handle: with
+    /// another clone alive the mesh is handed back in `InUse`, still running.
+    pub async fn close(self) -> Result<(), InUse> {
+        if Arc::strong_count(&self._guard) > 1 {
+            return Err(InUse(self));
+        }
+        let inner = self.inner.clone();
+        drop(self);
+        inner.store.close().await;
+        Ok(())
+    }
+
     /// Joins the mesh `ticket` names in place of the one in `dir`, which
-    /// must hold no device but this one. Shut the old `Mesh` down first:
-    /// drop every clone. Nothing changes on disk until the ticket is
-    /// redeemed, and a crash during the swap leaves the old mesh or the new.
-    /// What the old mesh held is gone; read it first to carry it over.
+    /// must hold no device but this one. `close` the old `Mesh` first. Nothing
+    /// changes on disk until the ticket is redeemed (a ticket is spent by
+    /// then: a crash after that needs a fresh one). The swap moves the old
+    /// files aside and removes them once the new ones are on disk, and a
+    /// crash during it leaves the old mesh or the new: `open` finishes or
+    /// undoes it through `recover`. What the old mesh held is gone; read it
+    /// first to carry it over.
     pub async fn join_replacing_lone(
         dir: &Path,
         endpoint: Endpoint,
@@ -593,6 +609,22 @@ async fn blocking<R: Send + 'static>(
     f: impl FnOnce() -> Result<R, MeshError> + Send + 'static,
 ) -> Result<R, MeshError> {
     spawn_blocking(f).await.map_err(|_| MeshError::Closed)?
+}
+
+/// `close` found another handle to the mesh alive. The mesh is handed back,
+/// still running.
+pub struct InUse(pub Mesh);
+
+impl Debug for InUse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("InUse")
+    }
+}
+
+impl fmt::Display for InUse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("the mesh is still in use")
+    }
 }
 
 /// Serves `beep-peer/1`: members only.

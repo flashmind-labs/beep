@@ -6,13 +6,14 @@
 //! The mesh opens, or is made on first launch with this Mac as its first
 //! device, off the main thread. Nothing the first paint needs waits on it.
 
+mod carry;
 mod mesh;
 
 use crate::{
     beep::AsyncMutex,
     error::{DesktopError, Result},
 };
-use beep_mesh::{DeviceStatus, JoinTicket, Mesh, PeerClient, SessionFn, with_deadline};
+use beep_mesh::{DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn, with_deadline};
 use beep_node::link::{Offers, peers::Peers};
 use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
@@ -112,6 +113,10 @@ impl Fleet {
             Ok(mesh) => {
                 // The node reads its own kind from the mesh's device list.
                 self.peers.install(mesh.clone());
+                // Settings a join was carrying when the app stopped.
+                if let Err(e) = carry::replay(&self.dir, &mesh).await {
+                    log::warn!("{e}");
+                }
                 self.mesh.send_replace(Opened::Open(mesh));
             }
             Err(e) => {
@@ -125,7 +130,8 @@ impl Fleet {
     /// on first launch leaves it while it is the mesh's only device, and
     /// brings its settings along: they are signed for the old mesh, so they
     /// are written again in the new one. A Mac with other devices in its
-    /// mesh does not leave it.
+    /// mesh does not leave it, and neither does one whose mesh is still in
+    /// use elsewhere in the app.
     pub async fn join(&self, ticket: &JoinTicket, name: &str) -> Result<()> {
         let _one = self.joining.lock().await;
         let old = self.ready().await?;
@@ -134,30 +140,33 @@ impl Fleet {
                 "this Mac is in a mesh with other devices".into(),
             ));
         }
-        let settings = old.scan("");
-        // The old mesh stops with its last handle.
+        // On disk first, so a crash after the swap still brings them along.
+        carry::save(&self.dir, &old.scan(""))?;
         self.peers.leave();
         self.mesh.send_replace(Opened::Opening);
-        drop(old);
+        if let Err(in_use) = old.close().await {
+            let message = in_use.to_string();
+            let InUse(old) = in_use;
+            self.peers.install(old.clone());
+            self.mesh.send_replace(Opened::Open(old));
+            carry::discard(&self.dir);
+            return Err(DesktopError::BadRequest(message));
+        }
         let joined =
             Mesh::join_replacing_lone(&self.dir, self.endpoint.clone(), ticket, name).await;
         let new = match joined {
             Ok(new) => new,
             Err(e) => {
                 // Nothing changed on disk: the old mesh opens again.
+                carry::discard(&self.dir);
                 self.open().await;
                 return Err(e.into());
             }
         };
         self.peers.install(new.clone());
-        let mut carried = Ok(());
-        for (key, value) in settings {
-            if let Err(e) = new.set(key, Some(value)).await {
-                carried = Err(e);
-            }
-        }
+        let carried = carry::replay(&self.dir, &new).await;
         self.mesh.send_replace(Opened::Open(new));
-        Ok(carried?)
+        carried
     }
 
     /// Stops answering peers, then stops the sync and transfer services, which
@@ -583,5 +592,39 @@ mod tests {
         assert!(matches!(error, DesktopError::NoMesh(_)), "{error:?}");
         assert!(started.elapsed() < DEADLINE);
         assert!(fleet.machines().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_join_does_not_swap_a_mesh_that_is_still_in_use() {
+        let studio = start("Studio").await;
+        let ticket = ticket(&studio).await;
+        let laptop = start("Laptop").await;
+        let held = laptop.fleet.mesh().expect("the mesh is open");
+        let error = laptop
+            .fleet
+            .join(&ticket, "Laptop")
+            .await
+            .expect_err("another handle is alive");
+        assert_eq!(error.to_string(), "the mesh is still in use");
+        // Nothing changed: the same mesh still answers, and joining works
+        // once the other handle is gone.
+        assert_eq!(laptop.fleet.machines().len(), 1);
+        assert!(!laptop.dir.path().join("carry.json").exists());
+        drop(held);
+        laptop.fleet.join(&ticket, "Laptop").await.expect("joins");
+        assert_eq!(laptop.fleet.machines().len(), 2);
+        assert!(!laptop.dir.path().join("carry.json").exists());
+    }
+
+    #[tokio::test]
+    async fn settings_a_join_was_carrying_are_set_at_the_next_start() {
+        let dir = TempDir::new().expect("a temp dir");
+        carry::save(dir.path(), &[(Key::Instructions, b"keep".to_vec())]).expect("saved");
+        let endpoint = bind(&SecretKey::generate()).await;
+        let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
+        fleet.run(None).await;
+        let mesh = fleet.mesh().expect("the mesh is open");
+        assert_eq!(mesh.get(&Key::Instructions), Some(b"keep".to_vec()));
+        assert!(!dir.path().join("carry.json").exists());
     }
 }

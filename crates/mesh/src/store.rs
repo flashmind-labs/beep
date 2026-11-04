@@ -112,11 +112,13 @@ impl Core {
         }
         let started = Self::start(dir, key, devices).and_then(|core| {
             core.save_addrs(addrs)?;
+            sync_dir(dir)?;
             Ok(core)
         });
         match started {
             Ok(core) => {
                 remove_if_present(&aside)?;
+                sync_dir(dir)?;
                 Ok(core)
             }
             Err(e) => {
@@ -336,23 +338,36 @@ impl Core {
 
 type Job = Box<dyn FnOnce(&mut Core) + Send>;
 
+enum Msg {
+    Job(Job),
+    /// Ends the thread, which answers once its `Core` is dropped.
+    Stop(oneshot::Sender<()>),
+}
+
 /// The owner thread of a `Core`. It ends when the store drops.
 pub(crate) struct Store {
-    jobs: mpsc::Sender<Job>,
+    jobs: mpsc::Sender<Msg>,
 }
 
 impl Store {
     pub(crate) fn spawn(mut core: Core) -> Result<Store, MeshError> {
-        let (jobs, mut queue) = mpsc::channel::<Job>(QUEUE);
+        let (jobs, mut queue) = mpsc::channel::<Msg>(QUEUE);
         thread::Builder::new()
             .name("mesh-store".to_owned())
             .spawn(move || {
-                while let Some(job) = queue.blocking_recv() {
-                    job(&mut core);
+                while let Some(msg) = queue.blocking_recv() {
+                    match msg {
+                        Msg::Job(job) => job(&mut core),
+                        Msg::Stop(done) => {
+                            drop(core);
+                            done.send(()).ok();
+                            return;
+                        }
+                    }
                 }
             })?;
         // The thread ends when the last sender drops. It is not joined: a
-        // drop on an async worker must not wait for a disk.
+        // drop on an async worker must not wait for a disk. `close` waits.
         Ok(Store { jobs })
     }
 
@@ -366,7 +381,19 @@ impl Store {
             // The caller may have gone away; the work is already done.
             tx.send(f(core)).ok();
         });
-        self.jobs.send(job).await.map_err(|_| MeshError::Closed)?;
+        self.jobs
+            .send(Msg::Job(job))
+            .await
+            .map_err(|_| MeshError::Closed)?;
         rx.await.map_err(|_| MeshError::Closed)?
+    }
+
+    /// Finishes the jobs queued before it, then stops the thread. Returns
+    /// once the thread is done with the files.
+    pub(crate) async fn close(&self) {
+        let (done, stopped) = oneshot::channel();
+        if self.jobs.send(Msg::Stop(done)).await.is_ok() {
+            stopped.await.ok();
+        }
     }
 }
