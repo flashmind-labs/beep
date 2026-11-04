@@ -26,45 +26,46 @@ pub const MAX_MODEL_RULES: usize = 64;
 /// The longest model name in a rule.
 pub const MAX_MODEL_LEN: usize = 200;
 
-/// flsh's settings as the user set them in Beep.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FlshSettings {
-    /// `openrouter.routing.zdr`: only endpoints that keep no data. `None`
-    /// leaves it to the OpenRouter account's setting.
-    pub zdr: Option<bool>,
-    /// `openrouter.routing.quantizations`: the weight precisions allowed.
-    /// Empty means any.
-    pub quantizations: Vec<FlshQuantization>,
-    /// `openrouter.routing.sort`. `None` is OpenRouter's default, which
-    /// balances price and uptime.
-    pub sort: Option<FlshSort>,
-    /// `openrouter.routing.allow_fallbacks`: try other providers when the
-    /// first ones fail. `None` is OpenRouter's default, which does.
-    pub allow_fallbacks: Option<bool>,
-    /// `[autocompact]`: when flsh compacts with no model rule. `None` is
-    /// flsh's default, on at the model's own trigger.
-    pub autocompact: Option<FlshAutoCompact>,
-    /// `[auto_compact_models."<model>"]`: rules that replace the one above
-    /// for their model only.
-    pub models: Vec<FlshModelRule>,
-}
+wire_structs! {
+    /// flsh's settings as the user set them in Beep.
+    #[derive(Default)]
+    #[serde(default)]
+    pub struct FlshSettings {
+        /// `openrouter.routing.zdr`: only endpoints that keep no data. `None`
+        /// leaves it to the OpenRouter account's setting.
+        pub zdr: Option<bool>,
+        /// `openrouter.routing.quantizations`: the weight precisions allowed.
+        /// Empty means any.
+        pub quantizations: Vec<FlshQuantization>,
+        /// `openrouter.routing.sort`. `None` is OpenRouter's default, which
+        /// balances price and uptime.
+        pub sort: Option<FlshSort>,
+        /// `openrouter.routing.allow_fallbacks`: try other providers when the
+        /// first ones fail. `None` is OpenRouter's default, which does.
+        pub allow_fallbacks: Option<bool>,
+        /// `[autocompact]`: when flsh compacts with no model rule. `None` is
+        /// flsh's default, on at the model's own trigger.
+        pub autocompact: Option<FlshAutoCompact>,
+        /// `[auto_compact_models."<model>"]`: rules that replace the one above
+        /// for their model only.
+        pub models: Vec<FlshModelRule>,
+    }
 
-/// When flsh compacts a conversation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FlshAutoCompact {
-    /// Off: flsh waits for the context window to overflow.
-    pub enabled: bool,
-    /// Compact once the prompt passes this many tokens, if that comes
-    /// before the model's own trigger. `None` is the model's trigger.
-    pub tokens: Option<u32>,
-}
+    /// When flsh compacts a conversation.
+    #[derive(Copy, Eq)]
+    pub struct FlshAutoCompact {
+        /// Off: flsh waits for the context window to overflow.
+        pub enabled: bool,
+        /// Compact once the prompt passes this many tokens, if that comes
+        /// before the model's own trigger. `None` is the model's trigger.
+        pub tokens: Option<u32>,
+    }
 
-/// The compaction rule for one model.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FlshModelRule {
-    pub model: FlshModel,
-    pub autocompact: FlshAutoCompact,
+    /// The compaction rule for one model.
+    pub struct FlshModelRule {
+        pub model: FlshModel,
+        pub autocompact: FlshAutoCompact,
+    }
 }
 
 /// How OpenRouter ranks the providers of a model. Its text (`price`,
