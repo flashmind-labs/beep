@@ -39,6 +39,8 @@ const CHANGES: usize = 256;
 const GRACE: Duration = Duration::from_secs(3);
 /// The larger id lets the smaller dial first, so one dial does the work.
 const HEAD_START: Duration = Duration::from_millis(300);
+/// How far ahead of our clock a relayed address counter may be.
+const MAX_AHEAD_MS: u64 = 60_000;
 const KEEP_ALIVE: Duration = Duration::from_secs(3);
 const IDLE_MS: u32 = 10_000;
 /// Further streams one peer may have open at once.
@@ -181,10 +183,14 @@ impl Inner {
         list
     }
 
-    /// Remembers where members were last reached. A note replaces what we
-    /// hold only with a higher counter, so two peers that hold different
-    /// notes for a third settle on the newest instead of trading them.
-    pub async fn learn(&self, list: Vec<AddrNote>) {
+    /// Remembers where members were last reached. `from` is the peer whose
+    /// authenticated link carried the notes. Its own note replaces ours
+    /// whatever its counter. A relayed note needs a higher counter than what
+    /// we hold, so peers holding different notes for a third settle on the
+    /// newest, and one stamped more than a minute ahead of our clock is
+    /// dropped, so no relay can pin a victim's address.
+    pub async fn learn(&self, list: Vec<AddrNote>, from: Option<EndpointId>) {
+        let ceiling = now_ms().saturating_add(MAX_AHEAD_MS);
         let view = self.view();
         let mut changed = false;
         {
@@ -194,10 +200,15 @@ impl Inner {
                 if id == self.me || !view.devices.is_member(id) {
                     continue;
                 }
-                if known
+                let first_hand = from == Some(id);
+                if !first_hand && note.generation > ceiling {
+                    continue;
+                }
+                let newer = known
                     .get(&id)
-                    .is_none_or(|old| note.generation > old.generation)
-                {
+                    .is_none_or(|old| note.generation > old.generation);
+                let differs = known.get(&id).is_none_or(|old| old.addr != note.addr);
+                if (first_hand && differs) || (!first_hand && newer) {
                     known.insert(id, note);
                     changed = true;
                 }
@@ -462,7 +473,9 @@ impl Mesh {
     /// itself, such as one found on the local network. Higher `generation`
     /// wins.
     pub async fn hint_addr(&self, addr: EndpointAddr, generation: u64) {
-        self.inner.learn(vec![AddrNote { addr, generation }]).await;
+        self.inner
+            .learn(vec![AddrNote { addr, generation }], None)
+            .await;
     }
 
     /// How many times the address table has changed.
