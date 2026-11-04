@@ -312,9 +312,15 @@ impl Node {
 
     /// `beep-node mesh join -`, with the ticket on stdin.
     async fn join(&self, ticket: &JoinTicket) {
+        self.join_with(ticket, &[]).await;
+    }
+
+    /// `join` with more arguments for the command.
+    async fn join_with(&self, ticket: &JoinTicket, more: &[&str]) {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_beep-node"))
             .args(["mesh", "join", "-", "--dir"])
             .arg(self.dir.path())
+            .args(more)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -736,6 +742,46 @@ async fn a_node_peer_cannot_fill_the_desktops_tasks_or_read_its_jobs() {
             .expect("a reply reads"),
         Some(ProcessReply::Started { .. })
     ));
+}
+
+#[tokio::test]
+async fn joining_with_a_search_folder_has_the_node_look_there() {
+    let desktop = desktop(None).await;
+    let node = Node::start(Config::default()).await;
+    let projects = TempDir::new().expect("a temp folder");
+    let search = projects.path().to_str().expect("a utf-8 path");
+    node.join_with(
+        &desktop.ticket(DeviceKind::Node).await,
+        &["--search", search],
+    )
+    .await;
+    let saved = beep_node::link::state::saved_search(node.dir.path()).expect("node.toml reads");
+    assert_eq!(saved, beep_node::link::state::Search::parse(search));
+}
+
+#[tokio::test]
+async fn a_search_folder_that_is_not_one_refuses_the_join() {
+    let desktop = desktop(None).await;
+    let node = Node::start(Config::default()).await;
+    let ticket = desktop.ticket(DeviceKind::Node).await;
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+        .args(["mesh", "join", "-", "--search", "/no/such/folder", "--dir"])
+        .arg(node.dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("the command starts");
+    drop(cmd.stdin.take());
+    let out = timeout(LIMIT, cmd.wait_with_output())
+        .await
+        .expect("the command finished in time")
+        .expect("the command ran");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--search"));
+    // Nothing was spent: the same ticket still joins.
+    node.join(&ticket).await;
 }
 
 #[cfg(unix)]

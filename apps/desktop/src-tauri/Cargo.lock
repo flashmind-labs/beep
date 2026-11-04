@@ -444,6 +444,7 @@ dependencies = [
  "beep-proto",
  "block2",
  "iroh",
+ "iroh-tickets",
  "log",
  "mac-notification-sys",
  "objc2",

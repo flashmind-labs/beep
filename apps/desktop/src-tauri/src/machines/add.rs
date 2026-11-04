@@ -1,56 +1,81 @@
-//! The "Add a machine" sheet: a one-time setup token the machine claims
-//! with `beep-node setup <token>`. While open, the sheet polls
-//! `node_token_machine` to learn which machine claimed it. Or another
-//! machine of the account installs beep-node over its own ssh.
+//! The "Add a machine" sheet: a one-time ticket from this Mac that the
+//! machine redeems with `beep-node mesh join <ticket>`. While open, the
+//! sheet polls `node_token_machine` to learn which machine joined with it.
+//! Only a desktop mints tickets: the server never does.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::Service,
     error::{DesktopError, Result},
-    projects::needs_update,
+    fleet::Fleet,
 };
-use beep_proto::{
-    ApiError, CreateNodeToken, GetMachineSearch, GetNodeToken, RevokeNodeToken, SetMachineSearch,
-    setup::setup_command,
-};
+use beep_mesh::{DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, JoinTicket};
+use beep_proto::{GetMachineSearch, SetMachineSearch};
+use iroh::EndpointId;
+use iroh_tickets::Ticket;
 use serde::Serialize;
+use std::{sync::Arc, time::Duration};
+use tauri::State;
 
-/// A token as the sheet shows it.
+/// A ticket as the sheet shows it.
 #[derive(Debug, Serialize)]
 pub struct TokenView {
+    /// The ticket, as `beep-node mesh join` takes it.
     token: String,
-    /// `beep-node setup <token>`, to copy.
+    /// `beep-node mesh join <ticket>`, to copy.
     command: String,
     /// In milliseconds since the Unix epoch.
     expires_at: u64,
 }
 
+/// A ticket that brings a device of `kind` into the mesh, as text.
 #[tauri::command]
-pub async fn create_node_token(beep: Service<'_>, name: Option<String>) -> Result<TokenView> {
-    let made = beep
-        .call(CreateNodeToken { name })
-        .await
-        .map_err(outdated)?;
+pub async fn mesh_invite(fleet: State<'_, Arc<Fleet>>, kind: DeviceKind) -> Result<String> {
+    Ok(fleet.invite(kind).await?.encode_string())
+}
+
+#[tauri::command]
+pub async fn create_node_token(fleet: State<'_, Arc<Fleet>>) -> Result<TokenView> {
+    let ticket = fleet.invite(DeviceKind::Node).await?;
+    let token = ticket.encode_string();
     Ok(TokenView {
-        command: setup_command(&made.token),
-        token: made.token,
-        expires_at: epoch_ms(made.expires_at),
+        command: format!("beep-node mesh join {token}"),
+        token,
+        expires_at: ticket.expires_ms,
     })
 }
 
-/// The `Machine::id` that claimed `token`, `None` while it is unused.
+/// The id of the machine that joined with `token`, `None` while it is
+/// unused. A machine is that one when it is a member of the ticket's kind
+/// that was added after the ticket was minted.
 #[tauri::command]
-pub async fn node_token_machine(beep: Service<'_>, token: String) -> Result<Option<String>> {
-    beep.call(GetNodeToken { token }).await.map_err(outdated)
+pub async fn node_token_machine(
+    fleet: State<'_, Arc<Fleet>>,
+    token: String,
+) -> Result<Option<String>> {
+    let ticket = JoinTicket::decode_string(token.trim())
+        .map_err(|_| DesktopError::BadRequest("that is not a ticket".into()))?;
+    let joined = claimed(&ticket, DEFAULT_TICKET_TTL, fleet.machines(), fleet.id());
+    Ok(joined.map(|id| id.to_string()))
 }
 
-/// A token already used, expired or revoked is no error: it works no more
-/// either way.
-#[tauri::command]
-pub async fn revoke_node_token(beep: Service<'_>, token: String) -> Result<()> {
-    match beep.call(RevokeNodeToken { token }).await {
-        Ok(()) | Err(DesktopError::Api(ApiError::NotFound {})) => Ok(()),
-        Err(e) => Err(outdated(e)),
-    }
+/// The member that joined with `ticket`, which was minted `ttl` before it
+/// expired. Tickets are single use, so a new member of its kind is the one.
+fn claimed(
+    ticket: &JoinTicket,
+    ttl: Duration,
+    members: Vec<DeviceStatus>,
+    me: EndpointId,
+) -> Option<EndpointId> {
+    let minted = ticket
+        .expires_ms
+        .saturating_sub(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX));
+    members
+        .into_iter()
+        .map(|status| status.device)
+        .find(|device| {
+            device.id != me && device.kind == ticket.kind && device.added_at_ms >= minted
+        })
+        .map(|device| device.id)
 }
 
 /// Where `machine_id` looks for git checkouts, `~/` for home.
@@ -69,20 +94,44 @@ pub async fn set_machine_search(
     beep.call(SetMachineSearch { machine_id, search }).await
 }
 
-/// An old server's refusal, in words the sheet shows.
-fn outdated(e: DesktopError) -> DesktopError {
-    needs_update(e, "before machines can be added from here")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_mesh::{Device, JoinSecret};
+    use iroh::SecretKey;
+
+    fn member(kind: DeviceKind, added_at_ms: u64) -> DeviceStatus {
+        DeviceStatus {
+            device: Device {
+                id: SecretKey::generate().public(),
+                name: "box".to_owned(),
+                kind,
+                added_at_ms,
+            },
+            online: true,
+            addr: None,
+        }
+    }
 
     #[test]
-    fn an_old_server_reads_as_needing_an_update() {
-        let old = DesktopError::Api(ApiError::bad_request("unknown op 180"));
-        assert!(outdated(old).to_string().contains("needs an update"));
-        let other = DesktopError::Api(ApiError::bad_request("name too long"));
-        assert_eq!(outdated(other).to_string(), "bad request: name too long");
+    fn a_ticket_names_the_machine_that_joined_after_it_was_minted() {
+        let me = SecretKey::generate().public();
+        let ttl = Duration::from_secs(60);
+        let ticket = JoinTicket {
+            mesh: me,
+            addr: iroh::EndpointAddr::new(me),
+            kind: DeviceKind::Node,
+            secret: JoinSecret::generate(),
+            expires_ms: 100_000,
+        };
+        let before = member(DeviceKind::Node, 39_999);
+        let desktop = member(DeviceKind::Desktop, 50_000);
+        let joined = member(DeviceKind::Node, 60_000);
+        let members = vec![before, desktop, joined.clone()];
+        assert_eq!(
+            claimed(&ticket, ttl, members.clone(), me),
+            Some(joined.device.id)
+        );
+        assert_eq!(claimed(&ticket, ttl, members[..2].to_vec(), me), None);
     }
 }
