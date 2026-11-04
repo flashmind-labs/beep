@@ -6,7 +6,7 @@ use crate::{
     account::user::User,
     app::{App, Draws, Message},
     protocol::{
-        Approval, ApprovalField, DeviceKind,
+        Approval, ApprovalField, DeviceKind, agent_name,
         node::agent::{OptionKind, Question, Request},
     },
     store::CreateRun,
@@ -242,18 +242,6 @@ fn approval(node: &str, agent: &str, task: Option<&str>, question: &Question) ->
         app: agent_name(agent).to_owned(),
         action: question.text.clone(),
         fields,
-    }
-}
-
-pub(crate) fn agent_name(agent: &str) -> &str {
-    match agent {
-        "claude" => "Claude Code",
-        "codex" => "Codex",
-        "gemini" => "Gemini CLI",
-        "pi" => "pi",
-        "flsh" => "flsh",
-        "opencode" => "OpenCode",
-        other => other,
     }
 }
 
