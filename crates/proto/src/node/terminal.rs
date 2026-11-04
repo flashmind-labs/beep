@@ -1,6 +1,7 @@
 //! `terminal/1`: interactive terminals on a node. Each runs a command, or
 //! the user's shell, in a pseudo-terminal the node owns, so it outlives the
-//! stream that started it and anyone can type into it.
+//! stream that started it, and on Unix the node itself, and anyone can type
+//! into it.
 //!
 //! A stream opens with one `Request`. `Start`, `List` and `Stop` get one
 //! `Reply` each, like `process/1`. `Attach` turns the stream into a live
@@ -16,8 +17,8 @@ pub const PROTOCOL: &str = "terminal/1";
 
 /// The most terminals a node keeps, running or finished.
 pub const MAX_TERMINALS: usize = 16;
-/// The most output a node keeps per terminal, in bytes.
-pub const MAX_SCROLLBACK: usize = 256 * 1024;
+/// The most output a node keeps per terminal, in lines.
+pub const MAX_SCROLLBACK: usize = 2000;
 /// The most one `Input` may carry, in bytes.
 pub const MAX_INPUT: usize = 64 * 1024;
 /// The most one `Output` carries, in bytes.

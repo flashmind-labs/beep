@@ -46,4 +46,8 @@ pub fn kill_tasks() {
     terminal::kill_all();
 }
 
+/// Runs `beep-node pty-host`, which keeps the node's terminals.
+#[cfg(all(unix, feature = "cli"))]
+pub use terminal::host::run as run_terminal_host;
+
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
