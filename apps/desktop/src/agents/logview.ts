@@ -12,6 +12,7 @@ import { fillAgentPics, gonePic } from "./images.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawQueue } from "./messages.ts";
 
+/// A step's mark: done, failed, running or did not finish.
 function stepMark(status: string) {
   const running = AGENT_ACTIVE.has(AG.page?.session.status);
   return status === "completed" ? `<span class="dok" title="Done">${ICON.check}</span>`

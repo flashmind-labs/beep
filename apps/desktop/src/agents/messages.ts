@@ -11,6 +11,8 @@ import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./se
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
 
+/// The steers and queued messages above the field, each with what goes
+/// with it, to edit or take out.
 export function drawQueue() {
   const field = $("#agfield");
   if (!field) return;

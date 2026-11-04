@@ -10,6 +10,8 @@ import { type ViewArg, views } from "../center/state.ts";
 import { skeleton } from "../center/pieces.ts";
 import { shown, shownArg, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
 
+/// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
+/// with its sections on the left.
 let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null } | null = null;
 
 export function openSettings(section?: string) {

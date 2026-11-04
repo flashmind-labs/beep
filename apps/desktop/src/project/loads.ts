@@ -20,6 +20,9 @@ import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjec
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
 
+/// Each project's tasks, workers and chat, read one at a time per project
+/// and kept under the project they were asked for, so an answer for the
+/// project left behind never draws over the one opened since.
 const viewReads = keyedReads<ProjectView>({
   read: name => {
     const agent = agentFor(state.agents, name);

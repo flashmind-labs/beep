@@ -14,6 +14,7 @@ import { registerSidebarGroup, reloadGroup, sideItem, projectRows, plusButton, e
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { jump } from "../center/home.ts";
 
+/// A group's heading in the sidebar; right-click for its menu.
 export function groupHeading(g: ProjectGroup) {
   const head = h("div", "cc-org gp", icon(IC.folder), g.name);
   head.title = `${g.paths.join(", ")} on every machine`;

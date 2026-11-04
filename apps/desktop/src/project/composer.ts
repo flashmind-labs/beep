@@ -19,6 +19,7 @@ import { projectRows } from "../center/sidebar.ts";
 import { redrawProjects, pc } from "./sections.ts";
 import { projectPlaces } from "./loads.ts";
 
+/// The tallest the bar's field grows before it scrolls, in pixels.
 const BAR_FIELD_MAX = 200;
 
 export const projectComp = (() => {

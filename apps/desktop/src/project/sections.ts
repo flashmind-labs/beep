@@ -29,6 +29,10 @@ import { loadProjectAgent } from "./loads.ts";
 import { drawProjects } from "./page.ts";
 import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 
+/// What the agent sections are doing: `busy` and `errors` by task or worker
+/// id, `outcomes` of answered cards by query id, and `starting` the project
+/// whose agent the prompt bar is making.
+/// `tile` is the row of the project's list picked, null for the first.
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
 /// The project's terminals.

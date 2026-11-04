@@ -21,6 +21,8 @@ import { terms, liveMode, tickRepo, projectsEl } from "../project/sections.ts";
 import { loadProjectAgent } from "../project/loads.ts";
 import { drawProjects } from "../project/page.ts";
 
+/// The server answered for Home in this window; until then Home may be
+/// the one the app kept from before.
 export let fresh = false;
 
 // ---------- Refresh ----------

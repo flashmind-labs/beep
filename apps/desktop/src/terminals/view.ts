@@ -12,6 +12,7 @@ import { shown, registerView, go, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { refresh } from "../center/refresh.ts";
 
+/// Every terminal on every machine: the Terminals page, and Home's section.
 export const allTerms = makeTerminals({
   invoke, Channel, makeScreen, h, button, ago,
   redraw: () => {

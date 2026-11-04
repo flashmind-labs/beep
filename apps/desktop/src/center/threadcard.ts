@@ -14,6 +14,8 @@ import { shown, registerView, drawTop } from "./views.ts";
 import { reloadGroup, paneOn, drawSide, reloadChats, setPinned } from "./sidebar.ts";
 import { paneTitle, scopeTag } from "./pane.ts";
 
+/// The chats about one pull request or issue, by chat id, read for each
+/// project; null until first read.
 export let threadChats: Map<string, ThreadChatEntry> | null = null;
 export let threadsLoading: Promise<void> | null = null;
 
