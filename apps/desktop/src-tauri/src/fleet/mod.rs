@@ -243,6 +243,11 @@ impl Fleet {
     /// Removes `machine` from the mesh for good. Every other member drops it
     /// and its link.
     pub async fn remove(&self, machine: EndpointId) -> Result<()> {
+        if machine == self.me {
+            return Err(DesktopError::BadRequest(
+                "this Mac cannot remove itself".into(),
+            ));
+        }
         Ok(self.ready().await?.remove(machine).await?)
     }
 
@@ -544,6 +549,18 @@ mod tests {
         let (_tx, mut rx) = client.open("status/1").await.expect("the node opens it");
         let report = rx.recv::<Report>().await.expect("the node answers");
         assert!(matches!(report, Some(Report::Offers(_))), "{report:?}");
+    }
+
+    #[tokio::test]
+    async fn this_mac_cannot_remove_itself() {
+        let mac = start("Studio").await;
+        let error = mac
+            .fleet
+            .remove(mac.fleet.id())
+            .await
+            .expect_err("it stays");
+        assert_eq!(error.to_string(), "this Mac cannot remove itself");
+        assert_eq!(mac.fleet.machines().len(), 1);
     }
 
     #[tokio::test]
