@@ -7,13 +7,14 @@
 //! answers its question. The `Notice` keeps its shape; a computer from
 //! before the key reads it as no chat and opens Home.
 
-use std::{fmt, str::FromStr};
+use crate::node::agent::{Alert, AlertKind, StopReason};
+use std::{fmt, path::Path, str::FromStr};
 
 /// The prefix of every key, which no chat or group id has.
 const PREFIX: &str = "agent:";
 
 /// A coding-agent session a notice is about, and the question it asks.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AgentNoticeKey {
     /// The node's key.
     pub machine_id: String,
@@ -80,6 +81,102 @@ impl FromStr for AgentNoticeKey {
             question,
             machine_name,
         })
+    }
+}
+
+/// The most characters of a notice body; the session has the rest.
+const MAX_BODY: usize = 240;
+
+impl Alert {
+    /// The key a computer reads this alert's notice by.
+    pub fn key(&self, machine_id: &str, machine_name: &str) -> AgentNoticeKey {
+        let question = match &self.kind {
+            AlertKind::Asks { question } => Some(question.id),
+            _ => None,
+        };
+        AgentNoticeKey {
+            machine_id: machine_id.to_owned(),
+            agent: self.agent.clone(),
+            session: self.session.clone(),
+            question,
+            machine_name: machine_name.to_owned(),
+        }
+    }
+
+    /// "Claude Code on build-box asks".
+    pub fn notice_title(&self, machine_name: &str) -> String {
+        let what = match &self.kind {
+            AlertKind::Asks { .. } => "asks",
+            AlertKind::TurnEnded { stop_reason, .. } => match stop_reason {
+                StopReason::EndTurn => "finished",
+                StopReason::Failed => "failed",
+                _ => "stopped",
+            },
+            AlertKind::Failed { .. } => "failed",
+        };
+        format!("{} on {} {what}", agent_name(&self.agent), machine_name)
+    }
+
+    /// What the session is about, then what happened, on one short line.
+    pub fn notice_body(&self) -> String {
+        let said = match &self.kind {
+            AlertKind::Asks { question } => match &question.detail {
+                Some(detail) => format!("{} ({detail})", question.text),
+                None => question.text.clone(),
+            },
+            AlertKind::TurnEnded {
+                stop_reason,
+                last_message,
+                error,
+            } => {
+                let fallback = || stop_reason.to_string();
+                match stop_reason {
+                    StopReason::EndTurn => Some(last_message.as_str())
+                        .filter(|message| !message.trim().is_empty())
+                        .map_or_else(fallback, str::to_owned),
+                    StopReason::Failed => error.clone().unwrap_or_else(fallback),
+                    _ => fallback(),
+                }
+            }
+            AlertKind::Failed { reason } => reason.clone(),
+        };
+        clip(&format!("{}: {said}", self.about()))
+    }
+
+    /// The session's title, or else its folder's name, or else its id.
+    fn about(&self) -> String {
+        if let Some(title) = self.title.as_deref().filter(|t| !t.trim().is_empty()) {
+            return title.trim().to_owned();
+        }
+        Path::new(&self.cwd)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(&self.session)
+            .to_owned()
+    }
+}
+
+/// The name of the coding agent `agent`, as people say it.
+pub fn agent_name(agent: &str) -> &str {
+    match agent {
+        "claude" => "Claude Code",
+        "codex" => "Codex",
+        "gemini" => "Gemini CLI",
+        "pi" => "pi",
+        "flsh" => "flsh",
+        "opencode" => "OpenCode",
+        other => other,
+    }
+}
+
+/// `text` on one line without markdown marks, cut to `MAX_BODY` characters.
+fn clip(text: &str) -> String {
+    let plain = text.replace("**", "").replace('`', "");
+    let line = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    match line.char_indices().nth(MAX_BODY) {
+        Some((end, _)) => format!("{}...", line[..end].trim_end()),
+        None => line,
     }
 }
 

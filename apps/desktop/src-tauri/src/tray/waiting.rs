@@ -27,10 +27,8 @@ pub const MORE: &str = "wait-more";
 pub const SHOWN: usize = 8;
 /// The longest label, in characters, so the menu keeps its width.
 const LABEL_MAX: usize = 60;
-/// How often the list is fetched when nothing says it changed. Agent
-/// questions from older nodes and from sessions started outside Beep come
-/// with no notice.
-const EVERY: Duration = Duration::from_secs(30);
+/// How often the list is fetched when nothing poked.
+const EVERY: Duration = Duration::from_secs(60);
 /// The least time between two fetches, so a burst of notices makes one.
 const GAP: Duration = Duration::from_secs(2);
 
@@ -159,9 +157,13 @@ pub fn tooltip(count: usize) -> String {
     }
 }
 
-/// Keeps the list current while Beep runs: on a poke, and every `EVERY`.
+/// Keeps the list current while Beep runs: on each poke, and every `EVERY`.
+/// Machines poke on every question or finished turn they send, and when
+/// they connect; the slow look catches an entry answered elsewhere and a
+/// session that ended with no alert.
 pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
     let list = app.state::<WaitingList>();
+    list.poke();
     loop {
         // Timing out is the usual way round: nothing poked.
         let _ = timeout(EVERY, list.wake.notified()).await;
