@@ -1087,6 +1087,8 @@ final class AppModel {
             // The server takes the chat's next message once it has the stop.
             await stopping?.value
             var failures = 0
+            // Seven tries, about a minute of pauses: long enough for a server restart.
+            let tries = 7
             while !Task.isCancelled, chat.id == chatId, chat.busy {
                 do {
                     let api = try api()
@@ -1118,9 +1120,9 @@ final class AppModel {
                 } catch {
                     failures += 1
                     connected = false
-                    chat.error = failures < 4 ? "Reconnecting…" : describe(error)
+                    chat.error = failures < tries ? "Reconnecting…" : describe(error)
                     let spokenRun = !liveRunId.isEmpty && chat.runId == liveRunId
-                    if failures >= 4 {
+                    if failures >= tries {
                         if chat.pendingSpoken {
                             live.replyFailed(chat.pendingReply, .notSent)
                         } else if spokenRun {
