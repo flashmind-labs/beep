@@ -28,6 +28,8 @@ export interface GitItemRow {
   review: string;
   checks_failing: boolean;
   comments: number;
+  /// Missing from a list kept by an older app.
+  labels?: string[];
 }
 
 /// What `git_items` gives (GitItemsView).

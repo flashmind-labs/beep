@@ -1,6 +1,6 @@
 //! Open pull requests and issues on a Forgejo or Gitea server.
 
-use super::host::{Caller, HostError};
+use super::host::{Caller, Found, HostError, Label, label_names};
 use crate::{
     credentials::ForgejoUrl,
     protocol::{GitItem, GitItemKind, GitReview},
@@ -54,6 +54,8 @@ struct Issue {
     #[serde(default)]
     pull_request: Option<PullMeta>,
     repository: Repository,
+    #[serde(default)]
+    labels: Vec<Label>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,7 +71,7 @@ struct Repository {
 }
 
 /// The user's open items on the server at `url` with `caller`'s token.
-pub async fn items(caller: &Caller<'_>, url: &ForgejoUrl) -> Result<Vec<GitItem>, HostError> {
+pub async fn items(caller: &Caller<'_>, url: &ForgejoUrl) -> Result<Vec<Found>, HostError> {
     if !url.is_public().await {
         return Err(HostError::Private(caller.host.to_owned()));
     }
@@ -91,8 +93,8 @@ pub async fn items(caller: &Caller<'_>, url: &ForgejoUrl) -> Result<Vec<GitItem>
 }
 
 /// What the searches found, once each.
-fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<GitItem> {
-    let mut items: Vec<GitItem> = Vec::new();
+fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<Found> {
+    let mut items: Vec<Found> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
     for (query, issues) in &found {
         for issue in issues {
@@ -100,7 +102,7 @@ fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<GitItem> {
                 items.push(item(host, issue));
                 items.len() - 1
             });
-            let item = &mut items[i];
+            let item = &mut items[i].item;
             match query {
                 Query::AuthoredPulls | Query::AuthoredIssues => item.authored = true,
                 Query::ReviewRequested => item.review_requested = true,
@@ -111,14 +113,14 @@ fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<GitItem> {
     items
 }
 
-fn item(host: &str, issue: &Issue) -> GitItem {
+fn item(host: &str, issue: &Issue) -> Found {
     let title = issue.title.trim_start();
     let wip = ["WIP:", "[WIP]", "Draft:", "[Draft]"].iter().any(|mark| {
         title
             .to_ascii_lowercase()
             .starts_with(&mark.to_ascii_lowercase())
     });
-    GitItem {
+    let item = GitItem {
         host: host.to_owned(),
         repo: issue.repository.full_name.clone(),
         number: issue.number,
@@ -140,6 +142,10 @@ fn item(host: &str, issue: &Issue) -> GitItem {
         review: GitReview::None {},
         checks_failing: false,
         comments: issue.comments,
+    };
+    Found {
+        item,
+        labels: label_names(&issue.labels),
     }
 }
 
@@ -156,6 +162,7 @@ mod tests {
        "html_url": "https://git.example.com/tools-org/uploader/pulls/57",
        "state": "open", "comments": 2, "updated_at": "2026-10-28T12:00:00+01:00",
        "user": {"login": "some-user"},
+       "labels": [{"id": 3, "name": "perf", "color": "ee0701"}],
        "pull_request": {"merged": false, "merged_at": null},
        "repository": {"id": 4, "name": "uploader", "owner": "tools-org",
                       "full_name": "tools-org/uploader"}}
@@ -188,15 +195,17 @@ mod tests {
             ],
         );
         assert_eq!(items.len(), 3);
-        let pr = &items[0];
+        assert_eq!(items[0].labels, ["perf"]);
+        assert!(items[2].labels.is_empty());
+        let pr = &items[0].item;
         assert_eq!(pr.host, "git.example.com");
         assert_eq!(pr.repo, "tools-org/uploader");
         assert_eq!(pr.kind, GitItemKind::PullRequest {});
         assert!(pr.authored && pr.draft, "a WIP title marks a draft");
         assert_eq!(pr.comments, 2);
-        let review = &items[1];
+        let review = &items[1].item;
         assert!(review.review_requested && review.draft && !review.authored);
-        let issue = &items[2];
+        let issue = &items[2].item;
         assert_eq!(issue.kind, GitItemKind::Issue {});
         assert!(issue.authored && issue.assigned && !issue.draft);
     }
