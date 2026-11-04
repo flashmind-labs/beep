@@ -491,7 +491,11 @@ dependencies = [
 name = "beep-mesh"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "beep-proto",
  "crc32fast",
+ "fastrand",
+ "futures",
  "iroh",
  "iroh-tickets",
  "postcard",
@@ -500,6 +504,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
 ]
 
@@ -511,6 +516,7 @@ dependencies = [
  "anyhow",
  "bao-tree",
  "base64 0.22.1",
+ "beep-mesh",
  "beep-proto",
  "blake3",
  "clap",
@@ -524,6 +530,7 @@ dependencies = [
  "ignore",
  "iroh",
  "iroh-blobs",
+ "iroh-tickets",
  "libc",
  "log",
  "notify",
@@ -616,6 +623,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "base64 0.22.1",
+ "beep-mesh",
  "beep-node",
  "beep-projects",
  "beep-proto",
