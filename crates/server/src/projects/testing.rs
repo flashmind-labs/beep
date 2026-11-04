@@ -37,8 +37,6 @@ use uuid::Uuid;
 pub(crate) struct FakeShell {
     ran: Mutex<Vec<String>>,
     rules: Mutex<Vec<(String, CommandOutput)>>,
-    /// Commands holding this text never finish.
-    hangs: Mutex<Option<String>>,
     /// Commands holding this text fail as if the machine dropped.
     fails: Mutex<Option<String>>,
     /// Commands holding the text wait for its signal before they answer.
@@ -48,10 +46,6 @@ pub(crate) struct FakeShell {
 }
 
 impl FakeShell {
-    pub(crate) fn hang_on(&self, holds: &str) {
-        *self.hangs.lock().unwrap_or_else(PoisonError::into_inner) = Some(holds.to_owned());
-    }
-
     pub(crate) fn fail_on(&self, holds: &str) {
         *self.fails.lock().unwrap_or_else(PoisonError::into_inner) = Some(holds.to_owned());
     }
@@ -110,14 +104,6 @@ impl Shell for FakeShell {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(command.to_owned());
-        let hangs = self
-            .hangs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        if hangs.is_some_and(|holds| command.contains(&holds)) {
-            std::future::pending::<()>().await;
-        }
         let fails = self
             .fails
             .lock()
