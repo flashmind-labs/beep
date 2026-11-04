@@ -496,6 +496,7 @@ dependencies = [
  "postcard",
  "serde",
  "strum 0.28.0",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

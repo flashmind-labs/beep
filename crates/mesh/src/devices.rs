@@ -90,6 +90,19 @@ pub enum MeshError {
     NoGenesis,
     #[error("encoding failed: {0}")]
     Encode(#[from] postcard::Error),
+    #[error("state file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("not a state key: {0}")]
+    BadKey(String),
+    /// An origin's log skips a number, so what lies between is missing.
+    #[error("log of {origin} has {have}, got {got}")]
+    Gap {
+        origin: EndpointId,
+        have: u64,
+        got: u64,
+    },
+    #[error("state file is damaged")]
+    Corrupt,
 }
 
 /// What a merge changed.
@@ -172,6 +185,14 @@ impl Devices {
 
     pub fn is_member(&self, id: EndpointId) -> bool {
         self.added.contains_key(&id) && !self.removed.contains(&id)
+    }
+
+    pub fn is_desktop(&self, id: EndpointId) -> bool {
+        self.is_member(id)
+            && self
+                .added
+                .get(&id)
+                .is_some_and(|e| e.device.kind == DeviceKind::Desktop)
     }
 
     pub fn members(&self) -> Vec<Device> {
