@@ -90,6 +90,16 @@ function hostNote(list: unknown[] | null | undefined, error: string, none: strin
   return list.length ? undefined : none;
 }
 
+/// One row of a list, lit when its key is `lit`.
+function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter) {
+  const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l)))), h("span", "r", i.right));
+  row.type = "button";
+  row.title = i.title;
+  if (i.key === lit) row.setAttribute("aria-current", "true");
+  row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
+  return row;
+}
+
 /// The project page: everything going on in one list at the left, the
 /// picked row's detail and actions at the right.
 export function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): Node[] {
@@ -106,6 +116,18 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const cards = cardsSection(view, { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) });
   const groups: SplitGroup[] = [];
   if (cards) groups.push({ title: "Needs you", items: [{ key: "needs", title: "The project agent waits on you", sub: plural(view.cards.length, "card", "cards"), detail: () => [cards] }] });
+  const project: SplitItem[] = [
+    { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
+    { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },
+    { key: "terminals", title: "Terminals", sub: terminalTile(terms.list(p.name), ago).count || "None open", detail: () => terms.panel(p.name, rows) },
+    { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
+  ];
+  const threads = thr.threads(pid);
+  if (threads?.length) {
+    const waiting = threads.filter(t => t.needs_reply).length;
+    project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
+  }
+  groups.push({ title: "Project", items: project });
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
     right: r.status === "asking" ? tag("wait", "needs you") : ago(runningAt(r)), open: () => go("pane", { agent: r }),
@@ -135,25 +157,21 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
   }));
-  groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), ...labelFilter(`${p.name}:issues`, issueItems, i => i.tags, redrawProjects) });
-  const project: SplitItem[] = [
-    { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
-    { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },
-    { key: "terminals", title: "Terminals", sub: terminalTile(terms.list(p.name), ago).count || "None open", detail: () => terms.panel(p.name, rows) },
-    { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
-  ];
-  const threads = thr.threads(pid);
-  if (threads?.length) {
-    const waiting = threads.filter(t => t.needs_reply).length;
-    project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
-  }
-  groups.push({ title: "Project", items: project });
+  const issueFilter = labelFilter(`${p.name}:issues`, issueItems, i => i.tags, redrawProjects);
+  const issueNote = hostNote(issues, thr.issuesError(pid), "No open issues.");
+  // Too many to list at the left: the row opens them at the right.
+  project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [
+    h("div", "pj-labels", ...issueFilter.labels.all.map(l => labelChip(l, issueFilter.labels, "button"))),
+    h("div", "pj-rows", ...issueFilter.items.map(i => splitRow(i, null, issueFilter.labels))),
+  ] });
   const overview = projectOverview(p, runItems, prItems, issueItems, machineTile(rows, sync));
   groups.unshift({ title: "", items: [{ key: "overview", title: "Overview", sub: overview.sub, detail: () => [overview.body] }] });
-  // A review opens from Branches and keeps it lit.
+  // A review opens from Branches and an issue from Issues, each keeping its row lit.
   const all = groups.flatMap(g => g.items);
+  const issue = issueItems.find(i => i.key === pa.tile);
   const picked = pa.tile === "review"
     ? { key: "branches", detail: () => revs.reviewPanel(p.name) }
+    : issue ? { key: "issues", detail: () => [button("All issues", "quiet small pj-back", () => openTile("issues")), ...issue.detail!()] }
     : all.find(i => i.key === pa.tile && i.detail) || all[0];
   const list = h("div", "pj-list");
   for (const g of groups) {
@@ -162,12 +180,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     const f = g.labels;
     if (f?.all.length) list.append(h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))));
     for (const i of g.items) {
-      const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l)))), h("span", "r", i.right));
-      row.type = "button";
-      row.title = i.title;
-      if (i.key === picked.key) row.setAttribute("aria-current", "true");
-      row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
-      list.append(row);
+      list.append(splitRow(i, picked.key, f));
     }
   }
   const error = state.pview.get(p.name)?.error;
