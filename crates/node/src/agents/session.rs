@@ -1382,7 +1382,7 @@ impl Actor {
         }
         let live = self.live.borrow();
         self.compactor.turn_ended(TurnEnd {
-            usage: live.context,
+            usage: live.info.context,
             commands: &live.commands,
         });
         drop(live);
@@ -1412,7 +1412,7 @@ impl Actor {
         self.send(cx, acp::prompt(session, &prompt, None), Reply::Compacted);
         self.live.send_modify(|live| {
             // What it said before no longer holds once compacted.
-            live.context = None;
+            live.info.context = None;
             live.take_compacted();
             let state = &mut live.info.state;
             state.status = Status::Working;
