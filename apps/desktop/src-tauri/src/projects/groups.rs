@@ -7,7 +7,7 @@ use crate::{
     center::kept,
     center::view_cache::{View, ViewCache},
     error::Result,
-    fleet::projects::{FleetState, desk},
+    fleet::projects::{FleetState, desk_or_server},
 };
 use beep_proto::{DeleteProjectGroup, ListProjectGroups, ProjectGroup, SaveProjectGroup};
 use std::sync::Arc;
@@ -22,9 +22,9 @@ pub async fn project_groups(
     beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Option<Vec<ProjectGroup>>> {
-    let groups = match desk(&fleet).await {
+    let groups = match desk_or_server(&fleet, &beep).await {
         Ok(desk) => {
-            let mut groups = desk.groups();
+            let mut groups = desk.map(|desk| desk.groups()).unwrap_or_default();
             // The groups only the server has, until they are moved into the mesh.
             if beep.server().is_some() {
                 match known(beep.call(ListProjectGroups {}).await) {
@@ -55,10 +55,10 @@ pub async fn project_group_save(
     name: String,
     paths: Vec<String>,
 ) -> Result<ProjectGroup> {
-    let desk = desk(&fleet).await?;
+    let desk = desk_or_server(&fleet, &beep).await?;
     // A group only the server has is changed there.
     if let Some(id) = id
-        && !desk.has_group(id)
+        && desk.as_ref().is_none_or(|desk| !desk.has_group(id))
         && beep.server().is_some()
     {
         return beep
@@ -69,7 +69,10 @@ pub async fn project_group_save(
             })
             .await;
     }
-    Ok(desk.save_group(id, &name, &paths).await?)
+    match desk {
+        Some(desk) => Ok(desk.save_group(id, &name, &paths).await?),
+        None => beep.call(SaveProjectGroup { id, name, paths }).await,
+    }
 }
 
 #[tauri::command]
@@ -78,9 +81,10 @@ pub async fn project_group_delete(
     beep: Service<'_>,
     id: Uuid,
 ) -> Result<()> {
-    let desk = desk(&fleet).await?;
-    if !desk.has_group(id) && beep.server().is_some() {
-        return beep.call(DeleteProjectGroup { id }).await;
+    match desk_or_server(&fleet, &beep).await? {
+        Some(desk) if desk.has_group(id) || beep.server().is_none() => {
+            Ok(desk.delete_group(id).await?)
+        }
+        _ => beep.call(DeleteProjectGroup { id }).await,
     }
-    Ok(desk.delete_group(id).await?)
 }

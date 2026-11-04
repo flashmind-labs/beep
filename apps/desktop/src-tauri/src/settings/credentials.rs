@@ -185,7 +185,11 @@ pub(crate) async fn save(
         .save_credential(&kind, &secret, to_machines)
         .await
     {
-        Ok(saved) => Ok(saved.into()),
+        Ok(saved) => {
+            // What was read with the old tokens is not served to the new ones.
+            fleet.forget();
+            Ok(saved.into())
+        }
         Err(FleetError::NeedsServer) => {
             let saved = beep
                 .call(SaveCredential {
@@ -237,7 +241,9 @@ pub async fn check_credential(fleet: FleetState<'_>, id: String) -> Result<Check
 
 #[tauri::command]
 pub async fn remove_credential(fleet: FleetState<'_>, id: String) -> Result<()> {
-    Ok(desk(&fleet).await?.remove_credential(&id).await?)
+    desk(&fleet).await?.remove_credential(&id).await?;
+    fleet.forget();
+    Ok(())
 }
 
 /// The GitHub accounts, the default first.
@@ -250,7 +256,9 @@ pub async fn list_github_accounts(fleet: FleetState<'_>) -> Result<Vec<GitHubAcc
 /// Makes one GitHub account the one machines get as GH_TOKEN.
 #[tauri::command]
 pub async fn set_default_github_account(fleet: FleetState<'_>, id: String) -> Result<()> {
-    Ok(desk(&fleet).await?.set_default_github(&id).await?)
+    desk(&fleet).await?.set_default_github(&id).await?;
+    fleet.forget();
+    Ok(())
 }
 
 /// The server's reason on its own, without the "bad request:" before it.

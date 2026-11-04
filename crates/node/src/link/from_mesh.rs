@@ -257,6 +257,9 @@ fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessCo
         }
     }
     for config in &mut shared {
+        // Whatever a shared value says about paths is not for this machine; only its own key is.
+        config.program = None;
+        config.home = None;
         if let Some(own) = mine.remove(&config.agent) {
             config.program = own.program;
             config.home = own.home;
@@ -349,5 +352,11 @@ mod tests {
         let elsewhere = harnesses_for("windows", named());
         assert_eq!(elsewhere.len(), 1);
         assert_eq!(elsewhere[0].program, None);
+        // A path left in the shared value is nobody's.
+        let stray = vec![(
+            "codex".to_owned(),
+            config("codex", Some("/Users/a/bin/codex")),
+        )];
+        assert_eq!(harnesses_for("linux", stray)[0].program, None);
     }
 }
