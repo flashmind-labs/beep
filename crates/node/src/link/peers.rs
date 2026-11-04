@@ -175,6 +175,16 @@ impl Peers {
             .take();
     }
 
+    /// One of the active protocols, without a handle on the mesh itself.
+    fn protocols<P>(&self, take: impl FnOnce(&Active) -> P) -> Option<P> {
+        self.inner
+            .active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(take)
+    }
+
     /// The `beep-peer/1` handler.
     pub fn peer_handler(&self) -> PeerAlpn {
         PeerAlpn(self.clone())
@@ -378,8 +388,10 @@ impl std::fmt::Debug for PeerAlpn {
 
 impl ProtocolHandler for PeerAlpn {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        match self.0.active() {
-            Some(active) => active.peer.accept(connection).await,
+        match self.0.protocols(|active| active.peer.clone()) {
+            // Only the protocol is kept for the connection's life: `active`
+            // holds the mesh, and a leave waits for every holder of that.
+            Some(peer) => peer.accept(connection).await,
             None => {
                 connection.close(1u32.into(), b"not in a mesh");
                 Ok(())
@@ -401,8 +413,8 @@ impl std::fmt::Debug for JoinAlpn {
 
 impl ProtocolHandler for JoinAlpn {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        match self.0.active() {
-            Some(active) => active.join.accept(connection).await,
+        match self.0.protocols(|active| active.join.clone()) {
+            Some(join) => join.accept(connection).await,
             None => {
                 connection.close(1u32.into(), b"not in a mesh");
                 Ok(())
@@ -742,6 +754,68 @@ mod tests {
             .expect("status ended with the peer")
             .expect("the task joined")
             .ok();
+    }
+
+    /// A peer's connection in its handshake must not keep a leave from
+    /// closing the mesh.
+    #[tokio::test]
+    async fn leaving_does_not_wait_for_a_connection_still_in_its_handshake() {
+        use beep_mesh::{JOIN_ALPN, PEER_ALPN};
+        use iroh::{SecretKey, protocol::Router};
+        let bind = || async {
+            Endpoint::builder(iroh::endpoint::presets::Minimal)
+                .secret_key(SecretKey::generate())
+                .bind()
+                .await
+                .expect("the endpoint binds")
+        };
+        let (desktop, node) = (bind().await, bind().await);
+        let desktop_dir = tempfile::tempdir().expect("temp dir");
+        let mesh = Mesh::create(desktop_dir.path(), desktop.clone(), "desktop")
+            .await
+            .expect("the mesh is created");
+        let (peer, join) = mesh.protocols();
+        let _desktop_router = Router::builder(desktop.clone())
+            .accept(PEER_ALPN, peer)
+            .accept(JOIN_ALPN, join)
+            .spawn();
+        let ticket = mesh
+            .invite(DeviceKind::Node, Duration::from_secs(60))
+            .await
+            .expect("a ticket");
+        let node_dir = tempfile::tempdir().expect("temp dir");
+        let peers = Peers::new(
+            node.clone(),
+            node_dir.path().to_owned(),
+            "box".to_owned(),
+            Offers::default(),
+        );
+        let _node_router = Router::builder(node.clone())
+            .accept(PEER_ALPN, peers.peer_handler())
+            .accept(JOIN_ALPN, peers.join_handler())
+            .spawn();
+        peers
+            .join(&ticket.encode_string())
+            .await
+            .expect("the node joins");
+        // The desktop opens the sync stream and sends half a frame: the node
+        // answers with its hello and then waits for the rest.
+        let conn = desktop
+            .connect(node.addr(), PEER_ALPN)
+            .await
+            .expect("connected");
+        let (mut send, mut recv) = conn.open_bi().await.expect("a stream opens");
+        send.write_all(&[0]).await.expect("a byte is sent");
+        let mut hello = [0u8; 1];
+        timeout(Duration::from_secs(30), recv.read_exact(&mut hello))
+            .await
+            .expect("the node answered")
+            .expect("the hello reads");
+        timeout(CLOSE_WAIT / 2, peers.forget())
+            .await
+            .expect("the leave did not wait for the connection")
+            .expect("the node leaves");
+        drop((send, recv, conn));
     }
 
     #[tokio::test]
