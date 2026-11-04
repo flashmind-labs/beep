@@ -1402,23 +1402,22 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
         loop {
             let (listed, failed) = mcp.call("list_machines", json!({})).await;
             assert!(!failed, "{listed}");
-            if listed.contains("box-b: online") {
+            // Each machine says what it is, from its own status report, which comes after the link.
+            let os_lines = listed
+                .lines()
+                .filter(|line| line.contains(std::env::consts::OS))
+                .count();
+            if listed.contains("box-b: online") && os_lines >= 2 {
                 return listed;
             }
         }
     })
     .await
-    .expect("box-b came online in time");
+    .expect("box-b came online and reported in time");
     assert!(
         listed.contains("box-a") && listed.contains("box-b"),
         "{listed}"
     );
-    // Each machine says what it is, from its own status report.
-    let os_lines = listed
-        .lines()
-        .filter(|line| line.contains(std::env::consts::OS))
-        .count();
-    assert!(os_lines >= 2, "{listed}");
     let (text, failed) = mcp
         .call(
             "run_on",
