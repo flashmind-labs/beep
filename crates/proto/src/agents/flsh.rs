@@ -26,45 +26,46 @@ pub const MAX_MODEL_RULES: usize = 64;
 /// The longest model name in a rule.
 pub const MAX_MODEL_LEN: usize = 200;
 
-/// flsh's settings as the user set them in Beep.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FlshSettings {
-    /// `openrouter.routing.zdr`: only endpoints that keep no data. `None`
-    /// leaves it to the OpenRouter account's setting.
-    pub zdr: Option<bool>,
-    /// `openrouter.routing.quantizations`: the weight precisions allowed.
-    /// Empty means any.
-    pub quantizations: Vec<FlshQuantization>,
-    /// `openrouter.routing.sort`. `None` is OpenRouter's default, which
-    /// balances price and uptime.
-    pub sort: Option<FlshSort>,
-    /// `openrouter.routing.allow_fallbacks`: try other providers when the
-    /// first ones fail. `None` is OpenRouter's default, which does.
-    pub allow_fallbacks: Option<bool>,
-    /// `[autocompact]`: when flsh compacts with no model rule. `None` is
-    /// flsh's default, on at the model's own trigger.
-    pub autocompact: Option<FlshAutoCompact>,
-    /// `[auto_compact_models."<model>"]`: rules that replace the one above
-    /// for their model only.
-    pub models: Vec<FlshModelRule>,
-}
+wire_structs! {
+    /// flsh's settings as the user set them in Beep.
+    #[derive(Default)]
+    #[serde(default)]
+    pub struct FlshSettings {
+        /// `openrouter.routing.zdr`: only endpoints that keep no data. `None`
+        /// leaves it to the OpenRouter account's setting.
+        pub zdr: Option<bool>,
+        /// `openrouter.routing.quantizations`: the weight precisions allowed.
+        /// Empty means any.
+        pub quantizations: Vec<FlshQuantization>,
+        /// `openrouter.routing.sort`. `None` is OpenRouter's default, which
+        /// balances price and uptime.
+        pub sort: Option<FlshSort>,
+        /// `openrouter.routing.allow_fallbacks`: try other providers when the
+        /// first ones fail. `None` is OpenRouter's default, which does.
+        pub allow_fallbacks: Option<bool>,
+        /// `[autocompact]`: when flsh compacts with no model rule. `None` is
+        /// flsh's default, on at the model's own trigger.
+        pub autocompact: Option<FlshAutoCompact>,
+        /// `[auto_compact_models."<model>"]`: rules that replace the one above
+        /// for their model only.
+        pub models: Vec<FlshModelRule>,
+    }
 
-/// When flsh compacts a conversation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FlshAutoCompact {
-    /// Off: flsh waits for the context window to overflow.
-    pub enabled: bool,
-    /// Compact once the prompt passes this many tokens, if that comes
-    /// before the model's own trigger. `None` is the model's trigger.
-    pub tokens: Option<u32>,
-}
+    /// When flsh compacts a conversation.
+    #[derive(Copy, Eq)]
+    pub struct FlshAutoCompact {
+        /// Off: flsh waits for the context window to overflow.
+        pub enabled: bool,
+        /// Compact once the prompt passes this many tokens, if that comes
+        /// before the model's own trigger. `None` is the model's trigger.
+        pub tokens: Option<u32>,
+    }
 
-/// The compaction rule for one model.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FlshModelRule {
-    pub model: FlshModel,
-    pub autocompact: FlshAutoCompact,
+    /// The compaction rule for one model.
+    pub struct FlshModelRule {
+        pub model: FlshModel,
+        pub autocompact: FlshAutoCompact,
+    }
 }
 
 /// How OpenRouter ranks the providers of a model. Its text (`price`,
@@ -182,20 +183,6 @@ impl FlshSettings {
         }
         Ok(())
     }
-
-    /// The rule flsh uses for `model`: its own, else the global one, else
-    /// flsh's default (on, at the model's trigger).
-    pub fn autocompact_for(&self, model: &FlshModel) -> FlshAutoCompact {
-        self.models
-            .iter()
-            .find(|rule| &rule.model == model)
-            .map(|rule| rule.autocompact)
-            .or(self.autocompact)
-            .unwrap_or(FlshAutoCompact {
-                enabled: true,
-                tokens: None,
-            })
-    }
 }
 
 #[cfg(test)]
@@ -265,36 +252,6 @@ mod tests {
             ..FlshSettings::default()
         };
         assert_eq!(many.check(), Err(FlshSettingsError::TooManyModels));
-    }
-
-    #[test]
-    fn a_model_rule_applies_to_its_model_only() {
-        let global = FlshAutoCompact {
-            enabled: true,
-            tokens: Some(300_000),
-        };
-        let settings = FlshSettings {
-            autocompact: Some(global),
-            models: vec![rule("openrouter:vendor/small", Some(60_000))],
-            ..FlshSettings::default()
-        };
-        assert_eq!(
-            settings
-                .autocompact_for(&model("openrouter:vendor/small"))
-                .tokens,
-            Some(60_000)
-        );
-        assert_eq!(
-            settings.autocompact_for(&model("openrouter:vendor/large")),
-            global
-        );
-        assert_eq!(
-            FlshSettings::default().autocompact_for(&model("openrouter:vendor/large")),
-            FlshAutoCompact {
-                enabled: true,
-                tokens: None
-            }
-        );
     }
 
     #[test]
