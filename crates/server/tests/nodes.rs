@@ -348,7 +348,7 @@ async fn a_linked_node_reports_and_runs_shell_commands() {
 fn fake_agent() -> AgentKind {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../node/testdata/fake_acp.py");
     AgentKind {
-        name: "fake".into(),
+        name: "pi".into(),
         program: "python3".into(),
         args: vec!["-I".into(), script.into()],
         env: Default::default(),
@@ -379,7 +379,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     };
     let served = connect();
     let live = online(app, &node_id).await;
-    assert!(live.offers("fake/1"), "{:?}", live.offers);
+    assert!(live.offers("pi/1"), "{:?}", live.offers);
     assert!(live.offers("agents/1"), "{:?}", live.offers);
 
     let cwd = std::env::temp_dir().join(format!("beep-agent-test-{}", std::process::id()));
@@ -389,7 +389,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     // A start that puts a choice to the user comes back with the question.
     let link = live
         .start_agent(
-            "fake",
+            "pi",
             Some(cwd.display().to_string()),
             "please pick the notes".into(),
             StartOn::default(),
@@ -411,7 +411,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     drop(link);
     let served = connect();
     let live = online_after(app, &node_id, Some(&live)).await;
-    let link = live.agent_session("fake", &id).await.unwrap();
+    let link = live.agent_session("pi", &id).await.unwrap();
     let now = link.now();
     assert_eq!(now.info.state.status, Status::Asking);
     assert_eq!(now.info.question.as_ref().map(|q| q.id), Some(question.id));
@@ -484,7 +484,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
     let sessions = live.agent_sessions().await.unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, id);
-    assert_eq!(sessions[0].agent, "fake");
+    assert_eq!(sessions[0].agent, "pi");
     let (entries, earlier) = live.transcript(&id, 100, false).await.unwrap();
     assert_eq!(earlier, 0);
     assert_eq!(entries[0].kind, EntryKind::User);
@@ -512,7 +512,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
 
     let refused = live
         .start_agent(
-            "fake",
+            "pi",
             Some("/no/such/folder".into()),
             "hi".into(),
             StartOn::default(),
@@ -522,7 +522,7 @@ async fn a_node_runs_a_coding_agent_that_outlives_its_stream() {
         .expect("a missing folder is refused");
     assert!(format!("{refused:#}").contains("no folder"), "{refused:#}");
     let refused = live
-        .agent_session("fake", "000000")
+        .agent_session("pi", "000000")
         .await
         .err()
         .expect("no such session");
