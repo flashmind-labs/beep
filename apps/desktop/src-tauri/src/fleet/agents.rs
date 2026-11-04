@@ -16,11 +16,11 @@ use beep_mesh::{
 };
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentHarness, AgentHarnesses, AgentHost, AgentImageData,
-    AgentModels, AgentSessionModes, AgentSessionUsage, AgentSessionView, AnswerAgentQuestion,
-    ApiError, CodexLogin, CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage,
-    GetAgentSession, GetAgentSessionModes, GetAgentSessionUsage, HarnessEnv, HarnessSettings,
-    HarnessSignIn, ListAgentModels, MachinePick, MachineSession, PreviewAgentMachine,
-    ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession, image_key, media_mime,
+    AgentModels, AgentSessionModes, AgentSessionUsage, AgentSessionView, ApiError, CodexLogin,
+    CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage, GetAgentSession,
+    GetAgentSessionModes, GetAgentSessionUsage, HarnessEnv, HarnessSettings, HarnessSignIn,
+    ListAgentModels, MachinePick, MachineSession, PreviewAgentMachine, ResumeAgentSession,
+    StartAgentSession, StartedAgent, SteerAgentSession, image_key, media_mime,
     node::{
         agent::{self, Request},
         harness::{HarnessConfig, HarnessInfo, harness},
@@ -444,31 +444,6 @@ pub(crate) async fn steer(
         };
         DesktopError::BadRequest(said.into())
     })
-}
-
-/// Answers the question a session asks, once the node still asks it.
-pub(crate) async fn answer(
-    fleet: &Fleet,
-    machine: EndpointId,
-    answer: AnswerAgentQuestion,
-) -> Result<()> {
-    let client = fleet.client(machine).await?;
-    let session = info(&client, &answer.agent, &answer.session).await?;
-    if session.question.map(|question| question.id) != Some(answer.question) {
-        return Err(ApiError::Conflict {
-            message: "The session no longer asks that question.".into(),
-        }
-        .into());
-    }
-    let attach = Request::Attach {
-        session: answer.session,
-    };
-    let mut opened = limited(open_agent(&client, &answer.agent, attach)).await?;
-    let reply = Request::Answer {
-        question: answer.question,
-        reply: answer.reply,
-    };
-    Ok(order(&mut opened, reply, ORDER_WAIT).await?)
 }
 
 /// The models `list.agent` can run on a machine; a node too old to say gives `Fixed`.
