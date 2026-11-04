@@ -1257,6 +1257,10 @@ async fn two_checkouts_at_other_commits_hold_until_they_agree() {
     })
     .await;
     assert_eq!(head(&b).as_deref(), Some(ours.as_str()));
+    // The one that already was at that commit stays there, with no branch
+    // kept for a losing side.
+    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
+    assert!(!git(&a.folder(), &["show-ref"]).contains("beep-conflicts"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
