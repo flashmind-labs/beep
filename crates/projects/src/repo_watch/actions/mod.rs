@@ -1,21 +1,19 @@
 //! Workflow runs, jobs and steps from GitHub, Gitea and Forgejo, read into the wire's shapes.
 
-use crate::protocol::{
-    PrChecks, RunJob, RunProgress, RunState, RunStep, StepProgress, WorkflowRun,
-};
+use beep_proto::{PrChecks, RunJob, RunProgress, RunState, RunStep, StepProgress, WorkflowRun};
 use chrono::{DateTime, Datelike, Utc};
 use serde::Deserialize;
 use std::{collections::HashSet, time::SystemTime};
 
 /// A run list: GitHub, Gitea and newer Forgejo name it `workflow_runs`.
 #[derive(Debug, Deserialize)]
-pub(crate) struct RunsReply {
+pub struct RunsReply {
     #[serde(default)]
     workflow_runs: Vec<HostRun>,
 }
 
 impl RunsReply {
-    pub(crate) fn runs(self) -> Vec<ListedRun> {
+    pub fn runs(self) -> Vec<ListedRun> {
         self.workflow_runs
             .into_iter()
             .map(|run| {
@@ -31,10 +29,10 @@ impl RunsReply {
 
 /// A listed run with its commit, which the wire's run does not carry.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ListedRun {
-    pub(crate) run: WorkflowRun,
+pub struct ListedRun {
+    pub run: WorkflowRun,
     /// Empty when the host does not say.
-    pub(crate) sha: String,
+    pub sha: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -50,7 +48,7 @@ struct PullRef {
 
 /// One run, with the names each host gives its fields.
 #[derive(Debug, Deserialize)]
-pub(crate) struct HostRun {
+pub struct HostRun {
     id: u64,
     /// Forgejo: `index_in_repo`.
     #[serde(default, alias = "index_in_repo")]
@@ -100,7 +98,7 @@ pub(crate) struct HostRun {
 }
 
 impl HostRun {
-    pub(crate) fn into_run(self) -> WorkflowRun {
+    pub fn into_run(self) -> WorkflowRun {
         let state = state_of(&self.status, self.conclusion.as_deref());
         let reference = self.prettyref.clone().unwrap_or_default();
         let branch = self
@@ -175,7 +173,7 @@ fn time(text: Option<&str>) -> Option<SystemTime> {
 }
 
 /// A run, job or step's state from `status` and `conclusion`; Forgejo puts the outcome in `status`.
-pub(crate) fn state_of(status: &str, conclusion: Option<&str>) -> RunState {
+pub fn state_of(status: &str, conclusion: Option<&str>) -> RunState {
     let outcome = |word: &str| match word {
         "success" | "neutral" => Some(RunState::Passed {}),
         "failure" | "timed_out" | "startup_failure" => Some(RunState::Failed {}),
@@ -200,7 +198,7 @@ pub(crate) fn state_of(status: &str, conclusion: Option<&str>) -> RunState {
 /// GitHub wraps a run's jobs in an object; Forgejo sends the bare list.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-pub(crate) enum JobsReply {
+pub enum JobsReply {
     Wrapped {
         #[serde(default)]
         jobs: Vec<HostJob>,
@@ -209,14 +207,14 @@ pub(crate) enum JobsReply {
 }
 
 impl JobsReply {
-    pub(crate) fn jobs(self) -> Vec<RunJob> {
+    pub fn jobs(self) -> Vec<RunJob> {
         let (Self::Wrapped { jobs } | Self::Bare(jobs)) = self;
         jobs.into_iter().map(HostJob::into_job).collect()
     }
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct HostJob {
+pub struct HostJob {
     id: u64,
     #[serde(default)]
     name: String,
@@ -290,7 +288,7 @@ fn count(n: usize) -> u32 {
 }
 
 /// The running (else next queued) job and its current step; `None` when nothing is left to run.
-pub(crate) fn progress(jobs: &[RunJob]) -> Option<RunProgress> {
+pub fn progress(jobs: &[RunJob]) -> Option<RunProgress> {
     let current = jobs
         .iter()
         .find(|job| job.state == RunState::Running {})
@@ -316,14 +314,14 @@ pub(crate) fn progress(jobs: &[RunJob]) -> Option<RunProgress> {
 }
 
 /// An open pull request as checks match it: its number and head branch.
-pub(crate) struct PrHeadRef<'a> {
-    pub(crate) number: u64,
+pub struct PrHeadRef<'a> {
+    pub number: u64,
     /// Empty when unknown.
-    pub(crate) head: &'a str,
+    pub head: &'a str,
 }
 
 /// Each PR's newest run per workflow, matched by number or PR event on its head; `runs` newest first.
-pub(crate) fn pr_checks(runs: &[WorkflowRun], prs: &[PrHeadRef<'_>]) -> Vec<PrChecks> {
+pub fn pr_checks(runs: &[WorkflowRun], prs: &[PrHeadRef<'_>]) -> Vec<PrChecks> {
     prs.iter()
         .filter_map(|pr| {
             decide(
@@ -340,15 +338,15 @@ pub(crate) fn pr_checks(runs: &[WorkflowRun], prs: &[PrHeadRef<'_>]) -> Vec<PrCh
 }
 
 /// An open PR's head on another host: the branch, and the commit its own checks ran on.
-pub(crate) struct MirrorHead<'a> {
-    pub(crate) number: u64,
-    pub(crate) branch: &'a str,
+pub struct MirrorHead<'a> {
+    pub number: u64,
+    pub branch: &'a str,
     /// Empty when unknown: then any run on the branch counts.
-    pub(crate) sha: &'a str,
+    pub sha: &'a str,
 }
 
 /// PR checks on a mirror host, matched by head branch and, where known, the same commit.
-pub(crate) fn mirror_checks(runs: &[ListedRun], heads: &[MirrorHead<'_>]) -> Vec<PrChecks> {
+pub fn mirror_checks(runs: &[ListedRun], heads: &[MirrorHead<'_>]) -> Vec<PrChecks> {
     heads
         .iter()
         .filter(|head| !head.branch.is_empty())
@@ -387,19 +385,19 @@ fn decide<'a>(number: u64, runs: impl Iterator<Item = &'a WorkflowRun>) -> Optio
 }
 
 /// The lines of a log kept for a failed job.
-pub(crate) const LOG_LINES: usize = 120;
+pub const LOG_LINES: usize = 120;
 
 /// The part of a failed job's log worth showing, at most `max` lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LogCut {
-    pub(crate) text: String,
+pub struct LogCut {
+    pub text: String,
     /// The step the log names, from GitHub's `##[group]` line.
-    pub(crate) step: Option<String>,
-    pub(crate) truncated: bool,
+    pub step: Option<String>,
+    pub truncated: bool,
 }
 
 /// The failing step's lines from a GitHub log (by `##[group]`/`##[error]`), else the tail, uncoloured.
-pub(crate) fn failing_part(log: &str, max: usize) -> LogCut {
+pub fn failing_part(log: &str, max: usize) -> LogCut {
     let lines: Vec<String> = log.lines().map(clean_line).collect();
     let error = lines.iter().rposition(|line| line.contains("##[error]"));
     let (start, end, step) = match error {

@@ -6,14 +6,14 @@ use tokio::{
     net::TcpListener,
 };
 
-pub(super) struct Reply {
-    pub(super) status: &'static str,
-    pub(super) headers: Vec<(&'static str, String)>,
-    pub(super) body: String,
+pub struct Reply {
+    pub status: &'static str,
+    pub headers: Vec<(&'static str, String)>,
+    pub body: String,
 }
 
 impl Reply {
-    pub(super) fn ok(body: &str) -> Self {
+    pub fn ok(body: &str) -> Self {
         Self {
             status: "200 OK",
             headers: Vec::new(),
@@ -21,7 +21,7 @@ impl Reply {
         }
     }
 
-    pub(super) fn status(status: &'static str) -> Self {
+    pub fn status(status: &'static str) -> Self {
         Self {
             status,
             headers: Vec::new(),
@@ -29,7 +29,7 @@ impl Reply {
         }
     }
 
-    pub(super) fn with(mut self, name: &'static str, value: &str) -> Self {
+    pub fn with(mut self, name: &'static str, value: &str) -> Self {
         self.headers.push((name, value.to_owned()));
         self
     }
@@ -37,13 +37,13 @@ impl Reply {
 
 /// A request as the host read it: the path and the headers, lowercased.
 #[derive(Debug, Clone)]
-pub(super) struct Seen {
-    pub(super) path: String,
-    pub(super) head: String,
+pub struct Seen {
+    pub path: String,
+    pub head: String,
 }
 
 impl Seen {
-    pub(super) fn header(&self, name: &str) -> Option<String> {
+    pub fn header(&self, name: &str) -> Option<String> {
         let prefix = format!("{}: ", name.to_ascii_lowercase());
         self.head
             .lines()
@@ -55,13 +55,13 @@ impl Seen {
 type Handler = dyn Fn(&Seen) -> Reply + Send + Sync;
 
 /// The running host: its base URL and what it was sent.
-pub(super) struct TestHost {
-    pub(super) base: String,
+pub struct TestHost {
+    pub base: String,
     seen: Arc<Mutex<Vec<Seen>>>,
 }
 
 impl TestHost {
-    pub(super) async fn start(handler: impl Fn(&Seen) -> Reply + Send + Sync + 'static) -> Self {
+    pub async fn start(handler: impl Fn(&Seen) -> Reply + Send + Sync + 'static) -> Self {
         let handler: Arc<Handler> = Arc::new(handler);
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("a free port");
         let base = format!("http://{}", listener.local_addr().expect("an address"));
@@ -108,7 +108,7 @@ impl TestHost {
         Self { base, seen }
     }
 
-    pub(super) fn seen(&self) -> Vec<Seen> {
+    pub fn seen(&self) -> Vec<Seen> {
         self.seen
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

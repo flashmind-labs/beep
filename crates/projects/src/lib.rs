@@ -8,6 +8,7 @@ pub mod issues;
 pub mod leak;
 pub mod model;
 mod owner_var;
+pub mod repo_watch;
 mod shell;
 
 pub use owner_var::github_owner_var;

@@ -2,9 +2,8 @@
 
 use super::{
     super::{
-        actions::progress,
         hosts::host_name,
-        runs::{self, credentials, target},
+        runs::{credentials, target},
         watch::RepoWatch,
     },
     DetailRead, HostSlot, KeptLog, MAX_LOGS, NO_HOST, RunsCopy,
@@ -15,6 +14,8 @@ use crate::{
     protocol::{ProjectRunDetail, RunJob, RunState},
     store::ProjectRow,
 };
+use beep_projects::repo_watch::actions::progress;
+use beep_projects::repo_watch::runs as host_runs;
 use beep_projects::{git_items::HostError, model::IssueHost};
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 
@@ -83,7 +84,7 @@ impl RepoWatch {
             .map(|listed| listed.run.clone());
         let run = match known {
             Some(run) if !(run.state.going() && read.polled) => run,
-            known => match runs::one(&self.calls, &caller, target, id).await {
+            known => match host_runs::one(&self.calls, &caller, target, id).await {
                 Ok(run) => {
                     if let Some(at) = copy.runs.iter_mut().find(|l| l.run.id == id) {
                         at.run = run.clone();
@@ -112,7 +113,7 @@ impl RepoWatch {
             }
         };
         let jobs = if read_jobs {
-            match runs::jobs(&self.calls, &caller, target, id).await {
+            match host_runs::jobs(&self.calls, &caller, target, id).await {
                 Ok(jobs) => {
                     copy.jobs.insert(id, jobs.clone());
                     jobs
@@ -142,7 +143,7 @@ impl RepoWatch {
                             .iter()
                             .find(|step| step.state == RunState::Failed {})
                             .map(|step| step.name.clone());
-                        match runs::log(&self.calls, &caller, target, job, step).await {
+                        match host_runs::log(&self.calls, &caller, target, job, step).await {
                             Ok(log) => {
                                 if logs.len() >= MAX_LOGS {
                                     logs.pop_front();

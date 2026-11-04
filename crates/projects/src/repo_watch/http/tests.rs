@@ -1,5 +1,5 @@
 use super::*;
-use crate::projects::repo_watch::test_host::{Reply, TestHost};
+use crate::repo_watch::test_host::{Reply, TestHost};
 use reqwest::{Client, redirect::Policy};
 use secrecy::SecretString;
 use serde::Deserialize;
