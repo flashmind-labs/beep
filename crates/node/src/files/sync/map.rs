@@ -100,11 +100,12 @@ pub(super) struct Merge {
 }
 
 /// Which of two concurrent entries keeps the path: a file before a
-/// tombstone, then the later mtime, then the larger hash.
-fn rank(entry: &Entry) -> (bool, i64, [u8; 32]) {
+/// tombstone, then the later mtime, then the larger hash, then the executable
+/// one, so that no two different files tie and each node keeps its own.
+fn rank(entry: &Entry) -> (bool, i64, [u8; 32], bool) {
     match &entry.file {
-        Some(file) => (true, file.mtime_ms, file.hash),
-        None => (false, 0, [0; 32]),
+        Some(file) => (true, file.mtime_ms, file.hash, file.executable),
+        None => (false, 0, [0; 32], false),
     }
 }
 
@@ -519,6 +520,22 @@ mod tests {
         let bytes = rmp_serde::to_vec_named(&map).unwrap();
         let loaded = rmp_serde::from_slice::<Map>(&bytes).unwrap().loaded();
         assert_eq!(loaded.since(first.upto, 10).entries, rest.entries);
+    }
+
+    #[test]
+    fn files_differing_only_in_the_executable_bit_settle_alike() {
+        let plain = entry("a", &[(1, 1)], file(1, 5));
+        let mut exec = entry("a", &[(2, 1)], file(1, 5));
+        if let Some(file) = &mut exec.file {
+            file.executable = true;
+        }
+        let mut one = Map::new(1);
+        one.merge(&plain);
+        one.merge(&exec);
+        let mut other = Map::new(2);
+        other.merge(&exec);
+        other.merge(&plain);
+        assert_eq!(one.get("a"), other.get("a"));
     }
 
     #[test]
