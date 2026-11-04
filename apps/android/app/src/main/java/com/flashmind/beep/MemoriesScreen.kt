@@ -110,13 +110,13 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
         text = { Text("Beep will forget all ${memories.size} memories. This cannot be undone.") },
         containerColor = Surface)
     Scaffold(containerColor = Ink, topBar = {
-        TopAppBar(title = { Text(displayText("Memories"), style = displayStyle(18.sp)) },
+        TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Memories"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = { if (memories.isNotEmpty()) TextButton(onClick = { confirmClear = true }) { Text("Clear all", color = Coral, fontSize = 13.sp) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(query, { query = it }, placeholder = { Text("Search memories", fontSize = 13.sp) },
                     leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) }, singleLine = true,
                     shape = RoundedCornerShape(Beep.shapes.smallRadius), modifier = Modifier.weight(1f),
@@ -125,7 +125,7 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
                 Spacer(Modifier.width(12.dp))
                 Text("$shown", fontSize = 12.sp, color = TextMuted)
             }
-            if (reads.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            if (reads.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ReadChip("All", null, read == null) { readId = null }
                 reads.take(3).forEach { r -> ReadChip(readLabel(r), r.memories.size, r.id == readId) { readId = r.id } }
@@ -133,7 +133,7 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
             if (scopes.isNotEmpty()) {
                 val subjects = memories.map { scopes[it.id] }.groupingBy { it?.let(::scopeKey) ?: USER }.eachCount()
                 val named = scopes.values.associateBy(::scopeKey)
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 4.dp),
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ReadChip("Everything", null, about == null) { about = null }
                     subjects[USER]?.let { ReadChip("You", it, about == USER) { about = USER } }
@@ -144,12 +144,12 @@ internal fun MemoriesScreen(repository: ChatRepository, latestRead: Boolean = fa
                 about?.let { key ->
                     val subject = if (key == USER) "you" else named[key]?.let(::scopeSubject) ?: "this"
                     Text("What Beep knows about $subject.", fontSize = 12.sp, color = TextMuted,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                 }
             }
             read?.let { Text("What Beep learned or confirmed reading ${it.source} ${readDate(it)}.", fontSize = 12.sp, color = TextMuted,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
-            if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
+            if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
             if (loading && memories.isEmpty()) Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
             else if (shown == 0) Text(if (memories.isEmpty()) "Nothing remembered yet.\nBeep learns as you chat, or tell it \"remember that...\"" else "No matches.",
                 fontSize = 13.sp, color = TextMuted, lineHeight = 20.sp, modifier = Modifier.padding(40.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -218,7 +218,7 @@ private fun MemoryCard(memory: ChatRepository.Memory, about: MemoryScope?, today
     BeepCard(Modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         Row(Modifier.padding(BeepSpace.row), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
-                Text(memory.content, fontSize = 13.sp, lineHeight = 19.sp, color = if (ended) TextMuted else Color.Unspecified)
+                Text(memory.content, fontSize = 14.sp, lineHeight = 21.sp, color = if (ended) TextMuted else Color.Unspecified)
                 about?.let { scope ->
                     Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(scopeIcon(scope), null, Modifier.size(12.dp), tint = Beep.colors.ink)
@@ -240,8 +240,11 @@ private fun MemoryCard(memory: ChatRepository.Memory, about: MemoryScope?, today
                     }
                 }
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Outlined.Close, "Forget", Modifier.size(16.dp), tint = TextDim)
+            IconButton(onClick = onEdit, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Outlined.Edit, "Edit memory", Modifier.size(16.dp), tint = TextDim)
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Outlined.DeleteOutline, "Forget", Modifier.size(16.dp), tint = TextDim)
             }
         }
     }

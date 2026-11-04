@@ -101,10 +101,10 @@ internal fun SkillsScreen(repository: ChatRepository, onBack: () -> Unit) {
     Scaffold(containerColor = Ink, snackbarHost = {
         SnackbarHost(snackbar) { Snackbar(it, actionColor = Beep.colors.ok, shape = RoundedCornerShape(Beep.shapes.smallRadius)) }
     }, topBar = {
-        if (open == null) TopAppBar(title = { Text(displayText("Skills"), style = displayStyle(18.sp)) },
+        if (open == null) TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText("Skills"), style = displayStyle(18.sp)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink))
-        else TopAppBar(title = { Text(open.name, style = displayStyle(18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        else TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(open.name, style = displayStyle(18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = { openId = null }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = {
                 IconButton(onClick = { editing = true }) { Icon(Icons.Outlined.Edit, "Edit") }
@@ -190,8 +190,7 @@ private fun SkillDetail(skill: Skill, onToggle: (Boolean) -> Unit, onUndo: () ->
                     Text("Use this skill", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Text(if (skill.enabled) usage(skill) else "Paused: Beep works it out each time", fontSize = 12.sp, color = TextMuted)
                 }
-                Switch(checked = skill.enabled, onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(checkedTrackColor = Beep.colors.ok, uncheckedTrackColor = Border))
+                BeepSwitch(checked = skill.enabled, onCheckedChange = onToggle, label = "Use this skill")
             }
         }
         BeepCard(Modifier.fillMaxWidth()) {

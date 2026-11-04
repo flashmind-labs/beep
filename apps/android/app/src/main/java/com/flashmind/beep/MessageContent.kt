@@ -197,14 +197,14 @@ internal fun MessageContent(text: String, role: String, compact: Boolean, padded
     val blocks = remember(text) { parseBlocks(text) }
     val inline = inlineColors()
     val color = if (role == "user") Beep.colors.onUser else TextPrimary
-    val padding = if (padded) PaddingValues(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 9.dp else 12.dp)
+    val padding = if (padded) PaddingValues(horizontal = 12.dp, vertical = 8.dp)
         else PaddingValues(horizontal = 2.dp, vertical = 2.dp)
     // One container for the whole message, so a selection can run across paragraphs, code and quotes.
     SelectionContainer { Column(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 10.dp)) {
         blocks.forEach { block ->
             when (block) {
                 is MsgBlock.Text -> MathText(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
-                    fontSize = if (compact) 14.sp else 16.sp, lineHeight = if (compact) 21.sp else 25.sp)
+                    fontSize = 14.sp, lineHeight = 21.sp)
                 is MsgBlock.Math -> MathBlockView(block.latex, block.closed, color, compact)
                 is MsgBlock.Code -> CodeBlockView(block.language, block.code, compact)
                 is MsgBlock.Table -> TableView(block.headers, block.rows, compact)
@@ -306,7 +306,7 @@ private fun BlockQuoteView(content: String, compact: Boolean) {
     }) {
         MathText(remember(content, inline) { formattedMessage(content, inline) },
             modifier = Modifier.padding(start = 16.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
-            fontSize = if (compact) 13.sp else 15.sp, lineHeight = if (compact) 19.sp else 23.sp,
+            fontSize = if (compact) 13.sp else 14.sp, lineHeight = if (compact) 19.sp else 21.sp,
             color = TextMuted)
     }
 }

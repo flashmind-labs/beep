@@ -3,6 +3,10 @@ package com.flashmind.beep
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Terminal
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
@@ -317,7 +321,7 @@ class PanelActivity : MainActivity() {
     override fun onStop() { super.onStop(); Bubble.panelHidden(this) }
 }
 
-internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Machines, Shared, GroupJoin, GroupInfo, Researches, Workspace, Grants }
+internal enum class Screen { Chat, Places, LocationAlways, Memories, Crons, Skills, Integrations, Settings, Devices, Machines, Shared, GroupJoin, GroupInfo, Researches, Workspace, Grants, Projects, CodingAgents, Terminals, Instructions }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -352,6 +356,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val cover = !bubble && LocalConfiguration.current.let { it.screenWidthDp < 480 && it.screenHeightDp < 480 }
     var historyQuery by rememberSaveable { mutableStateOf("") }
     var screen by rememberSaveable { mutableStateOf(Screen.Chat) }
+    val accountMode = rememberAccountMode(repository, screen)
+    var appsBack by rememberSaveable { mutableStateOf(Screen.Chat) }
+    var machinesBack by rememberSaveable { mutableStateOf(Screen.Chat) }
     /** The tab the workspace opens on; null lets it follow the research. */
     var workspaceTab by rememberSaveable { mutableStateOf<WorkspaceTab?>(null) }
     val researchIds by repository.researches.collectAsState()
@@ -375,6 +382,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     LaunchedEffect(openApps.value) {
         if (openApps.value) {
             openApps.value = false
+            appsBack = Screen.Chat
             screen = Screen.Integrations
         }
     }
@@ -487,7 +495,9 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     val activeScreen = if (bubble) Screen.Chat else screen
     BackHandler(enabled = activeScreen != Screen.Chat) {
         screen = when (activeScreen) {
-            Screen.Devices, Screen.Machines -> Screen.Settings
+            Screen.Devices, Screen.Instructions -> Screen.Settings
+            Screen.Machines -> machinesBack
+            Screen.Integrations -> appsBack
             Screen.Grants -> if (grantsRoutine != null) Screen.Crons else Screen.Settings
             Screen.LocationAlways -> beforeLocationAlways
             else -> Screen.Chat
@@ -499,21 +509,25 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
     }
     Crossfade(targetState = activeScreen, animationSpec = tween(300), label = "screen-transition") { currentScreen ->
         when (currentScreen) {
+            Screen.Instructions -> InstructionsScreen(repository, onBack = { screen = Screen.Settings })
+            Screen.Projects -> ProjectsScreen(repository, onBack = { screen = Screen.Chat })
+            Screen.CodingAgents -> CodingAgentsScreen(repository, onBack = { screen = Screen.Chat })
+            Screen.Terminals -> TerminalsScreen(repository, onBack = { screen = Screen.Chat })
             Screen.Memories -> MemoriesScreen(repository, latestRead = showLatestRead, onBack = { showLatestRead = false; screen = Screen.Chat })
             Screen.Crons -> CronsScreen(repository, onBack = { screen = Screen.Chat },
                 onAskBeep = { repository.newChatWithDraft("Set up a routine: "); screen = Screen.Chat },
                 onOpenChat = { id -> repository.select(id); screen = Screen.Chat },
                 onGrants = { id -> grantsRoutine = id; screen = Screen.Grants })
             Screen.Skills -> SkillsScreen(repository, onBack = { screen = Screen.Chat })
-            Screen.Integrations -> AppsScreen(repository, onBack = { screen = Screen.Chat })
-            Screen.Settings -> SettingsScreen(repository, onBack = { screen = Screen.Chat },
+            Screen.Integrations -> AppsScreen(repository, onBack = { screen = appsBack })
+            Screen.Settings -> SettingsScreen(repository, accountMode = accountMode, onInstructions = { screen = Screen.Instructions }, onApps = { appsBack = Screen.Settings; screen = Screen.Integrations }, onBack = { screen = Screen.Chat },
                 onBubbleSettings = onBubbleSettings, onLinkedDevices = { screen = Screen.Devices },
-                onMachines = { screen = Screen.Machines },
+                onMachines = { machinesBack = Screen.Settings; screen = Screen.Machines },
                 onGrants = { grantsRoutine = null; screen = Screen.Grants })
             Screen.Grants -> GrantsScreen(repository, grantsRoutine,
                 onBack = { screen = if (grantsRoutine != null) Screen.Crons else Screen.Settings })
             Screen.Devices -> LinkedDevicesScreen(repository, onBack = { screen = Screen.Settings })
-            Screen.Machines -> MachinesScreen(repository, onBack = { screen = Screen.Settings })
+            Screen.Machines -> MachinesScreen(repository, onBack = { screen = machinesBack })
             Screen.GroupJoin -> joinToken?.let { token ->
                 GroupJoinScreen(repository, token, onJoined = { joinToken = null; openGroupChat(it) },
                     onBack = { joinToken = null; screen = Screen.Chat })
@@ -567,6 +581,15 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             }, drawerContainerColor = Ink,
             drawerShape = RoundedCornerShape(topEnd = Beep.shapes.radius, bottomEnd = Beep.shapes.radius)) {
             Spacer(Modifier.height(if (bubble) 8.dp else 20.dp))
+            if (accountMode.expanded && !bubble && !cover && historyQuery.isBlank()) {
+                BeepCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    WorkspaceRow(Icons.Outlined.Folder, "Projects", onClick = { screen = Screen.Projects; drawerOpen = false })
+                    WorkspaceRow(Icons.Outlined.Code, "Coding agents", onClick = { screen = Screen.CodingAgents; drawerOpen = false })
+                    WorkspaceRow(Icons.Outlined.Dns, "Machines", onClick = { machinesBack = Screen.Chat; screen = Screen.Machines; drawerOpen = false })
+                    WorkspaceRow(Icons.Outlined.Terminal, "Terminals", onClick = { screen = Screen.Terminals; drawerOpen = false })
+                    WorkspaceRow(Icons.Outlined.Science, "Research", onClick = { screen = Screen.Researches; drawerOpen = false })
+                }
+            }
             Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(displayText("Your chats"), Modifier.weight(1f), style = displayStyle(18.sp))
                 if (!bubble) ChunkyButton(onClick = { newGroup = true }, shape = RoundedCornerShape(Beep.shapes.smallRadius),
@@ -791,11 +814,11 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DrawerTile("Memories", Icons.Outlined.Psychology, Beep.colors.tints[0], Modifier.weight(1f)) { open(Screen.Memories) }
                         DrawerTile("Routines", Icons.Outlined.Schedule, Beep.colors.tints[1], Modifier.weight(1f)) { open(Screen.Crons) }
-                        DrawerTile("Skills", Icons.Outlined.AutoAwesome, Beep.colors.tints[2], Modifier.weight(1f)) { open(Screen.Skills) }
+                        if (accountMode.expanded) DrawerTile("Skills", Icons.Outlined.AutoAwesome, Beep.colors.tints[2], Modifier.weight(1f)) { open(Screen.Skills) }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (accountMode.expanded) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         DrawerTile("Places", Icons.Outlined.Place, Beep.colors.tints[1], Modifier.weight(1f)) { open(Screen.Places) }
-                        DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[0], Modifier.weight(1f)) { open(Screen.Integrations) }
+                        DrawerTile("Apps", Icons.Outlined.Extension, Beep.colors.tints[0], Modifier.weight(1f)) { appsBack = Screen.Chat; open(Screen.Integrations) }
                         DrawerTile("Research", Icons.Outlined.Science, Beep.colors.tints[2], Modifier.weight(1f)) { open(Screen.Researches) }
                     }
                 }
@@ -833,7 +856,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                         }
                     }
                 }
-            } else TopAppBar(title = {
+            } else TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = {
                 Column {
                     Text(state.current.title.ifEmpty { "Beep" }, fontWeight = FontWeight.SemiBold, fontSize = 16.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
