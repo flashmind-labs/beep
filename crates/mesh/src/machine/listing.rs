@@ -20,28 +20,42 @@ pub const MAX_PROJECT_SESSIONS: usize = 50;
 const SLOW_NODE: Duration = Duration::from_secs(1);
 
 /// The sessions on one node, Beep's and those started outside it that run
-/// now: none when its list fails.
+/// now: none when its list fails. Beep's wait for the outside scan; a caller
+/// that cannot wait asks for each half apart.
 pub async fn node_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
-    let external = join_all(EXTERNAL_AGENTS.map(|agent| outside(node, agent)));
-    let (listed, external) = tokio::join!(timeout(NODE_LIMIT, sessions::list(node)), external);
-    let listed = match listed {
-        Ok(Ok(listed)) => listed,
+    let (mut beep, outside) = tokio::join!(beep_sessions(node, host), outside_sessions(node, host));
+    beep.extend(outside);
+    beep
+}
+
+/// The sessions Beep runs on one node: none when its list fails.
+pub async fn beep_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
+    match timeout(NODE_LIMIT, sessions::list(node)).await {
+        Ok(Ok(listed)) => listed
+            .into_iter()
+            .map(|info| beep_session(host, info))
+            .collect(),
         Ok(Err(e)) => {
             tracing::warn!("agent sessions not listed; node={} error={e:#}", host.id);
-            return Vec::new();
+            Vec::new()
         }
         Err(_) => {
             tracing::warn!("agent sessions not listed in time; node={}", host.id);
-            return Vec::new();
+            Vec::new()
         }
-    };
-    let beep = listed.into_iter().map(|info| beep_session(host, info));
-    let outside = external
+    }
+}
+
+/// The sessions started outside Beep that run now, from scanning what each
+/// agent keeps on the node. A scan takes seconds.
+pub async fn outside_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
+    join_all(EXTERNAL_AGENTS.map(|agent| outside(node, agent)))
+        .await
         .into_iter()
         .flatten()
         .filter(|session| session.taken_over.is_none() && runs_now(session, SystemTime::now()))
-        .map(|session| external_session(host, session));
-    beep.chain(outside).collect()
+        .map(|session| external_session(host, session))
+        .collect()
 }
 
 /// The sessions of `agent` started outside Beep; none when the node cannot list them.

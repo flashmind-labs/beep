@@ -11,6 +11,7 @@ use beep_proto::node::{
     tool_update::{self, Tool},
     update,
 };
+use serde::{Serialize, de::DeserializeOwned};
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -20,21 +21,68 @@ const TOOL_INSTALL: Duration = Duration::from_secs(10 * 60);
 const NODE_INSTALL: Duration = Duration::from_secs(5 * 60);
 /// How long past its own timeout a command's answer may take.
 const GRACE: Duration = Duration::from_secs(15);
+/// How long the node has to read its log.
+const LOG_LIMIT: Duration = Duration::from_secs(30);
+/// How long the node has to answer about where it searches.
+const SEARCH_LIMIT: Duration = Duration::from_secs(10);
+/// How long a request to the node's tasks or terminals may take; a stop
+/// waits for the process group to end.
+pub(super) const TASK_LIMIT: Duration = Duration::from_secs(20);
+/// How long a request to the node's shared folders may take.
+const FILES_LIMIT: Duration = Duration::from_secs(30);
+
+/// How a failed exchange reads: what the node was doing when it went quiet
+/// or closed the stream.
+#[derive(Clone, Copy)]
+pub(super) struct Words {
+    pub(super) silent: &'static str,
+    pub(super) closed: &'static str,
+}
+
+/// Sends one request on a new stream and reads one reply within `limit`.
+pub(super) async fn exchange<Q: Serialize, R: DeserializeOwned>(
+    client: &PeerClient,
+    limit: Duration,
+    protocol: &str,
+    request: &Q,
+    words: Words,
+) -> Result<R, MeshError> {
+    let (mut tx, mut rx) = client.open(protocol).await?;
+    tx.send(request).await.map_err(MeshError::Link)?;
+    timeout(limit, rx.recv::<R>())
+        .await
+        .map_err(|_| said(words.silent))?
+        .map_err(MeshError::Link)?
+        .ok_or_else(|| said(words.closed))
+}
 
 /// Sends `request` to the node's shared folders and returns its reply.
 pub async fn files(
     client: &PeerClient,
     request: &files::Request,
 ) -> Result<files::Reply, MeshError> {
-    client.call(files::PROTOCOL, request).await
+    let words = Words {
+        silent: "the node stopped answering",
+        closed: "the node closed the files session",
+    };
+    exchange(client, FILES_LIMIT, files::PROTOCOL, request, words).await
 }
 
 /// The last `lines` lines of the node's log.
 pub async fn log(client: &PeerClient, lines: u32) -> Result<String, MeshError> {
-    match client
-        .call(logs::PROTOCOL, &logs::Request { lines })
-        .await?
-    {
+    let words = Words {
+        silent: "the node took too long to read its log",
+        closed: "the node closed the stream without its log",
+    };
+    let reply = exchange(
+        client,
+        LOG_LIMIT,
+        logs::PROTOCOL,
+        &logs::Request { lines },
+        words,
+    )
+    .await?;
+    match reply {
         logs::Reply::Log { text } => Ok(text),
         logs::Reply::Failed { reason } => Err(said(reason)),
         other => Err(unexpected(&other)),
@@ -53,7 +101,11 @@ pub async fn set_search(client: &PeerClient, folder: &str) -> Result<String, Mes
 }
 
 async fn ask_search(client: &PeerClient, request: search::Request) -> Result<String, MeshError> {
-    match client.call(search::PROTOCOL, &request).await? {
+    let words = Words {
+        silent: "the node took too long to answer",
+        closed: "the node closed the stream without an answer",
+    };
+    match exchange(client, SEARCH_LIMIT, search::PROTOCOL, &request, words).await? {
         search::Reply::Folder { folder } => Ok(folder),
         search::Reply::Failed { reason } => Err(said(reason)),
         other => Err(unexpected(&other)),
@@ -103,7 +155,11 @@ pub async fn task_request(
     client: &PeerClient,
     request: &process::Request,
 ) -> Result<process::Reply, MeshError> {
-    client.call(process::PROTOCOL, request).await
+    let words = Words {
+        silent: "the node stopped answering",
+        closed: "the node closed the process session",
+    };
+    exchange(client, TASK_LIMIT, process::PROTOCOL, request, words).await
 }
 
 /// Has the node install release `version` of `tool`.
@@ -112,10 +168,11 @@ pub async fn install_tool(client: &PeerClient, tool: Tool, version: &str) -> Res
         tool,
         version: version.to_owned(),
     };
-    match client
-        .call_within(TOOL_INSTALL, tool_update::PROTOCOL, &request)
-        .await?
-    {
+    let words = Words {
+        silent: "the install took too long",
+        closed: "the node closed the install without an answer",
+    };
+    match exchange(client, TOOL_INSTALL, tool_update::PROTOCOL, &request, words).await? {
         tool_update::Reply::Installed {} => Ok(()),
         tool_update::Reply::Failed { reason } => Err(said(reason)),
         other => Err(unexpected(&other)),
@@ -135,9 +192,11 @@ pub struct Updated {
 /// sessions are idle or, with `now`, at once.
 pub async fn update_node(client: &PeerClient, now: bool) -> Result<Updated, MeshError> {
     let request = update::Request::Update { now };
-    let event = client
-        .call_within(NODE_INSTALL, update::PROTOCOL, &request)
-        .await?;
+    let words = Words {
+        silent: "the update took too long",
+        closed: "the node closed the update without an answer",
+    };
+    let event = exchange(client, NODE_INSTALL, update::PROTOCOL, &request, words).await?;
     updated(event)
 }
 

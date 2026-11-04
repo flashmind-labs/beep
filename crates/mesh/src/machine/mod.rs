@@ -9,9 +9,11 @@ pub mod codex_login;
 mod convert;
 pub mod listing;
 mod node;
+pub mod releases;
 pub mod sessions;
 mod steer;
 pub mod terminals;
+pub mod thumb;
 
 pub use agent::{Opened, StartOn, open_agent, order};
 pub use convert::{

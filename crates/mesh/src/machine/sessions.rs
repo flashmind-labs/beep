@@ -3,7 +3,7 @@
 //! written once for every caller.
 
 use super::{said, unexpected};
-use crate::{CALL_TIMEOUT, MeshError, PeerClient};
+use crate::{MeshError, PeerClient};
 use beep_proto::{
     CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
     node::{
@@ -16,6 +16,8 @@ use beep_proto::{
 };
 use std::{future::Future, time::Duration};
 
+/// How long an ordinary read of the node's sessions may take.
+pub const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a node has to list models: it may start the agent first.
 pub const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to read a diff: git may walk a large checkout.
@@ -44,12 +46,24 @@ impl Sessions for PeerClient {
     }
 }
 
+/// A failure of an older node, which cannot read a request, with a hint
+/// that updating it may help.
+fn hinted<T>(reply: Result<T, MeshError>, to: &str) -> Result<T, MeshError> {
+    reply.map_err(|e| match e {
+        MeshError::Link(e) => MeshError::Link(e.context(format!(
+            "the node may need an update {}{to}",
+            if to.starts_with("for") { "" } else { "to " }
+        ))),
+        other => other,
+    })
+}
+
 /// An ordinary read.
 async fn ask<S: Sessions + ?Sized>(
     node: &S,
     request: SessionsRequest,
 ) -> Result<SessionsReply, MeshError> {
-    node.sessions(request, CALL_TIMEOUT).await
+    node.sessions(request, READ_TIMEOUT).await
 }
 
 /// A picture of a session's transcript, as the node gave it.
@@ -135,7 +149,7 @@ pub async fn external<S: Sessions + ?Sized>(
         limit,
         session: only,
     };
-    external_reply(ask(node, request).await?)
+    external_reply(hinted(ask(node, request).await, "list them")?)
 }
 
 /// The sessions coding agents ran in `folders` or below, newest first.
@@ -144,7 +158,10 @@ pub async fn in_folders<S: Sessions + ?Sized>(
     folders: Vec<String>,
     limit: u32,
 ) -> Result<Vec<ExternalSession>, MeshError> {
-    external_reply(ask(node, SessionsRequest::InFolders { folders, limit }).await?)
+    external_reply(hinted(
+        ask(node, SessionsRequest::InFolders { folders, limit }).await,
+        "list them",
+    )?)
 }
 
 fn external_reply(reply: SessionsReply) -> Result<Vec<ExternalSession>, MeshError> {
@@ -167,7 +184,7 @@ pub async fn live<S: Sessions + ?Sized>(
         Some(steer) => SessionsRequest::Steer { session, steer },
         None => SessionsRequest::Live { session },
     };
-    match ask(node, request).await? {
+    match hinted(ask(node, request).await, "for live status")? {
         SessionsReply::Live { status } => Ok(*status),
         SessionsReply::Error { message } => Err(said(message)),
         other => Err(unexpected(&other)),
@@ -179,7 +196,10 @@ pub async fn found_folders<S: Sessions + ?Sized>(
     node: &S,
     limit: u32,
 ) -> Result<Vec<SessionFolder>, MeshError> {
-    match ask(node, SessionsRequest::Folders { limit }).await? {
+    match hinted(
+        ask(node, SessionsRequest::Folders { limit }).await,
+        "find them",
+    )? {
         SessionsReply::Folders { folders } => Ok(folders),
         SessionsReply::Error { message } => Err(said(message)),
         other => Err(unexpected(&other)),
@@ -198,8 +218,11 @@ pub async fn models<S: Sessions + ?Sized>(
         Ok(SessionsReply::Models { models }) => Ok(Some(models)),
         Ok(SessionsReply::Error { message }) => Err(said(message)),
         Ok(other) => Err(unexpected(&other)),
-        // A node from before models closes the stream.
-        Err(MeshError::Link(e)) if format!("{e:#}").contains("closed the stream") => Ok(None),
+        // A node that cannot say, such as one from before models, closes the stream.
+        Err(MeshError::Link(e)) => {
+            tracing::debug!("node did not list models; agent={agent} error={e:#}");
+            Ok(None)
+        }
         Err(e) => Err(e),
     }
 }
@@ -382,7 +405,55 @@ fn harness_reply(
         }
         Ok(SessionsReply::Error { message }) => Err(said(message)),
         Ok(other) => Err(unexpected(&other)),
-        Err(MeshError::Link(e)) if format!("{e:#}").contains("closed the stream") => Ok(None),
+        // A node from before harnesses closes the stream.
+        Err(MeshError::Link(e)) => {
+            tracing::debug!("node did not report its harnesses; error={e:#}");
+            Ok(None)
+        }
         Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+
+    /// A node whose link is down.
+    struct Down;
+
+    impl Sessions for Down {
+        async fn sessions(
+            &self,
+            _: SessionsRequest,
+            _: Duration,
+        ) -> Result<SessionsReply, MeshError> {
+            Err(MeshError::Link(anyhow!("the node closed the stream")))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_node_that_cannot_say_has_no_models_or_harnesses() {
+        assert!(models(&Down, "claude").await.expect("no error").is_none());
+        assert!(harnesses(&Down, false).await.expect("no error").is_none());
+        assert!(
+            update_harness(&Down, "claude")
+                .await
+                .expect("no error")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_older_node_is_told_to_update() {
+        let said = |e: MeshError| format!("{e:#}");
+        let e = external(&Down, "claude", 1, None).await.expect_err("down");
+        assert!(said(e).contains("the node may need an update to list them"));
+        let e = live(&Down, "s", None).await.expect_err("down");
+        assert!(said(e).contains("the node may need an update for live status"));
+        let e = found_folders(&Down, 1).await.expect_err("down");
+        assert!(said(e).contains("the node may need an update to find them"));
+        let e = in_folders(&Down, Vec::new(), 1).await.expect_err("down");
+        assert!(said(e).contains("the node may need an update to list them"));
     }
 }
