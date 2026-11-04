@@ -378,6 +378,8 @@ cat > /dev/null
         .await
         .expect("the start is sent");
         let asked = heard(&mut heard_from).await;
+        eprintln!("FIRST {asked:?}");
+        loop { let n = heard(&mut heard_from).await; eprintln!("NEXT {n:?}"); }
         assert_eq!(asked.title, "pi on Studio asks");
         assert!(asked.body.contains("Run cargo test"), "{}", asked.body);
         let key = asked.session_id.parse::<AgentNoticeKey>().expect("a key");
