@@ -25,6 +25,9 @@ use serde::{Deserialize, de::IgnoredAny};
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub secret_key: Option<PathBuf>,
+    /// The UDP port iroh binds, for a firewall rule: `SERVER_PORT` unset,
+    /// random at 0.
+    pub port: Option<u16>,
     /// Postgres connection string. Falls back to `DATABASE_URL`.
     pub database_url: Option<SecretString>,
     pub model: String,
