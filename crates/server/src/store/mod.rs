@@ -42,6 +42,7 @@ mod habits;
 mod harness_settings;
 mod instance;
 mod instructions;
+mod logins;
 pub(crate) use habits::DuplicateHabit;
 pub(crate) use instructions::{InstructionsRow, Saved};
 pub(crate) use reviews::{
@@ -107,6 +108,7 @@ pub(crate) use grants::{GrantRow, NewGrant};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
 pub(crate) use harness_settings::{HarnessRow, OffHarness, SaveHarness};
 pub use location::Location;
+pub use logins::{Login, LoginEnd};
 pub(crate) use memories::MAX_ROWS as MAX_MEMORY_ROWS;
 pub use memories::{Fact, Scope, Scored, Superseded, WordEmbedder};
 pub use merge::{Invite, Inviter, Merge, MergeInto};

@@ -1259,6 +1259,17 @@ requests! {
     /// was made: the name is taken or not valid, the token may not create
     /// there, or a machine is offline.
     414 CreateProject { name: String, repository: Option<NewRepository>, machine_ids: Vec<String> } => Call<CreatedProject>
+    /// The website address that signs this key in, with a one-time code tied
+    /// to it, good for ten minutes. `device` is the name the website shows.
+    /// Works on a guest connection and a signed-in one. `BadRequest` on a
+    /// server with no hosted sign-in.
+    415 StartLogin { device: String } => Call<SecretText>
+    /// Finishes the sign-in with the token the website gave the app. On a
+    /// guest connection the key joins the login's account, made if new, and
+    /// the server closes the connection so the app signs in again. On a
+    /// signed-in one the login is attached to the caller's account; `Conflict`
+    /// when another account holds it. `BadRequest` for any token that fails.
+    416 CompleteLogin { token: SecretText } => Call<()>
 }
 
 #[cfg(test)]

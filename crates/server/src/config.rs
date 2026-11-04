@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    account::instance::InstanceConfig,
+    account::{instance::InstanceConfig, login::LoginConfig},
     memory::watchers::WatchersConfig,
     research::{ResearchConfig, RoleModel},
     routines::events::EventsConfig,
@@ -88,6 +88,9 @@ pub struct Config {
     pub events: EventsConfig,
     /// Runs the server for one owner (see `crate::account::instance`).
     pub instance: Option<InstanceConfig>,
+    /// Hosted sign-in through a website (see `crate::account::login`). Without
+    /// it an unknown key makes its own account. Not with `instance`.
+    pub login: Option<LoginConfig>,
     /// The agents that read finished chats.
     #[serde(default)]
     pub watchers: WatchersConfig,

@@ -2,6 +2,7 @@
 
 use super::{Reply, found};
 use crate::{
+    account::{guest, login},
     api::router::Cx,
     nodes::push_sync,
     protocol::*,
@@ -144,6 +145,17 @@ async fn inviter(cx: &Cx, code: &str) -> Result<Inviter, ApiError> {
         });
     }
     Ok(inviter)
+}
+
+/// A website address for attaching a login to the caller's account.
+pub(super) async fn start_login(cx: Cx, StartLogin { device }: StartLogin) -> Reply<SecretText> {
+    login::start(&cx.app, &cx.connection.remote_id(), &device).await
+}
+
+/// Attaches the login in `token` to the caller's account.
+pub(super) async fn complete_login(cx: Cx, CompleteLogin { token }: CompleteLogin) -> Reply<()> {
+    let key = guest::new_key(&cx.connection, &cx.client);
+    login::complete(&cx.app, key, token.expose()).await
 }
 
 /// Moves the caller's account into the one that made `code`, then reconnects its keys.

@@ -1,6 +1,7 @@
 //! What the app remembers between launches, in `state.json`.
 
 use crate::beep::sync;
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
@@ -34,6 +35,9 @@ pub enum NoticeVoice {
 pub struct Saved {
     #[serde(default)]
     pub link: LinkState,
+    /// The server chosen with a link code. `None` is the one built in.
+    #[serde(default)]
+    pub server: Option<EndpointId>,
     /// The chat the bar shows when it opens.
     #[serde(default)]
     pub session: Option<String>,
@@ -112,6 +116,7 @@ impl Default for Saved {
     fn default() -> Self {
         Self {
             link: LinkState::default(),
+            server: None,
             session: None,
             researches: Vec::new(),
             use_mac: true,
