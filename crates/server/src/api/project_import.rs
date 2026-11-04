@@ -5,10 +5,10 @@ use crate::{
     api::router::Cx,
     projects::imports::{self, Import, ImportError},
     protocol::{
-        ApiError, CopyProject, FindImportFork, HostRepos, ImportFork, ImportPreview, ImportProject,
-        ImportedProject, ListHostRepos, ListImportedProjects, ListMachineFolder,
-        ListProjectMachines, MachineFolder, PreviewImport, ProjectCopy, ProjectMachine,
-        RemoveProject,
+        ApiError, CopyProject, CreateProject, CreatedProject, FindImportFork, HostRepos,
+        ImportFork, ImportPreview, ImportProject, ImportedProject, ListHostRepos,
+        ListImportedProjects, ListMachineFolder, ListProjectForges, ListProjectMachines,
+        MachineFolder, PreviewImport, ProjectCopy, ProjectForge, ProjectMachine, RemoveProject,
     },
 };
 
@@ -37,6 +37,18 @@ pub(super) async fn import_project(cx: Cx, request: ImportProject) -> Reply<Impo
         .map_err(refusal)?;
     add_import_worktrees(&cx, &imported, &request.worktrees).await;
     Ok(imported)
+}
+
+pub(super) async fn list_project_forges(cx: Cx, _: ListProjectForges) -> Reply<Vec<ProjectForge>> {
+    imports::project_forges(&cx.app, &cx.user)
+        .await
+        .map_err(refusal)
+}
+
+pub(super) async fn create_project(cx: Cx, request: CreateProject) -> Reply<CreatedProject> {
+    imports::create_project(&cx.app, &cx.user, &request)
+        .await
+        .map_err(refusal)
 }
 
 pub(super) async fn preview_import(cx: Cx, request: PreviewImport) -> Reply<ImportPreview> {

@@ -122,24 +122,24 @@ fn repo(tmp: &Path) -> PathBuf {
 }
 
 /// A node serving a shell, the folder `tmp` and the stand-in agent.
-struct TestNode {
-    id: EndpointId,
+pub(crate) struct TestNode {
+    pub(crate) id: EndpointId,
     key: SecretKey,
     name: &'static str,
-    online: Online,
-    tmp: PathBuf,
+    pub(crate) online: Online,
+    pub(crate) tmp: PathBuf,
     widget: PathBuf,
     _dir: TempDir,
     task: JoinHandle<anyhow::Result<()>>,
 }
 
-struct World {
-    harness: Harness,
+pub(crate) struct World {
+    pub(crate) harness: Harness,
     router: Router,
 }
 
 impl World {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let harness = Harness::new(Scripted::default()).await;
         let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
@@ -153,7 +153,7 @@ impl World {
         Self { harness, router }
     }
 
-    async fn node(&self, name: &'static str) -> TestNode {
+    pub(crate) async fn node(&self, name: &'static str) -> TestNode {
         let key = SecretKey::generate();
         self.harness
             .alice

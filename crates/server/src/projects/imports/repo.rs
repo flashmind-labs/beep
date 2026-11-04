@@ -113,7 +113,7 @@ impl RepoRef {
         .filter(|opened| !opened.secret.expose_secret().is_empty())
     }
 
-    fn new(host: Host, org: &str, name: &str) -> Result<Self, ImportError> {
+    pub(super) fn new(host: Host, org: &str, name: &str) -> Result<Self, ImportError> {
         let name = name.strip_suffix(".git").unwrap_or(name);
         if !valid_part(org) || !valid_part(name) {
             return Err(ImportError::Malformed);
@@ -221,7 +221,7 @@ fn org_and_name(path: &str) -> Result<(&str, &str), ImportError> {
 }
 
 /// Letters, digits, `-`, `_` and `.`, not starting with a dot or dash: valid on hosts and as folders.
-fn valid_part(part: &str) -> bool {
+pub(super) fn valid_part(part: &str) -> bool {
     !part.is_empty()
         && part.len() <= MAX_PART
         && !part.starts_with(['.', '-'])

@@ -250,6 +250,8 @@ pub fn router() -> Router {
         .call(credentials::set_default_github_account)
         .call(project_import::import_project)
         .call(project_import::copy_project)
+        .call(project_import::create_project)
+        .call(project_import::list_project_forges)
         .call(project_import::list_imported_projects)
         .call(project_import::list_machine_folder)
         .call(project_import::list_project_machines)
