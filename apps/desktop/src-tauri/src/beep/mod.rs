@@ -1,10 +1,11 @@
-//! The connection to the Beep server (`Beep`), the runs it streams, linking
-//! to a phone, this Mac's key and saved state, and the local copy of chats.
+//! The connection to the Beep server (`Beep`), the runs it streams, signing in,
+//! linking to a phone, this Mac's key and saved state, and the local copy of chats.
 
 mod client;
 pub(crate) mod devices;
 pub(crate) mod identity;
 mod link;
+pub(crate) mod login;
 mod run;
 pub(crate) mod state;
 pub(crate) mod sync;
