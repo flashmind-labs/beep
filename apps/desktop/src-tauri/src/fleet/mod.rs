@@ -9,16 +9,21 @@
 mod carry;
 mod mesh;
 pub(crate) mod projects;
+mod status;
 
 use crate::{
     beep::AsyncMutex,
     error::{DesktopError, Result},
 };
-use beep_mesh::{DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn, with_deadline};
+use beep_mesh::{
+    DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, JoinTicket, Mesh, PeerClient, SessionFn,
+    with_deadline,
+};
 use beep_node::link::{Offers, peers::Peers};
 use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
+pub use status::Status;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
@@ -48,6 +53,7 @@ pub struct Fleet {
     /// The embedded node, as a call to this Mac reaches it.
     session: SessionFn,
     mesh: watch::Sender<Opened>,
+    status: Status,
     serving: Mutex<Option<Arc<Serving>>>,
     /// One `join` at a time.
     joining: AsyncMutex<()>,
@@ -62,9 +68,11 @@ impl Fleet {
         let peers = Peers::new(endpoint.clone(), dir.to_owned(), name.to_owned(), offers);
         // Sessions that open these wait for the services `run` starts.
         peers.expect(&mesh::LATER);
+        let session = peers.local_session();
         Self {
             me,
-            session: peers.local_session(),
+            status: Status::new(me, session.clone()),
+            session,
             endpoint,
             dir: dir.to_owned(),
             name: name.to_owned(),
@@ -118,6 +126,7 @@ impl Fleet {
                 if let Err(e) = carry::replay(&self.dir, &mesh).await {
                     log::warn!("{e}");
                 }
+                self.status.watch(mesh.clone()).await;
                 self.mesh.send_replace(Opened::Open(mesh));
             }
             Err(e) => {
@@ -145,10 +154,13 @@ impl Fleet {
         carry::save(&self.dir, &old.scan(""))?;
         self.peers.leave().await;
         self.mesh.send_replace(Opened::Opening);
+        // The follows hold the mesh, which closes only with none left.
+        self.status.stop().await;
         if let Err(in_use) = old.close().await {
             let message = in_use.to_string();
             let InUse(old) = in_use;
             self.peers.install(old.clone());
+            self.status.watch(old.clone()).await;
             self.mesh.send_replace(Opened::Open(old));
             carry::discard(&self.dir);
             return Err(DesktopError::BadRequest(message));
@@ -165,6 +177,7 @@ impl Fleet {
             }
         };
         self.peers.install(new.clone());
+        self.status.watch(new.clone()).await;
         let carried = carry::replay(&self.dir, &new).await;
         self.mesh.send_replace(Opened::Open(new));
         carried
@@ -181,6 +194,7 @@ impl Fleet {
         if let Some(serving) = serving {
             serving.stop().await;
         }
+        self.status.stop().await;
     }
 
     pub fn id(&self) -> EndpointId {
@@ -214,6 +228,28 @@ impl Fleet {
     /// the mesh is open.
     pub fn machines(&self) -> Vec<DeviceStatus> {
         self.mesh().map(|mesh| mesh.devices()).unwrap_or_default()
+    }
+
+    /// What the machines of the mesh last reported.
+    pub fn status(&self) -> &Status {
+        &self.status
+    }
+
+    /// Mints a ticket that brings a device of `kind` into the mesh. Only a
+    /// desktop can, and this Mac is one.
+    pub async fn invite(&self, kind: DeviceKind) -> Result<JoinTicket> {
+        Ok(self.ready().await?.invite(kind, DEFAULT_TICKET_TTL).await?)
+    }
+
+    /// Removes `machine` from the mesh for good. Every other member drops it
+    /// and its link.
+    pub async fn remove(&self, machine: EndpointId) -> Result<()> {
+        if machine == self.me {
+            return Err(DesktopError::BadRequest(
+                "this Mac cannot remove itself".into(),
+            ));
+        }
+        Ok(self.ready().await?.remove(machine).await?)
     }
 
     /// A client for `machine`. This Mac's own node is served in this process
@@ -263,11 +299,11 @@ mod tests {
     };
     use tempfile::TempDir;
 
-    const LIMIT: Duration = Duration::from_secs(60);
+    pub(super) const LIMIT: Duration = Duration::from_secs(60);
 
     /// An endpoint on loopback with no relay and no discovery: nothing here
     /// can reach a network.
-    async fn bind(key: &SecretKey) -> Endpoint {
+    pub(super) async fn bind(key: &SecretKey) -> Endpoint {
         Endpoint::builder(presets::Minimal)
             .secret_key(key.clone())
             .transport_config(transport_config())
@@ -276,18 +312,18 @@ mod tests {
             .expect("the endpoint binds")
     }
 
-    fn offers(dir: &TempDir) -> Offers {
+    pub(super) fn offers(dir: &TempDir) -> Offers {
         Offers::local(&[], Provision::new(dir.path()), false)
     }
 
-    struct Mac {
-        fleet: Arc<Fleet>,
-        endpoint: Endpoint,
-        dir: TempDir,
+    pub(super) struct Mac {
+        pub(super) fleet: Arc<Fleet>,
+        pub(super) endpoint: Endpoint,
+        pub(super) dir: TempDir,
     }
 
     /// A Mac that has started, with its mesh open and serving.
-    async fn start(name: &str) -> Mac {
+    pub(super) async fn start(name: &str) -> Mac {
         let dir = TempDir::new().expect("a temp dir");
         let endpoint = bind(&SecretKey::generate()).await;
         let fleet = Arc::new(Fleet::new(endpoint.clone(), dir.path(), name, offers(&dir)));
@@ -299,7 +335,7 @@ mod tests {
         }
     }
 
-    async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
+    pub(super) async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
         let mut updates = mesh.updates();
         timeout(LIMIT, async {
             loop {
@@ -314,13 +350,17 @@ mod tests {
         .expect("the condition came true in time");
     }
 
-    fn online(mesh: &Mesh, id: EndpointId) -> bool {
+    pub(super) fn online(mesh: &Mesh, id: EndpointId) -> bool {
         mesh.devices().iter().any(|d| d.device.id == id && d.online)
     }
 
     /// A device that joins the mesh of `host` as `kind`, serving its own
     /// side of the mesh so the two connect.
-    async fn join(host: &Fleet, kind: DeviceKind, name: &str) -> (Mesh, Router, Endpoint) {
+    pub(super) async fn join(
+        host: &Fleet,
+        kind: DeviceKind,
+        name: &str,
+    ) -> (Mesh, Router, Endpoint) {
         let ticket = host
             .mesh()
             .expect("the host is in a mesh")
@@ -510,6 +550,18 @@ mod tests {
         let (_tx, mut rx) = client.open("status/1").await.expect("the node opens it");
         let report = rx.recv::<Report>().await.expect("the node answers");
         assert!(matches!(report, Some(Report::Offers(_))), "{report:?}");
+    }
+
+    #[tokio::test]
+    async fn this_mac_cannot_remove_itself() {
+        let mac = start("Studio").await;
+        let error = mac
+            .fleet
+            .remove(mac.fleet.id())
+            .await
+            .expect_err("it stays");
+        assert_eq!(error.to_string(), "this Mac cannot remove itself");
+        assert_eq!(mac.fleet.machines().len(), 1);
     }
 
     #[tokio::test]
