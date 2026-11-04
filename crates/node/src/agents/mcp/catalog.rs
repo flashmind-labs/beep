@@ -5,8 +5,25 @@ use serde_json::{Value, json};
 /// The tool the node answers itself rather than the server.
 pub(super) const ASK_USER: &str = "ask_user";
 
-/// Every tool, in the order agents see them.
-pub(super) fn tools() -> Value {
+/// The tools that keep what the user told the agents, which only the
+/// server holds.
+const MEMORY: [&str; 4] = ["remember", "recall", "update_memory", "forget"];
+
+/// Every tool, in the order agents see them; without the memory tools when
+/// `memory` is off.
+pub(super) fn tools(memory: bool) -> Value {
+    let mut all = all();
+    if !memory && let Value::Array(list) = &mut all {
+        list.retain(|tool| {
+            tool.get("name")
+                .and_then(Value::as_str)
+                .is_none_or(|name| !MEMORY.contains(&name))
+        });
+    }
+    all
+}
+
+fn all() -> Value {
     let machine = |what: &str| json!({ "type": "string", "description": what });
     let scope = json!({
         "type": "string",

@@ -451,6 +451,11 @@ impl State {
             .collect()
     }
 
+    /// Every key that has an entry, deleted ones included.
+    pub fn held(&self) -> Vec<Key> {
+        self.winners.keys().cloned().collect()
+    }
+
     pub fn heads(&self) -> Heads {
         self.heads.clone()
     }

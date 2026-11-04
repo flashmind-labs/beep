@@ -167,13 +167,8 @@ impl World {
         let widget = repo(&tmp);
         fs::create_dir_all(tmp.join("in")).expect("a folder");
         let folders = Folders::new(std::slice::from_ref(&tmp));
-        let offers = Offers {
-            agents: Arc::new(Agents::new(vec![fake_claude()])),
-            extra: vec![Arc::new(folders) as Arc<dyn Protocol>],
-            provision: None,
-            tools: Default::default(),
-            traffic: Default::default(),
-        };
+        let mut offers = Offers::with_protocols(vec![Arc::new(folders) as Arc<dyn Protocol>]);
+        offers.agents = Arc::new(Agents::new(vec![fake_claude()]));
         let node = Endpoint::builder(presets::Minimal)
             .secret_key(key.clone())
             .bind()
@@ -971,13 +966,7 @@ async fn reconnect_reattaches_and_fails_lost_sessions() {
         turns: 2,
         ..SessionInfo::default()
     };
-    let offers = Offers {
-        agents: Arc::default(),
-        extra: vec![Arc::new(Restarted { kept }) as Arc<dyn Protocol>],
-        provision: None,
-        tools: Default::default(),
-        traffic: Default::default(),
-    };
+    let offers = Offers::with_protocols(vec![Arc::new(Restarted { kept }) as Arc<dyn Protocol>]);
     world.reconnect(&mut node, offers).await;
     let posted = posted_until(&world, |posted| {
         count(posted, REPLAN_LABEL, "is gone") == 1

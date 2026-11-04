@@ -142,7 +142,7 @@ impl Fleet {
         }
         // On disk first, so a crash after the swap still brings them along.
         carry::save(&self.dir, &old.scan(""))?;
-        self.peers.leave();
+        self.peers.leave().await;
         self.mesh.send_replace(Opened::Opening);
         if let Err(in_use) = old.close().await {
             let message = in_use.to_string();
@@ -249,6 +249,8 @@ mod tests {
     use beep_mesh::{DEADLINE, DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, transport_config};
     use beep_node::machine::provision::Provision;
     use beep_proto::node::{
+        harness::HarnessConfig,
+        mesh_state::StateValue,
         status::Report,
         tools::{self, Reply, Request, Tool},
     };
@@ -274,7 +276,7 @@ mod tests {
     }
 
     fn offers(dir: &TempDir) -> Offers {
-        Offers::local(&[], Provision::new(dir.path()))
+        Offers::local(&[], Provision::new(dir.path()), false)
     }
 
     struct Mac {
@@ -626,5 +628,40 @@ mod tests {
         let mesh = fleet.mesh().expect("the mesh is open");
         assert_eq!(mesh.get(&Key::Instructions), Some(b"keep".to_vec()));
         assert!(!dir.path().join("carry.json").exists());
+    }
+
+    #[tokio::test]
+    async fn the_node_follows_the_new_mesh_after_a_join() {
+        let studio = start("Studio").await;
+        let ticket = ticket(&studio).await;
+        let dir = TempDir::new().expect("a temp dir");
+        let node_offers = offers(&dir);
+        let endpoint = bind(&SecretKey::generate()).await;
+        let laptop = Fleet::new(endpoint, dir.path(), "Laptop", node_offers.clone());
+        laptop.run(None).await;
+        laptop.join(&ticket, "Laptop").await.expect("joins");
+        // A setting the first Mac writes in the mesh the Laptop joined
+        // reaches the Laptop's node, which followed its old mesh before.
+        let setting = HarnessConfig {
+            enabled: false,
+            ..HarnessConfig::new("codex")
+        };
+        studio
+            .fleet
+            .mesh()
+            .expect("the mesh is open")
+            .set(
+                Key::Harness("codex".to_owned()),
+                Some(setting.to_bytes().expect("it encodes")),
+            )
+            .await
+            .expect("the setting is written");
+        timeout(LIMIT, async {
+            while node_offers.agents.settings().harnesses != [setting.clone()] {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the node took the setting from the new mesh");
     }
 }

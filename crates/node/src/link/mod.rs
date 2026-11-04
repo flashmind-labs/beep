@@ -3,10 +3,11 @@
 //! connected (`reconnect`), and what carries over a restart (`restart`).
 
 mod connection;
+mod from_mesh;
 pub mod local;
 pub(crate) mod local_socket;
 pub(crate) mod note;
-mod peer_tools;
+pub(crate) mod peer_tools;
 pub mod peers;
 pub mod reconnect;
 pub(crate) mod restart;

@@ -10,7 +10,7 @@ use crate::{
     Merged, MeshError, State, WriteLimit,
 };
 use iroh::{EndpointAddr, EndpointId, SecretKey};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -36,6 +36,8 @@ fn remove_if_present(dir: &Path) -> Result<(), MeshError> {
 pub(crate) struct View {
     pub devices: Devices,
     pub values: BTreeMap<Key, Vec<u8>>,
+    /// Every key that was ever written, deleted ones included.
+    pub held: BTreeSet<Key>,
 }
 
 pub(crate) type SharedView = Arc<RwLock<Arc<View>>>;
@@ -62,6 +64,7 @@ impl Core {
         let view = Arc::new(View {
             devices: devices.clone(),
             values: BTreeMap::new(),
+            held: BTreeSet::new(),
         });
         let core = Core {
             key,
@@ -204,6 +207,7 @@ impl Core {
         let view = View {
             devices: self.devices.clone(),
             values,
+            held: self.state.held().into_iter().collect(),
         };
         *self.view.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(view);
         self.rev.send_modify(|n| *n = n.wrapping_add(1));

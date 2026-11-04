@@ -208,9 +208,12 @@ impl Session {
             alerts,
             node,
         } = start;
+        let memory = rules.as_ref().is_none_or(Upstream::has_server);
         let brief = match (brief, &mcp) {
-            (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::agents::mcp::BRIEF)),
-            (None, Some(_)) => Some(crate::agents::mcp::BRIEF.to_owned()),
+            (Some(brief), Some(_)) => {
+                Some(format!("{brief}\n\n{}", crate::agents::mcp::brief(memory)))
+            }
+            (None, Some(_)) => Some(crate::agents::mcp::brief(memory)),
             (brief, None) => brief.map(str::to_owned),
         };
         // Only a new session takes a model and thinking level; a resumed

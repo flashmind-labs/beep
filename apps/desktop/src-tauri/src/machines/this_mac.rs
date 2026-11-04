@@ -90,10 +90,11 @@ struct NodeHome {
 
 impl Machine {
     /// The machine whose node keeps its tools, teacli config and sockets
-    /// in `dir`.
-    pub fn new(dir: &Path) -> Self {
+    /// in `dir`. `has_server` says whether the app has a server, which holds
+    /// the memory tools; without one agents are not told of them.
+    pub fn new(dir: &Path, has_server: bool) -> Self {
         let provision = Provision::new(dir);
-        let mut offers = Offers::local(&[], provision.clone());
+        let mut offers = Offers::local(&[], provision.clone(), has_server);
         offers.extra.push(Arc::new(desktop::Desktop));
         // The embedded node logs to the app's own file.
         if let Some(log) = logfile::current() {
@@ -244,5 +245,17 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
         }
         set(Status::Connecting);
         sleep(backoff.pause()).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mac_with_no_server_offers_no_memory_tools() {
+        let dir = std::env::temp_dir().join(format!("beep-this-mac-{}", std::process::id()));
+        assert!(!Machine::new(&dir, false).offers().has_server());
+        assert!(Machine::new(&dir, true).offers().has_server());
     }
 }
