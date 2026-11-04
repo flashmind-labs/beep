@@ -8,6 +8,10 @@ pub(super) const ASK_USER: &str = "ask_user";
 /// Every tool, in the order agents see them.
 pub(super) fn tools() -> Value {
     let machine = |what: &str| json!({ "type": "string", "description": what });
+    let scope = json!({
+        "type": "string",
+        "description": "What it is about: user (the default), machine:<name>, project:<name> or account:<app>"
+    });
     json!([
         {
             "name": "list_machines",
@@ -118,6 +122,68 @@ pub(super) fn tools() -> Value {
                 "additionalProperties": false
             },
             "annotations": { "title": "Read a machine's log", "readOnlyHint": true }
+        },
+        {
+            "name": "remember",
+            "description": "Save a lasting instruction or preference the user states, such as \
+                \"always use the Windows machine for Blender\", in Beep's memories. Every coding \
+                agent on every machine gets it, and the user sees it on the Memories page. Use it \
+                when the user tells you how they always want something done, not for notes on \
+                this task. One short self-contained sentence. Never store secrets.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "content": { "type": "string", "description": "The rule as one short sentence that names its subject" },
+                    "scope": scope
+                },
+                "required": ["content"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Remember", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
+            "name": "recall",
+            "description": "Search Beep's memories of the user by meaning, best first; an empty \
+                query lists the newest. Use it before a decision they may have spoken to, such \
+                as which machine, tool or workflow to use. Each result has an id, which \
+                update_memory and forget take.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "What to look for" },
+                    "scope": scope
+                },
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Recall", "readOnlyHint": true }
+        },
+        {
+            "name": "update_memory",
+            "description": "Replace a memory's text, when the user corrects it or it is wrong. \
+                Give the id recall gave and the full new sentence.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "The id recall gave" },
+                    "content": { "type": "string", "description": "The full new sentence" },
+                    "scope": scope
+                },
+                "required": ["id", "content"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Update a memory", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
+            "name": "forget",
+            "description": "Delete a memory that no longer holds, by the id recall gave, when \
+                the user asks or it is plainly wrong.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string", "description": "The id recall gave" } },
+                "required": ["id"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Forget a memory", "destructiveHint": true, "openWorldHint": false }
         },
         {
             "name": ASK_USER,

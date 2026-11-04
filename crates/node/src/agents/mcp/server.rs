@@ -171,7 +171,9 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
         return ask_user(backend, session, args).await;
     }
     let tool = match name.parse::<Tool>() {
-        Ok(Tool::Unknown) | Err(_) => return Called::failed(format!("There is no tool {name}.")),
+        Ok(Tool::Unknown | Tool::StandingRules) | Err(_) => {
+            return Called::failed(format!("There is no tool {name}."));
+        }
         Ok(tool) => tool,
     };
     let mut request = Request {
@@ -417,9 +419,22 @@ mod tests {
                 "job_status",
                 "cancel",
                 "machine_log",
+                "remember",
+                "recall",
+                "update_memory",
+                "forget",
                 "ask_user"
             ]
         );
+        let hints = |name: &str| {
+            let tools = out[1]["result"]["tools"].as_array().unwrap();
+            let tool = tools.iter().find(|tool| tool["name"] == name).unwrap();
+            tool["annotations"].clone()
+        };
+        // Codex asks unless a tool reads only, or is neither destructive nor open world.
+        assert_eq!(hints("recall")["readOnlyHint"], true);
+        assert_eq!(hints("remember")["destructiveHint"], false);
+        assert_eq!(hints("remember")["openWorldHint"], false);
         assert_eq!(text(&out[2]), "- build-box: online");
         assert_eq!(out[2]["result"]["isError"], false);
         assert_eq!(text(&out[3]), "build-box is offline.");

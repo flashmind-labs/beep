@@ -11,6 +11,7 @@ use crate::agents::{
     images::Picture,
     known,
     live::{Live, TurnTokens, cut},
+    mcp::Upstream,
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
 use agent_client_protocol::{
@@ -190,6 +191,8 @@ pub(super) struct Actor {
     pub(super) running: HashSet<ToolCallId>,
     /// Beep's word to the agent, until the first prompt carries it.
     pub(super) brief: Option<String>,
+    /// Where to read the user's standing rules before the session starts.
+    pub(super) rules: Option<Upstream>,
     /// The MCP servers the agent's session gets.
     pub(super) mcp_servers: Vec<McpServer>,
     /// Questions waiting, the first one shown.
@@ -247,6 +250,7 @@ impl Actor {
         // aborted with its session included; `stop` below is the gentle way.
         let mut child = GroupLeader::new(child);
         let held = child.hold_output();
+        self.read_rules().await;
         let end = self.serve(child.child_mut(), &mut orders).await;
         // The node stopping ends its sessions, whether it closed them or the
         // service manager stopped the agents first.
@@ -305,6 +309,21 @@ impl Actor {
             }
         });
         crate::link::restart::changed();
+    }
+
+    /// Adds the user's standing rules to the brief, when they can be read.
+    /// They go in the first prompt rather than the MCP server's instructions,
+    /// which only reach an agent that reads those.
+    async fn read_rules(&mut self) {
+        let Some(upstream) = self.rules.take() else {
+            return;
+        };
+        if let Some(rules) = upstream.standing_rules(&self.session).await {
+            self.brief = Some(match self.brief.take() {
+                Some(brief) => format!("{brief}\n\n{rules}"),
+                None => rules,
+            });
+        }
     }
 
     async fn serve(
