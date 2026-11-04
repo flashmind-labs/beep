@@ -2,7 +2,11 @@
 //! pseudo-terminals (`terminal/1`). Which terminal is which task is for
 //! the caller to remember; the node only knows its tasks.
 
-use super::{Tasks, said, unexpected};
+use super::{
+    Tasks,
+    node::{TASK_LIMIT, Words, exchange},
+    said, unexpected,
+};
 use crate::{MeshError, PeerClient};
 use beep_proto::{
     ApiError, TerminalEvent, TerminalState,
@@ -26,7 +30,11 @@ pub struct Kept<'a> {
 
 /// Sends one `terminal/1` request.
 pub async fn request(client: &PeerClient, request: &Request) -> Result<Reply, MeshError> {
-    client.call(PROTOCOL, request).await
+    let words = Words {
+        silent: "the node stopped answering",
+        closed: "the node closed the terminal session",
+    };
+    exchange(client, TASK_LIMIT, PROTOCOL, request, words).await
 }
 
 /// Starts an interactive terminal on `command`, or the shell when none.

@@ -46,6 +46,7 @@ pub enum Key {
     Pin(String),
     Credential(String),
     Harness(String),
+    Terminal(String),
     Flsh,
     Instructions,
 }
@@ -59,6 +60,7 @@ impl fmt::Display for Key {
             Key::Pin(n) => write!(f, "pin/{n}"),
             Key::Credential(n) => write!(f, "credential/{n}"),
             Key::Harness(n) => write!(f, "harness/{n}"),
+            Key::Terminal(n) => write!(f, "terminal/{n}"),
             Key::Flsh => f.write_str("flsh"),
             Key::Instructions => f.write_str("instructions"),
         }
@@ -87,6 +89,7 @@ impl FromStr for Key {
             "pin" => Ok(Key::Pin(name)),
             "credential" => Ok(Key::Credential(name)),
             "harness" => Ok(Key::Harness(name)),
+            "terminal" => Ok(Key::Terminal(name)),
             _ => Err(bad()),
         }
     }
@@ -623,6 +626,7 @@ mod tests {
             Key::Pin("p".into()),
             Key::Credential("c".into()),
             Key::Harness("claude".into()),
+            Key::Terminal("t".into()),
             Key::Flsh,
             Key::Instructions,
         ];

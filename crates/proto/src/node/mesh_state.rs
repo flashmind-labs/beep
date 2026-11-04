@@ -1,5 +1,5 @@
 //! What a mesh's replicated state holds for nodes: the values of the keys
-//! `sync/<name>`, `credential/<id>` and `harness/<agent>` (and `flsh`, which
+//! `sync/<name>`, `credential/<id>`, `harness/<agent>` and `terminal/<id>` (and `flsh`, which
 //! is a `FlshSettings`). Desktops write them, nodes read them. Encoded as
 //! msgpack maps with named fields, like the node link, so a field may be
 //! added with `#[serde(default)]`.
@@ -28,6 +28,26 @@ pub enum Credential {
     Forgejo(ForgejoLogin),
 }
 
+/// `terminal/<id>`: a terminal a desktop keeps running on a machine. The
+/// node knows its tasks by number; this says which one is which, so every
+/// desktop lists the same terminals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalRecord {
+    /// `org/repo`, or empty for a terminal of no project.
+    pub project: String,
+    /// The machine it runs on.
+    pub machine: EndpointId,
+    pub task: u32,
+    /// An interactive terminal, not a view-only task.
+    pub pty: bool,
+    pub name: String,
+    /// What it ran; tells apart a restarted node's task under the same number.
+    pub command: String,
+    pub cwd: String,
+    /// Milliseconds since the Unix epoch.
+    pub started_at: u64,
+}
+
 /// A value that is stored in the mesh's state as bytes.
 pub trait StateValue: Serialize + DeserializeOwned {
     fn to_bytes(&self) -> Result<Vec<u8>, rmp_serde::encode::Error> {
@@ -41,6 +61,7 @@ pub trait StateValue: Serialize + DeserializeOwned {
 
 impl StateValue for SyncSpec {}
 impl StateValue for Credential {}
+impl StateValue for TerminalRecord {}
 impl StateValue for HarnessConfig {}
 impl StateValue for crate::FlshSettings {}
 

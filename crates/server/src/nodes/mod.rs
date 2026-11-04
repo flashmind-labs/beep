@@ -110,7 +110,7 @@ pub struct Nodes {
     /// Woken when a node connects or drops, for calls waiting on one.
     changed: Notify,
     /// The newest `gh` and `teacli` releases, for `ListToolUpdates`.
-    pub releases: tool_update::ToolReleases,
+    pub releases: beep_mesh::machine::releases::ToolReleases,
 }
 
 /// How long after a node drops a call still waits for it to come back:
