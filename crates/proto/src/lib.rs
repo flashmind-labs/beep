@@ -1366,12 +1366,12 @@ requests! {
     383 ListWorkTree { machine_id: String, root: String, path: String, ignored: bool, depth: u32 } => Call<WorkTree>
     /// Has one of the caller's online machines install the newest
     /// beep-node over itself and restart, as `beep-node update` does
-    /// there. The restart stops the agent sessions the node runs, so
-    /// while any run it is refused unless `stop_sessions`. The reply
-    /// comes once it is installed, before the restart. `NotFound` when
-    /// the machine is not the caller's; `BadRequest` saying why when it is
-    /// offline, too old to be updated this way, runs agent sessions, or
-    /// the update failed.
+    /// there. It holds new prompts and restarts once its agent sessions
+    /// are idle, or after a wait; `stop_sessions` restarts at once. The
+    /// sessions resume after the restart. The reply comes once it is
+    /// installed, before the restart. `NotFound` when the machine is not
+    /// the caller's; `BadRequest` saying why when it is offline, too old to
+    /// be updated this way, or the update failed.
     390 UpdateMachine { machine_id: String, stop_sessions: bool } => Call<MachineUpdate>
     /// The caller's online machines that `UpdateMachine` can update. A
     /// machine missing here is updated on the machine.
@@ -1390,7 +1390,7 @@ requests! {
 pub struct UpdatableMachine {
     /// Its `Machine::id`.
     pub id: String,
-    /// The agent sessions running on it, which an update stops.
+    /// The agent sessions running on it, which an update waits for.
     pub agent_sessions: u32,
 }
 

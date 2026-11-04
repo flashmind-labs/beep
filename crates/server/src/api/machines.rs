@@ -88,19 +88,7 @@ pub(super) async fn update_machine(
             owned.name
         )));
     }
-    if !stop_sessions {
-        match online.running_agent_sessions().await {
-            Ok(0) => {}
-            Ok(running) => return Err(ApiError::bad_request(sessions_stop(running))),
-            Err(e) => {
-                log::info!("agent sessions not counted; node={machine_id} error={e:#}");
-                return Err(ApiError::bad_request(
-                    "Could not tell whether agent sessions are running there; they would stop.",
-                ));
-            }
-        }
-    }
-    let updated = online.update().await.map_err(|e| {
+    let updated = online.update(stop_sessions).await.map_err(|e| {
         log::info!("node update failed; node={machine_id} error={e:#}");
         ApiError::bad_request(format!("{e:#}"))
     })?;
@@ -139,14 +127,6 @@ pub(super) async fn list_updatable_machines(
         .collect::<FuturesOrdered<_>>()
         .collect()
         .await)
-}
-
-/// What an update would stop, as the refusal says it.
-fn sessions_stop(running: u32) -> String {
-    match running {
-        1 => "1 agent session is running and will stop.".to_owned(),
-        n => format!("{n} agent sessions are running and will stop."),
-    }
 }
 
 /// Like `list_machines`, with details; one not reported yet is listed empty.

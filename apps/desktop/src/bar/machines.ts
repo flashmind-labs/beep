@@ -1,6 +1,6 @@
 import { openAddMachine } from "../addmachine.ts";
 import { harnessTile } from "../harnessicon.ts";
-import { asksToStop, bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, sessionsStop, specLine, toolChips, updatedTo } from "../machines-state.ts";
+import { bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, specLine, toolChips, updatedTo } from "../machines-state.ts";
 import { bar, esc, ICON, invoke, S } from "./core.ts";
 import { hints } from "./hints.ts";
 import { emptyPage, errLine } from "./memories.ts";
@@ -45,11 +45,11 @@ export const MC: {
   error: string;
   mac: string | null;
   asking: { id: string; busy: boolean; error: string } | null;
-  /// The machines Update works on, with the agent sessions it would stop.
-  updatable: Map<string, number>;
+  /// The machines Update works on.
+  updatable: Set<string>;
   /// Update's progress by machine.
   updates: Map<string, NodeUpdate>;
-} = { list: null, error: "", mac: null, asking: null, updatable: new Map(), updates: new Map() };
+} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map() };
 const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
 
 // ---------- Where Machines draws ----------
@@ -93,10 +93,10 @@ export async function renderMachines(id: string | null = null) {
     const [list, mac, updatable] = await Promise.all([
       invoke<Machine[]>("list_machines"),
       invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this Mac's state:", e); return null; }),
-      invoke<{ id: string; agent_sessions: number }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
+      invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
     ]);
     MC.list = list;
-    MC.updatable = new Map(updatable.map(u => [u.id, u.agent_sessions]));
+    MC.updatable = new Set(updatable.map(u => u.id));
     MC.mac = mac?.id || null;
     MC.error = "";
   } catch (e) {
@@ -123,45 +123,35 @@ async function removeMachine() {
   if (shown()) drawMachines();
 }
 
-/// Update on a machine's page: asks first when agent sessions run there.
-function startUpdate(id: string) {
-  const sessions = MC.updatable.get(id) ?? 0;
-  if (sessions > 0) {
-    MC.updates.set(id, { step: "confirm", text: sessionsStop(sessions) });
-    if (shown()) drawMachines();
-    return;
-  }
-  void runUpdate(id, false);
-}
-
 /// Has the server update machine `id`'s beep-node, then waits for it to
 /// come back on the new version.
-async function runUpdate(id: string, stopSessions: boolean) {
+async function runUpdate(id: string) {
   MC.updates.set(id, { step: "updating" });
   if (shown()) drawMachines();
   try {
-    const done = await invoke<{ from: string; to: string; restarting: boolean; note: string }>("update_machine", { id, stopSessions });
+    const done = await invoke<{ from: string; to: string; restarting: boolean; note: string }>("update_machine", { id });
     if (done.restarting) {
-      MC.updates.set(id, { step: "restarting", to: done.to });
-      void waitForNode(id, done.to);
+      MC.updates.set(id, { step: "restarting", to: done.to, note: done.note });
+      void waitForNode(id, done.to, done.note ? IDLE_POLLS : RESTART_POLLS);
     } else if (done.from === done.to) {
       MC.updates.set(id, { step: "note", text: `beep-node ${done.to} is the newest release.` });
     } else {
       MC.updates.set(id, { step: "note", text: `Installed beep-node ${done.to}. ${done.note}` });
     }
   } catch (e) {
-    const text = errorText(e);
-    MC.updates.set(id, asksToStop(text) ? { step: "confirm", text } : { step: "failed", error: text });
+    MC.updates.set(id, { step: "failed", error: errorText(e) });
   }
   if (shown()) drawMachines();
 }
 
-/// How often, and how many times, the list is read while a node restarts.
-const RESTART_POLL_MS = 3000, RESTART_POLLS = 60;
+/// How often, and how many times, the list is read while a node restarts;
+/// one waiting for its sessions has up to half an hour more.
+const RESTART_POLL_MS = 3000, RESTART_POLLS = 60, IDLE_POLLS = RESTART_POLLS + 600;
 
-/// Reads the list until machine `id` is back on `to`, or gives up.
-async function waitForNode(id: string, to: string) {
-  for (let i = 0; i < RESTART_POLLS; i++) {
+/// Reads the list `polls` times until machine `id` is back on `to`, or
+/// gives up.
+async function waitForNode(id: string, to: string, polls: number) {
+  for (let i = 0; i < polls; i++) {
     await new Promise(r => setTimeout(r, RESTART_POLL_MS));
     const now = MC.updates.get(id);
     if (now?.step !== "restarting" || now.to !== to) return;
@@ -188,21 +178,17 @@ function updateControl(m: Machine) {
   const up = MC.updates.get(m.id);
   if (up?.step === "updating") return ' <span class="dtag ask">Updating…</span>';
   if (up?.step === "restarting") return ` <span class="dtag ask">Restarting on ${esc(up.to)}…</span>`;
-  if (!m.online || !nodeBehind(m.version, newest()) || up?.step === "confirm") return "";
+  if (!m.online || !nodeBehind(m.version, newest())) return "";
   if (MC.updatable.has(m.id)) return ` <button class="dbtn" data-nodeup="${esc(m.id)}">${up?.step === "failed" ? "Try again" : "Update"}</button>`;
   if (m.id === MC.mac) return "";
   return ' <span class="dmuted">Run <span class="dmono">beep-node update</span> on the machine</span>';
 }
 
-/// Under the facts: Update's question, its error or its note.
+/// Under the facts: Update's error or its note.
 function updateLine(m: Machine) {
   const up = MC.updates.get(m.id);
-  if (up?.step === "confirm") {
-    return `<div class="dmach dset-rm"><div class="ask"><span>${esc(up.text)}</span>
-      <span class="acts"><button class="dbtn warn" id="nuYes" data-id="${esc(m.id)}">Update anyway</button><button class="dbtn" id="nuNo" data-id="${esc(m.id)}">Cancel</button></span></div></div>`;
-  }
   if (up?.step === "failed") return errLine(up.error);
-  if (up?.step === "note") return `<div class="dmuted">${esc(up.text)}</div>`;
+  if (up?.step === "note" || (up?.step === "restarting" && up.note)) return `<div class="dmuted">${esc(up.step === "note" ? up.text : up.note)}</div>`;
   return "";
 }
 
@@ -339,10 +325,8 @@ function drawMachines() {
   el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) renderMachines(hosted()?.machine ?? null); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
   for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) {
-    b.addEventListener("click", () => startUpdate(b.dataset.nodeup!));
+    b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
   }
-  el.querySelector<HTMLElement>("#nuYes")?.addEventListener("click", e => { void runUpdate((e.currentTarget as HTMLElement).dataset.id!, true); });
-  el.querySelector<HTMLElement>("#nuNo")?.addEventListener("click", e => { MC.updates.delete((e.currentTarget as HTMLElement).dataset.id!); drawMachines(); });
   el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });
 }
 
