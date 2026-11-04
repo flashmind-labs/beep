@@ -9,6 +9,7 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
+    migrate::{UNMOVED, Unmoved, unmoved_key},
     peer::probe,
     records::{WRITES, now_ms, time},
 };
@@ -260,7 +261,24 @@ impl Desk {
                 unreadable: false,
             });
         }
+        out.extend(self.unmoved(&out));
         out
+    }
+
+    /// Credentials an account move found on its server with no value to bring: shown as ones to
+    /// enter again, until one is saved for the same slot.
+    fn unmoved(&self, listed: &[Credential]) -> Vec<Credential> {
+        let held: Vec<Slot> = self.saved().into_iter().map(|saved| saved.slot).collect();
+        let mut kept: Vec<Credential> = crate::records::scan::<Unmoved>(&self.mesh, UNMOVED)
+            .into_iter()
+            .map(|(_, Unmoved(credential))| credential)
+            .filter(|credential| {
+                Slot::from_wire(&credential.kind).is_ok_and(|slot| !held.contains(&slot))
+            })
+            .filter(|credential| !listed.iter().any(|row| row.id == credential.id))
+            .collect();
+        kept.sort_by(|a, b| a.id.cmp(&b.id));
+        kept
     }
 
     /// Checks `secret` with its host and saves it. A GitHub token is saved as the account it signs
@@ -485,7 +503,13 @@ impl Desk {
         let _write = WRITES.lock().await;
         let saved = self.saved();
         let Some(removed) = saved.iter().find(|saved| saved.id == id) else {
-            return Err(FleetError::NotFound);
+            // One an account move left to enter again.
+            let record = unmoved_key(id);
+            if self.mesh.get(&record).is_none() {
+                return Err(FleetError::NotFound);
+            }
+            self.mesh.set(record, None).await?;
+            return Ok(());
         };
         if removed.github.is_none() {
             return self.drop_keys(id).await;

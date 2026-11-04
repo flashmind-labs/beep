@@ -1079,3 +1079,66 @@ async fn a_checkout_here_is_read_without_asking_the_other_machines() {
         .expect("nothing waits on a machine that never answers");
     assert_eq!(got, (1, 1, "fix".to_owned()));
 }
+
+/// A server that lists one credential with no value, as a real one does.
+struct LastFour;
+
+#[async_trait]
+impl beep_fleet::migrate::Source for LastFour {
+    async fn imports(&self) -> beep_fleet::Result<Vec<beep_proto::ImportedProject>> {
+        Ok(Vec::new())
+    }
+    async fn sync(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectSync>> {
+        Ok(Vec::new())
+    }
+    async fn groups(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectGroup>> {
+        Ok(Vec::new())
+    }
+    async fn on_top(&self) -> beep_fleet::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+    async fn credentials(&self) -> beep_fleet::Result<Vec<beep_proto::Credential>> {
+        Ok(vec![beep_proto::Credential {
+            id: "7".into(),
+            kind: CredentialKind::ApiKey {
+                provider: "openrouter".into(),
+            },
+            last4: "9f3a".into(),
+            account: None,
+            env_var: "OPENROUTER_API_KEY".into(),
+            to_machines: true,
+            created_at: SystemTime::UNIX_EPOCH,
+            unreadable: false,
+        }])
+    }
+    async fn harness(
+        &self,
+        _: &str,
+    ) -> beep_fleet::Result<Vec<beep_proto::MachineHarnessSettings>> {
+        Ok(Vec::new())
+    }
+    async fn flsh(&self) -> beep_fleet::Result<beep_proto::FlshSettings> {
+        Ok(beep_proto::FlshSettings::default())
+    }
+    async fn instructions(&self) -> beep_fleet::Result<Vec<beep_proto::InstructionsVersion>> {
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
+    let studio = create("Studio").await;
+    beep_fleet::migrate::run(&studio.mesh, &LastFour, "server-one")
+        .await
+        .expect("the account moves");
+    let desk = desk(&studio, &[]).await;
+    let listed = desk.credentials();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].unreadable);
+    assert_eq!(listed[0].last4, "9f3a");
+    assert!(matches!(listed[0].kind, CredentialKind::ApiKey { .. }));
+    desk.remove_credential("7")
+        .await
+        .expect("removes the record");
+    assert!(desk.credentials().is_empty());
+}
