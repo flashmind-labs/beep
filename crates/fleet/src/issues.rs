@@ -9,7 +9,7 @@ use crate::{
 };
 use beep_mesh::Key;
 use beep_projects::{
-    credentials::Slot,
+    credentials::{Slot, last4},
     git_items::board::{Login, read},
     issues::{issue_view, list_open, list_open_prs, pull_request_head, pull_request_view},
 };
@@ -18,6 +18,10 @@ use beep_proto::{
     PullRequestHead,
 };
 use secrecy::ExposeSecret;
+use std::{
+    sync::{Mutex, PoisonError},
+    time::{Duration, Instant},
+};
 use uuid::Uuid;
 
 /// A project's id on this desktop. The apps address a project by an id, and with no server to
@@ -120,6 +124,51 @@ impl Desk {
             .filter(|login| matches!(login.slot, Slot::GitHub | Slot::Forgejo(_)))
             .filter(|login| !login.secret.expose_secret().is_empty())
             .collect();
-        Ok(read(&self.hosts, &logins).await?)
+        let key: Vec<String> = logins
+            .iter()
+            .map(|login| {
+                let tail = last4(login.secret.expose_secret());
+                format!("{:?}/{tail}/{:?}", login.slot, login.account)
+            })
+            .collect();
+        if let Some(kept) = fresh(&key) {
+            return Ok(kept);
+        }
+        let items = read(&self.hosts, &logins).await?;
+        *BOARD.lock().unwrap_or_else(PoisonError::into_inner) = Some(Kept {
+            key,
+            at: Instant::now(),
+            items: items.clone(),
+        });
+        Ok(items)
     }
+}
+
+/// How long the list is kept when every host answered.
+const FRESH: Duration = Duration::from_secs(180);
+/// How long it is kept when a host failed, to try that one again sooner.
+const FRESH_AFTER_ERROR: Duration = Duration::from_secs(60);
+
+/// The last list, and the tokens it was read with, so a token change reads again.
+struct Kept {
+    key: Vec<String>,
+    at: Instant,
+    items: LabeledGitItems,
+}
+
+/// A host's rate limit is not a desktop's to spend on every call, so Home's list is kept for a few
+/// minutes, as the server keeps it.
+static BOARD: Mutex<Option<Kept>> = Mutex::new(None);
+
+fn fresh(key: &[String]) -> Option<LabeledGitItems> {
+    let kept = BOARD.lock().unwrap_or_else(PoisonError::into_inner);
+    let kept = kept.as_ref()?;
+    let failed = kept
+        .items
+        .found
+        .hosts
+        .iter()
+        .any(|host| host.error.is_some());
+    let ttl = if failed { FRESH_AFTER_ERROR } else { FRESH };
+    (kept.key == key && kept.at.elapsed() < ttl).then(|| kept.items.clone())
 }
