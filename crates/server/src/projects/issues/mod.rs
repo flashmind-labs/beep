@@ -21,8 +21,8 @@ use super::{
     model::IssueHost,
 };
 use crate::store::{ProjectRow, TaskRow};
-use anyhow::{Result, bail};
-use std::time::Duration;
+use anyhow::Result;
+use beep_projects::issues::SourceError;
 
 pub(crate) use super::commands::OpenIssue;
 
@@ -30,8 +30,7 @@ pub(crate) use super::commands::OpenIssue;
 const MAX_RETRIES: usize = 5;
 /// The most of an issue's text a task made from it keeps.
 const MAX_ISSUE_TEXT: usize = 16 * 1024;
-/// How long one host command may take.
-pub(crate) const HOST_LIMIT: Duration = Duration::from_secs(30);
+pub(crate) use beep_projects::issues::{HOST_LIMIT, head, run_rendered};
 
 /// Runs `command` against the project's `host`, failing unless it exits 0.
 pub(crate) async fn run_host(
@@ -40,31 +39,7 @@ pub(crate) async fn run_host(
     project: &ProjectRow,
     command: HostCommand<'_>,
 ) -> Result<String> {
-    run_rendered(shell, &command.render(host, &project.name)).await
-}
-
-/// Runs the host command `rendered`, failing unless it exits 0.
-pub(crate) async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
-    let out = shell.run(rendered, HOST_LIMIT).await?;
-    match out.code {
-        Some(0) => Ok(out.out),
-        code => {
-            let tail: String = out
-                .out
-                .chars()
-                .rev()
-                .take(400)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            bail!(
-                "the host command exited with {}: {}",
-                code.map_or("no code".to_owned(), |code| code.to_string()),
-                tail.trim()
-            )
-        }
-    }
+    beep_projects::issues::run_host(shell, host, &project.name, command).await
 }
 
 /// Why listing or tracking open issues failed.
@@ -81,16 +56,16 @@ pub(crate) enum IssueError {
 }
 
 fn host_failed(error: &anyhow::Error) -> IssueError {
-    IssueError::Refused(format!("Could not read the issues host: {error:#}"))
+    beep_projects::issues::host_failed(error).into()
 }
 
-/// The start of `text`, at most `max` bytes, cut on a character boundary.
-pub(super) fn head(text: &str, max: usize) -> &str {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
+impl From<SourceError> for IssueError {
+    fn from(error: SourceError) -> Self {
+        match error {
+            SourceError::Refused(why) => Self::Refused(why),
+            SourceError::Store(error) => Self::Store(error),
+        }
     }
-    &text[..end]
 }
 
 #[cfg(test)]
