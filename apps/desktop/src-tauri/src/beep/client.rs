@@ -9,7 +9,7 @@ use crate::{
     error::{DesktopError, Result},
 };
 use beep_proto::{
-    Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions, Session,
+    ApiError, Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions, Session,
     SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription,
     client::{Client, Node, OnNotice, Replies, Uplink},
 };
@@ -229,6 +229,11 @@ impl Beep {
             LinkState::Revoked => return Err(DesktopError::Revoked),
             LinkState::Linked => {}
         }
+        self.connection().await
+    }
+
+    /// The open connection, or a new one, whatever the link state.
+    async fn connection(&self) -> Result<Arc<Client>> {
         let mut cached = self.client.lock().await;
         if let Some(client) = cached.as_ref() {
             if client.is_revoked() {
@@ -245,6 +250,47 @@ impl Beep {
         let client = Arc::new(connect_in_time(self.node.connect(), CONNECT_TIMEOUT).await?);
         *cached = Some(client.clone());
         Ok(client)
+    }
+
+    /// Whether the server has hosted sign-in. Makes no account on one without.
+    pub(super) async fn has_login(&self) -> bool {
+        self.node.has_login().await
+    }
+
+    /// `call` for a key that may have no account yet, which only a server
+    /// that took it as a guest answers. A connection that went away is
+    /// replaced once, with the same key.
+    pub(super) async fn guest_call<R: Call>(&self, request: R) -> Result<R::Reply> {
+        let mut client = self.connection().await?;
+        let mut reply = timeout(CALL_TIMEOUT, client.call(&request)).await;
+        if matches!(&reply, Ok(Err(e)) if e.downcast_ref::<ApiError>().is_none()) {
+            self.forget_connection().await;
+            client = self.connection().await?;
+            reply = timeout(CALL_TIMEOUT, client.call(&request)).await;
+        }
+        match reply {
+            Ok(Ok(reply)) => Ok(reply),
+            Ok(Err(e)) => Err(self.failed(e).await),
+            Err(_) => Err(DesktopError::BadRequest("the server took too long".into())),
+        }
+    }
+
+    /// Drops the connection, so the next call opens a new one.
+    pub(super) async fn forget_connection(&self) {
+        *self.client.lock().await = None;
+    }
+
+    /// Connects to another server, to try it before choosing it.
+    pub(super) async fn connect_to(&self, server: EndpointId) -> Result<Client> {
+        connect_in_time(self.node.connect_to(server), CONNECT_TIMEOUT).await
+    }
+
+    /// Makes `server` the one this app connects to from the next launch.
+    pub(super) fn choose_server(&self, server: EndpointId, link: LinkState) {
+        self.update_saved(|s| {
+            s.server = Some(server);
+            s.link = link;
+        });
     }
 
     /// Maps a failed request, marking the key revoked when the server said so.

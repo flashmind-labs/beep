@@ -148,7 +148,7 @@ pub(crate) async fn read_branches(
 }
 
 /// Runs `script` on `node` and gives its output; fails unless it exits 0.
-pub(crate) async fn run_script(node: &Online, script: &str, limit: Duration) -> Result<String> {
+pub(crate) async fn run_script(node: &dyn Shell, script: &str, limit: Duration) -> Result<String> {
     let ran = node.run(script, limit).await?;
     ok(&ran)?;
     Ok(ran.out)

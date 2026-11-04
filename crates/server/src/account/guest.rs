@@ -1,11 +1,12 @@
-//! A key nobody linked on a single-user server: it may only join the owner's account with a code.
+//! A key nobody linked: it may only join an account with a code, or sign in on a hosted server.
 
 use crate::{
+    account::login,
     api::router::read_request,
     app::App,
     protocol::{
-        ApiError, ClientInfo, DeviceKind, JoinAccount, JoinPreview, PeekInvite, Platform, Rpc,
-        link,
+        ApiError, ClientInfo, CompleteLogin, DeviceKind, JoinAccount, JoinPreview, PeekInvite,
+        Platform, Rpc, StartLogin, link,
         wire::{Rx, Tx, framed},
     },
     store::NewKey,
@@ -42,7 +43,7 @@ pub(crate) async fn serve(app: Arc<App>, connection: Connection, client: ClientI
     connection.close(VarInt::from_u32(CLOSE_JOINED), b"too many calls");
 }
 
-/// Answers one call; true once the key joined the owner's account.
+/// Answers one call; true once the key joined an account.
 async fn call(
     app: &App,
     connection: &Connection,
@@ -61,6 +62,33 @@ async fn call(
             Err(e) => tx.err(&e).await?,
         }
         false
+    } else if frame.op() == Ok(StartLogin::OP) {
+        let reply = match frame.decode::<StartLogin>() {
+            Ok(StartLogin { device }) => login::start(app, &connection.remote_id(), &device).await,
+            Err(e) => Err(e),
+        };
+        match reply {
+            Ok(url) => tx.ok(&url).await?,
+            Err(e) => tx.err(&e).await?,
+        }
+        false
+    } else if frame.op() == Ok(CompleteLogin::OP) {
+        let reply = match frame.decode::<CompleteLogin>() {
+            Ok(CompleteLogin { token }) => {
+                login::complete(app, new_key(connection, client), token.expose()).await
+            }
+            Err(e) => Err(e),
+        };
+        match reply {
+            Ok(()) => {
+                tx.ok(&()).await?;
+                true
+            }
+            Err(e) => {
+                tx.err(&e).await?;
+                false
+            }
+        }
     } else if frame.op() == Ok(JoinAccount::OP) {
         let reply = match frame.decode::<JoinAccount>() {
             Ok(JoinAccount { code }) => join(app, connection, client, &code).await,
@@ -105,19 +133,9 @@ async fn join(
     code: &str,
 ) -> Result<(), ApiError> {
     let code = link::join_code(code).ok_or_else(|| ApiError::bad_request("not a join code"))?;
-    let (name, kind) = match client.platform {
-        Some(Platform::Macos {}) => ("Mac", DeviceKind::Desktop {}),
-        Some(Platform::Ios {}) => ("iPhone", DeviceKind::Phone {}),
-        Some(Platform::Android {}) | None => ("Phone", DeviceKind::Phone {}),
-    };
-    let key = NewKey {
-        endpoint: connection.remote_id(),
-        name,
-        kind,
-    };
     let target = app
         .store
-        .redeem_invite(&code, key)
+        .redeem_invite(&code, new_key(connection, client))
         .await
         .map_err(internal)?
         .ok_or(ApiError::NotFound {})?;
@@ -129,6 +147,20 @@ async fn join(
         user.changed("");
     }
     Ok(())
+}
+
+/// This connection's key as a new device of an account, named by its app.
+pub(crate) fn new_key(connection: &Connection, client: &ClientInfo) -> NewKey<'static> {
+    let (name, kind) = match client.platform {
+        Some(Platform::Macos {}) => ("Mac", DeviceKind::Desktop {}),
+        Some(Platform::Ios {}) => ("iPhone", DeviceKind::Phone {}),
+        Some(Platform::Android {}) | None => ("Phone", DeviceKind::Phone {}),
+    };
+    NewKey {
+        endpoint: connection.remote_id(),
+        name,
+        kind,
+    }
 }
 
 fn internal(e: anyhow::Error) -> ApiError {

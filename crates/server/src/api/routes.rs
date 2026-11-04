@@ -3,8 +3,8 @@
 use super::{
     crons::{create_cron, delete_cron, list_crons, run_cron, toggle_cron, update_cron},
     devices::{
-        invite_device, join_account, link_device, list_devices, peek_invite, register_device,
-        remove_device, unregister_device,
+        complete_login, invite_device, join_account, link_device, list_devices, peek_invite,
+        register_device, remove_device, start_login, unregister_device,
     },
     grants::{list_grants, revoke_grant},
     groups::{
@@ -102,6 +102,8 @@ pub fn router() -> Router {
         .call(invite_device)
         .call(peek_invite)
         .call(join_account)
+        .call(start_login)
+        .call(complete_login)
         .call(share_session)
         .call(unshare_session)
         .call(get_share)

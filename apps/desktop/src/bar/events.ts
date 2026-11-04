@@ -7,9 +7,9 @@ import { bar, COPY_ICON, G, h, here, ICON, invoke, listen, live, type LinkState,
 import { drawGroup, type GroupApproval, loadGroup } from "../chat/groups.ts";
 import { learnedHotkey, refreshHints } from "./hints.ts";
 import { refreshSession } from "../chat/history.ts";
-import { drawLink, renderLink, renderRevoked } from "./link.ts";
+import { drawLink, loginFailed, renderLink, renderRevoked } from "./link.ts";
 import { openViewer } from "../chat/media.ts";
-import { modelClick, renderModel } from "../settings/model.ts";
+import { loadModels, modelClick, renderModel } from "../settings/model.ts";
 import { closeRerunMenu, rerun, rerunClick, rerunMenu } from "../chat/rerun.ts";
 import { routeClick } from "../chat/routes.ts";
 import { forgetHeight } from "./size.ts";
@@ -29,10 +29,14 @@ listen<LinkState>("link-state", async e => {
     clearInterval(S.timer);
     drawLink("linked");
     setTimeout(renderChat, 1800);
+  } else if (S.view === "login" && S.link === "linked") {
+    loadModels();
+    renderChat();
   } else if (S.link === "revoked") {
     renderRevoked();
   }
 });
+listen<string>("login-failed", e => loginFailed(e.payload));
 // Outside the list, a reload only refreshes the cache it opens with.
 export const listIdle = () => S.view !== "chats" || (!S.chats.query && S.chats.mode === "list");
 listen<string>("group-changed", e => {
