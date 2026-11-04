@@ -3,7 +3,7 @@ import { since } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, svgEl as icon, secHead } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
-import { newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
+import { chipClass, newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
 import { IC, views } from "../center/state.ts";
 import { failure, tag, skeleton } from "../center/pieces.ts";
@@ -84,8 +84,7 @@ function researchField() {
 /// A research's status chip.
 function researchTag(r: ResearchRow) {
   const st = researchState(r.status);
-  const cls = st === "running" ? "run" : st === "waiting" ? "wait" : st === "failed" ? "bad" : "";
-  return tag(cls, st === "running" ? h("span", "dspin") : null, STATE_LABEL[st]);
+  return tag(chipClass(r.status), st === "running" ? h("span", "dspin") : null, STATE_LABEL[st]);
 }
 
 /// The Progress cell: the running round's steps as a bar, then its line.

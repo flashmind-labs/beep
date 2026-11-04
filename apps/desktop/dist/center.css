@@ -63,17 +63,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-ag { width: 28px; height: 28px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev) }
 .cc-ag.claude { color: #F2A27A } .cc-ag.codex { color: var(--link) }
 .cc-ag.beep { color: var(--muted) }
-/* A state chip: neutral, or coloured by what it says. Built by stateChip. */
-.chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 10.5px; font-weight: 600; line-height: 17px; white-space: nowrap }
-.chip.running, .chip.run, .chip.done { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent) }
-.chip.blocked, .chip.wait, .chip.medium { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
-.chip.bad, .chip.high { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent) }
-.chip.review { color: var(--link); border-color: color-mix(in srgb, var(--link) 45%, transparent) }
-.chip.term { color: var(--fg) }
-.chip.dropped { color: var(--dim); text-decoration: line-through }
 .rv-find > .chip { justify-self: start }
 /* Small spinners inside chips and one-line facts. */
-.chip .dspin, .rv-pill .dspin, .rv-fact .dspin, .rv-ver .dspin, .th-card .who .dspin { width: 9px; height: 9px }
+.rv-pill .dspin, .rv-fact .dspin, .rv-ver .dspin, .th-card .who .dspin { width: 9px; height: 9px }
 .dspin.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none; vertical-align: middle }
 .cc-when { width: 58px; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--muted); line-height: 13px; font-variant-numeric: tabular-nums }
 .cc-when b { display: block; font-size: 12.5px; color: var(--fg) }
@@ -829,10 +821,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-mt.cc-rt > .r { cursor: pointer }
 .cc-mt.cc-rt .nm b button { padding: 0; border: 0; background: none;font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left; min-width: 0; overflow: hidden; display: flex }
 .cc-mt.cc-rt .nm b button:hover { color: var(--accent) }
-.cc-rsteps { display: flex; gap: 3px; width: 54px; flex: none }
-.cc-rsteps i { flex: 1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent) }
-.cc-rsteps i.done { background: color-mix(in srgb, var(--ok) 70%, transparent) }
-.cc-rsteps i.now { background: var(--accent) }
 .cc-grp.research .cc-si > .dspin { flex: none; width: 10px; height: 10px; margin-left: auto }
 
 /* A list as tall as its first rows, the rest scrolls (fitRows). The script sets the exact
