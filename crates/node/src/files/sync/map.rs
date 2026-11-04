@@ -322,12 +322,15 @@ impl Map {
         self.clock = self.clock.max(incoming.version.get(self.replica));
         let merged = merge(self.get(&incoming.path), incoming);
         let mut changed = Vec::new();
+        // The copy first, so a peer reading the changes in order never sees
+        // the path settled without it, and replaces the only file it has of
+        // the losing edit before it knows where that edit went.
+        if let Some(copy) = merged.copy {
+            changed.extend(self.merge(&copy));
+        }
         if let Some(entry) = merged.entry {
             changed.push(entry.path.clone());
             self.put(entry);
-        }
-        if let Some(copy) = merged.copy {
-            changed.extend(self.merge(&copy));
         }
         changed
     }
@@ -536,6 +539,16 @@ mod tests {
         other.merge(&exec);
         other.merge(&plain);
         assert_eq!(one.get("a"), other.get("a"));
+    }
+
+    #[test]
+    fn a_peer_gets_a_conflict_copy_before_the_entry_that_settles_it() {
+        let mut map = Map::new(1);
+        map.merge(&entry("a", &[(1, 1)], file(1, 1)));
+        let before = map.seq();
+        map.merge(&entry("a", &[(2, 1)], file(2, 2)));
+        let first = map.since(before, 1).entries;
+        assert_eq!(first[0].path, "a (conflict 01010101)");
     }
 
     #[test]
