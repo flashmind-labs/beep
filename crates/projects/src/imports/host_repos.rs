@@ -54,7 +54,7 @@ pub async fn read_hosts(
 }
 
 /// Runs `command` on each shell in turn until one answers, so one broken CLI does not hide the
-/// list; when none does, the last error.
+/// list; when none does, every error, in order.
 async fn read_any(
     shells: &[Arc<dyn Shell>],
     command: &str,
@@ -69,9 +69,18 @@ async fn read_any(
     .await
     {
         Ok((_, repos)) => Ok(repos),
-        Err(mut errors) => Err(errors
-            .pop()
-            .unwrap_or_else(|| anyhow!("no machine to read it on"))),
+        Err(mut errors) => Err(match errors.len() {
+            0 => anyhow!("no machine to read it on"),
+            1 => errors.remove(0),
+            _ => anyhow!(
+                "{}",
+                errors
+                    .iter()
+                    .map(|error| format!("{error:#}"))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        }),
     }
 }
 
@@ -179,6 +188,32 @@ mod tests {
 
     fn at(seconds: u64) -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(seconds)
+    }
+
+    /// A shell whose command always fails with `why`.
+    struct Broken(&'static str);
+
+    #[async_trait::async_trait]
+    impl Shell for Broken {
+        async fn run(&self, _: &str, _: Duration) -> Result<crate::ShellOutput> {
+            Err(anyhow!(self.0))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_list_no_machine_could_read_says_why_for_each() {
+        let shells: Vec<Arc<dyn Shell>> = vec![
+            Arc::new(Broken("gh is not signed in")),
+            Arc::new(Broken("gh is not installed")),
+        ];
+        let error = read_any(&shells, "gh repo list", parse_gh)
+            .await
+            .expect_err("both machines fail");
+        let said = format!("{error:#}");
+        assert!(
+            said.contains("not signed in") && said.contains("not installed"),
+            "{said}"
+        );
     }
 
     #[test]

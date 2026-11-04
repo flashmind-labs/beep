@@ -537,3 +537,82 @@ async fn usage_sums_every_machine() {
     assert_eq!(bill.today.cost_usd, 3.5);
     assert_eq!(bill.today.metered_tokens, 150);
 }
+
+#[tokio::test]
+async fn groups_pins_and_settings_replicate_to_every_desktop() {
+    let f = fleet().await;
+    let studio = desk(&f.studio, &[]).await;
+    let group = studio
+        .save_group(None, "", &["~/Projects/work".to_owned()])
+        .await
+        .expect("a group is saved");
+    assert_eq!(group.name, "work");
+    studio.pin("acme/widget", true).await.expect("pinned");
+    studio
+        .save_harness_settings(
+            &f.build.id.to_string(),
+            "codex",
+            beep_proto::HarnessSettings {
+                enabled: true,
+                program: String::new(),
+                home: String::new(),
+                args: vec!["--profile".into(), "work".into()],
+                env: vec![beep_proto::HarnessEnv {
+                    name: "HTTPS_PROXY".into(),
+                    value: Some(SecretText::new("proxy-secret-1")),
+                }],
+            },
+            true,
+        )
+        .await
+        .expect("settings are saved");
+    let first = studio
+        .save_instructions("- Write plainly.", None, "")
+        .await
+        .expect("instructions are saved");
+    assert_eq!(first.version, 1);
+    let stale = studio.save_instructions("again", None, "").await;
+    assert!(stale.is_err(), "a save from an old base is refused");
+    until(&f.laptop.mesh, |m| {
+        m.get(&Key::Instructions).is_some()
+            && m.get(&Key::Harness("codex".into())).is_some()
+            && m.get(&Key::Pin("acme/widget".into())).is_some()
+    })
+    .await;
+    let laptop = desk(&f.laptop, &[]).await;
+    assert_eq!(laptop.groups(), vec![group.clone()]);
+    assert_eq!(laptop.on_top(), ["acme/widget"]);
+    assert_eq!(
+        laptop.instructions().map(|v| v.text).as_deref(),
+        Some("- Write plainly.")
+    );
+    let shown = laptop.harness_settings("codex").expect("settings read");
+    assert_eq!(shown.len(), 3, "one row per machine");
+    assert_eq!(shown[0].settings.args, ["--profile", "work"]);
+    // The value never comes back, and a save without one keeps it.
+    assert_eq!(shown[0].settings.env[0].value, None);
+    laptop
+        .save_harness_settings(
+            &f.build.id.to_string(),
+            "codex",
+            beep_proto::HarnessSettings {
+                env: vec![beep_proto::HarnessEnv {
+                    name: "HTTPS_PROXY".into(),
+                    value: None,
+                }],
+                ..shown[0].settings.clone()
+            },
+            true,
+        )
+        .await
+        .expect("settings are saved again");
+    let bytes = f
+        .laptop
+        .mesh
+        .get(&Key::Harness("codex".into()))
+        .expect("held");
+    let config = beep_proto::node::harness::HarnessConfig::from_bytes(&bytes).expect("reads");
+    assert_eq!(config.env[0].value.expose(), "proxy-secret-1");
+    laptop.delete_group(group.id).await.expect("deleted");
+    until(&f.studio.mesh, |m| m.scan("group/").is_empty()).await;
+}
