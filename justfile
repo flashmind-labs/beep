@@ -25,11 +25,10 @@ desktop-dev:
     cd apps/desktop && npm ci --silent
     cd apps/desktop/src-tauri && cargo tauri dev
 
-# Build the desktop DMG. Locally it uses thin LTO and parallel codegen, which
-# builds several times faster; the release workflow keeps full LTO.
+# Build the desktop DMG.
 desktop-build:
     cd apps/desktop && npm ci --silent
-    cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 CARGO_PROFILE_RELEASE_INCREMENTAL=true cargo tauri build --bundles app
+    cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
 # `just deploy-server server-v<version>` goes back to it later.
