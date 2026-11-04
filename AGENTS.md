@@ -80,8 +80,10 @@ Push to main, then `just deploy-server`. It waits for the image CI builds for
 HEAD, copies the dev config and key to the remote host and restarts the
 container.
 
-Tag a deployed server with `just server-release 2.1.0` (it tags HEAD
-`server-v2.1.0`). To roll back, `just deploy-server server-v2.0.0` deploys
+Every app stays on 0.x until production is ready: minor or patch bumps only.
+
+Tag a deployed server with `just server-release 0.4.0` (it tags HEAD
+`server-v0.4.0`). To roll back, `just deploy-server server-v0.3.2` deploys
 that tag's image. Migrations are not undone, so an older server must still
 run against the newer schema.
 
