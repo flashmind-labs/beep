@@ -9,6 +9,7 @@ publish = false
 iroh = "1.3"
 iroh-tickets = "1"
 postcard = { version = "1", features = ["use-std"] }
+subtle = "2"
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"

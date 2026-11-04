@@ -6,9 +6,10 @@ use iroh::{EndpointAddr, EndpointId, SecretKey};
 use iroh_tickets::{ParseError, Ticket};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Formatter};
+use subtle::ConstantTimeEq;
 
 /// Random bytes in a ticket. `Debug` prints none of them.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct JoinSecret([u8; 32]);
 
 impl JoinSecret {
@@ -19,6 +20,11 @@ impl JoinSecret {
     pub fn expose(&self) -> &[u8; 32] {
         &self.0
     }
+
+    /// Compares in constant time.
+    pub fn verify(&self, other: &JoinSecret) -> bool {
+        self.0.ct_eq(&other.0).into()
+    }
 }
 
 impl Debug for JoinSecret {
@@ -27,13 +33,19 @@ impl Debug for JoinSecret {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JoinTicket {
     pub mesh: EndpointId,
     pub addr: EndpointAddr,
     pub kind: DeviceKind,
     pub secret: JoinSecret,
     pub expires_ms: u64,
+}
+
+impl JoinTicket {
+    pub fn expired(&self, now_ms: u64) -> bool {
+        now_ms >= self.expires_ms
+    }
 }
 
 impl Ticket for JoinTicket {
@@ -71,7 +83,26 @@ mod tests {
         let t = ticket();
         let text = t.encode_string();
         assert!(text.starts_with("beepjoin"));
-        assert_eq!(JoinTicket::decode_string(&text).unwrap(), t);
+        let back = JoinTicket::decode_string(&text).unwrap();
+        assert_eq!(back.mesh, t.mesh);
+        assert_eq!(back.addr, t.addr);
+        assert_eq!(back.kind, t.kind);
+        assert_eq!(back.expires_ms, t.expires_ms);
+        assert!(back.secret.verify(&t.secret));
+    }
+
+    #[test]
+    fn a_secret_verifies_only_itself() {
+        let (a, b) = (JoinSecret::generate(), JoinSecret::generate());
+        assert!(a.verify(&a.clone()));
+        assert!(!a.verify(&b));
+    }
+
+    #[test]
+    fn a_ticket_expires_at_its_deadline() {
+        let t = ticket();
+        assert!(!t.expired(t.expires_ms - 1));
+        assert!(t.expired(t.expires_ms));
     }
 
     #[test]
