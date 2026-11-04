@@ -2,11 +2,16 @@
 //! session logs, so a checkout no agent ran in still counts. Only main
 //! checkouts: the walk stops at a repository's top, so nested repositories
 //! and worktrees inside it are not looked at, and a worktree elsewhere
-//! (whose `.git` is a file) is left out.
+//! (whose `.git` is a file) is left out. Home is walked once, on the first
+//! start, and what it found is saved in the node's folder; later checkouts
+//! come from the agents' logs.
 
 use super::git::{self, Checkout};
+use anyhow::{Context, Result};
 use ignore::{DirEntry, WalkBuilder};
 use std::{
+    fs,
+    io::ErrorKind,
     path::Path,
     time::{Duration, Instant},
 };
@@ -19,9 +24,45 @@ const MAX_CHECKOUTS: usize = 400;
 const WALK_FOR: Duration = Duration::from_secs(3);
 /// Folders never worth walking into.
 const PRUNED: &[&str] = &["node_modules", "target", "Library"];
+/// The checkouts the first walk found, in the node's folder.
+const FILE: &str = "checkouts.json";
+/// Written first, then renamed over `FILE`.
+const TEMP: &str = "checkouts.json.tmp";
+
+/// The checkouts saved in `dir`. When none are saved yet, as on the first
+/// start, walks `home` for them and saves what it found.
+pub(crate) fn saved_checkouts(home: &Path, dir: &Path) -> Vec<Checkout> {
+    let path = dir.join(FILE);
+    match fs::read_to_string(&path) {
+        Ok(text) => {
+            return serde_json::from_str(&text).unwrap_or_else(|e| {
+                log::warn!("ignored {}: {e}", path.display());
+                Vec::new()
+            });
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => {
+            log::warn!("could not read {}: {e}", path.display());
+            return Vec::new();
+        }
+    }
+    let found = checkouts(home);
+    if let Err(e) = save(dir, &found) {
+        log::warn!("the checkouts found were not saved: {e:#}");
+    }
+    found
+}
+
+/// Writes `found` down in `dir`, whole or not at all.
+fn save(dir: &Path, found: &[Checkout]) -> Result<()> {
+    let (temp, path) = (dir.join(TEMP), dir.join(FILE));
+    let text = serde_json::to_string(found).context("writing the checkouts")?;
+    fs::write(&temp, text).with_context(|| format!("writing {}", temp.display()))?;
+    fs::rename(&temp, &path).with_context(|| format!("writing {}", path.display()))
+}
 
 /// The main checkouts under `home`, with their `origin` remotes.
-pub(crate) fn checkouts(home: &Path) -> Vec<Checkout> {
+fn checkouts(home: &Path) -> Vec<Checkout> {
     let deadline = Instant::now() + WALK_FOR;
     let walk = WalkBuilder::new(home)
         .max_depth(Some(MAX_DEPTH))
@@ -105,5 +146,20 @@ mod tests {
         assert_eq!(roots, [nasty.as_path(), notes.as_path()]);
         assert_eq!(found[0].origin, "https://example.com/me/nasty.git");
         assert_eq!(found[1].origin, "");
+    }
+
+    #[test]
+    fn a_later_start_reads_the_saved_checkouts_without_walking() {
+        let temp = tempfile::tempdir().expect("a temp folder");
+        let (home, dir) = (temp.path().join("home"), temp.path().join("node"));
+        let repo = home.join("code/app");
+        fs::create_dir_all(repo.join(".git")).expect("a checkout");
+        fs::create_dir_all(&dir).expect("the node's folder");
+
+        let first = saved_checkouts(&home, &dir);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].root, repo);
+        fs::remove_dir_all(&home).expect("home gone");
+        assert_eq!(saved_checkouts(&home, &dir), first);
     }
 }
