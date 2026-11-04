@@ -4,7 +4,7 @@
 //! `beep-node mcp --session <id>`.
 
 use crate::{
-    agents::{Agents, Answered, Asking},
+    agents::{Answered, Asking},
     link::Offers,
     link::local_socket::{self, Listener},
 };
@@ -32,6 +32,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 pub(crate) mod calls;
 mod catalog;
+mod machines;
 mod server;
 mod socket;
 
@@ -183,9 +184,9 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
     };
     let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
     let launch = Arc::new(Launch::new(exe, dir));
-    let (agents, upstream) = (offers.agents.clone(), offers.tools.clone());
+    let offers = offers.clone();
     Some(AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = listen(launch, agents, upstream).await {
+        if let Err(e) = listen(launch, offers).await {
             log::warn!("not serving the Beep MCP server: {e:#}");
         }
     })))
@@ -262,20 +263,32 @@ impl Upstream {
     }
 }
 
-/// What `server` uses on a node: the server for calls, the sessions for
-/// questions.
+/// What `server` uses on a node: the mesh or the server for calls, the
+/// sessions for questions.
 struct Node {
-    agents: Arc<Agents>,
-    upstream: Upstream,
+    offers: Offers,
 }
 
 impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
-        self.upstream.call(request).await
+        // In a mesh the machines answer for themselves; the server still
+        // takes what is not between machines, and machines the mesh lacks.
+        if let Some(mesh) = self.offers.mesh.get()
+            && let Some(reply) = machines::call(&self.offers, &mesh, request).await
+        {
+            return Ok(reply);
+        }
+        self.offers.tools.call(request).await
     }
 
     async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
-        self.agents.ask(session, question).await
+        self.offers.agents.ask(session, question).await
+    }
+
+    /// The memory tools live on the server: a node in a mesh with none has
+    /// nothing to remember with.
+    fn memory_tools(&self) -> bool {
+        self.offers.has_server || !self.offers.mesh.joined()
     }
 }
 
@@ -292,7 +305,7 @@ struct Hello {
 /// checks the session's token and serves MCP itself. `ask_user` and
 /// approvals become questions in the session; every other call goes to the
 /// server over `tools/1`.
-pub async fn listen(launch: Arc<Launch>, agents: Arc<Agents>, upstream: Upstream) -> Result<()> {
+pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
     let socket = &launch.socket;
     socket::prepare(socket, &launch.dir)?;
     let mut listener = Listener::bind(socket)?;
@@ -300,8 +313,10 @@ pub async fn listen(launch: Arc<Launch>, agents: Arc<Agents>, upstream: Upstream
         "serving the Beep MCP server on {}",
         local_socket::shown(socket)
     );
-    agents.serve_mcp(launch.clone(), upstream.clone());
-    let node = Arc::new(Node { agents, upstream });
+    offers
+        .agents
+        .serve_mcp(launch.clone(), offers.tools.clone());
+    let node = Arc::new(Node { offers });
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
@@ -349,7 +364,7 @@ async fn connection(
             hello.session
         );
     }
-    if !node.agents.runs(&hello.session) {
+    if !node.offers.agents.runs(&hello.session) {
         bail!(
             "refused an MCP connection: session {} does not run",
             hello.session

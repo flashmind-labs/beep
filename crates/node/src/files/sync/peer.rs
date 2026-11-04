@@ -88,6 +88,7 @@ impl ProtocolHandler for PeerHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let peer = connection.remote_id();
         if !self.syncs.is_peer(&peer) {
+            log::info!("refused a sync connection from {peer}: not a peer");
             connection.close(1u32.into(), b"not a peer");
             return Ok(());
         }
@@ -133,7 +134,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     };
     let Some(shared) = syncs
         .project(&project)
-        .filter(|shared| shared.has_peer(&peer))
+        .filter(|shared| shared.has_peer(&peer) && syncs.allows(&peer))
     else {
         let message = format!("{project} is not synced with this node");
         return tx.send(&Reply::Refused { message }).await;
@@ -169,7 +170,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             },
             () = shared.stopped() => return Ok(()),
             // A node taken out of the project gets nothing more.
-            changed = peers.changed() => if changed.is_err() || !shared.has_peer(&peer) {
+            changed = peers.changed() => if changed.is_err() || !shared.has_peer(&peer) || !syncs.allows(&peer) {
                 return Ok(());
             },
             // The peer sends nothing more; it closing ends the pull.

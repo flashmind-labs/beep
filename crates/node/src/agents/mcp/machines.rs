@@ -1,0 +1,469 @@
+//! The agent's machine tools answered between the machines of a mesh, with
+//! no server to ask: the node lists the mesh's devices itself and sends
+//! each call to the device it names, over `tools/1`. Calls for a machine the
+//! mesh does not hold go to the server when there is one. Between a user's
+//! own machines there are no rules to check first.
+
+use crate::{
+    files::transfer::{Incoming, Transfers},
+    link::{
+        Offers,
+        peer_tools::{self, Caller},
+    },
+};
+use anyhow::{Context, Result, bail};
+use beep_mesh::{DeviceKind, Key, Mesh};
+use beep_proto::node::{
+    LinkRx, LinkTx, Open, Opened, link,
+    mesh_state::{StateValue, SyncSpec},
+    tools::{PROTOCOL, Reply, Request, Tool},
+    transfer::Reply as TransferReply,
+};
+use iroh::EndpointId;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::{fmt::Write, time::Duration};
+use tokio::time::timeout;
+
+/// How long a call waits for the link to a machine the mesh holds but is
+/// not connected to yet.
+const LINK_WAIT: Duration = Duration::from_secs(15);
+/// How many times opening a call's stream is tried.
+const HANDSHAKES: u32 = 3;
+/// How long the machine has to take a call's stream.
+const OPEN_LIMIT: Duration = Duration::from_secs(15);
+/// How long one call may run: a command runs at most half an hour.
+const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
+
+/// A machine as the agent names it: lower case, one word.
+fn command_name(name: &str) -> String {
+    name.trim().to_lowercase().replace(' ', "-")
+}
+
+/// One device of the mesh.
+struct Machine {
+    id: EndpointId,
+    name: String,
+}
+
+fn machines(mesh: &Mesh) -> Vec<Machine> {
+    mesh.devices()
+        .into_iter()
+        .map(|status| Machine {
+            id: status.device.id,
+            name: command_name(&status.device.name),
+        })
+        .collect()
+}
+
+fn done(text: impl Into<String>, failed: bool) -> Reply {
+    Reply::Done {
+        text: text.into(),
+        failed,
+    }
+}
+
+/// The reply for `request`, or `None` when the server answers it: a tool
+/// that is not between machines, or a machine the mesh does not hold.
+pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Option<Reply> {
+    let args: Value = serde_json::from_str(&request.args).unwrap_or(Value::Null);
+    let machine = |args: &Value| {
+        args.get("machine")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    match request.tool {
+        Tool::ListMachines => Some(list(mesh)),
+        Tool::RunOn | Tool::MachineLog | Tool::SendFiles => {
+            let name = machine(&args)?;
+            let Some(target) = machines(mesh)
+                .into_iter()
+                .find(|m| m.name == command_name(&name))
+            else {
+                return missing(offers, mesh, &name);
+            };
+            if request.tool == Tool::SendFiles {
+                return Some(send_files(offers, mesh, &target, request, &args).await);
+            }
+            Some(to_machine(offers, mesh, &target, request).await)
+        }
+        Tool::SyncProject => sync_project(offers, mesh, request, &args).await,
+        Tool::JobStatus | Tool::Cancel => {
+            let id = args.get("id")?.as_str()?;
+            let job = Job::parse(id)?;
+            let target = machines(mesh).into_iter().find(|m| m.name == job.machine)?;
+            let sent = Request {
+                args: json!({ "id": job.id.to_string() }).to_string(),
+                ..request.clone()
+            };
+            Some(to_machine(offers, mesh, &target, &sent).await)
+        }
+        _ => None,
+    }
+}
+
+/// The most paths one `send_files` call takes.
+const MAX_SEND: usize = 20;
+
+/// Offers each path here, then has `target` fetch it: the target's own
+/// transfers do the writing, under its own rules about where.
+async fn send_files(
+    offers: &Offers,
+    mesh: &Mesh,
+    target: &Machine,
+    request: &Request,
+    args: &Value,
+) -> Reply {
+    #[derive(Deserialize)]
+    struct Args {
+        paths: Vec<String>,
+        dest: Option<String>,
+    }
+    let Ok(Args { paths, dest }) = serde_json::from_value(args.clone()) else {
+        return done("Give `machine` and `paths`.", true);
+    };
+    if paths.is_empty() || paths.len() > MAX_SEND {
+        return done(
+            format!("Send between 1 and {MAX_SEND} paths at a time."),
+            true,
+        );
+    }
+    let Some(transfers) = &offers.transfers else {
+        return done(
+            "This machine shares no folders, so it sends no files.",
+            true,
+        );
+    };
+    if target.id == mesh.me() {
+        return done("That is this machine.", true);
+    }
+    let mut lines = Vec::new();
+    let mut failed = false;
+    for path in &paths {
+        let sent = send_one(transfers, mesh, target, request, path, dest.clone()).await;
+        failed |= sent.is_err();
+        let (Ok(text) | Err(text)) = sent;
+        lines.push(format!("- {path}: {text}"));
+    }
+    done(lines.join("\n"), failed)
+}
+
+/// One path: its text, or why it was not sent.
+async fn send_one(
+    transfers: &Transfers,
+    mesh: &Mesh,
+    target: &Machine,
+    request: &Request,
+    path: &str,
+    dest: Option<String>,
+) -> Result<String, String> {
+    // Held until the target has fetched it.
+    let offer = transfers
+        .offer_to(path, target.id)
+        .await
+        .map_err(|e| format!("not sent: {e:#}"))?;
+    let TransferReply::Offered {
+        content,
+        from,
+        name,
+        executable,
+        ..
+    } = offer.reply.clone()
+    else {
+        return Err("not sent: the offer was not made".to_owned());
+    };
+    let incoming = Incoming {
+        from,
+        content,
+        name,
+        executable,
+        dest,
+    };
+    let call = Request {
+        args: serde_json::to_string(&incoming).map_err(|e| format!("not sent: {e}"))?,
+        ..request.clone()
+    };
+    match over_the_mesh(mesh, target.id, &call).await {
+        Ok(Reply::Done {
+            text,
+            failed: false,
+        }) => Ok(format!("sent to {}: {text}", target.name)),
+        Ok(Reply::Done { text, .. }) => Err(format!("not sent: {text}")),
+        Ok(other) => Err(format!("not sent: {other:?}")),
+        Err(e) => Err(format!("not sent: {e:#}")),
+    }
+}
+
+/// Scans the project here, then has the machines that sync it (or the one
+/// named) scan and wait until they have it.
+async fn sync_project(
+    offers: &Offers,
+    mesh: &Mesh,
+    request: &Request,
+    args: &Value,
+) -> Option<Reply> {
+    let project = args.get("project")?.as_str()?;
+    let specs: Vec<(String, SyncSpec)> = mesh
+        .scan("sync/")
+        .into_iter()
+        .filter_map(|(key, bytes)| match key {
+            Key::Sync(name) => Some((name, SyncSpec::from_bytes(&bytes).ok()?)),
+            _ => None,
+        })
+        .collect();
+    let Some((name, spec)) = specs
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(project.trim()))
+    else {
+        if offers.has_server {
+            return None;
+        }
+        let names: Vec<&str> = specs.iter().map(|(name, _)| name.as_str()).collect();
+        return Some(done(
+            format!(
+                "No synced project called {project}. Synced: {}.",
+                names.join(", ")
+            ),
+            true,
+        ));
+    };
+    let me = mesh.me();
+    let mut notes = Vec::new();
+    if let Some(transfers) = &offers.transfers
+        && spec.folders.contains_key(&me)
+        && let Err(e) = transfers.syncs().rescan(name).await
+    {
+        notes.push(format!("not scanned here: {e:#}"));
+    }
+    let only = args
+        .get("machine")
+        .and_then(Value::as_str)
+        .map(command_name);
+    let wanted: Vec<Machine> = machines(mesh)
+        .into_iter()
+        .filter(|m| m.id != me && spec.folders.contains_key(&m.id))
+        .filter(|m| only.as_ref().is_none_or(|only| *only == m.name))
+        .collect();
+    if wanted.is_empty()
+        && only.is_some_and(|only| !machines(mesh).iter().any(|m| m.id == me && m.name == only))
+    {
+        return Some(done(format!("That machine does not sync {name}."), true));
+    }
+    let call = Request {
+        args: json!({ "project": name }).to_string(),
+        ..request.clone()
+    };
+    let replies = futures::future::join_all(
+        wanted
+            .iter()
+            .map(|machine| to_machine(offers, mesh, machine, &call)),
+    )
+    .await;
+    let mut failed = false;
+    let mut text = format!("{name}:");
+    for (machine, reply) in wanted.iter().zip(replies) {
+        let Reply::Done {
+            text: line,
+            failed: bad,
+        } = reply
+        else {
+            continue;
+        };
+        failed |= bad;
+        // Writing to a string cannot fail.
+        let _ = write!(text, "\n- {}: {line}", machine.name);
+    }
+    for note in notes {
+        let _ = write!(text, "\n{note}");
+    }
+    Some(done(text, failed))
+}
+
+/// `None` (the server's) when there is one, else why there is no such machine.
+fn missing(offers: &Offers, mesh: &Mesh, name: &str) -> Option<Reply> {
+    if offers.has_server {
+        return None;
+    }
+    let names: Vec<String> = machines(mesh).into_iter().map(|m| m.name).collect();
+    Some(done(
+        format!("No machine called {name}. Machines: {}.", names.join(", ")),
+        true,
+    ))
+}
+
+fn list(mesh: &Mesh) -> Reply {
+    let mut text = String::new();
+    for status in mesh.devices() {
+        let here = if status.device.id == mesh.me() {
+            " (this machine)"
+        } else {
+            ""
+        };
+        let online = if status.online { "online" } else { "offline" };
+        let kind = match status.device.kind {
+            DeviceKind::Desktop => "desktop",
+            DeviceKind::Node => "node",
+        };
+        let name = command_name(&status.device.name);
+        // Writing to a string cannot fail.
+        let _ = writeln!(text, "- {name}{here}: {online}, {kind}");
+    }
+    done(text.trim_end(), false)
+}
+
+/// A job `run_on` started on another machine: `task:<n>@<machine>`.
+struct Job {
+    id: u32,
+    machine: String,
+}
+
+impl Job {
+    fn parse(text: &str) -> Option<Self> {
+        let (what, machine) = text.trim().split_once('@')?;
+        let id = what.strip_prefix("task:")?.parse().ok()?;
+        Some(Self {
+            id,
+            machine: machine.to_owned(),
+        })
+    }
+}
+
+/// Runs `request` on `target`: here when it is this device, over the mesh
+/// otherwise.
+async fn to_machine(offers: &Offers, mesh: &Mesh, target: &Machine, request: &Request) -> Reply {
+    let reply = if target.id == mesh.me() {
+        let caller = Caller::local(offers);
+        peer_tools::answer(request.clone(), caller).await
+    } else {
+        match over_the_mesh(mesh, target.id, request).await {
+            Ok(reply) => reply,
+            Err(e) => return done(format!("Could not reach {}: {e:#}", target.name), true),
+        }
+    };
+    match (request.tool, reply) {
+        (
+            Tool::RunOn,
+            Reply::Done {
+                text,
+                failed: false,
+            },
+        ) => done(name_the_job(&text, &target.name), false),
+        (_, reply) => reply,
+    }
+}
+
+/// `Job id: 7.` becomes `Job id: task:7@box.`, so job_status and cancel
+/// find the machine again.
+fn name_the_job(text: &str, machine: &str) -> String {
+    const MARK: &str = "Job id: ";
+    let Some(at) = text.find(MARK) else {
+        return text.to_owned();
+    };
+    let start = at + MARK.len();
+    let digits = text[start..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .count();
+    let end = start + digits;
+    format!(
+        "{}task:{}@{machine}{}",
+        &text[..start],
+        &text[start..end],
+        &text[end..]
+    )
+}
+
+async fn over_the_mesh(mesh: &Mesh, peer: EndpointId, request: &Request) -> Result<Reply> {
+    let (mut tx, mut rx) = handshake(mesh, peer).await?;
+    tx.send(request).await?;
+    timeout(CALL_LIMIT, rx.recv())
+        .await
+        .context("the call ran too long")??
+        .context("the machine closed the call before answering")
+}
+
+/// Opens `tools/1` on `peer`. A link replaced while it opens (two machines
+/// dialing each other keep one) is tried again; nothing has run yet.
+async fn handshake(mesh: &Mesh, peer: EndpointId) -> Result<(LinkTx, LinkRx)> {
+    let mut tries = HANDSHAKES;
+    loop {
+        match try_handshake(mesh, peer).await {
+            Err(e) if tries > 1 => {
+                log::debug!("opening tools/1 on {peer} failed, trying again: {e:#}");
+                tries -= 1;
+            }
+            Err(e) => return Err(e),
+            Ok(Ok(streams)) => return Ok(streams),
+            Ok(Err(reason)) => bail!("the machine refused the call: {reason}"),
+        }
+    }
+}
+
+/// The streams, or why the machine turned the call away, which trying
+/// again does not change.
+async fn try_handshake(mesh: &Mesh, peer: EndpointId) -> Result<Result<(LinkTx, LinkRx), String>> {
+    let (send, recv) = open(mesh, peer).await?;
+    let (mut tx, mut rx) = link(send, recv);
+    tx.send(&Open {
+        protocol: PROTOCOL.to_owned(),
+    })
+    .await?;
+    let opened: Opened = timeout(OPEN_LIMIT, rx.recv())
+        .await
+        .context("the machine did not take the call in time")??
+        .context("the machine closed the call")?;
+    Ok(match opened {
+        Opened::Refused { reason } => Err(reason),
+        _ => Ok((tx, rx)),
+    })
+}
+
+/// A stream to `peer`, waiting a while for the link when the mesh holds the
+/// device but has no connection to it yet.
+async fn open(
+    mesh: &Mesh,
+    peer: EndpointId,
+) -> Result<(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)> {
+    let mut updates = mesh.updates();
+    let opened = timeout(LINK_WAIT, async {
+        loop {
+            updates.borrow_and_update();
+            match mesh.open_bi(peer).await {
+                Ok(streams) => return Ok(streams),
+                Err(e) => {
+                    if updates.changed().await.is_err() {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    })
+    .await
+    .context("the machine is not connected")?;
+    Ok(opened?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_job_id_names_its_machine() {
+        let named = name_the_job(
+            "Started it in the background. Job id: 7. Check it.",
+            "box-b",
+        );
+        assert_eq!(
+            named,
+            "Started it in the background. Job id: task:7@box-b. Check it."
+        );
+        let job = Job::parse("task:7@box-b").expect("a job id");
+        assert_eq!((job.id, job.machine.as_str()), (7, "box-b"));
+        assert!(Job::parse("7").is_none());
+    }
+
+    #[test]
+    fn a_machine_is_named_in_one_word() {
+        assert_eq!(command_name(" Mac Studio "), "mac-studio");
+    }
+}

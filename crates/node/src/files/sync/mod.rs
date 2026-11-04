@@ -14,6 +14,7 @@ use crate::{
     lock,
 };
 use anyhow::{Context, Result, bail};
+use beep_mesh::Mesh;
 use beep_proto::node::{
     LinkRx, LinkTx,
     sync::{
@@ -129,6 +130,9 @@ struct Inner {
     configuring: AsyncMutex<()>,
     /// The pulls other nodes have open here.
     serving: Arc<AtomicUsize>,
+    /// The mesh this node follows, once it is in one: it names the
+    /// projects, and its device list says who may sync them.
+    mesh: Mutex<Option<Mesh>>,
 }
 
 /// Stops `running` and waits for its task, which saves its state, a while.
@@ -155,17 +159,30 @@ pub struct Syncs {
     inner: Arc<Inner>,
 }
 
+impl Inner {
+    /// Whether `peer` is still a device of the mesh, when there is one.
+    /// Asked on every connection and request, so a removed device is out at
+    /// once, before the project's peer list catches up.
+    fn in_mesh(&self, peer: &EndpointId) -> bool {
+        lock(&self.mesh)
+            .as_ref()
+            .is_none_or(|mesh| mesh.is_member(*peer))
+    }
+}
+
 impl Access for Inner {
     fn may_connect(&self, peer: &EndpointId) -> bool {
-        lock(&self.projects)
-            .values()
-            .any(|running| running.shared.has_peer(peer))
+        self.in_mesh(peer)
+            && lock(&self.projects)
+                .values()
+                .any(|running| running.shared.has_peer(peer))
     }
 
     fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
-        lock(&self.projects)
-            .values()
-            .any(|running| running.shared.has_peer(peer) && running.shared.has(hash))
+        self.in_mesh(peer)
+            && lock(&self.projects)
+                .values()
+                .any(|running| running.shared.has_peer(peer) && running.shared.has(hash))
     }
 }
 
@@ -212,6 +229,7 @@ impl Syncs {
                 checking: Mutex::default(),
                 configuring: AsyncMutex::new(()),
                 serving: Arc::default(),
+                mesh: Mutex::default(),
             }),
         };
         for refused in syncs.configure_from(config.projects, Source::Saved).await {
@@ -240,6 +258,21 @@ impl Syncs {
     /// Syncthing keeps in step is refused when it is new here, and held
     /// when the server set it before.
     pub async fn configure(&self, projects: Vec<Project>) -> Vec<Refused> {
+        self.configure_from(projects, Source::Server).await
+    }
+
+    /// Follows `mesh` from now on: its device list says who may sync, and
+    /// the server's project list is ignored.
+    pub(crate) fn follow(&self, mesh: Mesh) {
+        *lock(&self.inner.mesh) = Some(mesh);
+    }
+
+    fn follows_mesh(&self) -> bool {
+        lock(&self.inner.mesh).is_some()
+    }
+
+    /// Syncs exactly `projects`, as the mesh names them.
+    pub(crate) async fn configure_from_mesh(&self, projects: Vec<Project>) -> Vec<Refused> {
         self.configure_from(projects, Source::Server).await
     }
 
@@ -547,6 +580,11 @@ impl Syncs {
     fn is_peer(&self, peer: &EndpointId) -> bool {
         self.inner.may_connect(peer)
     }
+
+    /// Whether `peer` may still make requests: it is not out of the mesh.
+    fn allows(&self, peer: &EndpointId) -> bool {
+        self.inner.in_mesh(peer)
+    }
 }
 
 /// Checks the folders against Syncthing's whenever it changes one, and at
@@ -608,6 +646,13 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         return Ok(());
     };
     let reply = match request {
+        Request::Configure { .. } if syncs.follows_mesh() => {
+            log::info!("ignored the server's sync list: this node takes it from its mesh");
+            Reply::Configured {
+                refused: Vec::new(),
+                addr: syncs.addr(),
+            }
+        }
         Request::Configure { projects } => Reply::Configured {
             refused: syncs.configure(projects).await,
             addr: syncs.addr(),
