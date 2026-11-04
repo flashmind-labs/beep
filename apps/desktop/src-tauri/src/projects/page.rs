@@ -9,10 +9,10 @@ use crate::{
     error::Result,
 };
 use beep_proto::{
-    ChatApproval, GetProjectAgent, ListPendingApprovals, ListProjectMachines, ListProjectSessions,
-    ListProjectSyncthing, ListProjectTasks, ListProjectWorkers, PendingApproval, ProjectAgent,
-    ProjectMachine, ProjectTask, ProjectTaskState, ProjectWorker, ProjectWorkerState,
-    StopProjectWorker, SyncthingPlace, UpdateProjectTask,
+    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectMachines,
+    ListProjectSessions, ListProjectSyncthing, ListProjectTasks, ListProjectWorkers,
+    PendingApproval, ProjectAgent, ProjectCopy, ProjectMachine, ProjectTask, ProjectTaskState,
+    ProjectWorker, ProjectWorkerState, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -69,6 +69,23 @@ pub async fn project_machines(
 ) -> Result<Option<Vec<ProjectMachineRow>>> {
     Ok(known(beep.call(ListProjectMachines { project }).await)?
         .map(|machines| machines.into_iter().map(ProjectMachineRow::from).collect()))
+}
+
+/// Copies `project` onto `machine_id`. `None` from a server too old to, and
+/// the page clones instead.
+#[tauri::command]
+pub async fn project_copy(
+    beep: Service<'_>,
+    project: String,
+    machine_id: String,
+) -> Result<Option<ProjectCopy>> {
+    known(
+        beep.call(CopyProject {
+            project,
+            machine_id,
+        })
+        .await,
+    )
 }
 
 /// The machines on which Syncthing keeps `project`'s folder in step. Empty

@@ -20,18 +20,25 @@ use beep_server::{
     client::{Client, Node},
     nodes::{self, Online},
     protocol::{
-        ApiError, ConflictKeep, DeviceKind, GetProjectSyncDetail, GetSyncSkipped, ListProjectSync,
-        PauseProjectSync, PinProject, ProjectSync, ProjectSyncDetail, RemoveDevice, RemoveProject,
-        ResolveSyncConflict, SetProjectSync, SkipRule, SyncStatus,
+        ApiError, ConflictKeep, CopyProject, DeviceKind, GetProjectSyncDetail, GetSyncSkipped,
+        ListProjectSync, PauseProjectSync, PinProject, ProjectSync, ProjectSyncDetail,
+        RemoveDevice, RemoveProject, ResolveSyncConflict, SetProjectSync, SkipRule, SyncStatus,
     },
     push::Pusher,
-    store::{NewKey, SyncRow, TestDb},
+    store::{NewImport, NewKey, SyncRow, TestDb},
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
 };
 use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
-use std::{fs, future::Future, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    fs,
+    future::Future,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Arc,
+    time::Duration,
+};
 use tempfile::TempDir;
 use tokio::{
     task::JoinHandle,
@@ -426,6 +433,99 @@ async fn the_app_turns_sync_on_and_sees_how_each_machine_stands() {
     let off = server.set(&a, &a.shown(), false).await.unwrap();
     assert!(off.machines.is_empty());
     assert!(a.online.sync_status().await.unwrap().is_empty());
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(["-c", "user.name=test", "-c", "user.email=test@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(out.status.success(), "git {args:?}: {out:?}");
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn copying_a_project_brings_a_working_checkout_and_says_when_it_was_there() {
+    const REPO: &str = "acme/game";
+    const URL: &str = "https://github.com/acme/game";
+    let server = server().await;
+    let a = server.node("studio", async |_, _| {}).await;
+    let from = a.folder();
+    write(from.join("src/main.rs"), "fn main() {}\n");
+    git(&from, &["init", "-q"]);
+    git(&from, &["remote", "add", "origin", URL]);
+    git(&from, &["add", "."]);
+    git(&from, &["commit", "-qm", "first"]);
+    server
+        .user
+        .save_import(NewImport {
+            project: REPO,
+            endpoint: &a.id,
+            folder: &a.shown(),
+            url: URL,
+        })
+        .await
+        .unwrap();
+    let copy = async |to: &TestNode| {
+        server
+            .phone
+            .call(&CopyProject {
+                project: REPO.into(),
+                machine_id: to.id.clone(),
+            })
+            .await
+            .unwrap()
+    };
+
+    let b = server.node("laptop", async |_, _| {}).await;
+    let copied = copy(&b).await;
+    assert_eq!(copied.from.as_deref(), Some("studio"));
+    let to = PathBuf::from(&copied.folder);
+    assert!(to.starts_with(b.shared.path().canonicalize().unwrap()));
+    let head = git(&from, &["rev-parse", "HEAD"]);
+    eventually("a working checkout on the laptop", async || {
+        to.join("src/main.rs").is_file()
+            && Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&to)
+                .output()
+                .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == head)
+            && Command::new("git")
+                .args(["status", "--porcelain"])
+                .current_dir(&to)
+                .output()
+                .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
+    })
+    .await;
+    assert_eq!(git(&to, &["remote", "get-url", "origin"]), URL);
+
+    write(from.join("notes.txt"), "later");
+    eventually("later changes to reach the laptop", async || {
+        to.join("notes.txt").is_file()
+    })
+    .await;
+
+    // Asked again, it is there.
+    let again = copy(&b).await;
+    assert_eq!((again.from, again.folder), (None, copied.folder));
+
+    // A machine holding it in the folder the copy would use is left alone.
+    let c = server.node("mini", async |_, _| {}).await;
+    let held = c.shared.path().canonicalize().unwrap().join(REPO);
+    write(held.join("mine.txt"), "mine");
+    git(&held, &["init", "-q"]);
+    git(&held, &["remote", "add", "origin", URL]);
+    let there = copy(&c).await;
+    assert_eq!(there.from, None);
+    assert_eq!(there.folder, held.to_string_lossy());
+    let listed = server.phone.call(&ListProjectSync {}).await.unwrap();
+    assert!(
+        listed[0].machines.iter().all(|m| m.machine_id != c.id),
+        "it was not turned on: {listed:?}"
+    );
+    assert_eq!(fs::read_to_string(held.join("mine.txt")).unwrap(), "mine");
 }
 
 #[tokio::test(flavor = "multi_thread")]

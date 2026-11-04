@@ -142,7 +142,7 @@ an element it does not expect, so:
 
 Every connection opens with `Hello`, which carries the app's `WIRE`; apps from
 before it are wire 1. To ship a new shape, add a `Feature`, raise `WIRE` in
-`crates/proto/src/version.rs`, and bless the new `tests/wire/<n>` directory.
+`crates/proto/src/transport/version.rs`, and bless the new `tests/wire/<n>` directory.
 
 ## Desktop app
 
