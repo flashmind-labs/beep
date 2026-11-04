@@ -666,9 +666,10 @@ async function replyItem(item: GitItemRow) {
   reloadChats();
 }
 
-function openItemRow(item: GitItemRow, project: ReviewProject) {
+function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelFilter) {
   const kindIcon = icon(item.kind === "pull_request" ? IC.pr : IC.issue);
-  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title));
+  const tags = (item.labels || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l));
+  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title), ...tags);
   title.type = "button";
   title.title = item.url;
   const right = [
@@ -692,7 +693,7 @@ function repoLine(i: number | undefined, repo: string, sub: string, right: Kid[]
 type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
 
 /// One project's row, its counts and its newest items.
-function openProjectRows(p: OpenRepo, i: number) {
+function openProjectRows(p: OpenRepo, i: number, f?: LabelFilter) {
   const counts = [p.prs ? plural(p.prs, "PR", "PRs") : null, p.issues ? plural(p.issues, "issue", "issues") : null]
     .filter(Boolean).map(t => h("span", "", t));
   const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
@@ -706,7 +707,7 @@ function openProjectRows(p: OpenRepo, i: number) {
     ]));
   }
   const all = state.gitAll.has(p.key);
-  const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project))];
+  const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project, f))];
   if (p.items.length > ITEMS_SHOWN) {
     const more = button(all ? "Show fewer" : `Show all ${p.items.length}`, "quiet small", () => {
       if (all) state.gitAll.delete(p.key); else state.gitAll.add(p.key);
@@ -796,9 +797,10 @@ function importWithSettings(p: OpenRepo) {
 function gitSection(view: GitItemsView) {
   const all = projectRows() || [];
   const column = (kind: GitItemRow["kind"], title: string, none: string) => {
-    const items = view.items.filter(i => i.kind === kind);
-    const body = items.length ? projectsWithOpen({ items }, all).flatMap(openProjectRows) : [h("div", "cc-empty", h("span", "", none))];
-    return section("", title, items.length, null, h("div", "cc-panel cc-open", ...body));
+    const { items, labels: f } = labelFilter(`home:${kind}`, view.items.filter(i => i.kind === kind), i => i.labels, draw);
+    const chips = f.all.length ? h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))) : null;
+    const body = items.length ? projectsWithOpen({ items }, all).flatMap((p, n) => openProjectRows(p, n, f)) : [h("div", "cc-empty", h("span", "", none))];
+    return section("", title, items.length, null, h("div", "cc-panel cc-open", chips, ...body));
   };
   const el = h("div", "cc-git", ...view.hosts.filter(x => x.error).map(x => note("bad", x.error)),
     h("div", "cc-cols", column("pull_request", "Pull requests", "No open pull requests."), column("issue", "Issues", "No open issues.")));
@@ -2218,8 +2220,20 @@ interface SplitItem {
 type LabelFilter = { all: string[]; on?: string; pick: (label: string) => void };
 type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter };
 
-/// The label each project's Issues list is filtered to, by project name.
-const issueLabel = new Map<string, string>();
+/// The label each list is filtered to, by list key.
+const listLabel = new Map<string, string>();
+
+/// `items` filtered to the label picked for list `key`, and the chips that
+/// pick one; `redraw` runs on a pick. A label gone from every item clears.
+function labelFilter<T>(key: string, items: T[], tags: (i: T) => string[] | undefined, redraw: () => void) {
+  const all = [...new Set(items.flatMap(i => tags(i) || []))].sort();
+  const pick = listLabel.get(key), on = pick && all.includes(pick) ? pick : undefined;
+  const labels: LabelFilter = { all, on, pick: l => {
+    if (on === l) listLabel.delete(key); else listLabel.set(key, l);
+    redraw();
+  } };
+  return { items: on ? items.filter(i => tags(i)?.includes(on)) : items, labels };
+}
 
 /// A label chip: a click filters its list to it, a second click clears it.
 function labelChip(label: string, f: LabelFilter, tag: "button" | "i") {
@@ -2269,12 +2283,12 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
   const prItems: SplitItem[] = thr.prLines(agent, acts).map(l => {
     const chip = prChip(l), pr = l.pr;
     return {
-      key: `pr:${pr.number}`, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "),
+      key: `pr:${pr.number}`, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
       right: chip && stateChip(chip.cls, chip.text, chip.cls === "running"),
       detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
     };
   });
-  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), items: prItems });
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), ...labelFilter(`${p.name}:prs`, prItems, i => i.tags, redrawProjects) });
   const issueItems: SplitItem[] = thr.issueLines(agent, acts).map(l => ({
     key: `issue:${l.number}`, lead: num(l.number), title: l.title,
     sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
@@ -2282,15 +2296,7 @@ function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: Run
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
   }));
-  const label = issueLabel.get(p.name);
-  groups.push({
-    title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."),
-    items: label ? issueItems.filter(i => i.tags?.includes(label)) : issueItems,
-    labels: { all: [...new Set(issueItems.flatMap(i => i.tags || []))].sort(), on: label, pick: l => {
-      if (issueLabel.get(p.name) === l) issueLabel.delete(p.name); else issueLabel.set(p.name, l);
-      redrawProjects();
-    } },
-  });
+  groups.push({ title: "Issues", note: hostNote(issues, thr.issuesError(pid), "No open issues."), ...labelFilter(`${p.name}:issues`, issueItems, i => i.tags, redrawProjects) });
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
     { key: "machines", title: "Machines", sub: machineTile(rows, sync).count, detail: () => [whereSection(p, rows, known)] },

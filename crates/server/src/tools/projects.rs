@@ -272,6 +272,7 @@ async fn git_items(app: &App, user: &User) -> (Vec<GitItem>, Vec<String>) {
     }
     match app.git_items.list(user.id(), logins).await {
         Ok(listed) => {
+            let listed = listed.found;
             let notes = listed
                 .hosts
                 .iter()

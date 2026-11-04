@@ -1,8 +1,9 @@
 //! One git host API call with a user's token, and its failure in plain words.
 
+use crate::protocol::GitItem;
 use reqwest::{Client, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Semaphore;
@@ -26,6 +27,24 @@ pub enum HostError {
     BadReply(String),
     #[error("Beep could not ask {0}.")]
     Internal(String),
+}
+
+/// An open item a host listed, with its label names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Found {
+    pub item: GitItem,
+    pub labels: Vec<String>,
+}
+
+/// A label as GitHub and Forgejo give it on an issue.
+#[derive(Debug, Deserialize)]
+pub struct Label {
+    pub name: String,
+}
+
+/// The names of `labels`.
+pub fn label_names(labels: &[Label]) -> Vec<String> {
+    labels.iter().map(|label| label.name.clone()).collect()
 }
 
 /// What a call needs: client, call limit, host name and token.
