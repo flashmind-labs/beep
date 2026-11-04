@@ -68,6 +68,4 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
 
 [profile.release]
-lto = true
-codegen-units = 1
 strip = true
