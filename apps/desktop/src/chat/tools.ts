@@ -1,5 +1,3 @@
-/// Tool steps shown while a run works; older ones fold into "+N tools".
-export const VISIBLE_STEPS = 3;
 
 /// Tools that get no step: what they do is already on screen, or is bookkeeping.
 export const QUIET_TOOLS = new Set(["suggest_replies", "show_products", "show_cards", "show_chart", "notify_user", "task_progress"]);

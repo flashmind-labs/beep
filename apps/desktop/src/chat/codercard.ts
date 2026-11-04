@@ -3,6 +3,7 @@ import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, ag
 import { openAgent } from "../agents/session.ts";
 import { esc, h, ICON, invoke } from "../bar/core.ts";
 import type { Turn } from "../bar/core.ts";
+import { ANSWER } from "./chat.ts";
 
 // ---------- Coding agent card in a reply ----------
 
@@ -45,7 +46,7 @@ export function coderCard(turn: Turn, text: string | null | undefined) {
     card = h<CoderCard>(`<div class="dcard dcoder dcodercard"></div>`);
     card.dataset.card = key;
     card.addEventListener("click", e => cardClick(card!, e));
-    const reply = turn.querySelector(":scope > .reply");
+    const reply = turn.querySelector(ANSWER);
     reply ? turn.insertBefore(card, reply) : turn.append(card);
   }
   card.report = report;
