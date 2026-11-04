@@ -16,7 +16,9 @@ pub const WIRE: u32 = 17;
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
 /// associated const, `pub const POLLS: Feature = Feature(2);`, and mark a new
-/// `wire_enum!` variant with `since Feature::POLLS`.
+/// `wire_enum!` variant with `since Feature::POLLS`. A const that sends a
+/// request names a shape the server reads from any app, so its revision only
+/// freezes fixtures. A revision with no const only added requests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Feature(pub(crate) u32);
 
@@ -36,14 +38,6 @@ impl Feature {
     /// from a `Chat` with `voice` streams. Only the macOS app does.
     pub const VOICE: Feature = Feature(5);
 
-    /// Asks `ListMachines` and `ListMemoryScopes`: shows the machines running
-    /// beep-node and what each memory is about.
-    pub const NODES: Feature = Feature(6);
-
-    /// Asks `Transcribe` for live words while the user talks. Only the
-    /// macOS app does.
-    pub const LIVE_VOICE: Feature = Feature(7);
-
     /// Clears a background question's card when it stops waiting: reads a
     /// `Notice` for which `Notice::resolved_question` is set, and asks
     /// `ListQuestions`. Older apps take that notice as a changed chat.
@@ -55,28 +49,16 @@ impl Feature {
     pub const SOURCES: Feature = Feature(10);
 
     /// Sends `AgentSteer::PromptImages`, images pasted into a coding-agent
-    /// session. A request, not a reply: the server reads it from any app,
-    /// and the wire revision only freezes its fixtures. Only the macOS app
-    /// sends it.
+    /// session. Only the macOS app sends it.
     pub const AGENT_IMAGES: Feature = Feature(11);
 
-    /// Sends `ImportProject::folder` and asks `ListMachineFolder`, to pick
-    /// where an imported project goes. Requests, not replies: the server
-    /// reads them from any app, and the wire revision only freezes their
-    /// fixtures. Only the macOS app sends them.
-    pub const IMPORT_FOLDERS: Feature = Feature(12);
-
     /// Sends `AgentSteer::Configure`, switching a running coding-agent
-    /// session's model and thinking. A request, not a reply: the server
-    /// reads it from any app, and the wire revision only freezes its
-    /// fixtures. Only the macOS app sends it.
+    /// session's model and thinking. Only the macOS app sends it.
     pub const AGENT_CONFIGURE: Feature = Feature(13);
 
-    /// Sends `AgentCheckoutPlan::NamedWorktree` and `BranchWorktree`, and
-    /// asks `GetPullRequestHead`, to start a coding agent on an issue's
-    /// named branch or a pull request's own. Requests, not replies: the
-    /// server reads them from any app, and the wire revision only freezes
-    /// their fixtures. Only the macOS app sends them.
+    /// Sends `AgentCheckoutPlan::NamedWorktree` and `BranchWorktree`, and asks
+    /// `GetPullRequestHead`, to start a coding agent on an issue's named branch
+    /// or a pull request's own. Only the macOS app sends them.
     pub const BRANCH_WORKTREES: Feature = Feature(14);
 
     /// Reads `AgentEntryKind::Thought`, a coding agent's thought in a
@@ -84,16 +66,10 @@ impl Feature {
     /// that reads it. Only the macOS app does.
     pub const THOUGHTS: Feature = Feature(15);
 
-    /// Sends `AgentSteer::Steer`, a message for a coding agent's running
-    /// turn that goes once its current tool call finishes. A request, not a
-    /// reply: the server reads it from any app, and the wire revision only
-    /// freezes its fixtures. Only the macOS app sends it.
+    /// Sends `AgentSteer::Steer`, a message for a coding agent's running turn
+    /// that goes once its current tool call finishes. Only the macOS app sends
+    /// it.
     pub const AGENT_STEER: Feature = Feature(16);
-
-    /// Asks `GetLabeledProjectLists` and `ListLabeledGitItems`, to show the
-    /// labels of pull requests and of Home's items. Only the macOS app
-    /// does.
-    pub const LABELS: Feature = Feature(17);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {
