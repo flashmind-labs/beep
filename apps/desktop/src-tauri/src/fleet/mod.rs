@@ -16,7 +16,7 @@ use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Mutex, PoisonError},
 };
 use tokio::{sync::watch, time::timeout};
 
@@ -56,8 +56,16 @@ impl Fleet {
     /// `push` for a server's notices, until `stop`. Takes the time it takes
     /// and is meant to run in the background.
     pub async fn run(&self, push: Option<PushHandler>) {
-        let _ = (&self.peers, &self.dir, &self.name, &self.serving, push);
-        let _ = Serving::start;
+        match mesh::open_or_create(&self.dir, &self.endpoint, &self.name).await {
+            Ok(mesh) => {
+                // The node reads its own kind from the mesh's device list.
+                self.peers.install(mesh.clone());
+                self.mesh.send_replace(Some(mesh));
+            }
+            Err(e) => log::warn!("not in a mesh: {e:#}"),
+        }
+        let serving = Serving::start(&self.endpoint, &self.dir, &self.peers, push).await;
+        *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(serving);
     }
 
     /// Stops answering peers and saves what the node's services hold.
@@ -98,7 +106,17 @@ impl Fleet {
     /// at once, with no network and no waiting. Another member gets
     /// `DEADLINE` to be connected, then is offline.
     pub async fn client(&self, machine: EndpointId) -> Result<PeerClient> {
-        Err(DesktopError::Offline(self.name_of(machine)))
+        if machine == self.me {
+            return Ok(PeerClient::local(self.session.clone()));
+        }
+        let connect = async {
+            let mesh = self.ready().await?;
+            with_deadline(machine, &mesh).await.ok()
+        };
+        match timeout(DEADLINE, connect).await {
+            Ok(Some(client)) => Ok(client),
+            Ok(None) | Err(_) => Err(DesktopError::Offline(self.name_of(machine))),
+        }
     }
 
     /// What the mesh calls `machine`, or its short id.
@@ -123,7 +141,10 @@ mod tests {
         tools::{self, Reply, Request, Tool},
     };
     use iroh::{SecretKey, endpoint::presets, protocol::Router};
-    use std::time::{Duration, Instant};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
     use tempfile::TempDir;
 
     const LIMIT: Duration = Duration::from_secs(60);

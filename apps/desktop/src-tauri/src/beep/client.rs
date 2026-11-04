@@ -3,7 +3,7 @@
 
 use crate::{
     agents::work_copy::Copies,
-    beep::identity::{Identity, secret_key},
+    beep::identity::Identity,
     beep::state::{LinkState, NoticeVoice, Saved, StateFile},
     beep::sync::Chats,
     error::{DesktopError, Result},
@@ -11,7 +11,7 @@ use crate::{
 use beep_proto::{
     ApiError, Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions,
     Session, SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription,
-    client::{Client, Node, OnNotice, Replies, Uplink},
+    client::{Client, Node, OnNotice, PushHandler, Replies, Uplink},
 };
 use iroh::{Endpoint, EndpointId};
 use serde_bytes::ByteBuf;
@@ -39,8 +39,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_LIVE_CHATS: usize = 200;
 
 pub struct Beep {
-    node: Node,
-    server: EndpointId,
+    /// The one iroh endpoint of the app, which the mesh, the node link and
+    /// a server's notices share.
+    endpoint: Endpoint,
+    /// The link to the server, if this app has one.
+    server: Option<Server>,
     pub(super) identity: Identity,
     client: AsyncMutex<Option<Arc<Client>>>,
     saved: Mutex<Saved>,
@@ -51,22 +54,38 @@ pub struct Beep {
     copies: Copies,
 }
 
+/// A server this app talks to.
+struct Server {
+    node: Node,
+    id: EndpointId,
+    /// What takes its notices on the endpoint.
+    push: PushHandler,
+}
+
 impl Beep {
-    pub async fn start(
+    /// The app on `endpoint`, with a server or none. Binds nothing and
+    /// reaches nothing: a connection opens when a call needs one.
+    pub fn start(
+        endpoint: Endpoint,
         identity: Identity,
-        server: EndpointId,
+        server: Option<EndpointId>,
         file: StateFile,
         chats: Chats,
-    ) -> anyhow::Result<(Arc<Self>, Notices)> {
+    ) -> (Arc<Self>, Notices) {
         let (tx, rx) = mpsc::unbounded_channel();
         let on_notice: OnNotice = Arc::new(move |notice| tx.send(notice).is_ok());
-        let node = Node::bind(secret_key(&identity), server, on_notice)
-            .await?
-            .with_app(Platform::Macos {}, env!("CARGO_PKG_VERSION"));
+        let server = server.map(|id| {
+            let (node, push) = Node::on_endpoint(endpoint.clone(), id, on_notice);
+            Server {
+                node: node.with_app(Platform::Macos {}, env!("CARGO_PKG_VERSION")),
+                id,
+                push,
+            }
+        });
         let saved = file.load();
-        Ok((
+        (
             Arc::new(Self {
-                node,
+                endpoint,
                 server,
                 identity,
                 client: AsyncMutex::new(None),
@@ -77,7 +96,7 @@ impl Beep {
                 copies: Copies::default(),
             }),
             rx,
-        ))
+        )
     }
 
     /// The copies of projects sync keeps on this Mac.
@@ -86,16 +105,30 @@ impl Beep {
     }
 
     pub fn id(&self) -> EndpointId {
-        self.node.id()
+        self.endpoint.id()
     }
 
     /// This Mac's iroh endpoint, which the node link shares.
     pub fn endpoint(&self) -> &Endpoint {
-        self.node.endpoint()
+        &self.endpoint
     }
 
-    pub fn server(&self) -> EndpointId {
+    /// The server this app is set to talk to, if it has one.
+    pub fn server(&self) -> Option<EndpointId> {
+        self.server.as_ref().map(|server| server.id)
+    }
+
+    /// What takes the server's notices on the endpoint, for the router.
+    pub fn push(&self) -> Option<PushHandler> {
+        self.server.as_ref().map(|server| server.push.clone())
+    }
+
+    /// The server's side of the app, or `NoServer`.
+    fn node(&self) -> Result<&Node> {
         self.server
+            .as_ref()
+            .map(|server| &server.node)
+            .ok_or(DesktopError::NoServer)
     }
 
     pub fn use_mac(&self) -> bool {
@@ -224,6 +257,7 @@ impl Beep {
     /// The open connection, or a new one. Never connects while unlinked, so
     /// the server does not make this key an account of its own.
     async fn client(&self) -> Result<Arc<Client>> {
+        self.node()?;
         match self.link_state() {
             LinkState::Unlinked => return Err(DesktopError::Unlinked),
             LinkState::Revoked => return Err(DesktopError::Revoked),
@@ -234,6 +268,7 @@ impl Beep {
 
     /// The open connection, or a new one, whatever the link state.
     async fn connection(&self) -> Result<Arc<Client>> {
+        let node = self.node()?;
         let mut cached = self.client.lock().await;
         if let Some(client) = cached.as_ref() {
             if client.is_revoked() {
@@ -247,14 +282,17 @@ impl Beep {
         // A closed or revoked client is not kept while a new one is made,
         // so a connect that fails leaves nothing behind.
         *cached = None;
-        let client = Arc::new(connect_in_time(self.node.connect(), CONNECT_TIMEOUT).await?);
+        let client = Arc::new(connect_in_time(node.connect(), CONNECT_TIMEOUT).await?);
         *cached = Some(client.clone());
         Ok(client)
     }
 
     /// Whether the server has hosted sign-in. Makes no account on one without.
     pub(super) async fn has_login(&self) -> bool {
-        self.node.has_login().await
+        match self.node() {
+            Ok(node) => node.has_login().await,
+            Err(_) => false,
+        }
     }
 
     /// `call` for a key that may have no account yet, which only a server
@@ -282,7 +320,7 @@ impl Beep {
 
     /// Connects to another server, to try it before choosing it.
     pub(super) async fn connect_to(&self, server: EndpointId) -> Result<Client> {
-        connect_in_time(self.node.connect_to(server), CONNECT_TIMEOUT).await
+        connect_in_time(self.node()?.connect_to(server), CONNECT_TIMEOUT).await
     }
 
     /// Makes `server` the one this app connects to from the next launch.
@@ -440,8 +478,52 @@ async fn connect_in_time<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::beep::identity::load_or_create;
+    use beep_mesh::transport_config;
+    use iroh::{SecretKey, endpoint::presets};
     use std::future::pending;
+    use tempfile::TempDir;
     use tokio::time::{Instant, sleep};
+
+    /// The app on a loopback endpoint with no relay, so nothing reaches a
+    /// network, and no server.
+    async fn without_server(dir: &TempDir) -> Arc<Beep> {
+        let identity = load_or_create(&dir.path().join("identity.key")).expect("a key is made");
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .transport_config(transport_config())
+            .bind()
+            .await
+            .expect("the endpoint binds");
+        let file = StateFile::new(dir.path().join("state.json"));
+        let (beep, _notices) = Beep::start(
+            endpoint,
+            identity,
+            None,
+            file,
+            Chats::load(dir.path().join("sync")),
+        );
+        beep
+    }
+
+    #[tokio::test]
+    async fn a_request_only_a_server_answers_says_there_is_none() {
+        let dir = TempDir::new().expect("a temp dir");
+        let beep = without_server(&dir).await;
+        assert_eq!(beep.server(), None);
+        assert!(beep.push().is_none());
+        // Linked or not, there is nothing to connect to.
+        for link in [LinkState::Unlinked, LinkState::Linked, LinkState::Revoked] {
+            beep.set_link_state(link);
+            let error = beep.call(ListSessions {}).await.expect_err("no server");
+            assert!(matches!(error, DesktopError::NoServer), "{error:?}");
+        }
+        assert!(matches!(
+            beep.link_offer("Studio"),
+            Err(DesktopError::NoServer)
+        ));
+        assert!(!beep.has_login().await);
+    }
 
     // The clock is paused, so tokio moves it straight to the next timer
     // instead of the test sleeping.

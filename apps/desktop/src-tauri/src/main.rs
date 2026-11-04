@@ -23,15 +23,20 @@ use beep::{
     Beep,
     state::{LinkState, StateFile},
 };
+use beep_proto::client::bind_endpoint;
+use fleet::Fleet;
 use iroh::EndpointId;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tauri::{ActivationPolicy, App, AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tokio::time::timeout;
 use voice::Voice;
 
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
+/// How long quitting waits for the mesh to save its state.
+const FLEET_STOP: Duration = Duration::from_secs(3);
 /// Passed to Beep when it starts as a login item, so it stays in the tray.
 const LOGIN_ARG: &str = "--login";
 
@@ -420,6 +425,13 @@ fn main() {
                     // gh, if it is still waiting for a GitHub code, goes too.
                     app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
                     app.state::<agents::accounts::ClaudeSignIn>().stop();
+                    // The mesh and the node's services save what they hold.
+                    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+                    tauri::async_runtime::block_on(async move {
+                        if timeout(FLEET_STOP, fleet.stop()).await.is_err() {
+                            log::warn!("the mesh did not stop in time");
+                        }
+                    });
                     // Background tasks the agent started here end with the app.
                     beep_node::kill_tasks();
                 }
@@ -444,12 +456,16 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let dir = beep::identity::data_dir(&handle)?;
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
     let file = StateFile::new(dir.join("state.json"));
-    // The server chosen with a link code, or the one built in.
-    let server: EndpointId = match file.load().server {
-        Some(server) => server,
-        None => SERVER_NODE_ID
-            .parse()
-            .context("built without a server node id; set BEEP_NODE_ID")?,
+    // The server chosen with a link code, or the one built in; the app
+    // works without one, in the mesh.
+    let server: Option<EndpointId> = match file.load().server {
+        Some(server) => Some(server),
+        None if SERVER_NODE_ID.is_empty() => None,
+        None => Some(
+            SERVER_NODE_ID
+                .parse()
+                .context("the server node id built in is not valid")?,
+        ),
     };
     let chats = beep::sync::Chats::load(dir.join("sync"));
     let views = Arc::new(center::view_cache::ViewCache::load(
@@ -459,9 +475,24 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(palette::PaletteCache::load(&views)?);
     app.manage(views);
-    let (beep, notices) =
-        tauri::async_runtime::block_on(Beep::start(identity, server, file, chats))?;
+    let endpoint = tauri::async_runtime::block_on(bind_endpoint(
+        beep::identity::secret_key(&identity),
+        beep_mesh::transport_config(),
+    ))?;
+    let (beep, notices) = Beep::start(endpoint.clone(), identity, server, file, chats);
     app.manage(beep.clone());
+    // This Mac's node, and the mesh it is in, which opens in the background.
+    let machine = machines::this_mac::Machine::new(&dir.join("node"));
+    let fleet = Arc::new(Fleet::new(
+        endpoint,
+        &dir.join("node"),
+        machine.name(),
+        machine.offers(),
+    ));
+    app.manage(fleet.clone());
+    let (opening, push) = (fleet.clone(), beep.push());
+    tauri::async_runtime::spawn(async move { opening.run(push).await });
+    app.manage(machine);
     app.manage(tray::Recent::default());
     app.manage(projects::live::Followed::default());
     app.manage(research::Pending::default());
@@ -470,7 +501,6 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(settings::gh_sign_in::GhSignIn::default());
     app.manage(agents::accounts::ClaudeSignIn::default());
     app.manage(platform::update::Updates::default());
-    app.manage(machines::this_mac::Machine::new(&dir.join("node")));
     app.manage(center::Shown::default());
     app.manage(center::AgentsShown::default());
     app.manage(center::Pending::default());
