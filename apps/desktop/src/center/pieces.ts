@@ -57,7 +57,7 @@ export function section(id: string, title: Kid, count: number | string, action: 
   return el;
 }
 export function avatar(cls: string, ini: Kid) { return h("span", `cc-ag ${cls}`, ini); }
-export function tag(cls: string, ...kids: Kid[]) { return h("span", `cc-tag${cls ? " " + cls : ""}`, ...kids); }
+export function tag(cls: string, ...kids: Kid[]) { return h("span", `chip${cls ? " " + cls : ""}`, ...kids); }
 
 /// A button with a + before `label`.
 export function plusLabel(label: string, cls: string, on: () => void) {

@@ -1,0 +1,96 @@
+/* Sheets over the window: Add a machine, Add and Import a project, New project, groups, confirmations. */
+.am-scrim { position: fixed; inset: 0; z-index: 35; overflow-y: auto; background: color-mix(in srgb, var(--shade) 45%, transparent); display: grid; justify-items: center; align-content: start; padding: 90px 0 24px; animation: dover .15s var(--ease) }
+.am-sheet { width: 560px; max-width: calc(100% - 40px); padding: 18px 20px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); box-shadow: 0 20px 60px color-mix(in srgb, var(--shade) 50%, transparent); color: var(--fg) }
+.am-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px }
+.am-head b { font-size: 15px; font-weight: 600 }
+.am-head kbd { font-size: 11px; opacity: .7 }
+.am-label { font-size: 13px; color: var(--muted); margin-bottom: 8px }
+.am-line { display: flex; gap: 8px; align-items: center; margin-bottom: 14px }
+.am-code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--deep); border: 1px solid var(--border); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text }
+.am-wait { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted) }
+.am-wait .left { font-variant-numeric: tabular-nums }
+.am-wait .end { margin-left: auto }
+.am-done { display: flex; gap: 10px; align-items: center; font-size: 14px }
+.am-sub { font-size: 12.5px; color: var(--muted); margin: 8px 0 14px }
+.am-msg { font-size: 13px; margin-bottom: 12px }
+.am-msg.bad { color: var(--err) }
+.am-mac { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border) }
+.am-mac .am-line, .am-mac .am-msg { margin-bottom: 0 }
+.am-mac-text { flex: 1; min-width: 0; font-size: 13px }
+.am-other { font-weight: 500; color: var(--fg) }
+.am-os { font-size: 12px; color: var(--muted); margin-bottom: 4px }
+.am-search-label { margin-bottom: 0; white-space: nowrap }
+.am-search { color: var(--fg); outline: none; padding: 6px 10px }
+/* Fields shared by the sheets. */
+.ip-field, .ip-path, .gp-field { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent); user-select: text }
+.ip-path, .gp-field { font-family: var(--mono); font-size: 12.5px }
+.ip-field:focus, .ip-dir:focus, .gp-field:focus { border-color: var(--accent) }
+.gp-field::placeholder { color: var(--dim) }
+.gp-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px }
+/* Add a project: found checkouts to import, then the other ways. */
+.ap-sheet { width: min(640px, 88vw); max-height: calc(100vh - 80px); overflow: auto }
+.ap-sheet .am-sub, .ip-sheet .am-sub { margin-top: 0 }
+.ap-sheet .am-label { margin: 18px 0 8px }
+.ap-sheet .am-head + .am-label { margin-top: 4px }
+.ap-list { border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); padding: 4px 14px; max-height: 300px; overflow: auto }
+.ap-remote .ap-list { max-height: 220px }
+.ap-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border) }
+.ap-row:first-child, .ap-rm:first-child { border-top: 0 }
+.ap-row:focus { outline: none }
+.ap-row:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm) }
+.ap-row .n { font-size: 13.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ap-row .m { grid-column: 1; display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); min-width: 0 }
+.ap-row .m > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ap-row .m b { font-weight: 500; color: var(--fg) }
+.ap-row .m code { font-size: 11.5px }
+.ap-row .m.bad { color: var(--err); white-space: normal }
+.ap-row .acts { grid-row: 1 / span 4; grid-column: 2; display: flex; gap: 8px; padding-left: 4px }
+.ap-row.ap-pick { grid-template-columns: 18px minmax(0, 1fr) auto; column-gap: 12px }
+.ap-row.ap-pick > input { grid-row: 1 / span 4; grid-column: 1; align-self: start; margin: 3px 0 0 }
+.ap-row.ap-pick .n, .ap-row.ap-pick .m { grid-column: 2 }
+.ap-row.ap-pick .acts { grid-column: 3; align-items: center }
+.ap-ag { display: inline-flex; gap: 4px; align-items: center; padding: 1px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 11px; line-height: 17px; color: var(--fg) }
+.ap-q { width: 100%; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); color: var(--fg); font: inherit; font-size: 13px }
+.ap-q[hidden], .ap-bar[hidden] { display: none }
+.ap-bar { display: flex; flex: none; align-items: center; gap: 10px; min-height: 30px; margin: 10px 0; font-size: 12.5px; color: var(--muted) }
+.ap-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer }
+.ap-bar .dbtn { margin-left: auto; flex: none; white-space: nowrap }
+.ap-bar .dbtn kbd { margin-left: 6px; padding: 0 4px; font-size: 10.5px; line-height: 15px; border: 0; background: none; opacity: .7 }
+.ap-st { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center }
+.ap-st.ok { color: var(--ok) }
+.ap-rm { display: flex; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px }
+.ap-rm .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ap-rm .m { font-size: 12px; color: var(--muted) }
+.ap-ways { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 18px }
+.ap-ways button { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); color: var(--fg); cursor: pointer }
+.ap-ways button > span { display: grid; gap: 2px }
+.ap-ways button span span { font-size: 12px; color: var(--muted) }
+/* Import a project: the folder field and its browser, the branches. */
+.ip-sheet { max-height: calc(100vh - 48px); overflow: auto }
+.ip-path { padding: 7px 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.ip-dir { width: 100% }
+.ip-dir::placeholder { color: var(--muted); font-family: var(--body) }
+.ip-dir:disabled { opacity: 1 }
+.ip-folder { position: relative; flex: 1; min-width: 0; display: flex }
+.ip-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 3; max-height: 264px; overflow: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--deep); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 45%, transparent) }
+.ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer }
+.ip-menu div:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.ip-menu div.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
+.ip-browse { border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); overflow: hidden }
+.ip-browse .at { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12.5px }
+.ip-browse .at span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ip-browse .dirs { max-height: 168px; overflow: auto; padding: 4px 0; display: flex; flex-direction: column }
+.ip-browse .dirs button { all: unset; box-sizing: border-box; width: 100%; padding: 5px 12px; font-size: 13px; cursor: pointer }
+.ip-browse .dirs button:hover, .ip-browse .dirs button:focus-visible { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.ip-browse .dirs .none { padding: 5px 12px; font-size: 12.5px; color: var(--muted) }
+.ip-browse .foot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted) }
+.ip-browse .foot .note { flex: 1; min-width: 0 }
+.ip-found { display: flex; gap: 8px; align-items: center; font-size: 12.5px }
+.ip-fork { font-size: 12px; color: var(--muted) }
+.ip-foot { position: sticky; bottom: -18px; margin: 12px -20px -18px; padding: 12px 20px 18px; background: var(--surface); border-top: 1px solid var(--border) }
+.ip-branches { display: flex; flex-direction: column; gap: 2px }
+.ip-branch { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--border) }
+.ip-branch:last-child { border-bottom: 0 }
+.ip-branch code { font-family: var(--mono) }
+.ip-branch .m { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ip-branch .lbl { margin-left: auto; color: var(--muted); font-size: 11.5px }

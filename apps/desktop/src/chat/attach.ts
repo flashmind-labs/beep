@@ -40,11 +40,11 @@ export function fileChip(f: AskFile, i?: number) {
   // A spoken message's recording, kept with it.
   if (i === undefined && f.mime?.startsWith("audio/")) {
     const about = ["Audio", fileSize(f.size)].filter(Boolean).join(", ");
-    return `<${tag} class="dachip" aria-label="Open your recording"><span class="ic">${VOICE_ICON.mic}</span><span style="min-width:0"><span class="nm">Your recording</span><span class="sz">${esc(about)}</span></span></${tag}>`;
+    return `<${tag} class="dachip" aria-label="Open your recording"><span class="ic">${VOICE_ICON.mic}</span><span class="dcol0"><span class="nm">Your recording</span><span class="sz">${esc(about)}</span></span></${tag}>`;
   }
   const about = [fileKind(f), fileSize(f.size)].filter(Boolean).join(", ");
   const remove = i === undefined ? "" : `<button aria-label="Remove ${esc(f.name)}" data-i="${i}">${ICON.x}</button>`;
-  return `<${tag} class="dachip"><span class="ic">${ICON.doc}</span><span style="min-width:0"><span class="nm">${esc(f.name)}</span><span class="sz">${esc(about)}</span></span>${remove}</${tag}>`;
+  return `<${tag} class="dachip"><span class="ic">${ICON.doc}</span><span class="dcol0"><span class="nm">${esc(f.name)}</span><span class="sz">${esc(about)}</span></span>${remove}</${tag}>`;
 }
 
 /// The files a prompt carried, under it. A kept one opens like a file Beep sent.

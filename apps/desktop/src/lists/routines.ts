@@ -122,12 +122,12 @@ export function drawRoutines() {
   clampSel(R);
   const on = R.list.filter(c => c.enabled).length, off = R.list.length - on;
   const sum = !R.loaded ? "" : !R.list.length ? "Nothing scheduled" : [on && `${on} on`, off && `${off} paused`].filter(Boolean).join(", ");
-  const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="grants">Grants${GR.list.length ? ` <span style="color:var(--muted)">${GR.list.length}</span>` : ""}<kbd>⌘G</kbd></button><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
+  const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="grants">Grants${GR.list.length ? ` <span class="dmut">${GR.list.length}</span>` : ""}<kbd>⌘G</kbd></button><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
   if (R.loaded && !R.list.length) {
-    bar.innerHTML = head + errLine(R.error) + emptyPage(CLOCK_ICON, "No routines yet.", "Schedule tasks for Beep to run on a timer.", '<button class="dbtn pri" data-r="new" style="margin-top:4px">New routine</button>')
+    bar.innerHTML = head + errLine(R.error) + emptyPage(CLOCK_ICON, "No routines yet.", "Schedule tasks for Beep to run on a timer.", '<button class="dbtn pri" data-r="new">New routine</button>')
       + hints([["⌘N", "new routine"], ["esc", "back"]]);
   } else {
-    bar.innerHTML = head + errLine(R.error) + `<div class="dlist" id="rlist" role="listbox" aria-label="Routines" style="padding-top:8px">${R.list.map(routineRow).join("")}</div>`
+    bar.innerHTML = head + errLine(R.error) + `<div class="dlist top" id="rlist" role="listbox" aria-label="Routines">${R.list.map(routineRow).join("")}</div>`
       + hints(R.mode === "actions" ? [["⌘E", "edit"], ["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
@@ -239,15 +239,15 @@ export function renderRoutineEdit(c: Cron) {
 export function drawRoutineNew() {
   const chip = (k: Repeat, l: string) => `<button class="dchip" aria-pressed="${NR.repeat === k}" data-rep="${k}">${l}</button>`;
   const days = CRON_DAYS.map(d => `<button class="dchip day" aria-pressed="${NR.days.includes(d)}" data-day="${d}">${DAY_NAMES[d]}</button>`).join("");
-  const time = `<label class="dfield" style="max-width:140px"><span>${NR.repeat === "hour" ? "Minute past" : "Time"}</span><input id="nrtime" type="time" value="${esc(NR.time)}"></label>`;
+  const time = `<label class="dfield dnarrow"><span>${NR.repeat === "hour" ? "Minute past" : "Time"}</span><input id="nrtime" type="time" value="${esc(NR.time)}"></label>`;
   const when = NR.repeat === "cron"
-    ? `<label class="dfield"><span>Cron expression</span><input id="nrcron" class="mono" style="text-transform:none" placeholder="30 7 * * 1-5" value="${esc(NR.cron)}" spellcheck="false"></label>
-       <span class="dmuted" id="nrcronsays" style="margin-top:-6px"></span>`
+    ? `<label class="dfield"><span>Cron expression</span><input id="nrcron" class="mono plain" placeholder="30 7 * * 1-5" value="${esc(NR.cron)}" spellcheck="false"></label>
+       <span class="dmuted dpull" id="nrcronsays"></span>`
     : NR.repeat === "once"
-      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="dfield"><span>Date</span><input id="nrdate" type="date" value="${esc(NR.date)}"></label>${time.replace(' style="max-width:140px"', "")}</div>`
+      ? `<div class="dtwo"><label class="dfield"><span>Date</span><input id="nrdate" type="date" value="${esc(NR.date)}"></label>${time.replace(" dnarrow", "")}</div>`
       : (NR.repeat === "week" ? `<div class="dchips">${days}</div>` : "") + time;
   const missing = NR.error === "prompt", edit = NR.edit;
-  const text = (t: string) => `<div class="dmuted" style="display:block;font-size:13.5px;color:var(--fg)">${esc(t)}</div>`;
+  const text = (t: string) => `<div class="dtext">${esc(t)}</div>`;
   const task = edit
     ? `<div class="dfield"><span>What Beep does</span>${text(NR.prompt)}</div>`
     : `<label class="dfield${missing ? " err" : ""}"><span>${missing ? "Tell Beep what to do" : "What should Beep do?"}</span>
@@ -258,13 +258,13 @@ export function drawRoutineNew() {
       ${when}`;
   const go = edit ? "Save" : "Create";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>${edit ? "Edit routine" : "New routine"}</b><small>${edit ? esc(edit.label || "Reminder") : "Runs on this account, phone or computer off"}</small></span></div>
-    <div class="dform" style="padding-top:12px;flex:1;min-height:0;overflow:auto;scrollbar-width:none;align-content:start">
+    <div class="dform dscroll">
       <label class="dfield"><span>Name</span><input id="nrlabel" placeholder="Morning briefing" value="${esc(NR.label)}"></label>
       ${task}
       ${schedule}
       ${NR.error && !missing ? `<div class="derr">${esc(NR.error)}</div>` : ""}
-      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>${go}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn" id="nrno">Cancel</button>
-        <span class="dmuted" style="margin-left:auto">${edit ? "To change what it does, ask Beep in a chat" : "Or just tell Beep in a chat"}</span></div>
+      <div class="dline"><button class="dbtn pri" id="nrgo"${NR.busy ? " disabled" : ""}>${go}<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn quiet" id="nrno">Cancel</button>
+        <span class="dmuted dpush">${edit ? "To change what it does, ask Beep in a chat" : "Or just tell Beep in a chat"}</span></div>
     </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]])}`;
   const bind = (id: string, key: "label" | "prompt" | "time" | "date" | "cron") =>
     $(id)?.addEventListener("input", e => { NR[key] = (e.target as HTMLInputElement).value; if (id === "#nrcron") cronSays(); });
@@ -391,7 +391,7 @@ function grantRow(g: Grant, i: number, now: number) {
   const used = g.last_used_at ? `Last used ${span(now - g.last_used_at)} ago` : "Not used yet";
   const acts = on ? `<span class="acts"><button class="dbtn warn" data-g="revoke">Revoke<kbd>⌘⌫</kbd></button></span>` : "";
   const kv = on && g.fields.length ? `<span class="dgkv">${g.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</span>` : "";
-  return `<div class="drt" role="option" aria-selected="${on}" data-i="${i}" style="align-items:flex-start">${appTile(g.app).replace('class="dapp"', 'class="dapp" style="margin-top:2px"')}
+  return `<div class="drt dalignt" role="option" aria-selected="${on}" data-i="${i}">${appTile(g.app).replace('class="dapp"', 'class="dapp" style="margin-top:2px"')}
         <span class="tt"><b>${esc(g.routine)}</b><span>${esc(`${g.app}: ${short}`)}, ${per}</span><small>${ends} · ${used}</small>${kv}</span>${acts}</div>`;
 }
 
@@ -402,7 +402,7 @@ export function drawGrants() {
     bar.innerHTML = head + errLine(GR.error) + emptyPage(SHIELD_ICON, "No routine grants.", "Beep asks in a chat when a routine needs one.") + hints([["esc", "back"]]);
   } else {
     const now = Date.now();
-    bar.innerHTML = head + errLine(GR.error) + `<div class="dlist" id="glist" role="listbox" aria-label="Routine grants" style="padding-top:8px">${GR.list.map((g, i) => grantRow(g, i, now)).join("")}</div>`
+    bar.innerHTML = head + errLine(GR.error) + `<div class="dlist top" id="glist" role="listbox" aria-label="Routine grants">${GR.list.map((g, i) => grantRow(g, i, now)).join("")}</div>`
       + hints(GR.mode === "confirm" ? [[ICON.ret, "revoke"], ["esc", "cancel"]] : [["↑↓", "move"], ["⌘⌫", "revoke"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
     fillAppTiles(bar);

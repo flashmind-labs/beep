@@ -55,7 +55,7 @@ export function fileSize(n: number) {
 export function sentBox(turn: Turn) {
   let box = turn.querySelector<HTMLElement>(".files");
   if (!box) {
-    box = h('<div class="files" style="display:grid;gap:6px"></div>');
+    box = h('<div class="files dgrid6"></div>');
     const after = turn.querySelector(".dreplies");
     after ? turn.insertBefore(box, after) : turn.append(box);
   }
@@ -85,7 +85,7 @@ export function picMime(file: SentFile) {
 export function fileCard(turn: Turn, file: SentFile) {
   const box = sentBox(turn);
   const about = [fileKind(file), fileSize(file.size)].filter(Boolean).join(", ");
-  const card = h(`<button class="dfile"><span class="ic">${ICON.doc}</span><span style="flex:1;min-width:0;display:grid"><span class="nm">${esc(file.name)}</span><span class="sz">${esc(about)}</span></span><span class="go" style="color:var(--muted);display:grid">${ICON.chev}</span></button>`);
+  const card = h(`<button class="dfile"><span class="ic">${ICON.doc}</span><span class="dcol"><span class="nm">${esc(file.name)}</span><span class="sz">${esc(about)}</span></span><span class="go">${ICON.chev}</span></button>`);
   const sz = card.querySelector(".sz")!, go = card.querySelector(".go")!;
   let busy = false;
   card.addEventListener("click", async () => {
@@ -232,7 +232,7 @@ export function drawViewer() {
     <div class="vi">${nav("prev", V.at > 0)}<img alt="${esc(p.caption)}">${nav("next", V.at < V.pics.length - 1)}</div>
     <div class="cap">${esc(p.caption)}</div>${hints(keys)}</div>`);
   const img = el.querySelector("img")!;
-  const gone = () => img.replaceWith(h(`<div class="dmuted" style="flex:1;justify-content:center">${GONE_PIC}</div>`));
+  const gone = () => img.replaceWith(h(`<div class="dmuted dcenter dfill">${GONE_PIC}</div>`));
   img.onerror = gone;
   if (p.file) loadPic(p.file.id, p.file.mime).then(url => url ? (img.src = url) : gone());
   else img.src = p.url;

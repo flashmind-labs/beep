@@ -10,7 +10,7 @@ import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "../project/board.ts";
 import { plural } from "../ui/format.ts";
-import { emptyPanel, errorNote, freshNote, note, stateChip, svgEl } from "../ui/parts.ts";
+import { emptyPanel, errorNote, freshNote, note, stateChip, svgEl, secHead } from "../ui/parts.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../project/pagecache.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
@@ -536,7 +536,7 @@ export function makeReviews(deps: ReviewDeps) {
       return h("div", "pj-task pj-br", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
         h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
     });
-    out.push(h("div", "", h("div", "cc-sec", h("h4", "", "Branches"), data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null,
+    out.push(h("div", "", secHead("Branches", data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null,
       freshNote(freshness(kept.at(name), reading.has(name), Date.now())), button("Refresh", "quiet small", () => load(name))),
       rows.length ? h("div", "cc-panel", ...rows) : emptyPanel(h("span", "", "No branches"))));
     return out;
@@ -570,7 +570,7 @@ export function makeReviews(deps: ReviewDeps) {
       right.append(b);
     }
     return h("div", `rv-find${dropped || f.dismissed ? " gone" : ""}`,
-      h("span", `rv-sev ${dropped ? "" : f.severity}`, dropped ? "dropped" : f.dismissed ? "dismissed" : f.severity), text, right);
+      h("span", `chip ${dropped ? "" : f.severity}`, dropped ? "dropped" : f.dismissed ? "dismissed" : f.severity), text, right);
   }
 
   function reviewPanel(name: string) {
@@ -631,9 +631,9 @@ export function makeReviews(deps: ReviewDeps) {
       body = emptyPanel(h("b", "", "No findings"), h("span", "rv-sum", readySummary(r)));
     }
     if (!running && findings.length && !openFindings(r).length) body.append(h("div", "rv-sum-row", readySummary(r)));
-    const findSec = h("div", "", h("div", "cc-sec", h("h4", "", "Findings"), h("small", "", findingsSub(r))), body);
+    const findSec = h("div", "", secHead("Findings", h("small", "", findingsSub(r))), body);
     const shards = h("div", "",
-      h("div", "cc-sec", h("h4", "", "Shards")),
+      secHead("Shards"),
       h("div", "cc-panel", ...r.shards.map(s => {
         const c = shardChip(s);
         const chipEl = stateChip(c.cls, c.text, c.spin);

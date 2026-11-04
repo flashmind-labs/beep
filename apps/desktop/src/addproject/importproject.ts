@@ -2,7 +2,7 @@
 // online machine (Auto lets the server pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, linkSheetStyle, sheetShell } from "../machines/addmachine.ts";
+import { focusBack, sheetShell } from "../ui/parts.ts";
 import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, folderUnder, folderNote, folderHelp, reason } from "./importproject-state.ts";
 import { button, el } from "../ui/dom.ts";
 import type { ImportEvent } from "./importproject-state.ts";
@@ -90,8 +90,6 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   macId = options.macId || null;
   onDone = options.onDone || null;
   back = document.activeElement;
-  linkSheetStyle();
-  injectStyle();
   // Start on this Mac when it is one of the machines: Choose… then opens the
   // macOS folder picker straight away.
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
@@ -367,7 +365,7 @@ function branchesBlock() {
         x.setAttribute("aria-pressed", String(id == null ? !(b.name in picks) : picks[b.name] === id));
         return x;
       };
-      line.append(el("span", "lbl", "Worktree"), el("span", "seg", ...choices.map(c => pick(c.id, c.name)), pick(null, "Skip")));
+      line.append(el("span", "lbl", "Worktree"), el("span", "pb-seg", ...choices.map(c => pick(c.id, c.name)), pick(null, "Skip")));
     }
     return line;
   });
@@ -530,40 +528,4 @@ function browser(listing: MachineFolder) {
   const foot = el("div", "foot", el("span", "note", folderNote(listing, state.repo)),
     button("Cancel", "dbtn quiet", () => update({ type: "browse", listing: null })), button("Use this folder", "dbtn pri", () => update({ type: "choose", listing })));
   return el("div", "ip-browse", el("div", "at", up, where), dirs, foot);
-}
-
-/// Loads the field's styles once; the Add a machine sheet's come first.
-export function injectStyle() {
-  if (document.querySelector("style[data-ip]")) return;
-  const style = document.createElement("style");
-  style.dataset.ip = "";
-  style.textContent = ".ip-field { flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent) } .ip-field:focus { border-color: var(--accent) } .ip-sheet .am-sub { margin-top: 0 }"
-    + " .ip-path { flex: 1; min-width: 0; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--deep); font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }"
-    + " .ip-dir { width: 100%; box-sizing: border-box; color: var(--fg); outline: 0; caret-color: var(--accent) } .ip-dir:focus { border-color: var(--accent) }"
-    + " .ip-dir::placeholder { color: var(--muted); font-family: system-ui, sans-serif } .ip-dir:disabled { opacity: 1 }"
-    + " .ip-folder { position: relative; flex: 1; min-width: 0; display: flex }"
-    + " .ip-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 3; max-height: 264px; overflow: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--deep); box-shadow: 0 10px 30px rgba(0,0,0,.45) }"
-    + " .ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer }"
-    + " .ip-menu div:hover { background: rgba(255,255,255,.05) } .ip-menu div.on { background: rgba(52, 211, 153, .14) }"
-    + " .ip-browse { border: 1px solid var(--border); border-radius: 10px; background: var(--deep); overflow: hidden }"
-    + " .ip-browse .at { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12.5px }"
-    + " .ip-browse .at span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
-    + " .ip-browse .dirs { max-height: 168px; overflow: auto; padding: 4px 0; display: flex; flex-direction: column }"
-    + " .ip-browse .dirs button { all: unset; box-sizing: border-box; width: 100%; padding: 5px 12px; font-size: 13px; cursor: pointer }"
-    + " .ip-browse .dirs button:hover, .ip-browse .dirs button:focus-visible { background: rgba(255,255,255,.05) }"
-    + " .ip-browse .dirs .none { padding: 5px 12px; font-size: 12.5px; color: var(--muted) }"
-    + " .ip-browse .foot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted) }"
-    + " .ip-browse .foot .note { flex: 1; min-width: 0 }"
-    + " .ip-found { display: flex; gap: 8px; align-items: center; font-size: 12.5px } .ip-fork { font-size: 12px; color: var(--muted) }"
-    + " .ip-sheet { max-height: calc(100vh - 48px); overflow: auto }"
-    + " .ip-foot { position: sticky; bottom: -18px; margin: 12px -20px -18px; padding: 12px 20px 18px; background: var(--surface); border-top: 1px solid var(--border) }"
-    + " .ip-branches { display: flex; flex-direction: column; gap: 2px }"
-    + " .ip-branch { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--border) }"
-    + " .ip-branch:last-child { border-bottom: 0 }"
-    + " .ip-branch code { font-family: var(--mono) } .ip-branch .m { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }"
-    + " .ip-branch .lbl { margin-left: auto; color: var(--muted); font-size: 11.5px }"
-    + " .ip-branch .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden }"
-    + " .ip-branch .seg button { all: unset; cursor: pointer; padding: 3px 9px; font-size: 12px } .ip-branch .seg button + button { border-left: 1px solid var(--border) }"
-    + " .ip-branch .seg button[aria-pressed=true] { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg) }";
-  document.head.append(style);
 }

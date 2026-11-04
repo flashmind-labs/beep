@@ -4,6 +4,7 @@
 // from any chat, like tmux sessions: the node owns them, so they keep running
 // with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
+import { emptyPanel } from "../ui/parts.ts";
 import { reason } from "../addproject/importproject-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
@@ -579,7 +580,7 @@ export function makeTerminals(deps: TerminalDeps) {
     });
     go.disabled = t.busy || !places.length;
     const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", anywhere ? "No machine is online" : "No machine has this project yet"));
-    const acts = h("div", "in-acts", go, button("Cancel", "", () => { t.form = null; redraw(); }));
+    const acts = h("div", "in-acts", go, button("Cancel", "quiet", () => { t.form = null; redraw(); }));
     const form = anywhere
       ? h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
         input("cwd", "Folder", "Empty for the workspace or home folder"),
@@ -665,7 +666,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const out: HTMLElement[] = [tabs];
     if (t.error) out.push(h("div", "cc-err", t.error));
     if (t.list === null) {
-      out.push(h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it keeps terminals.")));
+      out.push(emptyPanel(h("b", "", "The server needs an update before it keeps terminals.")));
       watch(null);
       return out;
     }
@@ -676,7 +677,7 @@ export function makeTerminals(deps: TerminalDeps) {
     } else {
       watch(null);
       if (!t.form) {
-        out.push(h("div", "cc-panel cc-empty", h("b", "", t.list?.length ? "Pick a terminal" : "No terminals yet"),
+        out.push(emptyPanel(h("b", "", t.list?.length ? "Pick a terminal" : "No terminals yet"),
           button("New terminal", "pri", () => add.click())));
       }
     }
@@ -699,7 +700,7 @@ export function makeTerminals(deps: TerminalDeps) {
     if (t.list === undefined) load(ALL);
     if (t.list === null) {
       watch(null);
-      return [h("div", "cc-panel cc-empty", h("b", "", "The server needs an update before it lists terminals on every machine."))];
+      return [emptyPanel(h("b", "", "The server needs an update before it lists terminals on every machine."))];
     }
     const groups = byMachine(machines, t.list || []);
     const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));

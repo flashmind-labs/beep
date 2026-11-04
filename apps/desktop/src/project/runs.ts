@@ -8,7 +8,7 @@ import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { since } from "../ui/format.ts";
-import { emptyPanel, note } from "../ui/parts.ts";
+import { emptyPanel, note, secHead } from "../ui/parts.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "./pagecache.ts";
 
@@ -472,7 +472,7 @@ export function makeRuns(deps: RunDeps) {
     const counts = perHost.length
       ? perHost.map(c => h("small", c.error ? "hosterr" : "", c.text))
       : [d?.runs.length ? h("small", "", runsCount(d.runs)) : null];
-    box.append(h("div", "cc-sec", h("h4", "", "Actions"), ...counts, synced, deps.mode?.(id) ?? null,
+    box.append(secHead("Actions", ...counts, synced, deps.mode?.(id) ?? null,
       button("Refresh", "quiet small", () => load(id, true))));
     if (d === undefined) { box.append(emptyPanel(h("span", "", "Reading the runs…"))); return box; }
     if (d === null) { box.append(emptyPanel(h("span", "", "The server needs an update before it shows runs."))); return box; }
@@ -494,9 +494,9 @@ export function makeRuns(deps: RunDeps) {
       redraw();
     });
     const panel = (runs: RunRow[]) => h("div", "cc-panel pj-runbox", ...runs.map(r => row(id, s, r)));
-    box.append(h("div", "cc-sec", h("h4", "", "Running"), h("small", "", String(current.length))),
+    box.append(secHead("Running", h("small", "", String(current.length))),
       current.length ? panel(current) : emptyPanel(h("span", "", "Nothing running.")),
-      h("div", "cc-sec", h("h4", "", "Finished"), h("small", "", String(finished.length))));
+      secHead("Finished", h("small", "", String(finished.length))));
     if (states.length > 1) box.append(h("div", "pj-labels", ...states.map(chip)));
     if (finished.length) box.append(panel(only ? finished.filter(r => r.state === only) : finished));
     else box.append(emptyPanel(h("span", "", "No finished runs.")));
