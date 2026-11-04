@@ -23,7 +23,7 @@ pub(crate) use found::MachineFound;
 pub use host_repos::HostRepoCache;
 pub(crate) use host_repos::host_repos;
 pub(crate) use preview::{checkout_for_worktree, parse_remotes, preview, remotes_script};
-pub(crate) use remove::remove_project;
+pub(crate) use remove::{machine_removed, remove_project};
 pub(crate) use service::{
     Import, browse, find_fork, found_projects, import, imported, project_machines,
 };

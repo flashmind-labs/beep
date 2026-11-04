@@ -4,6 +4,7 @@ use super::{Reply, found};
 use crate::{
     api::router::Cx,
     nodes::push_sync,
+    projects::imports::machine_removed,
     protocol::*,
     push::CLOSE_REVOKED,
     store::{AccountKey, Inviter, LinkKey, Merge, MergeInto, NewKey, PushDevice, PushService},
@@ -88,10 +89,15 @@ pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> 
 
 /// Revokes one of the account's keys and what hangs off it; `NotFound` for the primary key.
 pub(super) async fn unlink(cx: &Cx, key: EndpointId) -> Reply<()> {
-    found(cx.user.revoke_key(&key.to_string()).await?)?;
+    let removed = cx
+        .user
+        .revoke_key(&key.to_string())
+        .await?
+        .ok_or(ApiError::NotFound {})?;
     cx.user.changed("");
     cx.pusher.forget(key);
     cx.app.nodes.forget(&key, CLOSE_REVOKED);
+    machine_removed(&cx.app, &cx.user, &removed).await;
     // The machines that synced projects with it stop pulling from it.
     if let Err(e) = push_sync(&cx.app.nodes, &cx.user, None).await {
         log::warn!("sync lists not sent after a removed device: {e:#}");

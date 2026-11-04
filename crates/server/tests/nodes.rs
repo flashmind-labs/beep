@@ -24,18 +24,19 @@ use beep_server::{
     client::{Client, Node},
     nodes::{self, Follower, Online, StartOn},
     protocol::{
-        AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk, AgentImageData, AgentModel,
-        AgentModelPick, AgentModels, AgentNoticeKey, AgentSessionUsage, AgentSteer, AgentTokens,
-        AnswerApproval, ApiError, Approval, ApprovalDecision, CreateNodeToken, CustomAgent,
-        CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile, DiffStatus, GetAgentFile,
-        GetAgentImage, GetAgentSession, GetAgentSessionUsage, GetMachineLog, GetNodeToken,
-        GetSession, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
-        HarnessSettings, HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels,
-        ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines,
-        ListMemoryScopes, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD, MachineCapability,
-        MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile, RemoveDevice, RemoveMachine,
-        RevokeNodeToken, RunEvent, SaveHarnessSettings, StartAgentSession, SteerAgentSession,
-        Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree, WriteWorkFile, image_key,
+        AddMachineOverSsh, AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk,
+        AgentImageData, AgentModel, AgentModelPick, AgentModels, AgentNoticeKey, AgentSessionUsage,
+        AgentSteer, AgentTokens, AnswerApproval, ApiError, Approval, ApprovalDecision,
+        CreateNodeToken, CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile,
+        DiffStatus, GetAgentFile, GetAgentImage, GetAgentSession, GetAgentSessionUsage,
+        GetMachineLog, GetNodeToken, GetSession, GetSpendReport, GetUsage, GetUsageReport,
+        GetWorkDiff, GitChange, HarnessSettings, HistoryEntry, ListAgentHosts, ListAgentImages,
+        ListAgentModels, ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats,
+        ListMachines, ListMemoryScopes, ListProjects, ListSshHosts, ListWorkFolder, ListWorkTree,
+        MAX_WORK_UPLOAD, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
+        ReadWorkFile, RemoveDevice, RemoveMachine, RevokeNodeToken, RunEvent, SaveHarnessSettings,
+        StartAgentSession, SteerAgentSession, Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree,
+        WriteWorkFile, image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -64,6 +65,7 @@ use iroh::{
     protocol::Router,
 };
 use serde_json::{Value, json};
+use sqlx::PgPool;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -987,6 +989,276 @@ async fn any_app_of_the_account_removes_a_machine_online_or_not() {
     assert!(not_found(junk.unwrap_err()));
 
     router.shutdown().await.unwrap();
+}
+
+/// A project of `user` with a folder on each of `machines`, the first its
+/// home and its pin, in every table that keeps folders.
+async fn seed_project(pool: &PgPool, user: &str, name: &str, machines: &[&str]) -> Uuid {
+    let project = Uuid::new_v4();
+    sqlx::query("INSERT INTO projects (id, user_id, name, pin) VALUES ($1, $2, $3, $4)")
+        .bind(project)
+        .bind(user)
+        .bind(name)
+        .bind(machines[0])
+        .execute(pool)
+        .await
+        .unwrap();
+    for (n, machine) in machines.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO project_checkouts (project_id, machine, path, home)
+             VALUES ($1, $2, '/srv/project', $3)",
+        )
+        .bind(project)
+        .bind(machine)
+        .bind(n == 0)
+        .execute(pool)
+        .await
+        .unwrap();
+        for table in ["project_imports", "project_sync"] {
+            let url = if table == "project_imports" {
+                ", url"
+            } else {
+                ""
+            };
+            let value = if table == "project_imports" {
+                ", 'https://example.com/r'"
+            } else {
+                ""
+            };
+            sqlx::query(&format!(
+                "INSERT INTO {table} (user_id, project, endpoint_id, folder{url})
+                 VALUES ($1, $2, $3, '/srv/project'{value})"
+            ))
+            .bind(user)
+            .bind(name)
+            .bind(machine)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+    }
+    project
+}
+
+/// A running worker of `project` on `machine`, and its task.
+async fn seed_worker(pool: &PgPool, user: &str, project: Uuid, machine: &str) -> Uuid {
+    let task = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO project_tasks (id, project_id, slug, title, state)
+         VALUES ($1, $2, 'fix', 'Fix it', 'running')",
+    )
+    .bind(task)
+    .bind(project)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO project_workers
+             (id, task_id, project_id, user_id, machine, agent, session, folder, state)
+         VALUES ($1, $2, $3, $4, $5, 'claude', 's1', '/srv/' || $3, 'running')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(task)
+    .bind(project)
+    .bind(user)
+    .bind(machine)
+    .execute(pool)
+    .await
+    .unwrap();
+    task
+}
+
+/// One row in every other table the server keeps per machine.
+async fn seed_session_rows(pool: &PgPool, user: &str, machine: &str) {
+    let inserts = [
+        "INSERT INTO agent_usage (user_id, endpoint_id, session, day, agent, cwd)
+         VALUES ($1, $2, 's1', now()::date, 'claude', '/srv/project')",
+        "INSERT INTO agent_session_usage (user_id, endpoint_id, agent, session, hour, model, cwd)
+         VALUES ($1, $2, 'claude', 's1', now(), 'm', '/srv/project')",
+        "INSERT INTO agent_session_starts (user_id, machine, agent, session, device)
+         VALUES ($1, $2, 'claude', 's1', 'a-phone')",
+        "INSERT INTO harness_settings (user_id, machine_id, agent) VALUES ($1, $2, 'claude')",
+        "INSERT INTO checkout_checks (user_id, endpoint_id, checked_at) VALUES ($1, $2, now())",
+        "INSERT INTO terminals (id, user_id, project, endpoint_id, task_id, name, command, cwd)
+         VALUES (gen_random_uuid(), $1, 'acme/both', $2, 4, 'dev', 'run', '/srv/project')",
+        "INSERT INTO branch_reviews (id, user_id, project, branch, base, endpoint_id, folder,
+             head, merge_base, head_at, changed_lines, files)
+         VALUES (gen_random_uuid(), $1, 'acme/both', 'fix', 'main', $2, '/srv/project',
+             'abc', 'def', now(), 1, 1)",
+    ];
+    for insert in inserts {
+        sqlx::query(insert)
+            .bind(user)
+            .bind(machine)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    let file = format!("image-{machine}");
+    sqlx::query(
+        "INSERT INTO files (id, user_id, name, mime, data, size)
+         VALUES ($1, $2, 'image', 'image/png', '', 0)",
+    )
+    .bind(&file)
+    .bind(user)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO agent_images (user_id, key, file_id, machine_id, session)
+         VALUES ($1, $2, $2, $3, 's1')",
+    )
+    .bind(user)
+    .bind(&file)
+    .bind(machine)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// The rows left that name `machine`, in every table that does.
+async fn rows_of(pool: &PgPool, machine: &str) -> i64 {
+    let tables = [
+        "project_imports WHERE endpoint_id",
+        "project_sync WHERE endpoint_id",
+        "project_checkouts WHERE machine",
+        "project_workers WHERE machine",
+        "projects WHERE pin",
+        "agent_usage WHERE endpoint_id",
+        "agent_session_usage WHERE endpoint_id",
+        "agent_session_starts WHERE machine",
+        "harness_settings WHERE machine_id",
+        "checkout_checks WHERE endpoint_id",
+        "terminals WHERE endpoint_id",
+        "branch_reviews WHERE endpoint_id",
+        "agent_images WHERE machine_id",
+        "nodes WHERE endpoint_id",
+    ];
+    let mut total = 0;
+    for table in tables {
+        let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}=$1"))
+            .bind(machine)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        total += n;
+    }
+    total
+}
+
+#[tokio::test]
+async fn removing_a_machine_removes_its_sessions_and_projects() {
+    let mut center = CommandCenter::new(2).await;
+    let running = || FakeAgents {
+        sessions: vec![beep_session("a3f9c1", None)],
+        ..FakeAgents::default()
+    };
+    let doomed = center.node(0, "build-box", running()).await;
+    let kept = center.node(0, "other-box", FakeAgents::default()).await;
+    let bobs = center.node(1, "bob-box", running()).await;
+    let pool = center._db.raw_pool().await.unwrap();
+    let alice = center.users[0].id().to_owned();
+    let bob = center.users[1].id().to_owned();
+
+    let solo = seed_project(&pool, &alice, "acme/solo", &[&doomed]).await;
+    let both = seed_project(&pool, &alice, "acme/both", &[&doomed, &kept]).await;
+    let solo_task = seed_worker(&pool, &alice, solo, &doomed).await;
+    let both_task = seed_worker(&pool, &alice, both, &doomed).await;
+    seed_session_rows(&pool, &alice, &doomed).await;
+    // The same names on the kept machine and for bob, who are not touched.
+    seed_session_rows(&pool, &alice, &kept).await;
+    let bobs_solo = seed_project(&pool, &bob, "acme/solo", &[&bobs]).await;
+    seed_worker(&pool, &bob, bobs_solo, &bobs).await;
+    seed_session_rows(&pool, &bob, &bobs).await;
+
+    let (_node, client) = center.phone(0).await;
+    let (_bob_node, bob_client) = center.phone(1).await;
+    assert_eq!(client.call(&ListAgentSessions {}).await.unwrap().len(), 1);
+    assert!(rows_of(&pool, &doomed).await >= 14);
+    let kept_rows = rows_of(&pool, &kept).await;
+    let bobs_rows = rows_of(&pool, &bobs).await;
+
+    client
+        .call(&RemoveMachine {
+            machine_id: doomed.clone(),
+        })
+        .await
+        .unwrap();
+
+    // Its session does not come back, and neither do its rows.
+    assert!(client.call(&ListAgentSessions {}).await.unwrap().is_empty());
+    assert_eq!(rows_of(&pool, &doomed).await, 0);
+
+    // The project only it had went, the other stays with one folder.
+    let projects = client.call(&ListProjects {}).await.unwrap();
+    assert_eq!(
+        projects.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        ["acme/both"]
+    );
+    let tasks: i64 = sqlx::query_scalar("SELECT count(*) FROM project_tasks WHERE id=$1")
+        .bind(solo_task)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(tasks, 0);
+    let imports = center.users[0].imports().await.unwrap();
+    assert_eq!(
+        imports
+            .iter()
+            .map(|row| (row.project.as_str(), row.endpoint.as_str()))
+            .collect::<Vec<_>>(),
+        [("acme/both", kept.as_str())]
+    );
+    let home: Vec<String> =
+        sqlx::query_scalar("SELECT machine FROM project_checkouts WHERE project_id=$1 AND home")
+            .bind(both)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(home, [kept.as_str()]);
+    // The task that lost its worker waits for someone to decide.
+    let state: String = sqlx::query_scalar("SELECT state FROM project_tasks WHERE id=$1")
+        .bind(both_task)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "blocked");
+
+    // The other machine and bob keep everything.
+    assert_eq!(rows_of(&pool, &kept).await, kept_rows);
+    assert_eq!(rows_of(&pool, &bobs).await, bobs_rows);
+    assert_eq!(
+        bob_client.call(&ListAgentSessions {}).await.unwrap().len(),
+        1
+    );
+    assert_eq!(bob_client.call(&ListProjects {}).await.unwrap().len(), 1);
+
+    center.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_ssh_requests_answer_that_they_were_removed() {
+    let mut center = CommandCenter::new(1).await;
+    let machine = center.node(0, "build-box", FakeAgents::default()).await;
+    let (_node, client) = center.phone(0).await;
+    let hosts = client
+        .call(&ListSshHosts {
+            machine_id: machine.clone(),
+        })
+        .await
+        .unwrap();
+    assert!(hosts.is_empty());
+    let added = client
+        .call(&AddMachineOverSsh {
+            machine_id: machine,
+            target: "user@host".into(),
+            search: String::new(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(added.machine_id, None);
+    assert!(added.error.contains("removed"), "{}", added.error);
+    center.shutdown().await;
 }
 
 fn gpu_report() -> EnvReport {

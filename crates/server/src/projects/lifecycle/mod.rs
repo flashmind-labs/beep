@@ -6,7 +6,9 @@ mod workers;
 pub(crate) use checks::on_due;
 use turns::{Working, catch_up, relabel, working};
 pub(crate) use turns::{block, caught_up, on_news};
-pub(crate) use workers::{fill_slots, finish_task, idle_close, reconnected, refill, start_failed};
+pub(crate) use workers::{
+    fill_slots, finish_task, idle_close, machine_removed, reconnected, refill, start_failed,
+};
 
 use super::{
     commands::{LABEL_BLOCKED, LABEL_RUNNING},

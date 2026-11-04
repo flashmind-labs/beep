@@ -8,7 +8,7 @@ use crate::{
     projects::repo_watch,
     projects::{
         fleet::{Fleet, NodeFleet},
-        lifecycle::fill_slots,
+        lifecycle::{self, fill_slots},
         review::drive::close_session,
     },
     store::RemovedProject,
@@ -41,6 +41,18 @@ pub(crate) async fn remove_project(app: &Arc<App>, user: &Arc<User>, name: &str)
         push_sync(&app.nodes, user, None).await?;
     }
     Ok(true)
+}
+
+/// Winds down after a removed machine: the tasks it left without a worker are blocked and what ran for its projects stops. Starts no webhook sweep, so this reaches no forge to delete.
+pub(crate) async fn machine_removed(app: &Arc<App>, user: &Arc<User>, removed: &RemovedProject) {
+    let fleet = NodeFleet::new(app, user);
+    for worker in &removed.workers {
+        if let Err(e) = lifecycle::machine_removed(&fleet, user, worker).await {
+            log::warn!("machine removal: a worker's task not blocked: {e:#}");
+        }
+    }
+    wind_down(app, user, removed).await;
+    app.repo_watch.forwards.stop(user.id(), &removed.projects);
 }
 
 /// Stops what ran for a removed project, each failure logged.

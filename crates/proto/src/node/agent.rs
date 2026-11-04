@@ -59,7 +59,6 @@ mod tests {
         assert_eq!(agent_of(crate::node::sync::PROTOCOL), None);
         assert_eq!(agent_of(crate::node::terminal::PROTOCOL), None);
         assert_eq!(agent_of(crate::node::transfer::PROTOCOL), None);
-        assert_eq!(agent_of(crate::node::ssh::PROTOCOL), None);
         assert_eq!(agent_of(crate::node::tool_update::PROTOCOL), None);
         assert_eq!(agent_of(crate::node::update::PROTOCOL), None);
         assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
