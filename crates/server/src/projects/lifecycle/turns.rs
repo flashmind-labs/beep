@@ -1,21 +1,21 @@
 //! A worker's turns: news from its agent, finished turns, questions, blocks and its end.
 
-use super::super::{
-    commands::{
-        HostCommand, LABEL_BLOCKED, LABEL_REVIEW, LABEL_RUNNING, PrState, parse_pr, pr_fingerprint,
+use super::{
+    super::{
+        commands::{
+            HostCommand, LABEL_BLOCKED, LABEL_REVIEW, LABEL_RUNNING, PrState, parse_pr,
+            pr_fingerprint,
+        },
+        fleet::{self, Fleet},
+        gate::ProjectGate,
+        issues::run_host,
+        model::{CHECK_EVERY, IDLE_CLOSE, IssueHost, TaskState, WorkerId, WorkerState},
+        policy::{Verdict, WorkerScope},
+        schedule::Due,
+        turn::{REPLAN_LABEL, WORKER_LABEL},
     },
-    fleet::{self, Fleet},
-    gate::ProjectGate,
-    issues::run_host,
-    model::{CHECK_EVERY, IDLE_CLOSE, IssueHost, TaskState, WorkerId, WorkerState},
-    policy::{Verdict, WorkerScope},
-    schedule::Due,
-    turn::{REPLAN_LABEL, WORKER_LABEL},
+    after, fill_slots, fleet_of_worker, quote,
 };
-use super::after;
-use super::fill_slots;
-use super::fleet_of_worker;
-use super::quote;
 use crate::{
     account::user::User,
     app::App,
@@ -90,7 +90,6 @@ pub(super) struct Working {
     pub(super) worker: WorkerRow,
     pub(super) task: TaskRow,
     pub(super) project: ProjectRow,
-    /// The project's chat.
     pub(super) chat: Uuid,
     /// The worker's machine, as commands name it.
     pub(super) machine: String,
@@ -122,7 +121,6 @@ pub(super) async fn working(
     }))
 }
 
-/// A finished turn.
 pub(crate) struct TurnDone<'a> {
     pub(crate) turn: u32,
     pub(crate) last_message: &'a str,

@@ -55,7 +55,6 @@ pub(crate) struct ProjectTools {
     pub(crate) fleet: Arc<dyn Fleet>,
     pub(crate) user: Arc<User>,
     pub(crate) project: ProjectId,
-    /// The project's chat.
     pub(crate) chat: Uuid,
     pub(crate) gate: Arc<ProjectGate>,
 }

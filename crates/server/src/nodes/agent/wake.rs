@@ -1,11 +1,10 @@
 //! Reports from a node session to its chat: a finished turn or unwaited question starts a turn there.
 
 use super::{AgentLinks, LinkOrder, Watched, order};
-use crate::projects::lifecycle::quote;
 use crate::{
     app::App,
     nodes::{Ask, Follower, Post, deliver::agent_name},
-    projects::Handled,
+    projects::{Handled, lifecycle::quote},
     protocol::node::agent::{Event, Question},
     tools::machines::agent_call,
 };

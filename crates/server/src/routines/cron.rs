@@ -2,23 +2,27 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use flashmind::core::CancellationToken;
-use flashmind::cron::{
-    CronCreateTool, CronDeleteTool, CronEditTool, CronHandler, CronJob, CronListTool, CronLog,
-    CronRegistry, CronRunner, CronStore, ScheduleOnceTool, TimezoneResolver,
-};
-use flashmind::types::{
-    ToolRegistry,
-    tool::{Tool, ToolContext, ToolResult},
+use flashmind::{
+    core::CancellationToken,
+    cron::{
+        CronCreateTool, CronDeleteTool, CronEditTool, CronHandler, CronJob, CronListTool, CronLog,
+        CronRegistry, CronRunner, CronStore, ScheduleOnceTool, TimezoneResolver,
+    },
+    types::{
+        ToolRegistry,
+        tool::{Tool, ToolContext, ToolResult},
+    },
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::account::user::User;
-use crate::app::{App, Draws, Message};
-use crate::protocol::{DeviceKind, Run};
-use crate::routines::digest;
-use crate::store::{CreateRun, Store};
+use crate::{
+    account::user::User,
+    app::{App, Draws, Message},
+    protocol::{DeviceKind, Run},
+    routines::digest,
+    store::{CreateRun, Store},
+};
 
 /// Cron jobs kept in the `crons` table, all of them or one user's.
 pub struct BeepCronStore {

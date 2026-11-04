@@ -12,7 +12,6 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-/// What one machine found.
 pub(crate) struct MachineFound {
     pub(crate) machine_id: String,
     pub(crate) machine_name: String,

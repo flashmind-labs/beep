@@ -56,7 +56,6 @@ pub(crate) enum MediaKind {
 impl MediaKind {
     pub(crate) const ALL: [Self; 3] = [Self::Image, Self::Video, Self::Model3d];
 
-    /// The tool's name.
     pub(crate) fn tool(self) -> &'static str {
         match self {
             Self::Image => "image_gen",

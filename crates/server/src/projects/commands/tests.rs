@@ -1,7 +1,9 @@
-use super::super::model::{IssueHost, RepoName, Visibility};
-use super::host::*;
-use super::parse::*;
-use super::*;
+use super::{
+    super::model::{IssueHost, RepoName, Visibility},
+    host::*,
+    parse::*,
+    *,
+};
 use crate::memory::leak::PublicText;
 use chrono::{DateTime, Utc};
 

@@ -1,8 +1,8 @@
-use super::follow::*;
-use super::*;
-use crate::nodes::agent::follow::apply;
-use crate::protocol::node::agent::{AnswerOption, OptionKind, State};
-use crate::protocol::node::agent::{Event, Question, Status, StopReason};
+use super::{follow::*, *};
+use crate::{
+    nodes::agent::follow::apply,
+    protocol::node::agent::{AnswerOption, Event, OptionKind, Question, State, Status, StopReason},
+};
 use std::{
     sync::{Arc, atomic::Ordering},
     time::Duration,

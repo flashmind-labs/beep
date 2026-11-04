@@ -1,24 +1,25 @@
 //! The profile pass: reads each connected mailbox and calendar once and builds a profile of the user.
 //! Notes are stored per finished year, so a cut-short pass resumes; content is never logged.
 
+mod condense;
+mod notes;
+mod source;
+use condense::condense;
+use notes::{CONCURRENCY, DOSSIER_SYSTEM, extract, pack, parse_day};
+use source::sources;
+pub use source::{Calendar, Source};
+
 use crate::{
     account::user::User,
     app::{App, Reach, UserNotice},
-    apps::feeds::mail::Mailbox,
-    apps::mcp::FASTMAIL,
-    memory::memories::clip,
-    memory::starters::{Generator, unfence},
-    protocol::{MemoryRead, MemorySource, Notice},
-    store::{Fact, MemoryRow, Origin, ProfileNote, Scope, Validity},
+    protocol::{MemoryRead, Notice},
+    store::MemoryRow,
 };
-use anyhow::{Context, Result, bail};
-use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
-use futures::{StreamExt, stream};
-use serde::Deserialize;
+use anyhow::Result;
+use chrono::{DateTime, SecondsFormat, Utc};
 use std::{
     collections::{HashMap, HashSet},
-    fmt::{self, Write},
-    mem,
+    fmt, mem,
     sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError},
 };
 
@@ -28,120 +29,8 @@ mod mail;
 use calendar::read_calendar;
 use mail::read_mail;
 
-/// Text per extraction call.
-const BATCH_CHARS: usize = 16_000;
-/// Extraction calls at once.
-const CONCURRENCY: usize = 8;
 /// People and senders a yearly count note names.
 const TOP_COUNT: usize = 15;
-/// Notes per condensing call, and the facts it may end with.
-const CONDENSE_CHARS: usize = 60_000;
-const MAX_FACTS: usize = 80;
-/// Answer room for a dossier and for the final facts.
-const DOSSIER_TOKENS: u32 = 6000;
-const FACTS_TOKENS: u32 = 12_000;
-const NOTE_RULES: &str = "Note anything that tells who the user is and how they live: their name, \
-languages, where they live and lived, work, employers, colleagues, studies, the people in their life and how \
-they relate, purchases (shop, item, brand, size, color, price range), bookings and trips (where, when, with \
-whom), subscriptions and services, hobbies, sports and fitness, food and diet, events they go to, habits and \
-routines, tastes, homes and property, health and insurance, beliefs, religion and politics, money: banks, \
-investments and debts, residency and visas. Be specific and keep names, places, brands and dates. A repeated \
-thing is worth one note with how often. A newsletter or promotion shows at most a subscription, worth a note \
-only when it says something about the user's interests or views. Never note passwords, codes, tokens, or card, \
-account, contract or ID numbers. Only what the text shows about the user, never guesses (nothing \"likely\" \
-or \"probably\"). Each note one short sentence in English about the user in third person.
-Reply with only JSON: {\"notes\": [{\"date\": \"YYYY-MM-DD\", \"note\": string}]}. date is the day the \
-note is about, left out when there is none. At most 60 notes; {\"notes\": []} when nothing is worth it.";
-
-const DOSSIER_SYSTEM: &str = "You help a personal assistant app get to know its user. You get notes \
-taken from their mail and calendar over the years, plus counts, oldest first. Merge them into a dossier on \
-the user: identity and languages, home over time, work over time, people and how they relate (and who \
-appears in both mail and calendar), shopping (shops, brands, sizes, colors), travel, subscriptions, hobbies, \
-fitness, food, routines and tastes, homes and property, health and insurance, beliefs, religion and politics, \
-money (banks, investments, debts), residency and visas. Keep counts, names, places and dates, and a timeline \
-wherever something changed. Drop repeats. Plain text, at most 1500 words.";
-
-const FACTS_SYSTEM: &str = "You keep the long-term memory of a personal assistant app. You get dossiers \
-on the user built from their mail and calendar, and the memories already kept. Write the facts most worth \
-knowing to help the user day to day: who they are, where they live, their work, the people close to them, \
-shops, brands, sizes and colors they buy, trips, subscriptions, hobbies, routines and tastes, homes and \
-property, health, beliefs, religion and politics, money (banks, investments, debts), residency and visas. Each fact is one \
-short self-contained sentence in third person that names its subject, like \"Buys running shoes from \
-Decathlon, size 43.\" Where something changed over time (a job, a home), only the current one is a lasting \
-fact; a past one may be kept with valid_until. Skip what a kept memory already says. Never write a secret or a number that gives access, or a \
-card, account, contract or ID number.
-Reply with only JSON: {\"facts\": [{\"content\": string, \"valid_from\": \"YYYY-MM-DD\", \"valid_until\": \
-\"YYYY-MM-DD\", \"evidence\": string}]}. Days only for facts that hold for a while. evidence says in at most \
-25 words what in the dossier shows it. At most 80 facts.";
-
-/// One thing the pass reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Source {
-    Mail(Mailbox),
-    Calendar(Calendar),
-}
-
-/// A calendar the user can connect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Calendar {
-    Google,
-    Outlook,
-    Fastmail,
-}
-
-impl Source {
-    const ALL: [Source; 6] = [
-        Source::Mail(Mailbox::Gmail),
-        Source::Mail(Mailbox::Outlook),
-        Source::Mail(Mailbox::Fastmail),
-        Source::Calendar(Calendar::Google),
-        Source::Calendar(Calendar::Outlook),
-        Source::Calendar(Calendar::Fastmail),
-    ];
-
-    /// How the user knows it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Source::Mail(mailbox) => mailbox.name(),
-            Source::Calendar(Calendar::Google) => "Google Calendar",
-            Source::Calendar(Calendar::Outlook) => "Outlook calendar",
-            Source::Calendar(Calendar::Fastmail) => "Fastmail calendar",
-        }
-    }
-
-    /// The key of its read in the store.
-    pub fn key(self) -> &'static str {
-        match self {
-            Source::Mail(mailbox) => mailbox.slug(),
-            Source::Calendar(Calendar::Google) => "googlecalendar",
-            Source::Calendar(Calendar::Outlook) => "outlook-calendar",
-            Source::Calendar(Calendar::Fastmail) => "fastmail-calendar",
-        }
-    }
-
-    /// What connecting the app `slug` lets the pass read.
-    pub fn from_slug(slug: &str) -> &'static [Source] {
-        match slug {
-            "gmail" => &[Source::Mail(Mailbox::Gmail)],
-            "googlecalendar" => &[Source::Calendar(Calendar::Google)],
-            "outlook" => &[
-                Source::Mail(Mailbox::Outlook),
-                Source::Calendar(Calendar::Outlook),
-            ],
-            FASTMAIL => &[
-                Source::Mail(Mailbox::Fastmail),
-                Source::Calendar(Calendar::Fastmail),
-            ],
-            _ => &[],
-        }
-    }
-}
-
-impl fmt::Display for Source {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.key())
-    }
-}
 
 /// Sources being read, by user, so a second request leaves them alone.
 static RUNNING: LazyLock<Mutex<HashSet<(String, Source)>>> = LazyLock::new(Mutex::default);
@@ -183,15 +72,6 @@ impl Drop for Claim {
 
 fn running() -> MutexGuard<'static, HashSet<(String, Source)>> {
     RUNNING.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// The sources behind the connected apps `slugs`.
-fn sources(slugs: &[String]) -> Vec<Source> {
-    slugs
-        .iter()
-        .flat_map(|slug| Source::from_slug(slug))
-        .copied()
-        .collect()
 }
 
 /// Reads, in the background, each unread source behind the connected apps `slugs`.
@@ -330,214 +210,6 @@ fn rfc3339(time: DateTime<Utc>) -> String {
     time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-#[derive(Deserialize)]
-struct Notes {
-    #[serde(default)]
-    notes: Vec<RawNote>,
-}
-
-#[derive(Deserialize)]
-struct RawNote {
-    #[serde(default)]
-    date: Option<String>,
-    note: String,
-}
-
-/// Packs `texts` into batches and asks for notes on each, several at once.
-async fn extract(
-    generator: Generator<'_>,
-    system: &str,
-    header: &str,
-    texts: &[String],
-) -> Result<Vec<ProfileNote>> {
-    let system = format!("{system}\n{NOTE_RULES}");
-    let batches = pack(texts, BATCH_CHARS);
-    let results: Vec<Result<Vec<ProfileNote>>> = stream::iter(batches)
-        .map(|batch| {
-            let system = &system;
-            async move {
-                let prompt = format!("{header}\n\n{batch}");
-                let answer = generator.text(system, prompt).await?;
-                parse_notes(&answer)
-            }
-        })
-        .buffer_unordered(CONCURRENCY)
-        .collect()
-        .await;
-    let mut notes = Vec::new();
-    let mut failed = 0;
-    for result in results {
-        match result {
-            Ok(found) => notes.extend(found),
-            Err(error) => {
-                failed += 1;
-                log::debug!("profile: a batch failed: {error:#}");
-            }
-        }
-    }
-    // A few lost batches cost little; most failing means something is wrong.
-    if failed > 0 && notes.is_empty() {
-        bail!("every batch of notes failed");
-    }
-    Ok(notes)
-}
-
-/// `texts` joined into pieces of about `chars`, splitting only texts longer than that.
-fn pack(texts: &[String], chars: usize) -> Vec<String> {
-    let mut batches = Vec::new();
-    let mut batch = String::new();
-    for text in texts {
-        let text = clip(text, chars);
-        if !batch.is_empty() && batch.len() + text.len() > chars {
-            batches.push(mem::take(&mut batch));
-        }
-        batch.push_str(&text);
-        batch.push_str("\n\n");
-    }
-    if !batch.trim().is_empty() {
-        batches.push(batch);
-    }
-    batches
-}
-
-fn parse_notes(answer: &str) -> Result<Vec<ProfileNote>> {
-    let answer = unfence(answer);
-    let notes = match serde_json::from_str::<Notes>(answer) {
-        Ok(notes) => notes.notes,
-        Err(error) => match complete_notes(answer) {
-            Some(notes) if !notes.is_empty() => notes,
-            _ => return Err(error).context("notes are not JSON"),
-        },
-    };
-    Ok(notes
-        .into_iter()
-        .filter(|note| !note.note.trim().is_empty())
-        .map(|note| ProfileNote {
-            date: note.date.as_deref().and_then(parse_day),
-            text: clip(note.note.trim(), 500),
-        })
-        .collect())
-}
-
-/// The notes that arrived whole when the answer was cut off partway.
-fn complete_notes(answer: &str) -> Option<Vec<RawNote>> {
-    let start = answer.find("\"notes\"")?;
-    let mut rest = &answer[start..];
-    rest = &rest[rest.find('[')? + 1..];
-    let mut notes = Vec::new();
-    loop {
-        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
-        if !rest.starts_with('{') {
-            break;
-        }
-        let mut values = serde_json::Deserializer::from_str(rest).into_iter::<RawNote>();
-        match values.next() {
-            Some(Ok(note)) => {
-                notes.push(note);
-                rest = &rest[values.byte_offset()..];
-            }
-            _ => break,
-        }
-    }
-    Some(notes)
-}
-
-fn parse_day(text: &str) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(text.get(..10)?, "%Y-%m-%d").ok()
-}
-
-#[derive(Deserialize)]
-struct Facts {
-    #[serde(default)]
-    facts: Vec<RawFact>,
-}
-
-#[derive(Deserialize)]
-struct RawFact {
-    content: String,
-    #[serde(default)]
-    valid_from: Option<String>,
-    #[serde(default)]
-    valid_until: Option<String>,
-    #[serde(default)]
-    evidence: Option<String>,
-}
-
-/// Condenses every source's notes into memories tagged with `source`; returns how many were saved.
-async fn condense(generator: Generator<'_>, user: &User, source: Source) -> Result<usize> {
-    let notes = user.profile_notes().await?;
-    if notes.is_empty() {
-        return Ok(0);
-    }
-    let mut texts: Vec<String> = notes
-        .iter()
-        .map(|note| match note.date {
-            Some(day) => format!("{day} {}", note.text),
-            None => note.text.clone(),
-        })
-        .collect();
-    // Each round merges chunks of notes, then of dossiers, until one is left.
-    loop {
-        let chunks = pack(&texts, CONDENSE_CHARS);
-        // A round that merges nothing would repeat forever, so it is the last.
-        let last = chunks.len() <= 1 || chunks.len() >= texts.len();
-        let dossiers: Vec<Result<String>> = stream::iter(chunks)
-            .map(|chunk| generator.text_up_to(DOSSIER_SYSTEM, chunk, DOSSIER_TOKENS))
-            .buffered(CONCURRENCY)
-            .collect()
-            .await;
-        texts = dossiers
-            .into_iter()
-            .collect::<Result<Vec<_>>>()
-            .context("a dossier failed")?;
-        if last {
-            break;
-        }
-    }
-
-    let mut prompt = format!(
-        "Today: {}\n\nKept memories:\n",
-        Utc::now().format("%Y-%m-%d")
-    );
-    for row in user.memory_rows().await? {
-        let _ = writeln!(prompt, "- {}", row.content);
-    }
-    let _ = write!(prompt, "\nDossiers:\n{}", texts.join("\n\n"));
-    let answer = generator
-        .text_up_to(FACTS_SYSTEM, prompt, FACTS_TOKENS)
-        .await?;
-    let facts: Facts = serde_json::from_str(unfence(&answer)).context("facts are not JSON")?;
-    let read = read_reference(source, Utc::now());
-    let mut saved = 0;
-    for fact in facts.facts.into_iter().take(MAX_FACTS) {
-        let content = fact.content.trim();
-        if content.is_empty() {
-            continue;
-        }
-        let valid = Validity {
-            from: fact.valid_from.as_deref().and_then(parse_day),
-            until: fact.valid_until.as_deref().and_then(parse_day),
-        };
-        let origin = Origin {
-            reference: read.clone(),
-            quote: fact.evidence.map(|evidence| clip(evidence.trim(), 300)),
-        };
-        let fact = Fact {
-            content,
-            category: None,
-            source: MemorySource::Email {},
-            valid: Some(valid),
-            origin: Some(origin),
-            scope: Some(Scope::User),
-        };
-        match user.remember(fact).await {
-            Ok(_) => saved += 1,
-            Err(error) => log::debug!("profile: a fact was not saved: {error:#}"),
-        }
-    }
-    Ok(saved)
-}
-
 /// Marks a memory a read added or confirmed: `read:<source key>:<finished>`.
 const READ_PREFIX: &str = "read:";
 
@@ -578,7 +250,9 @@ pub fn memory_reads(rows: &[MemoryRow]) -> Vec<MemoryRead> {
 
 #[cfg(test)]
 mod tests {
+    use super::notes::parse_notes;
     use super::*;
+    use crate::apps::feeds::mail::Mailbox;
 
     #[test]
     fn only_the_last_read_to_end_condenses() {

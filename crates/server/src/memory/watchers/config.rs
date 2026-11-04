@@ -71,7 +71,6 @@ impl WatchersConfig {
         }
     }
 
-    /// The model `kind` runs on.
     pub fn model(&self, kind: WatcherKind) -> &Model {
         self.watcher(kind).model.as_ref().unwrap_or(&self.model)
     }

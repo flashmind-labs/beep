@@ -1,9 +1,11 @@
-use super::auto::folder_test;
-use super::*;
-use crate::api::agent_control::steer::node_request;
-use crate::api::agent_control::steer::queued_instead;
-use crate::api::agent_control::view::entries_for;
-use crate::protocol::node::agent::{self, Request};
+use super::{auto::folder_test, *};
+use crate::{
+    api::agent_control::{
+        steer::{node_request, queued_instead},
+        view::entries_for,
+    },
+    protocol::node::agent::{self, Request},
+};
 
 #[test]
 fn only_an_app_that_reads_thoughts_gets_them() {

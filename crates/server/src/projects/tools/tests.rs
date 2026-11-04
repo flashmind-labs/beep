@@ -1,25 +1,28 @@
-use super::super::{
-    gate::{GatedExec, GatedProcess, ProjectGate},
-    issues::{self},
-    model::{IssueHost, MachinePath, TaskState, Visibility},
+use super::{
+    super::{
+        gate::{GatedExec, GatedProcess, ProjectGate},
+        issues,
+        model::{IssueHost, MachinePath, TaskState, Visibility},
+    },
+    *,
 };
-use super::*;
 use crate::{
     account::user::User,
-    protocol::{Approval, node::Capability},
-    store::{CheckoutRow, NewTask, ProjectRow, TaskRow},
-};
-use crate::{
     apps::permissions::{ApprovalPayload, Rules},
     projects::{
         model::{IssueRef, RepoName, Roles},
         testing::{FakeFleet, FakeShell, RecordingTool},
     },
-    protocol::PermissionLevel,
-    store::{AppPermissionRow, IssueAuthor, TestDb, TrackedIssue},
+    protocol::{Approval, PermissionLevel, node::Capability},
+    store::{
+        AppPermissionRow, CheckoutRow, IssueAuthor, NewTask, ProjectRow, TaskRow, TestDb,
+        TrackedIssue,
+    },
 };
-use flashmind::core::CancellationToken;
-use flashmind::types::tool::{Tool, ToolContext, ToolResult};
+use flashmind::{
+    core::CancellationToken,
+    types::tool::{Tool, ToolContext, ToolResult},
+};
 use iroh::EndpointId;
 use serde_json::{Value, json};
 use std::sync::Arc;

@@ -14,7 +14,6 @@ use flashmind::cron::{CronJob, JobSchedule};
 use sqlx::{Row, postgres::PgRow};
 use uuid::Uuid;
 
-/// A routine to start at a place.
 #[derive(Debug, Clone)]
 pub struct NewPlaceRoutine<'a> {
     pub label: &'a str,
@@ -62,7 +61,6 @@ pub struct Crossed {
     pub event: PlaceEvent,
 }
 
-/// A routine that starts at a place.
 #[derive(Debug, Clone)]
 pub struct PlaceRoutine {
     pub job: CronJob,

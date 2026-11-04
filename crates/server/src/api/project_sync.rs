@@ -269,18 +269,23 @@ pub(super) async fn pause_project_sync(
     detail(&cx, name).await
 }
 
-pub(super) async fn resolve_sync_conflict(cx: Cx, request: ResolveSyncConflict) -> Reply<()> {
-    let name = project_name(&request.project)?;
+/// The connected node of `machine`, which must sync `project`.
+async fn synced_node(cx: &Cx, project: &str, machine: &str) -> Reply<Online> {
     let synced = cx
         .user
         .project_syncs()
         .await?
         .iter()
-        .any(|row| row.project == name && row.endpoint == request.machine_id);
-    if !synced || !machines(&cx).await?.contains_key(&request.machine_id) {
+        .any(|row| row.project == project && row.endpoint == machine);
+    if !synced || !machines(cx).await?.contains_key(machine) {
         return Err(ApiError::NotFound {});
     }
-    let node = online(&cx, &request.machine_id).ok_or(ApiError::NotFound {})?;
+    online(cx, machine).ok_or(ApiError::NotFound {})
+}
+
+pub(super) async fn resolve_sync_conflict(cx: Cx, request: ResolveSyncConflict) -> Reply<()> {
+    let name = project_name(&request.project)?;
+    let node = synced_node(&cx, name, &request.machine_id).await?;
     if !node.sync_controls() {
         return Err(ApiError::bad_request(format!(
             "{}'s beep-node is too old to settle conflicts. Update it, or settle it in the folder.",
@@ -440,16 +445,7 @@ fn syncthing_places(
 
 pub(super) async fn get_sync_skipped(cx: Cx, request: GetSyncSkipped) -> Reply<SyncSkipped> {
     let name = project_name(&request.project)?;
-    let synced = cx
-        .user
-        .project_syncs()
-        .await?
-        .iter()
-        .any(|row| row.project == name && row.endpoint == request.machine_id);
-    if !synced || !machines(&cx).await?.contains_key(&request.machine_id) {
-        return Err(ApiError::NotFound {});
-    }
-    let node = online(&cx, &request.machine_id).ok_or(ApiError::NotFound {})?;
+    let node = synced_node(&cx, name, &request.machine_id).await?;
     let skipped = node
         .sync_skipped(name)
         .await

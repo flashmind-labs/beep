@@ -191,6 +191,33 @@ impl Tool for RecordingTool {
     }
 }
 
+/// Alice's `acme/widget`, set up with a home checkout on `home`.
+pub(crate) async fn widget_project(
+    user: &crate::account::user::User,
+    home: EndpointId,
+    roles: crate::projects::model::Roles,
+    visibility: crate::projects::model::Visibility,
+) -> crate::store::ProjectRow {
+    let project = user
+        .ensure_project(&crate::projects::model::RepoName::parse("acme/widget").unwrap())
+        .await
+        .unwrap();
+    user.add_checkout(
+        project.id,
+        &crate::store::CheckoutRow {
+            machine: home,
+            path: crate::projects::model::MachinePath::parse("/srv/widget").unwrap(),
+            home: true,
+        },
+    )
+    .await
+    .unwrap();
+    user.set_project_setup(project.id, &roles, visibility, "main")
+        .await
+        .unwrap();
+    user.project(project.id).await.unwrap().unwrap()
+}
+
 pub(crate) fn machine_id(seed: u8) -> EndpointId {
     SecretKey::from_bytes(&[seed; 32]).public()
 }

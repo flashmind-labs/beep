@@ -1,18 +1,15 @@
 //! `project_setup`: the checkout, machine and roles a project works from.
 
-use super::super::{
-    commands::{HostCommand, exclude_project_dirs, parse_setup, parse_visibility, read_setup},
-    fleet::{self, Machine},
-    gate::{Asks, Gate},
-    issues::{HOST_LIMIT, run_host},
-    model::{IssueHost, MachinePath},
+use super::{
+    super::{
+        commands::{HostCommand, exclude_project_dirs, parse_setup, parse_visibility, read_setup},
+        fleet::{self, Machine},
+        gate::{Asks, Gate},
+        issues::{HOST_LIMIT, run_host},
+        model::{IssueHost, MachinePath},
+    },
+    CHECKOUT_SLUG, ProjectTools, SETUP, card, field, machine_list,
 };
-use super::CHECKOUT_SLUG;
-use super::ProjectTools;
-use super::SETUP;
-use super::card;
-use super::field;
-use super::machine_list;
 use crate::{
     store::{CheckoutRow, ProjectRow},
     tools::machines::command_name,

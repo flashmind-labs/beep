@@ -128,7 +128,6 @@ fn sides(transcript: &str) -> (String, String) {
     (clip(&said, QUERY_CHARS), clip(&replied, QUERY_CHARS))
 }
 
-/// A scope as the prompt names it.
 fn scope_name(scope: &Scope, machines: &[NodeRow]) -> String {
     match scope {
         Scope::User => "user".to_owned(),

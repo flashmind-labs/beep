@@ -141,7 +141,6 @@ async fn read(client: &Client, calls: &Arc<Semaphore>, logins: &[GitLogin]) -> L
     combine(answers.into_iter().flatten().collect())
 }
 
-/// One host's answer.
 struct Answer {
     host: GitHost,
     result: Result<Vec<Found>, HostError>,

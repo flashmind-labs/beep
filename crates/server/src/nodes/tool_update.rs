@@ -3,8 +3,10 @@
 //! `tool-update/1` (see `beep_proto::node::tool_update`).
 
 use super::Online;
-use crate::AsyncMutex;
-use crate::protocol::node::tool_update::{FLSH, PROTOCOL, Releases, Reply, Request, Tool};
+use crate::{
+    AsyncMutex,
+    protocol::node::tool_update::{FLSH, PROTOCOL, Releases, Reply, Request, Tool},
+};
 use anyhow::{Context, Result, bail};
 use reqwest::{Client, header::USER_AGENT};
 use serde::Deserialize;

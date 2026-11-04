@@ -1,11 +1,6 @@
 //! Reads the model's learn and curate answers and plans the changes to the stored memories.
 
-use super::MAX_CORE;
-use super::MAX_CURATE_OPS;
-use super::MAX_LEARN_OPS;
-use super::MAX_PROFILE_CHARS;
-use super::PROFILE_HEADER;
-use super::days;
+use super::{MAX_CORE, MAX_CURATE_OPS, MAX_LEARN_OPS, MAX_PROFILE_CHARS, PROFILE_HEADER, days};
 use crate::{
     memory::starters::unfence,
     protocol::MemorySource,

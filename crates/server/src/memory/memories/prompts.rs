@@ -1,12 +1,6 @@
 //! The prompts that learn memories from a chat or a reading and curate them.
 
-use super::Exchange;
-use super::Hit;
-use super::MAX_CONTEXT_CHARS;
-use super::MAX_TURN_CHARS;
-use super::clip;
-use super::days;
-use super::write_actions;
+use super::{Exchange, Hit, MAX_CONTEXT_CHARS, MAX_TURN_CHARS, clip, days, write_actions};
 use crate::{
     protocol::MemorySource,
     store::{MemoryRow, Scope},

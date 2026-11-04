@@ -1,11 +1,12 @@
 //! A coding-agent session as the apps show it.
 
-use super::super::{
-    Reply,
-    agent_sessions::{Host, NODE_LIMIT, beep_session, external_session, limited},
+use super::{
+    super::{
+        Reply,
+        agent_sessions::{Host, NODE_LIMIT, beep_session, external_session, limited},
+    },
+    MAX_ENTRIES, live_host,
 };
-use super::MAX_ENTRIES;
-use super::live_host;
 use crate::{
     api::router::Cx,
     protocol::{

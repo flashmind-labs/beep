@@ -459,9 +459,10 @@ async fn owned_issues(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::projects::testing::widget_project;
     use crate::{
         projects::{
-            model::{IssueHost, RepoName},
+            model::{IssueHost, Roles},
             testing::FakeFleet,
         },
         protocol::node::Capability,
@@ -489,27 +490,16 @@ mod tests {
             0,
             r#"[{"number": 7, "state": "OPEN", "title": "Render the intro", "comments": []}]"#,
         );
-        let project = user
-            .ensure_project(&RepoName::parse("acme/widget").unwrap())
-            .await
-            .unwrap();
-        user.add_checkout(
-            project.id,
-            &CheckoutRow {
-                machine: gpu,
-                path: MachinePath::parse("/srv/widget").unwrap(),
-                home: true,
+        let project = widget_project(
+            &user,
+            gpu,
+            Roles {
+                issues: Some(IssueHost::Github),
+                prs: Some(IssueHost::Github),
             },
+            Visibility::Private,
         )
-        .await
-        .unwrap();
-        let roles = crate::projects::model::Roles {
-            issues: Some(IssueHost::Github),
-            prs: Some(IssueHost::Github),
-        };
-        user.set_project_setup(project.id, &roles, Visibility::Private, "main")
-            .await
-            .unwrap();
+        .await;
         user.create_tasks(
             project.id,
             &[NewTask {
@@ -547,27 +537,16 @@ mod tests {
             "https://github.com/acme/widget/issues/3\n",
         );
         let release = shell.block_on("issue create");
-        let project = user
-            .ensure_project(&RepoName::parse("acme/widget").unwrap())
-            .await
-            .unwrap();
-        user.add_checkout(
-            project.id,
-            &CheckoutRow {
-                machine: home,
-                path: MachinePath::parse("/srv/widget").unwrap(),
-                home: true,
+        let project = widget_project(
+            &user,
+            home,
+            Roles {
+                issues: Some(IssueHost::Github),
+                prs: None,
             },
+            Visibility::Private,
         )
-        .await
-        .unwrap();
-        let roles = crate::projects::model::Roles {
-            issues: Some(IssueHost::Github),
-            prs: None,
-        };
-        user.set_project_setup(project.id, &roles, Visibility::Private, "main")
-            .await
-            .unwrap();
+        .await;
         user.create_tasks(
             project.id,
             &[NewTask {

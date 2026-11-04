@@ -1,21 +1,17 @@
 //! Starting, reattaching, closing and finishing workers, and filling free slots.
 
-use super::super::{
-    commands::{HostCommand, worktree_remove},
-    fleet::{self, Fleet, NodeFleet},
-    issues::run_host,
-    model::{IDLE_CLOSE, TaskState, WorkerId, WorkerState},
-    schedule::Due,
-    turn::{REPLAN_LABEL, WORKER_LABEL},
-    worker::Started,
+use super::{
+    super::{
+        commands::{HostCommand, worktree_remove},
+        fleet::{self, Fleet, NodeFleet},
+        issues::run_host,
+        model::{IDLE_CLOSE, TaskState, WorkerId, WorkerState},
+        schedule::Due,
+        turn::{REPLAN_LABEL, WORKER_LABEL},
+        worker::Started,
+    },
+    MAX_FILLS, REATTACH_AT_ONCE, Working, after, block, catch_up, working,
 };
-use super::MAX_FILLS;
-use super::REATTACH_AT_ONCE;
-use super::Working;
-use super::after;
-use super::block;
-use super::catch_up;
-use super::working;
 use crate::{
     account::user::User,
     api::transport::READ_TIMEOUT,

@@ -1,10 +1,12 @@
 //! `AttachTerminal`: relays a live terminal between node and app; QUIC flow control bounds it.
 
 use super::{state, state_of};
-use crate::api::own_nodes::online;
 use crate::{
-    api::Reply,
-    api::router::{Closed, Cx, Sink, Uplink},
+    api::{
+        Reply,
+        own_nodes::online,
+        router::{Closed, Cx, Sink, Uplink},
+    },
     protocol::{
         ApiError, AttachTerminal, MAX_TERMINAL_INPUT, TerminalEvent, TerminalInput, TerminalState,
         node::{

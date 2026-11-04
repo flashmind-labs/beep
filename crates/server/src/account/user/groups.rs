@@ -33,7 +33,6 @@ impl User {
         self.store.group_invite(&self.key, id, reset).await
     }
 
-    /// Joins the group behind `token`.
     pub async fn join_group(&self, token: &str, name: &str) -> Result<Join> {
         self.store.join_group(&self.key, token, name).await
     }

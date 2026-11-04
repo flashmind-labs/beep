@@ -1,23 +1,20 @@
 //! Due checks: the pull requests of a project's tasks, polled until they settle.
 
-use super::super::{
-    commands::{HostCommand, PrState, parse_pr, pr_fingerprint},
-    fleet::{self, Fleet},
-    issues::run_host,
-    model::{CHECK_EVERY, IssueHost, ProjectId, TaskState, pr_number},
-    schedule::Due,
-    turn::CHECK_LABEL,
+use super::{
+    super::{
+        commands::{HostCommand, PrState, parse_pr, pr_fingerprint},
+        fleet::{self, Fleet},
+        issues::run_host,
+        model::{CHECK_EVERY, IssueHost, ProjectId, TaskState, pr_number},
+        schedule::Due,
+        turn::CHECK_LABEL,
+    },
+    MAX_CHECKED, PR_LIMIT, after, fleet_of, fleet_of_worker, idle_close,
 };
-use super::MAX_CHECKED;
-use super::PR_LIMIT;
-use super::after;
-use super::fleet_of;
-use super::fleet_of_worker;
-use super::idle_close;
-use crate::projects::finish_task;
 use crate::{
     account::user::User,
     app::App,
+    projects::finish_task,
     store::{ProjectRow, TaskRow},
 };
 use anyhow::{Context, Result};

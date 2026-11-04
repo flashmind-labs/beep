@@ -197,7 +197,6 @@ pub(crate) fn state_of(status: &str, conclusion: Option<&str>) -> RunState {
     }
 }
 
-/// A run's jobs.
 #[derive(Debug, Deserialize)]
 pub(crate) struct JobsReply {
     #[serde(default)]

@@ -46,7 +46,6 @@ const SCOUT_PROMPT: &str = include_str!("../../prompts/research/scout.md");
 const CRITIC_PROMPT: &str = include_str!("../../prompts/research/critic.md");
 const WRITER_PROMPT: &str = include_str!("../../prompts/research/writer.md");
 const COORDINATOR_PROMPT: &str = include_str!("../../prompts/research/coordinator.md");
-/// The lead's prompt in the research chat.
 pub(super) const LEAD_PROMPT: &str = include_str!("../../prompts/research/lead.md");
 
 /// What the result turn's message shows in the chat.

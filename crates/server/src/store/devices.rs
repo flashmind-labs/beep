@@ -62,7 +62,6 @@ impl Store {
         Ok(deleted > 0)
     }
 
-    /// The push tokens registered by `endpoint`.
     pub(crate) async fn push_tokens(&self, endpoint: &EndpointId) -> Result<Vec<PushToken>> {
         let rows: Vec<(String, String)> =
             sqlx::query_as("SELECT fcm_token, service FROM devices WHERE endpoint_id=$1")

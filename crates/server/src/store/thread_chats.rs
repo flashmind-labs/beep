@@ -14,7 +14,6 @@ use sqlx::{PgConnection, Row, postgres::PgRow};
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// One chat about a thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ThreadChatRow {
     pub(crate) project: ProjectId,

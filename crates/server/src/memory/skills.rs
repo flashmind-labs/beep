@@ -90,7 +90,6 @@ fn tail(text: &str, max: usize) -> String {
     format!("[earlier turns left out]\n{}", &text[start..])
 }
 
-/// Tool calls in `entries`.
 pub fn tool_calls<'a>(entries: impl IntoIterator<Item = &'a ConversationEntry>) -> usize {
     entries
         .into_iter()

@@ -296,7 +296,6 @@ impl Store {
         Ok(Merge::Merged { target, keys })
     }
 
-    /// The account with id `id`.
     pub async fn account(&self, id: &str) -> Result<Option<Account>> {
         let row: Option<(String, String)> =
             sqlx::query_as("SELECT id, external_id FROM users WHERE id=$1")

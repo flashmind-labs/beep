@@ -23,7 +23,6 @@ pub struct ImportRow {
     pub(crate) fork: Option<RepoName>,
 }
 
-/// An import to record.
 pub struct NewImport<'a> {
     pub project: &'a str,
     pub endpoint: &'a str,

@@ -24,7 +24,6 @@ const REMOTES_FOR: Duration = Duration::from_secs(30 * 60);
 /// The longest reading a checkout's remotes may take.
 const REMOTES_LIMIT: Duration = Duration::from_secs(10);
 
-/// A repository on one host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RepoOnHost {
     pub(crate) host: IssueHost,

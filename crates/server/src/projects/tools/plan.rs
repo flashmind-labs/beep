@@ -1,21 +1,14 @@
 //! `project_plan`: turns a plan into tasks, after the user approves it.
 
-use super::super::{
-    commands::HostCommand,
-    fleet::{self, Machine},
-    issues::{self},
-    model::{StartRequest, WorkerAgent},
+use super::{
+    super::{
+        commands::HostCommand,
+        fleet::{self, Machine},
+        issues,
+        model::{StartRequest, WorkerAgent},
+    },
+    MAX_PLAN, PLAN, PLAN_SLUG, ProjectTools, card, field, gated, leaked, machine_list, plan_asks,
 };
-use super::MAX_PLAN;
-use super::PLAN;
-use super::PLAN_SLUG;
-use super::ProjectTools;
-use super::card;
-use super::field;
-use super::gated;
-use super::leaked;
-use super::machine_list;
-use super::plan_asks;
 use crate::{
     protocol::node::Capability,
     store::{After, NewTask, ProjectRow},
@@ -128,11 +121,7 @@ impl Tool for PlanTool {
             Ok(args) => args,
             Err(error) => return Ok(ToolResult::failure(id, error.to_string())),
         };
-        Ok(match self.plan(id, args).await? {
-            Planned::Done(text) => ToolResult::success(id, text),
-            Planned::Refused(text) => ToolResult::failure(id, text),
-            Planned::Gated(result) => result,
-        })
+        Ok(self.plan(id, args).await?.into_result(id))
     }
 
     fn humanize(&self, args: &Value) -> String {
@@ -149,6 +138,16 @@ pub(super) enum Planned {
     Refused(String),
     /// Refused or parked by the gate.
     Gated(ToolResult),
+}
+
+impl Planned {
+    pub(super) fn into_result(self, id: &str) -> ToolResult {
+        match self {
+            Planned::Done(text) => ToolResult::success(id, text),
+            Planned::Refused(text) => ToolResult::failure(id, text),
+            Planned::Gated(result) => result,
+        }
+    }
 }
 
 impl PlanTool {

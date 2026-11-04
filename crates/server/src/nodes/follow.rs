@@ -86,7 +86,6 @@ impl Follows {
         true
     }
 
-    /// The sessions followed on `node`.
     pub fn followed(&self, node: &str) -> Vec<String> {
         let mut sessions: Vec<String> = self
             .lock()

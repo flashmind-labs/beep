@@ -149,7 +149,6 @@ impl fmt::Display for PlaceTrigger {
     }
 }
 
-/// A point on the map.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     pub latitude: f64,

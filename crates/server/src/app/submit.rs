@@ -1,9 +1,6 @@
 //! Submitting a message to a user's chat, live runs and shutdown.
 
-use super::App;
-use super::Message;
-use super::STOPPING_WAIT;
-use super::UserNotice;
+use super::{App, Message, STOPPING_WAIT, UserNotice};
 use crate::{
     account::user::User,
     agent::live::LiveRun,

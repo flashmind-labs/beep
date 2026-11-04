@@ -1,19 +1,13 @@
 //! The workers running a project's tasks, capped per machine and per user.
 
-use super::super::Store;
-use super::WORKER_COLUMNS;
-use super::end;
-use super::live_states;
-use super::worker_from;
-use crate::store::NewWorker;
-use crate::store::StartRefused;
-use crate::store::WorkerRow;
+use super::{super::Store, WORKER_COLUMNS, end, live_states, worker_from};
 use crate::{
     account::user::UserKey,
     projects::model::{
         MAX_MACHINE_WORKERS, MAX_PROJECT_WORKERS, MAX_USER_WORKERS, ProjectId, TaskState, WorkerId,
         WorkerState,
     },
+    store::{NewWorker, StartRefused, WorkerRow},
 };
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
@@ -267,7 +261,6 @@ impl Store {
         Ok(failed)
     }
 
-    /// The user id of the project's owner.
     pub(crate) async fn project_owner(&self, project: ProjectId) -> Result<Option<String>> {
         Ok(
             sqlx::query_scalar("SELECT user_id FROM projects WHERE id=$1")
@@ -277,7 +270,6 @@ impl Store {
         )
     }
 
-    /// The user id of the worker's owner.
     pub(crate) async fn worker_owner(&self, worker: WorkerId) -> Result<Option<String>> {
         Ok(
             sqlx::query_scalar("SELECT user_id FROM project_workers WHERE id=$1")

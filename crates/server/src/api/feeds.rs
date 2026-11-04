@@ -1,7 +1,6 @@
 //! Long-lived streams to the apps: notifications, updates and suggested prompts.
 
-use super::Reply;
-use super::SEND_TIMEOUT;
+use super::{Reply, SEND_TIMEOUT};
 use crate::{
     api::router::{Cx, Sink},
     protocol::*,
