@@ -316,6 +316,62 @@ async fn a_reply_keeps_the_sources_of_its_web_searches() {
     assert_eq!(kept[0].message, asked.timestamp());
 }
 
+/// Says the same line over and over.
+struct Repeats;
+
+#[async_trait]
+impl LlmProvider for Repeats {
+    fn name(&self) -> &str {
+        "test"
+    }
+    fn provider(&self) -> Provider {
+        Provider::OpenAi
+    }
+    fn complete(&self, _request: CompletionRequest) -> CompletionStream {
+        Box::pin(async_stream::stream! {
+            for _ in 0..2000 {
+                yield Ok(StreamEvent::ContentDelta("The same line again and again.\n".into()));
+            }
+            yield Ok(StreamEvent::Finished(FinishReason::Stop));
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_turn_the_server_gave_up_on_says_why() {
+    let db = TestDb::new().await.expect("a test database");
+    let store = db.store().await.expect("a store");
+    let provider = Arc::new(Repeats);
+    let model = "openai:test".parse().expect("a model name");
+    let models = ModelChoices::resolve(provider.as_ref(), model, Vec::new()).await;
+    let app = App::new(
+        store,
+        provider.clone(),
+        AgentLlmConfig::new("openai:test".parse().expect("a model name")),
+        ServerTools::default(),
+        models,
+    );
+    let user = app.user_for(&Account {
+        id: "alice".into(),
+        external_id: "alice".into(),
+    });
+    let crate::store::CreateRun::Created(run) = app
+        .submit(&user, message(Uuid::new_v4()))
+        .await
+        .expect("submitted")
+    else {
+        panic!("the run was not created");
+    };
+    let live = app.live(&run.id).await.expect("the run is live");
+    timeout(Duration::from_secs(30), live.done.cancelled())
+        .await
+        .expect("the run stops");
+    let said = live.subscribe(0).backlog.into_iter().any(
+        |event| matches!(&event.event, RunEvent::Error { message } if message == super::LOOPED),
+    );
+    assert!(said, "the chat is told why there is no reply");
+}
+
 /// Says something, then waits forever on its first turn; answers the next
 /// once let go, keeping what each was sent.
 struct Stalls {

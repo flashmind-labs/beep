@@ -115,6 +115,13 @@ hears the news once. A routine meant to repeat, such as a daily digest or a week
 keeps running: never end it. Do not mention that a task ran or that this is a reminder. \
 You cannot set up or change reminders or routines here; end_routine ends only this one.";
 
+/// Whether a routine's run tells the user whatever the model does: a digest,
+/// and a job that runs once, since nothing comes after a reminder the model
+/// kept to itself.
+fn always_sent(job: &CronJob) -> bool {
+    job.once || digest::is_digest(job)
+}
+
 /// Tools that set up, change or delete scheduled work; a routine's run gets [`EndRoutineTool`] instead.
 pub const CHANGING_TOOLS: &[&str] = &[
     "cron_create",
@@ -226,7 +233,7 @@ pub(crate) async fn submit(
         message: task.to_owned(),
         cron_id: Some(job.id.to_string()),
         scheduled: Some(label.to_owned()),
-        always_sent: digest::is_digest(job),
+        always_sent: always_sent(job),
         woken: None,
         images: Vec::new(),
         files: Vec::new(),
@@ -428,6 +435,22 @@ mod tests {
     use chrono::{TimeDelta, Utc};
     use flashmind::{cron::JobSchedule, types::tool::ToolContext};
     use std::time::Duration;
+
+    #[test]
+    fn a_job_that_runs_once_is_always_sent() {
+        let job = |once| CronJob {
+            id: Uuid::new_v4(),
+            schedule: JobSchedule::Once(Utc::now()),
+            task: "ping".to_owned(),
+            enabled: true,
+            once,
+            metadata: json!({"user_id": "user"}),
+            created_at: Utc::now(),
+            last_run: None,
+        };
+        assert!(always_sent(&job(true)));
+        assert!(!always_sent(&job(false)));
+    }
 
     #[tokio::test]
     async fn a_reminder_from_the_tools_wakes_the_scheduler() {
