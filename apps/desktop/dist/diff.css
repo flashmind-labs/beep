@@ -84,6 +84,9 @@
 .dv-g span { width: calc(var(--nw, 3) * 1ch + 14px); padding: 0 7px; text-align: right; font-variant-numeric: tabular-nums }
 .dv-c { flex: 1; padding: 0 12px 0 6px; white-space: pre }
 .dv-c::before { display: inline-block; width: 1.2ch; color: var(--dim); content: " " }
+.dv-lines.split { width: 100% } .dv-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) } .dv-pair .dv-l { min-width: 0 } .dv-pair .dv-l + .dv-l { border-left: 1px solid var(--border) }
+.dv-pair .dv-c { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere } .dv-l.none { background: var(--dv-gut-bg) } .dv-l.none .dv-c::before { content: none }
+.dv-splitbtn[aria-pressed="true"] { background: var(--elev) } @container (max-width: 640px) { .dv-splitbtn { display: none } }
 .dv-l.add { background: var(--dv-add-bg) } .dv-l.add .dv-g { background: var(--dv-add-gut); color: var(--dv-add-fg) } .dv-l.add .dv-c::before { content: "+"; color: var(--dv-add-fg) }
 .dv-l.del { background: var(--dv-del-bg) } .dv-l.del .dv-g { background: var(--dv-del-gut); color: var(--dv-del-fg) } .dv-l.del .dv-c::before { content: "-"; color: var(--dv-del-fg) }
 .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .dv-l.hunk .dv-g { background: var(--dv-hunk-bg) }
@@ -97,11 +100,5 @@
 .dv-err { margin: 10px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); color: var(--err); font-size: 12.5px }
 .dv-more { padding: 4px 2px 0; color: var(--muted); font-size: 12px }
 /* The sheet a branch's or a task's diff opens in, over the window. */
-.dv-sheet { position: fixed; inset: 0; z-index: 60; display: grid; padding: 18px; background: color-mix(in srgb, var(--shade) 62%, transparent) }
-.dv-sheet > .box { min-height: 0; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); overflow: hidden }
-.dv-sheet .top { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 16px; border-bottom: 1px solid var(--border) }
-.dv-sheet .top h3 { margin: 0; font: 800 17px var(--display); letter-spacing: -0.02em; white-space: nowrap }
-.dv-sheet .top small { min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.dv-sheet .dv { flex: 1; height: auto }
 .dv-keys { flex: none; display: flex; gap: 12px; padding: 5px 12px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px }
 .dv-keys kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; font: 10.5px var(--mono); color: var(--muted) }

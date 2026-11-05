@@ -143,7 +143,7 @@ function barProject() {
 function loadProjectBar(name: string) {
   const redraw = () => { if (shown === "projects" && state.picked === name) redrawProjects(); };
   invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; preloadModels(list); redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
-  loadSessions().catch(e => console.warn("agent sessions:", e));
+  loadSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
   if (!pc.branches.has(name)) {
     invoke<BaseBranches | null>("project_branches", { project: name })
       .catch(() => null)
