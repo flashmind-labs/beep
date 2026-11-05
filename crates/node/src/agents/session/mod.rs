@@ -256,7 +256,8 @@ impl Session {
             alerts,
             node,
         } = start;
-        let memory = rules.as_ref().is_none_or(Upstream::has_server);
+        let memory =
+            crate::agents::mcp::MEMORY_TOOLS && rules.as_ref().is_none_or(Upstream::has_server);
         let brief = match (brief, &mcp) {
             (Some(brief), Some(_)) => {
                 Some(format!("{brief}\n\n{}", crate::agents::mcp::brief(memory)))
