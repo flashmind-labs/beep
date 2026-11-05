@@ -47,13 +47,13 @@ impl Agents {
             .get(session)
             .with_context(|| format!("there is no session {session} here"))?;
         let (reply, answer) = oneshot::channel();
+        // Dropped with the wait (a timeout, a call the agent gave up on, even while the order
+        // is still being handed over), it takes the question back from the session.
+        let mut waiting = Withdraw(Some(session.clone()));
         session
             .order(Command::Ask { question, reply })
             .await
             .map_err(anyhow::Error::msg)?;
-        // Dropped with the wait (a timeout, a call the agent gave up on), it takes the question
-        // back from the session.
-        let mut waiting = Withdraw(Some(session));
         let answered = answer
             .await
             .context("the question was dropped: the turn was cancelled or the session ended");

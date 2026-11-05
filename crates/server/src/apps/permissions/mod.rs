@@ -188,7 +188,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     if tool == CODE_AGENT {
         return Some((ToolApp::Machines, Acts::WhenDirectingAgent));
     }
-    if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, MACHINE_LOG, SEND_FILES].contains(&tool) {
+    if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, SEND_FILES].contains(&tool) {
         return Some((ToolApp::Machines, Acts::Always));
     }
     if MediaKind::from_tool(tool).is_some() {
