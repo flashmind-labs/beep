@@ -9,6 +9,7 @@ import { followAgent } from "../agentpane/worktree.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
+import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
@@ -417,7 +418,7 @@ export function rowInView() {
 
 /// Draws the log again. `keep` finds the row the reader just opened or
 /// folded, which stays where it is on screen.
-export function drawAgentBody(keep?: string) {
+export function drawAgentBody(keep?: string, polled = false) {
   const b = $<ChatBody>("#agbody"), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
@@ -452,8 +453,7 @@ export function drawAgentBody(keep?: string) {
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? subagentsShown(p) : [];
-  b.innerHTML = `<div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>`
-    + `<button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
+  if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, polled)) { AG.rest = ""; return; }
   // The pane follows the agent, or the subagent opened, into a worktree.
   followAgent(p.entries, p.earlier, child != null ? subOf(child).sub.steps.map(st => st.title) : null);
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
@@ -485,6 +485,26 @@ export function drawAgentBody(keep?: string) {
   // new entries again once the reader scrolls back down.
   if (keep != null) b.stuck = atBottom(b);
   syncJump(b);
+}
+
+/// Puts the log's html in the page, replacing only the rows that changed.
+/// A poll leaves a row the reader is selecting in place until it is
+/// unselected: false then, with that row as it was.
+function showLog(b: HTMLElement, html: string, polled: boolean) {
+  let main = b.querySelector<HTMLElement>(":scope > .dagmain");
+  if (!main || !patchable(main)) {
+    b.innerHTML = `<div class="dagmain"></div><button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
+    main = b.firstElementChild as HTMLElement;
+    startPatching(main);
+  }
+  const next = document.createElement("template");
+  next.innerHTML = html;
+  const sel = getSelection(), held: Node[] = [];
+  if (polled && sel && (!sel.isCollapsed || b.matches(":active"))) {
+    if (sel.anchorNode) held.push(sel.anchorNode);
+    if (sel.focusNode) held.push(sel.focusNode);
+  }
+  return patchRows(main, next.content, held);
 }
 
 const DOWN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
