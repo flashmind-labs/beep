@@ -4,7 +4,7 @@
 use super::waiting::{self, WaitingList};
 use crate::{
     bar,
-    beep::{Beep, state::LinkState},
+    beep::{Beep, SERVER_ENABLED, state::LinkState},
     center::{self, CenterTarget},
     machines::this_mac::Machine,
     platform::update,
@@ -57,18 +57,26 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         LinkState::Unlinked => "No subscription",
         LinkState::Revoked => "Removed from the account",
     };
+    let quick = if SERVER_ENABLED {
+        "Quick chat"
+    } else {
+        "Quick agent"
+    };
     let menu = Menu::new(app)?;
     let item = |id: &str, title: &str, enabled: bool, keys: Option<&str>| {
         menu.append(&MenuItem::with_id(app, id, title, enabled, keys)?)
     };
     let separator = || menu.append(&PredefinedMenuItem::separator(app)?);
     item("open-center", "Open Beep", true, None)?;
-    item("open-bar", "Quick chat", true, None)?;
+    item("open-bar", quick, true, None)?;
     // A menu shortcut cannot show a double tap, so it gets a line of its own.
     item("hotkey", "Or press Option twice, anywhere", false, None)?;
     separator()?;
-    item("status", status, false, None)?;
-    separator()?;
+    // The server's state, only where there is a server.
+    if SERVER_ENABLED {
+        item("status", status, false, None)?;
+        separator()?;
+    }
     // Without a subscription the assistant's items are not there at all.
     if linked {
         item("new", "New chat", true, Some("cmd+n"))?;
@@ -101,7 +109,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         separator()?;
     }
     let waiting = app.state::<WaitingList>().entries();
-    if linked && !waiting.is_empty() {
+    if !waiting.is_empty() {
         item("waiting", "Waiting", false, None)?;
         for entry in waiting.iter().take(waiting::SHOWN) {
             item(entry.id.as_str(), entry.label.as_str(), true, None)?;
@@ -112,7 +120,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         }
         separator()?;
     }
-    if !linked {
+    if SERVER_ENABLED && !linked {
         let title = if beep.signed_out() {
             "Sign in…"
         } else {
@@ -143,11 +151,7 @@ pub(crate) fn refresh(app: &AppHandle) {
         Err(e) => log::warn!("building the tray menu: {e}"),
     }
     // The count beside the icon, while anything waits on the user.
-    let count = if beep.link_state() == LinkState::Linked {
-        app.state::<WaitingList>().entries().len()
-    } else {
-        0
-    };
+    let count = app.state::<WaitingList>().entries().len();
     if let Err(e) = tray.set_title(waiting::badge(count)) {
         log::warn!("showing what waits beside the tray icon: {e}");
     }

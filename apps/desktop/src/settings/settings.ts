@@ -411,13 +411,13 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>
-      ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}${agentNoticesRow(set.agent_notices)}</section>`]];
+      ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}</section>`]];
   out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
   const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
   // Without a subscription these work over the mesh; the rest is the assistant's.
-  if (!linked) return [...out, creds, machines, instr, ["devices", sec("devices", "Beep server", setServerHtml(set))]];
+  if (!linked) return [...out, creds, machines, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
   if (mac) out.push(["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]);

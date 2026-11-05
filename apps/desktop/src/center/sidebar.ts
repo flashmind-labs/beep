@@ -108,13 +108,15 @@ export function drawSide() {
   // Terminals on every machine, once the server lists them.
   const termList = allTerms.list(ALL);
   if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: shown === "terminals", on: () => go("terminals") }));
+  // The assistant's page, with or without a key.
+  top.append(sideItem(IC.chat, "Assistant", 0, { current: shown === "assistant", on: () => go("assistant") }));
   // Sync, once a project syncs: the conflicts waiting across them.
   if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: shown === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
-    if (name === "chats" && g.items == null && !home) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
+    if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
@@ -135,7 +137,7 @@ export function drawSide() {
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
   const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
-  const out = signedOutFooter(S.signedOut);
+  const out = signedOutFooter(S.server, S.signedOut);
   if (out) {
     // Signed out: the state, and the way to Sign in, in place of the machine count.
     const signIn = button(out.action, "quiet", () => openSettings("devices"));
@@ -161,7 +163,7 @@ export function drawSide() {
 }
 
 function footer(machines: MachineCard[] | null | undefined): Kid[] {
-  const out = signedOutFooter(S.signedOut);
+  const out = signedOutFooter(S.server, S.signedOut);
   if (out) return [h("span", "", h("span", "ddot off"), ` ${out.text}`)];
   const p = problem();
   if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad"}`), ` ${p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused"}`)];

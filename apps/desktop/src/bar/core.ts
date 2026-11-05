@@ -48,6 +48,9 @@ export interface BarState {
   /// Signed out of the server in Settings. `link` reads "unlinked" meanwhile, so the paths
   /// that work with no account work the same; this says why.
   signedOut: boolean;
+  /// Whether the desktop talks to a server at all, as Rust says (`status`). Off, nothing of one
+  /// shows: no account, sign in, subscription or error about a server.
+  server: boolean;
   session: string | null;
   chats: ChatsState;
   /// The last chat list, drawn at once while a fresh one loads.
@@ -86,6 +89,7 @@ export const S: BarState = new Proxy<BarState>({
   view: "chat",
   link: "unlinked",
   signedOut: false,
+  server: false,
   session: null,
   chats: { list: [], sel: 0, query: "" },
   cache: [],

@@ -18,11 +18,9 @@ mod tray;
 mod voice;
 
 use agents::artifacts;
-use anyhow::Context;
 use beep::{Beep, state::StateFile};
 use beep_proto::client::bind_endpoint;
 use fleet::Fleet;
-use iroh::EndpointId;
 use std::{sync::Arc, time::Duration};
 use tauri::{ActivationPolicy, App, AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
@@ -480,22 +478,21 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let dir = beep::identity::data_dir(&handle)?;
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
     let file = StateFile::new(dir.join("state.json"));
-    // The server chosen with a link code, or the one built in; the app
-    // works without one, in the mesh.
-    let server: Option<EndpointId> = match file.load().server {
-        Some(server) => Some(server),
-        None if SERVER_NODE_ID.is_empty() => None,
-        None => Some(
-            SERVER_NODE_ID
-                .parse()
-                .context("the server node id built in is not valid")?,
-        ),
-    };
+    // The server chosen with a link code, or the one built in; the app works without one, in the
+    // mesh, and with the switch off it never has one.
+    let server = beep::server_to_use(beep::SERVER_ENABLED, file.load().server, SERVER_NODE_ID)?;
     let chats = beep::sync::Chats::load(dir.join("sync"));
     let views = Arc::new(center::view_cache::ViewCache::load(
         dir.join("views.json"),
         env!("CARGO_PKG_VERSION"),
     ));
+    // The server's chats and views are not kept while nothing shows them. The server holds the
+    // originals; Home and the project pages fill again from the mesh. The palette reads the
+    // views, so they go before it loads.
+    if !beep::SERVER_ENABLED {
+        chats.clear();
+        views.clear();
+    }
     app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(palette::PaletteCache::load(&views)?);
     app.manage(views);

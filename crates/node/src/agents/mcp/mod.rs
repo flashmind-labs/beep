@@ -72,6 +72,10 @@ const MACHINES_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user
     send_files copies files to another machine. machine_log reads a machine's beep-node log. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
     for the answer. Running and sending may wait for the user to allow it.";
 
+/// Agents get no memory tools for now, with or without a server: the desktop
+/// shows no memories. Set true to bring them back.
+pub(crate) const MEMORY_TOOLS: bool = false;
+
 /// The memory tools, which only the server holds.
 const MEMORY_BRIEF: &str = " remember saves a lasting instruction or preference the user \
     states, for every agent on every machine; recall looks up what they said, before a \
@@ -383,7 +387,7 @@ impl Backend for Node {
     /// The memory tools live on the server: a node with none has nothing to
     /// remember with, in a mesh or not, as its brief says.
     fn memory_tools(&self) -> bool {
-        self.offers.tools.has_server()
+        MEMORY_TOOLS && self.offers.tools.has_server()
     }
 }
 
