@@ -4,8 +4,8 @@
 import { harnessEl } from "../ui/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
-import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
-import type { HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
+import { checkedLabel, compactOf, compactProblem, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasCompact, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import type { Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
 import { copyButton, emptyPanel } from "../ui/parts.ts";
 import { flshPanel } from "./flsh.ts";
 import { failBanner } from "../ui/failbanner.ts";
@@ -40,6 +40,8 @@ interface ProvidersState {
   /// Each machine's saved settings, by agent, to say which fields differ
   /// (false from a server too old to list them).
   others: Map<string, MachineSettings[] | false>;
+  /// Each agent's saved auto-compact, the same on every machine.
+  compacts: Map<string, Compact>;
   /// "Save to all hosts" copies the binary path too.
   includeProgram: boolean;
   /// What the last save to all hosts did, by machine and agent.
@@ -48,9 +50,10 @@ interface ProvidersState {
 
 export function registerProviders(deps: ProvidersDeps) {
   const { registerView, invoke, h, button } = deps;
-  const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, loading: false, note: "", others: new Map(), includeProgram: false, savedAll: new Map() };
+  const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, loading: false, note: "", others: new Map(), compacts: new Map(), includeProgram: false, savedAll: new Map() };
   /// The agents whose machines' settings are being read.
   const reading = new Set<string>();
+  const readingCompact = new Set<string>();
   let el: HTMLElement | null = null;
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
@@ -126,13 +129,21 @@ export function registerProviders(deps: ProvidersDeps) {
     }
   }
 
-  async function save(hv: HarnessView, input: ReturnType<typeof settingsInput>) {
+  /// Saves the auto-compact setting of `hv`, when the form has it and it changed.
+  async function saveCompact(hv: HarnessView, compact: Compact | undefined) {
+    if (compact === undefined) return;
+    await invoke("harness_compact_save", { agent: hv.agent, compact });
+    st.compacts.delete(hv.agent);
+  }
+
+  async function save(hv: HarnessView, input: ReturnType<typeof settingsInput>, compact?: Compact) {
     const machine = st.machine;
     if (!machine || st.saving) return;
     st.saving = true;
     draw();
     try {
       await invoke("harness_settings_save", { machineId: machine, agent: hv.agent, settings: input });
+      await saveCompact(hv, compact);
       st.drafts.delete(`${machine} ${hv.agent}`);
       st.savedAll.delete(`${machine} ${hv.agent}`);
       st.others.delete(hv.agent);
@@ -163,14 +174,30 @@ export function registerProviders(deps: ProvidersDeps) {
     draw();
   }
 
+  /// Reads `agent`'s saved auto-compact once.
+  async function loadCompact(agent: string) {
+    if (readingCompact.has(agent) || st.compacts.has(agent)) return;
+    readingCompact.add(agent);
+    try {
+      st.compacts.set(agent, await invoke<Compact>("harness_compact", { agent }));
+    } catch (e) {
+      console.warn("auto-compact setting:", e);
+      st.compacts.set(agent, null);
+    } finally {
+      readingCompact.delete(agent);
+    }
+    draw();
+  }
+
   /// Saves the form for `hv` on every machine of the user's, online or not.
-  async function saveAll(hv: HarnessView, input: ReturnType<typeof settingsInput>) {
+  async function saveAll(hv: HarnessView, input: ReturnType<typeof settingsInput>, compact?: Compact) {
     const machine = st.machine;
     if (!machine || st.saving) return;
     st.saving = true;
     draw();
     try {
       const n = await invoke<number>("harness_settings_save_all", { fromMachine: machine, agent: hv.agent, settings: input, includeProgram: st.includeProgram });
+      await saveCompact(hv, compact);
       // Drafts on the other machines were of the settings before.
       for (const k of [...st.drafts.keys()]) if (k.endsWith(` ${hv.agent}`)) st.drafts.delete(k);
       st.savedAll.set(`${machine} ${hv.agent}`, savedToLabel(n));
@@ -262,6 +289,16 @@ export function registerProviders(deps: ProvidersDeps) {
     return i;
   }
 
+  function compactSwitch(on: boolean, label: string, flip: () => void) {
+    const b = h("button", "dswitch");
+    b.type = "button";
+    b.setAttribute("role", "switch");
+    b.setAttribute("aria-checked", String(on));
+    b.setAttribute("aria-label", label);
+    b.addEventListener("click", flip);
+    return b;
+  }
+
   function statusBlock(hv: HarnessView) {
     const m = machineName(), name = harnessName(hv.agent);
     // In Settings the summary box above already says the status line.
@@ -310,7 +347,10 @@ export function registerProviders(deps: ProvidersDeps) {
 
   function detail(hv: HarnessView) {
     const k = key(hv.agent);
-    const draft = st.drafts.get(k) ?? draftOf(hv);
+    const withCompact = hasCompact(hv.agent);
+    if (withCompact && !st.compacts.has(hv.agent)) loadCompact(hv.agent);
+    const savedCompact = st.compacts.get(hv.agent) ?? null;
+    const draft = st.drafts.get(k) ?? draftOf(hv, savedCompact);
     const setDraft = (change: Partial<HarnessDraft>) => {
       st.drafts.set(k, { ...draft, ...change });
       Object.assign(draft, change);
@@ -330,6 +370,13 @@ export function registerProviders(deps: ProvidersDeps) {
       field("Binary path", `The command Beep starts for ${name} on ${m}.`, input(draft.program, hv.program ?? hv.agent, v => setDraft({ program: v }), "Binary path"), differs("program")),
       field(homeVar, "Its home and config folder.", input(draft.home, hv.home_default ?? "", v => setDraft({ home: v }), homeVar), differs("home")),
       field("Launch arguments", "Added to every session it starts.", input(draft.args, "none", v => setDraft({ args: v }), "Launch arguments"), differs("args")));
+
+    if (withCompact) {
+      const row = h("span", "fl-row",
+        compactSwitch(draft.compactOn, `Auto-compact for ${name}`, () => { setDraft({ compactOn: !draft.compactOn }); draw(); }),
+        input(draft.compactPercent, "80%", v => setDraft({ compactPercent: v }), "Auto-compact threshold"));
+      box.append(field("Auto-compact", "Compact before the next message once the conversation fills this much of the window.", row));
+    }
 
     const envBox = h("div", "hv-envs");
     const drawEnv = () => {
@@ -362,18 +409,21 @@ export function registerProviders(deps: ProvidersDeps) {
     drawEnv();
     box.append(field("Environment", "Encrypted, never shown again. Put keys in Credentials.", envBox, differs("env")));
 
+    /// The setting to save, or undefined when it did not change.
+    const compactToSave = (d: HarnessDraft) =>
+      withCompact && JSON.stringify(compactOf(d)) !== JSON.stringify(compactOf(draftOf(hv, savedCompact))) ? compactOf(d) : undefined;
     const problem = h("span", "derr", "");
     const saveBtn = button(st.saving ? "Saving…" : "Save", "pri", () => {
-      if (envProblem(draft.env)) return;
-      save(hv, settingsInput(hv.settings.enabled, draft));
+      if (envProblem(draft.env) || compactProblem(draft)) return;
+      save(hv, settingsInput(hv.settings.enabled, draft), compactToSave(draft));
     });
     saveBtn.title = `Save for ${m} only`;
     const discard = button("Discard", "quiet", () => { st.drafts.delete(k); draw(); });
     // Save to all hosts: every machine of the user's, offline ones when
     // they next connect; shown once there is another machine to copy to.
     const allBtn = button(st.saving ? "Saving…" : "Save to all hosts", "", () => {
-      if (envProblem(draft.env)) return;
-      saveAll(hv, settingsInput(hv.settings.enabled, draft));
+      if (envProblem(draft.env) || compactProblem(draft)) return;
+      saveAll(hv, settingsInput(hv.settings.enabled, draft), compactToSave(draft));
     });
     allBtn.title = "Save these settings on every machine; offline ones get them when they next connect";
     const withProgram = h("input", "");
@@ -385,8 +435,8 @@ export function registerProviders(deps: ProvidersDeps) {
     const many = !!others && others.length > 1;
     const done = h("span", "hv-ok", st.savedAll.get(k) ?? "");
     const refreshSave = () => {
-      const changed = draftChanged(hv, draft);
-      const why = envProblem(draft.env);
+      const changed = draftChanged(hv, draft, savedCompact);
+      const why = envProblem(draft.env) || compactProblem(draft);
       problem.textContent = why;
       saveBtn.disabled = st.saving || !changed || !!why;
       allBtn.disabled = st.saving || !!why;

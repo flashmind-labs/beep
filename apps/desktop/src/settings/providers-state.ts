@@ -66,12 +66,19 @@ interface EnvDraft {
   saved: boolean;
 }
 
+/// When the nodes compact a harness's sessions (AutoCompact): null is the
+/// default, on at 80%.
+export type Compact = { enabled: boolean; percent: number | null } | null;
+
 /// The runtime fields as the form holds them.
 export interface HarnessDraft {
   program: string;
   home: string;
   args: string;
   env: EnvDraft[];
+  compactOn: boolean;
+  /// The percent as typed, "" for the default.
+  compactPercent: string;
 }
 
 /// What `harness_settings_save` takes.
@@ -199,9 +206,36 @@ export function joinArgs(args: string[]) {
   return args.map(a => (a === "" || /[\s'"]/.test(a) ? (a.includes("'") ? `"${a}"` : `'${a}'`) : a)).join(" ");
 }
 
-/// The form's fields for `h`'s saved settings.
-export function draftOf(h: HarnessView): HarnessDraft {
+/// Whether the node compacts this harness's sessions; flsh and Gemini CLI
+/// compact on their own.
+export const hasCompact = (agent: string) => agent !== "flsh" && agent !== "gemini";
+
+/// The percent typed, 1 to 100 with an optional "%", or null when blank or
+/// not one.
+function parsePercent(text: string) {
+  const t = text.trim().replace(/%$/, "").trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return n >= 1 && n <= 100 ? n : null;
+}
+
+/// Why the percent cannot be saved, or "" when it can.
+export function compactProblem(draft: HarnessDraft) {
+  const t = draft.compactPercent.trim();
+  return !draft.compactOn || t === "" || parsePercent(t) !== null ? "" : "Auto-compact is 1 to 100%.";
+}
+
+/// What the form's auto-compact fields save: null for the default.
+export function compactOf(draft: HarnessDraft): Compact {
+  const percent = parsePercent(draft.compactPercent);
+  return draft.compactOn && percent === null ? null : { enabled: draft.compactOn, percent };
+}
+
+/// The form's fields for `h`'s saved settings and `compact`.
+export function draftOf(h: HarnessView, compact: Compact = null): HarnessDraft {
   return {
+    compactOn: compact?.enabled ?? true,
+    compactPercent: compact?.percent != null ? String(compact.percent) : "",
     program: h.settings.program,
     home: h.settings.home,
     args: joinArgs(h.settings.args),
@@ -210,8 +244,9 @@ export function draftOf(h: HarnessView): HarnessDraft {
 }
 
 /// Whether the form differs from what is saved.
-export function draftChanged(h: HarnessView, draft: HarnessDraft) {
-  const saved = draftOf(h);
+export function draftChanged(h: HarnessView, draft: HarnessDraft, compact: Compact = null) {
+  const saved = draftOf(h, compact);
+  if (hasCompact(h.agent) && JSON.stringify(compactOf(draft)) !== JSON.stringify(compactOf(saved))) return true;
   if (draft.program.trim() !== saved.program || draft.home.trim() !== saved.home) return true;
   if (splitArgs(draft.args).join("\u0000") !== h.settings.args.join("\u0000")) return true;
   const named = draft.env.filter(v => v.name.trim());

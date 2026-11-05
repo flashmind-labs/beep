@@ -384,6 +384,7 @@ cat > /dev/null
             program: "sh".into(),
             args: vec!["-c".into(), ASKING.into(), "fake-adapter".into()],
             env: BTreeMap::new(),
+            compact: None,
         };
         let offers = Offers::local(&[agent], Provision::new(dir.path()), false);
         let fleet = Arc::new(Fleet::new(bind().await, dir.path(), "Studio", offers));

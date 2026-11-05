@@ -416,6 +416,7 @@ fn fake_agent() -> AgentKind {
         program: "python3".into(),
         args: vec!["-I".into(), script.into()],
         env: Default::default(),
+        compact: None,
     }
 }
 
@@ -666,6 +667,7 @@ async fn a_real_claude_session_writes_a_file() {
         program: "env".into(),
         args,
         env: claude.env,
+        compact: None,
     }]));
     let served = tokio::spawn({
         let addr = server.addr.clone();
