@@ -1,5 +1,6 @@
 /* The command center window. Colors and type come from the skin (skins.css). */
 html, body.cbody { background: var(--ink) }
+.cwin .dlive { background: var(--ink) }
 .cwin { --side-w: 184px; position: relative; height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); background: var(--ink) }
 /* The traffic lights sit over the top of the sidebar; both bars drag the window. */
 .cc-head { height: 38px; flex: none }

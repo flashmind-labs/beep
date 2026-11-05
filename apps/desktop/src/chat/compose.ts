@@ -82,8 +82,12 @@ function draw(field: HTMLTextAreaElement) {
   const f = fields.get(field);
   if (!f || !field.isConnected) return;
   if (f.opts.grow) {
+    // Collapsing the field to measure it makes the log above taller for a
+    // moment, which moves a log scrolled to its end.
+    const log = document.querySelector("#agbody"), top = log?.scrollTop;
     field.style.height = "auto";
     field.style.height = `${Math.min(field.scrollHeight, f.opts.grow)}px`;
+    if (log && log.scrollTop !== top) log.scrollTop = top!;
   }
   const value = field.value, pills = pillsIn(value), fence = fenceSpan(value, pastes), layer = f.layer;
   if (!pills.length && !fence) {
