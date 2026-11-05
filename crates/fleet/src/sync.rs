@@ -133,8 +133,8 @@ impl Desk {
                     .iter()
                     .map(|(machine, folder)| self.machine_sync(*machine, folder, &project, &said).0)
                     .collect(),
+                pinned: spec.folders.is_empty(),
                 project,
-                pinned: false,
             })
             .collect()
     }
@@ -151,7 +151,7 @@ impl Desk {
             .collect();
         Ok(ProjectSyncDetail {
             project: project.to_owned(),
-            pinned: false,
+            pinned: spec.folders.is_empty(),
             paused: spec.paused,
             machines: machines
                 .into_iter()

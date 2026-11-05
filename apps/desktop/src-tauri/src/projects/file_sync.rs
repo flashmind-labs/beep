@@ -168,7 +168,8 @@ impl From<ProjectSyncDetail> for SyncDetailView {
     }
 }
 
-/// `project`'s sync in detail; `None` for a project no machines sync.
+/// `project`'s sync in detail, with no machines for a project none of them
+/// sync; `None` from a server too old to say.
 #[tauri::command]
 pub async fn project_sync_detail(
     fleet: FleetState<'_>,
@@ -184,7 +185,12 @@ pub async fn project_sync_detail(
         Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
             Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
         }
-        Err(beep_fleet::FleetError::NotFound) => Ok(None),
+        Err(beep_fleet::FleetError::NotFound) => Ok(Some(SyncDetailView {
+            project,
+            pinned: false,
+            paused: false,
+            machines: Vec::new(),
+        })),
         Err(e) => Err(e.into()),
     }
 }

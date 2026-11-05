@@ -193,6 +193,8 @@ test("a card names what keeps its project in step", () => {
   assert.equal(syncedBy("both", rows, [{ syncthing: "folder" }]), "Beep sync · Syncthing");
   assert.equal(syncedBy("none", rows, [{ syncthing: null }]), "");
   assert.equal(syncedBy("none", rows, undefined), "");
+  const held = [{ project: "st", error: "Already synced by Syncthing (Work)" }];
+  assert.equal(syncedBy("st", held, [{ syncthing: "Work" }]), "Syncthing");
 });
 
 test("a project's page waits, not the agentless layout, until its agents are known", () => {

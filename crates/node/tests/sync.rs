@@ -632,6 +632,29 @@ async fn a_folder_syncthing_keeps_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_project_the_server_sets_outside_the_shared_folders_is_refused() {
+    let a = Node::new().await;
+    let outside = TempDir::new().unwrap();
+    let refused = a
+        .running()
+        .transfers
+        .syncs()
+        .configure(vec![Project {
+            name: PROJECT.into(),
+            folder: outside.path().to_string_lossy().into_owned(),
+            peers: Vec::new(),
+            paused: false,
+        }])
+        .await;
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(
+        refused[0].message.contains("cannot be synced"),
+        "{refused:?}"
+    );
+    assert!(a.running().transfers.syncs().status().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_synced_folder_syncthing_takes_over_stops_and_deletes_nothing() {
     let (a, b) = pair().await;
     synced_file(&a, &b).await;

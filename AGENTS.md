@@ -37,7 +37,7 @@ emulator (`./gradlew assembleDebug`).
 
 Desktops and `beep-node`s form a mesh and work with no server. Every order
 (agents, files, terminals, project sync, credentials, usage) goes directly
-peer to peer, signed by the device list. A desktop mints tickets and adds
+peer to peer, signed by the device list. A project with a checkout on two machines syncs by itself, in any folder (`files` is not needed), wherever Syncthing does not hold that folder; a held folder starts when Syncthing pauses or lets go, and two checkouts at different commits wait, unchanged, until they agree. A desktop mints tickets and adds
 machines; a node can only join, and the server hands out no tickets. Project
 sync, groups, pins, credentials and settings are replicated state that only
 desktops may write.

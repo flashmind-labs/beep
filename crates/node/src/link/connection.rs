@@ -180,16 +180,17 @@ pub async fn serve(
         .map(|dir| dir.to_string_lossy().into_owned());
     let mut started = None;
     let mut served = None;
-    // Transfers run on every node, for `send_files`; other machines reach
-    // them only with shared folders. Without its store the node still
-    // serves the rest.
+    // Transfers and sync run on every node: sync for the projects the mesh
+    // names, wherever they are, and transfers for `send_files`. Other machines
+    // reach transfers only with shared folders. Without its store the node
+    // still serves the rest.
     match Transfers::start_shared(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
         Ok((transfers, handlers)) => {
             served = Some(handlers);
+            offers.extra.push(Arc::new(transfers.syncs()));
+            offers.extra.push(Arc::new(transfers.syncs().controls()));
+            offers.extra.push(Arc::new(transfers.syncs().rescans()));
             if !folders.is_empty() {
-                offers.extra.push(Arc::new(transfers.syncs()));
-                offers.extra.push(Arc::new(transfers.syncs().controls()));
-                offers.extra.push(Arc::new(transfers.syncs().rescans()));
                 offers.extra.push(Arc::new(transfers.clone()));
             }
             offers.transfers.set(transfers.clone());
@@ -455,7 +456,7 @@ pub struct Offers {
     pub traffic: Traffic,
     /// The mesh the node belongs to, once it does.
     pub(crate) mesh: Membership,
-    /// The node's transfers and synced projects, when it shares folders.
+    /// The node's transfers and synced projects, once they started.
     /// Shared by every copy of the offers, so one made before the services
     /// started sees them once they do.
     pub(crate) transfers: Sharing,

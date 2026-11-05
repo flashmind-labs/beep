@@ -26,7 +26,8 @@ struct Settings {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     agents: Vec<AgentKind>,
     /// Folders Beep may read and write files in, such as
-    /// `files = ["/srv/project"]`. None by default.
+    /// `files = ["/srv/project"]`. None by default; a project sync the mesh
+    /// sets needs none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     files: Vec<PathBuf>,
     /// Where Forgejo and Gitea servers on the private network deliver

@@ -224,7 +224,13 @@ async fn projects(out: &mut Writer<'_>, imports: &[ImportedProject]) -> Result<(
 }
 
 async fn sync(out: &mut Writer<'_>, projects: &[ProjectSync]) -> Result<()> {
-    for project in projects.iter().filter(|project| !project.pinned) {
+    for project in projects {
+        // A record with no machines keeps a pinned project out of sync for good.
+        if project.pinned {
+            out.absent(Key::Sync(project.project.clone()), &SyncSpec::default())
+                .await?;
+            continue;
+        }
         let mut folders = BTreeMap::new();
         for on in &project.machines {
             if let Some(machine) = machine(&on.machine_id) {

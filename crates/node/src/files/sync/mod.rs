@@ -89,14 +89,16 @@ struct Config {
 
 struct Running {
     project: Project,
+    from: Source,
     shared: Arc<Shared>,
     task: AbortOnDropHandle<()>,
 }
 
-/// A project the server set that Syncthing already keeps in step: kept on
-/// the list, not synced, until Syncthing lets go of its folder.
+/// A project that Syncthing already keeps in step: kept on the list, not
+/// synced, until Syncthing lets go of its folder.
 struct Held {
     project: Project,
+    from: Source,
     managed: Managed,
 }
 
@@ -117,8 +119,11 @@ impl Held {
 enum Source {
     /// Saved on disk: the server set each of them before.
     Saved,
-    /// The server, which may be turning one on now.
+    /// The server, which may be turning one on now. Keeps to `files`.
     Server,
+    /// The signed mesh. A desktop set it, and may run any command on the
+    /// machine anyway, so its folder may be anywhere.
+    Mesh,
 }
 
 struct Inner {
@@ -272,8 +277,8 @@ impl Syncs {
 
     /// Syncs exactly `projects`, and says which it refused. A project left
     /// out stops; its files stay and its state is forgotten. A folder
-    /// Syncthing keeps in step is refused when it is new here, and held
-    /// when the server set it before.
+    /// Syncthing keeps in step is refused when the server names it new here,
+    /// and held when the server set it before or the mesh names it.
     pub async fn configure(&self, projects: Vec<Project>) -> Vec<Refused> {
         lock(&self.inner.lists).set_server(&projects);
         self.configure_from(projects, Source::Server).await
@@ -344,7 +349,7 @@ impl Syncs {
     async fn apply_lists(&self) -> Vec<Refused> {
         let me = self.inner.parts.endpoint.id();
         let projects = lock(&self.inner.lists).effective(me, |peer| self.inner.removed(peer));
-        self.configure_from(projects, Source::Server).await
+        self.configure_from(projects, Source::Mesh).await
     }
 
     async fn configure_from(&self, projects: Vec<Project>, from: Source) -> Vec<Refused> {
@@ -376,6 +381,7 @@ impl Syncs {
                     .filter(|running| running.project.folder == project.folder)
                     .map(|running| {
                         running.project = project.clone();
+                        running.from = from;
                         running.shared.clone()
                     })
             };
@@ -395,12 +401,13 @@ impl Syncs {
                 .remove(&project.name)
                 .is_some_and(|held| held.project.folder == project.folder);
             if let Some(managed) = self.inner.syncthing.check(Path::new(&project.folder)).await {
-                if was_held || from == Source::Saved {
+                if was_held || from != Source::Server {
                     log::info!("not syncing {}: {}", project.name, managed.reason());
                     lock(&self.inner.held).insert(
                         project.name.clone(),
                         Held {
                             project: project.clone(),
+                            from,
                             managed,
                         },
                     );
@@ -413,7 +420,7 @@ impl Syncs {
                 }
                 continue;
             }
-            match self.run(&project).await {
+            match self.run(&project, from).await {
                 Ok(running) => {
                     lock(&self.inner.projects).insert(project.name.clone(), running);
                     kept.push(project);
@@ -440,11 +447,14 @@ impl Syncs {
         refused
     }
 
-    async fn run(&self, project: &Project) -> Result<Running> {
+    async fn run(&self, project: &Project, from: Source) -> Result<Running> {
         let (folders, folder) = (self.inner.folders.clone(), project.folder.clone());
-        let root = spawn_blocking(move || open_target(&folders, &folder))
-            .await?
-            .with_context(|| format!("the folder {} cannot be synced", project.folder))?;
+        let root = spawn_blocking(move || match from {
+            Source::Mesh => open_target(&folders.everywhere(), &folder),
+            Source::Saved | Source::Server => open_target(&folders, &folder),
+        })
+        .await?
+        .with_context(|| format!("the folder {} cannot be synced", project.folder))?;
         let key = key_of(&project.name, root.path());
         let start = Start {
             name: project.name.clone(),
@@ -462,6 +472,7 @@ impl Syncs {
         ));
         Ok(Running {
             project: project.clone(),
+            from,
             shared,
             task: AbortOnDropHandle::new(task),
         })
@@ -515,11 +526,11 @@ impl Syncs {
     /// Syncthing let go of or paused starts again, from a fresh scan.
     pub async fn check_syncthing(&self) {
         let _one = self.inner.configuring.lock().await;
-        let running: Vec<Project> = lock(&self.inner.projects)
+        let running: Vec<(Project, Source)> = lock(&self.inner.projects)
             .values()
-            .map(|running| running.project.clone())
+            .map(|running| (running.project.clone(), running.from))
             .collect();
-        for project in running {
+        for (project, from) in running {
             let Some(managed) = self.inner.syncthing.check(Path::new(&project.folder)).await else {
                 continue;
             };
@@ -528,13 +539,20 @@ impl Syncs {
             if let Some(stopped) = stopped {
                 self.stop(stopped).await;
             }
-            lock(&self.inner.held).insert(project.name.clone(), Held { project, managed });
+            lock(&self.inner.held).insert(
+                project.name.clone(),
+                Held {
+                    project,
+                    from,
+                    managed,
+                },
+            );
         }
-        let held: Vec<Project> = lock(&self.inner.held)
+        let held: Vec<(Project, Source)> = lock(&self.inner.held)
             .values()
-            .map(|held| held.project.clone())
+            .map(|held| (held.project.clone(), held.from))
             .collect();
-        for project in held {
+        for (project, from) in held {
             if self
                 .inner
                 .syncthing
@@ -544,7 +562,7 @@ impl Syncs {
             {
                 continue;
             }
-            match self.run(&project).await {
+            match self.run(&project, from).await {
                 Ok(running) => {
                     log::info!(
                         "syncing {}: Syncthing let go of it or paused it",

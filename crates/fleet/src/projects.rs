@@ -7,7 +7,7 @@ use crate::{
     error::{FleetError, Result},
     records::{
         GroupRecord, PinRecord, Place, ProjectRecord, Stored, WRITES, at, find_project, now_ms,
-        place_key, project_key, projects, read, scan, write,
+        place_key, project_key, projects, read, scan, sync_checkouts, write,
     },
 };
 use async_trait::async_trait;
@@ -33,7 +33,6 @@ use beep_proto::{
     BranchPlace, CheckoutFailure, CreateProject, CreatedProject, FoundProject, HostRepos,
     ImportFork, ImportPreview, ImportedProject, ProjectForge, ProjectGroup,
     groups::{group_name, group_paths},
-    node::mesh_state::SyncSpec,
 };
 use iroh::EndpointId;
 use std::{collections::HashMap, sync::Arc};
@@ -101,6 +100,16 @@ impl MeshStore {
         find_project(&self.mesh, project).map_or_else(|| project.to_owned(), |stored| stored.name)
     }
 
+    /// A record that is not written leaves the import standing; the next session writes it.
+    async fn sync_project(&self, name: &str) {
+        let Some(stored) = find_project(&self.mesh, name) else {
+            return;
+        };
+        if let Err(e) = sync_checkouts(&self.mesh, &stored).await {
+            log::warn!("{name} does not sync yet: {e}");
+        }
+    }
+
     fn stored_row(&self, name: &str, machine: EndpointId) -> anyhow::Result<ImportRow> {
         let stored = find_project(&self.mesh, name).ok_or_else(|| anyhow::anyhow!("not stored"))?;
         let place = stored
@@ -130,6 +139,7 @@ impl ImportStore for MeshStore {
             fork: read::<Place>(&self.mesh, &key).and_then(|old| old.fork),
         };
         write(&self.mesh, key, Some(&place)).await?;
+        self.sync_project(&name).await;
         self.stored_row(&name, machine)
     }
 
@@ -148,6 +158,7 @@ impl ImportStore for MeshStore {
             fork: None,
         };
         write(&self.mesh, key, Some(&place)).await?;
+        self.sync_project(&name).await;
         Ok(true)
     }
 
@@ -275,11 +286,8 @@ impl Machines for DeskMachines {
     }
 }
 
-/// After an import: a new project's checkouts sync with each other, by `sync/<name>` in the
-/// mesh, which each node reads.
-struct MeshEffects {
-    mesh: Mesh,
-}
+/// After an import: nothing more. `MeshStore` writes `sync/<name>` with each checkout it saves.
+struct MeshEffects;
 
 #[async_trait]
 impl Effects for MeshEffects {
@@ -289,23 +297,9 @@ impl Effects for MeshEffects {
 
     async fn join_sync(
         &self,
-        imported: &[ImportedProject],
+        _: &[ImportedProject],
         _: &mut Vec<CheckoutFailure>,
     ) -> anyhow::Result<()> {
-        let Some(first) = imported.first() else {
-            return Ok(());
-        };
-        if imported.len() < 2 {
-            return Ok(());
-        }
-        let _write = WRITES.lock().await;
-        let key = Key::Sync(first.project.clone());
-        let mut spec = read::<SyncSpec>(&self.mesh, &key).unwrap_or_default();
-        for landed in imported {
-            spec.folders
-                .insert(landed.machine_id.parse()?, landed.folder.clone());
-        }
-        write(&self.mesh, key, Some(&spec)).await?;
         Ok(())
     }
 }
@@ -342,12 +336,12 @@ impl Desk {
 
     /// Clones or finds `job.repo` on its machine and records it, then adds the worktrees asked for.
     pub async fn import(&self, job: ImportJob<'_>) -> Result<ImportedProject> {
-        let (store, effects) = (MeshStore::new(&self.mesh), self.effects());
+        let store = MeshStore::new(&self.mesh);
         let (credentials, machines) = (self.opened(), self.machines().await);
         let env = Env {
             store: &store,
             hosts: &self.hosts,
-            effects: &effects,
+            effects: &MeshEffects,
             credentials: &credentials,
             machines: &machines,
         };
@@ -410,20 +404,14 @@ impl Desk {
         }
     }
 
-    fn effects(&self) -> MeshEffects {
-        MeshEffects {
-            mesh: self.mesh.clone(),
-        }
-    }
-
     /// Makes the project `request` asks for.
     pub async fn create(&self, request: &CreateProject) -> Result<CreatedProject> {
-        let (store, effects) = (MeshStore::new(&self.mesh), self.effects());
+        let store = MeshStore::new(&self.mesh);
         let (credentials, machines) = (self.opened(), self.machines().await);
         let env = Env {
             store: &store,
             hosts: &self.hosts,
-            effects: &effects,
+            effects: &MeshEffects,
             credentials: &credentials,
             machines: &machines,
         };
@@ -510,6 +498,16 @@ impl Desk {
             host.repos.truncate(MAX_REPOS);
         }
         Ok(hosts)
+    }
+
+    /// Puts every project with checkouts on two machines or more in sync, for those imported
+    /// before that was the rule.
+    pub(crate) async fn sync_all_checkouts(&self) -> Result<()> {
+        let _write = WRITES.lock().await;
+        for stored in projects(&self.mesh) {
+            sync_checkouts(&self.mesh, &stored).await?;
+        }
+        Ok(())
     }
 
     /// Forgets a project: its checkouts stay on the machines, and so do their files.
