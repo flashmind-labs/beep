@@ -51,8 +51,7 @@ const USED: &str = "This ticket expired or was already used. Ask for a new one."
 /// alone in its own mesh leaves it and brings its settings along.
 #[tauri::command]
 pub async fn mesh_join(app: AppHandle, fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<()> {
-    let ticket = JoinTicket::decode_string(ticket.trim())
-        .map_err(|_| DesktopError::BadRequest(USED.into()))?;
+    let ticket = JoinTicket::parse(&ticket).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
     let joined = match fleet.join(&ticket, &computer_name()).await {
         Err(DesktopError::Mesh(MeshError::Refused(_))) => {
             Err(DesktopError::BadRequest(USED.into()))
@@ -72,8 +71,7 @@ pub async fn node_token_machine(
     fleet: State<'_, Arc<Fleet>>,
     token: String,
 ) -> Result<Option<String>> {
-    let ticket = JoinTicket::decode_string(token.trim())
-        .map_err(|_| DesktopError::BadRequest("that is not a ticket".into()))?;
+    let ticket = JoinTicket::parse(&token).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
     let joined = claimed(&ticket, DEFAULT_TICKET_TTL, fleet.machines(), fleet.id());
     Ok(joined.map(|id| id.to_string()))
 }

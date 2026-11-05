@@ -35,3 +35,20 @@ test("the relay line shows only when a relay carried bytes", () => {
   assert.equal(relayLine(machine), "1.2 GB sent, 300 MB received");
   assert.equal(relayLine({ id: "m", counters: [] }), null);
 });
+
+test("old and new protocol versions share a row", () => {
+  const rows = trafficRows({
+    id: "m",
+    counters: [
+      { key: "alpn.beep-node/1.tx", bytes: 10 },
+      { key: "alpn.beep-node/2.tx", bytes: 5 },
+      { key: "alpn.beep-node/2.rx", bytes: 7 },
+      { key: "alpn.beep-sync/1.rx", bytes: 1 },
+      { key: "alpn.beep-sync/3.rx", bytes: 2 },
+    ],
+  });
+  assert.deepEqual(rows, [
+    { label: "Link", sent: 15, received: 7 },
+    { label: "File sync", sent: 0, received: 3 },
+  ]);
+});

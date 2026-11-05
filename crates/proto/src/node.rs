@@ -8,10 +8,12 @@
 //! sessions, each a bi stream the server opens that starts with the name of
 //! the protocol it speaks, one of the hello's `offers`.
 //!
-//! Unlike the app wire, messages are msgpack maps with named fields. Nodes
-//! update on their own schedule, so either side may add a field (with
-//! `#[serde(default)]`) or a variant, and the other skips what it does not
-//! know.
+//! Unlike the app wire, messages are compact msgpack: structs are arrays read
+//! by position (`beep-node/1`, from before it, is the exception and writes
+//! maps). Nodes update on their own schedule, so a field may be added at the
+//! end with `#[serde(default)]`, or a variant, and a reader built with
+//! `lenient::from_slice` skips what it does not know. Never insert, reorder
+//! or remove a field.
 mod control;
 mod env;
 mod stream;

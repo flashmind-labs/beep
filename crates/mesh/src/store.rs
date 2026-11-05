@@ -4,11 +4,12 @@
 //! caller but never an async worker. Readers use the published `View`.
 
 use crate::mesh::AddrNote;
-use crate::state::{now_ms, private_dir, private_options, sync_dir};
+use crate::state::{MESH_DIR, OLD_MESH_DIR, now_ms, private_dir, private_options, sync_dir};
 use crate::{
     Applied, Device, DeviceKind, DeviceOp, Devices, Entry, Heads, JoinSecret, JoinTicket, Key,
     Merged, MeshError, State, WriteLimit,
 };
+use beep_proto::lenient;
 use iroh::{EndpointAddr, EndpointId, SecretKey};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -18,12 +19,13 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::thread;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
+use tracing::warn;
 
 /// The largest value a device may write under one key.
 pub(crate) const MAX_VALUE: usize = 1024 * 1024;
 const QUEUE: usize = 256;
 /// Where a mesh's files wait while another takes their place.
-const ASIDE: &str = "mesh.old";
+const ASIDE: &str = "mesh2.old";
 
 fn remove_if_present(dir: &Path) -> Result<(), MeshError> {
     match fs::remove_dir_all(dir) {
@@ -56,8 +58,8 @@ impl Core {
     /// Opens the files of a mesh `devices` describes and saves the list.
     pub(crate) fn start(dir: &Path, key: SecretKey, devices: Devices) -> Result<Core, MeshError> {
         let state = State::open(dir, &key, devices.mesh())?;
-        let tickets = match fs::read(dir.join("mesh").join("tickets.bin")) {
-            Ok(bytes) => postcard::from_bytes(&bytes)?,
+        let tickets = match fs::read(dir.join(MESH_DIR).join("tickets.bin")) {
+            Ok(bytes) => lenient::from_slice(&bytes)?,
             Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e.into()),
         };
@@ -84,7 +86,7 @@ impl Core {
     /// the new mesh's device list is on disk the old one goes, before that
     /// the old one is put back.
     pub(crate) fn recover(dir: &Path) -> Result<(), MeshError> {
-        let (live, aside) = (dir.join("mesh"), dir.join(ASIDE));
+        let (live, aside) = (dir.join(MESH_DIR), dir.join(ASIDE));
         if !aside.exists() {
             return Ok(());
         }
@@ -107,7 +109,7 @@ impl Core {
         addrs: &[AddrNote],
     ) -> Result<Core, MeshError> {
         Self::recover(dir)?;
-        let (live, aside) = (dir.join("mesh"), dir.join(ASIDE));
+        let (live, aside) = (dir.join(MESH_DIR), dir.join(ASIDE));
         let had_old = live.exists();
         if had_old {
             fs::rename(&live, &aside)?;
@@ -134,32 +136,43 @@ impl Core {
         }
     }
 
-    /// Removes the mesh in `dir`, and one a swap left aside.
+    /// Removes the mesh in `dir`, one a swap left aside, and the folder of a
+    /// mesh from an older version, which holds credentials in plain text.
     pub(crate) fn forget(dir: &Path) -> Result<(), MeshError> {
-        remove_if_present(&dir.join("mesh"))?;
+        remove_if_present(&dir.join(MESH_DIR))?;
+        remove_if_present(&dir.join(OLD_MESH_DIR))?;
         remove_if_present(&dir.join(ASIDE))?;
         sync_dir(dir)?;
         Ok(())
     }
 
     pub(crate) fn exists(dir: &Path) -> bool {
-        dir.join("mesh").join("devices.bin").exists()
+        dir.join(MESH_DIR).join("devices.bin").exists()
     }
 
     pub(crate) fn load(dir: &Path) -> Result<Option<Devices>, MeshError> {
-        let bytes = match fs::read(dir.join("mesh").join("devices.bin")) {
+        let bytes = match fs::read(dir.join(MESH_DIR).join("devices.bin")) {
             Ok(bytes) => bytes,
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                if dir.join(OLD_MESH_DIR).join("devices.bin").exists() {
+                    warn!(
+                        "found a mesh from an older version in {}; it is not read and stays as it is. \
+                         Join the mesh again with a new ticket.",
+                        dir.join(OLD_MESH_DIR).display()
+                    );
+                }
+                return Ok(None);
+            }
             Err(e) => return Err(e.into()),
         };
-        let ops: Vec<DeviceOp> = postcard::from_bytes(&bytes)?;
+        let ops: Vec<DeviceOp> = lenient::from_slice(&bytes)?;
         Ok(Some(Devices::from_ops(&ops)?.0))
     }
 
     pub(crate) fn load_addrs(dir: &Path) -> Vec<AddrNote> {
-        fs::read(dir.join("mesh").join("peers.bin"))
+        fs::read(dir.join(MESH_DIR).join("peers.bin"))
             .ok()
-            .and_then(|bytes| postcard::from_bytes(&bytes).ok())
+            .and_then(|bytes| lenient::from_slice(&bytes).ok())
             .unwrap_or_default()
     }
 
@@ -172,7 +185,7 @@ impl Core {
     }
 
     fn write(&self, name: &str, bytes: &[u8], durable: bool) -> Result<(), MeshError> {
-        let mesh_dir = self.dir.join("mesh");
+        let mesh_dir = self.dir.join(MESH_DIR);
         private_dir(&mesh_dir)?;
         let path = mesh_dir.join(name);
         let tmp = mesh_dir.join(format!("{name}.tmp"));
@@ -195,13 +208,13 @@ impl Core {
     fn save_devices(&self) -> Result<(), MeshError> {
         self.write(
             "devices.bin",
-            &postcard::to_stdvec(&self.devices.ops())?,
+            &rmp_serde::to_vec(&self.devices.ops())?,
             true,
         )
     }
 
     fn save_tickets(&self) -> Result<(), MeshError> {
-        self.write("tickets.bin", &postcard::to_stdvec(&self.tickets)?, true)
+        self.write("tickets.bin", &rmp_serde::to_vec(&self.tickets)?, true)
     }
 
     /// Rebuilds the snapshot and wakes everyone watching.
@@ -344,7 +357,7 @@ impl Core {
 
     /// Best effort: a lost address file only costs a rediscovery.
     pub(crate) fn save_addrs(&self, addrs: &[AddrNote]) -> Result<(), MeshError> {
-        self.write("peers.bin", &postcard::to_stdvec(addrs)?, false)
+        self.write("peers.bin", &rmp_serde::to_vec(addrs)?, false)
     }
 }
 

@@ -1,6 +1,8 @@
 //! Serves one node connection: the hello, the claim on a token and the request loop.
 
-use super::{CLOSE_UNAVAILABLE, MAX_TOOL_CALLS, Online, push_sync, stats};
+use super::{
+    CLOSE_UNAVAILABLE, MAX_TOOL_CALLS, NODE_ALPN, NODE_ALPN_NAMED, Online, push_sync, stats,
+};
 use crate::{
     account::user::User,
     app::App,
@@ -8,7 +10,7 @@ use crate::{
         link::MAX_NAME,
         node::{
             CLOSE_SETUP_REFUSED, Down, LinkRx, LinkTx, MAX_FRAME, NodeHello, NodeSetup, Up,
-            agent::SESSIONS_PROTOCOL, link,
+            agent::SESSIONS_PROTOCOL, link_on,
         },
         setup::SetupToken,
     },
@@ -23,7 +25,7 @@ use anyhow::{Context, Result, bail};
 use iroh::{
     EndpointId,
     endpoint::{Connection, VarInt},
-    protocol::{AcceptError, ProtocolHandler},
+    protocol::{AcceptError, ProtocolHandler, RouterBuilder},
 };
 use std::{fmt, sync::Arc};
 use tokio::{sync::Notify, task::JoinSet, time::timeout};
@@ -38,6 +40,14 @@ impl fmt::Debug for NodeHandler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NodeHandler").finish()
     }
+}
+
+/// Serves `handler` on `beep-node/2` and on `beep-node/1`, in that order: the
+/// Router keeps it, and a node that offers both settles on the first.
+pub fn accept_nodes(router: RouterBuilder, handler: NodeHandler) -> RouterBuilder {
+    router
+        .accept(NODE_ALPN, handler.clone())
+        .accept(NODE_ALPN_NAMED, handler)
 }
 
 impl NodeHandler {
@@ -133,7 +143,7 @@ pub(super) async fn read_hello(
     let (send, recv) = timeout(crate::api::transport::READ_TIMEOUT, connection.accept_bi())
         .await
         .context("no control stream")??;
-    let (tx, mut rx) = link(send, recv);
+    let (tx, mut rx) = link_on(connection, send, recv);
     if !linked {
         rx.set_max_frame(MAX_UNLINKED_HELLO);
     }
@@ -339,7 +349,7 @@ pub(super) async fn serve(
                     },
                     caller: endpoint.to_string(),
                 };
-                let (tx, rx) = link(send, recv);
+                let (tx, rx) = link_on(connection, send, recv);
                 calls.spawn(mcp::serve(calls_from, tx, rx));
             }
             Some(ended) = calls.join_next() => match ended {

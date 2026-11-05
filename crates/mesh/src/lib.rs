@@ -2,6 +2,7 @@
 //! a desktop mints to bring a new one in, and the service that keeps every
 //! device's list and state current over iroh.
 
+mod bin;
 mod client;
 mod devices;
 mod frame;
@@ -22,7 +23,7 @@ pub use mesh::{
     PEER_ALPN, PeerStream, StreamHandler, transport_config,
 };
 pub use state::{Applied, Entry, Heads, Key, State};
-pub use ticket::{JoinSecret, JoinTicket};
+pub use ticket::{JoinSecret, JoinTicket, TicketError};
 
 #[cfg(test)]
 mod wire_tests;

@@ -322,7 +322,7 @@ async fn apply_manifest(store: &Store, hash: Hash, job: &Job, plan: &mut Plan) -
         .await
         .context("reading the folder's manifest")?;
     let manifest: Manifest =
-        rmp_serde::from_slice(&bytes).context("reading the folder's manifest")?;
+        beep_proto::lenient::from_slice(&bytes).context("reading the folder's manifest")?;
     let root = Path::new(&job.name);
     let executable = manifest
         .executable

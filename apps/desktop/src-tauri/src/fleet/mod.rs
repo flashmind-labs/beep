@@ -511,7 +511,7 @@ mod tests {
         assert_eq!(this.device.id, mac.endpoint.id());
         assert_eq!(this.device.kind, DeviceKind::Desktop);
         assert!(this.online);
-        assert!(mac.dir.path().join("mesh").join("devices.bin").exists());
+        assert!(mac.dir.path().join("mesh2").join("devices.bin").exists());
         // The next launch opens the same mesh, not a new one.
         mac.fleet.stop().await;
         let again = Fleet::new(
@@ -771,9 +771,9 @@ mod tests {
     #[tokio::test]
     async fn a_mesh_that_will_not_open_is_not_an_offline_machine() {
         let dir = TempDir::new().expect("a temp dir");
-        std::fs::create_dir_all(dir.path().join("mesh")).expect("a mesh folder");
+        std::fs::create_dir_all(dir.path().join("mesh2")).expect("a mesh folder");
         std::fs::write(
-            dir.path().join("mesh").join("devices.bin"),
+            dir.path().join("mesh2").join("devices.bin"),
             b"not a device list",
         )
         .expect("a broken list");

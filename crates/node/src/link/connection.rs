@@ -33,15 +33,13 @@ use beep_proto::{
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
-        NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
-        harness::AgentSettings, link, status, tool_update, tools, version,
+        NODE_ALPN_NAMED, NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
+        harness::AgentSettings, link_on, status, tool_update, tools, version,
     },
 };
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
-    endpoint::{
-        ConnectOptions, Connection, ConnectionError, RecvStream, SendStream, VarInt, presets,
-    },
+    endpoint::{ConnectOptions, Connection, ConnectionError, VarInt, presets},
     protocol::Router,
 };
 use std::{
@@ -199,7 +197,7 @@ pub async fn serve(
         }
         offers.extra.push(Arc::new(folders));
     }
-    // The mesh: peers reach the node over `beep-peer/1` with or without a
+    // The mesh: peers reach the node over `beep-peer/2` with or without a
     // server. The router runs from here, so a join takes effect at once.
     let peers = Peers::new(
         endpoint.clone(),
@@ -554,7 +552,10 @@ async fn open_as(
     offers: &Offers,
 ) -> Result<Linked> {
     let name = hello.name;
-    let options = ConnectOptions::new().with_transport_config(reconnect::transport());
+    // A server from before `beep-node/2` answers on `beep-node/1`, in maps.
+    let options = ConnectOptions::new()
+        .with_transport_config(reconnect::transport())
+        .with_additional_alpns(vec![NODE_ALPN_NAMED.to_vec()]);
     let connect = async {
         anyhow::Ok(
             endpoint
@@ -568,7 +569,7 @@ async fn open_as(
         .context("connect timed out")??;
     offers.traffic.watch(&connection);
     let (send, recv) = connection.open_bi().await?;
-    let (mut tx, mut rx) = link(send, recv);
+    let (mut tx, mut rx) = link_on(&connection, send, recv);
     tx.send(&NodeHello {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         name: name.to_owned(),
@@ -711,7 +712,8 @@ async fn serve_linked(
                     log::warn!("refused a session: {MAX_SESSIONS} already open");
                     continue;
                 }
-                sessions.spawn(session(send, recv, offers.clone(), Who::Everything(connection.remote_id())));
+                let (tx, rx) = link_on(connection, send, recv);
+                sessions.spawn(session(tx, rx, offers.clone(), Who::Everything(connection.remote_id())));
             }
             Some(ended) = sessions.join_next() => match ended {
                 Ok(Ok(())) => {}
@@ -822,13 +824,7 @@ impl Who {
 }
 
 /// Serves one session stream in the protocol it opens with, if `who` may use it.
-pub(crate) async fn session(
-    send: SendStream,
-    recv: RecvStream,
-    offers: Offers,
-    who: Who,
-) -> Result<()> {
-    let (tx, mut rx) = link(send, recv);
+pub(crate) async fn session(tx: LinkTx, mut rx: LinkRx, offers: Offers, who: Who) -> Result<()> {
     let open = read_open(&mut rx).await?;
     serve_open(tx, rx, open, offers, who).await
 }
