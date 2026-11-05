@@ -42,7 +42,8 @@ struct ChatView: View {
                             VStack(spacing: 12) {
                                 if let day = breaks[message.id] { DayMarker(day: day) }
                                 MessageView(message: message, live: message.id == "assistant-\(model.chat.runId)",
-                                            latest: index == model.chat.messages.count - 1, quote: quote)
+                                            latest: index == model.chat.messages.count - 1, busy: model.chat.busy, quote: quote)
+                                    .equatable()
                                 if message.id == newestReply?.id, !model.chat.busy {
                                     researchRow(after: message)
                                 }
@@ -52,7 +53,7 @@ struct ChatView: View {
                                      && model.chat.messages[index - 1].role == .user ? -12 : 0)
                             .popIn(play: !settled.contains(message.id),
                                    anchor: message.role == .user ? .bottomTrailing : .bottomLeading)
-                            .onAppear { settled.insert(message.id) }
+                            .onAppear { if !settled.contains(message.id) { settled.insert(message.id) } }
                             .id(message.id)
                         }
                         if let asked = model.waitingWork[model.chat.id], !asked.isEmpty {
@@ -773,17 +774,25 @@ let backgroundWorkLabel = "Background work"
 /// Mirrors the server's memory threshold as Android shows it: above it the learner reads the turn.
 private let memoryThreshold = 0.8
 
-struct MessageView: View {
+struct MessageView: View, Equatable {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     let message: Message
     let live: Bool
     /// The newest reply in the chat, which shows the suggested replies.
     var latest = false
+    /// Passed in, not read from the model, so a streaming token does not redraw every row.
+    var busy = false
     var quote: (String) -> Void = { _ in }
     @State private var showThoughts = false
     @State private var showAllTools = false
     @State private var copied = false
+
+    /// A row redraws when its message changes, not when the chat around it does; the quote
+    /// closure is the same call every time.
+    static func == (a: MessageView, b: MessageView) -> Bool {
+        a.message == b.message && a.live == b.live && a.latest == b.latest && a.busy == b.busy
+    }
 
     var body: some View {
         switch message.role {
@@ -850,7 +859,7 @@ struct MessageView: View {
                 let steps = TaskStep.latest(in: message.tools)
                 if !steps.isEmpty { TaskProgressCard(steps: steps).padding(.top, 8) }
                 if !message.text.isEmpty, !live { actions.transition(.opacity) }
-                if latest, !model.chat.busy, let replies = message.tools.lazy.compactMap({ call -> ToolCard.Replies? in
+                if latest, !busy, let replies = message.tools.lazy.compactMap({ call -> ToolCard.Replies? in
                     if case .replies(let replies) = call.card { replies } else { nil }
                 }).first {
                     SuggestedReplies(replies: replies) { model.send($0) }.padding(.top, 4)
@@ -869,7 +878,7 @@ struct MessageView: View {
         }
         ShareLink(item: message.text) { Label("Share", systemImage: "square.and.arrow.up") }
         // Takes the reply and its tool calls with it.
-        if !model.chat.busy {
+        if !busy {
             Button(role: .destructive) {
                 Task { await model.delete(message) }
             } label: { Label("Delete", systemImage: "trash") }
@@ -1001,7 +1010,7 @@ struct MessageView: View {
                 }
             }
             // Admins get a rerun menu under each reply; the list is empty for everyone else.
-            if let models = model.models, !models.choices.isEmpty, !model.chat.busy {
+            if let models = model.models, !models.choices.isEmpty, !busy {
                 RerunButton(models: models, used: usedModel(models)) { choice, thinking in
                     Task { await model.rerun(message, model: choice, thinking: thinking) }
                 }
@@ -1594,11 +1603,13 @@ struct MarkdownText: View {
         return Text(styled)
     }
 
+    private static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
     /// Makes bare web addresses tappable, as Android and the Mac do. Markdown links
     /// keep their own target.
     private func linkBareAddresses(_ text: inout AttributedString) {
         let plain = String(text.characters)
-        guard plain.contains("http"), let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return }
+        guard plain.contains("http"), let detector = Self.linkDetector else { return }
         for match in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
             guard let url = match.url, ["http", "https"].contains(url.scheme?.lowercased()),
                   let found = Range(match.range, in: plain),
