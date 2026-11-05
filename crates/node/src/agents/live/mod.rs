@@ -85,6 +85,9 @@ pub(crate) struct Live {
     codex_threads: HashMap<String, ToolCallId>,
     /// The last agent message is still arriving in chunks.
     in_message: bool,
+    /// The first replayed prompt is still arriving in chunks and names a
+    /// session the agent has not named.
+    naming: bool,
     /// Where the pictures its transcript shows are kept, shared by the
     /// node's sessions.
     images: Arc<Images>,

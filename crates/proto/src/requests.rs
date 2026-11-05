@@ -488,7 +488,18 @@ requests! {
     /// most 200). An outside session has no plan or files. `NotFound` when
     /// the machine is not one of the caller's online ones or has no such
     /// session.
-    142 GetAgentSession { machine_id: String, agent: String, session: String, last: u32 } => Call<AgentSessionView>
+    ///
+    /// `before`, when given, is the index of the entry the `last` entries
+    /// end before, as `earlier` counts them, to read further back. A server
+    /// from before it answers with the last entries.
+    142 GetAgentSession {
+        machine_id: String,
+        agent: String,
+        session: String,
+        last: u32,
+        #[serde(default)]
+        before: Option<u64>,
+    } => Call<AgentSessionView>
     /// Sends a session Beep started a message, stops its turn or ends it.
     /// A message waits for a running turn to end. `NotFound` as for
     /// `GetAgentSession`; `BadRequest` saying why when the node refuses.

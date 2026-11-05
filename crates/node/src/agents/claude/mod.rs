@@ -2,7 +2,7 @@
 //! (`External`): finding them, reading their transcripts and following them.
 //! Taking one over runs it through the ACP adapter.
 
-use crate::agents::found::Seen as Sighting;
+use crate::agents::found::{Seen as Sighting, memo::Memo};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -11,6 +11,7 @@ use beep_proto::node::{
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::task::spawn_blocking;
 
@@ -46,11 +47,26 @@ pub(crate) fn projects_dir() -> Option<PathBuf> {
 }
 
 /// Claude Code's sessions on this machine, and the hook events about them.
-#[derive(Default)]
 pub struct External {
     store: Option<discover::Store>,
     hub: watch::Hub,
     live: live::Live,
+    /// The few transcripts read last, parsed.
+    transcripts: Arc<Memo<Arc<transcript::Digest>>>,
+}
+
+/// How many sessions' parsed transcripts are kept at once.
+const TRANSCRIPTS_KEPT: usize = 4;
+
+impl Default for External {
+    fn default() -> Self {
+        Self {
+            store: None,
+            hub: watch::Hub::default(),
+            live: live::Live::default(),
+            transcripts: Arc::new(Memo::new(TRANSCRIPTS_KEPT)),
+        }
+    }
 }
 
 impl External {
@@ -58,8 +74,7 @@ impl External {
     pub fn locate() -> Self {
         Self {
             store: discover::Store::locate(),
-            hub: watch::Hub::default(),
-            live: live::Live::default(),
+            ..Self::default()
         }
     }
 
@@ -68,8 +83,7 @@ impl External {
     pub(crate) fn at(root: &Path) -> Self {
         Self {
             store: Some(discover::Store::at(root)),
-            hub: watch::Hub::default(),
-            live: live::Live::default(),
+            ..Self::default()
         }
     }
 
@@ -148,11 +162,18 @@ impl External {
     /// The last `last` entries of session `id`'s transcript, how many came
     /// before them and the pictures they show; `None` when there is no
     /// such session.
-    pub(crate) async fn transcript(&self, id: &str, last: usize) -> Result<Option<Excerpt>> {
+    pub(crate) async fn transcript(
+        &self,
+        id: &str,
+        last: usize,
+        before: Option<u64>,
+    ) -> Result<Option<Excerpt>> {
         let Some(path) = self.file(id).await? else {
             return Ok(None);
         };
-        let read = spawn_blocking(move || transcript::entries(&path, last)).await??;
+        let kept = self.transcripts.clone();
+        let read =
+            spawn_blocking(move || transcript::entries(&path, last, before, &kept)).await??;
         Ok(Some(read))
     }
 

@@ -98,6 +98,7 @@ impl Live {
             }
             SessionUpdate::SessionInfoUpdate(info) => {
                 if let MaybeUndefined::Value(new) = &info.title {
+                    self.naming = false;
                     self.info.title = Some(cut(new, MAX_LINE));
                 }
             }
@@ -176,6 +177,18 @@ impl Live {
             self.in_message = true;
             // A replayed prompt starts a turn.
             self.turn_images.clear();
+            // Only the first prompt of a session with no title names it.
+            self.naming = self.info.title.is_none();
+        }
+        if self.naming
+            && let Some(prompt) = self.transcript.back()
+            && let Some(line) = prompt
+                .text
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+        {
+            self.info.title = Some(cut(line, MAX_LINE));
         }
     }
 

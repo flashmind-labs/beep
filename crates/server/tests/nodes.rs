@@ -3125,6 +3125,7 @@ async fn agent_control_keeps_to_the_callers_machines_and_chats() {
         agent: "claude".into(),
         session: "a3f9c1".into(),
         last: 30,
+        before: None,
     };
     assert!(not_found(client.call(&get).await.unwrap_err()));
     let steer = SteerAgentSession {

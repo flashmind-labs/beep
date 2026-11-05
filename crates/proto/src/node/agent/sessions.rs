@@ -22,6 +22,14 @@ pub enum SessionsRequest {
         /// never shows a thought as an unknown entry.
         #[serde(default)]
         thoughts: bool,
+        /// Read the `last` entries before the entry with this index
+        /// (counting from the first the node still has, thoughts
+        /// included), as the reply's `earlier` counts them, instead of the
+        /// last ones. A node from before it ignores this and answers with
+        /// the last entries, which an app tells by `earlier` plus the
+        /// entries not ending at `before`.
+        #[serde(default)]
+        before: Option<u64>,
     },
     /// Sessions of `agent` started outside Beep, newest first: at most
     /// `limit`, or only `session` when given.
@@ -541,6 +549,101 @@ mod tests {
     }
 
     #[test]
+    fn a_transcript_ask_before_an_entry_reads_on_a_node_that_does_not_know_before() {
+        let ask = SessionsRequest::Transcript {
+            session: "s".into(),
+            last: 50,
+            thoughts: true,
+            before: Some(120),
+        };
+        // A node from before `before`, in both encodings its link uses.
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        enum Older {
+            Transcript {
+                session: String,
+                last: u32,
+                thoughts: bool,
+            },
+        }
+        let older = Older::Transcript {
+            session: "s".into(),
+            last: 50,
+            thoughts: true,
+        };
+        let named = rmp_serde::to_vec_named(&ask).unwrap();
+        assert_eq!(rmp_serde::from_slice::<Older>(&named).unwrap(), older);
+        let compact = rmp_serde::to_vec(&ask).unwrap();
+        assert_eq!(
+            crate::lenient::from_slice::<Older>(&compact).unwrap(),
+            older
+        );
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsRequest>(&named).unwrap(),
+            ask
+        );
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsRequest>(&compact).unwrap(),
+            ask
+        );
+    }
+
+    #[test]
+    fn a_transcript_ask_from_before_before_reads_here_and_a_field_after_it_is_skipped() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        enum Older {
+            Transcript {
+                session: String,
+                last: u32,
+                thoughts: bool,
+            },
+        }
+        let old = rmp_serde::to_vec(&Older::Transcript {
+            session: "s".into(),
+            last: 5,
+            thoughts: true,
+        })
+        .unwrap();
+        assert_eq!(
+            crate::lenient::from_slice::<SessionsRequest>(&old).unwrap(),
+            SessionsRequest::Transcript {
+                session: "s".into(),
+                last: 5,
+                thoughts: true,
+                before: None,
+            }
+        );
+
+        // A newer app's field after `before` is skipped by the lenient reader.
+        #[derive(Serialize)]
+        enum Newer {
+            Transcript {
+                session: String,
+                last: u32,
+                thoughts: bool,
+                before: Option<u64>,
+                later: u8,
+            },
+        }
+        let newer = rmp_serde::to_vec(&Newer::Transcript {
+            session: "s".into(),
+            last: 5,
+            thoughts: false,
+            before: Some(9),
+            later: 1,
+        })
+        .unwrap();
+        assert_eq!(
+            crate::lenient::from_slice::<SessionsRequest>(&newer).unwrap(),
+            SessionsRequest::Transcript {
+                session: "s".into(),
+                last: 5,
+                thoughts: false,
+                before: Some(9),
+            }
+        );
+    }
+
+    #[test]
     fn a_transcript_ask_without_thoughts_reads_here_and_a_thought_reads_as_other_there() {
         #[derive(Debug, PartialEq, Serialize, Deserialize)]
         enum Older {
@@ -557,6 +660,7 @@ mod tests {
                 session: "s".into(),
                 last: 5,
                 thoughts: false,
+                before: None,
             }
         );
 
