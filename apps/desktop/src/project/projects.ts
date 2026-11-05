@@ -19,6 +19,7 @@ import { redrawProjects, redrawProjectsPage, pc } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { whereRow, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection, hostOf } from "./loads.ts";
 import { IC } from "../ui/icons.ts";
+import { lazyRows } from "../ui/lazyrows.ts";
 import { byRecent, type RunningAgent } from "../agents/running-state.ts";
 
 export const importButton = (cls: string) => plusLabel("Add a project", cls, addProject);
@@ -51,10 +52,11 @@ export function projectTable(rows: Project[]) {
 /// workers, what changed last and where it lives.
 export function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
-  const out = groups.map(g => g.group ? groupSection(g.group, g)
+  // One org at a time; the rest draw as the page scrolls toward them.
+  const out = lazyRows("projects-overview", "", groups.length, (from, to) => groups.slice(from, to).map(g => g.group ? groupSection(g.group, g)
     : h("section", "pj-org",
       h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", plural(g.cards.length, "repo", "repos"))),
-      h("div", "pj-grid", ...g.cards.map(projectCard))));
+      h("div", "pj-grid", ...g.cards.map(projectCard)))), 0, 1);
   const add = h("div", "cc-panel cc-row pj-add",
     h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder or a repository to clone.")),
     button("Add", "", addProject));

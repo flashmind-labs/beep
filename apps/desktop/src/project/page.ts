@@ -22,6 +22,7 @@ import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
+import { lazyRows, resetRows } from "../ui/lazyrows.ts";
 
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();
@@ -119,6 +120,7 @@ registerView("projects", {
       noteRecent(state.picked);
     }
     openTile(null, false);
+    resetRows("projects-overview");
     drawProjects(el);
     if (state.picked) revalidate(state.picked);
     else { loadFound(); loadOverview(); }
@@ -144,14 +146,17 @@ export function homeProjectRow(p: Project, i: number, name = p.name) {
 /// Home's Projects: a panel per owner, as many across as fit, so one owner
 /// keeps one column's width.
 export function projectsSection(rows: Project[]) {
-  const owners = new Map<string, Node[]>();
+  const owners = new Map<string, { p: Project; i: number }[]>();
   rows.forEach((p, i) => {
     const cut = p.name.lastIndexOf("/");
     const owner = cut > 0 ? p.name.slice(0, cut) : "";
-    if (!owners.has(owner)) owners.set(owner, []);
-    owners.get(owner)!.push(homeProjectRow(p, i, p.name.slice(cut + 1)));
+    const list = owners.get(owner);
+    if (list) list.push({ p, i }); else owners.set(owner, [{ p, i }]);
   });
-  const panels = [...owners].map(([owner, list]) => section("", owner || "Other", list.length, null, h("div", "cc-panel", ...list)));
+  const all = [...owners];
+  // A few panels at a time; the rest draw as the page scrolls toward them.
+  const panels = lazyRows("home:projects", "", all.length, (from, to) => all.slice(from, to).map(([owner, list]) =>
+    section("", owner || "Other", list.length, null, h("div", "cc-panel", ...list.map(({ p, i }) => homeProjectRow(p, i, p.name.slice(p.name.lastIndexOf("/") + 1)))))), 0, 2);
   const el = h("div", "cc-hgrid", ...panels);
   el.id = "sec-projects-home";
   return el;

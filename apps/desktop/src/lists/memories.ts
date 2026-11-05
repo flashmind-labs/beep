@@ -9,6 +9,7 @@ import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
+import { lazyRows, resetRows } from "../ui/lazyrows.ts";
 
 export const MEM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V4a3 3 0 00-3 0zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/></svg>';
 export const CLOCK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
@@ -194,6 +195,7 @@ export function renderMemories() {
   S.view = "memories";
   invoke("close_group").catch(() => {});
   Object.assign(M, { sel: 0, query: "", mode: "list", error: "", filter: "all" });
+  resetRows("memories");
   bar.innerHTML = `<div class="dinput"><input id="mfind" placeholder="Search memories" autocomplete="off" spellcheck="false"><span class="dmuted" id="mcount"></span><kbd>⌘M</kbd></div>
     <div id="mchips" class="dtop"></div>
     <div class="dlist top" id="mlist" role="listbox" aria-label="Memories"></div><div id="mhints"></div>`;
@@ -244,6 +246,38 @@ function memRow(m: Memory, i: number, today: string) {
             <div class="m">${about}${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
 }
 
+/// Rows `from` up to `to` of the list, each category under its heading.
+function memRows(from: number, to: number, today: string) {
+  let html = "";
+  let last = from ? M.list[from - 1].category || "Other" : undefined;
+  for (let i = from; i < to; i++) {
+    const m = M.list[i], cat = m.category || "Other";
+    if (cat !== last) html += `<div class="dsec bare">${esc(cat)}</div>`;
+    last = cat;
+    html += memRow(m, i, today);
+  }
+  return html;
+}
+
+function htmlNodes(html: string) {
+  const t = document.createElement("template");
+  t.innerHTML = html;
+  return [...t.content.childNodes];
+}
+
+/// The selection moved from row `was` to the one now picked: only those two
+/// rows are drawn again.
+function moveSelection(was: number) {
+  const row = (i: number) => $("#mlist")?.querySelector<HTMLElement>(`.dmem[data-i="${i}"]`);
+  const before = row(was), now = row(M.sel);
+  if (was === M.sel && before) return;
+  if (!before || !now) return drawMemories();
+  const today = dateValue(new Date());
+  before.replaceWith(...htmlNodes(memRow(M.list[was], was, today)));
+  now.replaceWith(...htmlNodes(memRow(M.list[M.sel], M.sel, today)));
+  row(M.sel)?.scrollIntoView({ block: "nearest" });
+}
+
 export function drawMemories() {
   const list = $("#mlist");
   if (!list) return;
@@ -260,27 +294,27 @@ export function drawMemories() {
       + (picked?.about ? `<div class="dmuted dpadx">${esc(picked.about)}</div>` : "") : "";
   }
   // Grouped by category; the server lists newest first, so each group keeps that order.
-  const cats = [...new Set(M.list.map(m => m.category || "Other"))];
-  M.list = cats.flatMap(c => M.list.filter(m => (m.category || "Other") === c));
+  const byCategory = new Map<string, Memory[]>();
+  for (const m of M.list) {
+    const cat = m.category || "Other";
+    const group = byCategory.get(cat);
+    if (group) group.push(m); else byCategory.set(cat, [m]);
+  }
+  M.list = [...byCategory.values()].flat();
   clampSel(M);
   $$("#mcount").textContent = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
   const today = dateValue(new Date());
-  let html = M.error ? `<div class="derr dpad">${esc(M.error)}</div>` : "";
+  const nodes: Node[] = htmlNodes(M.error ? `<div class="derr dpad">${esc(M.error)}</div>` : "");
   if (M.mode === "clear") {
-    html += confirmCard("Forget everything?", `Beep will forget all ${M.all.length} memories. This cannot be undone.`, '<button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn quiet" data-m="list">Cancel</button>', "dm8");
+    nodes.push(...htmlNodes(confirmCard("Forget everything?", `Beep will forget all ${M.all.length} memories. This cannot be undone.`, '<button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn quiet" data-m="list">Cancel</button>', "dm8")));
   } else if (M.loaded && !M.all.length) {
-    html += emptyPage(MEM_ICON, "Nothing remembered yet.", 'Beep learns as you chat, or tell it "remember that…"');
+    nodes.push(...htmlNodes(emptyPage(MEM_ICON, "Nothing remembered yet.", 'Beep learns as you chat, or tell it "remember that…"')));
   } else {
-    let last: string | undefined;
-    M.list.forEach((m, i) => {
-      const cat = m.category || "Other";
-      if (cat !== last) html += `<div class="dsec bare">${esc(cat)}</div>`;
-      last = cat;
-      html += memRow(m, i, today);
-    });
-    if (M.all.length && !M.query && M.filter === "all") html += `<div class="dpad"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`;
+    // Thousands of memories draw a screenful at a time.
+    nodes.push(...lazyRows("memories", `${M.query}|${M.filter}`, M.list.length, (from, to) => htmlNodes(memRows(from, to, today)), M.sel, 20));
+    if (M.all.length && !M.query && M.filter === "all") nodes.push(...htmlNodes(`<div class="dpad"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`));
   }
-  list.innerHTML = html;
+  list.replaceChildren(...nodes);
   list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   const edit = $<HTMLTextAreaElement>("#medit");
   if (edit) { edit.focus(); edit.setSelectionRange(edit.value.length, edit.value.length); }
@@ -378,7 +412,8 @@ export function memKeys(e: KeyboardEvent, cmd: boolean) {
     M.sel = 0;
     return drawMemories();
   }
-  if (arrowKey(e, M)) return drawMemories();
+  const was = M.sel;
+  if (arrowKey(e, M)) return moveSelection(was);
   if (e.key === "Enter" && !e.isComposing && M.list.length) { e.preventDefault(); return memAction("edit"); }
   if (cmd && e.key === "Backspace" && M.list.length) { e.preventDefault(); return memAction("forget"); }
 }

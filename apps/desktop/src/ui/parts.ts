@@ -5,11 +5,17 @@ import type { Freshness } from "./pagecache.ts";
 
 /// Fixed SVG markup as a node, never server text.
 export function svgEl(markup: string) {
-  const s = el("span");
-  s.style.display = "inline-flex";
-  s.innerHTML = markup;
-  return s.firstChild;
+  // Each icon is parsed once; rows that repeat it get a copy.
+  let node = parsedSvg.get(markup);
+  if (node === undefined) {
+    const s = el("span");
+    s.innerHTML = markup;
+    node = s.firstChild;
+    parsedSvg.set(markup, node);
+  }
+  return node && node.cloneNode(true);
 }
+const parsedSvg = new Map<string, ChildNode | null>();
 
 /// A `dbtn` button with `cls` that runs `on`.
 export function dbtn(label: string | Node, cls: string, on: (e: MouseEvent) => void) {

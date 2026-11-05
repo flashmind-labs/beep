@@ -344,9 +344,9 @@ impl Agents {
             return found.presence;
         }
         let held = match agent {
-            // Claude Code does not keep its transcript open; its processes
-            // were looked at already.
-            Agent::Claude => None,
+            // Claude Code does not keep its transcript open, but its
+            // processes were looked at already and none runs this session.
+            Agent::Claude => Some(false),
             other => {
                 let stores = self.stores.clone();
                 let id = found.id.clone();
