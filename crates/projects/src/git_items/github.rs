@@ -78,6 +78,8 @@ struct SearchItem {
     title: String,
     updated_at: DateTime<Utc>,
     #[serde(default)]
+    created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     comments: u32,
     #[serde(default)]
     draft: Option<bool>,
@@ -183,6 +185,7 @@ fn item(hit: &SearchItem, repo: String) -> Found {
     Found {
         item,
         labels: label_names(&hit.labels),
+        opened_at: hit.created_at.map(SystemTime::from),
     }
 }
 
@@ -271,6 +274,24 @@ mod tests {
             .expect("the PR is listed")
             .item;
         assert!(review.review_requested && review.draft && !review.authored);
+    }
+
+    #[test]
+    fn a_search_hit_carries_its_created_time() {
+        let hits = r#"{"items": [
+          {"html_url": "https://github.com/acme/widget/issues/7", "number": 7, "title": "t",
+           "updated_at": "2026-10-30T09:15:00Z", "created_at": "2026-10-01T08:00:00Z",
+           "repository_url": "https://api.github.com/repos/acme/widget"},
+          {"html_url": "https://github.com/acme/widget/issues/8", "number": 8, "title": "u",
+           "updated_at": "2026-10-30T09:15:00Z",
+           "repository_url": "https://api.github.com/repos/acme/widget"}
+        ]}"#;
+        let items = merge(vec![(Query::AuthoredIssues, reply(hits))]);
+        let created = DateTime::parse_from_rfc3339("2026-10-01T08:00:00Z")
+            .expect("a valid time")
+            .with_timezone(&Utc);
+        assert_eq!(items[0].opened_at, Some(SystemTime::from(created)));
+        assert_eq!(items[1].opened_at, None);
     }
 
     #[test]

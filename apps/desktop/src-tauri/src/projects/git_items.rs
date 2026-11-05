@@ -5,8 +5,10 @@ use crate::{
     error::Result,
     fleet::projects::{FleetState, desk},
 };
+use beep_projects::git_items::board::OpenedItems;
 use beep_proto::{GitHost, GitHostKind, GitItem, LabeledGitItems};
 use serde::Serialize;
+use std::time::SystemTime;
 
 /// What Home lists.
 #[derive(Debug, Serialize)]
@@ -34,6 +36,8 @@ struct GitItemRow {
     url: String,
     /// In milliseconds since the Unix epoch.
     updated_at: u64,
+    /// When the host says it was opened, in milliseconds since the Unix epoch.
+    opened_at: Option<u64>,
     authored: bool,
     assigned: bool,
     review_requested: bool,
@@ -57,7 +61,7 @@ impl From<GitHost> for GitHostRow {
 }
 
 impl GitItemRow {
-    fn labeled(item: GitItem, labels: Vec<String>) -> Self {
+    fn labeled(item: GitItem, labels: Vec<String>, opened_at: Option<SystemTime>) -> Self {
         Self {
             host: item.host,
             repo: item.repo,
@@ -66,6 +70,7 @@ impl GitItemRow {
             title: item.title,
             url: item.url,
             updated_at: epoch_ms(item.updated_at),
+            opened_at: opened_at.map(epoch_ms),
             authored: item.authored,
             assigned: item.assigned,
             review_requested: item.review_requested,
@@ -78,14 +83,16 @@ impl GitItemRow {
     }
 }
 
-impl From<LabeledGitItems> for GitItemsView {
-    fn from(LabeledGitItems { found, labels }: LabeledGitItems) -> Self {
+impl From<OpenedItems> for GitItemsView {
+    fn from(OpenedItems { items, opened_at }: OpenedItems) -> Self {
+        let LabeledGitItems { found, labels } = items;
         Self {
             items: found
                 .items
                 .into_iter()
                 .zip(labels)
-                .map(|(item, labels)| GitItemRow::labeled(item, labels))
+                .zip(opened_at)
+                .map(|((item, labels), opened)| GitItemRow::labeled(item, labels, opened))
                 .collect(),
             hosts: found.hosts.into_iter().map(GitHostRow::from).collect(),
         }

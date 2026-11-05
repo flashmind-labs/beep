@@ -109,7 +109,7 @@ impl GitBoard {
                 account: login.account.as_deref(),
             })
             .collect();
-        let items = read(&hosts, &reads).await?;
+        let items = read(&hosts, &reads).await?.items;
         *cached = Some(Cached {
             logins: ids,
             at: Instant::now(),

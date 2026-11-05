@@ -9,12 +9,11 @@ use crate::{
 };
 use beep_projects::{
     credentials::{Slot, last4},
-    git_items::board::{Login, read},
+    git_items::board::{Login, OpenedItems, read},
     issues::{issue_view, list_open, list_open_prs, pull_request_head, pull_request_view},
 };
 use beep_proto::{
-    LabeledGitItems, LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest,
-    PullRequestHead,
+    LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest, PullRequestHead,
 };
 use secrecy::ExposeSecret;
 use std::future::Future;
@@ -153,7 +152,7 @@ impl Desk {
     }
 
     /// The user's open pull requests and issues on every git host they have a token for.
-    pub async fn git_items(&self) -> Result<LabeledGitItems> {
+    pub async fn git_items(&self) -> Result<OpenedItems> {
         let opened = self.opened();
         let logins: Vec<Login<'_>> = opened
             .iter()
@@ -194,17 +193,18 @@ const FRESH_AFTER_ERROR: Duration = Duration::from_secs(60);
 struct Kept {
     key: Vec<String>,
     at: Instant,
-    items: LabeledGitItems,
+    items: OpenedItems,
 }
 
 /// A host's rate limit is not a desktop's to spend on every call, so Home's list is kept for a few
 /// minutes, as the server keeps it.
 static BOARD: Mutex<Option<Kept>> = Mutex::new(None);
 
-fn fresh(key: &[String]) -> Option<LabeledGitItems> {
+fn fresh(key: &[String]) -> Option<OpenedItems> {
     let kept = BOARD.lock().unwrap_or_else(PoisonError::into_inner);
     let kept = kept.as_ref()?;
     let failed = kept
+        .items
         .items
         .found
         .hosts

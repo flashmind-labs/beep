@@ -5,7 +5,7 @@ use crate::{credentials::Slot, imports::hosts::Hosts};
 use beep_proto::{GitHost, GitHostKind, GitItem, GitItems, GitReview, LabeledGitItems};
 use futures::future::join_all;
 use secrecy::SecretString;
-use std::{cmp::Reverse, collections::HashMap};
+use std::{cmp::Reverse, collections::HashMap, time::SystemTime};
 
 /// One token to read a host with.
 pub struct Login<'a> {
@@ -15,8 +15,17 @@ pub struct Login<'a> {
     pub account: Option<&'a str>,
 }
 
+/// The items and, beside them, when each was opened. The times are not on the wire: `GitItem` is
+/// read by position by released apps, so a time travels next to the reply instead of in it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenedItems {
+    pub items: LabeledGitItems,
+    /// When each of `items.found.items` was opened, in its order; `None` when the host did not say.
+    pub opened_at: Vec<Option<SystemTime>>,
+}
+
 /// Asks every host at once and puts their answers together.
-pub async fn read(hosts: &dyn Hosts, logins: &[Login<'_>]) -> anyhow::Result<LabeledGitItems> {
+pub async fn read(hosts: &dyn Hosts, logins: &[Login<'_>]) -> anyhow::Result<OpenedItems> {
     let client = hosts.client()?;
     let calls = hosts.calls();
     let client = &client;
@@ -60,7 +69,7 @@ pub struct Answer {
 }
 
 /// Every host's error and their items deduplicated, newest activity first.
-pub fn combine(answers: Vec<Answer>) -> LabeledGitItems {
+pub fn combine(answers: Vec<Answer>) -> OpenedItems {
     let mut hosts = Vec::new();
     let mut found: Vec<Found> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
@@ -69,7 +78,14 @@ pub fn combine(answers: Vec<Answer>) -> LabeledGitItems {
             Ok(listed) => {
                 for one in listed {
                     match at.get(&one.item.url) {
-                        Some(&i) => absorb(&mut found[i].item, one.item),
+                        Some(&i) => {
+                            let kept = &mut found[i];
+                            kept.opened_at = match (kept.opened_at, one.opened_at) {
+                                (Some(a), Some(b)) => Some(a.min(b)),
+                                (a, b) => a.or(b),
+                            };
+                            absorb(&mut kept.item, one.item);
+                        }
                         None => {
                             at.insert(one.item.url.clone(), found.len());
                             found.push(one);
@@ -82,10 +98,20 @@ pub fn combine(answers: Vec<Answer>) -> LabeledGitItems {
         hosts.push(host);
     }
     found.sort_by_key(|one| Reverse(one.item.updated_at));
-    let (items, labels) = found.into_iter().map(|one| (one.item, one.labels)).unzip();
-    LabeledGitItems {
-        found: GitItems { items, hosts },
-        labels,
+    let mut items = Vec::new();
+    let mut labels = Vec::new();
+    let mut opened_at = Vec::new();
+    for one in found {
+        items.push(one.item);
+        labels.push(one.labels);
+        opened_at.push(one.opened_at);
+    }
+    OpenedItems {
+        items: LabeledGitItems {
+            found: GitItems { items, hosts },
+            labels,
+        },
+        opened_at,
     }
 }
 
@@ -110,6 +136,7 @@ mod tests {
         Found {
             item,
             labels: Vec::new(),
+            opened_at: None,
         }
     }
 
@@ -150,6 +177,7 @@ mod tests {
                 result: Ok(vec![Found {
                     item: ok.clone(),
                     labels: vec!["bug".into()],
+                    opened_at: None,
                 }]),
             },
             Answer {
@@ -157,6 +185,7 @@ mod tests {
                 result: Err(HostError::Timeout("git.example.com".into())),
             },
         ]);
+        let got = got.items;
         assert_eq!(got.found.items, vec![ok]);
         assert_eq!(got.labels, [["bug"]]);
         assert_eq!(got.found.hosts[0].error, None);
@@ -164,6 +193,29 @@ mod tests {
             got.found.hosts[1].error.as_deref(),
             Some("git.example.com did not answer in time.")
         );
+    }
+
+    #[test]
+    fn opened_times_follow_their_items_and_the_earliest_wins() {
+        let at = |secs| Some(UNIX_EPOCH + Duration::from_secs(secs));
+        let url = "https://github.com/acme/widget/pull/1";
+        let other = "https://github.com/acme/widget/pull/2";
+        let with = |url, updated, opened| Found {
+            opened_at: opened,
+            ..found(item(url, updated))
+        };
+        let got = combine(vec![
+            Answer {
+                host: host("github.com", "first-login"),
+                result: Ok(vec![with(url, 10, at(5)), with(other, 20, None)]),
+            },
+            Answer {
+                host: host("github.com", "second-login"),
+                result: Ok(vec![with(url, 10, at(3))]),
+            },
+        ]);
+        assert_eq!(got.items.found.items[0].url, other);
+        assert_eq!(got.opened_at, vec![None, at(3)]);
     }
 
     #[test]
@@ -189,7 +241,7 @@ mod tests {
                 result: Ok(vec![found(theirs), found(newer.clone())]),
             },
         ]);
-        let got = got.found;
+        let got = got.items.found;
         assert_eq!(got.items.len(), 2);
         assert_eq!(got.items[0], newer);
         let merged = &got.items[1];
