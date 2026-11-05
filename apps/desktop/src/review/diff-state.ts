@@ -95,6 +95,54 @@ export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
   return out;
 }
 
+/// One side of a side by side row.
+export interface SplitCell {
+  k: DiffLine["k"];
+  num: number;
+  text: string;
+  eol: boolean;
+}
+
+/// A row of the side by side view: the removed lines on the left across
+/// from the added lines on the right, `null` where one side has none.
+export type SplitRow =
+  | { kind: "hunk"; text: string }
+  | { kind: "gap"; lines: number }
+  | { kind: "pair"; left: SplitCell | null; right: SplitCell | null };
+
+/// `rows` laid out side by side: a run of removed lines is paired, row by
+/// row, with the added lines that follow it, and an unchanged line shows on
+/// both sides with its own number.
+export function splitRows(rows: readonly DiffRow[]): SplitRow[] {
+  const out: SplitRow[] = [];
+  let dels: SplitCell[] = [];
+  let adds: SplitCell[] = [];
+  const flush = () => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) out.push({ kind: "pair", left: dels[i] ?? null, right: adds[i] ?? null });
+    dels = [];
+    adds = [];
+  };
+  for (const r of rows) {
+    if (r.kind !== "line") {
+      flush();
+      out.push(r);
+    } else if (r.k === "-") {
+      dels.push({ k: r.k, num: r.old!, text: r.text, eol: r.eol });
+    } else if (r.k === "+") {
+      adds.push({ k: r.k, num: r.new!, text: r.text, eol: r.eol });
+    } else {
+      flush();
+      out.push({
+        kind: "pair",
+        left: { k: r.k, num: r.old!, text: r.text, eol: r.eol },
+        right: { k: r.k, num: r.new!, text: r.text, eol: r.eol },
+      });
+    }
+  }
+  flush();
+  return out;
+}
+
 /// How many digits the widest line number of `f` has.
 export function numberWidth(f: Pick<DiffFile, "hunks">) {
   let max = 1;

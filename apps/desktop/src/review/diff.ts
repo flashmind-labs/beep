@@ -3,8 +3,8 @@
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffView, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
-  inView, matchesFilter, numberWidth, splitPath, stepFile, withLoaded,
+  type DiffFile, type DiffView, type SplitCell, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
+  inView, matchesFilter, numberWidth, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { el, type Kid } from "../ui/dom.ts";
 
@@ -24,6 +24,18 @@ export interface DiffViewHandle {
 
 /// Wider than this, the file list shows on the left.
 const WIDE = 900;
+/// At this width or less the lines stay unified, as the CSS hides the button.
+const NARROW = 640;
+
+const SPLIT_KEY = "beep.diffSplit";
+
+function loadSplit() {
+  try { return localStorage.getItem(SPLIT_KEY) === "1"; } catch { return false; }
+}
+
+function saveSplit(on: boolean) {
+  try { localStorage.setItem(SPLIT_KEY, on ? "1" : "0"); } catch { /* kept for this launch only */ }
+}
 
 const SVG = {
   chev: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>',
@@ -49,6 +61,34 @@ function btn(label: Kid, cls: string, title: string, run: () => void) {
   return b;
 }
 
+function hunkRow(text: string) {
+  return el("div", "dv-l hunk", el("span", "dv-g", el("span"), el("span")), el("span", "dv-c", text));
+}
+
+function gapRow(n: number) {
+  return el("div", "dv-l gap", el("span", "dv-g", el("span"), el("span")),
+    el("span", "dv-c", `${n.toLocaleString("en-US")} unchanged ${n === 1 ? "line" : "lines"}`));
+}
+
+function textCell(text: string, eol: boolean) {
+  const mark = eol ? el("span", "dv-eol", "no newline at end") : null;
+  if (mark) mark.title = "No newline at end of file";
+  return el("span", "dv-c", text, mark);
+}
+
+function lineRow(k: "+" | "-" | " ", old: number | null, now: number | null, text: string, eol: boolean) {
+  const cls = k === "+" ? " add" : k === "-" ? " del" : "";
+  return el("div", `dv-l${cls}`, el("span", "dv-g", el("span", "", old == null ? "" : String(old)), el("span", "", now == null ? "" : String(now))),
+    textCell(text, eol));
+}
+
+/// One side of a side by side row, empty where that side has no line.
+function cell(c: SplitCell | null) {
+  if (!c) return el("div", "dv-l none", el("span", "dv-g", el("span")), el("span", "dv-c"));
+  const cls = c.k === "+" ? " add" : c.k === "-" ? " del" : "";
+  return el("div", `dv-l${cls}`, el("span", "dv-g", el("span", "", String(c.num))), textCell(c.text, c.eol));
+}
+
 const counts = (a: number, d: number) => [a ? el("i", "dv-plus", `+${a.toLocaleString("en-US")}`) : null, d ? el("i", "dv-minus", `-${d.toLocaleString("en-US")}`) : null];
 
 export function diffView(src: DiffSource): DiffViewHandle {
@@ -61,6 +101,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     /// Folded or not, as the user left each file while the view is open.
     folded: new Map<string, boolean>(),
     filter: "",
+    /// Side by side is chosen; it shows only while the viewer is not narrow.
+    split: loadSplit(),
+    narrow: false,
     /// Files being read in full.
     pending: new Set<string>(),
     /// The file j, k and x act on: the one stepped to while it shows,
@@ -76,6 +119,13 @@ export function diffView(src: DiffSource): DiffViewHandle {
   find.spellcheck = false;
   find.addEventListener("input", () => { st.filter = find.value; drawFiles(); });
   const sum = el("span", "dv-sum");
+  const splitBtn = btn("Side by side", "dv-splitbtn", "Show the lines side by side", () => {
+    st.split = !st.split;
+    saveSplit(st.split);
+    splitBtn.setAttribute("aria-pressed", String(st.split));
+    redrawBodies();
+  });
+  splitBtn.setAttribute("aria-pressed", String(st.split));
   const expand = btn("Expand all", "", "Unfold every file", () => foldAll(false));
   const collapse = btn("Collapse all", "", "Fold every file", () => foldAll(true));
   const refresh = btn(icon(SVG.refresh), "icon", "Read the changes again", () => load());
@@ -87,7 +137,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     clearTimeout(flashTimer);
     flashTimer = window.setTimeout(() => { flash.textContent = ""; }, 2000);
   };
-  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, find, expand, collapse, refresh);
+  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, find, splitBtn, expand, collapse, refresh);
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
   const files = el("div", "dv-files");
@@ -97,7 +147,13 @@ export function diffView(src: DiffSource): DiffViewHandle {
   keys.innerHTML = "<span><kbd>j</kbd><kbd>k</kbd>next, previous file</span><span><kbd>x</kbd>fold the file</span><span><kbd>/</kbd>filter</span>";
   root.append(head, body, keys);
 
-  new ResizeObserver(() => root.classList.toggle("wide", root.clientWidth >= WIDE)).observe(root);
+  new ResizeObserver(() => {
+    root.classList.toggle("wide", root.clientWidth >= WIDE);
+    const narrow = root.clientWidth <= NARROW;
+    if (narrow === st.narrow) return;
+    st.narrow = narrow;
+    if (st.split) redrawBodies();
+  }).observe(root);
   files.addEventListener("scroll", () => markCurrent(), { passive: true });
   root.addEventListener("keydown", onKey);
 
@@ -208,25 +264,39 @@ export function diffView(src: DiffSource): DiffViewHandle {
       }
       return box;
     }
-    const lines = el("div", "dv-lines");
+    const split = st.split && !st.narrow;
+    const lines = el("div", split ? "dv-lines split" : "dv-lines");
     lines.style.setProperty("--nw", String(Math.max(2, numberWidth(f))));
     const frag = document.createDocumentFragment();
-    for (const r of diffRows(f)) {
-      if (r.kind === "hunk") {
-        frag.append(el("div", "dv-l hunk", el("span", "dv-g", el("span"), el("span")), el("span", "dv-c", r.text)));
-      } else if (r.kind === "gap") {
-        frag.append(el("div", "dv-l gap", el("span", "dv-g", el("span"), el("span")),
-          el("span", "dv-c", `${r.lines.toLocaleString("en-US")} unchanged ${r.lines === 1 ? "line" : "lines"}`)));
-      } else {
-        const cls = r.k === "+" ? " add" : r.k === "-" ? " del" : "";
-        const eol = r.eol ? el("span", "dv-eol", "no newline at end") : null;
-        if (eol) eol.title = "No newline at end of file";
-        frag.append(el("div", `dv-l${cls}`, el("span", "dv-g", el("span", "", r.old == null ? "" : String(r.old)), el("span", "", r.new == null ? "" : String(r.new))),
-          el("span", "dv-c", r.text, eol)));
+    const rows = diffRows(f);
+    if (split) {
+      for (const r of splitRows(rows)) {
+        if (r.kind === "hunk") frag.append(hunkRow(r.text));
+        else if (r.kind === "gap") frag.append(gapRow(r.lines));
+        else frag.append(el("div", "dv-pair", cell(r.left), cell(r.right)));
+      }
+    } else {
+      for (const r of rows) {
+        if (r.kind === "hunk") frag.append(hunkRow(r.text));
+        else if (r.kind === "gap") frag.append(gapRow(r.lines));
+        else frag.append(lineRow(r.k, r.old, r.new, r.text, r.eol));
       }
     }
     lines.append(frag);
     return el("div", "dv-scroll", lines);
+  }
+
+  /// Draws the lines of every open file again for the current mode; folded
+  /// files are emptied and draw when they open.
+  function redrawBodies() {
+    const keep = files.scrollTop;
+    for (const [path, section] of sections) {
+      const f = st.view?.files.find(x => x.path === path);
+      const inner = section.querySelector(".dv-fold > div");
+      if (!f || !inner || !inner.childNodes.length) continue;
+      inner.replaceChildren(...(isFolded(f, st.folded) ? [] : [fileBody(f)]));
+    }
+    files.scrollTop = keep;
   }
 
   function setFolded(path: string, folded: boolean) {

@@ -84,6 +84,9 @@
 .dv-g span { width: calc(var(--nw, 3) * 1ch + 14px); padding: 0 7px; text-align: right; font-variant-numeric: tabular-nums }
 .dv-c { flex: 1; padding: 0 12px 0 6px; white-space: pre }
 .dv-c::before { display: inline-block; width: 1.2ch; color: var(--dim); content: " " }
+.dv-lines.split { width: 100% } .dv-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) } .dv-pair .dv-l { min-width: 0 } .dv-pair .dv-l + .dv-l { border-left: 1px solid var(--border) }
+.dv-pair .dv-c { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere } .dv-l.none { background: var(--dv-gut-bg) } .dv-l.none .dv-c::before { content: none }
+.dv-splitbtn[aria-pressed="true"] { background: var(--elev) } @container (max-width: 640px) { .dv-splitbtn { display: none } }
 .dv-l.add { background: var(--dv-add-bg) } .dv-l.add .dv-g { background: var(--dv-add-gut); color: var(--dv-add-fg) } .dv-l.add .dv-c::before { content: "+"; color: var(--dv-add-fg) }
 .dv-l.del { background: var(--dv-del-bg) } .dv-l.del .dv-g { background: var(--dv-del-gut); color: var(--dv-del-fg) } .dv-l.del .dv-c::before { content: "-"; color: var(--dv-del-fg) }
 .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .dv-l.hunk .dv-g { background: var(--dv-hunk-bg) }
