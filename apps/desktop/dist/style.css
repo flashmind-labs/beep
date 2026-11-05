@@ -748,6 +748,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dsubgrp > .h b { color: var(--fg); font-weight: 600 }
 .dsubgrp { display: grid; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); white-space: normal }
 .dsubrow { all: unset; cursor: pointer; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm) }
+.dchat.kid { margin-left: calc(var(--depth, 1) * 22px); width: calc(100% - var(--depth, 1) * 22px); border-left: 1px solid var(--border); border-radius: 0 var(--radius-sm) var(--radius-sm) 0 }
 .dsubrow:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dsubrow .mk { height: 20px; display: grid; place-items: center } .dsubrow .mk .dspin { width: 11px; height: 11px }
 .dsubrow .t { display: grid; min-width: 0; line-height: 20px }
