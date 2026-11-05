@@ -163,7 +163,7 @@ export interface WindowHooks {
   /// issue it is about; null for nothing.
   chatTop?(session: string): HTMLElement | null;
   /// The project a coding session runs in, and how to open it.
-  sessionProject?(s: { machine_id: string; cwd: string }): { label: string; open(): void } | null;
+  sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void } | null;
 }
 
 /// A window view to go back to, as the window opened an agent view from it.

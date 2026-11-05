@@ -29,6 +29,7 @@ import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onPlaces, placeOf } from "./place.ts";
+import { moveLabel, onMoves } from "./move-store.ts";
 import { placeSub } from "./place-state.ts";
 
 /// A question a session waits on, such as whether to run a command.
@@ -363,14 +364,18 @@ export async function renderAgents() {
 /// worktree the repository, the worktree and the machine.
 function sessionSub(s: AgentSession, harness: string, folder: string) {
   const worktree = placeSub(placeOf(s), s.machine_name);
-  return (worktree ? [harness, worktree] : [harness, folder, s.machine_name]).filter(Boolean).join(" · ");
+  const machine = moveLabel(s)?.sub ?? s.machine_name;
+  return (worktree ? [harness, worktree.replace(s.machine_name, machine)] : [harness, folder, machine]).filter(Boolean).join(" · ");
 }
 
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
+onMoves(() => { if (S.view === "agents") drawAgents(false); });
 
 function sessionRow(s: AgentSession, i: number) {
   const k = agentKind(s.agent), folder = folderName(s.cwd);
-  const tail = s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
+  const moving = moveLabel(s);
+  const tail = moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`
+    : s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
     : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run" title="${esc(s.doing || "Working")}"><span class="dspin"></span><span class="tx">${esc(s.doing || "Working")}</span></span>`
     : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
   return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">

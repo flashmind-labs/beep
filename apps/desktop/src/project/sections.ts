@@ -2,6 +2,7 @@
 // and the acts its agent's cards call.
 import { ago } from "../ui/format.ts";
 import { onPlaces } from "../agents/place.ts";
+import { onMoves } from "../agents/move-store.ts";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
@@ -100,6 +101,7 @@ export function tickRepo(name: string) {
 export function projectsEl() { return views.get("projects")!.el; }
 
 onPlaces(() => redrawProjects());
+onMoves(() => redrawProjects());
 
 export function redrawProjects() {
   if (shown === "projects") drawProjects(projectsEl());

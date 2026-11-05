@@ -1422,3 +1422,69 @@ async fn a_harness_variable_taken_out_drops_its_record_and_one_left_blank_keeps_
         .expect("saves");
     assert!(studio.mesh.scan("unmoved/harness/").is_empty());
 }
+
+#[tokio::test]
+async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cannot_go() {
+    use beep_fleet::MoveAsk;
+    use beep_proto::node::mesh_state::{StateValue, SyncSpec};
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    until(&f.laptop.mesh, |m| online(m, second.id)).await;
+    let desk = desk(&f.studio, &[]).await;
+    let spec = SyncSpec {
+        folders: [
+            (f.build.id, "/srv/build/app".to_owned()),
+            (second.id, "/Users/me/app".to_owned()),
+        ]
+        .into(),
+        paused: false,
+    };
+    f.studio
+        .mesh
+        .set(
+            Key::Sync("acme/app".to_owned()),
+            Some(spec.to_bytes().expect("a spec encodes")),
+        )
+        .await
+        .expect("the spec is written");
+    let ask = |agent: &'static str, cwd: &'static str, linked: bool| MoveAsk {
+        agent,
+        id: "s1",
+        from: f.build.id,
+        to: second.id,
+        project: "acme/app",
+        cwd,
+        linked,
+        mode: None,
+        stop: false,
+    };
+    let why = |result: Result<_, FleetError>| match result {
+        Err(FleetError::Refused(why)) => why,
+        other => panic!("not refused: {:?}", other.map(|_| ())),
+    };
+    assert!(
+        why(desk
+            .move_session(ask("opencode", "/srv/build/app", false))
+            .await)
+        .contains("yet")
+    );
+    assert!(
+        why(desk
+            .move_session(ask("codex", "/srv/build/app/.worktrees/x", true))
+            .await)
+        .contains("worktree")
+    );
+    assert!(why(desk.move_session(ask("codex", "/elsewhere", false)).await).contains("outside"));
+
+    let record = desk
+        .move_session(ask("codex", "/srv/build/app/crates/a", false))
+        .await
+        .expect("the move is asked for");
+    assert_eq!(record.path, "crates/a");
+    assert_eq!(desk.moves().len(), 1);
+    // Another desktop sees it, and may take it back.
+    until(&f.laptop.mesh, |m| m.scan("session-move/").len() == 1).await;
+    desk.cancel_move("s1").await.expect("taken back");
+    until(&f.laptop.mesh, |m| m.scan("session-move/").is_empty()).await;
+}
