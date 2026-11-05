@@ -320,12 +320,19 @@ function wireDivider(dock: Dock) {
     if (e.button !== 0) return;
     e.preventDefault();
     div.setPointerCapture(e.pointerId);
-    const el = shell()!, box = main()!;
+    const el = shell()!, box = main()!, pane = paneOf(dock)!;
     el.classList.add("resizing", `resizing-${dock}`);
     div.classList.add("active");
+    const right = dock === "right";
+    const r = (right ? el : box).getBoundingClientRect();
+    const total = right ? el.clientWidth : box.clientHeight;
+    const from = right ? pane.offsetWidth : pane.offsetHeight;
+    let size = from;
+    // Only the line moves during a drag. Laying out a side-by-side diff at each
+    // width takes longer than a frame, so the docks take the size on release.
     const move = (ev: PointerEvent) => {
-      const r = (dock === "right" ? el : box).getBoundingClientRect();
-      set(dock === "right" ? r.right - ev.clientX : r.bottom - ev.clientY);
+      size = paneSize(dock, right ? r.right - ev.clientX : r.bottom - ev.clientY, total);
+      div.style.transform = `translate${right ? "X" : "Y"}(${from - size}px)`;
     };
     const up = () => {
       div.removeEventListener("pointermove", move);
@@ -333,6 +340,9 @@ function wireDivider(dock: Dock) {
       div.removeEventListener("pointercancel", up);
       el.classList.remove("resizing", `resizing-${dock}`);
       div.classList.remove("active");
+      div.style.transform = "";
+      if (size === from) return;
+      set(size);
       saveLayout();
     };
     div.addEventListener("pointermove", move);
