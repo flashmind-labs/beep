@@ -46,6 +46,11 @@ pub enum Steer {
     Mode {
         mode: String,
     },
+    /// Stops one of the session's background tasks, by the id
+    /// `agent_tasks` gives, without ending the turn.
+    StopTask {
+        task: String,
+    },
 }
 
 /// An image as the page sends it: its bytes in base64.
@@ -80,6 +85,7 @@ impl TryFrom<Steer> for AgentSteer {
                 effort: effort.map(Into::into),
             },
             Steer::Mode { mode } => Self::SetMode { mode },
+            Steer::StopTask { task } => Self::StopTask { task },
         })
     }
 }
@@ -120,7 +126,7 @@ fn queued_instead(steer: &AgentSteer) -> Option<AgentSteer> {
 }
 
 /// True when the server refused one of `ops` of `AgentSteer` as unknown:
-/// 3 `PromptImages`, 4 `Configure`, 5 and 6 `Steer`.
+/// 3 `PromptImages`, 4 `Configure`, 5 and 6 `Steer`, 8 `StopTask`.
 fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
     matches!(error, DesktopError::Api(ApiError::BadRequest { message })
         if ops.iter().any(|op| message.contains(&format!("unknown op {op}"))))
@@ -176,6 +182,9 @@ pub async fn agent_steer(
         )),
         Err(e) if older_than(&e, &[5, 6]) => Err(DesktopError::BadRequest(
             "This Beep server cannot take a message back yet.".into(),
+        )),
+        Err(e) if older_than(&e, &[8]) => Err(DesktopError::BadRequest(
+            "This Beep server cannot stop background commands yet.".into(),
         )),
         other => other.map(|()| keys),
     }
