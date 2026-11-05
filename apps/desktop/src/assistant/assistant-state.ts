@@ -46,3 +46,60 @@ export function keyRows(list: readonly Credential[] | null | undefined): KeyRow[
 export function newKey(provider: KeyProvider, secret: string) {
   return { kind: "api_key", provider: provider.slug, secret: secret.trim(), to_machines: true };
 }
+
+/// The line under the MCP servers heading.
+export const MCP_NOTE = "Tools for chats on this Mac. One that changes something asks first. Results are private: web search turns off in that chat.";
+
+/// How a listed server is doing (`McpStatus`).
+export type McpState = { state: "idle" } | { state: "ready"; tools: number } | { state: "failed"; error: string };
+
+/// A listed server, as Rust sends it: never a secret, only that one is set.
+export interface McpRow {
+  name: string;
+  /// The command line, or the address without its credentials.
+  detail: string;
+  /// The names of the environment variables that are set.
+  env: string[];
+  token: boolean;
+  status: McpState;
+}
+
+/// What a row says of its server's state, and whether that is an error.
+export function mcpStatus(row: McpRow): { text: string; failed: boolean } {
+  const s = row.status;
+  if (s.state === "failed") return { text: "Failed", failed: true };
+  if (s.state === "ready") return { text: s.tools === 1 ? "1 tool" : `${s.tools} tools`, failed: false };
+  return { text: "Not started", failed: false };
+}
+
+/// The second line of a row: what it runs, and that secrets are set.
+export function mcpDetail(row: McpRow) {
+  const set = [...row.env, ...(row.token ? ["token"] : [])];
+  return set.length ? `${row.detail} · ${set.join(", ")} set` : row.detail;
+}
+
+/// The add form: a command run on this Mac, or an address.
+export interface McpForm {
+  kind: "command" | "url";
+  name: string;
+  command: string;
+  /// Lines of `NAME=value`.
+  env: string;
+  url: string;
+  token: string;
+}
+
+export const blankMcpForm = (): McpForm => ({ kind: "command", name: "", command: "", env: "", url: "", token: "" });
+
+/// Whether the form has what its kind needs.
+export function mcpFormReady(f: McpForm) {
+  return !!f.name.trim() && !!(f.kind === "command" ? f.command : f.url).trim();
+}
+
+/// What `add_mcp_server` takes for `f`. Only the fields of its kind go.
+export function newMcpServer(f: McpForm) {
+  const name = f.name.trim();
+  return f.kind === "command"
+    ? { kind: "command", name, command: f.command.trim(), env: f.env }
+    : { kind: "url", name, url: f.url.trim(), token: f.token.trim() };
+}

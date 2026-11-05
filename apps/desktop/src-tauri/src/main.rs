@@ -126,6 +126,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             agents::accounts::agent_accounts,
             assistant::commands::assistant_local,
+            assistant::mcp::add_mcp_server,
+            assistant::mcp::check_mcp_server,
+            assistant::mcp::list_mcp_servers,
+            assistant::mcp::remove_mcp_server,
             agents::accounts::cancel_claude_sign_in,
             agents::accounts::claude_sign_in,
             agents::accounts::codex_login_cancel,
@@ -457,6 +461,9 @@ fn main() {
                     // gh, if it is still waiting for a GitHub code, goes too.
                     app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
                     app.state::<agents::accounts::ClaudeSignIn>().stop();
+                    // MCP servers started for chats end with the app.
+                    let mcp = app.state::<Arc<beep_assistant::McpHub>>().inner().clone();
+                    tauri::async_runtime::block_on(async move { mcp.shutdown().await });
                     // The router stops, and the sync and transfer services save their state.
                     let fleet = app.state::<Arc<Fleet>>().inner().clone();
                     tauri::async_runtime::block_on(async move {
@@ -532,6 +539,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(machine);
     app.manage(machines::list::Outside::default());
     app.manage(assistant::Runs::default());
+    app.manage(Arc::new(beep_assistant::McpHub::default()));
     app.manage(tray::Recent::default());
     app.manage(projects::live::Followed::default());
     app.manage(research::Pending::default());
