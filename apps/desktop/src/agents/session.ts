@@ -9,6 +9,7 @@ import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneFrame, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
+import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
@@ -23,11 +24,24 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { loadOlder, nearTop } from "./older.ts";
+import { joinRuns, lacksPrompt } from "./older-state.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { placeSub } from "./place-state.ts";
+import { sameSession } from "./running-state.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen.
 export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string; back?: string | BackTo } = {}) {
+  // Already open: keep its log, draft, queue and scroll, and only ask for news.
+  if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
+    if (from !== undefined) AG.back = from;
+    if (S.view === "agent" && $("#agbody")) return void pollAgent();
+    if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
+    S.view = "agent";
+    Object.assign(AG, { sig: "", rest: "" });
+    drawAgentFrame();
+    return void pollAgent();
+  }
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   S.view = "agent";
   Object.assign(AG, {
@@ -35,6 +49,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
+    older: { stop: "", loading: false, gaveUp: false },
   });
   drawAgentFrame();
   pollAgent();
@@ -78,7 +93,8 @@ export async function pollAgent() {
       if (page.session.question?.id !== AG.answering) AG.answering = null;
       // A session opened with no folder (from a notice) draws again once a read gives it.
       const placed = !AG.page?.session.cwd && !!page.session.cwd;
-      AG.page = page;
+      // The older entries held stay while the newest are read again.
+      AG.page = joinRuns(AG.page, page);
       if (placed) drawAgentFrame();
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
@@ -90,6 +106,8 @@ export async function pollAgent() {
       if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
       void readUsage(o, page);
       flushQueue();
+      // The oldest turn shown has its prompt: read back until it does.
+      if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
     }
   } catch (e) {
     if (isOpen(o)) {
@@ -238,12 +256,15 @@ export function drawAgentFrame() {
   startPane(s);
   void drawEditors(s);
   const msg = $<HTMLTextAreaElement>("#agmsg");
-  if (msg) composeField(msg, { images: agentAttach, grow: 156 });
+  if (msg) {
+    composeField(msg, { images: agentAttach, grow: 156 });
+    bindMentionMenu(msg);
+  }
   drawAgentAttached();
   drawModelPill();
   const b = $$<ChatBody>("#agbody");
   b.stuck = true;
-  b.onscroll = () => { b.stuck = atBottom(b); syncJump(b); };
+  b.onscroll = () => { b.stuck = atBottom(b); syncJump(b); if (nearTop(b)) void loadOlder("near"); };
   drawAgentBody();
   $("#agmsg")?.focus();
   bar.onclick = agentClick;

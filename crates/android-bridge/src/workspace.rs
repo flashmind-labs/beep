@@ -386,6 +386,7 @@ impl BeepClient {
             agent,
             session,
             last: 200,
+            before: None,
         })
         .await
     }

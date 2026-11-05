@@ -20,6 +20,19 @@ fn update(value: Value) -> SessionUpdate {
     serde_json::from_value(value).expect("a valid update")
 }
 
+fn live_titled(title: &str) -> Live {
+    Live::new(
+        SessionInfo {
+            id: "a3f9c1".into(),
+            cwd: "/srv/project".into(),
+            title: Some(title.into()),
+            ..SessionInfo::default()
+        },
+        Arc::default(),
+        Arc::default(),
+    )
+}
+
 fn live() -> Live {
     Live::new(
         SessionInfo {
@@ -436,7 +449,9 @@ fn usage_commands_and_compactions_are_kept() {
         json!({"sessionUpdate": "available_commands_update",
         "availableCommands": [{"name": "compact", "description": "Compact"}]}),
     ));
-    assert_eq!(live.commands, ["compact"]);
+    assert_eq!(live.commands.len(), 1);
+    assert_eq!(live.commands[0].name, "compact");
+    assert_eq!(live.commands[0].description, "Compact");
     let compaction = |status: &str| {
         update(
             json!({"sessionUpdate": "compaction_update", "compactionId": "c1", "status": status}),
@@ -619,4 +634,95 @@ fn a_session_looks_up_its_place_when_a_call_changes_the_folder() {
         live.place_wanted.take().as_deref(),
         Some(std::path::Path::new("/srv/project/src"))
     );
+}
+
+#[test]
+fn pages_before_an_entry_cover_a_live_transcript_without_a_gap_or_a_repeat() {
+    let mut session = live();
+    for n in 0..25 {
+        session.prompted(&format!("prompt {n}"));
+        session.push(EntryKind::Agent, &format!("answer {n}"));
+    }
+    let (all, first) = session.transcript(MAX_ENTRIES);
+    assert_eq!((all.len(), first), (50, 0));
+
+    let mut seen = Vec::new();
+    let mut before = None;
+    loop {
+        let (page, earlier) = session.transcript_before(8, before);
+        if let Some(end) = before {
+            assert_eq!(earlier + page.len() as u64, end);
+        }
+        seen.splice(0..0, page);
+        if earlier == 0 {
+            break;
+        }
+        before = Some(earlier);
+    }
+    assert_eq!(seen, all);
+}
+
+#[test]
+fn a_page_before_what_the_session_dropped_is_empty_and_says_where_the_rest_starts() {
+    let mut session = live();
+    for n in 0..MAX_ENTRIES + 10 {
+        session.push(EntryKind::Agent, &format!("answer {n}"));
+    }
+    let (page, earlier) = session.transcript_before(5, Some(4));
+    assert!(page.is_empty());
+    assert_eq!(earlier, 10);
+    let (page, earlier) = session.transcript_before(5, Some(12));
+    assert_eq!(earlier, 10);
+    assert_eq!(page.len(), 2);
+}
+
+#[test]
+fn a_resumed_session_takes_its_first_replayed_prompt_line_as_title() {
+    let chunk = |kind: &str, text: &str| {
+        update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}))
+    };
+    let mut first = live();
+    first.apply(&chunk("user_message_chunk", "Fix the "));
+    assert_eq!(first.info.title.as_deref(), Some("Fix the"));
+    first.apply(&chunk("user_message_chunk", "build\nit fails"));
+    assert_eq!(first.info.title.as_deref(), Some("Fix the build"));
+    first.apply(&chunk("agent_message_chunk", "Fixed."));
+    first.apply(&chunk("user_message_chunk", "now the docs"));
+    assert_eq!(
+        first.info.title.as_deref(),
+        Some("Fix the build"),
+        "the first only"
+    );
+
+    // A title the session already has stays.
+    let mut named = live_titled("Saved name");
+    named.apply(&chunk("user_message_chunk", "Fix the build"));
+    assert_eq!(named.info.title.as_deref(), Some("Saved name"));
+
+    // So does one the agent gives while the prompt replays.
+    let mut second = live();
+    second.apply(&chunk("user_message_chunk", "Fix "));
+    second.apply_at(
+        &update(json!({"sessionUpdate": "session_info_update", "title": "Flaky CI"})),
+        Instant::now(),
+    );
+    second.apply(&chunk("user_message_chunk", "the build"));
+    assert_eq!(second.info.title.as_deref(), Some("Flaky CI"));
+}
+
+#[test]
+fn a_session_the_agent_has_not_named_takes_its_first_prompt_line() {
+    let mut live = live();
+    assert_eq!(live.info.title, None, "no prompt yet");
+    live.prompted("\n  Fix the flaky test  \nit fails on CI");
+    assert_eq!(live.info.title.as_deref(), Some("Fix the flaky test"));
+    live.prompted("something else");
+    assert_eq!(live.info.title.as_deref(), Some("Fix the flaky test"));
+    live.apply_at(
+        &update(json!({"sessionUpdate": "session_info_update", "title": "Flaky CI"})),
+        Instant::now(),
+    );
+    assert_eq!(live.info.title.as_deref(), Some("Flaky CI"));
+    live.prompted("and more");
+    assert_eq!(live.info.title.as_deref(), Some("Flaky CI"));
 }

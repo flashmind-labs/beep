@@ -488,7 +488,8 @@ pub async fn agent_delete(
 }
 
 /// One session in full. The calling webview's session view shows it, so
-/// its notices stay quiet while the view keeps reading it.
+/// its notices stay quiet while the view keeps reading it. `before` reads
+/// the `last` entries before that entry, to load older ones.
 // The arguments are the fields of the window's `invoke` call.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -501,6 +502,7 @@ pub async fn agent_view(
     agent: String,
     session: String,
     last: u32,
+    before: Option<u64>,
 ) -> Result<SessionPage> {
     shown.read(
         window.label(),
@@ -514,6 +516,7 @@ pub async fn agent_view(
         agent,
         session,
         last,
+        before,
     };
     let view = match fleet.member(&request.machine_id) {
         Some(machine) => direct::session(&fleet, machine, &request).await?,

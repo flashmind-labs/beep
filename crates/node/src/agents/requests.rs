@@ -32,14 +32,15 @@ impl Agents {
         session: &str,
         last: u32,
         thoughts: bool,
+        before: Option<u64>,
     ) -> SessionsReply {
         let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
         let read = match self.get(session) {
-            Some(found) => Ok(Some(self.live_transcript(&found, last).await)),
+            Some(found) => Ok(Some(self.live_transcript(&found, last, before).await)),
             // A session started outside Beep: Claude Code's, else another
             // agent's from its own store.
-            None => match self.external.transcript(session, last).await {
-                Ok(None) => self.stores_transcript(session, last).await,
+            None => match self.external.transcript(session, last, before).await {
+                Ok(None) => self.stores_transcript(session, last, before).await,
                 other => other,
             }
             .map(|read| {
@@ -69,10 +70,15 @@ impl Agents {
 impl Agents {
     /// The transcript of a session in Codex's or pi's files, or why another
     /// agent's cannot be read.
-    async fn stores_transcript(&self, session: &str, last: usize) -> Result<Option<Excerpt>> {
+    async fn stores_transcript(
+        &self,
+        session: &str,
+        last: usize,
+        before: Option<u64>,
+    ) -> Result<Option<Excerpt>> {
         let stores = self.stores.clone();
         let id = session.to_owned();
-        spawn_blocking(move || stores.transcript(&id, last)).await?
+        spawn_blocking(move || stores.transcript(&id, last, before)).await?
     }
 }
 
@@ -105,7 +111,12 @@ pub async fn serve_sessions(
             session,
             last,
             thoughts,
-        } => agents.transcript_reply(&session, last, thoughts).await,
+            before,
+        } => {
+            agents
+                .transcript_reply(&session, last, thoughts, before)
+                .await
+        }
         SessionsRequest::External {
             agent,
             limit,
@@ -257,6 +268,13 @@ pub async fn serve_sessions(
                     message: "git took too long to list the worktrees".into(),
                 })
         }
+        // A session that is not running offers nothing.
+        SessionsRequest::Commands { session } => SessionsReply::Commands {
+            commands: agents
+                .get(&session)
+                .map(|found| found.commands())
+                .unwrap_or_default(),
+        },
         SessionsRequest::DeleteSession { agent, session } => {
             match agents.delete_session(&agent, &session).await {
                 Ok(()) => SessionsReply::Deleted {},
@@ -517,7 +535,7 @@ mod tests {
     }
 
     async fn read(agents: &Agents, id: &str, last: u32) -> SessionsReply {
-        agents.transcript_reply(id, last, true).await
+        agents.transcript_reply(id, last, true, None).await
     }
 
     #[tokio::test]
@@ -569,6 +587,50 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[1].text, "Docs updated.");
         assert_eq!(earlier, 4);
+    }
+
+    #[tokio::test]
+    async fn pages_before_an_entry_cover_a_found_session_without_a_gap_or_a_repeat() {
+        let codex = tempfile::tempdir().expect("a temp folder");
+        let pi = tempfile::tempdir().expect("a temp folder");
+        let dir = codex.path().join("sessions/2026/11/02");
+        fs::create_dir_all(&dir).expect("folders");
+        fs::write(
+            dir.join(format!("rollout-2026-11-02T02-32-34-{CODEX_ID}.jsonl")),
+            codex_rollout(),
+        )
+        .expect("a rollout");
+        let agents = agents(codex.path(), pi.path());
+        let SessionsReply::Transcript { entries: all, .. } = read(&agents, CODEX_ID, 50).await
+        else {
+            panic!("a transcript");
+        };
+
+        let mut seen = Vec::new();
+        let mut before = None;
+        loop {
+            let SessionsReply::Transcript { entries, earlier } =
+                agents.transcript_reply(CODEX_ID, 4, true, before).await
+            else {
+                panic!("a transcript");
+            };
+            if let Some(end) = before {
+                assert_eq!(
+                    u64::from(earlier) + entries.len() as u64,
+                    end,
+                    "ends at before"
+                );
+            }
+            if entries.is_empty() {
+                break;
+            }
+            seen.splice(0..0, entries);
+            before = Some(u64::from(earlier));
+            if earlier == 0 {
+                break;
+            }
+        }
+        assert_eq!(seen, all);
     }
 
     #[tokio::test]
