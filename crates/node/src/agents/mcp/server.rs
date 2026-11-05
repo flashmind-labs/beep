@@ -152,9 +152,9 @@ async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Optio
 
 /// A tool's result for the agent.
 #[derive(Debug, PartialEq)]
-struct Called {
-    text: String,
-    failed: bool,
+pub(super) struct Called {
+    pub(super) text: String,
+    pub(super) failed: bool,
 }
 
 impl Called {
@@ -173,7 +173,12 @@ impl Called {
     }
 }
 
-async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+pub(super) async fn call<B: Backend>(
+    backend: &B,
+    session: &str,
+    name: &str,
+    args: Value,
+) -> Called {
     if name == ASK_USER {
         return ask_user(backend, session, args).await;
     }

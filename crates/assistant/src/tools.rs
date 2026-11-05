@@ -11,12 +11,12 @@ pub(crate) const MAX_CALLS_PER_ROUND: usize = 6;
 /// Why the web tools are refused once the chat holds a coding agent session's text.
 pub(crate) const WEB_OFF: &str = "Web search is off in this chat because it has read private data: coding agent sessions or results of MCP tools. Tell the user to start a new chat to search the web.";
 
-/// Whether the web tools are off for the rest of this chat: a session list or log, or the result
-/// of an MCP tool, is in it, and a page or search could carry its text out in a URL or a query. Read from the saved messages,
+/// Whether the web tools are off for the rest of this chat: a session list or log, the result
+/// of an MCP tool or the output of a command or a machine's log is in it, and a page or search could carry its text out in a URL or a query. Read from the saved messages,
 /// so it holds after the chat is reopened.
 pub(crate) fn web_blocked(messages: &[crate::Message]) -> bool {
     messages.iter().any(|message| {
-        matches!(message, crate::Message::Tool { name, .. } if name == "list_sessions" || name == "read_session" || name.starts_with("mcp_"))
+        matches!(message, crate::Message::Tool { name, .. } if matches!(name.as_str(), "list_sessions" | "read_session" | "run_on" | "job_status" | "cancel" | "machine_log") || name.starts_with("mcp_"))
     })
 }
 const WEB_CHARS: usize = 12_000;
@@ -25,13 +25,17 @@ const WORK_CHARS: usize = 8_000;
 /// A read-only question about the user's work, answered by the desktop.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorkQuery {
-    Machines,
     Projects,
     Sessions,
     ReadSession {
         machine_id: String,
         agent: String,
         session_id: String,
+    },
+    /// One of `Setup::machine_tools`, with the model's arguments.
+    Tool {
+        name: String,
+        args: Value,
     },
 }
 
@@ -62,7 +66,7 @@ fn function(name: &str, description: &str, properties: Value, required: &[&str])
 }
 
 /// The tool definitions to offer; the web ones only with a Firecrawl key.
-pub(crate) fn definitions(web: bool, mcp: &[McpTool]) -> Vec<Value> {
+pub(crate) fn definitions(web: bool, mcp: &[McpTool], machine: &[Value]) -> Vec<Value> {
     let mut tools = Vec::new();
     if web {
         tools.push(function(
@@ -78,12 +82,6 @@ pub(crate) fn definitions(web: bool, mcp: &[McpTool]) -> Vec<Value> {
             &["url"],
         ));
     }
-    tools.push(function(
-        "list_machines",
-        "List the user's machines and whether each is online.",
-        json!({}),
-        &[],
-    ));
     tools.push(function(
         "list_projects",
         "List the user's projects and where each one is checked out.",
@@ -106,6 +104,16 @@ pub(crate) fn definitions(web: bool, mcp: &[McpTool]) -> Vec<Value> {
         }),
         &["machine_id", "agent", "session_id"],
     ));
+    for tool in machine {
+        tools.push(json!({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["inputSchema"],
+            },
+        }));
+    }
     for tool in mcp {
         tools.push(json!({
             "type": "function",
@@ -136,6 +144,17 @@ pub(crate) fn label(call: &Call) -> String {
         ),
         "web_fetch" => format!("Reading {}", arg(&args, "url").unwrap_or_default()),
         "list_machines" => "Checking your machines".into(),
+        "run_on" => format!(
+            "Running {} on {}",
+            arg(&args, "command").unwrap_or_default(),
+            arg(&args, "machine").unwrap_or_default()
+        ),
+        "job_status" => "Checking a command".into(),
+        "cancel" => "Stopping a command".into(),
+        "machine_log" => format!(
+            "Reading the log of {}",
+            arg(&args, "machine").unwrap_or_default()
+        ),
         "list_projects" => "Checking your projects".into(),
         "list_sessions" => "Checking coding agent sessions".into(),
         "read_session" => "Reading a coding agent session".into(),
@@ -202,9 +221,24 @@ where
                 Err(e) => ToolResult::failed(e.to_string()),
             }
         }
-        name @ ("list_machines" | "list_projects" | "list_sessions" | "read_session") => {
+        name if setup.machine_tools.iter().any(|tool| tool["name"] == name) => {
+            let query = WorkQuery::Tool {
+                name: name.to_owned(),
+                args,
+            };
+            match work(query).await {
+                Ok(text) => ToolResult {
+                    text: untrusted("machines", &text),
+                    ok: true,
+                },
+                Err(why) => ToolResult {
+                    text: untrusted("machines", &why),
+                    ok: false,
+                },
+            }
+        }
+        name @ ("list_projects" | "list_sessions" | "read_session") => {
             let query = match name {
-                "list_machines" => WorkQuery::Machines,
                 "list_projects" => WorkQuery::Projects,
                 "list_sessions" => WorkQuery::Sessions,
                 _ => match (
@@ -256,7 +290,7 @@ mod tests {
     #[test]
     fn web_tools_are_offered_only_with_a_key() {
         let names = |web| -> Vec<String> {
-            definitions(web, &[])
+            definitions(web, &[], &[])
                 .iter()
                 .map(|t| t["function"]["name"].as_str().unwrap().to_owned())
                 .collect()

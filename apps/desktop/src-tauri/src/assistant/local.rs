@@ -206,6 +206,7 @@ pub(crate) async fn send(
         effort: prefs.effort,
         provider: None,
         mcp: Some(mcp),
+        machine_tools: beep_node::agents::mcp::assistant_tools(),
         cancel,
     };
     let chat = match prepare(&setup, id, prefs.clone()).await {

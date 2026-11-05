@@ -23,6 +23,34 @@ pub(super) fn tools(memory: bool) -> Value {
     all
 }
 
+/// The tools the desktop's local assistant gets: the ones that run commands and read machines.
+const ASSISTANT: [&str; 5] = [
+    "list_machines",
+    "run_on",
+    "job_status",
+    "cancel",
+    "machine_log",
+];
+
+/// Whether the local assistant may call `name`.
+pub(super) fn for_assistant(name: &str) -> bool {
+    ASSISTANT.contains(&name)
+}
+
+/// Those tools as `tools/list` gives them: `name`, `description` and `inputSchema`.
+pub(super) fn assistant_tools() -> Vec<Value> {
+    let Value::Array(list) = all() else {
+        return Vec::new();
+    };
+    list.into_iter()
+        .filter(|tool| {
+            tool.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(for_assistant)
+        })
+        .collect()
+}
+
 fn all() -> Value {
     let machine = |what: &str| json!({ "type": "string", "description": what });
     let scope = json!({
