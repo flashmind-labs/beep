@@ -1,7 +1,7 @@
 // The command center's machines table: one row per machine, its terminals
 // under it, and the menu that removes one.
 import { since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, note } from "../ui/parts.ts";
+import { dbtn as button, emptyPanel, headedTable, note } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { trafficRows, trafficSummary } from "./traffic-state.ts";
@@ -30,7 +30,7 @@ const MOVING_MAX_AGE_MS = 5000;
 /// with its terminals and synced projects indented under it. Right-click a machine to remove it.
 function machineTable(machines: MachineCard[]) {
   readSyncDetails();
-  const table = h("div", "cc-mt", ...["Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", ""].map(t => h("span", "th", t)));
+  const table = headedTable("", "Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", "");
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
   for (const m of machines) {
     const off = m.online ? "" : " off";

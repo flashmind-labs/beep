@@ -2,9 +2,9 @@
 // online machine (Auto lets the server pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
-import { openSheet } from "../ui/parts.ts";
+import { openSheet, segmented } from "../ui/parts.ts";
 import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, folderUnder, folderNote, folderHelp } from "./importproject-state.ts";
-import { button, el, present } from "../ui/dom.ts";
+import { button, el, present, press } from "../ui/dom.ts";
 import type { ImportEvent } from "./importproject-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 import { checkoutNote, defaultPlaces, forkNote, placeChoices, previewLine, worktreesToAsk } from "../review/branchwork.ts";
@@ -316,11 +316,8 @@ function form() {
   input.value = state.repo;
   input.addEventListener("input", () => { update({ type: "edit", repo: input.value }); schedulePreview(); });
   input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  const chips = el("div", "dchips", ...machineChips(machines).map(c => {
-    const b = button(c.label, "dchip", () => { update({ type: "pick", machine: c.id }); learnBase(); });
-    b.setAttribute("aria-pressed", String(c.id === state.machine));
-    return b;
-  }));
+  const chips = el("div", "dchips", ...machineChips(machines).map(c =>
+    press(button(c.label, "dchip", () => { update({ type: "pick", machine: c.id }); learnBase(); }), c.id === state.machine)));
   const go = button("Import", "dbtn pri ip-go", submit);
   go.disabled = !looksLikeRepo(state.repo);
   return [
@@ -362,12 +359,9 @@ function branchesBlock() {
     const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", meta));
     line.title = `${b.name}  ${meta}`;
     if (b.name !== default_branch && !b.worktree) {
-      const pick = (id: string | null, label: string) => {
-        const x = button(label, "", () => { if (id == null) delete picks[b.name]; else picks[b.name] = id; draw(); });
-        x.setAttribute("aria-pressed", String(id == null ? !(b.name in picks) : picks[b.name] === id));
-        return x;
-      };
-      line.append(el("span", "lbl", "Worktree"), el("span", "pb-seg", ...choices.map(c => pick(c.id, c.name)), pick(null, "Skip")));
+      const places = [...choices.map(c => ({ label: c.name, value: c.id as string | null })), { label: "Skip", value: null }];
+      const choose = (id: string | null) => { if (id == null) delete picks[b.name]; else picks[b.name] = id; draw(); };
+      line.append(el("span", "lbl", "Worktree"), segmented(places, picks[b.name] ?? null, choose));
     }
     return line;
   });

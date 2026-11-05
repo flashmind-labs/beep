@@ -26,6 +26,16 @@ export function secHead(title: Kid, ...kids: Kid[]) {
   return el("div", "cc-sec", el("h4", "", title), ...kids);
 }
 
+/// A section: `secHead` over `body`, which the caller may give an id.
+export function secBlock(title: Kid, sub: string, ...body: Kid[]) {
+  return el("div", "", secHead(title, sub ? el("small", "", sub) : null), ...body);
+}
+
+/// A grid table with the column heads `cols`; `cls` adds to `cc-mt`.
+export function headedTable(cls: string, ...cols: string[]) {
+  return el("div", cls ? `cc-mt ${cls}` : "cc-mt", ...cols.map(t => el("span", "th", t)));
+}
+
 /// `rows` in a box as tall as its first `shown` rows; the rest scroll.
 export function fitRows(rows: HTMLElement[], shown: number) {
   const list = el("div", "pj-scroll", ...rows);

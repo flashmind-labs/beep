@@ -3,7 +3,7 @@
 // get a checkout. The server creates it, and each machine clones it.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
-import { button, el, present } from "../ui/dom.ts";
+import { button, el, present, press } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { cleanError } from "./importproject-state.ts";
 import { canCreate, creatingText, goesText, landedLines, pickHost, shownName, startForm, toggleMachine } from "./newproject-state.ts";
@@ -137,11 +137,7 @@ function fields() {
   input.value = form.name;
   input.addEventListener("input", () => { form = { ...form, name: input.value }; syncTyped(); });
   input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  const chip = (label: string, on: boolean, click: () => void) => {
-    const b = button(label, "dchip", click);
-    b.setAttribute("aria-pressed", String(on));
-    return b;
-  };
+  const chip = (label: string, on: boolean, click: () => void) => press(button(label, "dchip", click), on);
   const hosts = el("div", "dchips",
     ...list.map(f => chip(f.github ? "GitHub" : f.host, form.host === f.host, () => setForm(pickHost(form, list, f.host)))),
     chip("Local only", form.host === null, () => setForm(pickHost(form, list, null))));

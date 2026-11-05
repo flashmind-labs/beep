@@ -1,6 +1,7 @@
 // flsh's own settings on its Coding agents page: OpenRouter routing and
 // auto-compact, the same on every machine.
 import type { invoke as Invoke } from "../ui/tauri.ts";
+import { press } from "../ui/dom.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { EMPTY, QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshInput, flshProblem, toggleQuantization } from "./flsh-state.ts";
 import type { FlshDraft, FlshSettings, Sort } from "./flsh-state.ts";
@@ -64,10 +65,7 @@ export function flshPanel(deps: FlshDeps) {
     row.setAttribute("role", "group");
     row.setAttribute("aria-label", label);
     for (const [text, v] of opts) {
-      const b = button(text, "dchip", () => on(v));
-      b.className = "dchip";
-      b.setAttribute("aria-pressed", String(pressed(v)));
-      row.append(b);
+      row.append(press(button(text, "dchip", () => on(v)), pressed(v)));
     }
     return row;
   }

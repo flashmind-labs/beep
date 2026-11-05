@@ -4,6 +4,7 @@ import { $ } from "../bar/core.ts";
 import { type AgentTask, type OpenAgent, AG, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { esc } from "../ui/format.ts";
+import { showHtml } from "../ui/patch.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The server did not know the request, so it is not asked again.
@@ -30,16 +31,10 @@ const runs = (t: AgentTask) => t.state === "running" || t.state === "paused";
 /// background, though the call itself is done.
 export const backgroundedEntry = (at: number) => AG.tasks.some(t => t.entry === at && runs(t));
 
-/// `el` showing `html`, left alone when it does already: a spinner keeps
-/// turning and a click is not lost to a button written again.
-function show(el: HTMLElement | null, html: string) {
-  if (el && el.dataset.shown !== html) { el.dataset.shown = html; el.innerHTML = html; }
-}
-
 export function drawTasks() {
   const live = AG.tasks.filter(runs);
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
-  show($("#agtasks"), live.map(t => {
+  showHtml($("#agtasks"), live.map(t => {
     const going = stopping.has(t.id);
     const what = t.description || t.name;
     const button = t.can_stop ? `<button class="dbtn quiet small" data-agtask="${esc(t.id)}"${going ? " disabled" : ""}>${going ? "Stopping" : "Stop"}</button>` : "";
