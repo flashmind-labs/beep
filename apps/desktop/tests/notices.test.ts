@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Alert, badge, bellLabel, bellShown, find, ids, markRead, subLine, unreadCount, without } from "../src/center/notices-state.ts";
+import { type Alert, badge, bellLabel, find, ids, markRead, subLine, unreadCount, without } from "../src/center/notices-state.ts";
 
 const alert = (id: string, over: Partial<Alert> = {}): Alert => ({ session_id: id, title: `Title ${id}`, source: "Apps", text: `Text ${id}`, read: false, at: 1_760_000_000_000, ...over });
 
@@ -36,16 +36,13 @@ test("an opened notice is found while the list has it", () => {
   assert.equal(find(list, null), null);
 });
 
-test("with no alerts to have the bell is hidden and nothing counts", () => {
-  assert.equal(bellShown(null), false);
+test("with no alerts to have nothing counts", () => {
   assert.equal(unreadCount(null), 0);
   assert.equal(badge(null), "");
   assert.equal(markRead(null, ["a"]), null);
   assert.equal(without(null, ["a"]), null);
   assert.deepEqual(ids(null), []);
   assert.equal(find(null, "a"), null);
-  // A server with alerts and none waiting still shows the bell.
-  assert.equal(bellShown([]), true);
 });
 
 test("a row says where it came from and when", () => {
