@@ -4,7 +4,7 @@
 import { harnessEl } from "../ui/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
-import { checkedLabel, compactOf, compactProblem, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasCompact, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
+import { checkedLabel, compactKind, compactOf, compactProblem, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasCompact, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
 import { copyButton, emptyPanel } from "../ui/parts.ts";
 import { flshPanel } from "./flsh.ts";
@@ -374,8 +374,8 @@ export function registerProviders(deps: ProvidersDeps) {
     if (withCompact) {
       const row = h("span", "fl-row",
         compactSwitch(draft.compactOn, `Auto-compact for ${name}`, () => { setDraft({ compactOn: !draft.compactOn }); draw(); }),
-        input(draft.compactPercent, "80%", v => setDraft({ compactPercent: v }), "Auto-compact threshold"));
-      box.append(field("Auto-compact", "Compact before the next message once the conversation fills this much of the window.", row));
+        ...(compactKind(hv.agent) === "percent" ? [input(draft.compactPercent, "80%", v => setDraft({ compactPercent: v }), "Auto-compact threshold")] : []));
+      box.append(field("Auto-compact", compactKind(hv.agent) === "percent" ? "Compact once the conversation fills this much of the window." : "Compact when the conversation fills the window.", row));
     }
 
     const envBox = h("div", "hv-envs");

@@ -64,6 +64,12 @@ pub(super) struct Known {
     pub(super) async_tasks: bool,
 }
 
+/// How the agent `name` is asked to compact: one the node does not know
+/// takes `/compact` when it advertises it.
+pub(super) fn route(name: &str) -> Route {
+    known(name).map_or(Route::Advertised, |known| known.compact)
+}
+
 /// What the node knows of the agent `name`, when it is a known one.
 pub(super) fn known(name: &str) -> Option<&'static Known> {
     KNOWN.iter().find(|known| known.name == name)
@@ -95,7 +101,10 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[("CLAUDE_CODE_THINKING_DISPLAY", "summarized")],
         bypass_mode: Some("bypassPermissions"),
         model_flag: false,
-        compact: Route::Advertised,
+        compact: Route::Percent {
+            percent_var: "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+            off_var: "DISABLE_AUTO_COMPACT",
+        },
         async_tasks: true,
     },
     // Full access: approval policy `never` and sandbox `danger-full-access`,
@@ -169,7 +178,9 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[],
         bypass_mode: None,
         model_flag: false,
-        compact: Route::Always,
+        compact: Route::Toggle {
+            off_var: "OPENCODE_DISABLE_AUTOCOMPACT",
+        },
         async_tasks: false,
     },
 ];
