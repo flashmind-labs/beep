@@ -723,7 +723,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agcode { flex: 1; min-height: 0; overflow: auto }
 .agcode pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--fg); white-space: pre; tab-size: 4 }
 .agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--dim); user-select: none }
-.agcode .k { color: #C792EA } .agcode .s { color: #A5D6A7 } .agcode .c { color: var(--dim); font-style: italic } .agcode .n { color: #F2B482 }
+.agcode .k, .dcoderen .cmd .k { color: #C792EA } .agcode .s, .dcoderen .cmd .s { color: #A5D6A7 } .agcode .c, .dcoderen .cmd .c { color: var(--dim); font-style: italic } .agcode .n, .dcoderen .cmd .n { color: #F2B482 }
 .agpview.term .tm-xterm { flex: 1; min-height: 0; height: auto; padding: 6px 8px; background: var(--deep) }
 .agpview.term .tm-xterm .xterm { height: 100% }
 .agpview.term .tm-xterm .xterm-viewport { background: var(--deep) !important }
