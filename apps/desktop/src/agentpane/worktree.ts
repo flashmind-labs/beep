@@ -5,7 +5,9 @@
 // again. Nothing here runs git checkout: only what the pane reads changes.
 // State is per session and kept in memory.
 
-import { type Entry, type Tree, follow, followSteps, rootOf, treeName } from "./worktree-state.ts";
+import { type Entry, type Tree, follow, followSteps, reportedRoot, rootOf, treeName } from "./worktree-state.ts";
+import { onPlaces, placeOf } from "../agents/place.ts";
+import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
 import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -15,7 +17,12 @@ interface Place {
   id: string;
   machine_id: string;
   cwd: string;
+  agent: string;
+  external?: boolean;
 }
+
+/// How old the session's reported place may be, in milliseconds.
+const REPORT_MS = 5000;
 
 const W = {
   place: null as Place | null,
@@ -24,6 +31,8 @@ const W = {
   /// Asked to read the list while it was being read.
   again: false,
   follow: true,
+  /// Where the machine says the session works; ahead of what the log shows.
+  placed: null as WorkPlace | null,
   /// The root picked by hand.
   pick: null as string | null,
   /// The root the agent last worked in, once it left the session's folder or came back.
@@ -50,11 +59,24 @@ const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
 /// or that the menu needs drawing again (false).
 export function startWorktrees(place: Place, changed: (root: boolean) => void) {
   Object.assign(W, {
-    place, trees: [], reading: false, again: false, follow: true, pick: null, seen: null, last: bare(place.cwd), next: 0, child: null, handled: false,
+    place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, last: bare(place.cwd), next: 0, child: null, handled: false,
     log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, changed,
   });
   readTrees();
+  report();
 }
+
+/// Reads where the machine says the session works, and follows it.
+function report() {
+  const p = W.place;
+  if (!p) return;
+  const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external }, REPORT_MS);
+  if (JSON.stringify(got) === JSON.stringify(W.placed)) return;
+  W.placed = got;
+  apply(true);
+  W.changed(false);
+}
+onPlaces(report);
 
 /// The folder Files and Changes read.
 export function paneRoot() {
@@ -101,7 +123,8 @@ async function readTrees() {
 /// where the agent works.
 function want() {
   const p = W.place;
-  return W.child ?? (W.follow ? W.seen : W.pick) ?? bare(p?.cwd ?? "");
+  const reported = p && W.placed ? reportedRoot(W.trees, p.cwd, W.placed.folder) : null;
+  return W.child ?? (W.follow ? reported ?? W.seen : W.pick) ?? bare(p?.cwd ?? "");
 }
 
 /// A comment box with text in the Changes tab: a switch waits for it to close.
@@ -163,6 +186,7 @@ export function followAgent(entries: Entry[], earlier: number, steps: string[] |
   }
   scan();
   apply(true);
+  report();
 }
 
 // ----- The dropdown -----
@@ -194,14 +218,14 @@ function menuHtml(p: Place) {
 /// to show, or the pane is not on the session's folder.
 export function drawWorktrees(host: HTMLElement, here: boolean) {
   const p = W.place;
-  const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd));
-  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open]) : "";
+  const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd) || !!W.placed?.linked);
+  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.placed]) : "";
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   host.hidden = !show;
   if (!show || !p) return host.replaceChildren();
   const now = W.trees.find(t => rootOf(t, p.cwd) === W.shown);
-  const label = now ? treeName(now) : baseName(W.shown);
+  const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
   host.innerHTML = `<button class="agpbtn agwt" aria-haspopup="menu" aria-expanded="${W.open}" title="The worktree Files and Changes show"><code>${esc(label)}</code><span aria-hidden="true">&#9662;</span></button>${W.open ? menuHtml(p) : ""}`;
   host.onclick = e => {
     const target = e.target as HTMLElement;

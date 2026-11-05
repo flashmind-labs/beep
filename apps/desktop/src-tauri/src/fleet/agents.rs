@@ -23,7 +23,7 @@ use beep_proto::{
     PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
     image_key, media_mime,
     node::{
-        agent::{self, Request, Worktree},
+        agent::{self, Request, WorkPlace, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
         mesh_state::StateValue,
     },
@@ -571,6 +571,29 @@ pub(crate) async fn worktrees(
 ) -> Result<Vec<Worktree>> {
     let client = fleet.client(machine).await?;
     work(fleet, machine, sessions::worktrees(&client, folder).await?)
+}
+
+/// Where the session `session` of `agent` works, as its node worked it out
+/// from what the agent records; `None` when the node does not say.
+pub(crate) async fn place(
+    fleet: &Fleet,
+    machine: EndpointId,
+    agent: &str,
+    session: &str,
+    external: bool,
+) -> Result<Option<WorkPlace>> {
+    let client = fleet.client(machine).await?;
+    if external {
+        let found = limited(sessions::external(
+            &client,
+            agent,
+            1,
+            Some(session.to_owned()),
+        ))
+        .await?;
+        return Ok(found.into_iter().next().and_then(|found| found.place));
+    }
+    Ok(info(&client, agent, session).await?.place)
 }
 
 /// What a node did in a folder, or its refusal as the user reads it.

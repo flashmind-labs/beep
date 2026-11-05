@@ -51,6 +51,14 @@ export function treeAt(trees: readonly Tree[], cwd: string, path: string) {
   return found;
 }
 
+/// The folder the pane reads for the checkout at `folder`, which the session's
+/// machine says it works in: its worktree in `trees` (see `rootOf`), else the
+/// checkout's own folder.
+export function reportedRoot(trees: readonly Tree[], cwd: string, folder: string) {
+  const t = trees.find(t => bare(t.path) === bare(folder));
+  return t ? rootOf(t, cwd) : bare(folder);
+}
+
 /// Words of a command or title, with quotes, `&&`, `;` and the like cut away.
 const WORD = /[^\s"'`;|&()<>=,]+/g;
 /// What names a folder in the word after it.

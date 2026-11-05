@@ -23,6 +23,8 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { onPlaces, placeOf } from "./place.ts";
+import { placeSub } from "./place-state.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen.
 export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string; back?: string | BackTo } = {}) {
@@ -212,6 +214,13 @@ async function drawEditors(s: AgentRow) {
   draw();
 }
 
+// The head names the worktree once the machine says the session is in one.
+onPlaces(() => {
+  const s = AG.page?.session;
+  const here = document.getElementById("aghere");
+  if (s && here) here.textContent = placeSub(placeOf(s), s.machine_name) ?? s.machine_name;
+});
+
 /// The parts that stay while the session updates: the head, the body and the field.
 export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
@@ -220,7 +229,7 @@ export function drawAgentFrame() {
     : `<div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
-  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small title="${esc(s.cwd)}">${esc(s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>
+  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small id="aghere" title="${esc(s.cwd)}">${esc(placeSub(placeOf(s), s.machine_name) ?? s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);

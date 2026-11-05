@@ -12,6 +12,7 @@ use crate::agents::{
     known,
     live::{Live, TurnTokens, cut},
     mcp::Upstream,
+    place::of_folder,
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
 use agent_client_protocol::{
@@ -26,7 +27,7 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AlertKind, Effort, EntryKind, ModeOption, Question, Status, StopReason,
+    AlertKind, Effort, EntryKind, ModeOption, Question, Status, StopReason, WorkPlace,
 };
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use std::{
@@ -42,6 +43,7 @@ use tokio::{
     io::BufReader,
     process::{Child, ChildStderr},
     sync::{mpsc, oneshot, watch},
+    task::spawn_blocking,
 };
 
 /// What the agent sent the session's task.
@@ -113,6 +115,8 @@ pub(super) enum Reply {
         entry: Option<u64>,
         pictures: Vec<Picture>,
     },
+    /// The checkout the session's working folder is in.
+    Placed(Option<WorkPlace>),
 }
 
 /// A permission question waiting for its answer.
@@ -419,6 +423,7 @@ impl Actor {
             Reply::Initialized(result.map(Box::new))
         });
         let mut stderr_open = true;
+        self.look_for_place();
         loop {
             // Biased so an update the agent sent before an answer is
             // applied before it, as the dispatch loop handed them over.
@@ -493,6 +498,7 @@ impl Actor {
                 }
                 let finished = self.tool_finished(&update);
                 self.live.send_if_modified(|live| live.apply(&update));
+                self.look_for_place();
                 if let Some(stopping) = self.stopping {
                     self.show_stopping(stopping);
                 }
@@ -513,6 +519,30 @@ impl Actor {
             }
         }
         Ok(())
+    }
+
+    /// Asks the checkout the session works in now when its folder changed
+    /// since the last time, off the async workers. The answer comes back as
+    /// `Reply::Placed`.
+    fn look_for_place(&mut self) {
+        let mut wanted = None;
+        self.live.send_if_modified(|live| {
+            wanted = live.place_wanted.take();
+            false
+        });
+        let Some(folder) = wanted else {
+            return;
+        };
+        let read = spawn_blocking(move || of_folder(&folder));
+        self.replies.push(
+            async move {
+                Reply::Placed(read.await.unwrap_or_else(|e| {
+                    log::warn!("a session's checkout was not read: {e}");
+                    None
+                }))
+            }
+            .boxed(),
+        );
     }
 
     /// The agent sent a message too long to keep: it was dropped, and the
@@ -621,6 +651,13 @@ impl Actor {
                     log::warn!("the agent ignored session/cancel; stopping it");
                     return Ok(Some(End::Unstoppable(self.stop_within)));
                 }
+            }
+            Reply::Placed(place) => {
+                self.live.send_if_modified(|live| {
+                    let changed = live.info.place != place;
+                    live.info.place = place;
+                    changed
+                });
             }
             Reply::FilesRead { entry, pictures } => {
                 if !pictures.is_empty() {

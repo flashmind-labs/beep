@@ -1,6 +1,6 @@
 //! Sessions started outside Beep, and the folders agents worked in.
 
-use super::PlanEntry;
+use super::{PlanEntry, WorkPlace};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -53,6 +53,9 @@ pub struct ExternalSession {
     pub last_message: String,
     /// The node session it runs as, once Beep took it over.
     pub taken_over: Option<String>,
+    /// Where it works now, as the node worked it out from the agent's
+    /// records; `None` when it does not know.
+    pub place: Option<WorkPlace>,
 }
 
 /// An external Claude Code session as its hooks report it, for
@@ -202,6 +205,68 @@ impl ActivityKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reader from before `place`: it reads with `lenient`, as the
+    /// node's streams and mesh frames do, and skips the field it lacks.
+    #[test]
+    fn a_session_with_a_place_still_reads_for_an_older_reader() {
+        #[derive(Deserialize)]
+        struct Before {
+            id: String,
+            agent: String,
+            cwd: String,
+            title: Option<String>,
+            started_at: u64,
+            last_activity: u64,
+            presence: Presence,
+            pid: Option<u32>,
+            last_prompt: String,
+            last_message: String,
+            taken_over: Option<String>,
+        }
+        let sent = ExternalSession {
+            id: "s1".into(),
+            agent: "codex".into(),
+            cwd: "/srv/project".into(),
+            taken_over: Some("a3f9c1".into()),
+            place: Some(WorkPlace {
+                folder: "/srv/project/.worktrees/fix".into(),
+                main: "/srv/project".into(),
+                linked: true,
+                branch: Some("fix".into()),
+                origin: String::new(),
+            }),
+            ..ExternalSession::default()
+        };
+        let bytes = rmp_serde::to_vec(&sent).expect("encodes");
+        let read: Before = crate::lenient::from_slice(&bytes).expect("reads");
+        assert_eq!(read.id, "s1");
+        assert_eq!(read.agent, "codex");
+        assert_eq!(read.cwd, "/srv/project");
+        assert_eq!(read.title, None);
+        assert_eq!((read.started_at, read.last_activity), (0, 0));
+        assert_eq!(read.presence, Presence::default());
+        assert_eq!(read.pid, None);
+        assert!(read.last_prompt.is_empty() && read.last_message.is_empty());
+        assert_eq!(read.taken_over.as_deref(), Some("a3f9c1"));
+        // And one without it reads for this build.
+        let old = rmp_serde::to_vec(&(
+            "s2",
+            "claude",
+            "/srv/project",
+            None::<String>,
+            1u64,
+            2u64,
+            "Working",
+            None::<u32>,
+            "",
+            "",
+            None::<String>,
+        ))
+        .expect("encodes");
+        let now: ExternalSession = crate::lenient::from_slice(&old).expect("reads");
+        assert_eq!(now.place, None);
+    }
 
     #[test]
     fn an_external_session_from_a_newer_node_still_reads() {
