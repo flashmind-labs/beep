@@ -14,6 +14,7 @@ import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "..
 import { loadSessions, sessions } from "../agents/sessions.ts";
 import { issueBranch, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.ts";
+import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state } from "../center/state.ts";
 import { shown, go } from "../center/views.ts";
 import { projectRows } from "../center/sidebar.ts";
@@ -273,6 +274,16 @@ export async function reviewPr(name: string, pr: PullRequestRow) {
 /// on the default branch), with the failure and its log in the prompt.
 export function fixRun(name: string, detail: RunDetail) {
   fillBar(name, fixPrompt(detail), runTarget(detail.run, baseFor(null, pc.branches.get(name))));
+}
+
+/// Fix with an agent: the project's bar filled to settle a sync conflict, on
+/// a machine that has it. The user sends it.
+export function fixConflict(name: string, c: Conflict) {
+  if (!c.holder) return;
+  go("projects", { project: name });
+  fillBar(name, conflictPrompt(c), null);
+  pc.machine = c.holder;
+  redrawProjects();
 }
 
 /// The picker above the bar, when open.

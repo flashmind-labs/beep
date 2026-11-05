@@ -27,7 +27,8 @@ import { openUrl } from "../center/openitems.ts";
 import { shown, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
 import { openTile } from "./split.ts";
-import { workOnIssue, continuePr, reviewPr, fixRun } from "./composer.ts";
+import { workOnIssue, continuePr, reviewPr, fixRun, fixConflict } from "./composer.ts";
+import { redrawSync } from "./syncpage.ts";
 import { loadProjectAgent } from "./loads.ts";
 import { drawProjects } from "./page.ts";
 import { loadThreadChats, threadChats } from "../center/threadcard.ts";
@@ -38,7 +39,7 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
 export const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
-export const fsync = makeFileSync({ invoke, h, button, redraw: () => redrawProjects(), kept: keptSection("filesync") });
+export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the
 /// review view.
