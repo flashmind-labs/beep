@@ -56,7 +56,7 @@ test("the first-run window shows once, with no subscription", () => {
 
 test("the shortcut sheet drops dead keys without a subscription", () => {
   const sheet: [string, string[][]][] = [
-    ["Anywhere", [["⌘N", "New chat"], ["⌘K", "Chats"], ["⌘M", "Memories"], ["⌘,", "Settings"], ["⌥ ⌥", "Open"]]],
+    ["Anywhere", [["⌘N", "New agent"], ["⌘K", "Chats"], ["⌘M", "Memories"], ["⌘,", "Settings"], ["⌥ ⌥", "Open"]]],
     ["Talking", [["tap ⌥", "Live"]]],
     ["In a list", [["⌘R", "Rename"]]],
   ];
