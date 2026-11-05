@@ -39,7 +39,7 @@ pub(super) struct Saved {
     /// The folder it belongs to.
     #[serde(default)]
     pub(super) root: Option<RootId>,
-    /// The peers whose checkout was found fit to merge with (see
+    /// The peers this checkout has merged with (see
     /// `Shared::first_contact`), by peer key.
     #[serde(default)]
     pub(super) matched: BTreeSet<String>,
