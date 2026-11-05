@@ -108,6 +108,8 @@ export function drawSide() {
   // Terminals on every machine, once the server lists them.
   const termList = allTerms.list(ALL);
   if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: shown === "terminals", on: () => go("terminals") }));
+  // The assistant's page, with or without a key.
+  top.append(sideItem(IC.chat, "Assistant", 0, { current: shown === "assistant", on: () => go("assistant") }));
   // Sync, once a project syncs: the conflicts waiting across them.
   if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: shown === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
