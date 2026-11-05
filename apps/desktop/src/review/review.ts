@@ -490,14 +490,14 @@ export function makeReviews(deps: ReviewDeps) {
     const busy = t.busy === `wt:${b.name}`;
     if (t.picking === b.name) {
       return [
-        ...where.map(m => { const x = button(m.name, "", () => addWorktree(name, b.name, m)); x.disabled = busy; return x; }),
-        button("Cancel", "quiet", () => { t.picking = null; redraw(); }),
+        ...where.map(m => { const x = button(m.name, "small", () => addWorktree(name, b.name, m)); x.disabled = busy; return x; }),
+        button("Cancel", "quiet small", () => { t.picking = null; redraw(); }),
       ];
     }
-    const go = button(busy ? "Adding…" : `Worktree on ${here.name}`, "", () => addWorktree(name, b.name, here));
+    const go = button(busy ? "Adding…" : "Add worktree", "small", () => addWorktree(name, b.name, here));
     go.disabled = busy;
     go.title = `git worktree add ${worktreeName(b.name)}`;
-    const other = where.length > 1 ? button("Other machine…", "quiet", () => { t.picking = b.name; redraw(); }) : null;
+    const other = where.length > 1 ? button("Other machine…", "quiet small", () => { t.picking = b.name; redraw(); }) : null;
     return other ? [go, other] : [go];
   }
 
@@ -520,22 +520,24 @@ export function makeReviews(deps: ReviewDeps) {
     const rows = data.branches.map(b => {
       const r = byBranch.get(b.name);
       const isDefault = b.name === data.default_branch;
-      const meta = [
-        isDefault ? null : `+${b.ahead} -${b.behind}`,
-        b.worktree ? `worktree ${b.worktree}` : null,
-        b.pushed ? null : "not pushed",
-        `${ago(b.committed_at)}: ${b.subject}`,
-      ].filter(Boolean);
+      const worktree = b.worktree ? h("span", "br-tag", "worktree") : null;
+      if (worktree) worktree.title = b.worktree!;
+      const marks = [
+        isDefault ? h("span", "br-tag", "default") : null,
+        !isDefault && b.ahead ? h("span", "br-add", `+${b.ahead}`) : null,
+        !isDefault && b.behind ? h("span", "br-tag", `${b.behind} behind`) : null,
+        worktree,
+        b.pushed ? null : h("span", "br-tag", "not pushed"),
+      ];
       const acts = h("span", "acts rv-acts");
       const diff = isDefault ? null : deps.diff?.(name, b.name);
-      if (diff) acts.append(button("View diff", "", diff));
-      if (r) acts.append(button(`Open review · ${STATE_LABEL[reviewState(r)].toLowerCase()}`, "", () => openBranch(name, b.name)));
-      if (!isDefault && b.ahead > 0) acts.append(button(r ? "Review again" : "Review", r ? "" : "pri", () => openBranch(name, b.name, !!r)));
+      if (diff) acts.append(button("View diff", "quiet small", diff));
+      if (r) acts.append(button(`Open review · ${STATE_LABEL[reviewState(r)].toLowerCase()}`, "small", () => openBranch(name, b.name)));
+      if (!isDefault && b.ahead > 0) acts.append(button(r ? "Review again" : "Review", r ? "quiet small" : "pri small", () => openBranch(name, b.name, !!r)));
       if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
-      const title = h("span", "t", h("code", "", b.name));
-      title.title = b.subject;
-      const row = h("div", "pj-task pj-br", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
-        h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
+      const title = h("span", "t", h("code", "", b.name), ...marks);
+      const row = h("div", "pj-task pj-br", title, h("span", "m", h("span", "", `${b.subject} · ${ago(b.committed_at)}`)), acts.childNodes.length ? acts : null);
+      row.querySelector<HTMLElement>(".m span")!.title = b.subject;
       row.addEventListener("contextmenu", e => {
         const items: MenuItem[] = [];
         if (diff) items.push({ label: "View diff", on: diff });
