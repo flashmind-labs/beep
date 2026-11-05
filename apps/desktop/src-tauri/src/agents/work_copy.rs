@@ -340,6 +340,26 @@ pub(crate) async fn folder_here(
         .ok()
 }
 
+/// The folder on this Mac that is exactly `dir` on `machine_id`: `None` when
+/// this Mac has no copy of the project, or the copy lacks `dir` (unlike
+/// `folder_here`, which falls back to the copy's top).
+pub(crate) async fn exact_folder_here(
+    beep: &Beep,
+    fleet: &Fleet,
+    machine_id: &str,
+    dir: &str,
+) -> Option<PathBuf> {
+    let copy = copy_of(beep, fleet, machine_id, dir).await?;
+    let rel = under(dir, &copy.remote)?.to_owned();
+    spawn_blocking(move || {
+        let place = copy.local.join(rel);
+        stays_inside(&copy.local, &place).then_some(place)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// The folder holding `path`, `""` when it has none.
 fn parent(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(dir, _)| dir)
