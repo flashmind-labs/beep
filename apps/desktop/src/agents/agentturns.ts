@@ -215,12 +215,12 @@ export function withoutDiffs(output: string) {
 }
 
 /// Steps in order, a run of two or more finished calls of one kind as one
-/// group.
-export function toolRuns(entries: LogEntry[], ats: number[], offset = 0): number[][] {
+/// group. A `pinned` call, one the reader opened, stays a row of its own.
+export function toolRuns(entries: LogEntry[], ats: number[], offset = 0, pinned?: ReadonlySet<number>): number[][] {
   const out: number[][] = [];
   const kindOf = (at: number): ToolKind | null => {
     const en = entries[at - offset];
-    if (en.kind !== "tool") return null;
+    if (en.kind !== "tool" || pinned?.has(at)) return null;
     const { text, names } = imageLines(en.text);
     const { status, output } = parseTool(text);
     if (status !== "completed" || names.length || subagent(output)) return null;
@@ -322,17 +322,19 @@ export function commandOf(title: string) {
   return title.trim().replace(/^[A-Za-z]+: /, "");
 }
 
-/// Whether a step's row starts open: a failed step only while it is the newest
-/// of a running turn, so earlier failures stay one line.
-export function stepOpen(failed: boolean, newest: boolean, toggled: boolean) {
-  return toggled !== (failed && newest);
+/// Whether a step's row is open. The reader's choice (`chosen`) stands for as
+/// long as the row is drawn; with none, a failed step starts open while it is
+/// the newest of a running turn, so earlier failures stay one line.
+export function stepOpen(failed: boolean, newest: boolean, chosen?: boolean) {
+  return chosen ?? (failed && newest);
 }
 
 /// The steps of a turn that stay in view when it folds: notes (a model switch,
 /// a compaction), subagents and the agent's own words that showed pictures.
-export function keptSteps(entries: LogEntry[], t: Turn, offset = 0) {
+export function keptSteps(entries: LogEntry[], t: Turn, offset = 0, pinned?: ReadonlySet<number>) {
   return t.steps.filter(at => {
     const en = entries[at - offset];
+    if (pinned?.has(at) && en.kind === "tool") return true;
     if (en.kind === "other") return true;
     if (en.kind !== "tool") return imageLines(en.text).names.length > 0;
     return subagent(parseTool(imageLines(en.text).text).output) != null;
