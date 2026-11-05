@@ -4,7 +4,8 @@
 //! `saved` keeps.
 
 use super::{
-    Env, MAX_MOVES,
+    Env, MAX_MOVES, background,
+    cache::Cache,
     dial::watch_target,
     progress::Target,
     saved::{Folder, valid_id},
@@ -61,6 +62,8 @@ pub(crate) async fn follow(
     };
     agents.moves.use_syncs(syncs.clone());
     let env = Arc::new(Env {
+        cache: Cache::new(&dir),
+        limits: background::Limits::locate(),
         agents,
         mesh,
         endpoint,
@@ -68,6 +71,9 @@ pub(crate) async fn follow(
         state: Folder::new(&dir),
         roots,
     });
+    env.agents.moves.use_env(Arc::downgrade(&env));
+    // Owned here: the copies stop with the node.
+    let _copying = AbortOnDropHandle::new(tokio::spawn(background::run(env.clone())));
     let mut updates = env.mesh.updates();
     let mut running: HashMap<String, Running> = HashMap::new();
     loop {

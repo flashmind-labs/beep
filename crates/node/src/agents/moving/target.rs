@@ -7,12 +7,11 @@ use super::{
     dial::dial,
     progress::{Tracker, show},
     read::{self, Refused},
-    rewrite,
+    resume::{Arrival, Folders as ResumeFolders, How, resume},
     saved::{Phase, Saved},
-    store,
     worktree::{self, Work},
 };
-use crate::agents::{AgentKind, Begin, found::Agent};
+use crate::agents::found::Agent;
 use anyhow::{Context, Result, bail};
 use beep_mesh::Key;
 use beep_proto::node::{
@@ -21,7 +20,6 @@ use beep_proto::node::{
     mesh_state::{SessionMove, StateValue, SyncSpec},
 };
 use std::{
-    borrow::Cow,
     path::{Component, Path, PathBuf},
     time::Duration,
 };
@@ -93,10 +91,12 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
 }
 
 async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
-    let agent = Agent::from_name(record.agent.as_str());
-    let harness = agent
+    if Agent::from_name(record.agent.as_str())
         .and_then(Harness::of)
-        .with_context(|| format!("{} sessions cannot move yet", record.agent))?;
+        .is_none()
+    {
+        bail!("{} sessions cannot move yet", record.agent);
+    }
     let folders = folders(env, record)?;
     match &folders.worktree {
         Some(made) => {
@@ -161,7 +161,17 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         (Some(_), ..) => bail!("the source sent no worktree state"),
         _ => None,
     };
-    let resumed = resume(env, record, &kind, agent, harness, &folders, copied, copy).await;
+    let arrival = Arrival {
+        id: &record.id,
+        mode: record.mode.clone(),
+        from: record.from,
+        how: How::Moved,
+    };
+    let placed = ResumeFolders {
+        old: folders.old.clone(),
+        new: folders.new.clone(),
+    };
+    let resumed = resume(env, &arrival, &kind, &placed, copied.file_name, copy).await;
     if resumed.is_err()
         && let Some(made) = made
     {
@@ -171,55 +181,6 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         }
     }
     resumed
-}
-
-/// Writes the transcript into the harness's store and starts the session in
-/// its folder here.
-#[allow(clippy::too_many_arguments)]
-async fn resume(
-    env: &Env,
-    record: &SessionMove,
-    kind: &AgentKind,
-    agent: Option<Agent>,
-    harness: Harness,
-    folders: &Folders,
-    copied: Copied,
-    copy: PathBuf,
-) -> Result<()> {
-    let stored = {
-        let (id, old, new) = (record.id.clone(), folders.old.clone(), folders.new.clone());
-        spawn_blocking(move || -> Result<_> {
-            let bytes = std::fs::read(&copy)?;
-            Ok(rewrite(harness, &bytes, &id, &copied.file_name, &old, &new))
-        })
-        .await??
-    };
-    let path = env.roots.path(harness, &stored);
-    let at = path.clone();
-    spawn_blocking(move || store::write(&at, &stored)).await??;
-    if let Some(agent) = agent {
-        let (agents, id) = (env.agents.clone(), record.id.clone());
-        spawn_blocking(move || agents.spend.mark_counted(agent, &id, &path))
-            .await?
-            .context("marking the copied usage as counted")?;
-    }
-    let cwd = folders.new.to_string_lossy().into_owned();
-    env.agents.start(
-        kind,
-        Some(&cwd),
-        Begin {
-            resume: Some(record.id.clone()),
-            mode: record.mode.clone(),
-            note: Some(format!("Moved here from {}", env.name_of(&record.from))),
-            brief: Some(Cow::Owned(format!(
-                "This session moved from another machine. Paths in the conversation so far name its old folder, {}; the same checkout is now {}.",
-                folders.old.display(),
-                folders.new.display()
-            ))),
-            ..Begin::default()
-        },
-    )?;
-    Ok(())
 }
 
 /// The old and new folders, from the project's `sync/<name>` record.
@@ -321,10 +282,14 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
     let pulled = read::pull(
         tx,
         rx,
-        record.agent.clone(),
-        &record.id,
-        copy,
-        record.worktree.is_some(),
+        read::Ask {
+            agent: record.agent.clone(),
+            id: &record.id,
+            copy,
+            kind: read::Kind::Move {
+                worktree: record.worktree.is_some(),
+            },
+        },
     )
     .await;
     connection.close(0u32.into(), b"done");

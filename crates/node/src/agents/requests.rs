@@ -293,6 +293,25 @@ pub async fn serve_sessions(
         SessionsRequest::MoveCheck { project, branch } => SessionsReply::MoveChecked {
             ignored: agents.moves.ignores_worktree(&project, &branch).await,
         },
+        SessionsRequest::Copies {} => SessionsReply::Copies {
+            copies: agents.moves.copies().await,
+        },
+        SessionsRequest::ContinueCopy {
+            agent,
+            session,
+            lost,
+        } => match agents.moves.continue_copy(&agent, &session, lost).await {
+            Ok(()) => SessionsReply::CopyDone {},
+            Err(e) => failed(e),
+        },
+        SessionsRequest::DiscardCopy {
+            agent,
+            session,
+            lost,
+        } => {
+            agents.moves.discard_copy(&agent, &session, lost).await;
+            SessionsReply::CopyDone {}
+        }
         SessionsRequest::Harnesses { refresh } => SessionsReply::Harnesses {
             report: agents.harnesses(refresh).await,
         },

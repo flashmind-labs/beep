@@ -1,8 +1,8 @@
 //! The `agents/1` protocol: one request, one reply, about all the sessions.
 
 use super::{
-    Activity, Entry, ExternalSession, LiveStatus, ModelList, MoveProgress, Question, SessionFolder,
-    SessionInfo, Steer, StopReason,
+    Activity, CopyView, Entry, ExternalSession, LiveStatus, ModelList, MoveProgress, Question,
+    SessionFolder, SessionInfo, Steer, StopReason,
 };
 use serde::{Deserialize, Serialize};
 
@@ -217,6 +217,25 @@ pub enum SessionsRequest {
         project: String,
         branch: String,
     },
+    /// The copies of other machines' sessions this node keeps, and the
+    /// versions that lost to another machine's. Answered with `Copies`; a
+    /// node from before background copies closes the stream.
+    Copies {},
+    /// Runs the copy of session `session` of `agent` here, in the project's
+    /// checkout on this node; with `lost`, the version set aside at that
+    /// time instead. Answered with `CopyDone`, or `Error` saying why not.
+    ContinueCopy {
+        agent: String,
+        session: String,
+        lost: Option<u64>,
+    },
+    /// Throws away the copy of a session, or its version set aside at
+    /// `lost`. Answered with `CopyDone`.
+    DiscardCopy {
+        agent: String,
+        session: String,
+        lost: Option<u64>,
+    },
 }
 
 impl SessionsRequest {
@@ -243,6 +262,7 @@ impl SessionsRequest {
             | Self::Commands { .. }
             | Self::MoveProgress { .. }
             | Self::MoveCheck { .. }
+            | Self::Copies {}
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -252,6 +272,8 @@ impl SessionsRequest {
             | Self::RefreshPlanUsage {}
             | Self::WriteFile { .. }
             | Self::DeleteSession { .. }
+            | Self::ContinueCopy { .. }
+            | Self::DiscardCopy { .. }
             | Self::FollowAlerts {} => false,
         }
     }
@@ -392,6 +414,12 @@ pub enum SessionsReply {
         /// its `.stignore` leaves it out: the session cannot move.
         ignored: bool,
     },
+    /// The answer to `Copies`.
+    Copies {
+        copies: Vec<CopyView>,
+    },
+    /// The answer to `ContinueCopy` and `DiscardCopy`.
+    CopyDone {},
 }
 
 /// A slash command or skill an agent offers, as `SessionsRequest::Commands`

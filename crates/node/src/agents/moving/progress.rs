@@ -3,13 +3,15 @@
 //! that a session it ended is still served as running until its files are
 //! scanned, and that it gave a move up.
 
+use super::Env;
 use crate::files::sync::Syncs;
 use crate::lock;
 use beep_proto::node::agent::{MovePhase, MoveProgress};
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
-    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, Weak},
+    time::SystemTime,
 };
 use tokio::sync::watch;
 
@@ -47,6 +49,48 @@ pub(crate) struct Moves {
     worktrees: Mutex<HashMap<String, PathBuf>>,
     /// The synced projects, to tell a target whether it can sync a worktree.
     syncs: Mutex<Option<Syncs>>,
+    /// What the moves and copies of this node share, for requests that
+    /// continue a copy here.
+    env: Mutex<Weak<Env>>,
+    hashes: Hashes,
+}
+
+/// The hash of each transcript offered, read again only when its size or
+/// time changed.
+#[derive(Clone, Default)]
+pub(super) struct Hashes(Arc<Mutex<HashMap<PathBuf, Hashed>>>);
+
+/// A transcript's hash, with the size and time it was read at.
+struct Hashed {
+    size: u64,
+    modified: SystemTime,
+    hash: Vec<u8>,
+}
+
+/// The most transcripts whose hashes are kept.
+const MAX_HASHES: usize = 5000;
+
+impl Hashes {
+    pub(super) fn get(&self, file: &Path, size: u64, modified: SystemTime) -> Option<Vec<u8>> {
+        let kept = lock(&self.0);
+        let found = kept.get(file)?;
+        (found.size == size && found.modified == modified).then(|| found.hash.clone())
+    }
+
+    pub(super) fn put(&self, file: &Path, size: u64, modified: SystemTime, hash: Vec<u8>) {
+        let mut kept = lock(&self.0);
+        if kept.len() >= MAX_HASHES {
+            kept.clear();
+        }
+        kept.insert(
+            file.to_owned(),
+            Hashed {
+                size,
+                modified,
+                hash,
+            },
+        );
+    }
 }
 
 /// A session the source ended is served as running while this lives, so a
@@ -100,6 +144,44 @@ impl Moves {
 
     pub(super) fn worktree_of(&self, id: &str) -> Option<PathBuf> {
         lock(&self.worktrees).get(id).cloned()
+    }
+
+    pub(super) fn clone_hashes(&self) -> Hashes {
+        self.hashes.clone()
+    }
+
+    pub(super) fn use_env(&self, env: Weak<Env>) {
+        *lock(&self.env) = env;
+    }
+
+    /// Continues the copy of session `id` of `agent` here.
+    pub(crate) async fn continue_copy(
+        &self,
+        agent: &str,
+        id: &str,
+        lost: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let env = lock(&self.env)
+            .upgrade()
+            .ok_or_else(|| anyhow::anyhow!("this node does not copy sessions"))?;
+        super::resume::continue_here(&env, &beep_proto::AgentSlug::from(agent), id, lost).await
+    }
+
+    /// The copies this node keeps, and the versions that lost.
+    pub(crate) async fn copies(&self) -> Vec<beep_proto::node::agent::CopyView> {
+        let env = lock(&self.env).upgrade();
+        match env {
+            Some(env) => super::background::views(&env).await,
+            None => Vec::new(),
+        }
+    }
+
+    /// Throws a copy away, or the version set aside at `lost`.
+    pub(crate) async fn discard_copy(&self, agent: &str, id: &str, lost: Option<u64>) {
+        let env = lock(&self.env).upgrade();
+        if let Some(env) = env {
+            super::background::discard(&env, &beep_proto::AgentSlug::from(agent), id, lost).await;
+        }
     }
 
     /// The projects this node syncs, for `ignores_worktree`.

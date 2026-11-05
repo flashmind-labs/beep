@@ -6,7 +6,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
 };
-use beep_fleet::{AskedWorktree, MoveAsk, MoveState, WorktreeMove};
+use beep_fleet::{AskedWorktree, CopyView, MoveAsk, MoveState, WorktreeMove};
 use beep_proto::{
     ApiError,
     node::{
@@ -40,6 +40,40 @@ impl From<SessionMove> for MoveView {
             to: record.to.to_string(),
             project: record.project,
             at: record.at,
+        }
+    }
+}
+
+/// A copy of another machine's session that this Mac keeps, or a version of
+/// one that lost to another machine's.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct CopyRow {
+    pub agent: String,
+    pub id: String,
+    /// The machine that ran it.
+    pub from: String,
+    pub project: String,
+    pub path: String,
+    /// Unix seconds.
+    pub last_activity: u64,
+    pub fetched_at: u64,
+    pub size: u64,
+    /// When the version was set aside, for one that lost.
+    pub lost: Option<u64>,
+}
+
+impl From<CopyView> for CopyRow {
+    fn from(copy: CopyView) -> Self {
+        Self {
+            agent: copy.agent,
+            id: copy.id,
+            from: copy.from.to_string(),
+            project: copy.project,
+            path: copy.path,
+            last_activity: copy.last_activity,
+            fetched_at: copy.fetched_at,
+            size: copy.size,
+            lost: copy.lost,
         }
     }
 }
@@ -162,6 +196,50 @@ pub async fn session_move_worktree_probe(
             WorktreeMove::NeedsUpdate => "update",
         },
     )
+}
+
+/// The sessions of other machines this Mac keeps copies of, which the node
+/// brings in on its own; none for a node from before copies.
+#[tauri::command]
+pub async fn session_copies(fleet: FleetState<'_>) -> Result<Vec<CopyRow>> {
+    Ok(desk(&fleet)
+        .await?
+        .session_copies()
+        .await?
+        .unwrap_or_default()
+        .into_iter()
+        .map(Into::into)
+        .collect())
+}
+
+/// Continues a copy on this Mac, in its checkout of the project (the version
+/// that lost at `lost` instead, when given). Refused in plain words when the
+/// project is not here or the session already runs here.
+#[tauri::command]
+pub async fn session_continue_copy(
+    fleet: FleetState<'_>,
+    agent: String,
+    session: String,
+    lost: Option<u64>,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .continue_copy(&agent, &session, lost)
+        .await?)
+}
+
+/// Throws a copy away, or the version that lost at `lost`.
+#[tauri::command]
+pub async fn session_discard_copy(
+    fleet: FleetState<'_>,
+    agent: String,
+    session: String,
+    lost: Option<u64>,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .discard_copy(&agent, &session, lost)
+        .await?)
 }
 
 /// Takes back the move of `session`, unless it already resumed on the target.

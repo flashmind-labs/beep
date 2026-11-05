@@ -191,10 +191,14 @@ struct Node {
     lines: mpsc::UnboundedReceiver<String>,
     /// Every line logged so far.
     log: Vec<String>,
+    /// Environment the process runs with besides the test's own.
+    env: Vec<(&'static str, String)>,
 }
 
 #[derive(Default)]
 struct Config {
+    /// Environment variables for the process.
+    env: Vec<(&'static str, String)>,
     server: Option<EndpointId>,
     agent: Option<(String, Vec<String>)>,
     name: Option<&'static str>,
@@ -251,7 +255,7 @@ impl Node {
             )
             .expect("the saved list is written");
         }
-        Self::run(dir, home, key.public()).await
+        Self::run(dir, home, key.public(), config.env).await
     }
 
     /// Stops the process; `Stopped::start` runs it again on the same folder.
@@ -261,10 +265,11 @@ impl Node {
             id,
             dir,
             home,
+            env,
             ..
         } = self;
         _child.kill().await.expect("the node stops");
-        Stopped { dir, home, id }
+        Stopped { dir, home, id, env }
     }
 
     /// Stops the process and starts it again on the same folder.
@@ -274,14 +279,21 @@ impl Node {
             id,
             dir,
             home,
+            env,
             ..
         } = self;
         _child.kill().await.expect("the node stops");
-        Self::run(dir, home, id).await
+        Self::run(dir, home, id, env).await
     }
 
-    async fn run(dir: TempDir, home: TempDir, id: EndpointId) -> Self {
+    async fn run(
+        dir: TempDir,
+        home: TempDir,
+        id: EndpointId,
+        env: Vec<(&'static str, String)>,
+    ) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+            .envs(env.iter().map(|(name, value)| (name, value)))
             .arg("--dir")
             .arg(dir.path())
             .arg("run")
@@ -319,6 +331,7 @@ impl Node {
             home,
             lines,
             log: Vec::new(),
+            env,
         };
         node.logged(READY).await;
         node
@@ -2232,11 +2245,12 @@ struct Stopped {
     dir: TempDir,
     home: TempDir,
     id: EndpointId,
+    env: Vec<(&'static str, String)>,
 }
 
 impl Stopped {
     async fn start(self) -> Node {
-        Node::run(self.dir, self.home, self.id).await
+        Node::run(self.dir, self.home, self.id, self.env).await
     }
 }
 
@@ -2255,6 +2269,15 @@ fn adapter_of(script: &str, log: &Path) -> (String, Vec<String>) {
 /// `a` and `b` run a fake coding agent, the script given; each logs to
 /// `sent.jsonl` and `sent-b.jsonl` in `work`.
 async fn synced_pair_with(agent: Option<&str>, agent_b: Option<&str>) -> Pair {
+    synced_pair_env(agent, agent_b, &[]).await
+}
+
+/// As `synced_pair_with`, both nodes running with `env` as well.
+async fn synced_pair_env(
+    agent: Option<&str>,
+    agent_b: Option<&str>,
+    env: &[(&'static str, String)],
+) -> Pair {
     let work = TempDir::new().expect("a temp folder");
     let desktop = desktop(None).await;
     let roots = [
@@ -2266,6 +2289,7 @@ async fn synced_pair_with(agent: Option<&str>, agent_b: Option<&str>) -> Pair {
         name: Some("box-a"),
         files: vec![roots[0].path().to_owned()],
         agent: agent.map(|script| adapter_of(script, &sent)),
+        env: env.to_vec(),
         ..Config::default()
     })
     .await;
@@ -2273,6 +2297,7 @@ async fn synced_pair_with(agent: Option<&str>, agent_b: Option<&str>) -> Pair {
         name: Some("box-b"),
         files: vec![roots[1].path().to_owned()],
         agent: agent_b.map(|script| adapter_of(script, &work.path().join("sent-b.jsonl"))),
+        env: env.to_vec(),
         ..Config::default()
     })
     .await;
@@ -2938,4 +2963,308 @@ async fn a_machine_whose_syncthing_ignores_the_worktree_refuses_it_and_the_sessi
         }
         other => panic!("not a list: {other:?}"),
     }
+}
+
+/// Both nodes copy every 200 ms, into a cache of `cache` bytes.
+fn copy_env(cache: Option<u64>) -> Vec<(&'static str, String)> {
+    let mut env = vec![("BEEP_SESSION_COPY_EVERY_MS", "200".to_owned())];
+    if let Some(cache) = cache {
+        env.push(("BEEP_SESSION_CACHE_BYTES", cache.to_string()));
+    }
+    env
+}
+
+/// Codex's rollout for session `id` as it lies on `node`, which ran it in
+/// `folder`, last written `age` ago and `pad` bytes long at least.
+fn rollout_for(node: &Node, folder: &Path, id: &str, age: Duration, pad: usize) -> PathBuf {
+    let path = node
+        .home
+        .path()
+        .join(".codex/sessions/2026/11/04")
+        .join(format!("rollout-2026-11-04T09-30-00-{id}.jsonl"));
+    fs::create_dir_all(path.parent().expect("a folder")).expect("the day's folder");
+    let cwd = folder.display().to_string();
+    fs::write(
+        &path,
+        format!(
+            "{}\n{}\n",
+            json!({"timestamp":"2026-11-04T09:30:00.000Z","type":"session_meta","payload":{"id":id,"cwd":cwd,"runtime_workspace_roots":[cwd]}}),
+            json!({"timestamp":"2026-11-04T09:30:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"x".repeat(pad)}]}}),
+        ),
+    )
+    .expect("a rollout");
+    set_age(&path, age);
+    path
+}
+
+fn set_age(path: &Path, age: Duration) {
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("the file opens")
+        .set_modified(std::time::SystemTime::now() - age)
+        .expect("the time is set");
+}
+
+/// What the node at `conn` keeps copies of.
+async fn copies_on(conn: &Link) -> Vec<beep_proto::node::agent::CopyView> {
+    let mut asked = ready(conn, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::Copies {})
+        .await
+        .expect("the request is sent");
+    match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Copies { copies }) => copies,
+        other => panic!("not a copies answer: {other:?}"),
+    }
+}
+
+/// Waits until the copies on `conn` are what `done` says.
+async fn until_copies(
+    conn: &Link,
+    what: &str,
+    done: impl Fn(&[beep_proto::node::agent::CopyView]) -> bool,
+) {
+    timeout(LIMIT, async {
+        loop {
+            if done(&copies_on(conn).await) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the copies never reached: {what}"));
+}
+
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(read) = fs::read_dir(dir) {
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(files_under(&path));
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_machine_copies_the_sessions_of_the_mesh_in_the_background_and_keeps_them_out_of_the_store()
+ {
+    use std::os::unix::fs::PermissionsExt;
+    let pair = synced_pair_env(None, Some(MOVE_ADAPTER), &copy_env(None)).await;
+    let source = rollout_on(&pair.a, &pair.a_folder);
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the session is copied", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_none())
+    })
+    .await;
+    let cached = pair.b.dir.path().join("sessions/codex/s/copy.jsonl");
+    assert_eq!(
+        fs::read(&cached).expect("the copy"),
+        fs::read(&source).expect("the source")
+    );
+    assert_eq!(
+        fs::metadata(&cached)
+            .expect("it exists")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    // It waits in the cache: no harness store lists it, and nothing runs.
+    assert!(
+        files_under(&pair.b.home.path().join(".codex")).is_empty(),
+        "{:?}",
+        files_under(&pair.b.home.path().join(".codex"))
+    );
+    assert!(
+        !fs::read_to_string(pair.work.path().join("sent-b.jsonl"))
+            .is_ok_and(|log| log.contains("session/load"))
+    );
+    // A later turn on the source comes as only the new bytes.
+    let before = fs::metadata(&cached).expect("it exists").len();
+    let mut more = fs::OpenOptions::new()
+        .append(true)
+        .open(&source)
+        .expect("the source opens");
+    std::io::Write::write_all(
+        &mut more,
+        format!(
+            "{}\n",
+            json!({"type":"response_item","payload":{"type":"message","role":"assistant"}})
+        )
+        .as_bytes(),
+    )
+    .expect("a line is added");
+    drop(more);
+    until_copies(&conn_b, "the new turn is copied", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.size > before)
+    })
+    .await;
+    assert_eq!(
+        fs::read(&cached).expect("the copy"),
+        fs::read(&source).expect("the source")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_continues_here_from_its_copy_while_its_machine_is_off() {
+    let pair = synced_pair_env(None, Some(MOVE_ADAPTER), &copy_env(None)).await;
+    fs::write(pair.a_folder.join("main.rs"), "fn main() {}\n").expect("a file");
+    has_text(&pair.b_folder.join("main.rs"), "fn main() {}\n").await;
+    rollout_on(&pair.a, &pair.a_folder);
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the session is copied", |c| {
+        c.iter().any(|v| v.id == MOVED_ID)
+    })
+    .await;
+    let (b_folder, a_folder) = (pair.b_folder.clone(), pair.a_folder.clone());
+    let _off = pair.a.stop().await;
+
+    let mut asked = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::ContinueCopy {
+            agent: "codex".to_owned(),
+            session: MOVED_ID.to_owned(),
+            lost: None,
+        })
+        .await
+        .expect("the request is sent");
+    match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::CopyDone {}) => {}
+        other => panic!("not done: {other:?}"),
+    }
+    // It resumed in this machine's checkout, from the rewritten transcript.
+    let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
+    assert!(load.contains(&b_folder.display().to_string()), "{load}");
+    let stored = fs::read_to_string(
+        pair.b
+            .home
+            .path()
+            .join(".codex/sessions/2026/11/04")
+            .join(ROLLOUT),
+    )
+    .expect("the transcript is in the store");
+    let header: Vec<_> = stored.lines().take(2).collect();
+    assert!(
+        header
+            .iter()
+            .all(|line| line.contains(&b_folder.display().to_string()))
+    );
+    assert!(
+        !header
+            .iter()
+            .any(|line| line.contains(&a_folder.display().to_string()))
+    );
+    // The copy is spent: the session is a local one now.
+    until_copies(&conn_b, "the copy is gone", |c| c.is_empty()).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn when_two_machines_continued_a_session_the_later_one_wins_and_the_other_stays_recoverable()
+{
+    let pair = synced_pair_env(None, None, &copy_env(None)).await;
+    // `a` went on at its own pace, and `b` continued from a copy taken
+    // earlier (activity 1 s into the epoch); `b`'s version is older.
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    let b_rollout = rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), "1").expect("the note");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "b's version is kept as a copy", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
+    })
+    .await;
+    assert!(!b_rollout.exists(), "the loser left the store");
+    let lost = copies_on(&conn_b)
+        .await
+        .into_iter()
+        .find(|v| v.lost.is_some())
+        .expect("a recoverable copy");
+    assert!(
+        files_under(&pair.b.dir.path().join("sessions/codex/s"))
+            .iter()
+            .any(|f| f
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("lost-") && n.ends_with(".jsonl"))),
+    );
+    // The winner's version comes as an ordinary copy.
+    until_copies(&conn_b, "a's version is copied", |c| {
+        c.iter().any(|v| v.lost.is_none())
+    })
+    .await;
+    // The user may throw the recoverable copy away.
+    let mut asked = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::DiscardCopy {
+            agent: "codex".to_owned(),
+            session: MOVED_ID.to_owned(),
+            lost: lost.lost,
+        })
+        .await
+        .expect("the request is sent");
+    timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads");
+    until_copies(&conn_b, "the lost version is gone", |c| {
+        c.iter().all(|v| v.lost.is_none())
+    })
+    .await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_cache_stays_under_its_cap_and_keeps_the_newest_sessions() {
+    // A rollout is about 1.3 KB with its note: two fit, a third does not.
+    let mut pair = synced_pair_env(None, None, &copy_env(Some(4000))).await;
+    for (id, age) in [("s1", 3000), ("s2", 2000), ("s3", 1000)] {
+        rollout_for(&pair.a, &pair.a_folder, id, Duration::from_secs(age), 1000);
+    }
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    pair.b
+        .logged("not copying session s1: the cache is full")
+        .await;
+    let copies = copies_on(&conn_b).await;
+    let mut ids: Vec<_> = copies.iter().map(|v| v.id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, ["s2", "s3"], "the oldest is the one left out");
+    let held: u64 = files_under(&pair.b.dir.path().join("sessions"))
+        .iter()
+        .map(|f| fs::metadata(f).map_or(0, |m| m.len()))
+        .sum();
+    assert!(held <= 4000, "{held} bytes are cached");
 }
