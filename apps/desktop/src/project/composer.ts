@@ -10,7 +10,9 @@ import { type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, reviewPrompt
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
-import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "../agents/agents.ts";
+import { AG, AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "../agents/agents.ts";
+import { draftPlace } from "../agents/draft.ts";
+import { S } from "../bar/core.ts";
 import { loadSessions, sessions } from "../agents/sessions.ts";
 import { issueBranch, issuePrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts";
@@ -134,16 +136,22 @@ function barHarness(place: { machine_id: string } | null) {
   return { host, offered, agent };
 }
 
-/// The picked project and its checkouts.
+/// The bar's project and its checkouts.
 function barProject() {
-  const p = state.picked ? filterProjects(projectRows() || [], state.picked)[0] : null;
+  const p = pc.project ? filterProjects(projectRows() || [], pc.project)[0] : null;
   return p ? { name: p.name, places: projectPlaces(p) } : null;
+}
+
+/// Whether the bar of project `name` is on screen: under its page, or in the
+/// empty agent view.
+export function barOn(name: string) {
+  return (shown === "projects" && state.picked === name) || (shown === "pane" && S.view === "agent" && AG.draft === name);
 }
 
 /// Reads what the bar needs for project `name`: the machines that run
 /// agents, the sessions (for worktrees) and the project's branches.
 function loadProjectBar(name: string) {
-  const redraw = () => { if (shown === "projects" && state.picked === name) redrawProjects(); };
+  const redraw = () => { if (barOn(name)) redrawProjects(); };
   invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; preloadModels(list); redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
   loadSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
   if (!pc.branches.has(name)) {
@@ -191,7 +199,7 @@ export function drawProjectComp(name: string) {
   c.clear.hidden = !t;
   const { offered, agent } = barHarness(place);
   if (agent && host) {
-    modelsOn(host.machine_id, agent, () => { if (shown === "projects" && state.picked === name) redrawProjects(); });
+    modelsOn(host.machine_id, agent, () => { if (barOn(name)) redrawProjects(); });
     c.harness.innerHTML = pillInner(agent, pc.picked.model, pc.picked.effort, host.machine_id);
   } else {
     c.harness.replaceChildren("Coding agent");
@@ -205,6 +213,7 @@ export function drawProjectComp(name: string) {
   c.fresh.hidden = !was;
   c.fresh.disabled = pc.starting;
   c.send.firstChild!.textContent = pc.starting ? "Starting" : was ? resumeLabel(was) : "Start";
+  draftPlace(place);
 }
 
 /// "Resume Fix the crash (Claude Code, 2 h)": the bar's button for a
@@ -239,14 +248,10 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
   projectComp.input.focus();
 }
 
-/// Cmd+N: the bar for project `name`, on `machine` when it has a checkout
-/// there, with its field focused. Nothing starts.
-export function focusBar(name: string, machine: string | null) {
+/// Points the bar at project `name`, on `machine` when it has a checkout there.
+export function pointBar(name: string, machine: string | null) {
   if (pc.project !== name) drawProjectComp(name);
   if (machine && barProject()?.places.some(p => p.machine === machine)) pc.machine = machine;
-  redrawProjects();
-  projectComp.form.scrollIntoView({ block: "nearest" });
-  projectComp.input.focus();
 }
 
 /// Work on it: the bar on a new worktree for the issue, from the default
@@ -351,7 +356,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
       if (what === "model") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
       if (what === "agent") p.effort = keepEffort(p.agent, p.effort);
       if (what !== "models") redrawProjects();
-      else if (state.picked) drawProjectComp(state.picked);
+      else if (pc.project) drawProjectComp(pc.project);
       if (what === "agent") focusSearch(el);
     },
   });
@@ -384,7 +389,7 @@ async function startFromBar(fresh = false) {
     c.input.value = "";
     pc.target = null;
     keepMachine(p.name, place.machine_id);
-    go("pane", { agent: started.session });
+    go("pane", { agent: started.session, adopt: true });
   } catch (e) {
     c.err.textContent = reason(e);
   } finally {
@@ -403,10 +408,10 @@ async function resumeFromBar(s: AgentSession, text: string) {
   try {
     if (s.status === "ended") {
       const started = await invoke<Started>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: text });
-      go("pane", { agent: started.session });
+      go("pane", { agent: started.session, adopt: true });
     } else {
       await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: { prompt: { text } } });
-      go("pane", { agent: { kind: "agent", ...s } });
+      go("pane", { agent: { kind: "agent", ...s }, adopt: true });
     }
     c.input.value = "";
     pc.target = null;

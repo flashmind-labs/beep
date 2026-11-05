@@ -239,6 +239,13 @@ export function zoomAt(v: ImageView, factor: number, px: number, py: number): Im
 /// ⇧esc, which zooms a side pane over its conversation and back.
 export const isZoomKey = (e: KeyboardEvent) => e.key === "Escape" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
 
+/// Esc typed in a pane terminal: it returns to the conversation's input, unless
+/// a program owns the screen (vim, less, htop run on the alternate buffer), which
+/// gets the key. ⇧esc is the zoom's, and keys with ⌘, ⌃ or ⌥ are the shell's.
+export function leavesTerminal(e: Pick<KeyboardEvent, "key" | "shiftKey" | "metaKey" | "ctrlKey" | "altKey" | "isComposing">, buffer: string) {
+  return e.key === "Escape" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && buffer !== "alternate";
+}
+
 /// Runs `toggle` on ⇧esc while `allowed`, ahead of every other Esc handler
 /// (the capture phase), and keeps the key from them. Held keys do not repeat it.
 export function onZoomKey(allowed: () => boolean, toggle: () => void) {

@@ -12,7 +12,8 @@ import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
 import { drawWorktrees, paneRoot, startWorktrees } from "./worktree.ts";
-import { dropTerm, type PaneTerm } from "./terminal.ts";
+import { dropTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
+import type { TerminalRow } from "../terminals/terminals.ts";
 import { drag, tabDown } from "./drag.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
@@ -73,6 +74,11 @@ export interface MediaTab {
   text?: TreeText;
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
+  /// Where a new terminal tab starts its shell (its machine and folder stay
+  /// those when the pane's session changes), or the terminal already
+  /// running that the tab follows.
+  at?: Omit<TermPlace, "name">;
+  existing?: TerminalRow;
 }
 
 /// The session the pane belongs to.
@@ -83,6 +89,8 @@ interface PaneSession {
   cwd: string;
   agent: string;
   external?: boolean;
+  /// The project it belongs to, which new terminals are listed under.
+  project?: string;
 }
 
 const SUBS = "subagents";
@@ -169,8 +177,7 @@ export function startPane(s: PaneSession) {
   closeAll();
   P.session = s;
   P.on = { right: FILES, bottom: FILES };
-  dropChanges();
-  startWorktrees(s, root => { if (root) { pointFilesAt(); reloadChanges(); } draw(); });
+  readWorktrees(s);
   P.subs = "";
   P.subCount = 0;
   P.moved.clear();
@@ -191,6 +198,26 @@ export function startPane(s: PaneSession) {
     pane.querySelector(".agtabs")!.addEventListener("pointerdown", e => tabDown(e as PointerEvent));
     document.getElementById(`agpstrip-${d}`)!.addEventListener("click", () => { P.layout.hidden[d] = false; saveLayout(); draw(); });
   }
+}
+
+/// Files and Changes read the folder of session `s`.
+function readWorktrees(s: PaneSession) {
+  dropChanges();
+  startWorktrees(s, root => { if (root) { pointFilesAt(); reloadChanges(); } draw(); });
+}
+
+/// The pane's session changes with its frame as it is: the empty view's place
+/// moves to another machine or checkout, or the session it starts takes over.
+/// Terminal tabs stay as they are, running where they were opened; the tabs
+/// that read files from the old machine go.
+export function rebindPane(s: PaneSession) {
+  const was = P.session;
+  P.session = s;
+  if (was && was.machine_id !== s.machine_id) for (const t of P.tabs.filter(x => x.kind !== "term")) closeTab(t.id);
+  readWorktrees(s);
+  pointFilesAt();
+  reloadChanges();
+  draw();
 }
 
 /// Every open tab closed, its bytes let go.
@@ -262,6 +289,12 @@ function toggleZoom() {
     P.zoom = shown.find(d => paneOf(d)?.contains(document.activeElement)) ?? shown.find(d => d === "right") ?? shown[0] ?? null;
   }
   place();
+  // From the input, the zoomed tab takes the keys: a terminal fills the view and is typed in.
+  const pane = P.zoom && paneOf(P.zoom);
+  if (pane && !pane.contains(document.activeElement)) {
+    const term = P.tabs.find(t => t.id === P.on[P.zoom!])?.term;
+    if (term) term.screen.focus(); else pane.focus({ preventScroll: true });
+  }
 }
 
 /// View diff: the Changes tab zoomed over the conversation, the keyboard in the diff.
@@ -284,7 +317,7 @@ export function leavePane() {
   if (!P.zoom && !focus?.closest(".agpane")) return false;
   P.zoom = null;
   place();
-  const input = document.getElementById("agmsg");
+  const input = document.querySelector<HTMLElement>("#agmsg, #agdraft textarea");
   if (input) input.focus(); else (focus as HTMLElement).blur();
   return true;
 }
@@ -564,18 +597,46 @@ export function openPath(path: string) {
 
 export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
   if (!P.tabs.some(x => x.id === t.id)) {
-    const tab: MediaTab = { ...t, size: 0, done: 0, error: "", el: null };
+    const tab: MediaTab = { size: 0, done: 0, error: "", el: null, ...t };
     P.tabs.push(tab);
-    if (tab.kind === "text") loadText(tab);
-    else if (tab.kind === "term") startTerminal(tab);
-    else if (!tab.url) load(tab);
+    if (!tab.error) {
+      if (tab.kind === "text") loadText(tab);
+      else if (tab.kind === "term") startTerminal(tab);
+      else if (!tab.url) load(tab);
+    }
   }
-  const d = dockOf(t.id);
+  focusTab(t.id);
+}
+
+/// Shows tab `id`, unfolding its dock, and gives the pane the keys.
+function focusTab(id: string) {
+  const d = dockOf(id);
   P.layout.hidden[d] = false;
   saveLayout();
-  P.on[d] = t.id;
+  P.on[d] = id;
   draw();
   paneOf(d)?.focus({ preventScroll: true });
+}
+
+/// ⌘1, ⌘2, ⌘3: the pane's Files, Changes or Artifacts tab (`n` from 0). False
+/// when there is no pane, or no artifact to list.
+export function showPaneTab(n: number) {
+  const id = [FILES, CHANGES, ARTS][n];
+  if (!id || !shell() || (id === ARTS && !artifactCount())) return false;
+  const d = dockOf(id);
+  P.layout.hidden[d] = false;
+  saveLayout();
+  showTab(d, id);
+  paneOf(d)?.focus({ preventScroll: true });
+  return true;
+}
+
+/// Shows terminal `row`, one that runs on its machine, as a tab of the pane,
+/// with the keyboard in it.
+export function openTerminal(row: TerminalRow) {
+  const have = P.tabs.find(t => t.term?.row.id === row.id || t.existing?.id === row.id);
+  if (have) return focusTab(have.id);
+  open({ id: `term:${row.id}`, kind: "term", name: row.name, path: null, url: null, existing: row });
 }
 
 /// The session the pane shows, while one does.
@@ -617,13 +678,15 @@ export function saveWorkFile(rel: string, note: (text: string) => void, root = p
     .catch(e => note(readError(e)));
 }
 
-/// Opens a terminal tab on the session's machine, in its folder (⌃`), in
-/// dock `d`, else where the newest terminal sits.
+/// Opens a terminal tab on the pane's machine, in its folder (⌘T, ⌃`), in
+/// dock `d`, else where the newest terminal sits. With no machine to run it
+/// the tab says so.
 export function newTerminal(d?: Dock) {
   const s = P.session;
   if (!s) return;
   const terms = P.tabs.filter(t => t.kind === "term");
-  const name = terminalName(paneRoot(), terms.map(t => t.name));
+  const root = paneRoot();
+  const name = terminalName(root, terms.map(t => t.name));
   const id = `term:${name}`;
   // While the window is too narrow for a right dock, every tab shows at
   // the bottom and a new one keeps the dock it would have.
@@ -631,5 +694,6 @@ export function newTerminal(d?: Dock) {
   const newest = terms.at(-1);
   const to = d && !narrow ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
   if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
-  open({ id, kind: "term", name, path: null, url: null });
+  const at = { machine_id: s.machine_id, machine_name: s.machine_name, cwd: root, project: s.project ?? "" };
+  open({ id, kind: "term", name, path: null, url: null, at, error: s.machine_id ? "" : "No machine has a checkout of this project to open a terminal in." });
 }

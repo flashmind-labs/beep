@@ -32,22 +32,34 @@ export interface PaneTerm {
   onEnd: () => void;
   /// How it stands changed.
   onLink: () => void;
+  /// Esc was typed in it: the conversation's input takes the keys.
+  onEscape: () => void;
 }
 
-/// Where a new terminal starts: the session's machine and folder.
+/// Where a new terminal starts: a machine and folder, and the project it
+/// belongs to ("" for none), which lists it on the project's page.
 export interface TermPlace {
   machine_id: string;
+  machine_name: string;
   cwd: string;
   name: string;
+  project: string;
 }
 
+type TermHooks = Pick<PaneTerm, "onEnd" | "onLink" | "onEscape">;
+
 /// Starts a shell at `place` and attaches to it.
-export async function openTerm(place: TermPlace, hooks: Pick<PaneTerm, "onEnd" | "onLink">): Promise<PaneTerm> {
-  const { makeScreen } = await import("../terminals/termview.ts");
+export async function openTerm(place: TermPlace, hooks: TermHooks): Promise<PaneTerm> {
   const row = await invoke<TerminalRow | null>("terminal_open", {
-    terminal: { project: "", machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
+    terminal: { project: place.project, machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
   });
   if (!row) throw new Error("The server is too old for terminals here.");
+  return followTerm(row, hooks);
+}
+
+/// Follows terminal `row`, one that already runs, in a tab.
+export async function followTerm(row: TerminalRow, hooks: TermHooks): Promise<PaneTerm> {
+  const { makeScreen } = await import("../terminals/termview.ts");
   const t = paneTerm(row, makeScreen(), hooks);
   attach(t);
   return t;
@@ -55,12 +67,13 @@ export async function openTerm(place: TermPlace, hooks: Pick<PaneTerm, "onEnd" |
 
 /// Terminal `row` on `screen`, with typing and resizes wired to it; not
 /// attached yet.
-export function paneTerm(row: TerminalRow, screen: Screen, hooks: Pick<PaneTerm, "onEnd" | "onLink">): PaneTerm {
+export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks): PaneTerm {
   const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, ...hooks };
   screen.onData(data => {
     if (t.link === "attached") invoke("terminal_input", { id: row.id, view: t.view, data }).catch(() => {});
   });
   screen.onResize(() => { if (t.link === "attached") sendSize(t); });
+  screen.onEscape(() => t.onEscape());
   return t;
 }
 

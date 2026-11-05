@@ -2,6 +2,7 @@
 // tests of terminals.ts load without a page.
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { leavesTerminal } from "../agentpane/media-state.ts";
 import type { Screen } from "./terminals.ts";
 
 /// The terminal's colours, as the mock's terminal pane.
@@ -28,6 +29,13 @@ export function makeScreen(): Screen {
     macOptionIsMeta: true,
     disableStdin: true,
     theme: THEME,
+  });
+  // Set by a pane's terminal: Esc leaves it instead of reaching the shell.
+  let escape: (() => void) | null = null;
+  term.attachCustomKeyEventHandler(e => {
+    if (e.type !== "keydown" || !escape || !leavesTerminal(e, term.buffer.active.type)) return true;
+    escape();
+    return false;
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -57,6 +65,7 @@ export function makeScreen(): Screen {
     focused: () => el.contains(document.activeElement),
     onData: cb => { term.onData(cb); },
     onResize: cb => { term.onResize(cb); },
+    onEscape: cb => { escape = cb; },
     setInput: on => {
       term.options.disableStdin = !on;
       term.options.cursorBlink = on;

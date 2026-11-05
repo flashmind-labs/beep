@@ -251,7 +251,7 @@ in `build.mjs`.
 - `project/`: the Projects page and one project's page.
 - `addproject/`: the Add a project, Import a project and New project sheets.
 - `review/`: branches, reviews and the diff viewer.
-- `agents/`: coding agents: start form, picker, a session's log, the list (`sessions.ts` is the one shared session list).
+- `agents/`: coding agents: start form, picker, a session's log, the list (`sessions.ts` is the one shared session list), and the empty view of ⌘N (`draft.ts`: a session's layout with the project's start input, which becomes the session in place).
 - `agentpane/`: a session's side pane: media, files, changes, artifacts.
 - `chat/`: chats, groups, the composer and reply cards.
 - `lists/`: Memories, Routines and Skills.
