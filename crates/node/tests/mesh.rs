@@ -191,10 +191,14 @@ struct Node {
     lines: mpsc::UnboundedReceiver<String>,
     /// Every line logged so far.
     log: Vec<String>,
+    /// Environment the process runs with besides the test's own.
+    env: Vec<(&'static str, String)>,
 }
 
 #[derive(Default)]
 struct Config {
+    /// Environment variables for the process.
+    env: Vec<(&'static str, String)>,
     server: Option<EndpointId>,
     agent: Option<(String, Vec<String>)>,
     name: Option<&'static str>,
@@ -251,7 +255,7 @@ impl Node {
             )
             .expect("the saved list is written");
         }
-        Self::run(dir, home, key.public()).await
+        Self::run(dir, home, key.public(), config.env).await
     }
 
     /// Stops the process; `Stopped::start` runs it again on the same folder.
@@ -261,10 +265,11 @@ impl Node {
             id,
             dir,
             home,
+            env,
             ..
         } = self;
         _child.kill().await.expect("the node stops");
-        Stopped { dir, home, id }
+        Stopped { dir, home, id, env }
     }
 
     /// Stops the process and starts it again on the same folder.
@@ -274,14 +279,21 @@ impl Node {
             id,
             dir,
             home,
+            env,
             ..
         } = self;
         _child.kill().await.expect("the node stops");
-        Self::run(dir, home, id).await
+        Self::run(dir, home, id, env).await
     }
 
-    async fn run(dir: TempDir, home: TempDir, id: EndpointId) -> Self {
+    async fn run(
+        dir: TempDir,
+        home: TempDir,
+        id: EndpointId,
+        env: Vec<(&'static str, String)>,
+    ) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+            .envs(env.iter().map(|(name, value)| (name, value)))
             .arg("--dir")
             .arg(dir.path())
             .arg("run")
@@ -319,6 +331,7 @@ impl Node {
             home,
             lines,
             log: Vec::new(),
+            env,
         };
         node.logged(READY).await;
         node
@@ -2232,11 +2245,12 @@ struct Stopped {
     dir: TempDir,
     home: TempDir,
     id: EndpointId,
+    env: Vec<(&'static str, String)>,
 }
 
 impl Stopped {
     async fn start(self) -> Node {
-        Node::run(self.dir, self.home, self.id).await
+        Node::run(self.dir, self.home, self.id, self.env).await
     }
 }
 
@@ -2255,6 +2269,15 @@ fn adapter_of(script: &str, log: &Path) -> (String, Vec<String>) {
 /// `a` and `b` run a fake coding agent, the script given; each logs to
 /// `sent.jsonl` and `sent-b.jsonl` in `work`.
 async fn synced_pair_with(agent: Option<&str>, agent_b: Option<&str>) -> Pair {
+    synced_pair_env(agent, agent_b, &[]).await
+}
+
+/// As `synced_pair_with`, both nodes running with `env` as well.
+async fn synced_pair_env(
+    agent: Option<&str>,
+    agent_b: Option<&str>,
+    env: &[(&'static str, String)],
+) -> Pair {
     let work = TempDir::new().expect("a temp folder");
     let desktop = desktop(None).await;
     let roots = [
@@ -2266,6 +2289,7 @@ async fn synced_pair_with(agent: Option<&str>, agent_b: Option<&str>) -> Pair {
         name: Some("box-a"),
         files: vec![roots[0].path().to_owned()],
         agent: agent.map(|script| adapter_of(script, &sent)),
+        env: env.to_vec(),
         ..Config::default()
     })
     .await;
@@ -2273,6 +2297,7 @@ async fn synced_pair_with(agent: Option<&str>, agent_b: Option<&str>) -> Pair {
         name: Some("box-b"),
         files: vec![roots[1].path().to_owned()],
         agent: agent_b.map(|script| adapter_of(script, &work.path().join("sent-b.jsonl"))),
+        env: env.to_vec(),
         ..Config::default()
     })
     .await;
@@ -2377,6 +2402,7 @@ async fn ask_to_move_in(
         mode: None,
         stop,
         at: 1_793_696_400_000,
+        worktree: None,
     };
     desktop
         .mesh
@@ -2715,6 +2741,1111 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
             && p.reason
                 .as_deref()
                 .is_some_and(|reason| reason.contains("no checkout"))
+    })
+    .await;
+}
+
+/// Runs git in `dir`, as a test user, and gives what it printed.
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// What the desktop writes to move session `s` from `a` to `b`, out of the
+/// worktree `from` on `branch`.
+async fn ask_to_move_worktree(
+    desktop: &Member,
+    from: EndpointId,
+    to: EndpointId,
+    branch: &str,
+    worktree: &Path,
+    at: u64,
+) {
+    let record = SessionMove {
+        agent: "codex".into(),
+        id: MOVED_ID.to_owned(),
+        from,
+        to,
+        project: "proj".to_owned(),
+        path: String::new(),
+        mode: None,
+        stop: false,
+        at: 1_793_696_400_000 + at,
+        worktree: Some(beep_proto::node::mesh_state::MovedWorktree {
+            branch: branch.to_owned(),
+            from: worktree.display().to_string(),
+        }),
+    };
+    desktop
+        .mesh
+        .set(
+            Key::SessionMove(MOVED_ID.to_owned()),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+}
+
+/// Starts a session on the node at `conn`, in `cwd`, and waits for its turn.
+async fn run_session_in(conn: &Link, cwd: &Path) {
+    let mut agent = ready(conn, "codex/1").await;
+    agent
+        .tx
+        .send(&AgentRequest::Start {
+            cwd: Some(cwd.display().to_string()),
+            prompt: "go".to_owned(),
+            model: None,
+            effort: None,
+            checkout: None,
+        })
+        .await
+        .expect("the start is sent");
+    timeout(LIMIT, async {
+        loop {
+            match agent.rx.recv::<AgentEvent>().await.expect("an event reads") {
+                Some(AgentEvent::TurnDone { .. }) => return,
+                Some(AgentEvent::Ended { reason }) => panic!("the session ended: {reason}"),
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("the turn finished in time");
+}
+
+/// A repository in `folder` with `feat` checked out in a worktree under
+/// `.worktrees/`, holding uncommitted work; gives the worktree.
+fn repo_with_dirty_worktree(folder: &Path) -> PathBuf {
+    git_in(folder, &["init", "-q", "--initial-branch=main"]);
+    fs::write(folder.join("main.rs"), "fn main() {}\n").expect("a file");
+    git_in(folder, &["add", "."]);
+    git_in(folder, &["commit", "-q", "-m", "first"]);
+    git_in(folder, &["branch", "feat"]);
+    let worktree = folder.join(".worktrees/feat");
+    git_in(
+        folder,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().expect("utf8"),
+            "feat",
+        ],
+    );
+    fs::write(worktree.join("main.rs"), "fn main() { todo!() }\n").expect("a change");
+    fs::write(worktree.join("notes.txt"), "not committed\n").expect("a new file");
+    worktree
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_in_a_worktree_moves_with_its_branch_and_uncommitted_work() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    // The checkout and its branches reach `b`; the worktree folder does not.
+    timeout(LIMIT, async {
+        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the branch reached the other machine");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 0).await;
+    pair.b.logged("took over codex session s").await;
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+
+    // `b` made a worktree on the same branch with the uncommitted work.
+    let b_worktree = pair.b_folder.join(".worktrees/feat");
+    assert_eq!(
+        git_in(&b_worktree, &["symbolic-ref", "--short", "HEAD"]),
+        "feat"
+    );
+    assert_eq!(
+        fs::read_to_string(b_worktree.join("main.rs")).expect("the change came"),
+        "fn main() { todo!() }\n"
+    );
+    assert_eq!(
+        fs::read_to_string(b_worktree.join("notes.txt")).expect("the new file came"),
+        "not committed\n"
+    );
+    let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
+    assert!(load.contains(&b_worktree.display().to_string()), "{load}");
+    // `a` lost nothing, and its worktree let go of the branch.
+    assert_eq!(
+        fs::read_to_string(a_worktree.join("notes.txt")).expect("kept"),
+        "not committed\n"
+    );
+    timeout(LIMIT, async {
+        while std::process::Command::new("git")
+            .args(["symbolic-ref", "-q", "HEAD"])
+            .current_dir(&a_worktree)
+            .output()
+            .expect("git runs")
+            .status
+            .success()
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the source's worktree was detached");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_machine_whose_syncthing_ignores_the_worktree_refuses_it_and_the_session_stays() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    // `b` is kept by Syncthing, which is told to leave worktrees out.
+    fs::create_dir(pair.b_folder.join(".stfolder")).expect("the marker");
+    fs::write(pair.b_folder.join(".stignore"), ".worktrees\n").expect("the ignore file");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The picker's question gets the refusal before anything is written.
+    let mut asked = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::MoveCheck {
+            project: "proj".to_owned(),
+            branch: "feat".to_owned(),
+        })
+        .await
+        .expect("the request is sent");
+    match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::MoveChecked { ignored }) => assert!(ignored),
+        other => panic!("not a move check: {other:?}"),
+    }
+    // A record written anyway fails on `b` before `a` stops anything.
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 0).await;
+    until_progress(&conn_b, "refused", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("Syncthing is set not to sync"))
+    })
+    .await;
+    pair.a.logged("the move of session s did not finish").await;
+    assert!(!pair.b_folder.join(".worktrees/feat").exists());
+    // `a` still runs the session.
+    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.state.status != Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+}
+
+/// Both nodes copy every 200 ms, into a cache of `cache` bytes.
+fn copy_env(cache: Option<u64>) -> Vec<(&'static str, String)> {
+    let mut env = vec![("BEEP_SESSION_COPY_EVERY_MS", "200".to_owned())];
+    if let Some(cache) = cache {
+        env.push(("BEEP_SESSION_CACHE_BYTES", cache.to_string()));
+    }
+    env
+}
+
+/// Codex's rollout for session `id` as it lies on `node`, which ran it in
+/// `folder`, last written `age` ago and `pad` bytes long at least.
+fn rollout_for(node: &Node, folder: &Path, id: &str, age: Duration, pad: usize) -> PathBuf {
+    let path = node
+        .home
+        .path()
+        .join(".codex/sessions/2026/11/04")
+        .join(format!("rollout-2026-11-04T09-30-00-{id}.jsonl"));
+    fs::create_dir_all(path.parent().expect("a folder")).expect("the day's folder");
+    let cwd = folder.display().to_string();
+    fs::write(
+        &path,
+        format!(
+            "{}\n{}\n",
+            json!({"timestamp":"2026-11-04T09:30:00.000Z","type":"session_meta","payload":{"id":id,"cwd":cwd,"runtime_workspace_roots":[cwd]}}),
+            json!({"timestamp":"2026-11-04T09:30:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"x".repeat(pad)}]}}),
+        ),
+    )
+    .expect("a rollout");
+    set_age(&path, age);
+    path
+}
+
+fn set_age(path: &Path, age: Duration) {
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("the file opens")
+        .set_modified(std::time::SystemTime::now() - age)
+        .expect("the time is set");
+}
+
+/// What the node at `conn` keeps copies of.
+async fn copies_on(conn: &Link) -> Vec<beep_proto::node::agent::CopyView> {
+    let mut asked = ready(conn, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::Copies {})
+        .await
+        .expect("the request is sent");
+    match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Copies { copies }) => copies,
+        other => panic!("not a copies answer: {other:?}"),
+    }
+}
+
+/// Waits until the copies on `conn` are what `done` says.
+async fn until_copies(
+    conn: &Link,
+    what: &str,
+    done: impl Fn(&[beep_proto::node::agent::CopyView]) -> bool,
+) {
+    timeout(LIMIT, async {
+        loop {
+            if done(&copies_on(conn).await) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the copies never reached: {what}"));
+}
+
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(read) = fs::read_dir(dir) {
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(files_under(&path));
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_machine_copies_the_sessions_of_the_mesh_in_the_background_and_keeps_them_out_of_the_store()
+ {
+    use std::os::unix::fs::PermissionsExt;
+    let pair = synced_pair_env(None, Some(MOVE_ADAPTER), &copy_env(None)).await;
+    let source = rollout_on(&pair.a, &pair.a_folder);
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the session is copied", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_none())
+    })
+    .await;
+    let cached = pair.b.dir.path().join("sessions/codex/s/copy.jsonl");
+    assert_eq!(
+        fs::read(&cached).expect("the copy"),
+        fs::read(&source).expect("the source")
+    );
+    assert_eq!(
+        fs::metadata(&cached)
+            .expect("it exists")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    // It waits in the cache: no harness store lists it, and nothing runs.
+    assert!(
+        files_under(&pair.b.home.path().join(".codex")).is_empty(),
+        "{:?}",
+        files_under(&pair.b.home.path().join(".codex"))
+    );
+    assert!(
+        !fs::read_to_string(pair.work.path().join("sent-b.jsonl"))
+            .is_ok_and(|log| log.contains("session/load"))
+    );
+    // A later turn on the source comes as only the new bytes.
+    let before = fs::metadata(&cached).expect("it exists").len();
+    let mut more = fs::OpenOptions::new()
+        .append(true)
+        .open(&source)
+        .expect("the source opens");
+    std::io::Write::write_all(
+        &mut more,
+        format!(
+            "{}\n",
+            json!({"type":"response_item","payload":{"type":"message","role":"assistant"}})
+        )
+        .as_bytes(),
+    )
+    .expect("a line is added");
+    drop(more);
+    until_copies(&conn_b, "the new turn is copied", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.size > before)
+    })
+    .await;
+    assert_eq!(
+        fs::read(&cached).expect("the copy"),
+        fs::read(&source).expect("the source")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_continues_here_from_its_copy_while_its_machine_is_off() {
+    let pair = synced_pair_env(None, Some(MOVE_ADAPTER), &copy_env(None)).await;
+    fs::write(pair.a_folder.join("main.rs"), "fn main() {}\n").expect("a file");
+    has_text(&pair.b_folder.join("main.rs"), "fn main() {}\n").await;
+    rollout_on(&pair.a, &pair.a_folder);
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the session is copied", |c| {
+        c.iter().any(|v| v.id == MOVED_ID)
+    })
+    .await;
+    let (b_folder, a_folder) = (pair.b_folder.clone(), pair.a_folder.clone());
+    let _off = pair.a.stop().await;
+
+    let mut asked = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::ContinueCopy {
+            agent: "codex".to_owned(),
+            session: MOVED_ID.to_owned(),
+            lost: None,
+        })
+        .await
+        .expect("the request is sent");
+    match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::CopyDone {}) => {}
+        other => panic!("not done: {other:?}"),
+    }
+    // It resumed in this machine's checkout, from the rewritten transcript.
+    let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
+    assert!(load.contains(&b_folder.display().to_string()), "{load}");
+    let stored = fs::read_to_string(
+        pair.b
+            .home
+            .path()
+            .join(".codex/sessions/2026/11/04")
+            .join(ROLLOUT),
+    )
+    .expect("the transcript is in the store");
+    let header: Vec<_> = stored.lines().take(2).collect();
+    assert!(
+        header
+            .iter()
+            .all(|line| line.contains(&b_folder.display().to_string()))
+    );
+    assert!(
+        !header
+            .iter()
+            .any(|line| line.contains(&a_folder.display().to_string()))
+    );
+    // The copy is spent: the session is a local one now.
+    until_copies(&conn_b, "the copy is gone", |c| c.is_empty()).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn when_two_machines_continued_a_session_the_later_one_wins_and_the_other_stays_recoverable()
+{
+    let pair = synced_pair_env(None, None, &copy_env(None)).await;
+    // `a` went on at its own pace, and `b` continued from a copy taken
+    // earlier (activity 1 s into the epoch); `b`'s version is older.
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    let b_rollout = rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), "1\n1").expect("the note");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "b's version is kept as a copy", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
+    })
+    .await;
+    assert!(!b_rollout.exists(), "the loser left the store");
+    let lost = copies_on(&conn_b)
+        .await
+        .into_iter()
+        .find(|v| v.lost.is_some())
+        .expect("a recoverable copy");
+    assert!(
+        files_under(&pair.b.dir.path().join("sessions/codex/s"))
+            .iter()
+            .any(|f| f
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("lost-") && n.ends_with(".jsonl"))),
+    );
+    // The winner's version comes as an ordinary copy.
+    until_copies(&conn_b, "a's version is copied", |c| {
+        c.iter().any(|v| v.lost.is_none())
+    })
+    .await;
+    // The user may throw the recoverable copy away.
+    let mut asked = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::DiscardCopy {
+            agent: "codex".to_owned(),
+            session: MOVED_ID.to_owned(),
+            lost: lost.lost,
+        })
+        .await
+        .expect("the request is sent");
+    timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads");
+    until_copies(&conn_b, "the lost version is gone", |c| {
+        c.iter().all(|v| v.lost.is_none())
+    })
+    .await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_cache_stays_under_its_cap_and_keeps_the_newest_sessions() {
+    // A rollout is about 1.3 KB with its note: two fit, a third does not.
+    let mut pair = synced_pair_env(None, None, &copy_env(Some(4000))).await;
+    for (id, age) in [("s1", 3000), ("s2", 2000), ("s3", 1000)] {
+        rollout_for(&pair.a, &pair.a_folder, id, Duration::from_secs(age), 1000);
+    }
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The two newest come, whatever order a pass takes them in, and the
+    // oldest is the one that does not fit.
+    until_copies(&conn_b, "the two newest are copied", |c| {
+        ["s2", "s3"].iter().all(|id| c.iter().any(|v| v.id == *id))
+    })
+    .await;
+    pair.b
+        .logged("not copying session s1: the cache is full")
+        .await;
+    let copies = copies_on(&conn_b).await;
+    let mut ids: Vec<_> = copies.iter().map(|v| v.id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, ["s2", "s3"], "the oldest is the one left out");
+    let held: u64 = files_under(&pair.b.dir.path().join("sessions"))
+        .iter()
+        .map(|f| fs::metadata(f).map_or(0, |m| m.len()))
+        .sum();
+    assert!(held <= 4000, "{held} bytes are cached");
+}
+
+/// The reply of the node at `conn` to a request about the copy of session
+/// `s`, or its version set aside at `lost`.
+async fn copy_request(conn: &Link, discard: bool, lost: Option<u64>) -> SessionsReply {
+    let mut asked = ready(conn, SESSIONS_PROTOCOL).await;
+    let request = if discard {
+        SessionsRequest::DiscardCopy {
+            agent: "codex".to_owned(),
+            session: MOVED_ID.to_owned(),
+            lost,
+        }
+    } else {
+        SessionsRequest::ContinueCopy {
+            agent: "codex".to_owned(),
+            session: MOVED_ID.to_owned(),
+            lost,
+        }
+    };
+    asked.tx.send(&request).await.expect("the request is sent");
+    timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+        .expect("a reply")
+}
+
+/// Session `s` as `a` went on with it and as `b` continued it from an
+/// earlier copy: `b`'s version is older and `b` holds the note that it
+/// continued. Gives `b`'s transcript and waits until `b` set it aside.
+async fn until_b_lost(pair: &Pair, conn_b: &Link) -> (PathBuf, u64) {
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    let b_rollout = rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), "1\n1").expect("the note");
+    until_copies(conn_b, "b's version is kept as a copy", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
+    })
+    .await;
+    let lost = copies_on(conn_b)
+        .await
+        .into_iter()
+        .find_map(|v| v.lost)
+        .expect("a recoverable copy");
+    (b_rollout, lost)
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_restore_that_cannot_run_leaves_the_recoverable_copy_where_it_was() {
+    // `b` has no Codex, so the restore is refused: nothing may change.
+    let pair = synced_pair_env(None, None, &copy_env(None)).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    let (_, lost) = until_b_lost(&pair, &conn_b).await;
+    // The project's folder is not here (its disk is away): nothing to
+    // continue in.
+    let away = pair.b_folder.with_extension("away");
+    fs::rename(&pair.b_folder, &away).expect("the folder goes");
+    let reply = copy_request(&conn_b, false, Some(lost)).await;
+    fs::rename(&away, &pair.b_folder).expect("the folder comes back");
+    match reply {
+        SessionsReply::Error { message } => {
+            assert!(message.contains("no folder here"), "{message}")
+        }
+        other => panic!("not refused: {other:?}"),
+    }
+    let kept = copies_on(&conn_b).await;
+    assert!(
+        kept.iter().any(|v| v.lost == Some(lost)),
+        "the version is still listed: {kept:?}"
+    );
+    assert!(
+        files_under(&pair.b.dir.path().join("sessions/codex/s"))
+            .iter()
+            .any(|f| f.to_string_lossy().ends_with(&format!("lost-{lost}.jsonl")))
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_restore_over_another_version_sets_that_one_aside_under_its_own_name() {
+    let pair = synced_pair_env(None, Some(MOVE_ADAPTER), &copy_env(None)).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    let (b_rollout, lost) = until_b_lost(&pair, &conn_b).await;
+    // The winner's transcript is in the store now, and does not run.
+    let winner = format!(
+        "{}\nthe winner\n",
+        json!({"timestamp":"2026-11-04T09:30:00.000Z","type":"session_meta","payload":{"id":MOVED_ID,"cwd":pair.b_folder.display().to_string()}})
+    );
+    fs::write(&b_rollout, &winner).expect("a transcript");
+    match copy_request(&conn_b, false, Some(lost)).await {
+        SessionsReply::CopyDone {} => {}
+        other => panic!("not done: {other:?}"),
+    }
+    // The transcript that was there is kept where the list shows it, as a
+    // version that lost, and nothing is set aside unlisted in the store.
+    let aside: Vec<_> = files_under(b_rollout.parent().expect("a folder"))
+        .into_iter()
+        .filter(|f| f.to_string_lossy().contains(".replaced-"))
+        .collect();
+    assert!(aside.is_empty(), "{aside:?}");
+    let kept = copies_on(&conn_b).await;
+    assert!(
+        kept.iter().any(|v| v.lost.is_some_and(|at| at != lost)),
+        "the winner's version is listed: {kept:?}"
+    );
+    let winner_kept = files_under(&pair.b.dir.path().join("sessions/codex/s"))
+        .into_iter()
+        .any(|f| {
+            f.to_string_lossy().ends_with(".jsonl")
+                && fs::read_to_string(&f).is_ok_and(|text| text == winner)
+        });
+    assert!(winner_kept);
+    assert!(
+        fs::read_to_string(&b_rollout)
+            .expect("the restored version")
+            .contains("session_meta")
+    );
+    until_copies(&conn_b, "the restored version left the list", |c| {
+        c.iter().all(|v| v.lost != Some(lost))
+    })
+    .await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_a_move_names_is_not_filed_as_lost_by_the_note_of_an_earlier_continue() {
+    let mut pair = synced_pair_env(None, None, &copy_env(None)).await;
+    // The desktop moved `s` from `b` to `a`: the record decides the owner.
+    ask_to_move(&pair.desktop, pair.b.id, pair.a.id, false).await;
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    let b_rollout = rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), "1\n1").expect("the note");
+    pair.b
+        .logged("session s: not settled, a move names it")
+        .await;
+    assert!(b_rollout.exists(), "the transcript stayed in its store");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    assert!(copies_on(&conn_b).await.iter().all(|v| v.lost.is_none()));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_branch_checked_out_on_the_target_refuses_the_move_and_the_session_stays() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    timeout(LIMIT, async {
+        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the branch reached the other machine");
+    // On `b` the branch is checked out in a worktree of its own.
+    let elsewhere = pair.b_folder.join(".worktrees/elsewhere");
+    git_in(
+        &pair.b_folder,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            elsewhere.to_str().expect("utf8"),
+            "feat",
+        ],
+    );
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 1).await;
+    until_progress(&conn_b, "refused", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("checked out in"))
+    })
+    .await;
+    pair.a.logged("the move of session s did not finish").await;
+    assert!(!pair.b_folder.join(".worktrees/feat").exists());
+    // The source never ended the session, and still runs it.
+    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.state.status != Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
+    let pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    timeout(LIMIT, async {
+        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the branch reached the other machine");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 1).await;
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+    let b_worktree = pair.b_folder.join(".worktrees/feat");
+    timeout(LIMIT, async {
+        while std::process::Command::new("git")
+            .args(["symbolic-ref", "-q", "HEAD"])
+            .current_dir(&a_worktree)
+            .output()
+            .expect("git runs")
+            .status
+            .success()
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the source's worktree was detached");
+
+    // What the session left in the folder went with it: the source's
+    // worktree is clean, so the session can come back to it.
+    timeout(LIMIT, async {
+        while !git_in(&a_worktree, &["status", "--porcelain"]).is_empty() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the source's worktree was cleaned once the work went");
+    // The user writes something in it meanwhile: the move back is refused
+    // before anything stops, naming the folder, and the session keeps
+    // running on `b`.
+    fs::write(a_worktree.join("scratch.txt"), "the user's\n").expect("a file");
+    ask_to_move_worktree(&pair.desktop, pair.b.id, pair.a.id, "feat", &b_worktree, 2).await;
+    until_progress(&conn_a, "refused for the folder", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains(&a_worktree.display().to_string()))
+    })
+    .await;
+    let mut list = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.state.status != Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+    assert_eq!(
+        fs::read_to_string(a_worktree.join("scratch.txt")).expect("untouched"),
+        "the user's\n"
+    );
+
+    // Removed by the user, with a stash of the user's own on the checkout:
+    // the folder is reused, and the stash is not touched.
+    fs::remove_file(a_worktree.join("scratch.txt")).expect("removed");
+    fs::write(pair.a_folder.join("main.rs"), "fn main() { mine() }\n").expect("a change");
+    git_in(
+        &pair.a_folder,
+        &["stash", "push", "-q", "-m", "the user's own"],
+    );
+    let stash = git_in(&pair.a_folder, &["stash", "list"]);
+    ask_to_move_worktree(&pair.desktop, pair.b.id, pair.a.id, "feat", &b_worktree, 3).await;
+    until_progress(&conn_a, "done again", |p| p.phase == MovePhase::Done).await;
+    assert_eq!(
+        git_in(&a_worktree, &["symbolic-ref", "--short", "HEAD"]),
+        "feat"
+    );
+    assert_eq!(
+        fs::read_to_string(a_worktree.join("main.rs")).expect("the work came back"),
+        "fn main() { todo!() }\n"
+    );
+    assert_eq!(git_in(&pair.a_folder, &["stash", "list"]), stash);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_that_moved_once_still_settles_a_later_two_way_continue() {
+    let pair = synced_pair_env(None, None, &copy_env(None)).await;
+    // The move of `s` from `b` to `a` ended long ago, on both sides.
+    let old: u64 = 1_793_696_400_000;
+    ask_to_move(&pair.desktop, pair.b.id, pair.a.id, false).await;
+    let moves = pair.b.dir.path().join("moves");
+    fs::create_dir_all(&moves).expect("the state folder");
+    fs::write(
+        moves.join("s.json"),
+        format!(r#"{{"at":{old},"phase":"Done"}}"#),
+    )
+    .expect("the move is over");
+    // Then `b` continued from a copy, and `a` went on too.
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), format!("1\n{now}")).expect("the note");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the later version wins", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
+    })
+    .await;
+}
+
+/// Codex's rollout for session `id` that spent a million tokens.
+fn rollout_with_usage(node: &Node, folder: &Path, id: &str) -> PathBuf {
+    let path = node
+        .home
+        .path()
+        .join(".codex/sessions/2026/11/04")
+        .join(format!("rollout-2026-11-04T09-30-00-{id}.jsonl"));
+    fs::create_dir_all(path.parent().expect("a folder")).expect("the day's folder");
+    let cwd = folder.display().to_string();
+    let used = json!({"input_tokens":1_000_000,"cached_input_tokens":0,"output_tokens":0,"total_tokens":1_000_000});
+    fs::write(
+        &path,
+        format!(
+            "{}\n{}\n{}\n",
+            json!({"timestamp":"2026-11-04T09:30:00.000Z","type":"session_meta","payload":{"id":id,"cwd":cwd,"runtime_workspace_roots":[cwd]}}),
+            json!({"timestamp":"2026-11-04T09:30:01.000Z","type":"turn_context","payload":{"cwd":cwd,"model":"gpt-6.1-sol"}}),
+            json!({"timestamp":"2026-11-04T09:30:02.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":used,"last_token_usage":used}}}),
+        ),
+    )
+    .expect("a rollout");
+    path
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn what_a_copy_spent_on_the_other_machine_is_not_counted_again_when_it_continues_here() {
+    let pair = synced_pair_env(None, Some(MOVE_ADAPTER), &copy_env(None)).await;
+    rollout_with_usage(&pair.a, &pair.a_folder, MOVED_ID);
+    // A session of `b`'s own that spent too, to know its history was read.
+    rollout_with_usage(&pair.b, &pair.b_folder, "mine");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the session is copied", |c| {
+        c.iter().any(|v| v.id == MOVED_ID)
+    })
+    .await;
+    match copy_request(&conn_b, false, None).await {
+        SessionsReply::CopyDone {} => {}
+        other => panic!("not done: {other:?}"),
+    }
+    let mut usage = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    usage
+        .tx
+        .send(&SessionsRequest::FollowUsage { history: true })
+        .await
+        .expect("the request is sent");
+    let mut spent: Vec<String> = Vec::new();
+    timeout(LIMIT, async {
+        loop {
+            match usage.rx.recv::<SessionsReply>().await.expect("reads") {
+                Some(SessionsReply::SessionSpend { usage }) => {
+                    spent.push(usage.session);
+                    if spent.iter().any(|id| id == "mine") {
+                        return;
+                    }
+                }
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("b's own session was reported");
+    // The rest of the history comes with it.
+    let _ = timeout(Duration::from_millis(500), async {
+        while let Ok(Some(reply)) = usage.rx.recv::<SessionsReply>().await {
+            if let SessionsReply::SessionSpend { usage } = reply {
+                spent.push(usage.session);
+            }
+        }
+    })
+    .await;
+    assert!(
+        !spent.iter().any(|id| id == MOVED_ID),
+        "the machine that ran it counted that: {spent:?}"
+    );
+}
+
+/// A coding agent that never ends a turn.
+fn hanging_adapter() -> String {
+    let adapter = MOVE_ADAPTER.replace(
+        r#"    *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;"#,
+        // A prompt is taken and never answered.
+        r#"    *'"session/prompt"'*) : ;;"#,
+    );
+    assert_ne!(adapter, MOVE_ADAPTER, "the prompt line was found");
+    adapter
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn background_copies_wait_while_a_session_works_on_this_machine() {
+    let mut pair = synced_pair_env(None, Some(&hanging_adapter()), &copy_env(None)).await;
+    rollout_on(&pair.a, &pair.a_folder);
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    // A turn that does not end: the session works.
+    let mut agent = ready(&conn_b, "codex/1").await;
+    agent
+        .tx
+        .send(&AgentRequest::Start {
+            cwd: Some(pair.b_folder.display().to_string()),
+            prompt: "go".to_owned(),
+            model: None,
+            effort: None,
+            checkout: None,
+        })
+        .await
+        .expect("the start is sent");
+    pair.b
+        .logged("background copies wait while a session works")
+        .await;
+    assert!(
+        copies_on(&conn_b).await.is_empty(),
+        "nothing is copied meanwhile"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_nested_repository_among_the_new_files_refuses_the_move_before_the_session_stops() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    let nested = a_worktree.join("vendor/lib");
+    fs::create_dir_all(&nested).expect("a folder");
+    git_in(&nested, &["init", "-q"]);
+    fs::write(nested.join("f.txt"), "x\n").expect("a file");
+    timeout(LIMIT, async {
+        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the branch reached the other machine");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 0).await;
+    // Refused by name on the first read, with the session still running.
+    until_progress(&conn_b, "refused by name", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("vendor/lib"))
+    })
+    .await;
+    pair.a.logged("the move of session s did not finish").await;
+    assert!(
+        !pair
+            .a
+            .log
+            .iter()
+            .any(|line| line.contains("ended the session")),
+        "the source stopped nothing"
+    );
+    assert!(!pair.b_folder.join(".worktrees/feat").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_machine_that_is_neither_end_of_an_old_move_still_settles_a_two_way_continue() {
+    let pair = synced_pair_env(None, None, &copy_env(None)).await;
+    // The record of an old move between two other machines is in the mesh;
+    // `b` has no saved state for it.
+    let record = SessionMove {
+        agent: "codex".into(),
+        id: MOVED_ID.to_owned(),
+        from: SecretKey::generate().public(),
+        to: SecretKey::generate().public(),
+        project: "proj".to_owned(),
+        path: String::new(),
+        mode: None,
+        stop: false,
+        at: 1_793_696_400_000,
+        worktree: None,
+    };
+    pair.desktop
+        .mesh
+        .set(
+            Key::SessionMove(MOVED_ID.to_owned()),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), format!("1\n{now}")).expect("the note");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the later version wins", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
     })
     .await;
 }

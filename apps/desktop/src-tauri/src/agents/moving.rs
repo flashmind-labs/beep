@@ -6,7 +6,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
 };
-use beep_fleet::{MoveAsk, MoveState};
+use beep_fleet::{AskedWorktree, CopyState, MoveAsk, MoveState, WorktreeMove};
 use beep_proto::{
     ApiError,
     node::{
@@ -40,6 +40,48 @@ impl From<SessionMove> for MoveView {
             to: record.to.to_string(),
             project: record.project,
             at: record.at,
+        }
+    }
+}
+
+/// A copy of another machine's session that this Mac keeps, or a version of
+/// one that lost to another machine's.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct CopyRow {
+    pub agent: String,
+    pub id: String,
+    /// The machine that ran it, and its name and whether the mesh has it
+    /// online now.
+    pub from: String,
+    pub from_name: String,
+    pub online: bool,
+    pub project: String,
+    pub path: String,
+    /// Unix seconds.
+    pub last_activity: u64,
+    pub fetched_at: u64,
+    pub size: u64,
+    /// When the version was set aside, for one that lost.
+    pub lost: Option<u64>,
+}
+
+impl From<CopyState> for CopyRow {
+    fn from(state: CopyState) -> Self {
+        let copy = state.view;
+        Self {
+            agent: copy.agent,
+            id: copy.id,
+            from: copy.from.to_string(),
+            from_name: state
+                .from_name
+                .unwrap_or_else(|| copy.from.fmt_short().to_string()),
+            online: state.online,
+            project: copy.project,
+            path: copy.path,
+            last_activity: copy.last_activity,
+            fetched_at: copy.fetched_at,
+            size: copy.size,
+            lost: copy.lost,
         }
     }
 }
@@ -110,7 +152,8 @@ pub async fn session_move(
     session: String,
     project: String,
     cwd: String,
-    linked: bool,
+    worktree_folder: Option<String>,
+    worktree_branch: Option<String>,
     mode: Option<String>,
     stop: bool,
 ) -> Result<MoveView> {
@@ -121,7 +164,10 @@ pub async fn session_move(
         to: machine(&to)?,
         project: &project,
         cwd: &cwd,
-        linked,
+        worktree: worktree_folder.as_deref().map(|folder| AskedWorktree {
+            folder,
+            branch: worktree_branch.as_deref().unwrap_or_default(),
+        }),
         mode,
         stop,
     };
@@ -134,6 +180,74 @@ pub async fn session_move(
 pub async fn session_move_probe(fleet: FleetState<'_>, machine_id: String) -> Result<bool> {
     let machine = machine(&machine_id)?;
     Ok(desk(&fleet).await?.takes_moves(machine).await?)
+}
+
+/// Whether the node of `machine_id` can take a session working in a worktree
+/// on `branch` of `project`: `takes`, `ignored` (its Syncthing is set not to
+/// sync the worktree) or `update` (its node is from before worktree moves).
+#[tauri::command]
+pub async fn session_move_worktree_probe(
+    fleet: FleetState<'_>,
+    machine_id: String,
+    project: String,
+    branch: String,
+) -> Result<&'static str> {
+    let machine = machine(&machine_id)?;
+    Ok(
+        match desk(&fleet)
+            .await?
+            .worktree_move(machine, &project, &branch)
+            .await?
+        {
+            WorktreeMove::Takes => "takes",
+            WorktreeMove::Ignored => "ignored",
+            WorktreeMove::NeedsUpdate => "update",
+        },
+    )
+}
+
+/// The sessions of other machines this Mac keeps copies of, which the node
+/// brings in on its own; none for a node from before copies.
+#[tauri::command]
+pub async fn session_copies(fleet: FleetState<'_>) -> Result<Vec<CopyRow>> {
+    Ok(desk(&fleet)
+        .await?
+        .session_copies()
+        .await?
+        .unwrap_or_default()
+        .into_iter()
+        .map(Into::into)
+        .collect())
+}
+
+/// Continues a copy on this Mac, in its checkout of the project (the version
+/// that lost at `lost` instead, when given). Refused in plain words when the
+/// project is not here or the session already runs here.
+#[tauri::command]
+pub async fn session_continue_copy(
+    fleet: FleetState<'_>,
+    agent: String,
+    session: String,
+    lost: Option<u64>,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .continue_copy(&agent, &session, lost)
+        .await?)
+}
+
+/// Throws a copy away, or the version that lost at `lost`.
+#[tauri::command]
+pub async fn session_discard_copy(
+    fleet: FleetState<'_>,
+    agent: String,
+    session: String,
+    lost: Option<u64>,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .discard_copy(&agent, &session, lost)
+        .await?)
 }
 
 /// Takes back the move of `session`, unless it already resumed on the target.

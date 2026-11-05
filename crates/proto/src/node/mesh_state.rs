@@ -73,6 +73,20 @@ pub struct SessionMove {
     pub stop: bool,
     /// Milliseconds since the Unix epoch.
     pub at: u64,
+    /// The session works in a linked worktree: `path` is then relative to
+    /// that worktree, not to the project's checkout. Added after the others,
+    /// so a node from before it reads the rest.
+    #[serde(default)]
+    pub worktree: Option<MovedWorktree>,
+}
+
+/// The linked worktree a session moves out of: the target makes a worktree
+/// on the same branch in its own checkout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MovedWorktree {
+    pub branch: String,
+    /// The worktree's folder on the source.
+    pub from: String,
 }
 
 /// A value that is stored in the mesh's state as bytes.
@@ -135,6 +149,7 @@ mod tests {
             mode: Option<String>,
             stop: bool,
             at: u64,
+            worktree: Option<MovedWorktree>,
             added_later: u8,
         }
         let (from, to) = (
@@ -151,6 +166,7 @@ mod tests {
             mode: None,
             stop: true,
             at: 7,
+            worktree: None,
             added_later: 1,
         };
         let record = SessionMove::from_bytes(&rmp_serde::to_vec(&sent).unwrap()).unwrap();
@@ -159,6 +175,55 @@ mod tests {
             SessionMove::from_bytes(&record.to_bytes().unwrap()).unwrap(),
             record
         );
+    }
+
+    #[test]
+    fn a_move_record_from_before_worktree_moves_reads_as_a_checkout_move() {
+        #[derive(Serialize)]
+        struct BeforeWorktrees {
+            agent: AgentSlug,
+            id: String,
+            from: EndpointId,
+            to: EndpointId,
+            project: String,
+            path: String,
+            mode: Option<String>,
+            stop: bool,
+            at: u64,
+        }
+        let sent = BeforeWorktrees {
+            agent: AgentSlug::CODEX,
+            id: "s1".into(),
+            from: SecretKey::generate().public(),
+            to: SecretKey::generate().public(),
+            project: "org/app".into(),
+            path: String::new(),
+            mode: None,
+            stop: false,
+            at: 7,
+        };
+        let record = SessionMove::from_bytes(&rmp_serde::to_vec(&sent).unwrap()).unwrap();
+        assert_eq!(record.worktree, None);
+        // A node from before it reads the new record's first nine fields.
+        let moved = SessionMove {
+            worktree: Some(MovedWorktree {
+                branch: "feat".into(),
+                from: "/srv/app/.worktrees/feat".into(),
+            }),
+            ..record
+        };
+        let older: (
+            AgentSlug,
+            String,
+            EndpointId,
+            EndpointId,
+            String,
+            String,
+            Option<String>,
+            bool,
+            u64,
+        ) = crate::lenient::from_slice(&moved.to_bytes().unwrap()).unwrap();
+        assert_eq!(older.8, 7);
     }
 
     #[test]

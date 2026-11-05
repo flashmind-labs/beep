@@ -1222,3 +1222,7 @@ body:not(.cbody) .dlive { position: static; background: none }
 .mvs .r.todo .mk::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--dim) }
 .mvs .mk .dspin { width: 11px; height: 11px }
 .mvs.bar { display: flex; align-items: center; gap: 8px }
+.dcopies { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border) }
+.dchat.copy { cursor: default }
+.dchat.copy .t small { color: var(--muted) }
+.dchat.copy .dbtn { flex: none }

@@ -8,9 +8,9 @@ use beep_proto::{
     CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
     node::{
         agent::{
-            AgentCommand, DiffAsk, Entry, ExternalSession, LiveStatus, ModelList, MoveProgress,
-            SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer,
-            Worktree,
+            AgentCommand, CopyView, DiffAsk, Entry, ExternalSession, LiveStatus, ModelList,
+            MoveProgress, SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply,
+            SessionsRequest, Steer, Worktree,
         },
         harness::HarnessReport,
     },
@@ -406,6 +406,103 @@ pub async fn move_progress<S: Sessions + ?Sized>(
             Ok(MoveState::NeedsUpdate)
         }
         Err(e) => Err(e),
+    }
+}
+
+/// Whether a node can take a session working in a worktree on `branch` of
+/// `project`.
+pub enum WorktreeMove {
+    Takes,
+    /// Its Syncthing is set not to sync the worktree's folder.
+    Ignored,
+    /// The node is from before worktree moves.
+    NeedsUpdate,
+}
+
+/// Asks the node whether it can take a worktree session of `project`.
+pub async fn worktree_move<S: Sessions + ?Sized>(
+    node: &S,
+    project: &str,
+    branch: &str,
+) -> Result<WorktreeMove, MeshError> {
+    let request = SessionsRequest::MoveCheck {
+        project: project.to_owned(),
+        branch: branch.to_owned(),
+    };
+    match node.sessions(request, READ_TIMEOUT).await {
+        Ok(SessionsReply::MoveChecked { ignored: false }) => Ok(WorktreeMove::Takes),
+        Ok(SessionsReply::MoveChecked { ignored: true }) => Ok(WorktreeMove::Ignored),
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        // A node from before it closes the stream.
+        Err(MeshError::Link(e)) => {
+            tracing::debug!("node did not answer a move check; error={e:#}");
+            Ok(WorktreeMove::NeedsUpdate)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// What a node says of the copies of other machines' sessions it keeps.
+pub enum NodeCopies {
+    Listed(Vec<CopyView>),
+    /// The node is from before background copies.
+    NeedsUpdate,
+}
+
+/// The copies the node keeps, and the versions that lost to another machine's.
+pub async fn copies<S: Sessions + ?Sized>(node: &S) -> Result<NodeCopies, MeshError> {
+    match node
+        .sessions(SessionsRequest::Copies {}, READ_TIMEOUT)
+        .await
+    {
+        Ok(SessionsReply::Copies { copies }) => Ok(NodeCopies::Listed(copies)),
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        // A node from before it closes the stream.
+        Err(MeshError::Link(e)) => {
+            tracing::debug!("node did not answer a copies request; error={e:#}");
+            Ok(NodeCopies::NeedsUpdate)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Runs the node's copy of a session, or its version set aside at `lost`.
+pub async fn continue_copy<S: Sessions + ?Sized>(
+    node: &S,
+    agent: &str,
+    session: &str,
+    lost: Option<u64>,
+) -> Result<NodeWork<()>, MeshError> {
+    let request = SessionsRequest::ContinueCopy {
+        agent: agent.to_owned(),
+        session: session.to_owned(),
+        lost,
+    };
+    match node.sessions(request, UPDATE_TIMEOUT).await? {
+        SessionsReply::CopyDone {} => Ok(NodeWork::Done(())),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// Throws away the node's copy of a session, or its version set aside at `lost`.
+pub async fn discard_copy<S: Sessions + ?Sized>(
+    node: &S,
+    agent: &str,
+    session: &str,
+    lost: Option<u64>,
+) -> Result<(), MeshError> {
+    let request = SessionsRequest::DiscardCopy {
+        agent: agent.to_owned(),
+        session: session.to_owned(),
+        lost,
+    };
+    match ask(node, request).await? {
+        SessionsReply::CopyDone {} => Ok(()),
+        SessionsReply::Error { message } => Err(said(message)),
+        other => Err(unexpected(&other)),
     }
 }
 

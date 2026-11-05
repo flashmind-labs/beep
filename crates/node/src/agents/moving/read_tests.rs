@@ -30,7 +30,7 @@ impl ProtocolHandler for Open {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, &|_, _| true).await;
+        let _ = super::read::serve(tx, rx, &self.0, &|_, _| true, &[]).await;
         connection.closed().await;
         Ok(())
     }
@@ -80,7 +80,17 @@ async fn read_from(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
     let connection = client.connect(server.endpoint().addr(), ALPN).await?;
     let (send, recv) = connection.open_bi().await?;
     let (tx, rx) = link(send, recv);
-    pull(tx, rx, AgentSlug::CODEX, id, copy).await
+    pull(
+        tx,
+        rx,
+        super::read::Ask {
+            agent: AgentSlug::CODEX,
+            id,
+            copy,
+            kind: super::read::Kind::Move { worktree: false },
+        },
+    )
+    .await
 }
 
 fn serving(agents: &Arc<Agents>) -> impl std::future::Future<Output = Router> {
@@ -200,7 +210,7 @@ impl ProtocolHandler for Strict {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, &|_, _| false).await;
+        let _ = super::read::serve(tx, rx, &self.0, &|_, _| false, &[]).await;
         connection.closed().await;
         Ok(())
     }
@@ -313,6 +323,7 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         mode: None,
         stop: false,
         at: 1,
+        worktree: None,
     };
     // The source serves its target.
     assert!(permits(Some(&record), a, b, Asked::Read, ID));
@@ -357,4 +368,122 @@ async fn a_session_the_source_is_finishing_with_reads_as_running_until_it_lets_g
     assert!(read_from(&server, &copy, ID).await.expect("a read").live);
     drop(held);
     assert!(!read_from(&server, &copy, ID).await.expect("a read").live);
+}
+
+#[tokio::test]
+async fn a_background_read_of_a_session_no_project_offers_is_refused() {
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+    // The server offers the sessions of no project, so no session is offered.
+    let err = pull(
+        tx,
+        rx,
+        super::read::Ask {
+            agent: AgentSlug::CODEX,
+            id: ID,
+            copy: &copy,
+            kind: super::read::Kind::Background { rate: 1 << 30 },
+        },
+    )
+    .await
+    .expect_err("refused");
+    assert!(format!("{err:#}").contains("not offered"), "{err:#}");
+    assert!(!copy.exists());
+}
+
+#[tokio::test]
+async fn a_worktree_read_before_the_source_registered_the_worktree_reads_as_running() {
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let client = endpoint().await;
+    let pull_with = |copy: std::path::PathBuf, worktree: bool| {
+        let (client, addr) = (client.clone(), server.endpoint().addr());
+        async move {
+            let connection = client.connect(addr, ALPN).await.expect("connects");
+            let (send, recv) = connection.open_bi().await.expect("a stream");
+            let (tx, rx) = link(send, recv);
+            pull(
+                tx,
+                rx,
+                super::read::Ask {
+                    agent: AgentSlug::CODEX,
+                    id: ID,
+                    copy: &copy,
+                    kind: super::read::Kind::Move { worktree },
+                },
+            )
+            .await
+            .expect("a read")
+        }
+    };
+    // The worktree is not registered yet: not read as ended, or the target
+    // would get no commit and no work, and fail for good.
+    let early = pull_with(mine.path().join("a.jsonl"), true).await;
+    assert!(early.live && early.work.is_none());
+    // A read of a checkout session is not held up by that.
+    let plain = pull_with(mine.path().join("b.jsonl"), false).await;
+    assert!(!plain.live);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_live_read_refuses_what_the_snapshot_cannot_read_before_the_source_stops_anything() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command};
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    // A worktree with a new file whose name is not UTF-8: the snapshot
+    // cannot read it, and no size estimate would see that.
+    let repo = TempDir::new().expect("a temp folder");
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}");
+    };
+    git(&["init", "-q", "--initial-branch=main"]);
+    fs::write(repo.path().join("a.txt"), "one\n").expect("a file");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    fs::write(repo.path().join(OsStr::from_bytes(b"bad\xff.txt")), "x\n").expect("a file");
+    source
+        .agents
+        .moves
+        .set_worktree(ID, repo.path().to_path_buf());
+    // The session still runs: the read is a live one.
+    let _held = source.agents.moves.hold(ID);
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+    let copy = mine.path().join("copy.jsonl");
+    let err = pull(
+        tx,
+        rx,
+        super::read::Ask {
+            agent: AgentSlug::CODEX,
+            id: ID,
+            copy: &copy,
+            kind: super::read::Kind::Move { worktree: true },
+        },
+    )
+    .await
+    .expect_err("refused on the live read");
+    assert!(err.is::<super::read::Refused>(), "{err:#}");
 }
