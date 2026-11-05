@@ -11,7 +11,8 @@ use crate::{
 use beep_mesh::Key;
 use beep_proto::{
     ApiError, FlshSettings, HarnessEnv, HarnessSettings, InstructionsVersion,
-    MachineHarnessSettings, check_agent, check_settings, merged_env, node::harness::HarnessConfig,
+    MachineHarnessSettings, check_agent, check_settings, merged_env,
+    node::harness::{AutoCompact, HarnessConfig},
 };
 use iroh::EndpointId;
 use uuid::Uuid;
@@ -132,6 +133,32 @@ impl Desk {
         Ok(devices)
     }
 
+    /// When the nodes compact `agent`'s sessions, the same on every machine; `None` is the default.
+    pub fn harness_compact(&self, agent: &str) -> Result<Option<AutoCompact>> {
+        check_agent(agent)?;
+        Ok(read::<HarnessConfig>(&self.mesh, &Self::harness_key(agent)).and_then(|c| c.compact))
+    }
+
+    /// Saves when the nodes compact `agent`'s sessions, for every machine.
+    pub async fn save_harness_compact(
+        &self,
+        agent: &str,
+        compact: Option<AutoCompact>,
+    ) -> Result<()> {
+        check_agent(agent)?;
+        if let Some(percent) = compact.and_then(|compact| compact.percent)
+            && !AutoCompact::valid_percent(percent)
+        {
+            return Err(FleetError::refused("The percent is 1 to 100."));
+        }
+        let key = Self::harness_key(agent);
+        let config = HarnessConfig {
+            compact,
+            ..read::<HarnessConfig>(&self.mesh, &key).unwrap_or_else(|| HarnessConfig::new(agent))
+        };
+        write(&self.mesh, key, Some(&config)).await
+    }
+
     /// Saves `settings` for every machine. The program path and home folder, which are paths on
     /// the machine it was edited on, go to all of them only with `include_program`.
     pub async fn save_harness_settings_all(
@@ -181,16 +208,17 @@ impl Desk {
         let settings = check_settings(settings)?;
         let key = Self::harness_key(agent);
         let submitted: Vec<String> = settings.env.iter().map(|var| var.name.clone()).collect();
-        let kept = read::<HarnessConfig>(&self.mesh, &key)
-            .map(|config| config.env)
-            .unwrap_or_default();
+        let kept = read::<HarnessConfig>(&self.mesh, &key);
+        let kept_env = kept.as_ref().map(|config| config.env.clone());
+        let compact = kept.and_then(|config| config.compact);
         let config = HarnessConfig {
             agent: agent.to_owned(),
             enabled: settings.enabled,
             program: None,
             home: None,
             args: settings.args,
-            env: merged_env(kept, settings.env),
+            env: merged_env(kept_env.unwrap_or_default(), settings.env),
+            compact,
         };
         write(&self.mesh, key, Some(&config)).await?;
         // A record goes once its variable has a value in the mesh, or was taken out. One submitted

@@ -1,6 +1,7 @@
 //! The agents a node knows how to start, and how it starts them.
 
 use super::Route;
+use beep_proto::node::harness::AutoCompact;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -15,6 +16,9 @@ pub struct AgentKind {
     /// Variables set for it on top of the node's own environment.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// The user's auto-compact setting; `None` is the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact: Option<AutoCompact>,
 }
 
 /// Shows the names of its variables, never their values, which may be the
@@ -218,5 +222,6 @@ pub(super) fn launch(known: &Known, found: &dyn Fn(&str) -> bool) -> Option<Agen
         program,
         args,
         env,
+        compact: None,
     })
 }

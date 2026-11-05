@@ -13,7 +13,7 @@ use crate::{
 };
 use beep_proto::{
     AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn, ListAgentHarnesses,
-    MachineHarnessSettings, SecretText, UpdateAgentHarness,
+    MachineHarnessSettings, SecretText, UpdateAgentHarness, node::harness::AutoCompact,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -273,4 +273,24 @@ pub async fn harness_settings_save_all(
         .await?
         .save_harness_settings_all(&from_machine, &agent, settings.into(), include_program)
         .await?)
+}
+
+/// When the nodes compact `agent`'s sessions; null is the default.
+#[tauri::command]
+pub async fn harness_compact(fleet: FleetState<'_>, agent: String) -> Result<Option<AutoCompact>> {
+    Ok(desk(&fleet).await?.harness_compact(&agent)?)
+}
+
+/// Saves when the nodes compact `agent`'s sessions, on every machine.
+#[tauri::command]
+pub async fn harness_compact_save(
+    fleet: FleetState<'_>,
+    agent: String,
+    compact: Option<AutoCompact>,
+) -> Result<()> {
+    desk(&fleet)
+        .await?
+        .save_harness_compact(&agent, compact)
+        .await?;
+    Ok(())
 }

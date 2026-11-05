@@ -234,7 +234,7 @@ impl Session {
             .filter(|_| known.is_some_and(|known| known.model_flag))
             .map(|model| format!("--model={model}"));
         let model = model.filter(|_| flag.is_none());
-        let policy = Policy::from_env(&kind.env);
+        let policy = Policy::from_setting(kind.compact);
         // Claude Code compacts mid-turn on its own trigger; it is set to
         // the same threshold unless the user set it.
         let agent_env = policy

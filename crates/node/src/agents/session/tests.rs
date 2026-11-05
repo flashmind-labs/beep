@@ -90,6 +90,7 @@ fn script(name: &str, script: &str, log: &Path) -> AgentKind {
             log.display().to_string(),
         ],
         env: Default::default(),
+        compact: None,
     }
 }
 
