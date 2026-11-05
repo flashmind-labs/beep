@@ -5,7 +5,7 @@ use super::{
     turns::turn_tokens,
 };
 use crate::agents::{
-    acp::{self, Line, LineReader, ModelSwitch, Offered, Prompt},
+    acp::{self, AsyncTask, Line, LineReader, ModelSwitch, Offered, Prompt},
     alerts::AlertHub,
     compaction::Compactor,
     images::Picture,
@@ -15,8 +15,8 @@ use crate::agents::{
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
 use agent_client_protocol::{
-    Agent, Client, ConnectionTo, JsonRpcRequest, Responder, on_receive_notification,
-    on_receive_request,
+    Agent, Client, ConnectionTo, Dispatch, Handled, JsonRpcRequest, Responder, on_receive_dispatch,
+    on_receive_notification, on_receive_request,
     schema::v1::{
         InitializeResponse, McpServer, PromptResponse, RequestPermissionRequest,
         RequestPermissionResponse, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
@@ -47,6 +47,8 @@ use tokio::{
 /// What the agent sent the session's task.
 pub(super) enum Event {
     Update(SessionUpdate),
+    /// A command the agent runs in the background started, moved or ended.
+    Task(AsyncTask),
     Permission(
         RequestPermissionRequest,
         Responder<RequestPermissionResponse>,
@@ -91,6 +93,12 @@ pub(super) enum Reply {
     ModeSet {
         was: Option<String>,
         result: Result<(), agent_client_protocol::Error>,
+    },
+    /// The answer to stopping the background task `task`: whether it
+    /// stopped.
+    TaskStopped {
+        task: String,
+        result: Result<serde_json::Value, agent_client_protocol::Error>,
     },
     Prompt(Result<PromptResponse, agent_client_protocol::Error>),
     /// The answer to the `/compact` the node sent.
@@ -303,6 +311,7 @@ impl Actor {
             live.info.plan_ready = None;
             live.info.state.status = Status::Ended;
             live.info.state.queued = 0;
+            live.end_tasks();
             live.held = waiting;
             if !closed {
                 live.info.state.error = Some(reason);
@@ -342,12 +351,35 @@ impl Actor {
             stderr: LineReader::new(BufReader::new(stderr), MAX_STDERR_LINE),
         };
         let updates = events_tx.clone();
+        let tasks = events_tx.clone();
         let questions = events_tx;
         // The handlers run in the crate's dispatch loop, which reads apart
         // from writing; each only hands the message to this task.
         let ended = Client
             .builder()
             .name("beep-node")
+            // Before the typed handler below, which refuses the updates the
+            // crate does not know.
+            .on_receive_dispatch(
+                async move |dispatch: Dispatch, _cx| {
+                    let Dispatch::Notification(message) = &dispatch else {
+                        return Ok(Handled::No {
+                            message: dispatch,
+                            retry: false,
+                        });
+                    };
+                    let Some(task) = acp::async_task(message) else {
+                        return Ok(Handled::No {
+                            message: dispatch,
+                            retry: false,
+                        });
+                    };
+                    // Fails only once the session ended, when it no longer matters.
+                    let _ = tasks.send(Event::Task(task)).await;
+                    Ok(Handled::Yes)
+                },
+                on_receive_dispatch!(),
+            )
             .on_receive_notification(
                 async move |notification: SessionNotification, _cx| {
                     // Fails only once the session ended, when it no longer matters.
@@ -382,7 +414,8 @@ impl Actor {
         inputs: &mut Inputs,
         orders: &mut mpsc::Receiver<Order>,
     ) -> Result<End> {
-        self.send(cx, acp::initialize(), |result| {
+        let async_tasks = known(&self.agent).is_some_and(|known| known.async_tasks);
+        self.send(cx, acp::initialize(async_tasks), |result| {
             Reply::Initialized(result.map(Box::new))
         });
         let mut stderr_open = true;
@@ -467,6 +500,9 @@ impl Actor {
                     self.steer_now(cx)?;
                 }
             }
+            Event::Task(task) => {
+                self.live.send_if_modified(|live| live.apply_task(task));
+            }
             Event::Permission(request, responder) => {
                 let Some(responder) = self.plan_ready(&request, responder) else {
                     return Ok(());
@@ -549,6 +585,13 @@ impl Actor {
                     }
                 }
             }
+            Reply::TaskStopped { task, result } => match result {
+                Ok(done) if done["stopped"] == false => {
+                    self.note(&format!("The agent did not stop the task {task}"));
+                }
+                Ok(_) => {}
+                Err(e) => self.note(&format!("Could not stop the task {task}: {e}")),
+            },
             Reply::Resumed(_, Err(e)) => {
                 return Ok(Some(End::Failed(format!(
                     "the agent could not resume the session: {e}"

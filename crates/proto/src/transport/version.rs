@@ -11,7 +11,7 @@ use crate::{Hello, Platform};
 /// The newest wire revision this crate reads. Raise it together with a new
 /// `Feature`, and run the compat test with `BEEP_WIRE_BLESS=1` to freeze the
 /// new revision's fixtures.
-pub const WIRE: u32 = 19;
+pub const WIRE: u32 = 20;
 
 /// A reply shape newer than some clients: a streamed enum variant, or
 /// anything else only the `WIRE` it names can decode. Declare each as an
@@ -78,6 +78,11 @@ impl Feature {
     /// Sends `MirrorImport`, a desktop telling the server about a project it
     /// imported on its own. Only the macOS app does.
     pub const MESH: Feature = Feature(19);
+
+    /// Sends `AgentSteer::StopTask` and asks `GetAgentSessionTasks`, to show and
+    /// stop the commands a coding agent runs in the background. Only the macOS
+    /// app does.
+    pub const AGENT_TASKS: Feature = Feature(20);
 
     /// The first wire revision that reads it.
     pub const fn wire(self) -> u32 {

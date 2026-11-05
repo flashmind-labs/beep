@@ -16,11 +16,12 @@ use beep_mesh::{
 };
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentHarness, AgentHarnesses, AgentHost, AgentImageData,
-    AgentModels, AgentSessionModes, AgentSessionUsage, AgentSessionView, ApiError, CodexLogin,
-    CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage, GetAgentSession,
-    GetAgentSessionModes, GetAgentSessionUsage, HarnessEnv, HarnessSettings, HarnessSignIn,
-    ListAgentModels, MachinePick, MachineSession, PreviewAgentMachine, ResumeAgentSession,
-    StartAgentSession, StartedAgent, SteerAgentSession, image_key, media_mime,
+    AgentModels, AgentSessionModes, AgentSessionTasks, AgentSessionUsage, AgentSessionView,
+    ApiError, CodexLogin, CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage,
+    GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage, HarnessEnv,
+    HarnessSettings, HarnessSignIn, ListAgentModels, MachinePick, MachineSession,
+    PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
+    image_key, media_mime,
     node::{
         agent::{self, Request},
         harness::{HarnessConfig, HarnessInfo, harness},
@@ -255,6 +256,16 @@ pub(crate) async fn modes(
             .collect(),
         plan: info.plan_ready,
     })
+}
+
+pub(crate) async fn tasks(
+    fleet: &Fleet,
+    machine: EndpointId,
+    get: &GetAgentSessionTasks,
+) -> Result<AgentSessionTasks> {
+    let client = fleet.client(machine).await?;
+    let info = info(&client, &get.agent, &get.session).await?;
+    Ok(machine::session_tasks(info.state.tasks))
 }
 
 /// A session on `machine` named by the node, as a start gives it back.

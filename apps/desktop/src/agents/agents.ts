@@ -107,6 +107,20 @@ export interface AgentModes {
   plan: string | null;
 }
 
+/// A command the agent runs in the background, as `agent_tasks` returns it.
+export interface AgentTask {
+  id: string;
+  name: string;
+  description: string;
+  /// `running`, `paused`, `completed`, `failed` or `stopped`.
+  state: string;
+  can_stop: boolean;
+  output_file: string | null;
+  summary: string | null;
+  /// The log entry of the call that started it.
+  entry: number | null;
+}
+
 /// "62% context · 184K tokens · $1.42", leaving out what is not known.
 export function usageLine(u: AgentUsage) {
   const parts: string[] = [];
@@ -171,7 +185,7 @@ type SentImage = { name: string; mime: string; data: string };
 /// those back, stop the turn, close the session, or switch its model or
 /// thinking from the next turn.
 export type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer: { text: string; images?: SentImage[] } } | { drop_steers: null }
-  | { cancel: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } };
+  | { cancel: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } } | { stop_task: { task: string } };
 
 interface AgentState {
   readError: string;
@@ -226,6 +240,8 @@ interface AgentState {
   modelOpen: boolean;
   /// The open session's modes, when the server says.
   modes: AgentModes | null;
+  /// The open session's background commands, when the server says.
+  tasks: AgentTask[];
 }
 
 export const AG: AgentState = {
@@ -235,7 +251,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null,
+  opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.

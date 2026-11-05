@@ -108,7 +108,33 @@ impl Actor {
             }
             Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
             Command::SetMode(mode) => Ok(self.set_mode(cx, mode)),
+            Command::StopTask(task) => Ok(self.stop_task(cx, task)),
         }
+    }
+
+    /// Asks the agent to stop `task`, one of its running background tasks
+    /// that can be stopped. The task shows as stopped once the agent says so.
+    fn stop_task(&mut self, cx: &ConnectionTo<Agent>, task: String) -> Result<(), String> {
+        let Some(session) = self.acp_session.clone() else {
+            return Err("the agent is still starting".into());
+        };
+        let live = self.live.borrow();
+        let Some(known) = live.info.state.tasks.iter().find(|known| known.id == task) else {
+            return Err(format!("no task {task} here"));
+        };
+        if known.state.ended() {
+            return Err(format!("the task {task} has ended"));
+        }
+        if !known.can_stop {
+            return Err(format!("the task {task} cannot be stopped"));
+        }
+        drop(live);
+        let request = acp::stop_task(&session, &task).map_err(|e| e.to_string())?;
+        self.send(cx, request, move |result| Reply::TaskStopped {
+            task,
+            result,
+        });
+        Ok(())
     }
 
     /// Switches the session to `mode`, one it offers. It shows at once, and

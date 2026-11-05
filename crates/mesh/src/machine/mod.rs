@@ -19,7 +19,7 @@ pub mod thumb;
 pub use agent::{Opened, StartOn, open_agent, order};
 pub use convert::{
     Host, agent_models, beep_session, beep_view, entries_for, external_session, machine_capability,
-    past_session, runs_now,
+    past_session, runs_now, session_tasks,
 };
 pub use node::{
     Exec, Tasks, Updated, exec, files, install_tool, log, search, set_search, task_request,

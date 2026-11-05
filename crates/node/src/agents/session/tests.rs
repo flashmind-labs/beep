@@ -12,7 +12,7 @@ use crate::agents::{
 };
 use beep_proto::node::{
     Open, Opened,
-    agent::{Alert, AlertKind, OptionKind, StopReason},
+    agent::{Alert, AlertKind, OptionKind, StopReason, TaskState},
     link,
     tools::{Reply, Request},
 };
@@ -1302,4 +1302,122 @@ async fn plan_mode_waits_for_approval_and_goes_back_to_the_mode_before_it() {
         .map(|line| &line["params"]["modeId"])
         .collect();
     assert_eq!(modes, ["bypassPermissions", "plan", "bypassPermissions"]);
+}
+
+/// Claude Code with `asyncTasks`: one prompt ends its turn with two commands
+/// left in the background (the second announced before its call is marked),
+/// and a turn of its own that is not a command. A stop request stops the first
+/// and the second ends by itself.
+const BACKGROUND_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
+marked='"_meta":{"jetbrains":{"air":{"version":1,"asyncTasks":{"backgrounded":true}}}}'
+while read -r line; do
+    log "$1"
+    case "$line" in
+    *'"session/prompt"'*)
+        prompt=$(id)
+        update '{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Run sleep 60","kind":"execute","status":"in_progress"}'
+        update '{"sessionUpdate":"async_task_spawned","asyncTaskId":"bg1","name":"sleep 60","taskType":"local_bash","description":"Run sleep 60","showInTranscript":true,"canStop":true,"outputFilePath":"/srv/tasks/bg1.output","toolCallId":"t1"}'
+        update '{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed",'"$marked"'}'
+        update '{"sessionUpdate":"tool_call","toolCallId":"t2","title":"Run make watch","kind":"execute","status":"in_progress"}'
+        update '{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"completed",'"$marked"'}'
+        update '{"sessionUpdate":"async_task_spawned","asyncTaskId":"bg2","name":"make watch","taskType":"local_bash","description":"Run make watch","showInTranscript":true,"canStop":true,"toolCallId":"t2"}'
+        update '{"sessionUpdate":"async_task_progress","asyncTaskId":"bg2","description":"Run make watch (building)"}'
+        update '{"sessionUpdate":"async_task_spawned","asyncTaskId":"turn1","name":"Claude is working","taskType":"turn","description":"","showInTranscript":false,"canStop":true}'
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+        ;;
+    *'"_session/async_task/stop"'*)
+        reply '{"stopped":true}'
+        update '{"sessionUpdate":"async_task_state_update","asyncTaskId":"bg1","state":"stopped"}'
+        update '{"sessionUpdate":"async_task_state_update","asyncTaskId":"bg2","state":"completed","summary":"exit 0"}'
+        ;;
+    *) reply '{}' ;;
+    esac
+done
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn background_commands_show_as_running_and_stop_without_ending_the_turn() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("claude", BACKGROUND_ADAPTER, &log);
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+
+    // The turn ended; both commands run, and the turn's own task is not one.
+    until(&session, |live| {
+        live.info.turns == 1 && live.info.state.tasks.len() == 2
+    })
+    .await;
+    let tasks = session.info().state.tasks;
+    let running = |id: &str| tasks.iter().find(|task| task.id == id).unwrap().clone();
+    assert_eq!(running("bg1").state, TaskState::Running);
+    assert!(running("bg1").can_stop);
+    assert_eq!(running("bg1").tool_call.as_deref(), Some("t1"));
+    assert_eq!(
+        running("bg1").output_file.as_deref(),
+        Some("/srv/tasks/bg1.output")
+    );
+    assert_eq!(running("bg2").description, "Run make watch (building)");
+    // Their calls completed, yet read as running, in whichever order the
+    // adapter said so.
+    let shown = |session: &Session| -> Vec<String> {
+        let (entries, _) = session.live.borrow().transcript(10);
+        entries
+            .into_iter()
+            .filter(|entry| entry.kind == EntryKind::Tool)
+            .map(|entry| entry.text)
+            .collect()
+    };
+    assert_eq!(
+        shown(&session),
+        ["Run sleep 60 [in_progress]", "Run make watch [in_progress]"]
+    );
+    assert_eq!(running("bg1").entry, Some(1));
+    assert_eq!(running("bg2").entry, Some(2));
+
+    let missing = session.order(Command::StopTask("nope".into())).await;
+    assert!(missing.unwrap_err().contains("no task nope"));
+    session
+        .order(Command::StopTask("bg1".into()))
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.state.tasks.iter().all(|task| task.state.ended())
+    })
+    .await;
+
+    // One stopped, one ended by itself; their calls read as done now.
+    let tasks = session.info().state.tasks;
+    assert_eq!(tasks[0].state, TaskState::Stopped);
+    assert_eq!(tasks[1].state, TaskState::Completed);
+    assert_eq!(tasks[1].summary.as_deref(), Some("exit 0"));
+    assert_eq!(
+        shown(&session),
+        ["Run sleep 60 [completed]", "Run make watch [completed]"]
+    );
+    let ended = session.order(Command::StopTask("bg1".into())).await;
+    assert!(ended.unwrap_err().contains("has ended"));
+
+    let sent = sent(&log);
+    let capabilities = &sent[0]["params"]["clientCapabilities"]["_meta"]["jetbrains"]["air"];
+    assert_eq!(capabilities["version"], 1);
+    assert_eq!(
+        capabilities["capabilities"],
+        serde_json::json!(["asyncTasks"])
+    );
+    let stops: Vec<&Value> = sent
+        .iter()
+        .filter(|line| line["method"] == "_session/async_task/stop")
+        .collect();
+    assert_eq!(stops.len(), 1);
+    assert_eq!(stops[0]["params"]["sessionId"], "s");
+    assert_eq!(stops[0]["params"]["asyncTaskId"], "bg1");
+    assert!(sent.iter().all(|line| line["method"] != "session/cancel"));
+    assert_eq!(session.info().state.status, Status::Idle);
 }

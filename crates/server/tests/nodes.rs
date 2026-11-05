@@ -26,16 +26,17 @@ use beep_server::{
     protocol::{
         AddMachineOverSsh, AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk,
         AgentImageData, AgentMode, AgentModel, AgentModelPick, AgentModels, AgentNoticeKey,
-        AgentSessionModes, AgentSessionUsage, AgentSteer, AgentTokens, AnswerApproval, ApiError,
-        Approval, ApprovalDecision, CreateNodeToken, CustomAgent, CustomAgentHarness,
-        CustomAgentScope, DeviceKind, DiffFile, DiffStatus, GetAgentFile, GetAgentImage,
-        GetAgentSession, GetAgentSessionModes, GetAgentSessionUsage, GetAgentThumb, GetMachineLog,
-        GetNodeToken, GetSession, GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange,
-        HarnessSettings, HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels,
-        ListAgentSessions, ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines,
-        ListMemoryScopes, ListProjects, ListSshHosts, ListWorkFolder, ListWorkTree,
-        MAX_WORK_UPLOAD, MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine,
-        ReadWorkFile, RemoveDevice, RemoveMachine, RevokeNodeToken, RunEvent, SaveHarnessSettings,
+        AgentSessionModes, AgentSessionTasks, AgentSessionUsage, AgentSteer, AgentTask,
+        AgentTokens, AnswerApproval, ApiError, Approval, ApprovalDecision, CreateNodeToken,
+        CustomAgent, CustomAgentHarness, CustomAgentScope, DeviceKind, DiffFile, DiffStatus,
+        GetAgentFile, GetAgentImage, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks,
+        GetAgentSessionUsage, GetAgentThumb, GetMachineLog, GetNodeToken, GetSession,
+        GetSpendReport, GetUsage, GetUsageReport, GetWorkDiff, GitChange, HarnessSettings,
+        HistoryEntry, ListAgentHosts, ListAgentImages, ListAgentModels, ListAgentSessions,
+        ListCustomAgents, ListMachineDetails, ListMachineStats, ListMachines, ListMemoryScopes,
+        ListProjects, ListSshHosts, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD,
+        MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile,
+        RemoveDevice, RemoveMachine, RevokeNodeToken, RunEvent, SaveHarnessSettings,
         StartAgentSession, SteerAgentSession, Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree,
         WriteWorkFile, image_key,
         link::LinkOffer,
@@ -45,7 +46,7 @@ use beep_server::{
                 Alert, AlertKind, AnswerOption, CheckoutPlan, Effort, Entry, EntryKind, Event,
                 ExternalSession, ModeOption, ModelList, ModelOption, ModelPick, OptionKind,
                 Question, Request, SESSIONS_PROTOCOL, SessionInfo, SessionsReply, SessionsRequest,
-                State, Status, StopReason,
+                State, Status, StopReason, Task,
             },
             usage::{
                 Billing, HourSpend, LimitWindow, ModelTokens, PlanUsage, SessionSpend, TurnUsage,
@@ -3166,6 +3167,16 @@ async fn a_sessions_usage_and_modes_come_from_its_node() {
                     }],
                     mode: Some("plan".into()),
                     plan_ready: Some("1. Add a flag".into()),
+                    state: State {
+                        tasks: vec![Task {
+                            id: "bg1".into(),
+                            name: "make watch".into(),
+                            can_stop: true,
+                            entry: Some(4),
+                            ..Task::default()
+                        }],
+                        ..State::default()
+                    },
                     ..beep_session("a3f9c1", None)
                 }],
                 ..FakeAgents::default()
@@ -3187,6 +3198,26 @@ async fn a_sessions_usage_and_modes_come_from_its_node() {
                 name: "Plan".into(),
             }],
             plan: Some("1. Add a flag".into()),
+        }
+    );
+    let tasks = GetAgentSessionTasks {
+        machine_id: machine.clone(),
+        agent: "claude".into(),
+        session: "a3f9c1".into(),
+    };
+    assert_eq!(
+        client.call(&tasks).await.unwrap(),
+        AgentSessionTasks {
+            tasks: vec![AgentTask {
+                id: "bg1".into(),
+                name: "make watch".into(),
+                description: String::new(),
+                state: "running".into(),
+                can_stop: true,
+                output_file: None,
+                summary: None,
+                entry: Some(4),
+            }],
         }
     );
     let get = |session: &str| GetAgentSessionUsage {
