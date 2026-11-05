@@ -499,6 +499,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-dictation"
+version = "0.1.0"
+dependencies = [
+ "flashmind",
+ "futures",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "beep-fleet"
 version = "0.1.0"
 dependencies = [
