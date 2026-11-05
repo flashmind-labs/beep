@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { barPlace, sessionIn, targetCheckout, targetFolders, targetPlan } from "../src/project/projectbar.ts";
+import { barPlace, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -42,4 +42,27 @@ test("a session already in the target's worktree is found, newest first", () => 
   ];
   assert.equal(sessionIn(sessions, "b", ["/srv/widget/.worktrees/fix-login"])?.id, "new");
   assert.equal(sessionIn(sessions, "b", ["/srv/widget/.worktrees/nope"]), null);
+});
+
+const PR = { number: 41, title: "Login screen copy", url: "https://github.com/acme/widget/pull/41", mine: true };
+
+test("forgeOf tells github.com from any other host", () => {
+  assert.equal(forgeOf(PR.url), "github");
+  assert.equal(forgeOf("https://git.example.org/acme/widget/pulls/41"), "forgejo");
+});
+
+test("reviewPrompt names the PR and how to post on GitHub", () => {
+  const text = reviewPrompt(PR, "github");
+  assert.match(text, /^Review PR #41: Login screen copy \(https:\/\/github\.com\/acme\/widget\/pull\/41\)\. /);
+  assert.match(text, /never approve, merge or push/);
+  assert.match(text, /gh api repos\/acme\/widget\/pulls\/41\/reviews --method POST --input <file>/);
+  assert.doesNotMatch(text, /Someone else|not checked out/);
+});
+
+test("reviewPrompt on Forgejo uses teacli, and warns about others' and forked PRs", () => {
+  const text = reviewPrompt({ ...PR, url: "https://git.example.org/acme/widget/pulls/41", mine: false }, "forgejo", true);
+  assert.match(text, /teacli pr review submit acme\/widget 41 --state comment/);
+  assert.match(text, /teacli pr diff acme\/widget 41/);
+  assert.match(text, /Someone else wrote this PR: do not build or run its code\./);
+  assert.match(reviewPrompt(PR, "github", true), /gh pr diff 41/);
 });
