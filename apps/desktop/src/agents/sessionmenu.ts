@@ -4,16 +4,18 @@ import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import type { AgentRow, Started } from "./agents.ts";
+import { loadSessions } from "./sessions.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 
 /// Opens the menu for `s` where `e` was clicked. `open` is what clicking the row does.
 export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow) => void) {
   e.preventDefault();
   e.stopPropagation();
-  const offers = sessionOffers(s);
   const at = { machineId: s.machine_id, agent: s.agent, session: s.id };
   // Only a folder this Mac has can be opened here.
   const folder = await invoke<string | null>("session_folder_here", { machineId: s.machine_id, cwd: s.cwd }).catch(() => null);
+  const reachable = await invoke<boolean>("agent_deletable", { machineId: s.machine_id }).catch(() => false);
+  const offers = sessionOffers(s, reachable);
   const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
   if (offers.stop) items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
   if (offers.resume) {
@@ -34,6 +36,21 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
         note: "Its transcript stays.",
         action: "Close",
         run: () => invoke("agent_steer", { ...at, steer: "close" }),
+      }),
+    });
+  }
+  if (offers.delete) {
+    items.push({
+      label: "Delete…",
+      warn: true,
+      on: () => confirmSheet({
+        title: "Delete this session?",
+        text: `Its conversation is removed from ${s.machine_name || "the machine"} for good.`,
+        action: "Delete",
+        run: async () => {
+          await invoke("agent_delete", at);
+          await loadSessions().catch(err => console.warn("agent sessions:", err));
+        },
       }),
     });
   }
