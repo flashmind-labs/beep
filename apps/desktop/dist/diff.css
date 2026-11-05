@@ -79,6 +79,10 @@
 @media (prefers-reduced-motion: reduce) { .dv-fold, .dv-chev { transition: none } }
 .dv-scroll { overflow-x: auto; overflow-y: hidden; border-radius: 0 0 9px 9px; scrollbar-width: thin }
 .dv-lines { width: max-content; min-width: 100%; font: 12px/19px var(--mono); tab-size: 4 }
+/* Unified lines are as wide as the longest line, drawn or not. */
+.dv-lines:not(.split) { min-width: max(100%, calc(var(--nw, 3) * 2ch + 28px + var(--len, 0) * 1ch + 40px)) }
+.dv-lines.split .dv-g { position: static }
+.dv-file[hidden], .dv-tr[hidden] { display: none }
 .dv-l { display: flex; min-width: 100% }
 .dv-g { position: sticky; left: 0; z-index: 1; flex: none; display: flex; background: var(--dv-gut-bg); color: var(--dim); user-select: none; border-right: 1px solid var(--border) }
 .dv-g span { width: calc(var(--nw, 3) * 1ch + 14px); padding: 0 7px; text-align: right; font-variant-numeric: tabular-nums }
