@@ -5,6 +5,7 @@
 // with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
 import { emptyPanel } from "../ui/parts.ts";
+import { press } from "../ui/dom.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
 import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../ui/pagecache.ts";
@@ -571,9 +572,7 @@ export function makeTerminals(deps: TerminalDeps) {
       return h("label", "tm-f", h("span", "", label), field);
     };
     const chips = h("div", "tm-chips", ...places.map(m => {
-      const b = button(m.name, "dchip", () => { f.machine = m.id; if (!anywhere) f.cwd = m.folder; redraw(); });
-      b.setAttribute("aria-pressed", String(f.machine === m.id));
-      return b;
+      return press(button(m.name, "dchip", () => { f.machine = m.id; if (!anywhere) f.cwd = m.folder; redraw(); }), f.machine === m.id);
     }));
     const go = button(t.busy ? "Starting…" : anywhere ? "Open" : "Start", "pri", () => {
       if (f.machine && (anywhere || f.cwd.trim())) start(name, f);

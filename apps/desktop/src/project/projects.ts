@@ -1,7 +1,7 @@
 // The Projects page's overview: the table, groups and cards of every
 // project, and a picked project's detail sections.
 import { ago, plural } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote, freshNote, svgEl as icon } from "../ui/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, headedTable, freshNote, svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { awaitsView, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -26,7 +26,7 @@ export const importButton = (cls: string) => plusLabel("Add a project", cls, add
 /// One project per row: its name and host, where it is on each machine,
 /// the agents running in it and when one last did something.
 export function projectTable(rows: Project[]) {
-  const table = h("div", "cc-mt cc-pt", ...["Project", "Machine and folder", "Agents", "Last activity"].map(t => h("span", "th", t)));
+  const table = headedTable("cc-pt", "Project", "Machine and folder", "Agents", "Last activity");
   for (const p of rows) {
     const open = h("button", "", h("span", "", p.name));
     open.type = "button";
@@ -198,7 +198,7 @@ function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
 /// "Where it lives": every machine with the project's folder there, or why
 /// there is none.
 export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
-  const where = h("div", "cc-mt cc-pt pj-where", ...["Machine", "Folder", ""].map(t => h("span", "th", t)));
+  const where = headedTable("cc-pt pj-where", "Machine", "Folder", "");
   where.style.gridTemplateColumns = "fit-content(40%) minmax(0,1fr) auto";
   for (const m of rows) {
     const cells = whereRow(p, m);

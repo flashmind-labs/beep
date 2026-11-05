@@ -5,6 +5,7 @@ import { answerHtml } from "./turnrows.ts";
 import { type AgentModes, type OpenAgent, AG, agentKind, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { esc } from "../ui/format.ts";
+import { showHtml } from "../ui/patch.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The server did not know the request, so it is not asked again.
@@ -47,19 +48,13 @@ export function cycleMode() {
   return true;
 }
 
-/// `el` showing `html`, left alone when it does already, which keeps a
-/// selection or scroll inside it.
-function show(el: HTMLElement | null, html: string) {
-  if (el && el.dataset.shown !== html) { el.dataset.shown = html; el.innerHTML = html; }
-}
-
 export function drawModes() {
   const m = AG.modes, s = AG.page?.session, q = s?.question;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
-  show($("#agmode"), hasModes() ? `<button class="agc-pill agmode${m?.current === "plan" ? " on" : ""}" id="agmodeb" title="Switch mode (Shift+Tab)">${esc(name)}</button>` : "");
+  showHtml($("#agmode"), hasModes() ? `<button class="agc-pill agmode${m?.current === "plan" ? " on" : ""}" id="agmodeb" title="Switch mode (Shift+Tab)">${esc(name)}</button>` : "");
   // The node puts a plan to the user as a question with these two answers.
   const plan = s && q && m?.plan != null ? `<div class="ag-plan"><div class="h"><b>Plan ready</b><small>${esc(agentKind(s.agent).name)} waits for you</small></div>
     ${m.plan ? `<div class="dcoderen agent md">${answerHtml(m.plan)}</div>` : ""}
     <div class="acts">${q.options.map((o, i) => `<button class="dbtn${o.allow ? " pri" : ""}" data-agopt="${i}"${q.id === AG.answering ? " disabled" : ""}>${esc(o.name)}</button>`).join("")}</div></div>` : "";
-  show($("#agplan"), plan);
+  showHtml($("#agplan"), plan);
 }
