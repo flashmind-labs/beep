@@ -43,7 +43,7 @@ async fn listed(app: &AppHandle) -> Result<Vec<McpServer>> {
 }
 
 #[tauri::command]
-pub async fn list_mcp_servers(app: AppHandle, hub: Hub<'_>) -> Result<Vec<McpRow>> {
+pub async fn local_list_mcp_servers(app: AppHandle, hub: Hub<'_>) -> Result<Vec<McpRow>> {
     let servers = listed(&app).await?;
     Ok(servers
         .iter()
@@ -57,7 +57,11 @@ pub async fn list_mcp_servers(app: AppHandle, hub: Hub<'_>) -> Result<Vec<McpRow
 /// Saves the server, then starts it once to list its tools, so its row shows how it went. A
 /// server that does not start stays listed with its error.
 #[tauri::command]
-pub async fn add_mcp_server(app: AppHandle, hub: Hub<'_>, server: NewMcpServer) -> Result<()> {
+pub async fn local_add_mcp_server(
+    app: AppHandle,
+    hub: Hub<'_>,
+    server: NewMcpServer,
+) -> Result<()> {
     let (name, transport) = match server {
         NewMcpServer::Command { name, command, env } => (name, Transport::command(&command, &env)),
         NewMcpServer::Url { name, url, token } => (name, Transport::url(&url, &token)),
@@ -71,7 +75,7 @@ pub async fn add_mcp_server(app: AppHandle, hub: Hub<'_>, server: NewMcpServer) 
 }
 
 #[tauri::command]
-pub async fn remove_mcp_server(app: AppHandle, hub: Hub<'_>, name: String) -> Result<()> {
+pub async fn local_remove_mcp_server(app: AppHandle, hub: Hub<'_>, name: String) -> Result<()> {
     remove_server(&chat_dir(&app)?, &name).await.map_err(bad)?;
     hub.forget(&name).await;
     Ok(())
@@ -79,7 +83,7 @@ pub async fn remove_mcp_server(app: AppHandle, hub: Hub<'_>, name: String) -> Re
 
 /// Starts the server again and lists its tools.
 #[tauri::command]
-pub async fn check_mcp_server(app: AppHandle, hub: Hub<'_>, name: String) -> Result<()> {
+pub async fn local_check_mcp_server(app: AppHandle, hub: Hub<'_>, name: String) -> Result<()> {
     let servers = listed(&app).await?;
     let Some(server) = servers.iter().find(|server| server.name == name) else {
         return Err(DesktopError::BadRequest(

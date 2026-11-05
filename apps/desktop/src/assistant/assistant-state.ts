@@ -96,7 +96,7 @@ export function mcpFormReady(f: McpForm) {
   return !!f.name.trim() && !!(f.kind === "command" ? f.command : f.url).trim();
 }
 
-/// What `add_mcp_server` takes for `f`. Only the fields of its kind go.
+/// What `local_add_mcp_server` takes for `f`. Only the fields of its kind go.
 export function newMcpServer(f: McpForm) {
   const name = f.name.trim();
   return f.kind === "command"
