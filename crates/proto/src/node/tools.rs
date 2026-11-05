@@ -15,7 +15,17 @@ pub const PROTOCOL: &str = "tools/1";
 /// The tools the server runs. `ask_user` is not among them: the node puts
 /// that question to the user itself.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, IntoStaticStr, EnumString,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Display,
+    IntoStaticStr,
+    EnumString,
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]

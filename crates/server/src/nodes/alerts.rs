@@ -1,5 +1,6 @@
 //! Notices for what a node's agent sessions did, sent to the device that started them.
 //! Sessions no device started go to computers only; chat or project sessions are left out.
+//! A question goes to every device.
 
 use super::Online;
 use crate::{
@@ -7,7 +8,7 @@ use crate::{
     app::{Reach, UserNotice},
     protocol::{
         Notice,
-        node::agent::{Alert, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
+        node::agent::{Alert, AlertKind, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
     },
     store::SessionOn,
 };
@@ -43,7 +44,11 @@ impl Online {
             if elsewhere {
                 continue;
             }
-            let to = reach(user, &machine, &alert).await;
+            let to = match alert.kind {
+                // A question may be a permission the user must give from wherever they are.
+                AlertKind::Asks { .. } => Reach::Everyone,
+                _ => reach(user, &machine, &alert).await,
+            };
             // Nobody listening is fine: the notice has nowhere to go.
             let _ = app
                 .notifications
