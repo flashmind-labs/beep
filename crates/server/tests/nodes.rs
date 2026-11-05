@@ -1425,9 +1425,18 @@ fn finished_alert(session: &str) -> Alert {
 /// then has the node send a finished alert for it and one for a3f9c1,
 /// which no device started. Gives whom each alert went to, in order.
 async fn alert_reach(center: &mut CommandCenter, starter: &Client) -> Vec<(String, Reach)> {
+    alert_reach_of(center, starter, finished_alert).await
+}
+
+/// `alert_reach` for the alerts `make` builds.
+async fn alert_reach_of(
+    center: &mut CommandCenter,
+    starter: &Client,
+    make: fn(&str) -> Alert,
+) -> Vec<(String, Reach)> {
     let mut notices = center.app.notifications.subscribe();
     let fake = FakeAgents {
-        alerts: Some(vec![finished_alert("b0b0b0"), finished_alert("a3f9c1")]),
+        alerts: Some(vec![make("b0b0b0"), make("a3f9c1")]),
         ..FakeAgents::default()
     };
     let go = fake.alerts_go.clone();
@@ -1457,6 +1466,37 @@ async fn alert_reach(center: &mut CommandCenter, starter: &Client) -> Vec<(Strin
     })
     .await
     .expect("both alerts arrive")
+}
+
+/// A question for `session`, as a node raises one for an agent or for a permission it asks itself.
+fn asking_alert(session: &str) -> Alert {
+    Alert {
+        kind: AlertKind::Asks {
+            question: Question {
+                id: 1,
+                text: "Allow send files? (Your machines)".into(),
+                detail: Some("Machine: box-b".into()),
+                options: Vec::new(),
+            },
+        },
+        ..finished_alert(session)
+    }
+}
+
+#[tokio::test]
+async fn a_question_from_a_node_reaches_every_device_whoever_started_the_session() {
+    let mut center = CommandCenter::new(1).await;
+    let (_node, phone) = center.phone(0).await;
+    let reached = alert_reach_of(&mut center, &phone, asking_alert).await;
+    assert_eq!(
+        reached,
+        [
+            ("b0b0b0".to_owned(), Reach::Everyone),
+            ("a3f9c1".to_owned(), Reach::Everyone),
+        ],
+        "phones and computers both hear a question"
+    );
+    center.shutdown().await;
 }
 
 #[tokio::test]

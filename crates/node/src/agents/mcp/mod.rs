@@ -17,9 +17,10 @@ use beep_proto::node::{
 use iroh::endpoint::Connection;
 use serde::Deserialize;
 use std::{
+    collections::HashMap,
     ffi::OsString,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
@@ -33,6 +34,7 @@ use tokio_util::task::AbortOnDropHandle;
 pub(crate) mod calls;
 mod catalog;
 mod machines;
+mod permission;
 mod server;
 mod socket;
 
@@ -212,6 +214,9 @@ pub struct Upstream {
     connection: Arc<watch::Sender<Option<Connection>>>,
     /// The node has a server to link to at all.
     has_server: bool,
+    /// Whether the server's rule asked first the last time the node asked it, by tool: what the
+    /// node goes on while the link is down.
+    heard: Arc<Mutex<HashMap<Tool, bool>>>,
 }
 
 impl Default for Upstream {
@@ -226,11 +231,30 @@ impl Upstream {
         Self {
             connection: Arc::new(watch::Sender::new(None)),
             has_server,
+            heard: Arc::default(),
         }
     }
 
     pub(crate) fn has_server(&self) -> bool {
         self.has_server
+    }
+
+    /// Whether the server's rule for `tool` asked first, as last heard. `None` before it was asked.
+    pub(crate) fn heard_ask(&self, tool: Tool) -> Option<bool> {
+        crate::lock(&self.heard).get(&tool).copied()
+    }
+
+    /// Notes what a call without approval says of the rule for its tool: an ask, or a run.
+    fn hear(&self, request: &Request, reply: &Reply) {
+        if request.approved != Approved::No {
+            return;
+        }
+        let asks = match reply {
+            Reply::Ask { .. } => true,
+            Reply::Done { failed: false, .. } => false,
+            _ => return,
+        };
+        crate::lock(&self.heard).insert(request.tool, asks);
     }
 
     /// Whether the link to the server is up now.
@@ -272,6 +296,12 @@ impl Upstream {
 
     /// Runs `request` on the server.
     pub async fn call(&self, request: &Request) -> Result<Reply> {
+        let reply = self.exchange(request).await?;
+        self.hear(request, &reply);
+        Ok(reply)
+    }
+
+    async fn exchange(&self, request: &Request) -> Result<Reply> {
         let connection = self.connection.borrow().clone().context(
             "this machine is not connected to Beep's server now, or the server is too old \
              for these tools",
@@ -314,14 +344,6 @@ impl Backend for Node {
                 self.offers.tools.connected(),
             );
             match route {
-                machines::Route::Refuse => {
-                    return Ok(Reply::Done {
-                        text: "send_files needs the user's approval from the server, which is not \
-                               connected now. Try again when it is."
-                            .to_owned(),
-                        failed: true,
-                    });
-                }
                 machines::Route::Direct => {
                     if let Some(reply) = machines::call(&self.offers, &mesh, request).await {
                         return Ok(reply);
