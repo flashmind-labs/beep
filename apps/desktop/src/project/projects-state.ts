@@ -73,6 +73,8 @@ export interface ProjectMachineRow {
   /// The server is looking through it for a checkout now.
   checking: boolean;
   checked_at: number | null;
+  /// The mesh holds the project, so Add reaches the machine with no server.
+  mesh?: boolean;
   /// The Syncthing folder that keeps it in step there, by label; Beep
   /// does not sync such a folder (from `project_syncthing`).
   syncthing?: string | null;
@@ -484,9 +486,13 @@ export interface WhereRow {
   checked_at?: number | null;
   /// What the row says when there is no checkout.
   text?: string;
-  /// Another machine online can give it: Beep's sync copies it from there.
+  /// Another machine online can give it: the server has Beep's sync copy it
+  /// from there.
   copy?: boolean;
-  /// The Syncthing folder's label when Syncthing keeps the folder in step.
+  /// As `copy`, for a project the mesh holds: the Add sheet makes the folder.
+  add?: boolean;
+  /// The Syncthing folder's label when Syncthing keeps the folder in step; on
+  /// a machine without it, when that holds every copy online to give it.
   syncthing?: string | null;
 }
 
@@ -500,7 +506,11 @@ export function whereRows(project: { machines?: readonly ProjectPlace[] } | null
     if (m.folder) return { ...here(m.id, m.name, m.folder), syncthing: m.syncthing || null };
     const one = { id: m.id, name: m.name, folder: null, mac: false, checked_at: m.checked_at || null };
     if (m.checking) return { ...one, kind: "checking", text: "Checking…" };
-    if (m.online) return { ...one, kind: "none", text: `Not on ${m.name}`, copy: machines.some(o => o.folder && o.online && !o.syncthing) };
+    if (m.online) {
+      const copies = machines.filter(o => o.folder && o.online);
+      const free = copies.some(o => !o.syncthing);
+      return { ...one, kind: "none", text: `Not on ${m.name}`, copy: free && !m.mesh, add: free && !!m.mesh, syncthing: free ? null : copies[0]?.syncthing || null };
+    }
     return { ...one, kind: "offline", text: `Checks when ${m.name} is online` };
   }));
 }

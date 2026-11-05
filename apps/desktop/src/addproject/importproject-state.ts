@@ -56,6 +56,21 @@ export function folderUnder(root: string, repo: string): string | null {
   return parts ? `${root.replace(/\/+$/, "")}/${parts[0]}/${parts[1]}` : null;
 }
 
+/// The machine and the folder projects went under at the last import, kept
+/// across launches so the next import starts there.
+export interface LastImport {
+  machine: string;
+  root: string | null;
+}
+
+/// The parent a project goes under on `machine` before anything is typed: the
+/// last one used there, else the projects folder of `base`, where it starts.
+export function defaultParent(machine: string, base: string | null | undefined, os: string | null | undefined, last: LastImport | null) {
+  if (last?.root && last.machine === machine) return last.root;
+  if (!base) return null;
+  return `${base.replace(/\/+$/, "")}/${os === "linux" ? "projects" : "Projects"}`;
+}
+
 /// What importing into the folder `listing` does, as the line under it says.
 export function folderNote(listing: MachineFolder | null | undefined, repo: string) {
   if (!listing) return null;

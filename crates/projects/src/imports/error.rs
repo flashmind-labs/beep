@@ -54,6 +54,8 @@ pub enum ImportError {
     NotAFolder { folder: String, machine: String },
     #[error("{machine} cannot open {folder}.")]
     Unreadable { folder: String, machine: String },
+    #[error("{machine} could not make the folder: {detail}")]
+    NoFolderMade { machine: String, detail: String },
     #[error("{machine} did not say what is in that folder.")]
     NoListing { machine: String },
     #[error("git is not installed on {0}.")]

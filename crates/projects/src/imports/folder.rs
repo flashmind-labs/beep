@@ -203,6 +203,29 @@ pub async fn look(
     }
 }
 
+/// Makes `folder` on the machine named `machine`, with the folders above it.
+pub async fn make(
+    shell: &dyn Shell,
+    machine: &str,
+    folder: &FolderPath,
+) -> Result<(), ImportError> {
+    let script = format!("mkdir -p -- {} 2>&1", folder.shell_word());
+    let ran = shell
+        .run(&script, LOOK_LIMIT)
+        .await
+        .map_err(|e| ImportError::Link {
+            machine: machine.to_owned(),
+            detail: format!("{e:#}"),
+        })?;
+    if ran.exit_code == Some(0) {
+        return Ok(());
+    }
+    Err(ImportError::NoFolderMade {
+        machine: machine.to_owned(),
+        detail: ran.output.trim().to_owned(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

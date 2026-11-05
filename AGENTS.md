@@ -343,6 +343,8 @@ applies too; one it cannot read refuses the folder and says why.
   a submodule). Its branch still travels; it waits on a machine that has it
   checked out in a linked worktree.
 - Peers talk `beep-sync/3`. Nodes on `beep-sync/1` or `/2` do not sync with it.
+- Add on a project's machine row makes the folder there and joins sync: the empty
+  folder takes the files and `.git` from the others (`Desk::add_to_machine`).
 
 ## iOS app
 

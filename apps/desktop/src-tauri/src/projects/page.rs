@@ -9,7 +9,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Machines, files as direct,
-        projects::{FleetState, desk, desk_or_server},
+        projects::{FleetState, desk, desk_or_server, mirror_import},
     },
 };
 use beep_fleet::project_id;
@@ -59,6 +59,8 @@ pub struct ProjectMachineRow {
     checking: bool,
     /// In milliseconds since the Unix epoch.
     checked_at: Option<u64>,
+    /// The mesh holds the project, so Add reaches this machine with no server.
+    mesh: bool,
 }
 
 impl From<ProjectMachine> for ProjectMachineRow {
@@ -70,6 +72,7 @@ impl From<ProjectMachine> for ProjectMachineRow {
             folder: m.folder,
             checking: m.checking,
             checked_at: m.checked_at.map(epoch_ms),
+            mesh: false,
         }
     }
 }
@@ -94,8 +97,32 @@ pub async fn project_machines(
     };
     let machines = desk.project_machines(&project).await?;
     Ok(Some(
-        machines.into_iter().map(ProjectMachineRow::from).collect(),
+        machines
+            .into_iter()
+            .map(|machine| ProjectMachineRow {
+                mesh: true,
+                ..machine.into()
+            })
+            .collect(),
     ))
+}
+
+/// Puts `project` on `machine_id` in `folder`: the machine makes the folder and joins the
+/// project's sync, which brings the files and `.git`. Gives the folder as the machine spells it.
+#[tauri::command]
+pub async fn project_add_to_machine(
+    fleet: FleetState<'_>,
+    beep: Service<'_>,
+    project: String,
+    machine_id: String,
+    folder: String,
+) -> Result<String> {
+    let added = desk(&fleet)
+        .await?
+        .add_to_machine(&project, &machine_id, &folder)
+        .await?;
+    mirror_import(&beep, &added).await;
+    Ok(added.folder)
 }
 
 /// Copies `project` onto `machine_id` through the server, which brings it
