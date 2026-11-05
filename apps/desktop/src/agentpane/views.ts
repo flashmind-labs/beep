@@ -230,7 +230,10 @@ function animControls(bar: HTMLElement, a: Animation) {
   pick.hidden = a.clips.length < 2;
   a.onchange = () => {
     const end = a.clips[a.clip].duration, now = a.time();
-    play.textContent = a.playing ? "Pause" : "Play";
+    // Only on a change: each frame calls this, and a button whose text node is
+    // replaced between press and release gets no click in WebKit.
+    const label = a.playing ? "Pause" : "Play";
+    if (play.textContent !== label) play.textContent = label;
     loop.classList.toggle("on", a.loop);
     scrub.max = String(end);
     scrub.value = String(now);
