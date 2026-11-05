@@ -5,7 +5,7 @@ use crate::{
     agent::steps,
     api::router::Cx,
     protocol::{search::match_snippet, *},
-    store::{CopiedShare, DeletedTurn, FoundSession, TurnsToDelete},
+    store::{CopiedShare, DeletedTurn, FoundSession, Listing, TurnsToDelete},
 };
 use chrono::DateTime;
 use flashmind::core::{Conversation, ConversationEntry, EntryKind};
@@ -14,6 +14,10 @@ use uuid::Uuid;
 
 pub(super) async fn list_sessions(cx: Cx, _: ListSessions) -> Reply<Vec<Session>> {
     Ok(cx.user.sessions().await?)
+}
+
+pub(super) async fn list_chats(cx: Cx, _: ListChats) -> Reply<Vec<Session>> {
+    Ok(cx.user.chats().await?)
 }
 
 pub(super) async fn get_session(cx: Cx, GetSession { id }: GetSession) -> Reply<Vec<HistoryEntry>> {
@@ -216,6 +220,18 @@ pub(super) async fn search_sessions(
     cx: Cx,
     SearchSessions { query }: SearchSessions,
 ) -> Reply<Vec<SessionMatch>> {
+    search(&cx, &query, Listing::All).await
+}
+
+/// `search_sessions` without the alerts the user has not replied to.
+pub(super) async fn search_chats(
+    cx: Cx,
+    SearchChats { query }: SearchChats,
+) -> Reply<Vec<SessionMatch>> {
+    search(&cx, &query, Listing::Chats).await
+}
+
+async fn search(cx: &Cx, query: &str, listing: Listing) -> Reply<Vec<SessionMatch>> {
     let query = query.trim();
     if query.chars().count() < 2 {
         return Ok(Vec::new());
@@ -223,7 +239,10 @@ pub(super) async fn search_sessions(
     if query.len() > 200 {
         return Err(ApiError::bad_request("search is at most 200 bytes"));
     }
-    let found = cx.user.search_sessions(query, SEARCH_CANDIDATES).await?;
+    let found = match listing {
+        Listing::All => cx.user.search_sessions(query, SEARCH_CANDIDATES).await?,
+        Listing::Chats => cx.user.search_chats(query, SEARCH_CANDIDATES).await?,
+    };
     Ok(found
         .into_iter()
         .filter_map(|found| session_match(found, query))

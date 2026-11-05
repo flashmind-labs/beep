@@ -789,6 +789,35 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 0; border-radius: var(--radius-sm); cursor: pointer }
 .us-seg button.on { background: var(--border); color: var(--fg) }
 .us-pop h5.us-sub { margin-top: 8px }
+/* The bell and its notifications pane, beside the usage pill. */
+.nt { position: relative; flex: none; margin-left: 10px }
+.nt[hidden] { display: none }
+.nt-bell { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer }
+.nt-bell:hover, .nt-bell[aria-expanded="true"] { background: var(--elev); color: var(--fg) }
+.nt-n { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--hot); color: var(--on-accent); font-size: 10.5px; font-weight: 600; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums }
+.nt-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 420px; max-width: calc(100vw - 16px); max-height: min(70vh, 560px); box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); color: var(--fg); font-size: 13px; cursor: default }
+.nt-h { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted) }
+.nt-h b { font-size: 14px; font-weight: 600; color: var(--fg) }
+.nt-h .dbtn:last-child { margin-left: auto }
+.nt-list { overflow-y: auto; overscroll-behavior: contain; min-height: 0 }
+.nt-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--border); cursor: pointer }
+.nt-list > .nt-row:first-child { border-top: 0 }
+.nt-row:hover { background: var(--elev) }
+.nt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.nt-t { display: grid; min-width: 0 }
+.nt-t b, .nt-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.nt-t b { font-weight: 400; color: var(--muted) }
+.nt-t span { font-size: 11.5px; color: var(--muted) }
+.nt-row.unread .nt-t b { font-weight: 600; color: var(--fg) }
+.nt-dot { width: 8px; height: 8px; border-radius: 50% }
+.nt-row.unread .nt-dot { background: var(--accent) }
+.nt-empty { padding: 26px 14px; text-align: center; color: var(--muted) }
+.nt-note { padding: 14px; display: grid; gap: 8px; align-content: start }
+.nt-note b { font-size: 14px; font-weight: 600; line-height: 20px }
+.nt-note p { margin: 0; font-size: 13.5px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere }
+.nt-rep { flex: none; display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border) }
+.nt-ask { flex: 1; min-width: 0; height: 30px; padding: 0 10px; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--fg); font: inherit; font-size: 13px }
+.nt-ask:focus { outline: 2px solid var(--accent); outline-offset: -1px }
 /* When the server last read a section's list; the Actions section beside Where it lives. */
 .cc-sec small.sw-age { color: var(--dim); margin-left: auto }
 .cc-sec small.sw-mode { font-size: 11px; font-weight: 500; white-space: nowrap; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; cursor: default }

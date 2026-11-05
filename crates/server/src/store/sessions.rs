@@ -109,6 +109,25 @@ const SESSION_COLUMNS: &str = "c.id, {title}, m.pinned, c.updated_at";
 const SHOWN: &str = "(EXISTS (SELECT 1 FROM sessions s WHERE s.chat_id = c.id)
     OR EXISTS (SELECT 1 FROM runs r WHERE r.chat_id = c.id AND r.status = 'running'))";
 
+/// Which sessions a list or search takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Listing {
+    /// Every session, alerts too (`ListSessions`, which released apps use).
+    All,
+    /// Sessions that are chats: alerts not replied to yet are left out.
+    Chats,
+}
+
+impl Listing {
+    /// A condition on `chats c`.
+    fn condition(self) -> &'static str {
+        match self {
+            Listing::All => "TRUE",
+            Listing::Chats => "NOT EXISTS (SELECT 1 FROM chat_alerts a WHERE a.chat_id = c.id)",
+        }
+    }
+}
+
 fn session_columns() -> String {
     SESSION_COLUMNS.replace("{title}", SESSION_TITLE)
 }
@@ -137,12 +156,22 @@ fn like_pattern(query: &str) -> String {
 
 impl Store {
     pub(crate) async fn sessions(&self, user: &UserKey) -> Result<Vec<Session>> {
+        self.listed_sessions(user, Listing::All).await
+    }
+
+    /// The sessions that are chats, as `sessions` lists them.
+    pub(crate) async fn chats(&self, user: &UserKey) -> Result<Vec<Session>> {
+        self.listed_sessions(user, Listing::Chats).await
+    }
+
+    async fn listed_sessions(&self, user: &UserKey, listing: Listing) -> Result<Vec<Session>> {
         let rows = sqlx::query(&format!(
             "SELECT {} FROM chats c
              JOIN chat_members m ON m.chat_id = c.id
-             WHERE m.user_id = $1 AND c.kind = 'session' AND {SHOWN}
+             WHERE m.user_id = $1 AND c.kind = 'session' AND {SHOWN} AND {}
              ORDER BY m.pinned DESC, c.seq DESC LIMIT 200",
-            session_columns()
+            session_columns(),
+            listing.condition()
         ))
         .bind(user.as_str())
         .fetch_all(&self.pool)
@@ -171,6 +200,7 @@ impl Store {
         user: &UserKey,
         query: &str,
         limit: i64,
+        listing: Listing,
     ) -> Result<Vec<FoundSession>> {
         let rows = sqlx::query(&format!(
             "SELECT DISTINCT ON (c.updated_at, c.id) {}, msg.content, msg.role = 'user'
@@ -179,8 +209,10 @@ impl Store {
              JOIN messages msg ON msg.chat_id = c.id
              WHERE m.user_id = $1 AND c.kind = 'session'
                AND msg.role IN ('user', 'assistant') AND msg.content ILIKE $2 ESCAPE '\\'
+               AND {}
              ORDER BY c.updated_at DESC, c.id, msg.id DESC LIMIT $3",
-            session_columns()
+            session_columns(),
+            listing.condition()
         ))
         .bind(user.as_str())
         .bind(format!("%{}%", like_pattern(query)))
