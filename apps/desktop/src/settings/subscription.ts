@@ -58,7 +58,8 @@ export function viewHidden(name: ViewName, arg: unknown, subscribed: boolean) {
   return typeof arg === "object" && arg !== null && ("chat" in arg || "group" in arg);
 }
 
-/// Whether the first-run window shows: only with no subscription and before it was answered.
-export function firstRunDue(subscribed: boolean, kept: string | null) {
-  return !subscribed && kept === null;
+/// Whether the first-run window shows: only with no subscription and before it was answered. A
+/// Mac signed out has an account, so it never asks.
+export function firstRunDue(subscribed: boolean, kept: string | null, signedOut = false) {
+  return !subscribed && !signedOut && kept === null;
 }

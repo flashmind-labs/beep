@@ -1,7 +1,7 @@
 import { attachedCount } from "../chat/attach.ts";
 import { focusAsk, forRoutine, stop } from "../chat/chat.ts";
 import { $, bar, here, PANE, queued, S } from "./core.ts";
-import type { LinkState } from "./core.ts";
+import { linkChip } from "../settings/server-state.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
@@ -15,11 +15,9 @@ import { ICON } from "../ui/icons.ts";
 /// A key and what it does, as the hint row and the shortcuts sheet show it.
 export type Hint = readonly string[];
 
-const LINK_STATUS: Partial<Record<LinkState, [string, string]>> = { unlinked: ["off", "No subscription"], revoked: ["bad", "Removed"] };
-
 export function hints(items: readonly Hint[], extra = "") {
   items = forPane(items);
-  const st = LINK_STATUS[S.link];
+  const st = linkChip(S.link, S.signedOut);
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
   // The first two say the most; the rest give way when the row is narrow.
   // The bar's chat opens in the window from here, before the model.
