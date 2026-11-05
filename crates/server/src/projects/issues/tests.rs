@@ -353,15 +353,16 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
     );
     assert!(old.ran_with("whoami").is_empty());
 
-    // When every machine fails, the last error names the machines tried.
-    new.answer("teacli", 1, "Error: not logged in");
+    // When every machine fails, the error names the ones that have the host set up.
+    new.answer("issue list", 1, "Error: not logged in");
     match list_open(&StoredProject::new(&user, &project), &fleet).await {
         Err(SourceError::Refused(why)) => {
             assert!(why.contains("not logged in"), "{why}");
             assert!(
-                why.contains("build-box") && why.contains("mac-box"),
+                why.contains("build-box") || why.contains("mac-box"),
                 "{why}"
             );
+            assert!(!why.contains("unknown flag"), "{why}");
         }
         other => panic!("expected the host's error, got {other:?}"),
     }

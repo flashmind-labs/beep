@@ -9,7 +9,7 @@ use crate::{
     },
     model::{IssueHost, RepoName},
 };
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
 use beep_proto::{ProjectIssue, ProjectPullRequest};
 use iroh::EndpointId;
@@ -29,6 +29,19 @@ pub enum SourceError {
     #[error(transparent)]
     Store(#[from] anyhow::Error),
 }
+
+/// A host command that did not exit 0.
+#[derive(Debug, Error)]
+#[error("the host command exited with {}: {tail}", code.map_or("no code".to_owned(), |code| code.to_string()))]
+pub struct HostExit {
+    /// `None` when it was killed or timed out.
+    pub code: Option<i32>,
+    /// The end of what it printed.
+    pub tail: String,
+}
+
+/// teacli's exit code for a missing resource.
+const TEACLI_NOT_FOUND: i32 = 3;
 
 /// What the issue modules read about one project, kept by the server in Postgres and by the
 /// desktop in its mesh state.
@@ -193,11 +206,11 @@ pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
                 .into_iter()
                 .rev()
                 .collect();
-            anyhow::bail!(
-                "the host command exited with {}: {}",
-                code.map_or("no code".to_owned(), |code| code.to_string()),
-                tail.trim()
-            )
+            Err(HostExit {
+                code,
+                tail: tail.trim().to_owned(),
+            }
+            .into())
         }
     }
 }
@@ -228,7 +241,7 @@ pub async fn read_first<S, T>(
 }
 
 /// Tries `command` on each source in turn so one broken CLI does not hide the list. Gives the
-/// source that answered; when all fail, every machine's error.
+/// source that answered; when all fail, the errors of the machines that have the host set up.
 pub async fn read_any<'s, T>(
     machines: &dyn Machines,
     sources: &'s [IssueSource],
@@ -236,29 +249,72 @@ pub async fn read_any<'s, T>(
     command: HostCommand<'_>,
     parse: impl Fn(&str) -> Result<T>,
 ) -> Result<(&'s IssueSource, T), SourceError> {
-    let read = read_first(
+    match read_sources(sources, repo, command, parse).await {
+        Ok(answered) => Ok(answered),
+        Err(failures) => {
+            let set_up = set_up_on(sources, repo, &failures).await;
+            Err(failed_everywhere(machines, sources, &failures, &set_up).await)
+        }
+    }
+}
+
+async fn read_sources<'s, T>(
+    sources: &'s [IssueSource],
+    repo: &RepoName,
+    command: HostCommand<'_>,
+    parse: impl Fn(&str) -> Result<T>,
+) -> Result<(&'s IssueSource, T), Vec<anyhow::Error>> {
+    read_first(
         sources,
         |source| source.shell.as_ref(),
         |source| command.render(&source.host, repo),
         parse,
     )
-    .await;
-    let mut failures = match read {
-        Ok(answered) => return Ok(answered),
-        Err(failures) => failures,
-    };
-    if failures.len() < 2 {
-        let error = failures
-            .pop()
-            .unwrap_or_else(|| anyhow!("no machine to read it on"));
-        return Err(host_failed(&error));
+    .await
+}
+
+/// For each of the sources that failed, in order, whether its machine has the host set up: it
+/// answers [`HostCommand::WhoAmI`].
+async fn set_up_on(
+    sources: &[IssueSource],
+    repo: &RepoName,
+    failures: &[anyhow::Error],
+) -> Vec<bool> {
+    let mut set_up = Vec::new();
+    for source in sources.iter().take(failures.len()) {
+        let whoami = run_host(
+            source.shell.as_ref(),
+            &source.host,
+            repo,
+            HostCommand::WhoAmI,
+        )
+        .await;
+        set_up.push(whoami.is_ok());
     }
+    set_up
+}
+
+/// The message for a read that failed on every source, naming only the machines in `set_up`.
+async fn failed_everywhere(
+    machines: &dyn Machines,
+    sources: &[IssueSource],
+    failures: &[anyhow::Error],
+    set_up: &[bool],
+) -> SourceError {
+    if let ([error], [_]) = (failures, sources) {
+        return host_failed(error);
+    }
+    let Some(first) = sources.first() else {
+        return SourceError::Refused("No machine to read the issues host on.".to_owned());
+    };
     // Names only make the message clearer: without them it still says why.
     let names = machines.names().await;
     let tried: Vec<String> = sources
         .iter()
-        .zip(&failures)
-        .map(|(source, error)| {
+        .zip(failures)
+        .zip(set_up)
+        .filter(|(_, set_up)| **set_up)
+        .map(|((source, error), _)| {
             let name = names
                 .iter()
                 .find(|machine| machine.id == source.machine)
@@ -266,10 +322,30 @@ pub async fn read_any<'s, T>(
             format!("{name}: {error:#}")
         })
         .collect();
-    Err(SourceError::Refused(format!(
+    if tried.is_empty() {
+        return SourceError::Refused(format!(
+            "No online machine has {} set up.",
+            host_label(&first.host)
+        ));
+    }
+    SourceError::Refused(format!(
         "Could not read the issues host. {}",
         tried.join("; ")
-    )))
+    ))
+}
+
+fn host_label(host: &IssueHost) -> &str {
+    match host {
+        IssueHost::Github => "GitHub",
+        IssueHost::Forgejo(host) => host.as_str(),
+    }
+}
+
+/// Whether `error` is teacli saying the resource is not found.
+fn is_not_found(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<HostExit>()
+        .is_some_and(|exit| exit.code == Some(TEACLI_NOT_FOUND))
 }
 
 pub fn host_failed(error: &anyhow::Error) -> SourceError {
@@ -364,14 +440,35 @@ pub async fn list_open_prs(
     let Some(sources) = issue_sources(store, machines).await? else {
         return Ok(Vec::new());
     };
-    let (source, mut prs) = read_any(
-        machines,
+    let read = read_sources(
         &sources,
         store.name(),
         HostCommand::ListOpenPrs,
         parse_open_prs,
     )
-    .await?;
+    .await;
+    let (source, mut prs) = match read {
+        Ok(answered) => answered,
+        Err(failures) => {
+            let set_up = set_up_on(&sources, store.name(), &failures).await;
+            // teacli answers a repository without pull requests with "not found", which on a
+            // machine that has the host set up means none.
+            let none =
+                sources
+                    .iter()
+                    .zip(&failures)
+                    .zip(&set_up)
+                    .any(|((source, error), set_up)| {
+                        *set_up
+                            && matches!(source.host, IssueHost::Forgejo(_))
+                            && is_not_found(error)
+                    });
+            if none {
+                return Ok(Vec::new());
+            }
+            return Err(failed_everywhere(machines, &sources, &failures, &set_up).await);
+        }
+    };
     // Asked on the machine that listed them, whose CLI is known to work.
     let whoami = run_host(
         source.shell.as_ref(),
@@ -489,6 +586,7 @@ mod tests {
         name: RepoName,
         home: Option<EndpointId>,
         imports: Vec<ImportedPlace>,
+        host: IssueHost,
     }
 
     #[async_trait]
@@ -497,7 +595,7 @@ mod tests {
             &self.name
         }
         fn issues_role(&self) -> Option<&IssueHost> {
-            Some(&IssueHost::Github)
+            Some(&self.host)
         }
         async fn home_machine(&self) -> Result<Option<EndpointId>> {
             Ok(self.home)
@@ -558,28 +656,194 @@ mod tests {
 
     #[tokio::test]
     async fn issues_read_tries_each_machine_and_reports_every_failure() {
-        let first = FixedShell::exits(1, "not logged in");
-        let second = FixedShell::exits(1, "unknown flag");
         let sources = [
-            source(machine(1), first.clone()),
-            source(machine(2), second.clone()),
+            by_command(
+                1,
+                &[("issue list", 1, "not logged in"), ("whoami", 0, "kim")],
+            ),
+            by_command(
+                2,
+                &[("issue list", 1, "unknown flag"), ("whoami", 0, "kim")],
+            ),
         ];
-        let read = read_any(
+        let why = refused(read_issues(&sources).await);
+        for part in ["build-box", "not logged in", "mac-box", "unknown flag"] {
+            assert!(why.contains(part), "{part} missing from {why}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_error_lists_only_machines_with_the_host_set_up() {
+        let sources = [
+            by_command(
+                1,
+                &[("issue list", 3, "not found"), ("whoami", 3, "not found")],
+            ),
+            by_command(
+                2,
+                &[
+                    ("issue list", 1, "rate limited"),
+                    ("whoami", 0, "{\"login\":\"kim\"}"),
+                ],
+            ),
+            by_command(
+                3,
+                &[
+                    ("issue list", 1, "no such host"),
+                    ("whoami", 1, "no such host"),
+                ],
+            ),
+        ];
+        let why = refused(read_issues(&sources).await);
+        assert!(
+            why.contains("mac-box") && why.contains("rate limited"),
+            "{why}"
+        );
+        assert!(
+            !why.contains("build-box") && !why.contains("no such host"),
+            "{why}"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_machine_with_the_host_set_up_says_so_plainly() {
+        let sources = [
+            by_command(
+                1,
+                &[("issue list", 3, "not found"), ("whoami", 3, "not found")],
+            ),
+            by_command(
+                2,
+                &[
+                    ("issue list", 1, "no such host"),
+                    ("whoami", 1, "no such host"),
+                ],
+            ),
+        ];
+        let why = refused(read_issues(&sources).await);
+        assert_eq!(why, "No online machine has forge.example set up.");
+    }
+
+    #[tokio::test]
+    async fn a_lone_source_keeps_its_own_error() {
+        let sources = [by_command(
+            1,
+            &[("issue list", 3, "not found"), ("whoami", 3, "not found")],
+        )];
+        let why = refused(read_issues(&sources).await);
+        assert!(why.contains("exited with 3"), "{why}");
+    }
+
+    #[tokio::test]
+    async fn a_machine_without_the_host_does_not_hide_a_later_success() {
+        let sources = [
+            by_command(
+                1,
+                &[
+                    ("issue list", 1, "no such host"),
+                    ("whoami", 1, "no such host"),
+                ],
+            ),
+            by_command(2, &[("issue list", 0, "[]")]),
+        ];
+        let (answered, out) = read_any(
             &Fleet { online: Vec::new() },
             &sources,
             &repo(),
             HostCommand::ListOpenIssues,
             |out| Ok(out.to_owned()),
         )
-        .await;
+        .await
+        .expect("the second machine answers");
+        assert_eq!(answered.machine, machine(2));
+        assert_eq!(out, "[]");
+    }
+
+    #[tokio::test]
+    async fn a_missing_repository_is_an_error_for_issues_but_no_pull_requests() {
+        let shell = Arc::new(ByCommand(vec![
+            ("issue list", ShellOutput::exited(3, "not found")),
+            ("pr list", ShellOutput::exited(3, "not found")),
+            ("whoami", ShellOutput::exited(0, "{\"login\":\"kim\"}")),
+        ]));
+        let store = forgejo_store();
+        let fleet = Fleet2(shell);
+        let prs = list_open_prs(&store, &fleet).await.expect("none open");
+        assert!(prs.is_empty());
+        let issues = list_open(&store, &fleet).await;
+        assert!(matches!(issues, Err(SourceError::Refused(_))));
+    }
+
+    #[tokio::test]
+    async fn pull_requests_not_found_without_the_host_is_an_error() {
+        let shell = Arc::new(ByCommand(vec![
+            ("pr list", ShellOutput::exited(3, "not found")),
+            ("whoami", ShellOutput::exited(3, "not found")),
+        ]));
+        let prs = list_open_prs(&forgejo_store(), &Fleet2(shell)).await;
+        assert!(matches!(prs, Err(SourceError::Refused(_))));
+    }
+
+    #[tokio::test]
+    async fn gh_failures_stay_errors_on_the_pull_request_list() {
+        let shell = Arc::new(ByCommand(vec![
+            ("pr list", ShellOutput::exited(3, "not found")),
+            ("api user", ShellOutput::exited(0, "kim")),
+        ]));
+        let store = Store {
+            name: repo(),
+            home: Some(machine(1)),
+            imports: Vec::new(),
+            host: IssueHost::Github,
+        };
+        let prs = list_open_prs(&store, &Fleet2(shell)).await;
+        assert!(matches!(prs, Err(SourceError::Refused(_))));
+    }
+
+    fn forge() -> IssueHost {
+        IssueHost::of_hostname("forge.example").expect("a Forgejo host")
+    }
+
+    fn forgejo_store() -> Store {
+        Store {
+            name: repo(),
+            home: Some(machine(1)),
+            imports: Vec::new(),
+            host: forge(),
+        }
+    }
+
+    /// A source on Forgejo whose shell answers `rules` as (command text, exit code, output).
+    fn by_command(seed: u8, rules: &[(&'static str, i32, &str)]) -> IssueSource {
+        IssueSource {
+            host: forge(),
+            machine: machine(seed),
+            shell: Arc::new(ByCommand(
+                rules
+                    .iter()
+                    .map(|(holds, code, out)| (*holds, ShellOutput::exited(*code, out)))
+                    .collect(),
+            )),
+        }
+    }
+
+    async fn read_issues(sources: &[IssueSource]) -> Result<(), SourceError> {
+        read_any(
+            &Fleet { online: Vec::new() },
+            sources,
+            &repo(),
+            HostCommand::ListOpenIssues,
+            |out| Ok(out.to_owned()),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    fn refused(read: Result<(), SourceError>) -> String {
         let Err(SourceError::Refused(why)) = read else {
             panic!("expected the host's errors");
         };
-        for part in ["build-box", "not logged in", "mac-box", "unknown flag"] {
-            assert!(why.contains(part), "{part} missing from {why}");
-        }
-        assert_eq!(*first.ran.lock().expect("not poisoned"), 1);
-        assert_eq!(*second.ran.lock().expect("not poisoned"), 1);
+        why
     }
 
     #[tokio::test]
@@ -614,6 +878,7 @@ mod tests {
                     machine: Some(machine(seed)),
                 })
                 .to_vec(),
+            host: IssueHost::Github,
         };
         let online = FixedShell::exits(0, "");
         let fleet = Fleet {
@@ -643,6 +908,7 @@ mod tests {
             name: repo(),
             home: Some(machine(1)),
             imports: Vec::new(),
+            host: IssueHost::Github,
         };
         let listed = list_open_prs(&store, &fleet).await.expect("the list reads");
         let marks: Vec<(u64, bool)> = listed.iter().map(|p| (p.pr.number, p.mine)).collect();
@@ -658,6 +924,7 @@ mod tests {
                 url: "https://github.com/acme/widget".into(),
                 machine: None,
             }],
+            host: IssueHost::Github,
         };
         let found = host_and_machines(&store)
             .await
