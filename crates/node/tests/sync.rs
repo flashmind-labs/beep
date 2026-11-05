@@ -1279,57 +1279,35 @@ async fn git_removed_on_one_machine_comes_back_and_stays_on_the_other() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn two_checkouts_at_other_commits_hold_until_they_agree() {
+async fn two_checkouts_at_other_commits_merge_their_files() {
     let a = Node::new().await;
     let b = Node::new().await;
     new_repo(&a);
     new_repo(&b);
-    let ours = commit(&a, "a.txt", "only on a\n");
-    let theirs = commit(&b, "b.txt", "only on b\n");
+    commit(&a, "a.txt", "only on a\n");
+    commit(&b, "b.txt", "only on b\n");
     write(&a.path("same.txt"), "this side\n");
     write(&b.path("same.txt"), "that side\n");
     a.sync_with(&b).await;
     b.sync_with(&a).await;
 
-    let held = |node: &Node| {
-        node.status()
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("one commit"))
-    };
-    eventually("both to say why nothing syncs", || held(&a) && held(&b)).await;
-    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
-    assert_eq!(head(&b).as_deref(), Some(theirs.as_str()));
-    assert_eq!(
-        read(&a.path("same.txt")).as_deref(),
-        Some(b"this side\n".as_slice())
-    );
-    assert_eq!(
-        read(&b.path("same.txt")).as_deref(),
-        Some(b"that side\n".as_slice())
-    );
-    assert!(read(&a.path("b.txt")).is_none());
-    assert_sound(&a);
-    assert_sound(&b);
-
-    // The user brings them to one commit with git, and sync takes over.
-    fs::remove_file(b.path("same.txt")).unwrap();
-    git(
-        &b.folder(),
-        &["fetch", "-q", &a.folder().to_string_lossy(), "main"],
-    );
-    git(&b.folder(), &["switch", "-q", "--detach", "FETCH_HEAD"]);
-    git(&b.folder(), &["branch", "-f", "main", "FETCH_HEAD"]);
-    git(&b.folder(), &["switch", "-q", "main"]);
-    eventually("the hold to lift", || {
-        !held(&a) && !held(&b) && read(&b.path("same.txt")).is_some()
+    eventually("both to have every file at one commit", || {
+        read(&a.path("b.txt")).is_some()
+            && read(&b.path("a.txt")).is_some()
+            && head(&a).is_some()
+            && head(&a) == head(&b)
     })
     .await;
-    assert_eq!(head(&b).as_deref(), Some(ours.as_str()));
-    // The one that already was at that commit stays there, with no branch
-    // kept for a losing side.
-    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
-    assert!(!git(&a.folder(), &["show-ref"]).contains("beep-conflicts"));
+    eventually("one version of the edited file on both", || {
+        let (here, there) = (read(&a.path("same.txt")), read(&b.path("same.txt")));
+        here.is_some() && here == there
+    })
+    .await;
+    // The commit that lost its branch stays reachable.
+    let kept = |node: &Node| git(&node.folder(), &["show-ref"]).contains("beep-conflicts");
+    eventually("the other commit to be kept", || kept(&a) && kept(&b)).await;
+    assert_sound(&a);
+    assert_sound(&b);
 }
 
 #[tokio::test(flavor = "multi_thread")]
