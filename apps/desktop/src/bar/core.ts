@@ -51,6 +51,8 @@ export interface BarState {
   /// Whether the desktop talks to a server at all, as Rust says (`status`). Off, nothing of one
   /// shows: no account, sign in, subscription or error about a server.
   server: boolean;
+  /// Whether live mode can start, as Rust says (`status`). Off, no hint mentions it or the orb.
+  live: boolean;
   /// Chat runs on this Mac: no server and an OpenRouter key saved (`assistant_local`).
   local: boolean;
   session: string | null;
@@ -92,6 +94,7 @@ export const S: BarState = new Proxy<BarState>({
   link: "unlinked",
   signedOut: false,
   server: false,
+  live: false,
   local: false,
   session: null,
   chats: { list: [], sel: 0, query: "" },
