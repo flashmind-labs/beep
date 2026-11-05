@@ -12,6 +12,7 @@ import { harnessTile } from "../ui/harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, Waiting } from "./agentqueue.ts";
 import { renderChat } from "../chat/chat.ts";
+import { leavePane } from "../agentpane/media.ts";
 import { $, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
@@ -431,6 +432,12 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
 /// its session, else goes back.
 export function agentBack() {
   if (S.view === "agent" && (closeModelPicker() || closeChild())) return;
+  // In the window a session's parent is its project, wherever it was opened from.
+  if (S.view === "agent" && windowHooks) {
+    if (leavePane()) return;
+    const project = AG.page && windowHooks.sessionProject?.(AG.page.session);
+    if (project) return project.open();
+  }
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if (S.link === "unlinked" && !windowHooks) return void invoke("hide_bar");
