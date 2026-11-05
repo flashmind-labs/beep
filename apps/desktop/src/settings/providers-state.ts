@@ -206,9 +206,20 @@ export function joinArgs(args: string[]) {
   return args.map(a => (a === "" || /[\s'"]/.test(a) ? (a.includes("'") ? `"${a}"` : `'${a}'`) : a)).join(" ");
 }
 
-/// Whether the node compacts this harness's sessions; flsh and Gemini CLI
-/// compact on their own.
-export const hasCompact = (agent: string) => agent !== "flsh" && agent !== "gemini";
+/// What a harness takes for auto-compact: a percent, only on and off (its
+/// own setting has no threshold), or nothing (flsh and Gemini CLI compact on
+/// their own). The nodes set each one's own mechanism or send /compact.
+const COMPACT_KIND: Record<string, "percent" | "toggle"> = {
+  claude: "percent",
+  codex: "percent",
+  pi: "percent",
+  opencode: "toggle",
+};
+
+export const compactKind = (agent: string) => COMPACT_KIND[agent] ?? null;
+
+/// Whether the form shows auto-compact for this harness.
+export const hasCompact = (agent: string) => compactKind(agent) !== null;
 
 /// The percent typed, 1 to 100 with an optional "%", or null when blank or
 /// not one.

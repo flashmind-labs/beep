@@ -1,15 +1,13 @@
-//! When the node compacts a session (`Compactor`): once a turn ends past the
-//! threshold `Policy` sets, it sends `/compact` before the next prompt. Agents
-//! that compact on their own (Gemini CLI, flsh) are left to it.
+//! How a session gets compacted. An agent with its own auto-compaction is
+//! configured through its environment (`Policy::env`). Only an agent with no
+//! way to configure its own gets the node's `Compactor`: once a turn ends past
+//! the threshold `Policy` sets, it sends `/compact` before the next prompt.
+//! Agents that compact on their own with no setting (Gemini CLI, flsh) are
+//! left to it.
 
-use super::Known;
 use beep_proto::{AgentContext, node::harness::AutoCompact};
 use std::collections::BTreeMap;
 
-/// Claude Code's own threshold, a percent of its window.
-const CLAUDE_AUTOCOMPACT_VAR: &str = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE";
-/// Turns Claude Code's own compaction off.
-const CLAUDE_DISABLE_VAR: &str = "DISABLE_AUTO_COMPACT";
 /// The prompt that asks an agent to compact its conversation.
 pub(super) const COMPACT_PROMPT: &str = "/compact";
 /// What the transcript shows for a compaction, as Claude Code's reader does.
@@ -58,17 +56,19 @@ impl Policy {
         u128::from(usage.used) * 100 >= u128::from(usage.size) * u128::from(percent)
     }
 
-    /// The variables to add for agent `agent` so its own trigger matches:
-    /// Claude Code's, unless the user set it.
-    pub(super) fn agent_env(self, agent: &str, env: &BTreeMap<String, String>) -> Option<EnvVar> {
-        if agent != "claude" {
-            return None;
-        }
-        let (name, value) = match self {
-            Self::At(percent) => (CLAUDE_AUTOCOMPACT_VAR, percent.to_string()),
-            Self::Off => (CLAUDE_DISABLE_VAR, "1".to_owned()),
+    /// The variable to add so the agent's own trigger matches, when `route`
+    /// has one and the user has not set it.
+    pub(super) fn env(self, route: Route, user: &BTreeMap<String, String>) -> Option<EnvVar> {
+        let (name, value) = match (route, self) {
+            (Route::Percent { percent_var, .. }, Self::At(percent)) => {
+                (percent_var, percent.to_string())
+            }
+            (Route::Percent { off_var, .. } | Route::Toggle { off_var }, Self::Off) => {
+                (off_var, "1".to_owned())
+            }
+            _ => return None,
         };
-        (!env.contains_key(name)).then_some(EnvVar { name, value })
+        (!user.contains_key(name)).then_some(EnvVar { name, value })
     }
 }
 
@@ -85,26 +85,32 @@ pub(super) struct EnvVar {
     pub(super) value: String,
 }
 
-/// How an agent can be asked to compact.
+/// What an agent takes to compact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Route {
-    /// It compacts on its own trigger and takes no command for it.
+    /// It compacts on its own trigger and takes no setting for it.
     OwnTrigger,
+    /// Its own setting takes a percent of the window, and a variable that
+    /// turns it off.
+    Percent {
+        percent_var: &'static str,
+        off_var: &'static str,
+    },
+    /// Its own setting only turns on (its default) or off.
+    Toggle { off_var: &'static str },
     /// With `/compact`, when it advertises the command.
     Advertised,
-    /// With `/compact`, which it takes without advertising it.
-    Always,
 }
 
 impl Route {
-    /// Whether `/compact` works, given the commands the agent advertised.
+    /// Whether the node sends `/compact`, given the commands the agent
+    /// advertised.
     pub(super) fn takes_compact(self, commands: &[String]) -> bool {
         match self {
-            Self::OwnTrigger => false,
-            Self::Always => true,
             Self::Advertised => commands
                 .iter()
                 .any(|name| name.trim_start_matches('/') == "compact"),
+            Self::OwnTrigger | Self::Percent { .. } | Self::Toggle { .. } => false,
         }
     }
 }
@@ -129,12 +135,10 @@ pub(super) struct TurnEnd<'a> {
 }
 
 impl Compactor {
-    /// For the agent `known`; one the node does not know takes `/compact`
-    /// when it advertises it.
-    pub(super) fn new(known: Option<&Known>, policy: Policy) -> Self {
+    pub(super) fn new(route: Route, policy: Policy) -> Self {
         Self {
             policy,
-            route: known.map_or(Route::Advertised, |known| known.compact),
+            route,
             due: false,
             running: false,
         }
@@ -165,7 +169,7 @@ impl Compactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::known;
+    use crate::agents::route;
 
     fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs
@@ -188,7 +192,7 @@ mod tests {
 
     #[test]
     fn at_the_threshold_it_compacts_once_before_the_next_prompt() {
-        let mut compactor = Compactor::new(known("codex"), Policy::default());
+        let mut compactor = Compactor::new(route("codex"), Policy::default());
         ended(
             &mut compactor,
             usage(80_000, 100_000),
@@ -205,7 +209,7 @@ mod tests {
 
     #[test]
     fn not_while_a_question_waits() {
-        let mut compactor = Compactor::new(known("pi"), Policy::default());
+        let mut compactor = Compactor::new(route("pi"), Policy::default());
         ended(&mut compactor, usage(95, 100), &commands(&["/compact"]));
         assert!(!compactor.start(true));
         assert!(compactor.start(false), "still due once answered");
@@ -214,21 +218,23 @@ mod tests {
     #[test]
     fn a_harness_without_the_command_never_gets_it() {
         for agent in ["gemini", "flsh"] {
-            let mut compactor = Compactor::new(known(agent), Policy::default());
+            let mut compactor = Compactor::new(route(agent), Policy::default());
             ended(&mut compactor, usage(99, 100), &commands(&["compact"]));
             assert!(!compactor.start(false), "{agent} compacts on its own");
         }
-        let mut compactor = Compactor::new(known("codex"), Policy::default());
+        let mut compactor = Compactor::new(route("codex"), Policy::default());
         ended(&mut compactor, usage(99, 100), &commands(&["review"]));
         assert!(!compactor.start(false), "not advertised");
-        let mut compactor = Compactor::new(known("opencode"), Policy::default());
-        ended(&mut compactor, usage(99, 100), &[]);
-        assert!(compactor.start(false), "OpenCode takes it unadvertised");
+        for agent in ["claude", "opencode"] {
+            let mut compactor = Compactor::new(route(agent), Policy::default());
+            ended(&mut compactor, usage(99, 100), &commands(&["compact"]));
+            assert!(!compactor.start(false), "{agent} has its own setting");
+        }
     }
 
     #[test]
     fn a_turn_back_under_the_threshold_clears_it() {
-        let mut compactor = Compactor::new(known("codex"), Policy::default());
+        let mut compactor = Compactor::new(route("codex"), Policy::default());
         ended(&mut compactor, usage(90, 100), &commands(&["compact"]));
         ended(&mut compactor, usage(10, 100), &commands(&["compact"]));
         assert!(!compactor.start(false));
@@ -252,7 +258,7 @@ mod tests {
             Policy::At(80)
         );
         assert_eq!(Policy::from_setting(setting(true, Some(0))), Policy::At(80));
-        let mut off = Compactor::new(known("codex"), Policy::Off);
+        let mut off = Compactor::new(route("codex"), Policy::Off);
         ended(&mut off, usage(100, 100), &commands(&["compact"]));
         assert!(!off.start(false));
         assert!(Policy::At(70).due(usage(70, 100)));
@@ -262,26 +268,49 @@ mod tests {
 
     #[test]
     fn claude_gets_its_own_threshold_unless_the_user_set_one() {
-        let set = Policy::At(70).agent_env("claude", &env(&[]));
+        let claude = route("claude");
+        let set = Policy::At(70).env(claude, &env(&[]));
         assert_eq!(
             set,
             Some(EnvVar {
-                name: CLAUDE_AUTOCOMPACT_VAR,
+                name: "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
                 value: "70".into()
             })
         );
-        let own = env(&[(CLAUDE_AUTOCOMPACT_VAR, "60")]);
-        assert_eq!(Policy::At(70).agent_env("claude", &own), None);
-        let disabled = Policy::Off.agent_env("claude", &env(&[]));
+        let own = env(&[("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "60")]);
+        assert_eq!(Policy::At(70).env(claude, &own), None);
+        let disabled = Policy::Off.env(claude, &env(&[]));
         assert_eq!(
             disabled,
             Some(EnvVar {
-                name: CLAUDE_DISABLE_VAR,
+                name: "DISABLE_AUTO_COMPACT",
                 value: "1".into()
             })
         );
-        let own = env(&[(CLAUDE_DISABLE_VAR, "0")]);
-        assert_eq!(Policy::Off.agent_env("claude", &own), None);
-        assert_eq!(Policy::At(70).agent_env("codex", &env(&[])), None);
+        let own = env(&[("DISABLE_AUTO_COMPACT", "0")]);
+        assert_eq!(Policy::Off.env(claude, &own), None);
+    }
+
+    #[test]
+    fn opencode_only_turns_off() {
+        let opencode = route("opencode");
+        assert_eq!(Policy::At(70).env(opencode, &env(&[])), None);
+        assert_eq!(
+            Policy::Off.env(opencode, &env(&[])),
+            Some(EnvVar {
+                name: "OPENCODE_DISABLE_AUTOCOMPACT",
+                value: "1".into()
+            })
+        );
+        let own = env(&[("OPENCODE_DISABLE_AUTOCOMPACT", "")]);
+        assert_eq!(Policy::Off.env(opencode, &own), None);
+    }
+
+    #[test]
+    fn the_slash_command_fallback_sets_no_variable() {
+        for agent in ["codex", "pi", "gemini", "flsh", "unknown"] {
+            assert_eq!(Policy::Off.env(route(agent), &env(&[])), None);
+            assert_eq!(Policy::At(70).env(route(agent), &env(&[])), None);
+        }
     }
 }
