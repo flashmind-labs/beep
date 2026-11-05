@@ -998,6 +998,7 @@ final class AppModel {
     /// message while the server is told to stop it.
     func stop() {
         guard chat.busy else { return }
+        flushHeld()
         stopStreaming()
         let stopped = chat
         stopTask = Task { try? await stopRun(stopped) }
@@ -1112,12 +1113,14 @@ final class AppModel {
                         first = false
                         try handle(received)
                     }
+                    flushHeld()
                     failures = 0
                     connected = true
                     try await Task.sleep(for: .milliseconds(150))
                 } catch is CancellationError {
                     return
                 } catch {
+                    flushHeld()
                     failures += 1
                     connected = false
                     chat.error = failures < tries ? "Reconnecting…" : describe(error)
@@ -1199,7 +1202,36 @@ final class AppModel {
 
     private struct MissedEvent: Error {}
 
+    /// Streamed reply text waits here and joins the reply once a frame, so a burst of
+    /// deltas redraws the chat once instead of once per token.
+    private var heldText = ""
+    private var heldRun = ""
+    private var flushScheduled = false
+
+    private func hold(_ delta: String) {
+        if heldText.isEmpty { heldRun = chat.runId }
+        heldText += delta
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(16))
+            flushScheduled = false
+            flushHeld()
+        }
+    }
+
+    /// Adds the held text to its reply. Anything else that reads or ends the reply calls this first.
+    private func flushHeld() {
+        guard !heldText.isEmpty else { return }
+        let text = heldText
+        heldText = ""
+        // The chat changed since: the reply reloads from the server.
+        guard chat.runId == heldRun else { return }
+        updateReply("assistant-\(heldRun)") { $0.text += text }
+    }
+
     private func handle(_ received: Event) throws {
+        if case .textDelta = received.event {} else { flushHeld() }
         if case .runStarted(let runId, _) = received.event {
             if chat.pendingSpoken {
                 liveRunId = runId
@@ -1221,7 +1253,7 @@ final class AppModel {
 
         switch received.event {
         case .textDelta(let delta):
-            updateReply(mid) { $0.text += delta }
+            hold(delta)
         case .reasoningDelta(let delta):
             chat.thinking += delta
         case .toolStarted(let name, let callId, let description):
