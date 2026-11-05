@@ -118,7 +118,7 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
 /// place: nothing here anchors the scroll, so it is put back by hand.
 function drawEarlier(b: ChatBody) {
   const old = undrawn.get(b), id = S.session;
-  if (!old?.length || !id || body() !== b) return;
+  if (!old?.length || !id || body() !== b) return false;
   const start = windowStart(old.map(t => t.role), HISTORY_CHUNK);
   undrawn.set(b, old.slice(0, start));
   const { drawn } = buildTurns(id, old.slice(start));
@@ -128,6 +128,15 @@ function drawEarlier(b: ChatBody) {
   else b.append(...drawn);
   b.scrollTop = b.scrollHeight - fromBottom;
   loadSides(id, b);
+  return true;
+}
+
+/// The prompts of `b` not drawn yet, oldest first.
+export const earlierPrompts = (b: ChatBody) => (undrawn.get(b) ?? []).flatMap(t => t.role === "user" ? [t.text] : []);
+
+/// Draws earlier turns until the `n`th of `earlierPrompts` is drawn.
+export function drawThrough(b: ChatBody, n: number) {
+  while (earlierPrompts(b).length > n && drawEarlier(b));
 }
 
 const loadSides = (id: string, b: ChatBody) => { loadAskFiles(id, b); loadAgents(id, b); loadSources(id, b); };
