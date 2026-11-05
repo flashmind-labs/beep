@@ -94,7 +94,7 @@ pub async fn save_chat(dir: &Path, chat: &Chat) -> Result<(), AssistantError> {
     Ok(())
 }
 
-async fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) async fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use tokio::io::AsyncWriteExt;
     let mut options = tokio::fs::OpenOptions::new();
     options.write(true).create_new(true);

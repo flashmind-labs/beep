@@ -4,15 +4,16 @@
 
 use super::{runs::Runs, stream::drive};
 use crate::{
-    beep::{BarEvent, Beep, Turn, epoch_ms, identity::data_dir},
+    beep::{BarEvent, Beep, Decision, Turn, epoch_ms, identity::data_dir},
     chat::{history::ToolStep, markdown},
     error::{DesktopError, Result},
     fleet::projects::desk,
 };
 use beep_assistant::{
-    AssistantError, Chat, ChatSummary, Effort, Endpoint, FIRECRAWL_BASE, OPENROUTER_BASE, Prefs,
-    Setup, default_model, delete_chat, http_client, list_chats, list_models, load_chat, load_prefs,
-    pin_chat, rename_chat, save_prefs, search_chats, turns,
+    AssistantError, Chat, ChatSummary, Effort, Endpoint, FIRECRAWL_BASE, Feature, Mcp, McpHub,
+    OPENROUTER_BASE, Prefs, Setup, default_model, delete_chat, http_client, list_chats,
+    list_models, load_chat, load_prefs, load_servers, pin_chat, rename_chat, save_prefs,
+    search_chats, turns,
 };
 use beep_fleet::Session as MeshSession;
 use beep_proto::{ApiProvider, ModelChoice, Models, ReasoningLevel, Session, SessionMatch};
@@ -23,17 +24,17 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
-use tauri::{AppHandle, Emitter, ipc::Channel};
+use tauri::{AppHandle, Emitter, Manager, ipc::Channel};
 use uuid::Uuid;
 
-const NO_KEY: &str = "Add an OpenRouter key in Assistant first.";
+pub(super) const NO_KEY: &str = "Add an OpenRouter key in Assistant first.";
 
-fn bad(e: AssistantError) -> DesktopError {
+pub(super) fn bad(e: AssistantError) -> DesktopError {
     DesktopError::BadRequest(e.to_string())
 }
 
 /// Where this Mac keeps the chats.
-fn chat_dir(app: &AppHandle) -> Result<PathBuf> {
+pub(super) fn chat_dir(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("assistant"))
 }
 
@@ -41,7 +42,7 @@ pub(crate) fn chat_uuid(id: &str) -> Result<Uuid> {
     Uuid::parse_str(id).map_err(|_| DesktopError::BadRequest("not a chat".into()))
 }
 
-async fn key(fleet: &Arc<MeshSession>, provider: ApiProvider) -> Option<SecretString> {
+pub(super) async fn key(fleet: &Arc<MeshSession>, provider: ApiProvider) -> Option<SecretString> {
     desk(fleet).await.ok()?.api_key(provider)
 }
 
@@ -181,7 +182,16 @@ pub(crate) async fn send(
     // Registered before the chat is read, so no other reply or delete can change it meanwhile.
     let cancel = runs.begin(id, prompt.window)?;
     let prefs = load_prefs(&dir).await;
-    let setup = Setup {
+    // A list that does not read leaves the chat without MCP tools; the page shows why.
+    let servers = load_servers(&dir).await.unwrap_or_else(|e| {
+        log::warn!("MCP servers not read: {e}");
+        Vec::new()
+    });
+    let mcp = Mcp {
+        hub: app.state::<Arc<McpHub>>().inner().clone(),
+        servers,
+    };
+    let mut setup = Setup {
         client: http_client(),
         openrouter: Endpoint {
             base: OPENROUTER_BASE.to_owned(),
@@ -194,10 +204,15 @@ pub(crate) async fn send(
         dir: dir.clone(),
         today: chrono::Local::now().format("%Y-%m-%d").to_string(),
         effort: prefs.effort,
+        provider: None,
+        mcp: Some(mcp),
         cancel,
     };
-    let chat = match prepare(&setup, id, prefs).await {
-        Ok(chat) => chat,
+    let chat = match prepare(&setup, id, prefs.clone()).await {
+        Ok(chat) => {
+            setup.provider = prefs.provider_for(&chat.model).map(str::to_owned);
+            chat
+        }
         Err(e) => {
             runs.finish(id);
             return Err(e);
@@ -227,7 +242,7 @@ async fn prepare(setup: &Setup, id: Uuid, mut prefs: Prefs) -> Result<Chat> {
     } else if !chat.model.is_empty() {
         chat.model.clone()
     } else {
-        let models = list_models(&setup.client, &setup.openrouter)
+        let models = list_models(&setup.openrouter, Some(Feature::Chat))
             .await
             .map_err(bad)?;
         let last = latest_model(&setup.dir).await;
@@ -246,6 +261,39 @@ async fn prepare(setup: &Setup, id: Uuid, mut prefs: Prefs) -> Result<Chat> {
 async fn latest_model(dir: &Path) -> Option<String> {
     let chats = list_chats(dir).await.ok()?;
     chats.into_iter().next().map(|chat| chat.model)
+}
+
+/// Gives the user's answer to a tool call the reply of chat `session` waits on, then holds until
+/// that reply ends: the window follows the answer as it follows a resumed run, and the reply
+/// itself goes on in the stream that started it.
+pub(crate) async fn answer(
+    runs: &Runs,
+    session: &str,
+    query_id: &str,
+    decision: Decision,
+    channel: Channel<BarEvent>,
+) -> Result<()> {
+    let id = chat_uuid(session)?;
+    // Taken before the answer, after which the reply may end at once.
+    let over = runs.over(id);
+    // Allow, for this session and always all mean yes, once: nothing is remembered here.
+    let allow = !matches!(decision, Decision::Deny);
+    if !runs.answer(id, query_id, allow) {
+        return Err(DesktopError::BadRequest(
+            "That question is not waiting any more.".into(),
+        ));
+    }
+    let started = BarEvent::Started {
+        run_id: session.to_owned(),
+        session_id: session.to_owned(),
+    };
+    if channel.send(started).is_err() {
+        return Ok(());
+    }
+    if let Some(over) = over {
+        over.cancelled().await;
+    }
+    Ok(())
 }
 
 /// Sends the chat's `index`th prompt again, after taking it and what followed back.
@@ -313,12 +361,14 @@ pub(crate) async fn models(
             .await
             .ok_or_else(|| DesktopError::BadRequest(NO_KEY.into()))?,
     };
-    let listed = list_models(&http_client(), &endpoint).await.map_err(bad)?;
+    let listed = list_models(&endpoint, Some(Feature::Chat))
+        .await
+        .map_err(bad)?;
     let mut prefs = load_prefs(&dir).await;
     let before = prefs.clone();
     match change {
         Change::Nothing => {}
-        Change::Model(id) => prefs.model = id,
+        Change::Model(id) => prefs.set_model(id),
         Change::Effort(effort) => prefs.effort = effort,
     }
     if prefs != before {

@@ -1,7 +1,7 @@
 //! The tools the model may call, their schemas and their size limits. Web pages and what other
 //! machines hold are someone else's text: it goes back to the model inside `<untrusted>` tags.
 
-use crate::{Call, Setup, firecrawl};
+use crate::{Call, McpTool, Setup, firecrawl};
 use serde_json::{Value, json};
 
 /// Rounds of tool calls one prompt may use before the model has to answer.
@@ -9,14 +9,14 @@ pub const MAX_TOOL_ROUNDS: usize = 10;
 /// Calls run in one round; the rest are refused.
 pub(crate) const MAX_CALLS_PER_ROUND: usize = 6;
 /// Why the web tools are refused once the chat holds a coding agent session's text.
-pub(crate) const WEB_OFF: &str = "Web search is off in this chat because it has read coding agent sessions. Tell the user to start a new chat to search the web.";
+pub(crate) const WEB_OFF: &str = "Web search is off in this chat because it has read private data: coding agent sessions or results of MCP tools. Tell the user to start a new chat to search the web.";
 
-/// Whether the web tools are off for the rest of this chat: a session list or log is in it, and
-/// a page or search could carry its text out in a URL or a query. Read from the saved messages,
+/// Whether the web tools are off for the rest of this chat: a session list or log, or the result
+/// of an MCP tool, is in it, and a page or search could carry its text out in a URL or a query. Read from the saved messages,
 /// so it holds after the chat is reopened.
 pub(crate) fn web_blocked(messages: &[crate::Message]) -> bool {
     messages.iter().any(|message| {
-        matches!(message, crate::Message::Tool { name, .. } if name == "list_sessions" || name == "read_session")
+        matches!(message, crate::Message::Tool { name, .. } if name == "list_sessions" || name == "read_session" || name.starts_with("mcp_"))
     })
 }
 const WEB_CHARS: usize = 12_000;
@@ -42,7 +42,7 @@ pub(crate) struct ToolResult {
 }
 
 impl ToolResult {
-    fn failed(text: impl Into<String>) -> Self {
+    pub(crate) fn failed(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             ok: false,
@@ -62,7 +62,7 @@ fn function(name: &str, description: &str, properties: Value, required: &[&str])
 }
 
 /// The tool definitions to offer; the web ones only with a Firecrawl key.
-pub(crate) fn definitions(web: bool) -> Vec<Value> {
+pub(crate) fn definitions(web: bool, mcp: &[McpTool]) -> Vec<Value> {
     let mut tools = Vec::new();
     if web {
         tools.push(function(
@@ -106,6 +106,16 @@ pub(crate) fn definitions(web: bool) -> Vec<Value> {
         }),
         &["machine_id", "agent", "session_id"],
     ));
+    for tool in mcp {
+        tools.push(json!({
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.schema,
+            },
+        }));
+    }
     tools
 }
 
@@ -129,6 +139,11 @@ pub(crate) fn label(call: &Call) -> String {
         "list_projects" => "Checking your projects".into(),
         "list_sessions" => "Checking coding agent sessions".into(),
         "read_session" => "Reading a coding agent session".into(),
+        // `mcp_<server>_<tool>`; a server name has no underscore.
+        other if other.starts_with("mcp_") => {
+            let (server, tool) = other["mcp_".len()..].split_once('_').unwrap_or(("", other));
+            format!("Using {tool} on {server}")
+        }
         other => format!("Using {other}"),
     }
 }
@@ -143,7 +158,7 @@ pub(crate) fn cap(text: &str, max: usize) -> String {
 
 /// Marks `body` as data from `source`, so the model does not take it for the user's words. A
 /// closing tag inside it is broken so it cannot end the block early.
-fn untrusted(source: &str, body: &str) -> String {
+pub(crate) fn untrusted(source: &str, body: &str) -> String {
     let body = body.replace("</untrusted", "<\\/untrusted");
     format!("<untrusted source=\"{source}\">\n{body}\n</untrusted>")
 }
@@ -241,7 +256,7 @@ mod tests {
     #[test]
     fn web_tools_are_offered_only_with_a_key() {
         let names = |web| -> Vec<String> {
-            definitions(web)
+            definitions(web, &[])
                 .iter()
                 .map(|t| t["function"]["name"].as_str().unwrap().to_owned())
                 .collect()
