@@ -196,9 +196,11 @@ async fn a_reply_streams_with_its_reasoning_and_is_saved() {
     let setup = setup(dir.path(), &server, None);
     let mut chat = new_chat();
     let (tx, mut rx) = mpsc::channel(64);
-    let outcome = run_turn(&setup, &mut chat, "Say hello\nplease".into(), &tx, no_work)
-        .await
-        .unwrap();
+    let turn = run_turn(&setup, &mut chat, "Say hello\nplease".into(), &tx, no_work);
+    // The desktop runs a turn in a spawned task, so the future has to be Send.
+    fn is_send<T: Send>(_: &T) {}
+    is_send(&turn);
+    let outcome = turn.await.unwrap();
     assert_eq!(outcome, Outcome::Done);
     assert_eq!(
         drain(&mut rx),
