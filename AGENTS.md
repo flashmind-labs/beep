@@ -68,6 +68,8 @@ using the server's credentials and harness values as soon as the account is move
 
 With an OpenRouter key saved, chats run on this Mac (`assistant_local`). The chat commands read and write local files and call OpenRouter (`crates/assistant`, `src-tauri/src/assistant/`), and the same chat window renders them. A Firecrawl key adds web search. Web tools turn off for the rest of a chat once a session has been read in it.
 
+Dictation works without the server too: with a provider picked in Assistant (OpenRouter, OpenAI or Mistral, each with its saved key), holding Option records a clip and types the words where the cursor is (`voice/dictation.rs`, `crates/dictation`, calls through flashmind's providers). It needs the Accessibility permission, sends nothing to a chat and is off until a provider is picked.
+
 ### Code map
 
 `crates/server/src`, one line per top-level module:

@@ -12,10 +12,12 @@ export interface KeyProvider {
   url: string;
 }
 
-/// The keys the assistant takes, both optional.
+/// The keys the assistant takes, all optional.
 export const KEY_PROVIDERS: readonly KeyProvider[] = [
   { slug: "openrouter", name: "OpenRouter", use: "Chat", url: "https://openrouter.ai/keys" },
   { slug: "firecrawl", name: "Firecrawl", use: "Web search", url: "https://www.firecrawl.dev/app/api-keys" },
+  { slug: "openai", name: "OpenAI", use: "Dictation", url: "https://platform.openai.com/api-keys" },
+  { slug: "mistral", name: "Mistral", use: "Dictation", url: "https://console.mistral.ai/api-keys" },
 ];
 
 /// The one line under the keys.
