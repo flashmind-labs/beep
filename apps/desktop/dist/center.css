@@ -903,3 +903,19 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .cc-note.in-go .go { margin-left: auto; color: var(--accent); white-space: nowrap }
 .pj-task.ca-row > .t, .pj-task.ca-row > .m { grid-column: 1 }
 .pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
+
+/* Assistant: an open chat */
+.as-chat { display: flex; flex-direction: column; height: min(640px, calc(100vh - 150px)); min-height: 320px; position: relative; overflow: hidden }
+.as-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); min-width: 0 }
+.as-head .t { display: grid; flex: 1; min-width: 0; line-height: 18px }
+.as-head .t b { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.as-head .t small { font-size: 11.5px; color: var(--muted) }
+.as-pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.as-chat > .as-body { flex: 1 1 0; min-height: 0; overflow: auto; padding-top: 12px }
+.as-chat > .as-body:empty { display: flex }
+.as-err { flex: none; padding: 6px 16px }
+.as-pick { position: absolute; right: 14px; top: 52px; z-index: 8; width: min(440px, calc(100% - 28px)); max-height: 340px; display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 18px 50px rgba(0, 0, 0, .35); overflow: hidden }
+.as-pick .dinput { border-top: 0; border-bottom: 1px solid var(--border) }
+.as-models { overflow: auto; scrollbar-width: thin }
+.as-model { grid-template-columns: minmax(0, 1fr) auto; cursor: pointer }
+.as-model .t span { font-family: var(--mono) }
