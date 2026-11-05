@@ -72,7 +72,6 @@ export const state = {
   sync: [] as SyncRow[],
   traffic: [] as MachineTraffic[],
   git: null as GitItemsView | null,
-  gitAll: new Set<string>(),
   top: [] as string[],
   overview: undefined as OverviewCard[] | null | undefined,
   groups: undefined as ProjectGroup[] | null | undefined,

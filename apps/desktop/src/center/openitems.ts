@@ -1,5 +1,5 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
-import { ago, plural, reason } from "../ui/format.ts";
+import { ago, reason } from "../ui/format.ts";
 import { dbtn as button, note, svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
@@ -8,13 +8,14 @@ import { folderUnder } from "../addproject/importproject-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
-import { openMenu } from "../ui/menu.ts";
-import { ITEMS_SHOWN, itemChips, projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { itemChips, projectsWithOpen, reviewStart, waitingFirst, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { arranged, listControls, pickBox, startBar } from "../project/openlist.ts";
+import type { StartEntry } from "../project/openlist-state.ts";
 import { state } from "./state.ts";
 import { projectDot, section, tag, rowButton, line } from "../ui/pieces.ts";
 import { draw } from "./home.ts";
 import { shown, go } from "./views.ts";
-import { reloadChats, projectRows, openProjects, loadFound } from "./sidebar.ts";
+import { reloadChats, projectRows, loadFound } from "./sidebar.ts";
 import { type LabelFilter, labelFilter, labelChip } from "../project/split.ts";
 import { refresh } from "./refresh.ts";
 import { IC } from "../ui/icons.ts";
@@ -38,10 +39,10 @@ async function replyItem(item: GitItemRow) {
   reloadChats();
 }
 
-export function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelFilter) {
+export function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelFilter, extra?: { pick?: HTMLElement | null; action?: Kid }) {
   const kindIcon = icon(item.kind === "pull_request" ? IC.pr : IC.issue);
   const tags = (item.labels || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l));
-  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title), ...tags);
+  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title), extra ? h("span", "pj-proj", item.repo) : null, ...tags);
   title.type = "button";
   title.title = item.url;
   const right = [
@@ -52,7 +53,7 @@ export function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelF
     item.kind === "pull_request" ? rowButton("Review", "small", () => go("pane", { agentnew: reviewStart(item, project, state.home?.machines) })) : null,
     rowButton("Reply", "small", () => replyItem(item)),
   ];
-  const row = h("div", "cc-row cc-line cc-gr it", h("span", "ic", kindIcon), title, h("span", "r", ...right));
+  const row = h("div", "cc-row cc-line cc-gr it", extra?.pick, h("span", "ic", kindIcon), title, h("span", "r", ...right, extra?.action));
   row.addEventListener("click", () => openUrl(item.url));
   return row;
 }
@@ -65,32 +66,6 @@ export function repoLine(i: number | undefined, repo: string, sub: string, right
 }
 
 type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
-
-/// One project's row, its counts and its newest items.
-function openProjectRows(p: OpenRepo, i: number, f?: LabelFilter) {
-  const counts = [p.prs ? plural(p.prs, "PR", "PRs") : null, p.issues ? plural(p.issues, "issue", "issues") : null]
-    .filter(Boolean).map(t => h("span", "", t));
-  const right = [...counts, p.waiting ? tag("wait", `${p.waiting} waiting on you`) : null, h("span", "age", ago(p.last))];
-  const sub = p.project ? p.host : `${p.host} · not imported`;
-  if (!p.project) right.push(rowImportButton(p));
-  const head = repoLine(i, p.repo, sub, right, () => (p.project ? openProjects(p.project.name) : openUrl(p.url)));
-  if (!p.project) {
-    head.addEventListener("contextmenu", e => openMenu(e, p.repo, [
-      { label: "Import…", on: () => quickImport(p) },
-      { label: "Import with settings…", on: () => importWithSettings(p) },
-    ]));
-  }
-  const all = state.gitAll.has(p.key);
-  const rows = [head, ...(all ? p.items : p.items.slice(0, ITEMS_SHOWN)).map(item => openItemRow(item, p.project, f))];
-  if (p.items.length > ITEMS_SHOWN) {
-    const more = button(all ? "Show fewer" : `Show all ${p.items.length}`, "quiet small", () => {
-      if (all) state.gitAll.delete(p.key); else state.gitAll.add(p.key);
-      draw();
-    });
-    rows.push(h("div", "cc-gr it more", more));
-  }
-  return rows;
-}
 
 /// Repositories being imported from their row, by key, and why one failed.
 const rowImports = new Map<string, "busy" | { error: string }>();
@@ -174,10 +149,19 @@ function importWithSettings(p: OpenRepo) {
 export function gitSection(view: GitItemsView) {
   const all = projectRows() || [];
   const column = (kind: GitItemRow["kind"], title: string, none: string) => {
-    const { items, labels: f } = labelFilter(`home:${kind}`, view.items.filter(i => i.kind === kind), i => i.labels, draw);
+    const key = `home:${kind}`;
+    const { items, labels: f } = labelFilter(key, view.items.filter(i => i.kind === kind).sort(waitingFirst), i => i.labels, draw);
+    const shown = arranged(key, items, i => i.opened_at);
+    const repos = new Map(projectsWithOpen({ items }, all).map(p => [p.key, p]));
+    const issues = kind === "issue";
+    const entries = shown.map((i): StartEntry => ({ key: i.url, project: repos.get(`${i.host} ${i.repo}`)?.project?.name ?? null, number: i.number, title: i.title, url: i.url }));
     const chips = f.all.length ? h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))) : null;
-    const body = items.length ? projectsWithOpen({ items }, all).flatMap((p, n) => openProjectRows(p, n, f)) : [h("div", "cc-empty", h("span", "", none))];
-    return section("", title, items.length, null, h("div", "cc-panel cc-open", chips, ...body));
+    const rows = shown.map(i => {
+      const p = repos.get(`${i.host} ${i.repo}`);
+      return openItemRow(i, p?.project ?? null, f, { pick: issues ? pickBox(key, i.url, draw) : null, action: p && !p.project ? rowImportButton(p) : null });
+    });
+    const body = rows.length ? rows : [h("div", "cc-empty", h("span", "", none))];
+    return section("", title, shown.length, null, h("div", "cc-panel cc-open", listControls(key, draw, issues), chips, ...body, issues ? startBar(key, entries, draw) : null));
   };
   const el = h("div", "cc-git", ...view.hosts.filter(x => x.error).map(x => note("bad", x.error)),
     h("div", "cc-cols", column("pull_request", "Pull requests", "No open pull requests."), column("issue", "Issues", "No open issues.")));
