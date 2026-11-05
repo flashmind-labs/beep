@@ -33,7 +33,15 @@ export function harnessTile(agent: string, cls = "cc-ag"): string {
 
 /// A harness tile as an element.
 export function harnessEl(agent: string, cls = "cc-ag"): HTMLElement {
-  const box = document.createElement("span");
-  box.innerHTML = harnessTile(agent, cls);
-  return box.firstElementChild as HTMLElement;
+  // Each tile is parsed once; rows that repeat it get a copy.
+  const key = `${cls} ${agent}`;
+  let tile = parsedTiles.get(key);
+  if (!tile) {
+    const box = document.createElement("span");
+    box.innerHTML = harnessTile(agent, cls);
+    tile = box.firstElementChild as HTMLElement;
+    parsedTiles.set(key, tile);
+  }
+  return tile.cloneNode(true) as HTMLElement;
 }
+const parsedTiles = new Map<string, HTMLElement>();
