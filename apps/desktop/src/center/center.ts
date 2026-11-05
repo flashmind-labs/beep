@@ -23,6 +23,7 @@ import { shown, windowProject, toMain, go, goHistory, setWindowProject, openRese
 import { reloadGroup, paneOn, reloadChats, openProjects, addProject } from "./sidebar.ts";
 import "../research/page.ts";
 import "../research/open.ts";
+import { escUp } from "./escup-state.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { projectComp } from "../project/composer.ts";
@@ -49,10 +50,14 @@ const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "sk
 document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too.
   if (e.target instanceof Element && e.target.closest(".tm-xterm")) return;
-  // Esc goes back to the project list's first row.
-  if (e.key === "Escape" && shown === "projects" && pa.tile && !e.defaultPrevented) {
-    e.preventDefault();
-    return openTile(null);
+  // Esc goes up one page: a project's open tile closes, then the Projects page, then Home.
+  if (e.key === "Escape" && !e.defaultPrevented) {
+    const up = escUp({ page: shown, picked: state.picked, tile: !!pa.tile, alone: !!windowProject });
+    if (up) {
+      e.preventDefault();
+      if (up.to === "tile") return openTile(null);
+      return up.to === "home" ? go("home") : void openProjects();
+    }
   }
   if (!e.metaKey) return;
   const key = e.key.toLowerCase();
