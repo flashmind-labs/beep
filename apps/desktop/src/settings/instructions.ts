@@ -3,6 +3,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { Ago, Kid, MakeButton, MakeEl } from "../ui/dom.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, behind, versionLine, mineLayer } from "./instructions-state.ts";
 import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
+import type { ViewName } from "../center/state.ts";
 import { plural } from "../ui/format.ts";
 import { emptyPanel, note, secBlock } from "../ui/parts.ts";
 
@@ -20,7 +21,7 @@ interface InstructionsView {
 
 /// What the window hands `registerInstructions`.
 interface InstructionsDeps {
-  registerView: (name: string, view: InstructionsView) => void;
+  registerView: (name: ViewName, view: InstructionsView) => void;
   invoke: typeof Invoke;
   h: MakeEl;
   button: MakeButton;

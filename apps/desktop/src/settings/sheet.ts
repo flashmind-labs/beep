@@ -6,7 +6,7 @@ import { pane } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
-import { type ViewArg, views } from "../center/state.ts";
+import { type ViewArg, type ViewName, views } from "../center/state.ts";
 import { skeleton } from "../ui/pieces.ts";
 import { shown, shownArg, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
 
@@ -48,11 +48,11 @@ export function openSettings(section?: string) {
 
 /// A window view the Settings sheet draws in its right pane, such as
 /// Coding agents under Agent accounts, and where its header buttons go.
-let embedded: { name: string; tools?: (nodes: Node[]) => void } | null = null;
+let embedded: { name: ViewName; tools?: (nodes: Node[]) => void } | null = null;
 
 /// Mounts view `name` into `root` in the sheet. What it returns mounts the
 /// view back into its own element when the window shows it.
-export function embedView(name: string, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void) {
+export function embedView(name: ViewName, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void) {
   const view = views.get(name);
   if (!view) return () => {};
   const mine = { name, tools };
