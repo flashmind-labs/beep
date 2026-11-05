@@ -268,7 +268,7 @@ onPlaces(() => {
 export function drawAgentFrame(inPlace = false) {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
-    ? `<div class="dmuted dblock dbanner">Started outside Beep. Beep follows it here${canTakeOver(s.agent) ? "; to steer it, ask Beep in a chat to take it over once it stops" : ""}.</div>`
+    ? `<div class="dmuted dblock dbanner"><span class="agoutside">Started outside Beep. Beep follows it here.${canTakeOver(s.agent) ? '<button class="dbtn small" id="agcontinue">Continue</button>' : ""}</span></div>`
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
@@ -335,6 +335,20 @@ async function closeRow(x: HTMLElement) {
   closeSub(at);
 }
 
+/// Continue on a session started outside Beep: the node takes it over, or
+/// says why not while something still runs it.
+async function continueOutside() {
+  const s = AG.page?.session;
+  if (!s) return;
+  try {
+    const started = await invoke<{ session: AgentRow }>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id });
+    openAgent(started.session, { back: AG.back });
+  } catch (e) {
+    AG.note = readError(e);
+    drawAgentBody();
+  }
+}
+
 function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
   const target = e.target as HTMLElement;
@@ -347,6 +361,7 @@ function agentClick(e: MouseEvent) {
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
+  if (target.closest("#agcontinue")) return void continueOutside();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
   if (closing) return void closeRow(closing);
   // A subagent opens as its own conversation; the crumb goes back.
