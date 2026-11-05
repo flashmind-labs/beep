@@ -4,6 +4,7 @@ import { harnessEl } from "../ui/harnessicon.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el } from "../ui/dom.ts";
 import { dbtn, emptyPanel, stateChip, svgEl, secBlock } from "../ui/parts.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { localProjectId } from "./localid.ts";
 import type { Kid } from "../ui/dom.ts";
 import type { ChatApproval } from "../agents/running-state.ts";
@@ -274,9 +275,42 @@ export function tasksSection(view: ProjectView, act: RowActs) {
     const diff = t.branch && t.state !== "dropped" ? act.diff?.(t.branch) : null;
     if (diff) review.push(dbtn("View diff", "small", diff));
     if (review.length) row.querySelector(".acts")!.prepend(...review);
+    row.addEventListener("contextmenu", e => taskMenu(e, t, act, diff));
     return row;
   });
   return section("sec-tasks", "Tasks", taskSummary(tasks), el("div", "cc-panel", ...rows));
+}
+
+/// A task row's right-click menu: what its buttons do. Drop and Merge ask first.
+function taskMenu(e: MouseEvent, t: TaskRow, act: RowActs, diff: (() => void) | null | undefined) {
+  const items: MenuItem[] = [];
+  if (t.state === "review") {
+    if (t.branch && act.review) items.push({ label: "Review", on: () => act.review!(t.branch!) });
+    if (t.branch && t.pr_url && act.merge) items.push({
+      label: "Merge…",
+      on: () => confirmSheet({
+        title: `Merge ${t.title}?`,
+        text: "The branch merges once its review allows it; otherwise its review opens.",
+        action: "Merge",
+        run: async () => { await act.merge!(t); },
+      }),
+    });
+    if (t.pr_url) items.push({ label: "Open PR", on: () => act.openUrl(t.pr_url!) });
+  }
+  if (diff) items.push({ label: "View diff", on: diff });
+  const { change, label } = taskAction(t.state);
+  if (change === "reopen") items.push({ label, on: () => void act.change(t, change) });
+  else items.push({
+    label: `${label}…`,
+    warn: true,
+    on: () => confirmSheet({
+      title: `Drop ${t.title}?`,
+      text: "The task is not worked on. Reopen it later to bring it back.",
+      action: label,
+      run: async () => { await act.change(t, change); },
+    }),
+  });
+  openMenu(e, t.title, items);
 }
 
 /// A task in review: Review its branch, Merge… (which asks first) and
@@ -324,6 +358,19 @@ export function workersSection(view: ProjectView, act: RowActs, chatIcon: string
       node.append(out);
     }
     if (!w.live) node.classList.add("over");
+    const items: MenuItem[] = [];
+    if (w.session && act.openWorker) items.push({ label: "Open session", on: () => act.openWorker!(w, titles.get(w.task_id) ?? null) });
+    if (w.live) items.push({
+      label: "Stop…",
+      warn: true,
+      on: () => confirmSheet({
+        title: `Stop ${name}?`,
+        text: "The worker stops and its session ends.",
+        action: "Stop",
+        run: async () => { await act.stop(w); },
+      }),
+    });
+    if (items.length) node.addEventListener("contextmenu", e => openMenu(e, name, items));
     nodes.push(node);
   }
   const live = view.workers.filter(w => w.live).length;
