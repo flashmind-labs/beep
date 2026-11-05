@@ -11,7 +11,7 @@ use super::{
     known,
     live::Live,
     mcp::Upstream,
-    unix_now,
+    route, unix_now,
     usage::UsageHub,
 };
 use crate::{
@@ -235,10 +235,11 @@ impl Session {
             .map(|model| format!("--model={model}"));
         let model = model.filter(|_| flag.is_none());
         let policy = Policy::from_setting(kind.compact);
-        // Claude Code compacts mid-turn on its own trigger; it is set to
-        // the same threshold unless the user set it.
+        // An agent with its own auto-compaction is set to the same
+        // threshold unless the user set it.
+        let route = route(&kind.name);
         let agent_env = policy
-            .agent_env(&kind.name, &kind.env)
+            .env(route, &kind.env)
             .map(|var| (var.name, var.value));
         let mut process = command(&kind.program);
         // The token Beep keeps for this agent, such as Claude Code's, when
@@ -303,7 +304,7 @@ impl Session {
             first_mode: mode,
             left_plan_for: None,
             returning: None,
-            compactor: Compactor::new(known, policy),
+            compactor: Compactor::new(route, policy),
             asked: VecDeque::new(),
             next_question: 1,
             stderr: VecDeque::new(),
