@@ -61,7 +61,12 @@ jobs:
           set -euo pipefail
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           # Kept between runs, so a build only recompiles what changed.
-          echo "CARGO_TARGET_DIR=$HOME/Library/Caches/beep-desktop-target" >> "$GITHUB_ENV"
+          target="$HOME/Library/Caches/beep-desktop-target"
+          echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
+          # It only grows, and a full disk fails every build: past 30 GB, start over.
+          if [ -d "$target" ] && [ "$(du -sk "$target" | cut -f1)" -gt $((30 * 1024 * 1024)) ]; then
+            rm -rf "$target"
+          fi
 
       - name: Check the web UI
         working-directory: apps/desktop
