@@ -3,7 +3,7 @@
 // The media pane of a coding agent session: pictures, videos, 3D models and
 // PDFs the agent made or looked at, its files, artifacts, terminals and
 // subagents, each a tab.
-import { baseName, type Dock, DOCKS, type ImageView, isZoomKey, type MediaKind, mediaKind, moveTab, type PaneLayout, paneSize, readLayout, resolvePath, SIDE_BY_SIDE_MIN, splitTabs, tabDock } from "./media-state.ts";
+import { baseName, type Dock, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, onZoomKey, type PaneLayout, paneSize, readLayout, resolvePath, SIDE_BY_SIDE_MIN, splitTabs, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
@@ -284,16 +284,8 @@ export function leavePane() {
   return true;
 }
 
-// In the capture phase so it comes before the terminal's, a canvas's and every Esc
-// handler, none of which should see it.
-window.addEventListener("keydown", e => {
-  if (!isZoomKey(e)) return;
-  // S.view stays "agent" while the center shows another page; only a session on screen zooms.
-  if (S.view !== "agent" || !P.session || !shell()?.clientWidth) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  if (!e.repeat) toggleZoom();
-}, true);
+// S.view stays "agent" while the center shows another page; only a session on screen zooms.
+onZoomKey(() => S.view === "agent" && !!P.session && !!shell()?.clientWidth, toggleZoom);
 
 // ⇧tab with focus in a dock: its next tab, round to the first. A terminal keeps the
 // key, and in the message field it is the mode's.
