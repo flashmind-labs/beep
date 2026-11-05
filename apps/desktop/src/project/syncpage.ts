@@ -7,6 +7,7 @@ import { state, views } from "../center/state.ts";
 import { shown, registerView, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { refresh } from "../center/refresh.ts";
+import { draw } from "../center/home.ts";
 import { conflictCount, conflictList, conflictTotal } from "./filesync.ts";
 import { fsync } from "./sections.ts";
 
@@ -19,6 +20,14 @@ export const syncProjects = () => [...new Set(state.sync.map(r => r.project))];
 /// Conflicts across the projects read so far.
 export const syncConflicts = () => conflictTotal(syncProjects().map(fsync.detail));
 
+/// Every conflict row across the projects, for Home, projects with the most first.
+export function conflictRows() {
+  return syncProjects().flatMap(p => {
+    const d = fsync.detail(p);
+    return conflictList(d).map(c => fsync.conflictRow(p, c, d?.machines ?? [], true));
+  });
+}
+
 /// Reads the projects' sync that are due; what changed draws itself.
 export function readSync() {
   const age = shown === "sync" ? PAGE_MAX_AGE_MS : undefined;
@@ -28,6 +37,7 @@ export function readSync() {
 /// The sidebar's count, and the page while it shows.
 export function redrawSync() {
   drawSide();
+  if (shown === "home") draw();
   if (shown !== "sync") return;
   drawSync();
   drawTop();

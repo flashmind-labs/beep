@@ -356,12 +356,13 @@ export function makeFileSync(deps: FileSyncDeps) {
     return fix;
   }
 
-  function conflictRow(name: string, c: Conflict, machines: readonly MachineDetail[]) {
+  /// `project` puts the project before what the other copy is, for lists across projects.
+  function conflictRow(name: string, c: Conflict, machines: readonly MachineDetail[], project = false) {
     const s = of(name);
     const where = c.on.map(id => machines.find(m => m.machine_id === id)?.machine_name || "").filter(Boolean).join(", ");
     const git = gitConflict(c.path);
     const what = git ? `Another commit of ${git.original.replace(/^refs\/heads\//, "")}` : `Another copy of ${c.original}`;
-    const text = h("span", "t", h("code", "", c.path), h("span", "", `${what}${where ? ` · on ${where}` : ""}`));
+    const text = h("span", "t", h("code", "", c.path), h("span", "", `${project ? `${name} · ` : ""}${what}${where ? ` · on ${where}` : ""}`));
     const busy = s.busy === c.path;
     let acts: HTMLElement;
     if (c.resolver) {
@@ -420,6 +421,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     detail: (name: string) => of(name).detail,
     forTile,
     panel,
+    conflictRow,
     stop: () => watch(null),
   };
 }
