@@ -4,20 +4,24 @@
 use crate::{
     desk::Desk,
     error::Result,
-    open_items::merge,
+    open_items::{Access, merge, repos_of},
     projects::{DeskMachines, DeskProject},
     records::{now_ms, time},
 };
 use beep_projects::{
     credentials::{Slot, last4},
-    git_items::board::{Login, OpenedItems, read},
+    git_items::{
+        access::writable,
+        board::{Login, OpenedItems, read},
+        github,
+    },
     issues::{issue_view, list_open, list_open_prs, pull_request_head, pull_request_view},
 };
 use beep_proto::{
     LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest, PullRequestHead,
 };
 use secrecy::ExposeSecret;
-use std::future::Future;
+use std::{collections::HashMap, future::Future};
 use std::{
     sync::{Mutex, PoisonError},
     time::{Duration, Instant},
@@ -181,7 +185,9 @@ impl Desk {
         }
         let (tokens, projects) =
             tokio::join!(read(&self.hosts, &logins), self.read_projects(&names));
-        let items = merge(tokens?, projects);
+        let writable = writable(&self.hosts, &logins, repos_of(&projects)).await;
+        let accounts = accounts_of(&logins);
+        let items = merge(tokens?, projects, &Access { writable, accounts });
         *BOARD.lock().unwrap_or_else(PoisonError::into_inner) = Some(Kept {
             key,
             at: Instant::now(),
@@ -189,6 +195,16 @@ impl Desk {
         });
         Ok(items)
     }
+}
+
+/// The GitHub accounts the tokens sign in as, by host.
+fn accounts_of(logins: &[Login<'_>]) -> HashMap<String, Vec<String>> {
+    let github = logins
+        .iter()
+        .filter(|login| matches!(login.slot, Slot::GitHub))
+        .filter_map(|login| login.account.map(ToOwned::to_owned))
+        .collect();
+    HashMap::from([(github::HOST.to_owned(), github)])
 }
 
 /// How long the list is kept when every host answered.
