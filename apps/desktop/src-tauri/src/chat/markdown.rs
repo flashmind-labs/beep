@@ -98,6 +98,7 @@ pub fn to_html(markdown: &str) -> String {
         });
     let mut out = String::with_capacity(markdown.len() * 3 / 2);
     html::push_html(&mut out, events);
+    let out = restore_ip_hosts(out);
     // The renderer copies some LaTeX through unescaped (`\operatorname{<b>}`),
     // so its MathML goes through the cleaner like everything else.
     let mut clean = ammonia::Builder::default()
@@ -245,6 +246,36 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
         }
         out.push(event);
     }
+    out
+}
+
+/// Puts back the brackets of an IPv6 host in links. The renderer escapes them
+/// (`http://%5B::1%5D/`), and the cleaner drops an `href` whose host no longer
+/// parses.
+fn restore_ip_hosts(html: String) -> String {
+    if !html.contains("://%5B") {
+        return html;
+    }
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html.as_str();
+    while let Some(at) = ["href=\"http://%5B", "href=\"https://%5B"]
+        .iter()
+        .filter_map(|open| rest.find(open).map(|at| at + open.len()))
+        .min()
+    {
+        let (before, after) = rest.split_at(at);
+        out.push_str(&before[..before.len() - "%5B".len()]);
+        out.push('[');
+        rest = after;
+        // Only the closing bracket of this link's host.
+        let end = rest.find('"').unwrap_or(rest.len());
+        if let Some(close) = rest[..end].find("%5D") {
+            out.push_str(&rest[..close]);
+            out.push(']');
+            rest = &rest[close + "%5D".len()..];
+        }
+    }
+    out.push_str(rest);
     out
 }
 
@@ -527,6 +558,16 @@ mod tests {
         assert!(html.contains("<strong>hi</strong>"));
         assert!(!html.contains("script"));
         assert!(!html.contains("javascript:"));
+    }
+
+    #[test]
+    fn a_link_to_an_ipv6_address_stays_a_link() {
+        let html = to_html("[docs](http://[fd00::1]:8080/a%5Db/) and [b](https://[fd00::2]/)");
+        assert!(
+            html.contains(r#"href="http://[fd00::1]:8080/a%5Db/""#),
+            "{html}"
+        );
+        assert!(html.contains(r#"href="https://[fd00::2]/""#), "{html}");
     }
 
     #[test]

@@ -18,6 +18,7 @@ import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, turnRuns } from "./session.ts";
 import { closeChild } from "./logview.ts";
+import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
@@ -215,10 +216,12 @@ interface AgentState {
   attError: string;
   attTimer: ReturnType<typeof setTimeout> | undefined;
   noImages: string | null;
-  /// The tool entries opened to their full output, by place in the session,
-  /// the pasted blocks left open ("place:block"), and the module that reads
+  /// The pasted blocks left open ("place:block"), and the module that reads
   /// tool entries, once loaded.
   opened: Set<number | string>;
+  /// What the reader chose for a tool row (true open, false closed), by place
+  /// in the session. A row they never touched has no entry.
+  steps: Map<number, boolean>;
   log: typeof import("./agentlog.ts") | null;
   /// The steps whose whole output shows, by place in the session.
   all: Set<number>;
@@ -248,7 +251,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
@@ -389,6 +392,13 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
+    // ⌘T opens or folds every thought, ⌘Y every command, ⇧⌘Y the last one.
+    // They work from the field: neither key edits text.
+    if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
+      const k = e.key.toLowerCase();
+      if (k === "t" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
+      if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
+    }
     if (e.key === "Tab" && e.shiftKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();
