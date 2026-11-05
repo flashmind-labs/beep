@@ -105,6 +105,14 @@ fn pr_heads_parse_from_gh_and_teacli() {
     assert!(parse_pr_head("gh: not found").is_err());
 }
 
+/// teacli prints `null` when a repository has none.
+#[test]
+fn an_empty_list_from_teacli_reads_as_empty() {
+    assert!(parse_open_prs("null\n").unwrap().is_empty());
+    assert!(parse_open_issues("null\n").unwrap().is_empty());
+    assert_eq!(parse_found_issue("null\n", "marker").unwrap(), None);
+}
+
 #[test]
 fn open_prs_parse_from_gh_and_teacli() {
     let at = |text: &str| {
