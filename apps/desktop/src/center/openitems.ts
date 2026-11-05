@@ -169,12 +169,13 @@ export function gitSection(view: GitItemsView) {
   return el;
 }
 
-/// An open PR or issue in an Overview box: number and title, its repo and
-/// first state chip, opening it on its host.
+/// An open PR or issue in an Overview box: number and title, with its first
+/// state chip and repo below, opening it on its host.
 export function itemLine(item: GitItemRow) {
   const chip = itemChips(item)[0];
-  const row = line(icon(item.kind === "pull_request" ? IC.pr : IC.issue), `#${item.number} ${item.title}`, item.repo,
-    [chip ? tag(chip.cls, chip.text) : null, ago(item.updated_at)], () => openUrl(item.url));
+  const sub = chip ? h("span", "cc-sub", h("i", `chip ${chip.cls}`, chip.text), item.repo) : item.repo;
+  const row = line(icon(item.kind === "pull_request" ? IC.pr : IC.issue), `#${item.number} ${item.title}`, sub,
+    [ago(item.updated_at)], () => openUrl(item.url));
   row.title = item.url;
   return row;
 }
