@@ -36,6 +36,8 @@ mod kinds;
 mod live;
 mod media_file;
 mod models;
+#[allow(dead_code)]
+mod moving;
 mod place;
 mod plans;
 mod prices;

@@ -211,7 +211,7 @@ pub(super) fn is_session_id(id: &str) -> bool {
 
 /// The folder name Claude Code files a folder's sessions under: every
 /// character other than a letter or digit becomes `-`.
-fn slug(folder: &Path) -> String {
+pub(crate) fn slug(folder: &Path) -> String {
     folder
         .to_string_lossy()
         .chars()
