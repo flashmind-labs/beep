@@ -62,6 +62,12 @@ without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 Moving an account: credentials are entered again on the desktop. A node in the mesh stops
 using the server's credentials and harness values as soon as the account is moved.
 
+### The desktop runs without the server for now
+
+`SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back. `MEMORY_TOOLS` (`crates/node/src/agents/mcp/mod.rs`) likewise keeps the memory tools from coding agents.
+
+With an OpenRouter key saved, chats run on this Mac (`assistant_local`). The chat commands read and write local files and call OpenRouter (`crates/assistant`, `src-tauri/src/assistant/`), and the same chat window renders them. A Firecrawl key adds web search. Web tools turn off for the rest of a chat once a session has been read in it.
+
 ### Code map
 
 `crates/server/src`, one line per top-level module:
@@ -87,6 +93,7 @@ using the server's credentials and harness values as soon as the account is move
 - `crates/mesh` (`beep-mesh`): the signed device list, tickets, replicated state, and the join and peer connections.
 - `crates/projects` (`beep-projects`): project shell commands, parsers and names shared by the server and the desktop.
 - `crates/fleet` (`beep-fleet`): the desktop side of projects, credentials, settings and usage over the mesh.
+- `crates/assistant` (`beep-assistant`): the local chat: OpenRouter client, tool loop and chat files.
 
 ## Alerts
 
