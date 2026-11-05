@@ -5,19 +5,25 @@
 use super::{
     Env, Harness,
     dial::dial,
+    offers::project_folder,
     progress::{Tracker, show},
     read::{self, Refused},
     resume::{Arrival, Folders as ResumeFolders, How, resume},
     saved::{MadeWorktree, Phase, Saved},
     worktree::{self, Undone, Work},
 };
-use crate::agents::found::Agent;
+use crate::{
+    agents::found::Agent,
+    files::{
+        sync::Syncs,
+        syncthing::{Managed, Syncthing},
+    },
+};
 use anyhow::{Context, Result, bail};
-use beep_mesh::Key;
 use beep_proto::node::{
     agent::{MovePhase, Status},
     link,
-    mesh_state::{SessionMove, StateValue, SyncSpec},
+    mesh_state::SessionMove,
 };
 use std::{
     path::{Component, Path, PathBuf},
@@ -31,6 +37,10 @@ use tokio::{
 /// The waits between tries to reach the source, doubling up to the last.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
 const LAST_WAIT: Duration = Duration::from_secs(10);
+/// How often this machine's Syncthing is asked whether a folder is complete.
+const SYNCTHING_LOOK: Duration = Duration::from_secs(1);
+/// How long a move waits for it before it goes on anyway.
+const SYNCTHING_WAIT: Duration = Duration::from_secs(120);
 
 /// The conversation is all here: when the source was heard to have ended
 /// the session, and the name it keeps the transcript under.
@@ -39,6 +49,13 @@ struct Copied {
     file_name: String,
     /// The worktree's commit and uncommitted work, for a worktree session.
     work: Option<Work>,
+}
+
+/// What brings the project's files to this machine.
+enum Arriving<'a> {
+    Beep(&'a Syncs),
+    /// Trusted: nothing here compares the folder with the source's.
+    Syncthing(Managed),
 }
 
 /// The folder the session worked in on the source and the folder it works in
@@ -148,16 +165,15 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         // A restart between starting and noting it.
         return Ok(());
     }
-    if env.syncs.is_none() {
-        bail!("this machine shares no folders, so the project's files cannot come here");
-    }
+    // Decided before the source ends anything.
+    let arriving = arriving(env, record, &folders).await?;
     let copy = env.state.copy(&record.id);
     let copied = conversation(env, record, tracker, &copy).await?;
     log::info!(
         "session {}: the conversation is here, waiting for the files",
         record.id
     );
-    files(env, record, tracker, copied.since).await?;
+    files(record, &arriving, tracker, copied.since).await?;
     log::info!("session {}: the files are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let made = match (&folders.worktree, &record.worktree, &copied.work) {
@@ -311,21 +327,11 @@ async fn undo_logged(id: &str, made: MadeWorktree) {
     }
 }
 
-/// The old and new folders, from the project's `sync/<name>` record.
+/// The old and new folders.
 fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
-    let bytes = env
-        .mesh
-        .get(&Key::Sync(record.project.clone()))
-        .with_context(|| format!("{} is not a synced project", record.project))?;
-    let spec = SyncSpec::from_bytes(&bytes).context("the project's record does not read")?;
-    let (me, from) = (env.mesh.me(), record.from);
-    let theirs = spec
-        .folders
-        .get(&from)
+    let theirs = project_folder(&env.mesh, &record.project, &record.from)
         .context("the source does not keep the project")?;
-    let mine = spec
-        .folders
-        .get(&me)
+    let mine = project_folder(&env.mesh, &record.project, &env.mesh.me())
         .context("this machine does not keep the project")?;
     let relative = Path::new(&record.path);
     if relative
@@ -336,12 +342,12 @@ fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
     }
     let Some(worktree) = &record.worktree else {
         return Ok(Folders {
-            old: Path::new(theirs).join(relative),
-            new: Path::new(mine).join(relative),
+            old: Path::new(&theirs).join(relative),
+            new: Path::new(&mine).join(relative),
             worktree: None,
         });
     };
-    let top = Path::new(mine).join(beep_proto::node::agent::worktree_path(&worktree.branch));
+    let top = Path::new(&mine).join(beep_proto::node::agent::worktree_path(&worktree.branch));
     Ok(Folders {
         old: Path::new(&worktree.from).join(relative),
         new: top.join(relative),
@@ -424,13 +430,80 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
     pulled
 }
 
-/// Waits for the project's files to be here.
-async fn files(env: &Env, record: &SessionMove, tracker: &Tracker, since: Instant) -> Result<()> {
-    show(tracker, |progress| progress.phase = MovePhase::Files);
-    let syncs = env
-        .syncs
+/// How the project's files will come here: by Beep's sync with the source,
+/// else by the Syncthing that keeps this machine's folder. Neither refuses.
+async fn arriving<'a>(
+    env: &'a Env,
+    record: &SessionMove,
+    folders: &Folders,
+) -> Result<Arriving<'a>> {
+    if let Some(syncs) = &env.syncs
+        && syncs.syncs_with(&record.project, &record.from).await
+    {
+        return Ok(Arriving::Beep(syncs));
+    }
+    let folder = folders
+        .worktree
         .as_ref()
-        .context("this machine shares no folders")?;
+        .map_or(&folders.new, |made| &made.checkout);
+    match Syncthing::local().check(folder).await {
+        Some(managed) => Ok(Arriving::Syncthing(managed)),
+        None => bail!(
+            "{} is not synced between machines: turn on sync on its page",
+            record.project
+        ),
+    }
+}
+
+/// Waits until this machine's Syncthing says the folder is complete, for
+/// `SYNCTHING_WAIT` at most. A folder known only by its marker has no ID to
+/// ask about, and goes on at once.
+async fn syncthing_done(record: &SessionMove, managed: &Managed, tracker: &Tracker) {
+    let Some(id) = &managed.id else {
+        return;
+    };
+    let syncthing = Syncthing::local();
+    let until = Instant::now() + SYNCTHING_WAIT;
+    loop {
+        match syncthing.folder_status(id).await {
+            Ok(status) => {
+                show(tracker, |progress| {
+                    progress.files_left = status.need_total_items;
+                });
+                if status.is_complete() {
+                    return;
+                }
+            }
+            Err(e) => log::debug!("Syncthing did not say how {id} stands: {e:#}"),
+        }
+        if Instant::now() >= until {
+            log::warn!(
+                "session {}: Syncthing has not finished {} in {}s, resuming anyway",
+                record.id,
+                managed.label,
+                SYNCTHING_WAIT.as_secs()
+            );
+            return;
+        }
+        sleep(SYNCTHING_LOOK).await;
+    }
+}
+
+/// Waits for the project's files to be here.
+async fn files(
+    record: &SessionMove,
+    arriving: &Arriving<'_>,
+    tracker: &Tracker,
+    since: Instant,
+) -> Result<()> {
+    show(tracker, |progress| progress.phase = MovePhase::Files);
+    let syncs = match arriving {
+        Arriving::Beep(syncs) => syncs,
+        Arriving::Syncthing(managed) => {
+            syncthing_done(record, managed, tracker).await;
+            return Ok(());
+        }
+    };
     syncs
         .have_all_from(&record.project, &record.from, since, |status| {
             let left = status.pending.max(status.waiting.len() as u64);

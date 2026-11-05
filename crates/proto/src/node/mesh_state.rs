@@ -20,6 +20,16 @@ pub struct SyncSpec {
     pub paused: bool,
 }
 
+/// `project/<org/repo>/<machine>`: one machine's checkout of a project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Place {
+    pub folder: String,
+    pub imported_ms: u64,
+    /// The user's fork cloned as `origin`, as `org/repo`.
+    #[serde(default)]
+    pub fork: Option<String>,
+}
+
 /// `credential/<id>`: one secret every machine of the mesh holds. Its
 /// `Debug` prints nothing of the secret.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,6 +111,7 @@ pub trait StateValue: Serialize + DeserializeOwned {
 }
 
 impl StateValue for SyncSpec {}
+impl StateValue for Place {}
 impl StateValue for Credential {}
 impl StateValue for TerminalRecord {}
 impl StateValue for SessionMove {}

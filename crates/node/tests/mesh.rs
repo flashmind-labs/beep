@@ -25,7 +25,7 @@ use beep_proto::{
     node::{
         EnvSecret, MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
-        mesh_state::{Credential, SessionMove, StateValue, SyncSpec},
+        mesh_state::{Credential, Place, SessionMove, StateValue, SyncSpec},
         sync::{
             PROTOCOL as SYNC, Project as SyncProject, Reply as SyncReply, Request as SyncRequest,
         },
@@ -47,12 +47,15 @@ use std::{
 };
 use tempfile::TempDir;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines},
+    net::{TcpListener, TcpStream},
     process::{Child, ChildStdin, ChildStdout, Command},
-    sync::mpsc,
+    sync::{mpsc, watch},
+    task::JoinSet,
     time::timeout,
 };
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio_util::task::AbortOnDropHandle;
 
 const LIMIT: Duration = Duration::from_secs(90);
 /// What the node logs once its control socket takes commands.
@@ -299,6 +302,7 @@ impl Node {
             .arg("run")
             .env("HOME", home.path())
             .env("XDG_CONFIG_HOME", home.path().join("config"))
+            .env("XDG_STATE_HOME", home.path().join("state"))
             .env("XDG_DATA_HOME", home.path().join("data"))
             .env("BEEP_NODE_NO_RELAY", "1")
             // The agents' session stores stay in the fake home.
@@ -3022,6 +3026,199 @@ async fn a_machine_whose_syncthing_ignores_the_worktree_refuses_it_and_the_sessi
     pair.a.logged("the move of session s did not finish").await;
     assert!(!pair.b_folder.join(".worktrees/feat").exists());
     // `a` still runs the session.
+    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.state.status != Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+}
+
+/// Two nodes of one mesh running the move adapter, with no `files` and no
+/// `sync/proj` record: each has `proj` only in its place record, as a project
+/// imported on one machine at a time does.
+async fn placed_pair() -> Pair {
+    let work = TempDir::new().expect("a temp folder");
+    let desktop = desktop(None).await;
+    let roots = [
+        TempDir::new().expect("a temp folder"),
+        TempDir::new().expect("a temp folder"),
+    ];
+    let mut a = Node::start(Config {
+        name: Some("box-a"),
+        agent: Some(adapter_of(MOVE_ADAPTER, &work.path().join("sent.jsonl"))),
+        ..Config::default()
+    })
+    .await;
+    let mut b = Node::start(Config {
+        name: Some("box-b"),
+        agent: Some(adapter_of(MOVE_ADAPTER, &work.path().join("sent-b.jsonl"))),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let a_folder = roots[0].path().join("proj");
+    let b_folder = roots[1].path().join("proj");
+    for (node, folder) in [(&a, &a_folder), (&b, &b_folder)] {
+        fs::create_dir(folder).expect("a project folder");
+        let place = Place {
+            folder: folder.display().to_string(),
+            imported_ms: 0,
+            fork: None,
+        };
+        desktop
+            .mesh
+            .set(
+                Key::Project(format!("proj/{}", node.id)),
+                Some(place.to_bytes().expect("a place encodes")),
+            )
+            .await
+            .expect("the place is written");
+    }
+    // Written after the places, so a node that logs it has them too.
+    set_credential(&desktop, "placed", "PLACED", "yes").await;
+    a.logged("from the mesh: 1 credentials").await;
+    b.logged("from the mesh: 1 credentials").await;
+    Pair {
+        desktop,
+        a,
+        b,
+        a_folder,
+        b_folder,
+        roots,
+        work,
+    }
+}
+
+/// A fake Syncthing GUI on `node`'s machine that keeps `folder` and has `need`
+/// items still to get. Its events never come.
+async fn fake_syncthing(
+    node: &Node,
+    folder: &Path,
+    need: watch::Receiver<u64>,
+) -> AbortOnDropHandle<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
+    let addr = listener.local_addr().expect("an address");
+    let home = if cfg!(target_os = "macos") {
+        node.home
+            .path()
+            .join("Library/Application Support/Syncthing")
+    } else {
+        node.home.path().join("config/syncthing")
+    };
+    fs::create_dir_all(&home).expect("Syncthing's folder");
+    fs::write(
+        home.join("config.xml"),
+        format!(
+            r#"<configuration><gui tls="false"><address>{addr}</address><apikey>fake-key</apikey></gui></configuration>"#
+        ),
+    )
+    .expect("the config");
+    let listed = json!([{"id": "kept", "label": "Kept", "path": folder, "paused": false}]);
+    AbortOnDropHandle::new(tokio::spawn(async move {
+        let mut answering = JoinSet::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            answering.spawn(fake_syncthing_answer(stream, need.clone(), listed.clone()));
+        }
+    }))
+}
+
+async fn fake_syncthing_answer(
+    mut stream: TcpStream,
+    need: watch::Receiver<u64>,
+    listed: serde_json::Value,
+) {
+    let mut request = Vec::new();
+    let mut buf = [0; 1024];
+    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+        match stream.read(&mut buf).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => request.extend_from_slice(&buf[..n]),
+        }
+    }
+    let text = String::from_utf8_lossy(&request);
+    let body = if text.starts_with("GET /rest/events") {
+        std::future::pending::<()>().await;
+        return;
+    } else if text.starts_with("GET /rest/db/status?folder=kept ") {
+        let need = *need.borrow();
+        let state = if need == 0 { "idle" } else { "syncing" };
+        json!({"needTotalItems": need, "state": state})
+    } else {
+        listed
+    };
+    let body = body.to_string();
+    let reply = format!(
+        "HTTP/1.0 200 OK\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(reply.as_bytes()).await.expect("the reply");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_moves_on_a_project_syncthing_keeps_with_no_sync_record_and_no_files() {
+    let mut pair = placed_pair().await;
+    let (need, told) = watch::channel(3);
+    let _syncthing = fake_syncthing(&pair.b, &pair.b_folder, told).await;
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &pair.a_folder).await;
+    rollout_on(&pair.a, &pair.a_folder);
+    let b_rollout = pair
+        .b
+        .home
+        .path()
+        .join(".codex/sessions/2026/11/04")
+        .join(ROLLOUT);
+
+    ask_to_move(&pair.desktop, pair.a.id, pair.b.id, false).await;
+    // `b` waits for its Syncthing and shows what is left.
+    until_progress(&conn_b, "the wait for Syncthing", |p| {
+        p.phase == MovePhase::Files && p.files_left == 3
+    })
+    .await;
+    assert!(!b_rollout.exists(), "resumed before Syncthing finished");
+
+    need.send_replace(0);
+    pair.b.logged("took over codex session s").await;
+    pair.a
+        .logged("the move of session s is done on this side")
+        .await;
+    let moved = fs::read_to_string(&b_rollout).expect("the transcript is in the store");
+    assert!(moved.contains(&pair.b_folder.display().to_string()));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_project_neither_beep_nor_syncthing_syncs_is_refused_before_the_source_stops() {
+    let mut pair = placed_pair().await;
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &pair.a_folder).await;
+    rollout_on(&pair.a, &pair.a_folder);
+
+    ask_to_move(&pair.desktop, pair.a.id, pair.b.id, false).await;
+    until_progress(&conn_b, "refused", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason.as_deref()
+                == Some("proj is not synced between machines: turn on sync on its page")
+    })
+    .await;
+    pair.a.logged("the move of session s did not finish").await;
+    // A session that had stopped would have been loaded again.
+    let sent = fs::read_to_string(pair.work.path().join("sent.jsonl")).expect("the agent's log");
+    assert!(!sent.contains("session/load"), "{sent}");
     let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
     list.tx.send(&SessionsRequest::List {}).await.expect("sent");
     match timeout(LIMIT, list.rx.recv::<SessionsReply>())

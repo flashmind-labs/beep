@@ -52,7 +52,8 @@ struct Env {
     agents: Arc<Agents>,
     mesh: beep_mesh::Mesh,
     endpoint: Endpoint,
-    /// The synced projects, once this node shares folders.
+    /// The projects Beep syncs; `None` only when the node's transfers did
+    /// not start.
     syncs: Option<Syncs>,
     state: Folder,
     roots: StoreRoots,
