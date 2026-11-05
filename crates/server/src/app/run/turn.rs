@@ -1285,6 +1285,7 @@ impl App {
         if let Some(woken) = &message.woken {
             let finished = wake::Finished {
                 label: &woken.label,
+                rule: woken.rule,
                 status,
                 notified: notify.load(Ordering::SeqCst),
                 reply: &reply,

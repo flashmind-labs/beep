@@ -31,6 +31,20 @@ ffi_structs! {
         pub at: SystemTime,
     }
 
+    /// What the assistant told the user on its own, as `ListAlerts` lists it.
+    pub struct Alert {
+        /// Its session. Sending a message there makes it a chat.
+        pub session_id: Uuid,
+        /// A few words, such as "Arrived in Girona".
+        pub title: String,
+        /// Where it came from, such as "Places".
+        pub source: String,
+        /// What Beep said, in plain text.
+        pub text: String,
+        pub read: bool,
+        pub at: SystemTime,
+    }
+
     /// An approval waiting in one chat, as `ListPendingApprovals` lists it.
     pub struct ChatApproval {
         pub session_id: Uuid,

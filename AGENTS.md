@@ -88,6 +88,16 @@ using the server's credentials and harness values as soon as the account is move
 - `crates/projects` (`beep-projects`): project shell commands, parsers and names shared by the server and the desktop.
 - `crates/fleet` (`beep-fleet`): the desktop side of projects, credentials, settings and usage over the mesh.
 
+## Alerts
+
+A woken run that calls `notify_user` (a place arrival, account events, a digest) is an
+alert: its session gets a `chat_alerts` row and `ListAlerts` lists it. `ListSessions` and
+`SearchSessions` still return it, for released phones; `ListChats` and `SearchChats` leave
+it out. A message sent in it (any new run) deletes the row, and it is a chat. The desktop shows alerts
+in the bell's pane and as a macOS notification, never as a chat opening on its own, and hides
+them from its local chat copy. Routines users make (`cron`) are not woken runs and stay chats.
+Before this, woken chats stay chats.
+
 ## Hosted login
 
 A `[login]` config section (`website`, `website_key`) makes the server hosted:
@@ -237,7 +247,7 @@ holds its pure, tested logic. Each window's bundle starts at the entry named
 in `build.mjs`.
 
 - `bar/`: the bar's page (entry `app.ts`), its views, keys and live voice.
-- `center/`: the command center window (entry `center.ts`): sidebar, Home.
+- `center/`: the command center window (entry `center.ts`): sidebar, Home, the bell and its notifications pane (`notices.ts`).
 - `project/`: the Projects page and one project's page.
 - `addproject/`: the Add a project, Import a project and New project sheets.
 - `review/`: branches, reviews and the diff viewer.

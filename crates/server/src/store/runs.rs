@@ -2,6 +2,7 @@
 
 use super::{
     Store,
+    alerts::clear_alert,
     chats::{SessionChat, ensure_session, touch},
     messages::{Step, TurnRecord, drop_approvals, insert_steps, latest_turn, patch_turn},
     updates::{Bumped, Readers, UpdateOp, log_chat, log_messages},
@@ -222,6 +223,10 @@ impl Store {
         } else {
             Vec::new()
         };
+        // A reply in an alert makes it a normal chat.
+        if inserted == 1 && session == SessionChat::Owned {
+            clear_alert(&mut tx, chat).await?;
+        }
         tx.commit().await?;
         self.announce(&bumped);
         if inserted == 1 {

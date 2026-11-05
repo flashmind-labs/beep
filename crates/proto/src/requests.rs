@@ -1289,6 +1289,23 @@ requests! {
     /// ended. `NotFound` as for `GetAgentSessionUsage`; none from an agent
     /// that reports none.
     419 GetAgentSessionTasks { machine_id: String, agent: String, session: String } => Call<AgentSessionTasks>
+    /// The caller's chats: `ListSessions` without the alerts the user has not
+    /// replied to (see `ListAlerts`). A server from before it
+    /// does not answer it, and the app lists with `ListSessions`.
+    420 ListChats {} => Call<Vec<Session>>
+    /// `SearchSessions` without those alerts, as `ListChats` does for the list.
+    421 SearchChats { query: String } => Call<Vec<SessionMatch>>
+    /// What the assistant told the user on its own, such as a mail digest or
+    /// an arrival, newest first, at most 50. Each is a session apart from the
+    /// chats until the caller sends a message in it, which makes it a chat
+    /// and drops it from this list. Apps show them as notifications.
+    422 ListAlerts {} => Call<Vec<Alert>>
+    /// Marks alerts read, by `Alert::session_id`. Ids the caller does not
+    /// have are skipped.
+    423 ReadAlerts { ids: Vec<Uuid> } => Call<()>
+    /// Deletes alerts with their sessions, by `Alert::session_id`. A session
+    /// that is a chat now is kept. Ids the caller does not have are skipped.
+    424 DismissAlerts { ids: Vec<Uuid> } => Call<()>
 }
 
 #[cfg(test)]
