@@ -23,6 +23,8 @@ export interface DiffSource {
   uncommitted?: boolean;
   /// Opens a file of the diff, when something can show it.
   open?: { label: string; run: (path: string) => void };
+  /// More lines for a file's right-click menu, read once it is open; none for a file that has no more.
+  menu?: (path: string, at: { x: number; y: number }) => Promise<MenuItem[]>;
   /// Where review comments are kept and go: `key` names the draft in
   /// storage, `send` delivers the review text and says why it did not ("" when it went).
   review: { key: string; send: (text: string) => Promise<string> };
@@ -268,6 +270,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       row.title = f.old_path ? `${f.old_path} -> ${f.path}` : f.path;
       row.dataset.path = f.path;
       row.addEventListener("click", () => jump(f.path));
+      row.addEventListener("contextmenu", e => fileMenu(e, f));
       tree.append(row);
       const section = fileSection(f);
       sections.set(f.path, section);
@@ -291,6 +294,18 @@ export function diffView(src: DiffSource): DiffViewHandle {
     matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
     windowChunks();
     markCurrent();
+  }
+
+  /// The right-click menu of a file, on its header or its row in the list.
+  function fileMenu(e: MouseEvent, f: DiffFile) {
+    const items: MenuItem[] = [{ label: "Copy path", on: () => void copy(f.path) }];
+    if (src.open && f.status !== "deleted") {
+      const open = src.open;
+      items.unshift({ label: open.label, on: () => open.run(f.path) });
+    }
+    const fuller = openMenu(e, f.path, items);
+    if (!src.menu || f.status === "deleted") return;
+    src.menu(f.path, { x: e.clientX, y: e.clientY }).then(more => { if (more.length) fuller([...items, ...more]); }, () => {});
   }
 
   function fileSection(f: DiffFile) {
@@ -322,14 +337,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     }
     const fh = el("div", "dv-fh", el("span", "dv-chev", icon(SVG.chev)), path, el("span", `dv-chip ${f.status}`, f.status),
       el("span", "dv-fct", ...counts(f.additions, f.deletions)), el("span", "dv-fcm", countLabel(f.path)), acts);
-    fh.addEventListener("contextmenu", e => {
-      const items: MenuItem[] = [{ label: "Copy path", on: () => void copy(f.path) }];
-      if (src.open && f.status !== "deleted") {
-        const open = src.open;
-        items.unshift({ label: open.label, on: () => open.run(f.path) });
-      }
-      openMenu(e, f.path, items);
-    });
+    fh.addEventListener("contextmenu", e => fileMenu(e, f));
     fh.tabIndex = 0;
     fh.setAttribute("role", "button");
     fh.setAttribute("aria-expanded", String(!folded));
