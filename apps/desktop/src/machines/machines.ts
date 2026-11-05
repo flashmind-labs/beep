@@ -13,6 +13,7 @@ import { span } from "../lists/routines.ts";
 import { bytes, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { clockWarning, loadClocks } from "./clock.ts";
 
 // ---------- Machines ----------
 
@@ -132,6 +133,7 @@ export async function renderMachines(id: string | null = null) {
       invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this Mac's state:", e); return null; }),
       invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
       invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
+      loadClocks(invoke),
     ]);
     MC.list = list;
     MC.traffic = traffic;
@@ -382,7 +384,9 @@ function machineCard(m: Machine, columns: string[]) {
   const open = opens ? ` data-machine="${esc(m.id)}" role="button" tabindex="0" aria-label="${esc(m.name)}"` : "";
   const seen = m.online ? "" : `<span class="seen">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
   const spec = env ? specLine(env) : "No report yet";
-  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${seen}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${nodeChip(m)}${button}</span>`;
+  const clock = clockWarning(m.id, env?.os ?? null);
+  const off = clock ? `<span class="clockoff" title="${esc(clock.title)}">${esc(clock.text)}</span>` : "";
+  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${seen}${off}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${nodeChip(m)}${button}</span>`;
   const chev = opens ? `<span class="ch">${ICON.chev}</span>` : "";
   if (!env) return `<div class="dmach"${open}>${line1}${chev}${ask}</div>`;
   const agents = coders(env.tools);
