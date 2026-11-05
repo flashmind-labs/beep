@@ -6,6 +6,7 @@
 //! server: the server's chat code is untouched and runs when `SERVER_ENABLED` is on.
 
 pub(crate) mod commands;
+pub(crate) mod dictation;
 pub(crate) mod local;
 pub(crate) mod mcp;
 pub(crate) mod picker;
