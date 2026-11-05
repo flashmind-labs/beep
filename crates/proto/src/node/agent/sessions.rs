@@ -193,6 +193,15 @@ pub enum SessionsRequest {
         agent: String,
         session: String,
     },
+    /// The slash commands and skills the agent of the running session
+    /// `session` offers, as it last reported them (the list arrives after
+    /// the session starts and can change, so it is asked for when needed).
+    /// Answered with `Commands`, empty for a session that is not running,
+    /// or `Error`. A node from before it answers `Error` or closes the
+    /// stream.
+    Commands {
+        session: String,
+    },
 }
 
 impl SessionsRequest {
@@ -216,6 +225,7 @@ impl SessionsRequest {
             | Self::CustomAgents { .. }
             | Self::Diff { .. }
             | Self::Worktrees { .. }
+            | Self::Commands { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -350,6 +360,24 @@ pub enum SessionsReply {
     },
     /// The answer to `DeleteSession`.
     Deleted {},
+    /// The answer to `Commands`.
+    Commands {
+        commands: Vec<AgentCommand>,
+    },
+}
+
+/// A slash command or skill an agent offers, as `SessionsRequest::Commands`
+/// lists it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentCommand {
+    /// As the agent names it, without a leading `/`: `compact`,
+    /// `skill:plan` or `$imagegen`.
+    pub name: String,
+    pub description: String,
+    /// What the command takes after its name, such as `[number]`; empty
+    /// when it takes nothing or the agent does not say.
+    #[serde(default)]
+    pub hint: String,
 }
 
 /// One worktree of a repository, as `SessionsRequest::Worktrees` lists it.
@@ -461,6 +489,48 @@ mod tests {
             rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
             reply
         );
+    }
+
+    #[test]
+    fn commands_round_trip_and_may_be_asked_again() {
+        let ask = SessionsRequest::Commands {
+            session: "a3f9c1".into(),
+        };
+        assert!(ask.is_read());
+        let body = rmp_serde::to_vec(&ask).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
+            ask
+        );
+        let reply = SessionsReply::Commands {
+            commands: vec![AgentCommand {
+                name: "review".into(),
+                description: "Review the changes".into(),
+                hint: "[number]".into(),
+            }],
+        };
+        let body = rmp_serde::to_vec(&reply).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
+            reply
+        );
+    }
+
+    #[test]
+    fn a_command_without_a_hint_reads_with_an_empty_one() {
+        #[derive(Serialize)]
+        struct Older {
+            name: String,
+            description: String,
+        }
+        let body = rmp_serde::to_vec(&Older {
+            name: "compact".into(),
+            description: "Free up context".into(),
+        })
+        .unwrap();
+        let read: AgentCommand = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!(read.name, "compact");
+        assert_eq!(read.hint, "");
     }
 
     #[test]

@@ -1179,3 +1179,10 @@ body:not(.cbody) .dlive { position: static; background: none }
 .agwtm code { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .agwtm small { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .agwtm hr { border: 0; border-top: 1px solid var(--border); margin: 3px 0 }
+.cm-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 20; max-height: 264px; overflow: auto; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 35%, transparent); font-size: 13px; line-height: 18px; scrollbar-width: thin }
+.cm-menu[hidden] { display: none }
+.cm-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 8px; border-radius: 6px; cursor: pointer; min-width: 0 }
+.cm-row.on, .cm-row:hover { background: color-mix(in srgb, var(--accent) 16%, transparent) }
+.cm-row .n { flex: none; color: var(--fg); font-weight: 500 }
+.cm-row .d { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.cm-row small { flex: none; color: var(--dim); font-size: 11.5px }

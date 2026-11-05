@@ -5,7 +5,7 @@
 use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::schema::v1::{CompactionId, ToolCallId, ToolKind};
 use beep_proto::node::{
-    agent::{Entry, SessionInfo, StopReason},
+    agent::{AgentCommand, Entry, SessionInfo, StopReason},
     usage::ModelTokens,
 };
 use std::{
@@ -35,6 +35,9 @@ const MAX_FILES: usize = 50;
 const MAX_PLAN: usize = 30;
 /// The most commands kept of those the agent advertises.
 const MAX_COMMANDS: usize = 200;
+/// The longest command description kept; skills describe themselves at
+/// length.
+const MAX_DESCRIPTION: usize = 240;
 /// The most compactions remembered, so an update of one is shown once.
 const MAX_COMPACTIONS: usize = 100;
 /// The longest summary or question detail.
@@ -69,9 +72,9 @@ pub(crate) struct Live {
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,
-    /// The names of the slash commands the agent advertises, such as
+    /// The slash commands and skills the agent advertises, such as
     /// `compact`.
-    pub(crate) commands: Vec<String>,
+    pub(crate) commands: Vec<AgentCommand>,
     /// The agent compacted the conversation since the session last asked.
     compacted: bool,
     /// The compactions already shown in the transcript.

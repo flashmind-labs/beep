@@ -449,7 +449,9 @@ fn usage_commands_and_compactions_are_kept() {
         json!({"sessionUpdate": "available_commands_update",
         "availableCommands": [{"name": "compact", "description": "Compact"}]}),
     ));
-    assert_eq!(live.commands, ["compact"]);
+    assert_eq!(live.commands.len(), 1);
+    assert_eq!(live.commands[0].name, "compact");
+    assert_eq!(live.commands[0].description, "Compact");
     let compaction = |status: &str| {
         update(
             json!({"sessionUpdate": "compaction_update", "compactionId": "c1", "status": status}),

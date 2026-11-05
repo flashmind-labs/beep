@@ -268,6 +268,13 @@ pub async fn serve_sessions(
                     message: "git took too long to list the worktrees".into(),
                 })
         }
+        // A session that is not running offers nothing.
+        SessionsRequest::Commands { session } => SessionsReply::Commands {
+            commands: agents
+                .get(&session)
+                .map(|found| found.commands())
+                .unwrap_or_default(),
+        },
         SessionsRequest::DeleteSession { agent, session } => {
             match agents.delete_session(&agent, &session).await {
                 Ok(()) => SessionsReply::Deleted {},
