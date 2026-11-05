@@ -151,6 +151,9 @@ impl Desk {
         {
             return Err(FleetError::refused("The percent is 1 to 100."));
         }
+        if compact.is_some_and(|compact| compact.tokens == Some(0)) {
+            return Err(FleetError::refused("The token count is above 0."));
+        }
         let key = Self::harness_key(agent);
         let config = HarnessConfig {
             compact,

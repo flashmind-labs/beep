@@ -2,6 +2,9 @@
 //! configured through its environment (`Policy::env`). Only an agent with no
 //! way to configure its own gets the node's `Compactor`: once a turn ends past
 //! the threshold `Policy` sets, it sends `/compact` before the next prompt.
+//! A token count instead of a percent goes to Codex as its own limit, and to
+//! Claude Code and pi as the node's `/compact` (Claude Code's own trigger is
+//! then turned off).
 //! Agents that compact on their own with no setting (Gemini CLI, flsh) are
 //! left to it.
 
@@ -19,6 +22,8 @@ pub(super) enum Policy {
     Off,
     /// At this percent of the window, 1 to 100.
     At(u8),
+    /// At this many tokens in the conversation, whatever the window.
+    AtTokens(u64),
 }
 
 impl Policy {
@@ -30,6 +35,12 @@ impl Policy {
         };
         if !setting.enabled {
             return Self::Off;
+        }
+        if let Some(tokens) = setting.tokens {
+            if tokens > 0 {
+                return Self::AtTokens(tokens);
+            }
+            log::warn!("auto-compact at 0 tokens is not a limit; using the percent");
         }
         match setting.percent {
             None => Self::default(),
@@ -46,8 +57,13 @@ impl Policy {
 
     /// Whether a session at `usage` is due a compaction.
     pub(super) fn due(self, usage: Option<AgentContext>) -> bool {
-        let (Self::At(percent), Some(usage)) = (self, usage) else {
+        let Some(usage) = usage else {
             return false;
+        };
+        let percent = match self {
+            Self::Off => return false,
+            Self::AtTokens(tokens) => return usage.used >= tokens,
+            Self::At(percent) => percent,
         };
         if usage.size == 0 {
             return false;
@@ -63,8 +79,12 @@ impl Policy {
             (Route::Percent { percent_var, .. }, Self::At(percent)) => {
                 (percent_var, percent.to_string())
             }
-            (Route::Percent { off_var, .. } | Route::Toggle { off_var }, Self::Off) => {
-                (off_var, "1".to_owned())
+            // The node compacts by token count, so the agent's own trigger
+            // would only get in its way.
+            (Route::Percent { off_var, .. } | Route::Toggle { off_var }, Self::Off)
+            | (Route::Percent { off_var, .. }, Self::AtTokens(_)) => (off_var, "1".to_owned()),
+            (Route::TokenLimit { config_var, key }, Self::AtTokens(tokens)) => {
+                (config_var, serde_json::json!({ key: tokens }).to_string())
             }
             _ => return None,
         };
@@ -100,18 +120,30 @@ pub(super) enum Route {
     Toggle { off_var: &'static str },
     /// With `/compact`, when it advertises the command.
     Advertised,
+    /// As `Advertised` for a percent. A token count is its own setting,
+    /// `key` in the JSON object in `config_var`.
+    TokenLimit {
+        config_var: &'static str,
+        key: &'static str,
+    },
 }
 
 impl Route {
-    /// Whether the node sends `/compact`, given the commands the agent
-    /// advertised.
-    pub(super) fn takes_compact(self, commands: &[String]) -> bool {
-        match self {
-            Self::Advertised => commands
+    /// Whether the node sends `/compact` under `policy`, given the commands
+    /// the agent advertised.
+    pub(super) fn takes_compact(self, policy: Policy, commands: &[String]) -> bool {
+        let tokens = matches!(policy, Policy::AtTokens(_));
+        let node_compacts = match self {
+            Self::Advertised => true,
+            // Its own setting has no token count, so the node counts.
+            Self::Percent { .. } => tokens,
+            Self::TokenLimit { .. } => !tokens,
+            Self::OwnTrigger | Self::Toggle { .. } => false,
+        };
+        node_compacts
+            && commands
                 .iter()
-                .any(|name| name.trim_start_matches('/') == "compact"),
-            Self::OwnTrigger | Self::Percent { .. } | Self::Toggle { .. } => false,
-        }
+                .any(|name| name.trim_start_matches('/') == "compact")
     }
 }
 
@@ -146,7 +178,8 @@ impl Compactor {
 
     /// A turn the user asked for ended.
     pub(super) fn turn_ended(&mut self, end: TurnEnd<'_>) {
-        self.due = self.policy.due(end.usage) && self.route.takes_compact(end.commands);
+        self.due =
+            self.policy.due(end.usage) && self.route.takes_compact(self.policy, end.commands);
     }
 
     /// Whether to send `/compact` now, before the next prompt: never while
@@ -241,7 +274,11 @@ mod tests {
     }
 
     fn setting(enabled: bool, percent: Option<u8>) -> Option<AutoCompact> {
-        Some(AutoCompact { enabled, percent })
+        Some(AutoCompact {
+            enabled,
+            percent,
+            tokens: None,
+        })
     }
 
     #[test]
@@ -264,6 +301,91 @@ mod tests {
         assert!(Policy::At(70).due(usage(70, 100)));
         assert!(!Policy::At(70).due(usage(1, 0)), "no window, no compaction");
         assert!(Policy::At(100).due(usage(u64::MAX, u64::MAX)));
+    }
+
+    fn tokens(tokens: u64) -> Option<AutoCompact> {
+        Some(AutoCompact {
+            enabled: true,
+            percent: None,
+            tokens: Some(tokens),
+        })
+    }
+
+    #[test]
+    fn a_token_count_wins_over_the_percent() {
+        let both = AutoCompact {
+            enabled: true,
+            percent: Some(70),
+            tokens: Some(350_000),
+        };
+        assert_eq!(Policy::from_setting(Some(both)), Policy::AtTokens(350_000));
+        assert_eq!(Policy::from_setting(tokens(0)), Policy::At(80));
+        let off = AutoCompact {
+            enabled: false,
+            ..both
+        };
+        assert_eq!(Policy::from_setting(Some(off)), Policy::Off);
+        let policy = Policy::AtTokens(350_000);
+        assert!(policy.due(usage(350_000, 1_000_000)));
+        assert!(!policy.due(usage(349_999, 1_000_000)));
+        assert!(policy.due(usage(350_000, 0)), "the window does not matter");
+        assert!(!policy.due(None));
+    }
+
+    #[test]
+    fn claude_and_pi_get_the_node_compact_for_a_token_count() {
+        let policy = Policy::AtTokens(100);
+        for agent in ["claude", "pi"] {
+            let mut compactor = Compactor::new(route(agent), policy);
+            ended(&mut compactor, usage(100, 1_000), &commands(&["compact"]));
+            assert!(compactor.start(false), "{agent}");
+        }
+        let mut compactor = Compactor::new(route("claude"), policy);
+        ended(&mut compactor, usage(99, 1_000), &commands(&["compact"]));
+        assert!(!compactor.start(false), "under the count");
+        // Claude Code's own trigger is off then, unless the user set it.
+        let claude = route("claude");
+        assert_eq!(
+            policy.env(claude, &env(&[])),
+            Some(EnvVar {
+                name: "DISABLE_AUTO_COMPACT",
+                value: "1".into()
+            })
+        );
+        let own = env(&[("DISABLE_AUTO_COMPACT", "0")]);
+        assert_eq!(policy.env(claude, &own), None);
+        assert_eq!(policy.env(route("pi"), &env(&[])), None);
+    }
+
+    #[test]
+    fn codex_gets_a_token_count_as_its_own_limit() {
+        let policy = Policy::AtTokens(350_000);
+        let codex = route("codex");
+        let set = policy.env(codex, &env(&[])).unwrap();
+        assert_eq!(set.name, "CODEX_CONFIG");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&set.value).unwrap(),
+            serde_json::json!({ "model_auto_compact_token_limit": 350_000 })
+        );
+        let own = env(&[("CODEX_CONFIG", "{}")]);
+        assert_eq!(policy.env(codex, &own), None, "the user's own wins");
+        let mut compactor = Compactor::new(codex, policy);
+        ended(
+            &mut compactor,
+            usage(999_999, 1_000_000),
+            &commands(&["compact"]),
+        );
+        assert!(!compactor.start(false), "Codex counts for itself");
+        assert_eq!(Policy::At(70).env(codex, &env(&[])), None);
+    }
+
+    #[test]
+    fn opencode_ignores_a_token_count() {
+        let opencode = route("opencode");
+        assert_eq!(Policy::AtTokens(100).env(opencode, &env(&[])), None);
+        let mut compactor = Compactor::new(opencode, Policy::AtTokens(100));
+        ended(&mut compactor, usage(500, 1_000), &commands(&["compact"]));
+        assert!(!compactor.start(false));
     }
 
     #[test]
