@@ -29,8 +29,8 @@ use super::{
         copy_share, delete_session, delete_sessions, delete_turn, delete_turns_from,
         existing_sessions, get_file, get_route, get_route_card, get_session, get_session_agents,
         get_session_files, get_session_images, get_session_sources, get_share, get_tool_labels,
-        list_sessions, pin_session, rename_session, search_sessions, share_session,
-        unshare_session,
+        list_chats, list_sessions, pin_session, rename_session, search_chats, search_sessions,
+        share_session, unshare_session,
     },
     settings::{
         add_app_account, add_mcp_server, connect_app, connect_mcp_server, disconnect_app,
@@ -54,6 +54,11 @@ pub fn router() -> Router {
         .stream(get_events)
         .call(device_result)
         .call(list_sessions)
+        .call(list_chats)
+        .call(search_chats)
+        .call(alerts::list_alerts)
+        .call(alerts::read_alerts)
+        .call(alerts::dismiss_alerts)
         .call(get_session)
         .call(rename_session)
         .call(delete_session)

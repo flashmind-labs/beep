@@ -9,9 +9,9 @@ use crate::{
         UpdatePage, Upload, WebSource,
     },
     store::{
-        AgentImageBytes, AgentImageOf, CopiedShare, DeletedTurn, FinishedTurn, FoundSession,
-        NewAttachment, NewFile, NewPicture, PicturesOf, RunStatus, SavedTurn, Share, StoredContext,
-        StoredMessage, TurnRecord, TurnsToDelete,
+        AgentImageBytes, AgentImageOf, AlertRow, CopiedShare, DeletedTurn, FinishedTurn,
+        FoundSession, Listing, NewAttachment, NewFile, NewPicture, PicturesOf, RunStatus,
+        SavedTurn, Share, StoredContext, StoredMessage, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -25,9 +25,45 @@ impl User {
         self.store.sessions(&self.key).await
     }
 
+    /// The user's sessions that are chats: alerts not replied to are left out.
+    pub async fn chats(&self) -> Result<Vec<Session>> {
+        self.store.chats(&self.key).await
+    }
+
     /// Up to `limit` sessions with a message that holds `query`, ignoring case.
     pub async fn search_sessions(&self, query: &str, limit: i64) -> Result<Vec<FoundSession>> {
-        self.store.search_sessions(&self.key, query, limit).await
+        self.store
+            .search_sessions(&self.key, query, limit, Listing::All)
+            .await
+    }
+
+    /// As `search_sessions`, leaving out alerts not replied to.
+    pub async fn search_chats(&self, query: &str, limit: i64) -> Result<Vec<FoundSession>> {
+        self.store
+            .search_sessions(&self.key, query, limit, Listing::Chats)
+            .await
+    }
+
+    /// The user's alerts, newest first.
+    pub async fn alerts(&self) -> Result<Vec<AlertRow>> {
+        self.store.alerts(&self.key).await
+    }
+
+    /// Makes session `chat` an alert that says `text`, and tells the apps.
+    pub(crate) async fn add_alert(&self, chat: Uuid, source: &str, text: &str) -> Result<()> {
+        self.store.add_alert(&self.key, chat, source, text).await?;
+        self.changed("");
+        Ok(())
+    }
+
+    pub async fn read_alerts(&self, ids: &[Uuid]) -> Result<()> {
+        self.store.read_alerts(&self.key, ids).await
+    }
+
+    pub async fn dismiss_alerts(&self, ids: &[Uuid]) -> Result<()> {
+        self.store.dismiss_alerts(&self.key, ids).await?;
+        self.changed("");
+        Ok(())
     }
 
     /// Renames a session; `false` when the user has no such session.

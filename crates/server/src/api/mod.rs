@@ -27,6 +27,7 @@ mod agent_control;
 mod agent_found;
 mod agent_sessions;
 pub(crate) use agent_sessions::machine_sessions;
+mod alerts;
 mod branch_work;
 mod credentials;
 mod crons;
