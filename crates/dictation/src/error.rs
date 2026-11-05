@@ -7,6 +7,8 @@ pub enum DictationError {
     Off,
     #[error("Add a {0} key in Assistant first.")]
     NoKey(&'static str),
+    #[error("Could not read your keys. Try again in a moment.")]
+    Keys,
     #[error("{0} refused the key. Check it in Assistant.")]
     Refused(&'static str),
     #[error("{0} does not know that model. Pick another in Assistant.")]

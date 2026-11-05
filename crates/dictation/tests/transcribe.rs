@@ -150,3 +150,15 @@ async fn a_closed_port_is_a_network_error() {
         .expect_err("nothing listens");
     assert_eq!(error, DictationError::Network("OpenAI"));
 }
+
+/// The desktop runs a dictation on a spawned task, so the call must be `Send`.
+#[tokio::test]
+async fn a_dictation_can_run_on_a_spawned_task() {
+    let (base, _seen) = fake("200 OK", r#"{"text":"ok"}"#).await;
+    let key = SecretString::from("sk");
+    let task =
+        tokio::spawn(
+            async move { transcribe(Provider::OpenAi, Some(&base), &key, "m", clip()).await },
+        );
+    assert_eq!(task.await.expect("joined").expect("text"), "ok");
+}
