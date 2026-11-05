@@ -11,6 +11,7 @@ mod openrouter;
 mod run;
 mod store;
 mod tools;
+mod view;
 
 pub use error::AssistantError;
 pub use message::{Call, Message};
@@ -18,6 +19,7 @@ pub use models::{ModelInfo, default_model, list_models};
 pub use run::{Event, Outcome, Setup, run_turn};
 pub use store::{Chat, ChatSummary, delete_chat, list_chats, load_chat, save_chat};
 pub use tools::{MAX_TOOL_ROUNDS, WorkQuery};
+pub use view::{Step, TurnView, turns};
 
 use secrecy::SecretString;
 
@@ -32,3 +34,13 @@ pub struct Endpoint {
 pub const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
 /// Firecrawl's API.
 pub const FIRECRAWL_BASE: &str = "https://api.firecrawl.dev/v2";
+
+/// The HTTP client for both services: no limit on a whole reply, which streams for as long as the
+/// model takes, but one on connecting and on silence.
+pub fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(120))
+        .build()
+        .unwrap_or_default()
+}
