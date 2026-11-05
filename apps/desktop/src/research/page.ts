@@ -5,10 +5,10 @@ import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { chipClass, newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
-import { state, views } from "../center/state.ts";
+import { type ResearchArg, state, views } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
 import { failure, tag, skeleton } from "../ui/pieces.ts";
-import { shown, registerView, go, drawTop } from "../center/views.ts";
+import { shown, shownArg, registerView, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, reloadChats, plusButton, emptyRow } from "../center/sidebar.ts";
 import { IC } from "../ui/icons.ts";
 
@@ -37,16 +37,7 @@ async function fetchResearch() {
   return research.list;
 }
 
-/// Opens a research in its own window, as the bar's list does; its chat
-/// when the window cannot open.
-export function openResearch(session: string) {
-  invoke("open_research", { session }).catch(e => {
-    console.warn("opening a research:", e);
-    go("pane", { chat: { session } });
-  });
-}
-
-/// Starts a research on what the page's field holds, in its own window.
+/// Starts a research on what the page's field holds; Rust opens it as a page of the window.
 async function startResearch() {
   const topic = research.draft.trim();
   if (!topic || research.starting) return;
@@ -169,6 +160,7 @@ registerSidebarGroup<ResearchRow>("research", {
     const b = sideItem(IC.doc, r.topic, 0);
     b.title = `${r.topic}\n${STATE_LABEL[researchState(r.status)]}`;
     if (researchState(r.status) === "running") b.append(h("span", "dspin cc-run"));
+    if (shown === "researchopen" && (shownArg as ResearchArg).session === r.session) b.setAttribute("aria-current", "true");
     return b;
   },
   onPick: r => openResearch(r.session),

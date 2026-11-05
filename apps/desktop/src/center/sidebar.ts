@@ -24,7 +24,7 @@ import { projectDot, skeleton } from "../ui/pieces.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { single } from "./openitems.ts";
-import { shown, go, drawTop } from "./views.ts";
+import { shown, go, drawTop, openResearch } from "./views.ts";
 import { groupHeading } from "../project/groups.ts";
 import { loadOverview } from "../project/projects.ts";
 import { projectsEl, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
@@ -356,8 +356,7 @@ export function removeProject(name: string) {
 function pickChat(c: SideChat) {
   if (c.kind === "project") return openProjects(c.id);
   if (c.kind === "group") return go("pane", { group: { id: c.id } });
-  // A research opens in its own window, as from the bar's list.
-  if (c.research) return invoke("open_research", { session: c.id }).catch(() => go("pane", { chat: { session: c.id } }));
+  if (c.research) return openResearch(c.id);
   go("pane", { chat: { session: c.id } });
 }
 

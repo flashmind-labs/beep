@@ -50,7 +50,7 @@ const ASSISTANT_PAGES = ["chats", "memories", "routines", "rnew", "grants", "ski
 /// a deep link from the tray, another window or a notification. The window shows Home instead.
 export function viewHidden(name: string, arg: unknown, subscribed: boolean) {
   if (subscribed) return false;
-  if (name === "research") return true;
+  if (name === "research" || name === "researchopen") return true;
   if (name !== "pane") return false;
   if (typeof arg === "string") return ASSISTANT_PAGES.includes(arg);
   return typeof arg === "object" && arg !== null && ("chat" in arg || "group" in arg);

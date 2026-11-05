@@ -74,7 +74,7 @@ export function route(scope: ProjectScope | null, view: string, arg?: unknown): 
 /// What the main window is asked to show (`CenterTarget` in center.rs).
 export type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | "providers" | "terminals" | "research"
   | { chat: { session: string | null } } | { group: { id: string } } | { agent: AgentTarget }
-  | { projects: { project: string | null } } | { ask: { prompt: string } };
+  | { projects: { project: string | null } } | { ask: { prompt: string } } | { open_research: { session: string } };
 
 /// A coding agent session for the main window, every field filled as
 /// `AgentTarget` in center.rs reads it.
@@ -102,6 +102,7 @@ const VIEWS = new Set(["home", "instructions", "providers", "terminals", "resear
 /// cannot be told.
 export function mainTarget(view: string, arg?: unknown): CenterTarget {
   if (VIEWS.has(view)) return view as CenterTarget;
+  if (view === "researchopen") return { open_research: { session: (arg as { session: string }).session } };
   if (view === "projects") return { projects: { project: (arg as { project?: string | null } | undefined)?.project ?? null } };
   if (view !== "pane") return "home";
   if (typeof arg === "string") return PANE_PAGES.has(arg) ? arg as CenterTarget : "home";

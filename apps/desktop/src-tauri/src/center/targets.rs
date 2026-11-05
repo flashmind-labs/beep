@@ -38,6 +38,10 @@ pub(crate) enum CenterTarget {
     },
     Terminals,
     Research,
+    /// One research, opened as a page of the window.
+    OpenResearch {
+        session: Uuid,
+    },
     /// A new chat that starts with `prompt`, as a project window's ⌘K asks.
     Ask {
         prompt: String,
@@ -193,6 +197,11 @@ mod tests {
         );
         assert_eq!(read(r#""terminals""#), Some(CenterTarget::Terminals));
         assert_eq!(read(r#""research""#), Some(CenterTarget::Research));
+        let session = Uuid::new_v4();
+        assert_eq!(
+            read(&format!(r#"{{"open_research":{{"session":"{session}"}}}}"#)),
+            Some(CenterTarget::OpenResearch { session })
+        );
         assert_eq!(
             read(r#"{"ask":{"prompt":"hi"}}"#),
             Some(CenterTarget::Ask {
