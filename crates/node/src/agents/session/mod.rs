@@ -20,17 +20,16 @@ use crate::{
 };
 use agent_client_protocol::schema::v1::McpServer;
 use anyhow::{Context, Result};
+use beep_proto::ModelId;
 use beep_proto::node::agent::{
     AgentCommand, AnswerOption, Effort, EntryKind, ParentLink, SessionInfo, Status,
 };
-use beep_proto::{AgentAccount, ModelId};
 use futures::stream::FuturesUnordered;
 use std::{
     borrow::Cow,
     collections::{HashSet, VecDeque},
     path::Path,
     process::Stdio,
-    str::FromStr,
     sync::{Arc, Mutex, atomic::AtomicBool},
     time::Duration,
 };
@@ -285,10 +284,8 @@ impl Session {
             .env(route, &kind.env)
             .map(|var| (var.name, var.value));
         let mut process = command(&kind.program);
-        // The token Beep keeps for this agent, such as Claude Code's, when
-        // there is one.
-        let account = AgentAccount::from_str(&kind.name).ok();
-        spawn_env::apply(&mut process, Scope::Agent(account));
+        // The credentials this agent may have, such as Claude Code's token.
+        spawn_env::apply(&mut process, Scope::for_agent(&kind.name));
         process
             .args(&kind.args)
             .args(flag)
