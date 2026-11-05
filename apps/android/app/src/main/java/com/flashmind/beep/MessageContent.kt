@@ -67,6 +67,10 @@ private val mathClosers = mapOf("$$" to "$$", "\\[" to "\\]")
 
 private val imageToken = Regex("""!\[([^\]]*)]\((https://[^\s)]+|data:image/[^\s)]+)\)""")
 
+private val ruleLine = Regex("^\\s*[-*_]{3,}\\s*$")
+private val headingMark = Regex("^#{1,4} +")
+private val bulletMark = Regex("^( *)[-*+] +")
+
 private fun parseBlocks(text: String): List<MsgBlock> {
     val blocks = mutableListOf<MsgBlock>()
     val lines = text.split('\n')
@@ -114,7 +118,7 @@ private fun parseBlocks(text: String): List<MsgBlock> {
                 i = j + 1; continue
             }
         }
-        if (line.matches(Regex("^\\s*[-*_]{3,}\\s*$"))) { flush(); blocks.add(MsgBlock.Rule); i++; continue }
+        if (line.matches(ruleLine)) { flush(); blocks.add(MsgBlock.Rule); i++; continue }
         if (line.trimStart().startsWith("|") && line.trimEnd().endsWith("|")) {
             val tableLines = mutableListOf(line)
             var j = i + 1
@@ -326,9 +330,9 @@ internal fun formattedMessage(text: String, colors: InlineColors, headingSize: T
     for (line in lines) {
         if (!firstLine) append("\n")
         firstLine = false
-        val heading = Regex("^#{1,4} +").find(line)
+        val heading = headingMark.find(line)
         val content = line.removePrefix(heading?.value.orEmpty())
-            .replace(Regex("^( *)[-*+] +"), "$1\u2022 ")
+            .replace(bulletMark, "$1\u2022 ")
         pushStyle(if (heading != null) SpanStyle(fontWeight = FontWeight.Bold, fontSize = headingSize, letterSpacing = (-0.3).sp) else SpanStyle())
         appendInline(content, colors, codeSize)
         pop()

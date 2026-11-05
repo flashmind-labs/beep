@@ -615,7 +615,6 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             LaunchedEffect(drawerOpen) { if (!drawerOpen) { picked = null; moreOpen = false } }
             BackHandler(enabled = picked != null) { picked = null }
             val visibleChats = state.conversations.filter { !it.isUnused && it.title.contains(historyQuery, ignoreCase = true) }
-                .sortedWith(compareByDescending<Conversation> { it.pinned }.thenByDescending { it.lastActive })
             // Titles match at once; what was written comes from the server after a pause in typing.
             var contentHits by remember { mutableStateOf<List<SessionMatch>>(emptyList()) }
             LaunchedEffect(historyQuery) {
@@ -628,7 +627,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
             // Groups sit among the chats by when they were last active, pinned ones with the pinned chats.
             val visibleGroups = groups.filter { it.name.contains(historyQuery, ignoreCase = true) }
             val rows: List<DrawerRow> = run {
-                val all = (visibleChats.map(DrawerRow::Chat) + visibleGroups.map(DrawerRow::GroupRow)).sortedByDescending { it.lastActive }
+                val all = (visibleChats.map { DrawerRow.Chat(it) } + visibleGroups.map(DrawerRow::GroupRow)).sortedByDescending { it.lastActive }
                 val (pinned, rest) = all.partition { it.pinned }
                 pinned + rest
             }
@@ -956,9 +955,9 @@ private sealed interface DrawerRow {
     val key: String
     val lastActive: Long
     val pinned: Boolean
-    data class Chat(val chat: Conversation) : DrawerRow {
+    /** [lastActive] scans every message, so it is read once per row, not on each comparison of the sort. */
+    data class Chat(val chat: Conversation, override val lastActive: Long = chat.lastActive) : DrawerRow {
         override val key get() = chat.id
-        override val lastActive get() = chat.lastActive
         override val pinned get() = chat.pinned
     }
     data class GroupRow(val group: Group) : DrawerRow {
