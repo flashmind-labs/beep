@@ -10,6 +10,17 @@ pub fn json(out: &str) -> Result<Value> {
     serde_json::from_str(out.trim()).context("the host did not print JSON")
 }
 
+/// The items of a list. teacli prints `null` for an empty one.
+fn list_of<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
+    if value.is_null() {
+        return Ok(&[]);
+    }
+    value
+        .as_array()
+        .map(Vec::as_slice)
+        .ok_or_else(|| anyhow!("expected a list of {what}"))
+}
+
 pub fn text(value: &Value, key: &str) -> String {
     value
         .get(key)
@@ -56,9 +67,7 @@ pub fn parse_found_issue(out: &str, marker: &str) -> Result<Option<IssueRef>> {
         return Ok(None);
     }
     let value = json(out)?;
-    let items = value
-        .as_array()
-        .ok_or_else(|| anyhow!("expected a list of issues"))?;
+    let items = list_of(&value, "issues")?;
     // The host's search may match loosely, so the body is checked here.
     let Some(item) = items
         .iter()
@@ -89,9 +98,7 @@ pub struct OwnedIssue {
 
 pub fn parse_owned_issues(_host: &IssueHost, out: &str) -> Result<Vec<OwnedIssue>> {
     let value = json(out)?;
-    let items = value
-        .as_array()
-        .ok_or_else(|| anyhow!("expected a list of issues"))?;
+    let items = list_of(&value, "issues")?;
     items
         .iter()
         .map(|item| {
@@ -184,9 +191,7 @@ pub(super) fn label_names(item: &Value) -> Vec<String> {
 /// Parses [`HostCommand::ListOpenIssues`], skipping the pull requests Forgejo lists with issues.
 pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
     let value = json(out)?;
-    let items = value
-        .as_array()
-        .ok_or_else(|| anyhow!("expected a list of issues"))?;
+    let items = list_of(&value, "issues")?;
     items
         .iter()
         .filter(|item| item.get("pull_request").is_none_or(Value::is_null))
@@ -253,9 +258,7 @@ pub(super) fn time_of(
 /// Parses [`HostCommand::ListOpenPrs`] from gh (camelCase) or Forgejo (snake_case).
 pub fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
     let value = json(out)?;
-    let items = value
-        .as_array()
-        .ok_or_else(|| anyhow!("expected a list of pull requests"))?;
+    let items = list_of(&value, "pull requests")?;
     items
         .iter()
         .map(|item| {
