@@ -1,6 +1,7 @@
 //! Beep for macOS. A tray app whose bar opens on a double tap of Option.
 
 mod agents;
+mod assistant;
 mod bar;
 mod beep;
 mod center;
@@ -114,12 +115,22 @@ fn main() {
                     .app_handle()
                     .state::<center::AgentsShown>()
                     .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<assistant::Runs>()
+                    .window_closed(window.label());
                 center::closed(window.app_handle(), window.label());
             }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             agents::accounts::agent_accounts,
+            assistant::commands::assistant_chats,
+            assistant::commands::assistant_delete,
+            assistant::commands::assistant_models,
+            assistant::commands::assistant_open,
+            assistant::commands::assistant_send,
+            assistant::commands::assistant_stop,
             agents::accounts::cancel_claude_sign_in,
             agents::accounts::claude_sign_in,
             agents::accounts::codex_login_cancel,
@@ -519,6 +530,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     fleet::migrate::start(handle.clone());
     app.manage(machine);
     app.manage(machines::list::Outside::default());
+    app.manage(assistant::Runs::default());
     app.manage(tray::Recent::default());
     app.manage(projects::live::Followed::default());
     app.manage(research::Pending::default());
