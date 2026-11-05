@@ -45,7 +45,7 @@ export function chatHints() {
   if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
   const typed = $<HTMLTextAreaElement>("#ask")?.value;
   if (typed?.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  if (typed?.trim()) return hints([[ICON.ret, "ask"], ["⌘R", "research"], ["esc", "to hide"]], chip);
+  if (typed?.trim()) return hints([[ICON.ret, "ask"], ...(S.link === "linked" ? [["⌘R", "research"] as Hint] : []), ["esc", "to hide"]], chip);
   if (PANE) return hints([["⌘K", "search"], ["⌘N", "new chat"], [`⇧${ICON.ret}`, "new line"], ["⌥ ⌥", "quick chat"]], chip);
   if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
   return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["tap ⌥", "live"], ["hold ⌥", "talk"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
