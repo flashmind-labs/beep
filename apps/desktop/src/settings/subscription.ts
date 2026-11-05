@@ -54,11 +54,9 @@ const SERVER_PAGES = ["link", "invite", "revoked"];
 /// Whether going to window view `name` with `arg` opens something only a subscription has, such as
 /// a deep link from the tray, another window or a notification, or with no `server` at all one of
 /// its own pages. The window shows Home instead.
-export function viewHidden(name: ViewName, arg: unknown, subscribed: boolean, server: boolean, local = false) {
+export function viewHidden(name: ViewName, arg: unknown, subscribed: boolean, server: boolean) {
   if (!server && name === "pane" && typeof arg === "string" && SERVER_PAGES.includes(arg)) return true;
   if (subscribed) return false;
-  // Chats kept on this Mac: the chat list, a chat and its model.
-  if (local && name === "pane" && (arg === "chats" || arg === "model" || (typeof arg === "object" && arg !== null && "chat" in arg))) return false;
   if (name === "research" || name === "researchopen") return true;
   if (name !== "pane") return false;
   if (typeof arg === "string") return ASSISTANT_PAGES.includes(arg);

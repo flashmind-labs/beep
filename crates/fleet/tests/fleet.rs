@@ -8,7 +8,7 @@ use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
 use beep_proto::{
-    ApiProvider, CredentialKind, SecretText, WorkDiff,
+    CredentialKind, SecretText, WorkDiff,
     node::{
         EnvReport, LinkRx, LinkTx, Open, Opened, ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
@@ -20,7 +20,6 @@ use beep_proto::{
     },
 };
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
-use secrecy::ExposeSecret;
 use std::{
     collections::HashMap,
     sync::{
@@ -1429,28 +1428,6 @@ async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
     let id = desk.credentials()[0].id.clone();
     desk.remove_credential(&id).await.expect("removes it");
     assert!(desk.credentials().is_empty());
-}
-
-#[tokio::test]
-async fn an_api_key_is_read_back_by_provider_and_prints_nothing() {
-    let studio = create("Studio").await;
-    let desk = desk(&studio, &[]).await;
-    assert!(desk.api_key(ApiProvider::Meshy).is_none());
-    // Meshy has no check, so nothing leaves the test.
-    desk.save_credential(
-        &CredentialKind::ApiKey {
-            provider: ApiProvider::Meshy.slug().to_owned(),
-        },
-        &SecretText::new("msy-key-value-7788"),
-        true,
-    )
-    .await
-    .expect("saves");
-    let key = desk.api_key(ApiProvider::Meshy).expect("the saved key");
-    assert_eq!(key.expose_secret(), "msy-key-value-7788");
-    assert!(desk.api_key(ApiProvider::OpenRouter).is_none());
-    assert!(desk.api_key(ApiProvider::Firecrawl).is_none());
-    assert!(!format!("{key:?}").contains("7788"));
 }
 
 #[tokio::test]

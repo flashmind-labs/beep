@@ -100,25 +100,6 @@ pub struct ToolStep {
     pub code_agent: Option<String>,
 }
 
-impl ToolStep {
-    /// A step of a chat kept on this Mac: what it showed, and whether it worked.
-    pub(crate) fn local(call_id: String, name: String, label: String, success: bool) -> Self {
-        Self {
-            name,
-            label: Some(label),
-            call_id,
-            success,
-            file: None,
-            images: Vec::new(),
-            products: None,
-            cards: None,
-            chart: None,
-            route: None,
-            code_agent: None,
-        }
-    }
-}
-
 /// A file Beep sent in the chat, fetched with `GetFile` when opened.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentFile {

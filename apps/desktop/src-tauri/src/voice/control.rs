@@ -89,9 +89,6 @@ impl Voice {
     /// words; once it was all written, only stops reading it. Otherwise
     /// leaves, keeping what was said.
     pub fn cancel(self: &Arc<Self>) {
-        if self.cancel_dictation() {
-            return;
-        }
         let input = {
             let mut state = self.state();
             let Some(s) = state.live.as_mut() else {
@@ -266,7 +263,6 @@ impl Voice {
                 hold_only: s.live.hold_only(),
                 finishing: s.finishing.is_some(),
                 sheet: s.sheet,
-                dictating: false,
             }
         };
         self.emit(view);

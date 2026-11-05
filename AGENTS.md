@@ -66,19 +66,7 @@ using the server's credentials and harness values as soon as the account is move
 
 `SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back. `MEMORY_TOOLS` (`crates/node/src/agents/mcp/mod.rs`) likewise keeps the memory tools from coding agents.
 
-`LIVE_ENABLED` (`apps/desktop/src-tauri/src/voice/mod.rs`) is false: the orb window never opens, Option never starts live mode (hold still dictates, two taps still open the bar), live hints and shortcuts are hidden, and a dictation error is a macOS notification.
-
-With an OpenRouter key saved, chats run on this Mac (`assistant_local`). The chat commands read and write local files and call OpenRouter (`crates/assistant`, `src-tauri/src/assistant/`), and the same chat window renders them. A Firecrawl key adds web search. Web tools turn off for the rest of a chat once a session has been read in it.
-
-Dictation works without the server too: with a provider picked in Assistant (OpenRouter, OpenAI or Mistral, each with its saved key), holding Option records a clip and types the words where the cursor is (`voice/dictation.rs`, `crates/dictation`, calls through flashmind's providers). It needs the Accessibility permission, sends nothing to a chat and is off until a provider is picked.
-
-The Assistant page lists MCP servers (`crates/assistant/src/mcp`, `src-tauri/src/assistant/mcp.rs`): a command run on this Mac or an HTTP address with an optional bearer token, no OAuth. The protocol is `flashmind-tools`' `McpRegistry` (feature `mcp`); its disk config is not used, as it writes secrets with default file modes. The list is `assistant/mcp.json` in the app data, mode 0600; env values and tokens never reach the web view. Their tools are offered in local chats as `mcp_<server>_<tool>`. Every call asks first with the chat's approval card (Allow once or Deny; Stop denies it): flashmind's `McpRegistry` does not pass on `readOnlyHint`, so a read-only tool cannot run unasked yet. Results are untrusted and private: web tools turn off for the rest of that chat. A server starts the first time a chat needs it and ends when the app quits; one that fails shows its error on its row. This shares nothing with the server's app connections or the hidden Apps and MCP pages.
-
-Local chats also get the machine tools of the Beep MCP server that coding agents get (`list_machines`, `run_on`, `job_status`, `cancel`, `machine_log`), on this Mac and on the other machines of the mesh. They are the node's own code, called through `beep_node::agents::mcp::call_tool`, and they never ask: a command runs as soon as the model calls it. Output is untrusted and private, so web tools turn off for the rest of the chat after `run_on`, `job_status`, `cancel` or `machine_log`. Stop ends the wait, not the command: a foreground command keeps running until its own timeout (600 seconds by default), and a background one until `cancel`. The model is told to run long commands with `background=true` and poll them with `job_status`.
-
-The model page of a local chat searches flashmind's OpenRouter catalog (`list_models` in `crates/assistant`, filtered by `Feature`) and can prefer one upstream provider per model (`provider.order`, fallbacks allowed). Both live in `prefs.json`; the picker commands are in `src-tauri/src/assistant/picker.rs`.
-
-`LOCAL_ASSISTANT` (`src-tauri/src/assistant/mod.rs`, and `src/assistant/local.ts`) is false: the local assistant described above, its page, chats and dictation are off, and nothing is removed. The assistant is to come back through the server.
+`LIVE_ENABLED` (`apps/desktop/src-tauri/src/voice/mod.rs`) is false: the orb window never opens, Option never starts live mode or opens the microphone (two taps still open the bar), and live hints and shortcuts are hidden.
 
 ### Code map
 
@@ -105,7 +93,6 @@ The model page of a local chat searches flashmind's OpenRouter catalog (`list_mo
 - `crates/mesh` (`beep-mesh`): the signed device list, tickets, replicated state, and the join and peer connections.
 - `crates/projects` (`beep-projects`): project shell commands, parsers and names shared by the server and the desktop.
 - `crates/fleet` (`beep-fleet`): the desktop side of projects, credentials, settings and usage over the mesh.
-- `crates/assistant` (`beep-assistant`): the local chat: OpenRouter client, tool loop and chat files.
 
 ## Alerts
 

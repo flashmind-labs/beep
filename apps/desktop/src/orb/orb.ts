@@ -39,8 +39,6 @@ interface LiveView {
   speaking: boolean;
   title: string | null;
   finishing: boolean;
-  /// Dictation: the words are typed where the cursor is, nothing is sent.
-  dictating: boolean;
 }
 
 /// The `live` events the orb follows (Rust's `LiveEvent`), as far as it reads them.
@@ -84,16 +82,15 @@ function draw(v: LiveView) {
   // The same states as the bar's orb: listening, thinking, speaking.
   const mode = v.speaking || (v.phase === "speaking" && v.line) ? "speak"
     : v.phase === "thinking" ? "think"
-    : v.words || v.dictating ? "" : "idle";
+    : v.words ? "" : "idle";
   orb.className = `dorb ${mode}`;
   mini.classList.toggle("hold", v.phase === "holding");
   // While Option is held, or the last words come in, the note says so.
-  state = v.dictating ? (v.phase === "thinking" ? "Transcribing…" : "Let go to type")
-    : v.finishing ? "Sending…" : v.phase === "holding" ? "Let go to send" : "";
+  state = v.finishing ? "Sending…" : v.phase === "holding" ? "Let go to send" : "";
   if (v.phase !== "listening") soon(null);
   drawNote();
   const replying = !v.title && (v.phase === "thinking" || v.phase === "speaking");
-  x.setAttribute("aria-label", v.dictating ? "Cancel dictation" : v.title ? "Stop the voice note" : replying ? "Cancel the reply" : "Leave live mode");
+  x.setAttribute("aria-label", v.title ? "Stop the voice note" : replying ? "Cancel the reply" : "Leave live mode");
 }
 
 // ---------- Approval ----------

@@ -17,9 +17,6 @@ anyhow = "1"
 async-trait = "0.1"
 ammonia = "4"
 base64 = "0.22"
-chrono = "0.4"
-beep-assistant = { path = "../../../crates/assistant" }
-beep-dictation = { path = "../../../crates/dictation" }
 beep-fleet = { path = "../../../crates/fleet" }
 beep-live = { path = "../../../crates/live" }
 beep-mesh = { path = "../../../crates/mesh" }
@@ -47,7 +44,6 @@ tauri-plugin-updater = "2"
 thiserror = "2"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tokio-util = "0.7"
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
