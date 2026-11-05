@@ -334,6 +334,34 @@ done
     }
 
     #[tokio::test]
+    async fn a_cancel_while_the_question_is_handed_over_leaves_none_behind() {
+        let (offers, session, _dir) = idle_session().await;
+        // Polled once, it has queued the question and waits for the session to take it.
+        let mut asking = Box::pin(
+            offers
+                .agents
+                .ask(&session.id, card(Tool::SendFiles, &Value::Null)),
+        );
+        assert!(futures::poll!(&mut asking).is_pending());
+        drop(asking);
+        // The question was shown and taken back, not just never shown.
+        let mut live = session.live.clone();
+        timeout(
+            Duration::from_secs(20),
+            live.wait_for(|live| {
+                live.transcript(20)
+                    .0
+                    .iter()
+                    .any(|entry| entry.text.starts_with("Withdrawn"))
+            }),
+        )
+        .await
+        .expect("the question is withdrawn")
+        .expect("the session is kept");
+        gone(&session).await;
+    }
+
+    #[tokio::test]
     async fn an_ask_nobody_waits_for_is_withdrawn_and_does_not_block_the_next() {
         let (offers, session, _dir) = idle_session().await;
         let follow = offers.agents.alerts.follow(SecretKey::generate().public());
