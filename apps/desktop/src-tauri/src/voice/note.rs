@@ -12,7 +12,6 @@ use beep_live::Input;
 use beep_proto::{Notice, SpeakNotice, VoiceNote};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
-use uuid::Uuid;
 
 impl Voice {
     /// What `notice` does: offered on the orb's card or spoken when the
@@ -47,13 +46,9 @@ impl Voice {
                 return;
             }
         };
-        let chat = Uuid::parse_str(&notice.session_id).ok();
         if self.is_live() || bar::is_open(&self.app) {
             crate::notices::notify::notice(&self.app, &notice);
             return;
-        }
-        if let Some(chat) = chat {
-            self.beep.set_session(Some(chat.to_string()));
         }
         let title = notice.title.clone();
         let notice = Box::new(notice);
@@ -63,7 +58,8 @@ impl Voice {
                 title,
                 notice,
             },
-            chat,
+            // Only played, so it stays out of the open chat.
+            None,
         );
     }
 

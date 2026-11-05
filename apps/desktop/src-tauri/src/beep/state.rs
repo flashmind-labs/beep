@@ -59,7 +59,7 @@ pub struct Saved {
     #[serde(default = "on")]
     pub voice_notes: bool,
     /// What a new notice does while the user is here and not on a call.
-    /// Missing in files from before it, where `voice_notes` decides.
+    /// Set only once the user picks one in Settings.
     #[serde(default)]
     pub notice_voice: Option<NoticeVoice>,
     /// In live mode a pause sends; otherwise only saying "send" does.
@@ -82,14 +82,9 @@ fn on() -> bool {
 }
 
 impl Saved {
-    /// The Voice notes choice. The old switch on becomes Ask first, off
-    /// stays Off.
+    /// The Voice notes choice. Without one a notice is only a notification.
     pub fn notice_voice(&self) -> NoticeVoice {
-        match self.notice_voice {
-            Some(choice) => choice,
-            None if self.voice_notes => NoticeVoice::Ask,
-            None => NoticeVoice::Off,
-        }
+        self.notice_voice.unwrap_or(NoticeVoice::Off)
     }
 
     /// "Let Beep use this Mac": on unless turned off in this version.
@@ -182,11 +177,11 @@ mod tests {
     }
 
     #[test]
-    fn the_old_voice_notes_switch_becomes_a_choice() {
-        assert_eq!(parse("{}").notice_voice(), NoticeVoice::Ask);
+    fn a_notice_is_only_a_notification_until_the_user_picks_otherwise() {
+        assert_eq!(parse("{}").notice_voice(), NoticeVoice::Off);
         assert_eq!(
             parse(r#"{"voice_notes":true}"#).notice_voice(),
-            NoticeVoice::Ask
+            NoticeVoice::Off
         );
         assert_eq!(
             parse(r#"{"voice_notes":false}"#).notice_voice(),
