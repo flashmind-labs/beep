@@ -41,8 +41,15 @@ export function initSideResize(win: HTMLElement, grip: HTMLElement) {
     grip.setPointerCapture(e.pointerId);
     const from = e.clientX, start = width;
     win.classList.add("resizing");
-    const move = (ev: PointerEvent) => apply(clampWidth(start + ev.clientX - from));
+    // One layout per frame however many moves arrive; the last one wins.
+    let next = width, frame = 0;
+    const flush = () => { frame = 0; apply(next); };
+    const move = (ev: PointerEvent) => {
+      next = clampWidth(start + ev.clientX - from);
+      if (!frame) frame = requestAnimationFrame(flush);
+    };
     const up = () => {
+      if (frame) { cancelAnimationFrame(frame); flush(); }
       grip.removeEventListener("pointermove", move);
       grip.removeEventListener("pointerup", up);
       grip.removeEventListener("pointercancel", up);

@@ -45,7 +45,9 @@ export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
 
 /// Loads a group's items again. Never two loads at once: one asked for
 /// during a load runs once more after it.
-export async function reloadGroup(name: string) {
+/// The sidebar redraws once the group is in, unless `redraw` is false and the
+/// caller draws after loading several.
+export async function reloadGroup(name: string, redraw = true) {
   const g = groups.get(name);
   if (!g) return;
   if (g.loading) { g.again = true; return; }
@@ -57,8 +59,8 @@ export async function reloadGroup(name: string) {
   } finally {
     g.loading = false;
   }
-  drawSide();
-  if (g.again) { g.again = false; reloadGroup(name); }
+  if (redraw) drawSide();
+  if (g.again) { g.again = false; reloadGroup(name, redraw); }
 }
 
 interface SideOpts {
