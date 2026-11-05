@@ -34,10 +34,11 @@ export function changesView() {
     return el;
   }
   const view = diffView({
-    load: (only, lockfiles) => {
+    uncommitted: true,
+    load: (only, lockfiles, uncommitted) => {
       // A refresh reads the worktrees again too.
       if (!only.length) refreshWorktrees();
-      return invoke<DiffView>("work_diff", { machineId: s.machine_id, root: paneRoot(), only, lockfiles });
+      return invoke<DiffView>("work_diff", { machineId: s.machine_id, root: paneRoot(), only, lockfiles, uncommitted });
     },
     open: { label: "Open in a tab", run: openWorkFile },
     review: { key: `${s.machine_id}\n${s.id}`, send: text => sendReview(reviewIn(text, paneRoot(), s.cwd)) },

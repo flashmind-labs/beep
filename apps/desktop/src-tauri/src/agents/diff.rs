@@ -126,8 +126,9 @@ fn view(diff: WorkDiff) -> DiffView {
 }
 
 /// What changed in the session folder `root` on `machine_id`, against its
-/// default branch, uncommitted and untracked changes in. `only` asks for
-/// those files in full, past the caps.
+/// default branch, uncommitted and untracked changes in; with `uncommitted`,
+/// against HEAD (`@` to git, which no `origin/` copy shadows). `only` asks
+/// for those files in full, past the caps.
 #[tauri::command]
 pub async fn work_diff(
     beep: Service<'_>,
@@ -136,12 +137,14 @@ pub async fn work_diff(
     root: String,
     only: Vec<String>,
     lockfiles: bool,
+    uncommitted: bool,
 ) -> Result<DiffView> {
+    let base = if uncommitted { "@" } else { "" }.to_owned();
     let diff = match fleet.member(&machine_id) {
         Some(machine) => {
             let ask = DiffAsk {
                 root,
-                base: String::new(),
+                base,
                 head: String::new(),
                 only,
                 lockfiles,
@@ -152,7 +155,7 @@ pub async fn work_diff(
             beep.call(GetWorkDiff {
                 machine_id,
                 root,
-                base: String::new(),
+                base,
                 head: String::new(),
                 only,
                 lockfiles,
