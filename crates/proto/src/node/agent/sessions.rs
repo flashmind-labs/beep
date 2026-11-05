@@ -168,6 +168,14 @@ pub enum SessionsRequest {
         session: String,
         steer: Steer,
     },
+    /// The worktrees of the git repository holding the session folder
+    /// `folder`, as `git worktree list` gives them. Answered with
+    /// `Worktrees` (none when `folder` is not in a repository), or `Error`
+    /// saying why. A node from before it answers `Error` or closes the
+    /// stream.
+    Worktrees {
+        folder: String,
+    },
 }
 
 impl SessionsRequest {
@@ -190,6 +198,7 @@ impl SessionsRequest {
             | Self::ReadFile { .. }
             | Self::CustomAgents { .. }
             | Self::Diff { .. }
+            | Self::Worktrees { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -317,6 +326,25 @@ pub enum SessionsReply {
     Live {
         status: Box<LiveStatus>,
     },
+    /// The answer to `Worktrees`.
+    Worktrees {
+        worktrees: Vec<Worktree>,
+    },
+}
+
+/// One worktree of a repository, as `SessionsRequest::Worktrees` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Worktree {
+    /// Its folder, as git names it.
+    pub path: String,
+    /// The branch checked out, without `refs/heads/`; `None` when the head
+    /// is detached.
+    pub branch: Option<String>,
+    /// The commit at its head, abbreviated.
+    pub head: String,
+    /// The one holding the folder asked about.
+    #[serde(default)]
+    pub own: bool,
 }
 
 /// Something a node's session did that the user would want to hear about.
@@ -387,6 +415,32 @@ mod tests {
         );
         assert!(!SessionsRequest::FollowAlerts {}.is_read());
         assert!(!SessionsRequest::Watch { sessions: vec![] }.is_read());
+    }
+
+    #[test]
+    fn worktrees_round_trip_and_may_be_asked_again() {
+        let ask = SessionsRequest::Worktrees {
+            folder: "/srv/project".into(),
+        };
+        assert!(ask.is_read());
+        let body = rmp_serde::to_vec(&ask).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
+            ask
+        );
+        let reply = SessionsReply::Worktrees {
+            worktrees: vec![Worktree {
+                path: "/srv/project/.worktrees/fix".into(),
+                branch: None,
+                head: "abc1234".into(),
+                own: true,
+            }],
+        };
+        let body = rmp_serde::to_vec(&reply).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
+            reply
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ import { fileSize, openViewer } from "../chat/media.ts";
 import { attach, killTerm, type PaneTerm } from "./terminal.ts";
 import { addMention } from "../agents/workdrop.ts";
 import { type TreeText, type MediaTab, P, closeTab, saveWorkFile } from "./media.ts";
+import { mentioned } from "./worktree-state.ts";
 import { readFile, readError, drawTermStatus } from "./read.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
@@ -45,8 +46,8 @@ function textView(t: MediaTab, text: TreeText) {
   const about = [rel, lang, text.binary ? "" : `${lines.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
   const el = h(`<div class="agpview">${body}<div class="agpacts"><span class="meta mono" title="${esc(rel)}">${esc(about)}</span><span class="sp"></span><button class="dbtn" data-tment="1">Mention</button><button class="dbtn" data-tsave="1">Save</button></div></div>`);
   const meta = el.querySelector(".meta")!;
-  el.querySelector("[data-tment]")!.addEventListener("click", () => addMention(rel));
-  el.querySelector("[data-tsave]")!.addEventListener("click", () => saveWorkFile(rel, note => { meta.textContent = note; }));
+  el.querySelector("[data-tment]")!.addEventListener("click", () => addMention(mentioned(t.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel)));
+  el.querySelector("[data-tsave]")!.addEventListener("click", () => saveWorkFile(rel, note => { meta.textContent = note; }, t.root));
   return el;
 }
 

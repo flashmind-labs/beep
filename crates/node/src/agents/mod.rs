@@ -50,6 +50,7 @@ mod tool_diff;
 mod usage;
 mod work_diff;
 mod work_folder;
+mod worktrees;
 
 pub use work_folder::{local_read, local_tree};
 

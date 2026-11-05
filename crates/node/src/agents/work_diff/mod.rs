@@ -312,7 +312,7 @@ fn git_command(dir: &Path, args: &[&str]) -> Command {
 }
 
 /// What `git <args>` printed in `dir`; its error when it failed.
-fn git(dir: &Path, args: &[&str]) -> Result<String> {
+pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let out = git_command(dir, args)
         .output()
         .context("could not run git")?;
