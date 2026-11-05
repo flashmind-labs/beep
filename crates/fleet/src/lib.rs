@@ -3,6 +3,7 @@
 mod credentials;
 mod desk;
 mod error;
+mod git_board;
 mod issues;
 pub mod migrate;
 mod moves;
@@ -19,6 +20,7 @@ mod usage;
 pub use beep_mesh::machine::sessions::MoveState;
 pub use desk::Desk;
 pub use error::{FleetError, Result};
+pub use git_board::{GitKept, GitUpdate};
 pub use issues::{has_project, places, project_id, project_names};
 pub use moves::MoveAsk;
 pub use peer::Peers;

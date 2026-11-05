@@ -4,6 +4,7 @@ use super::{Caller, HostError, forgejo, github, host::Found};
 use crate::{credentials::Slot, imports::hosts::Hosts};
 use beep_proto::{GitHost, GitHostKind, GitItem, GitItems, GitReview, LabeledGitItems};
 use futures::future::join_all;
+use reqwest::Client;
 use secrecy::SecretString;
 use std::{cmp::Reverse, collections::HashMap, time::SystemTime};
 
@@ -27,39 +28,38 @@ pub struct OpenedItems {
 /// Asks every host at once and puts their answers together.
 pub async fn read(hosts: &dyn Hosts, logins: &[Login<'_>]) -> anyhow::Result<OpenedItems> {
     let client = hosts.client()?;
-    let calls = hosts.calls();
     let client = &client;
-    let answers = join_all(logins.iter().map(|login| async move {
-        let (host, kind) = match login.slot {
-            Slot::GitHub => (github::HOST.to_owned(), GitHostKind::GitHub {}),
-            Slot::Forgejo(url) => (url.host(), GitHostKind::Forgejo {}),
-            Slot::ApiKey(_) | Slot::AgentToken(_) => return None,
-        };
-        let caller = Caller {
-            client,
-            calls,
-            host: &host,
-            token: login.secret,
-        };
-        let result = match login.slot {
-            Slot::Forgejo(url) if !hosts.is_public(url).await => {
-                Err(HostError::Private(host.clone()))
-            }
-            Slot::Forgejo(url) => forgejo::items(&caller, url.as_str()).await,
-            _ => github::items(&caller).await,
-        };
-        Some(Answer {
-            host: GitHost {
-                host: host.clone(),
-                kind,
-                account: login.account.map(ToOwned::to_owned),
-                error: None,
-            },
-            result,
-        })
-    }))
-    .await;
+    let answers = join_all(logins.iter().map(|login| ask(hosts, client, login))).await;
     Ok(combine(answers.into_iter().flatten().collect()))
+}
+
+/// Asks the host `login` is for; `None` for a credential that is no git host.
+pub async fn ask(hosts: &dyn Hosts, client: &Client, login: &Login<'_>) -> Option<Answer> {
+    let (host, kind) = match login.slot {
+        Slot::GitHub => (github::HOST.to_owned(), GitHostKind::GitHub {}),
+        Slot::Forgejo(url) => (url.host(), GitHostKind::Forgejo {}),
+        Slot::ApiKey(_) | Slot::AgentToken(_) => return None,
+    };
+    let caller = Caller {
+        client,
+        calls: hosts.calls(),
+        host: &host,
+        token: login.secret,
+    };
+    let result = match login.slot {
+        Slot::Forgejo(url) if !hosts.is_public(url).await => Err(HostError::Private(host.clone())),
+        Slot::Forgejo(url) => forgejo::items(&caller, url.as_str()).await,
+        _ => github::items(&caller).await,
+    };
+    Some(Answer {
+        host: GitHost {
+            host: host.clone(),
+            kind,
+            account: login.account.map(ToOwned::to_owned),
+            error: None,
+        },
+        result,
+    })
 }
 
 /// What one host said.

@@ -16,17 +16,17 @@ use beep_proto::{
     GitHost, GitHostKind, GitItem, GitItemKind, GitItems, GitReview, LabeledGitItems,
     LabeledProjectLists, ProjectIssue, ProjectPullRequest,
 };
-use futures::{StreamExt, stream};
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     sync::{Mutex, PoisonError},
     time::{Duration, Instant, UNIX_EPOCH},
 };
-use tokio::time::timeout;
+use tokio::{sync::Semaphore, time::timeout};
 
 /// Projects read at once.
-const AT_ONCE: usize = 4;
+pub(crate) const AT_ONCE: usize = 4;
 /// How long one project may take, so a slow or offline machine does not hold Home.
 const PER_PROJECT: Duration = Duration::from_secs(20);
 
@@ -36,79 +36,69 @@ pub(crate) struct ProjectRead {
     pub(crate) result: Result<LabeledProjectLists, String>,
 }
 
+/// What the tokens and the project's machine said about the repositories of one project.
+pub(crate) struct Learned {
+    /// What the tokens said, by repository.
+    answers: HashMap<Repo, bool>,
+    /// The repositories no token could speak for, which the machine was asked about.
+    asked: Vec<Repo>,
+    /// What the project's machine said, when it was asked and answered.
+    view: Option<MachineView>,
+}
+
 impl Desk {
-    /// Which repositories of `projects` the user can write to, and who they are on each host.
-    /// The tokens answer first; for a repository they could not speak for, the machine that
-    /// holds the project says what its own account may do. A repository nobody answered for
-    /// counts as not writable.
-    pub(crate) async fn access(&self, logins: &[Login<'_>], projects: &[ProjectRead]) -> Access {
-        let mut access = Access {
-            accounts: accounts_of(logins),
-            ..Access::default()
-        };
-        let answers = token_answers(&self.hosts, logins, &repos_of(projects)).await;
-        access.writable.extend(
-            answers
-                .iter()
-                .filter(|(_, can)| **can)
-                .map(|(repo, _)| repo.clone()),
-        );
-        let open: Vec<(String, Vec<Repo>)> = projects
+    /// Which of `repos` the user can write to, and who they are on each host. The tokens answer
+    /// first; for a repository they could not speak for, the machine that holds the project says
+    /// what its own account may do. `limit` bounds the machines asked at once.
+    pub(crate) async fn learn_access(
+        &self,
+        logins: &[Login<'_>],
+        project: &str,
+        repos: &HashSet<Repo>,
+        limit: &Semaphore,
+    ) -> Learned {
+        let answers = token_answers(&self.hosts, logins, repos).await;
+        let asked: Vec<Repo> = repos
             .iter()
-            .map(|read| {
-                let repos = repos_of(std::slice::from_ref(read));
-                let asked = repos.into_iter().filter(|repo| !answers.contains_key(repo));
-                (read.name.clone(), asked.collect::<Vec<_>>())
-            })
-            .filter(|(_, asked)| !asked.is_empty())
+            .filter(|repo| !answers.contains_key(*repo))
+            .cloned()
             .collect();
-        let views: Vec<_> = stream::iter(open)
-            .map(|(name, asked): (String, Vec<Repo>)| async move {
-                let view = match kept_view(&name) {
-                    Some(view) => view,
-                    None => {
-                        let asked = timeout(PER_PROJECT, self.machine_view(&name)).await;
-                        let view = asked.ok().flatten()?;
-                        keep_view(&name, &view);
-                        view
-                    }
-                };
-                Some((view, asked))
-            })
-            .buffer_unordered(AT_ONCE)
-            .collect()
-            .await;
-        for (view, asked) in views.into_iter().flatten() {
-            access
-                .accounts
-                .entry(view.host.clone())
-                .or_default()
-                .push(view.login);
-            for repo in asked.into_iter().filter(|repo| repo.host == view.host) {
-                if view.can_push == Some(true) {
-                    access.writable.insert(repo);
-                }
-            }
+        if asked.is_empty() {
+            return Learned {
+                answers,
+                asked,
+                view: None,
+            };
         }
-        access
+        let view = match kept_view(project) {
+            Some(view) => Some(view),
+            None => {
+                // The semaphore is never closed, so waiting for it cannot fail.
+                let _turn = limit.acquire().await;
+                let asked = timeout(PER_PROJECT, self.machine_view(project)).await;
+                let view = asked.ok().flatten();
+                if let Some(view) = &view {
+                    keep_view(project, view);
+                }
+                view
+            }
+        };
+        Learned {
+            answers,
+            asked,
+            view,
+        }
     }
 
-    /// The open lists of each of `names`, at most `AT_ONCE` at a time, each with a time limit.
-    pub(crate) async fn read_projects(&self, names: &[String]) -> Vec<ProjectRead> {
-        // Owned names: a borrowed one makes this future not `Send` for every lifetime, which a
-        // Tauri command needs.
-        stream::iter(names.to_vec())
-            .map(|name| async move {
-                let result = match timeout(PER_PROJECT, self.lists(&name)).await {
-                    Ok(Ok(lists)) => unreadable(&lists).map_or(Ok(lists), Err),
-                    Ok(Err(e)) => Err(e.to_string()),
-                    Err(_) => Err("no answer in time".to_owned()),
-                };
-                ProjectRead { name, result }
-            })
-            .buffer_unordered(AT_ONCE)
-            .collect()
-            .await
+    /// The open lists of `name`, with a time limit, so a slow or offline machine does not hold
+    /// Home.
+    pub(crate) async fn read_project(&self, name: String) -> ProjectRead {
+        let result = match timeout(PER_PROJECT, self.lists(&name)).await {
+            Ok(Ok(lists)) => unreadable(&lists).map_or(Ok(lists), Err),
+            Ok(Err(e)) => Err(e.to_string()),
+            Err(_) => Err("no answer in time".to_owned()),
+        };
+        ProjectRead { name, result }
     }
 }
 
@@ -132,7 +122,7 @@ fn host_and_repo(url: &str) -> Option<(String, String)> {
 /// What decides which of a project's open items Home lists: a repository the user can write to
 /// lists them all, any other only the user's own. The tokens' searches already give what is
 /// assigned to the user or asks for their review, so those need no row from the project.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct Access {
     /// The repositories the host says the user can write to.
     pub(crate) writable: HashSet<Repo>,
@@ -141,6 +131,44 @@ pub(crate) struct Access {
 }
 
 impl Access {
+    /// Notes that the tokens or a machine sign in as `login` on `host`.
+    pub(crate) fn note_account(&mut self, host: &str, login: &str) {
+        let accounts = self.accounts.entry(host.to_owned()).or_default();
+        if !accounts.iter().any(|known| known == login) {
+            accounts.push(login.to_owned());
+        }
+    }
+
+    /// Takes what was learned about one project. An answer replaces the one kept before; a
+    /// repository nobody could speak for keeps its kept answer.
+    pub(crate) fn learn(&mut self, learned: Learned) {
+        let Learned {
+            answers,
+            asked,
+            view,
+        } = learned;
+        for (repo, can) in answers {
+            self.set(repo, can);
+        }
+        let Some(view) = view else {
+            return;
+        };
+        self.note_account(&view.host, &view.login);
+        for repo in asked.into_iter().filter(|repo| repo.host == view.host) {
+            if let Some(can) = view.can_push {
+                self.set(repo, can);
+            }
+        }
+    }
+
+    fn set(&mut self, repo: Repo, writable: bool) {
+        if writable {
+            self.writable.insert(repo);
+        } else {
+            self.writable.remove(&repo);
+        }
+    }
+
     /// Whether Home lists the item at `url` that `author` opened; `mine` when the machine's own
     /// account is known to be the author.
     fn lists(&self, url: &str, author: &str, mine: bool) -> bool {
@@ -181,7 +209,7 @@ fn keep_view(project: &str, view: &MachineView) {
 }
 
 /// The GitHub accounts the tokens sign in as, by host.
-fn accounts_of(logins: &[Login<'_>]) -> HashMap<String, Vec<String>> {
+pub(crate) fn accounts_of(logins: &[Login<'_>]) -> HashMap<String, Vec<String>> {
     let github = logins
         .iter()
         .filter(|login| matches!(login.slot, Slot::GitHub))

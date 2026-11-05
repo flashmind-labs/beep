@@ -586,6 +586,73 @@ async fn home_lists_an_imported_projects_items_with_no_token() {
     );
 }
 
+/// Two desktops, a machine that has `repo` with another author's PR and the user's own, and a
+/// machine the mesh says is online that never answers a call and holds no project.
+async fn with_a_silent_machine(repo: &'static str) -> (Fleet, Desk) {
+    let f = fleet().await;
+    let ghost = join(&f.studio, DeviceKind::Node, "ghost").await;
+    until(&f.studio.mesh, |m| online(m, ghost.id)).await;
+    let other = Box::leak(pr_json(repo, 4, "kim").into_boxed_str());
+    let own = Box::leak(pr_json(repo, 9, "sam").into_boxed_str());
+    let node = shared_host("true\n", other, own);
+    desk(&f.studio, &[(&f.build, &node)])
+        .await
+        .import(ImportJob {
+            repo,
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    let studio = Desk::open(peering(&f.studio, &[(&f.build, &node)], &[&ghost]))
+        .await
+        .expect("the desk opens");
+    (f, studio)
+}
+
+#[tokio::test]
+async fn home_lists_the_others_rows_while_a_machine_never_answers() {
+    let (_fleet, studio) = with_a_silent_machine("acme/sprocket").await;
+    let items = timeout(Duration::from_secs(8), studio.git_items())
+        .await
+        .expect("home does not wait on a machine that holds none of the projects")
+        .expect("home's items read");
+    assert_eq!(items.items.found.items.len(), 2);
+}
+
+#[tokio::test]
+async fn home_sends_the_list_as_sources_answer_and_ends_on_the_final_one() {
+    let (_fleet, studio) = with_a_silent_machine("acme/cog").await;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    let run = studio.git_items_with(None, Some(&tx));
+    // The future must be `Send`, as a Tauri command's is.
+    fn send<T: Send>(_: &T) {}
+    send(&run);
+    let done = timeout(Duration::from_secs(8), run)
+        .await
+        .expect("the run ends")
+        .expect("home's items read");
+    drop(tx);
+    let mut sent = Vec::new();
+    while let Some(items) = rx.recv().await {
+        sent.push(items);
+    }
+    assert!(!sent.is_empty(), "the list is sent before the run ends");
+    assert_eq!(sent.last(), Some(&done.items), "the last one is the final");
+    let mut numbers: Vec<u64> = done
+        .items
+        .items
+        .found
+        .items
+        .iter()
+        .map(|i| i.number)
+        .collect();
+    numbers.sort_unstable();
+    assert_eq!(numbers, [4, 9]);
+}
+
 /// A machine whose account `sam` opened one PR of `repo` and who also lists another author's.
 fn shared_host(
     can_push: &'static str,

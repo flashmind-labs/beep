@@ -197,6 +197,14 @@ impl DeskProject {
 
 impl DeskProject {
     /// Whether the project has a checkout on `machine`.
+    /// The machines the project is checked out on.
+    pub(crate) fn machine_ids(&self) -> Vec<EndpointId> {
+        self.places
+            .iter()
+            .filter_map(|place| place.machine)
+            .collect()
+    }
+
     pub(crate) fn is_on(&self, machine: EndpointId) -> bool {
         self.places
             .iter()
