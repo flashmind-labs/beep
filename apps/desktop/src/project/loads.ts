@@ -13,7 +13,7 @@ import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
-import { agentFor, type ProjectAgent, type ProjectView } from "./agent.ts";
+import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
 import { type Started, state, pages, keep, pageFresh } from "../center/state.ts";
 import { failure, section, rowButton } from "../center/pieces.ts";
 import { openUrl, openItemRow, repoLine, refreshGit } from "../center/openitems.ts";
@@ -97,7 +97,7 @@ export function noteRecent(name: string) {
 /// and new runs show. The drawing asks for the rest as it is due.
 export function revalidate(name: string) {
   loadView(name);
-  const agent = agentFor(state.agents, name);
+  const agent = pageAgent(state.agents, name, state.subscribed);
   if (agent) {
     thr.ensure(agent.project_id, SWITCH_MS);
     runs.ensure(agent.project_id, SWITCH_MS);
@@ -113,10 +113,10 @@ export function revalidate(name: string) {
 function prefetch(name: string): Promise<unknown> {
   const p = (projectRows() || []).find(r => r.name === name);
   if (!p?.imported) return Promise.resolve();
-  const agent = agentFor(state.agents, name);
+  const agent = pageAgent(state.agents, name, state.subscribed);
   const reads: (Promise<unknown> | undefined)[] = [revs.ensure(name), terms.ensure(name), fsync.ensure(name, MACHINE_REFRESH_MS)];
   if (agent) {
-    if (pages.due("view", name, MACHINE_REFRESH_MS)) reads.push(loadView(name));
+    if (agentFor(state.agents, name) && pages.due("view", name, MACHINE_REFRESH_MS)) reads.push(loadView(name));
     // The code host's lists at their own pace: an ask keeps the server
     // reading the host for that project a while.
     reads.push(thr.ensure(agent.project_id), runs.ensure(agent.project_id));

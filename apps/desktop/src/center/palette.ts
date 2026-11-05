@@ -9,7 +9,7 @@ import { svgEl as svg } from "../ui/parts.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";
-import { IC } from "./state.ts";
+import { IC, state } from "./state.ts";
 
 /// One search result. A branch's id is its project and the branch, split by
 /// a space.
@@ -91,7 +91,7 @@ export function openPalette() {
   sel = 0;
   input = el("input");
   input.type = "text";
-  input.placeholder = "Search anything: chats, projects, coding agents, machines, settings, PRs…";
+  input.placeholder = `Search anything: ${state.subscribed ? "chats, " : ""}projects, coding agents, machines, settings, PRs…`;
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("aria-label", "Search");
@@ -103,7 +103,8 @@ export function openPalette() {
   list.setAttribute("role", "listbox");
   list.id = "pal-list";
   const foot = el("div", "foot");
-  for (const [k, t] of [["↑↓", "move"], ["↵", "open"], ["⌘↵", "ask Beep"], ["esc", "close"]]) foot.append(el("span", "", el("kbd", "", k), t));
+  // Asking Beep is the assistant's: without a subscription there is nothing to ask.
+  for (const [k, t] of [["↑↓", "move"], ["↵", "open"], ...(state.subscribed ? [["⌘↵", "ask Beep"]] : []), ["esc", "close"]]) foot.append(el("span", "", el("kbd", "", k), t));
   const box = el("div", "cc-pal", el("div", "q", svg(IC.find), input), list, foot);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", "Search");
@@ -176,7 +177,7 @@ function row(hit: Hit, i: number, q: string) {
 
 function noHits(q: string) {
   const none = el("div", "none", `Nothing matches “${q}”.`);
-  if (q) {
+  if (q && state.subscribed) {
     const ask = el("button", "dbtn", `Ask Beep “${q}”`, el("kbd", "", "⌘↵"));
     ask.type = "button";
     ask.addEventListener("click", () => ask_(q));
@@ -234,7 +235,7 @@ window.addEventListener("keydown", e => {
   const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
   if (e.key === "Escape") { stop(); return close(); }
   if (e.metaKey && e.key.toLowerCase() === "k") { stop(); return close(); }
-  if (e.metaKey && e.key === "Enter") { stop(); return ask_(input!.value); }
+  if (e.metaKey && e.key === "Enter") { stop(); return state.subscribed ? ask_(input!.value) : undefined; }
   if (e.isComposing) return;
   if (e.key === "Enter") { stop(); if (hits[sel]) pick(hits[sel]); return; }
   if (e.key === "Tab") { stop(); return input!.focus(); }
