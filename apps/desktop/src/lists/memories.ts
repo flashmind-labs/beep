@@ -1,10 +1,13 @@
 // lists/: Memories, Routines and Skills, each a list with one row picked.
 // Entry: this file, which holds the shared list parts.
 import { mark } from "../chat/chats.ts";
-import { $, $$, bar, esc, ICON, invoke, S } from "../bar/core.ts";
+import { $, $$, bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { clock, dateValue } from "./routines.ts";
 import { cap } from "../chat/tools.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 export const MEM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V4a3 3 0 00-3 0zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/></svg>';
 export const CLOCK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';

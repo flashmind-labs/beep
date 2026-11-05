@@ -1,17 +1,16 @@
 // review/: a project's branches, reviews and the diff viewer. Entry:
 // makeReviews here, openBranchDiff in diffsheet.ts.
 // A project's branches and the review of one before a merge.
-import { harnessEl } from "../agents/harnessicon.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { agentLabel } from "../project/projects-state.ts";
-import { reason } from "../addproject/importproject-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "../project/board.ts";
-import { plural } from "../ui/format.ts";
+import { plural, reason } from "../ui/format.ts";
 import { emptyPanel, errorNote, freshNote, note, stateChip, svgEl, secHead } from "../ui/parts.ts";
-import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../project/pagecache.ts";
+import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
 export interface BranchRow {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { prLines, prMeta, prChip, issueLines, issueBranch, prNumber, makeThreads, type ThreadDeps } from "../src/project/threads.ts";
 import type { KeptThreads } from "../src/project/threads.ts";
-import { PageCache } from "../src/project/pagecache.ts";
+import { PageCache } from "../src/ui/pagecache.ts";
 
 const ago = () => "2 h ago";
 

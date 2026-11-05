@@ -1,13 +1,12 @@
 // A project's issues and pull requests, and the user's threads there.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { reason } from "../addproject/importproject-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent, TaskRow } from "./agent.ts";
 import { STATE_LABEL, reviewState } from "../review/review.ts";
 import type { ReviewState, ReviewView } from "../review/review.ts";
-import { plural } from "../ui/format.ts";
+import { plural, reason } from "../ui/format.ts";
 import { emptyPanel, freshNote, stateChip, secHead } from "../ui/parts.ts";
-import { PageCache, REFRESH_MS, freshness, type SectionStore } from "./pagecache.ts";
+import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
 import type { ChecksRow } from "./runs.ts";
 
 /// An open issue no task tracks (IssueRow).

@@ -1,7 +1,8 @@
 // The parts a coding agent's card shares between a chat and the session
 // page: its question, plan and changed files.
-import { esc, ICON } from "../bar/core.ts";
 import type { AgentQuestion } from "./agents.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
 
 const mark = (status: string, asking: boolean) => status === "completed" ? `<span class="dok">${ICON.check}</span>`
   : status === "in_progress" ? (asking ? '<span class="ddot hot"></span>' : '<span class="dspin"></span>')

@@ -5,11 +5,12 @@ import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { chipClass, newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
-import { IC, state, views } from "../center/state.ts";
+import { state, views } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
-import { failure, tag, skeleton } from "../center/pieces.ts";
+import { failure, tag, skeleton } from "../ui/pieces.ts";
 import { shown, registerView, go, drawTop } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, reloadChats, plusButton, emptyRow } from "../center/sidebar.ts";
+import { IC } from "../ui/icons.ts";
 
 /// Every research on the account, newest first (null before the first
 /// answer), why the last read or start failed, whether one is starting and

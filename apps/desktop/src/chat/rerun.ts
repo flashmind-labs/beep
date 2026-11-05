@@ -1,10 +1,14 @@
 import { ANSWER, askText, body, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
-import { $, COPY_ICON, esc, h, here, ICON, invoke, S, stopping } from "../bar/core.ts";
-import type { Turn } from "../bar/core.ts";
+import { $, here, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { PLAY_ICON } from "../lists/memories.ts";
 import { canPickModel, modelName, modelPrice, MODELS, THINKING } from "../settings/model.ts";
 import { cap } from "./tools.ts";
+import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
+import type { Turn } from "../ui/turn.ts";
 
 // ---------- Reply actions ----------
 

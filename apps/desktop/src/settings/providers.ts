@@ -1,7 +1,7 @@
 // The Coding agents page: per machine, each harness (Claude Code, Codex, pi,
 // ...) with its version, sign-in and an on/off switch, and the picked one's
 // runtime settings.
-import { harnessEl } from "../agents/harnessicon.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { checkedLabel, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";

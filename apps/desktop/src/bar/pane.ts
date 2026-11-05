@@ -7,7 +7,7 @@ import { openAgent } from "../agents/session.ts";
 import { renderApps } from "../settings/apps.ts";
 import { body, focusAsk, grow, newChat, renderChat, send } from "../chat/chat.ts";
 import { renderChats, rows, type SessionSummary } from "../chat/chats.ts";
-import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, invoke, live, type PaneNow, S } from "./core.ts";
+import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, live, type PaneNow, S } from "./core.ts";
 import { type GroupSummary, renderGroup } from "../chat/groups.ts";
 import { refreshHints } from "./hints.ts";
 import { drawChatTop, openSession } from "../chat/history.ts";
@@ -21,6 +21,7 @@ import { renderRoutines, routineWhen } from "../lists/routines.ts";
 import { renderSettings, settingsBack } from "../settings/settings.ts";
 import { renderSkills } from "../lists/skills.ts";
 import type { Status } from "./views.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// What the window can open in the pane: a CenterTarget in its JSON form,
 /// a group, or an agent view.

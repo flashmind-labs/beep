@@ -3,15 +3,16 @@
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { focusBack, sheetShell } from "../ui/parts.ts";
-import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, present, folderUnder, folderNote, folderHelp, reason } from "./importproject-state.ts";
-import { button, el } from "../ui/dom.ts";
+import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, folderUnder, folderNote, folderHelp } from "./importproject-state.ts";
+import { button, el, present } from "../ui/dom.ts";
 import type { ImportEvent } from "./importproject-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 import { checkoutNote, defaultPlaces, forkNote, placeChoices, previewLine, worktreesToAsk } from "../review/branchwork.ts";
 import type { BranchPicks, ImportFork, PreviewView } from "../review/branchwork.ts";
-import type { MachineCard } from "../center/home-state.ts";
 import { NO_MENU, completed, isOpen, menuKey, menuOf, splitTyped, suggest } from "./foldercomplete.ts";
 import type { FolderMenu } from "./foldercomplete.ts";
+import { reason } from "../ui/format.ts";
+import type { MachineCard } from "../machines/machine-state.ts";
 
 /// A machine the sheet offers, as Home lists it.
 type Machine = Pick<MachineCard, "id" | "name" | "online" | "env">;

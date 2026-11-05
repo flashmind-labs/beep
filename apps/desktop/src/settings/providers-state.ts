@@ -1,5 +1,6 @@
 // The Coding agents page's words and sums, as pure functions so they can be
 // tested without Tauri. providers.ts draws the page.
+import { isNewer } from "../ui/format.ts";
 
 /// How a harness signs in (SignInView).
 interface SignInView {
@@ -96,17 +97,6 @@ export function harnessName(agent: string) { return NAMES[agent]?.[0] ?? agent; 
 
 /// Its two letters in the avatar.
 export function initials(agent: string) { return NAMES[agent]?.[1] ?? agent.slice(0, 2).toUpperCase(); }
-
-/// Whether version `latest` is newer than `current`, number by number.
-export function isNewer(latest: string, current: string) {
-  const nums = (v: string) => v.split(/[-+]/)[0].split(".").map(n => Number.parseInt(n, 10) || 0);
-  const a = nums(latest), b = nums(current);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = a[i] ?? 0, y = b[i] ?? 0;
-    if (x !== y) return x > y;
-  }
-  return false;
-}
 
 /// Whether a newer version than the one installed is out.
 export function hasUpdate(h: HarnessView) {

@@ -3,14 +3,13 @@
 // current job and step; a run opened shows its jobs and steps and, when it
 // failed, the end of its failing step's log with Fix this.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { reason } from "../addproject/importproject-state.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
-import { since } from "../ui/format.ts";
+import { reason, since } from "../ui/format.ts";
 import { emptyPanel, note, secHead } from "../ui/parts.ts";
 import type { TileData } from "./board.ts";
-import { PageCache, REFRESH_MS, type SectionStore } from "./pagecache.ts";
+import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 
 /// The current step of a running job (StepRow).
 export interface StepNow {

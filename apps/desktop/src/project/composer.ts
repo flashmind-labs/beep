@@ -1,6 +1,6 @@
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
-import { ago } from "../ui/format.ts";
+import { ago, reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { filterProjects, agentLabel } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -19,7 +19,6 @@ import { shown, go } from "../center/views.ts";
 import { projectRows } from "../center/sidebar.ts";
 import { redrawProjects, pc } from "./sections.ts";
 import { projectPlaces } from "./loads.ts";
-import { reason } from "../addproject/importproject-state.ts";
 
 /// The tallest the bar's field grows before it scrolls, in pixels.
 const BAR_FIELD_MAX = 200;

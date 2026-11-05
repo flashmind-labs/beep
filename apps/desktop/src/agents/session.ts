@@ -2,13 +2,13 @@
 // shows, its frame, and what a click in it does.
 import { markDelivered } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
-import { $, $$, type BackTo, bar, type ChatBody, esc, h, ICON, invoke, listen, PANE, S, windowHooks } from "../bar/core.ts";
+import { $, $$, type BackTo, bar, PANE, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneFrame, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
-import { copyCode, stopFace, toggleThought } from "../chat/turnrows.ts";
+import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
@@ -17,6 +17,11 @@ import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { editorTools } from "../project/editors.ts";
 import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
+import type { ChatBody } from "../ui/turn.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen.
 export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string; back?: string | BackTo } = {}) {

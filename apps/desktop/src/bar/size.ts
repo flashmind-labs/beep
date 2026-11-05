@@ -1,5 +1,6 @@
 import { drawMap } from "../chat/chat.ts";
-import { $, bar, invoke, PANE } from "./core.ts";
+import { $, bar, PANE } from "./core.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Size ----------
 

@@ -1,6 +1,6 @@
+import type { MacControl, MachineEnv, MachineView } from "./machine-state.ts";
 // What the "Add a machine" sheet shows, as pure functions so they can be
 // tested without Tauri. addmachine.ts draws it and talks to the app.
-import type { MacControl, MachineEnv, MachineView } from "../center/home-state.ts";
 
 /// The command that puts beep-node on a machine.
 export const INSTALL = "curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh";

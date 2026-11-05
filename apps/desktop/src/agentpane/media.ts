@@ -8,13 +8,17 @@ import { terminalName } from "./files-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
 import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artifacts.ts";
-import { changeListeners, esc, h, ICON, invoke, PANE, S } from "../bar/core.ts";
+import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView } from "./files.ts";
 import { dropTerm, type PaneTerm } from "./terminal.ts";
 import { drag, tabDown } from "./drag.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {

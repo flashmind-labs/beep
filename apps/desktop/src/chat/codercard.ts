@@ -3,9 +3,12 @@ import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, ag
 import { loadSessions } from "../agents/sessions.ts";
 import { filesHtml, planHtml, questionHtml } from "../agents/coderhtml.ts";
 import { openAgent } from "../agents/session.ts";
-import { esc, h, ICON, invoke } from "../bar/core.ts";
-import type { Turn } from "../bar/core.ts";
 import { ANSWER } from "./chat.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
+import type { Turn } from "../ui/turn.ts";
 
 // ---------- Coding agent card in a reply ----------
 
