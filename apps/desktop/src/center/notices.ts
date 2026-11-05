@@ -8,7 +8,7 @@ import { ago } from "../ui/format.ts";
 import { dbtn as button, svgEl } from "../ui/parts.ts";
 import { IC } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { type Alert, type Alerts, badge, bellLabel, bellShown, find, ids, markRead, subLine, unreadCount, without } from "./notices-state.ts";
+import { type Alert, type Alerts, badge, bellLabel, find, ids, markRead, subLine, unreadCount, without } from "./notices-state.ts";
 import { go } from "./views.ts";
 
 const BELL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg>';
@@ -21,8 +21,8 @@ export function showNotices(session: string | null) {
   show(session);
 }
 
-/// Draws the bell into `host` and keeps it current. Hidden where there are
-/// no alerts to have: no server, or one from before them.
+/// Draws the bell into `host` and keeps it current. With no server, or one
+/// from before alerts, its list is empty.
 export function mountNotices(host: HTMLElement) {
   let alerts: Alerts = null;
   let open = false;
@@ -64,16 +64,14 @@ export function mountNotices(host: HTMLElement) {
   /// Redraws the bell alone, leaving the pane as it is.
   const drawBell = () => {
     const first = host.firstElementChild;
-    if (first && bellShown(alerts)) first.replaceWith(makeBell());
+    if (first) first.replaceWith(makeBell());
     else draw();
   };
 
   const draw = () => {
-    host.hidden = !bellShown(alerts);
-    if (!bellShown(alerts)) return host.replaceChildren();
     const bell = makeBell();
     const shown = opened && find(alerts, opened);
-    host.replaceChildren(bell, ...(open ? [shown ? openedView(shown) : listView(alerts!)] : []));
+    host.replaceChildren(bell, ...(open ? [shown ? openedView(shown) : listView(alerts ?? [])] : []));
   };
 
   const read = (list: string[]) => {
@@ -173,5 +171,6 @@ export function mountNotices(host: HTMLElement) {
   });
   listen<Alerts>("alerts", e => set(e.payload));
   for (const name of ["link-state", "reconnected"]) listen(name, () => void load());
+  draw();
   void load();
 }
