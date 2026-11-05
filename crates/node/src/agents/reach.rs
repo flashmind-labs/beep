@@ -39,9 +39,24 @@ pub(super) struct Reach {
     pub(super) read: Vec<PathBuf>,
     /// Never written, even inside a work folder.
     pub(super) no_write: Vec<PathBuf>,
+    /// The folders of the sessions, in `work` too.
+    pub(super) sessions: Vec<PathBuf>,
 }
 
 impl Reach {
+    /// This reach with the checkout of each session folder that is a removed
+    /// worktree added to `work`, so the apps can move the session there.
+    /// Blocks on git.
+    pub(super) fn with_checkouts(mut self) -> Self {
+        let checkouts: Vec<PathBuf> = self
+            .sessions
+            .iter()
+            .filter_map(|folder| worktrees::checkout_of_gone(folder))
+            .collect();
+        self.work.extend(checkouts);
+        self
+    }
+
     /// Whether `real`, already resolved by [`real`], lies in a folder
     /// `access` may reach. Blocks on the file system.
     pub(super) fn holds(&self, real: &Path, access: Access) -> bool {
@@ -127,12 +142,13 @@ impl Agents {
     /// those of sessions started outside Beep only with `sighted`.
     fn reach(&self, sighted: Vec<PathBuf>) -> Reach {
         let mut work: Vec<PathBuf> = self.folders.get().cloned().unwrap_or_default();
-        work.extend(
-            self.lock()
-                .values()
-                .map(|session| PathBuf::from(session.info().cwd)),
-        );
-        work.extend(sighted);
+        let mut sessions: Vec<PathBuf> = self
+            .lock()
+            .values()
+            .map(|session| PathBuf::from(session.info().cwd))
+            .collect();
+        sessions.extend(sighted);
+        work.extend(sessions.iter().cloned());
         let logs = LogRoots::locate();
         let read = [
             claude::projects_dir(),
@@ -151,6 +167,7 @@ impl Agents {
             work,
             read,
             no_write: claude_temp().into_iter().collect(),
+            sessions,
         }
     }
 
@@ -163,6 +180,7 @@ impl Agents {
         let owned = asked.to_owned();
         let (real, held) = spawn_blocking(move || -> Result<(PathBuf, bool)> {
             let real = real(&resolve(&owned, home.as_deref())?)?;
+            let reach = reach.with_checkouts();
             let held = reach.holds(&real, access);
             Ok((real, held))
         })
@@ -193,9 +211,10 @@ impl Agents {
             .map_err(|_| refused(asked, access))
             .context("the agents' logs took too long to read")??;
         let reach = self.reach(sighted.to_vec());
-        let held = spawn_blocking(move || reach.holds(&real, access).then_some(real))
-            .await
-            .context("the path check stopped")?;
+        let held =
+            spawn_blocking(move || reach.with_checkouts().holds(&real, access).then_some(real))
+                .await
+                .context("the path check stopped")?;
         held.ok_or_else(|| refused(asked, access))
     }
 }
@@ -257,6 +276,7 @@ mod tests {
             work: vec![work.path().to_owned()],
             read: vec![logs.path().to_owned()],
             no_write: Vec::new(),
+            sessions: Vec::new(),
         };
         let in_logs = real(&logs.path().join("a.jsonl")).unwrap();
         assert!(reach.holds(&in_logs, Access::Read));
@@ -339,6 +359,7 @@ mod tests {
             work: vec![temp.path().to_owned()],
             read: vec![temp.path().to_owned()],
             no_write: vec![temp.path().to_owned()],
+            sessions: Vec::new(),
         }
     }
 
@@ -414,6 +435,7 @@ mod tests {
             work: vec![project.path().to_owned()],
             read: vec![logs.path().to_owned()],
             no_write: Vec::new(),
+            sessions: Vec::new(),
         };
         let real = check(&reach, project.path(), Access::Work).unwrap();
         let agents = super::super::custom_agents::list(&real, None).unwrap();
@@ -424,6 +446,28 @@ mod tests {
             assert!(e.to_string().contains("outside the folders"), "{e:#}");
         }
         assert!(check(&reach, Path::new("relative/path"), Access::Work).is_err());
+    }
+
+    #[test]
+    fn a_session_in_a_removed_worktree_reaches_its_checkout_only() {
+        let (tmp, main, gone) =
+            super::super::worktrees::tests::repo_with_removed_worktree(".worktrees");
+        let reach = |folder: &Path| Reach {
+            sessions: vec![folder.to_owned()],
+            ..Reach::default()
+        };
+        let before = reach(&gone);
+        assert!(!before.holds(&main, Access::Work));
+        let after = before.with_checkouts();
+        assert!(after.holds(&main, Access::Work));
+        assert!(after.holds(&real(&gone).unwrap(), Access::Read));
+        assert!(!after.holds(tmp.path(), Access::Work));
+        // A removed folder with another name opens nothing.
+        let other = reach(&main.join("elsewhere/x")).with_checkouts();
+        assert!(!other.holds(&main, Access::Work));
+        // A worktree still there is its own folder, not its checkout.
+        let live = reach(&main.join("src")).with_checkouts();
+        assert!(live.work.is_empty());
     }
 
     #[test]
