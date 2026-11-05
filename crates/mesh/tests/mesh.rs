@@ -968,3 +968,15 @@ async fn a_stranger_may_not_send_more_than_a_small_join_request() {
     timeout(LIMIT, connection.closed()).await.expect("closed");
     assert_eq!(a.mesh.devices().len(), 1);
 }
+
+#[tokio::test]
+async fn forgetting_also_removes_a_mesh_folder_from_before_the_move() {
+    let dir = TempDir::new().expect("temp dir");
+    let old = dir.path().join("mesh");
+    create_dir_all(&old).expect("folder");
+    std::fs::write(old.join("state.log"), b"credentials").expect("old file");
+    Mesh::forget(dir.path())
+        .await
+        .expect("the mesh is forgotten");
+    assert!(!old.exists());
+}

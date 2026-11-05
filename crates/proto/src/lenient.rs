@@ -16,7 +16,7 @@ use std::fmt;
 /// Reads one value from msgpack, skipping unknown trailing elements at every
 /// depth. Bytes after the value are ignored, as `rmp_serde::from_slice` does.
 pub fn from_slice<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, rmp_serde::decode::Error> {
-    T::deserialize(Lenient(&mut rmp_serde::Deserializer::new(bytes)))
+    T::deserialize(Lenient(&mut rmp_serde::Deserializer::from_read_ref(bytes)))
 }
 
 struct Lenient<D>(D);
@@ -421,5 +421,56 @@ mod tests {
         let too_short = rmp_serde::to_vec(&()).expect("encodes");
         assert!(from_slice::<Inner>(&too_short).is_err());
         assert!(from_slice::<Inner>(&[]).is_err());
+    }
+
+    #[derive(Serialize)]
+    struct OldInner {
+        a: u8,
+    }
+
+    #[derive(Serialize)]
+    struct OldOuter {
+        name: String,
+        inner: OldInner,
+        list: Vec<OldInner>,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct NewInner {
+        a: u8,
+        #[serde(default)]
+        added: u8,
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct NewOuter {
+        name: String,
+        inner: NewInner,
+        list: Vec<NewInner>,
+        #[serde(default)]
+        added: String,
+    }
+
+    /// The property compact msgpack is chosen for: a new reader given a
+    /// shorter message from an older sender fills the defaulted fields.
+    #[test]
+    fn a_shorter_message_fills_defaulted_fields_at_every_depth() {
+        let old = OldOuter {
+            name: "n".into(),
+            inner: OldInner { a: 1 },
+            list: vec![OldInner { a: 2 }, OldInner { a: 3 }],
+        };
+        let bytes = rmp_serde::to_vec(&old).expect("encodes");
+        let read: NewOuter = from_slice(&bytes).expect("an older message reads");
+        let inner = |a| NewInner { a, added: 0 };
+        assert_eq!(
+            read,
+            NewOuter {
+                name: "n".into(),
+                inner: inner(1),
+                list: vec![inner(2), inner(3)],
+                added: String::new(),
+            }
+        );
     }
 }

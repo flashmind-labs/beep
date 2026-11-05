@@ -7,7 +7,7 @@ mod serve;
 pub use describe::describe;
 pub(crate) use describe::{MACHINES_HEADER, machines};
 pub use link::{NewToken, TokenRefusal, create_token, link_machine};
-pub use serve::NodeHandler;
+pub use serve::{NodeHandler, accept_nodes};
 
 pub mod attachments;
 pub mod workspace;

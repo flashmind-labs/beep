@@ -11,8 +11,8 @@
 //! whose signature checks out. Closing the stream stops the forward and
 //! removes the webhook the node made.
 //!
-//! Like the rest of the node link these are msgpack maps, so either side
-//! may add a field with `#[serde(default)]` or a variant.
+//! Like the rest of the node link these are compact msgpack, so a field is
+//! added only at the end with `#[serde(default)]`.
 
 use crate::SecretText;
 use serde::{Deserialize, Serialize};

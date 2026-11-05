@@ -74,6 +74,9 @@ impl Conn {
     }
 
     async fn write<T: Serialize>(&mut self, message: &T) -> Result<()> {
+        // A host from a released node outlives it and reads with plain
+        // `rmp_serde`, which refuses a longer array: these messages gain no
+        // field while such a host can run (AGENTS.md).
         let body = rmp_serde::to_vec(message)?;
         self.0.send(body.into()).await?;
         Ok(())

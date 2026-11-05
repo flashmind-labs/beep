@@ -1,6 +1,8 @@
 //! Serves one node connection: the hello, the claim on a token and the request loop.
 
-use super::{CLOSE_UNAVAILABLE, MAX_TOOL_CALLS, Online, push_sync, stats};
+use super::{
+    CLOSE_UNAVAILABLE, MAX_TOOL_CALLS, NODE_ALPN, NODE_ALPN_NAMED, Online, push_sync, stats,
+};
 use crate::{
     account::user::User,
     app::App,
@@ -23,7 +25,7 @@ use anyhow::{Context, Result, bail};
 use iroh::{
     EndpointId,
     endpoint::{Connection, VarInt},
-    protocol::{AcceptError, ProtocolHandler},
+    protocol::{AcceptError, ProtocolHandler, RouterBuilder},
 };
 use std::{fmt, sync::Arc};
 use tokio::{sync::Notify, task::JoinSet, time::timeout};
@@ -38,6 +40,14 @@ impl fmt::Debug for NodeHandler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NodeHandler").finish()
     }
+}
+
+/// Serves `handler` on `beep-node/2` and on `beep-node/1`, in that order: the
+/// Router keeps it, and a node that offers both settles on the first.
+pub fn accept_nodes(router: RouterBuilder, handler: NodeHandler) -> RouterBuilder {
+    router
+        .accept(NODE_ALPN, handler.clone())
+        .accept(NODE_ALPN_NAMED, handler)
 }
 
 impl NodeHandler {

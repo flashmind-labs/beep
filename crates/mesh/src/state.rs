@@ -156,7 +156,8 @@ pub struct Entry {
     sig: Signature,
 }
 
-/// What an entry's signature covers, in the order of its fields.
+/// What an entry's signature covers, in the order of its fields. Never gains
+/// a field without a new `SIGN_DOMAIN` and new ALPNs.
 #[derive(Serialize)]
 struct Signed<'a> {
     key: &'a Key,

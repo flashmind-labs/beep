@@ -787,3 +787,21 @@ fn content_never_moves_into_a_path_the_rules_skip() {
         Some("kept.bin")
     );
 }
+
+#[test]
+fn a_saved_file_written_as_maps_is_still_read() {
+    let dir = TempDir::new().expect("a temp dir");
+    let file = dir.path().join("state");
+    let mut saved = Saved::default();
+    saved.cursors.insert(
+        "peer".to_owned(),
+        super::state::Cursor {
+            replica: Default::default(),
+            seq: 7,
+        },
+    );
+    std::fs::write(&file, rmp_serde::to_vec_named(&saved).expect("encodes")).expect("written");
+    let read = super::state::read_saved(&file);
+    assert_eq!(read.cursors["peer"].seq, 7);
+    assert!(file.exists(), "a readable file is not set aside");
+}

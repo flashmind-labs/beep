@@ -1,6 +1,6 @@
 import { bytes } from "../ui/format.ts";
 // A machine's traffic (ListMachineTraffic): lifetime bytes by key, such as
-// `alpn.beep-sync/1.tx`, read into what the Machines screens show.
+// `alpn.beep-sync/3.tx`, read into what the Machines screens show.
 
 export interface MachineTraffic {
   id: string;
@@ -15,20 +15,22 @@ export interface TrafficRow {
 
 /// iroh-blobs' ALPN carries sync's file contents along with sent files.
 const LABELS: Record<string, string> = {
-  "beep-node/1": "Link",
-  "beep-sync/1": "File sync",
+  "beep-node": "Link",
+  "beep-sync": "File sync",
   "/iroh-bytes/4": "Transfers",
 };
 
-/// One row per protocol, the ones without a name by their ALPN last.
+/// One row per protocol, whatever its version (`beep-node/1` and `/2` share a
+/// row), the ones without a name by their ALPN last.
 export function trafficRows(t: MachineTraffic | undefined): TrafficRow[] {
   const by = new Map<string, TrafficRow>();
   for (const { key, bytes: n } of t?.counters ?? []) {
     const m = /^alpn\.(.+)\.(tx|rx)$/.exec(key);
     if (!m) continue;
-    let row = by.get(m[1]);
-    if (!row) by.set(m[1], row = { label: LABELS[m[1]] ?? m[1], sent: 0, received: 0 });
-    if (m[2] === "tx") row.sent = n; else row.received = n;
+    const name = m[1].replace(/^(beep-[a-z]+)\/\d+$/, "$1");
+    let row = by.get(name);
+    if (!row) by.set(name, row = { label: LABELS[name] ?? name, sent: 0, received: 0 });
+    if (m[2] === "tx") row.sent += n; else row.received += n;
   }
   const order = Object.values(LABELS);
   const rank = (r: TrafficRow) => (order.indexOf(r.label) + order.length + 1) % (order.length + 1);

@@ -202,10 +202,7 @@ async fn server() -> Server {
     );
     let server_endpoint = endpoint(SecretKey::generate()).await;
     let handler = nodes::NodeHandler::new(app.clone(), server_endpoint.id());
-    let router = Router::builder(server_endpoint)
-        .accept(nodes::NODE_ALPN, handler.clone())
-        .accept(nodes::NODE_ALPN_NAMED, handler)
-        .spawn();
+    let router = nodes::accept_nodes(Router::builder(server_endpoint), handler).spawn();
     let addr = router.endpoint().addr();
     let user = app
         .sign_in(&alice.public())
@@ -270,6 +267,27 @@ async fn a_node_from_before_beep_node_2_still_links() {
     assert!(matches!(welcome, Some(Down::Welcome { .. })), "{welcome:?}");
     let live = online(&server.app, &key.public().to_string()).await;
     assert_eq!(live.name, "old box");
+}
+
+/// A node that offers both settles on `beep-node/2`: the Router keeps the
+/// order it was built in, and a swap would leave every node on maps.
+#[tokio::test]
+async fn a_node_offering_both_protocols_settles_on_the_newer() {
+    use beep_server::protocol::node::{NODE_ALPN, NODE_ALPN_NAMED};
+    let server = server().await;
+    let node = endpoint(SecretKey::generate()).await;
+    let connection = node
+        .connect_with_opts(
+            server.addr.clone(),
+            NODE_ALPN,
+            iroh::endpoint::ConnectOptions::new()
+                .with_additional_alpns(vec![NODE_ALPN_NAMED.to_vec()]),
+        )
+        .await
+        .expect("connects")
+        .await
+        .expect("the handshake finishes");
+    assert_eq!(connection.alpn(), NODE_ALPN);
 }
 
 #[tokio::test]
