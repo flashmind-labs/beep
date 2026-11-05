@@ -5,7 +5,7 @@
 use super::subagents;
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
-    agents::{Picture, block_picture, cut},
+    agents::{Picture, block_picture, cut, found::memo::Memo, window::window},
 };
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
@@ -14,6 +14,7 @@ use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom},
     path::Path,
+    sync::Arc,
 };
 
 /// The first window of a file's tail that is read...
@@ -575,27 +576,65 @@ pub(crate) struct Excerpt {
     pub(crate) pictures: Vec<Picture>,
 }
 
-/// The last `last` entries of the transcript at `path`, with the pictures
-/// their image lines show.
-pub(super) fn entries(path: &Path, last: usize) -> io::Result<Excerpt> {
-    let mut digest = digest_tail_with(path, last, Digest::with_pictures)?;
-    let skip = digest.entries.len().saturating_sub(last);
-    let mut entries = digest.entries.split_off(skip);
+/// The `last` entries before entry `before` (the end when `None`) of the
+/// transcript at `path`, with the pictures their image lines show. The
+/// file is read as far back as `MAX_WINDOW` once, kept in `kept` while it
+/// does not change, so every page counts entries from the same first one.
+pub(super) fn entries(
+    path: &Path,
+    last: usize,
+    before: Option<u64>,
+    kept: &Memo<Arc<Digest>>,
+) -> io::Result<Excerpt> {
+    let digest = kept.read(path, || {
+        let tail = read_tail(path, MAX_WINDOW)?;
+        Ok::<_, io::Error>(Arc::new(Digest::with_pictures(&tail.text)))
+    })?;
+    let range = window(0, digest.entries.len(), last, before);
+    let skip = range.start;
+    let mut entries = digest.entries[range].to_vec();
     subagents::attach(path, &digest.spawns, &mut entries, skip);
     Ok(Excerpt {
         entries,
         earlier: skip as u64,
-        pictures: digest.pictures.unwrap_or_default(),
+        pictures: digest.pictures.clone().unwrap_or_default(),
     })
 }
 
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use std::io::Write;
+    use std::{fs, io::Write};
 
     /// A fabricated transcript in Claude Code's format.
     pub(crate) const FIXTURE: &str = include_str!("fixtures/session.jsonl");
+
+    #[test]
+    fn pages_before_an_entry_cover_a_claude_transcript_without_a_gap_or_a_repeat() {
+        let folder = tempfile::tempdir().expect("a temp folder");
+        let path = folder.path().join("a3f9c1.jsonl");
+        fs::write(&path, FIXTURE).expect("a transcript");
+        let kept = Memo::new(2);
+        let all = entries(&path, 100, None, &kept).expect("read");
+        assert_eq!(all.earlier, 0);
+        assert_eq!(all.entries.len(), 11);
+
+        let mut seen = Vec::new();
+        let mut before = None;
+        loop {
+            let page = entries(&path, 3, before, &kept).expect("read");
+            if let Some(end) = before {
+                assert_eq!(page.earlier + page.entries.len() as u64, end);
+            }
+            let earlier = page.earlier;
+            seen.splice(0..0, page.entries);
+            if earlier == 0 {
+                break;
+            }
+            before = Some(earlier);
+        }
+        assert_eq!(seen, all.entries);
+    }
 
     #[test]
     fn a_transcript_reads_as_prompts_text_and_tool_lines() {

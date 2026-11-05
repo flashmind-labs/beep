@@ -68,8 +68,9 @@ impl Agents {
         &self,
         session: &Session,
         last: usize,
+        before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
-        let (mut entries, earlier) = session.live.borrow().transcript(last);
+        let (mut entries, earlier) = session.live.borrow().transcript_before(last, before);
         let children = session.live.borrow().codex_children(earlier);
         if children.is_empty() {
             return (entries, earlier);

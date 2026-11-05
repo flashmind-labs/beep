@@ -106,7 +106,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         }
     };
     assert_eq!(
-        kinds(agents.transcript_reply(CLAUDE_ID, 10, true).await),
+        kinds(agents.transcript_reply(CLAUDE_ID, 10, true, None).await),
         [
             (agent::EntryKind::User, "is 391 prime?".into(), None),
             (agent::EntryKind::Thought, "Try 17.".into(), Some(4000)),
@@ -114,7 +114,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         ]
     );
     assert_eq!(
-        kinds(agents.transcript_reply(CLAUDE_ID, 10, false).await).len(),
+        kinds(agents.transcript_reply(CLAUDE_ID, 10, false, None).await).len(),
         2
     );
 
@@ -146,7 +146,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
     .await
     .expect("the turn ends")
     .expect("the session is still there");
-    let read = kinds(agents.transcript_reply(&session.id, 10, true).await);
+    let read = kinds(agents.transcript_reply(&session.id, 10, true, None).await);
     let shown: Vec<(agent::EntryKind, &str)> = read
         .iter()
         .map(|(kind, text, _)| (*kind, text.as_str()))
@@ -163,7 +163,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         ]
     );
     assert!(read[1].2.is_some(), "a live thought says how long it took");
-    let without = kinds(agents.transcript_reply(&session.id, 10, false).await);
+    let without = kinds(agents.transcript_reply(&session.id, 10, false, None).await);
     assert!(
         without
             .iter()

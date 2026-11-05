@@ -313,7 +313,7 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::claude::transcript::entries;
+    use crate::agents::{claude::transcript::entries, found::memo::Memo};
     use beep_proto::node::agent::EntryKind;
     use serde_json::json;
 
@@ -386,7 +386,7 @@ mod tests {
     fn each_subagent_goes_on_the_call_that_started_it() {
         let root = tempfile::tempdir().expect("a temp folder");
         let path = session(root.path());
-        let read = entries(&path, 10).expect("the transcript");
+        let read = entries(&path, 10, None, &Memo::new(2)).expect("the transcript");
         let tools: Vec<&str> = read
             .entries
             .iter()
@@ -415,7 +415,7 @@ mod tests {
     fn a_subagent_before_the_entries_read_is_not_read() {
         let root = tempfile::tempdir().expect("a temp folder");
         let path = session(root.path());
-        let read = entries(&path, 1).expect("the transcript");
+        let read = entries(&path, 1, None, &Memo::new(2)).expect("the transcript");
         assert_eq!(read.entries.len(), 1);
         assert_eq!(read.entries[0].text, "Both checks are done.");
     }

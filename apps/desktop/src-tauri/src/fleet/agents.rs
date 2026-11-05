@@ -36,7 +36,7 @@ use std::{
 };
 use tokio::time::timeout;
 
-/// The most transcript entries one view reads.
+/// The most transcript entries one view reads at once.
 const MAX_ENTRIES: u32 = 200;
 /// Machines asked at once.
 const IN_FLIGHT: usize = 4;
@@ -204,7 +204,8 @@ pub(crate) async fn session(
         }
     };
     let last = get.last.clamp(1, MAX_ENTRIES);
-    match limited(sessions::transcript(&client, &get.session, last, true)).await {
+    let read = sessions::transcript_before(&client, &get.session, last, true, get.before);
+    match limited(read).await {
         Ok((entries, earlier)) => {
             view.entries = machine::entries_for(entries, true);
             view.earlier = earlier;
