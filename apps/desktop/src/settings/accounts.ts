@@ -6,7 +6,7 @@ import { when } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
 import { S } from "../bar/core.ts";
 import type { Machine } from "../machines/machines.ts";
-import { fillSection, SET, setAccountHtml, setRoot, setShown, setSkeleton } from "./settings.ts";
+import { fillSection, SET, setRoot, setShown, setSkeleton } from "./settings.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { esc } from "../ui/format.ts";
 
@@ -78,7 +78,6 @@ export async function loadCreds() {
   }
   if (setShown()) {
     fillSection("creds", setCredsHtml());
-    fillSection("account", setAccountHtml(S.link === "linked"));
   }
 }
 
