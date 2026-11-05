@@ -56,6 +56,17 @@ export function agentDelay() {
   return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
 }
 
+/// Whether the reader is selecting text in the log or has some selected. A
+/// redraw replaces the rows, which loses where a selection started, so a poll
+/// waits and draws once the selection is gone.
+function selecting() {
+  const log = $("#agbody");
+  if (!log) return false;
+  if (log.matches(":active")) return true;
+  const selection = getSelection();
+  return !!selection && !selection.isCollapsed && log.contains(selection.anchorNode);
+}
+
 /// Asks for the open session, then again after `agentDelay()` while it
 /// stays on screen. Never two calls at once for one session.
 export async function pollAgent() {
@@ -80,7 +91,7 @@ export async function pollAgent() {
       AG.readError = "";
       if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
       markDelivered(AG.queue, page.queued, read);
-      drawAgentBody();
+      if (!selecting()) drawAgentBody();
       void readUsage(o, page);
       flushQueue();
     }
