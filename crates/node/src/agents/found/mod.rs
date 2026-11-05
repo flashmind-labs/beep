@@ -29,6 +29,7 @@ mod opencode;
 
 pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
+mod transcript;
 
 pub(crate) use disk::{forget_checkouts, saved_checkouts, walk};
 pub(crate) use git::{Checkout, checkout, last_commit};

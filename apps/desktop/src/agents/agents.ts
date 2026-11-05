@@ -276,6 +276,9 @@ export const AGENT_KINDS: Record<string, AgentKind> = {
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
 };
+/// Agents whose outside sessions a node can take over (the ones it reads sessions of).
+const TAKEOVER = new Set(["claude", "codex", "pi", "flsh", "opencode"]);
+export const canTakeOver = (a: string) => TAKEOVER.has(a);
 export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
