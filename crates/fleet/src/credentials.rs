@@ -203,15 +203,6 @@ impl Desk {
         self.saved().iter().map(Saved::opened).collect()
     }
 
-    /// The saved key for `provider`, for this desktop's own calls. It is the secret itself, so it
-    /// never goes to the web view; Settings and the Assistant page see only its last four.
-    pub fn api_key(&self, provider: ApiProvider) -> Option<SecretString> {
-        self.saved()
-            .into_iter()
-            .find(|saved| saved.slot == Slot::ApiKey(provider))
-            .map(|saved| saved.secret)
-    }
-
     /// The GitHub accounts, the default first.
     pub fn github_accounts(&self) -> Vec<GitHubAccount> {
         let mut accounts: Vec<GitHubAccount> = self

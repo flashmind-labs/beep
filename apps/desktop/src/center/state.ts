@@ -151,7 +151,7 @@ export function pageFresh(section: PageSection, id: string, loading: boolean) {
 }
 
 /// The names of the views the window can show, one per `registerView`.
-export type ViewName = "home" | "pane" | "projects" | "providers" | "research" | "researchopen" | "sync" | "instructions" | "terminals" | "assistant";
+export type ViewName = "home" | "pane" | "projects" | "providers" | "research" | "researchopen" | "sync" | "instructions" | "terminals";
 
 /// The views the window can show, by name.
 export const views = new Map<ViewName, CenterView & { el: HTMLElement }>();

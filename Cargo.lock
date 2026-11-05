@@ -481,45 +481,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "beep-assistant"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "flashmind-llm",
- "flashmind-tools",
- "flashmind-types",
- "futures",
- "log",
- "reqwest 0.12.28",
- "rustls",
- "secrecy",
- "serde",
- "serde_json",
- "strum 0.28.0",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "uuid",
-]
-
-[[package]]
-name = "beep-dictation"
-version = "0.1.0"
-dependencies = [
- "flashmind",
- "futures",
- "secrecy",
- "serde",
- "serde_json",
- "strum 0.28.0",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
 name = "beep-fleet"
 version = "0.1.0"
 dependencies = [

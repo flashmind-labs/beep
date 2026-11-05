@@ -28,8 +28,6 @@ pub(super) enum LiveEvent {
         finishing: bool,
         /// The sheet of what to say is open.
         sheet: bool,
-        /// Dictation, not live mode: the words are typed where the cursor is.
-        dictating: bool,
     },
     Level {
         level: f32,

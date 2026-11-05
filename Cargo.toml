@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/proto", "crates/projects", "crates/server", "crates/android-bridge", "crates/node", "crates/live", "crates/mesh", "crates/fleet", "crates/assistant", "crates/dictation"]
+members = ["crates/proto", "crates/projects", "crates/server", "crates/android-bridge", "crates/node", "crates/live", "crates/mesh", "crates/fleet"]
 
 [profile.release]
 strip = true

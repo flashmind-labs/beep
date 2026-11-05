@@ -6,7 +6,7 @@ use super::{
     hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, WINDOW},
     session::{Start, open_audio},
 };
-use crate::{assistant::LOCAL_ASSISTANT, bar, beep::SERVER_ENABLED};
+use crate::bar;
 use beep_live::Input;
 use std::{
     sync::Arc,
@@ -34,17 +34,11 @@ impl Voice {
         if taps == TapStep::Two {
             self.on_two_taps();
         }
-        // Two taps always open the bar. Holding Option dictates when live mode is off
-        // (`LIVE_ENABLED`) or the server is switched off: live mode needs the server.
-        let hold = if LIVE_ENABLED && self.beep.linked() {
-            hold
-        } else if !LOCAL_ASSISTANT {
+        // Two taps always open the bar. Holding Option says nothing unless live mode is on and
+        // there is a server: talking needs it.
+        if !(LIVE_ENABLED && self.beep.linked()) {
             return;
-        } else if !SERVER_ENABLED || !LIVE_ENABLED {
-            return self.dictate_hold(hold);
-        } else {
-            HoldStep::Nothing
-        };
+        }
         match hold {
             HoldStep::Wait(press) => {
                 if self.voice() == hotkey::Voice::Off {

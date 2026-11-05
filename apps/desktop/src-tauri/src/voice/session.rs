@@ -29,7 +29,7 @@ use uuid::Uuid;
 /// to cover opening the transcription.
 pub(super) const MIC_CHUNKS: usize = 64;
 pub(super) const UNAVAILABLE: &str = "Voice is not available right now. Try again in a moment.";
-pub(super) const MIC_DENIED: &str =
+const MIC_DENIED: &str =
     "Beep cannot hear you. Allow it in System Settings, Privacy & Security, Microphone.";
 const QUIET: &str = "Live mode ended after 2 minutes quiet.";
 
@@ -45,7 +45,7 @@ pub(super) enum Start {
 }
 
 /// Why the audio engine did not open.
-pub(super) enum OpenFailure {
+enum OpenFailure {
     Denied(String),
     Other(String),
 }
@@ -53,9 +53,9 @@ pub(super) enum OpenFailure {
 /// An audio engine on its way: the microphone's sound, the engine once it
 /// runs, and why it did not.
 pub(super) struct Opening {
-    pub(super) heard: mpsc::Receiver<MicChunk>,
-    pub(super) audio: watch::Receiver<Option<Arc<Audio>>>,
-    pub(super) failed: oneshot::Receiver<OpenFailure>,
+    heard: mpsc::Receiver<MicChunk>,
+    audio: watch::Receiver<Option<Arc<Audio>>>,
+    failed: oneshot::Receiver<OpenFailure>,
 }
 
 /// Opens the engine off the async workers. Without `listen` it only plays,
@@ -171,8 +171,6 @@ pub(super) struct State {
     pub(super) warm: Option<(u64, Opening)>,
     /// The new notice the orb's card offers to read aloud.
     pub(super) card: Option<card::Pending>,
-    /// The clip being dictated, from Option going down until it comes up.
-    pub(super) dictation: Option<super::dictation::Recording>,
 }
 
 impl Voice {

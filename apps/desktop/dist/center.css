@@ -903,6 +903,3 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .cc-note.in-go .go { margin-left: auto; color: var(--accent); white-space: nowrap }
 .pj-task.ca-row > .t, .pj-task.ca-row > .m { grid-column: 1 }
 .pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
-.dc-search { padding: 4px 12px 8px }
-.dc-search input { width: 100%; box-sizing: border-box }
-.dc-models { max-height: 280px; overflow: auto; border-top: 1px solid var(--border) }

@@ -66,14 +66,3 @@ test("the shortcut sheet drops dead keys without a subscription", () => {
     ["In a list", [["⌘R", "Rename"]]],
   ]);
 });
-
-test("chats kept on this Mac open the chat pages and nothing else of the subscription", () => {
-  for (const page of ["chats", "model", { chat: { session: null } }, { chat: { session: "s" } }]) {
-    assert.equal(viewHidden("pane", page, false, false, true), false, JSON.stringify(page));
-    assert.equal(viewHidden("pane", page, false, false, false), true, JSON.stringify(page));
-  }
-  for (const page of ["memories", "routines", "apps", { group: { id: "g" } }]) {
-    assert.equal(viewHidden("pane", page, false, false, true), true, JSON.stringify(page));
-  }
-  assert.equal(viewHidden("research", undefined, false, false, true), true);
-});

@@ -7,7 +7,6 @@ mod asks;
 pub(crate) mod audio;
 mod card;
 mod control;
-mod dictation;
 mod event;
 pub(crate) mod hotkey;
 mod keys;
@@ -19,25 +18,19 @@ mod reader;
 mod reply;
 mod session;
 mod transcribe;
-mod typing;
 
-use crate::{
-    bar,
-    beep::{Beep, identity::data_dir},
-};
-use beep_dictation::{Settings, load_settings};
+use crate::{bar, beep::Beep};
 use event::LiveEvent;
 use session::State;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, atomic::AtomicU64};
 use tauri::{AppHandle, Emitter};
 
-/// Whether live mode and the orb exist. Off, Option never starts live mode, the orb window never
-/// opens, and dictation reports through macOS notifications. The code stays.
+/// Whether live mode and the orb exist. Off, Option never starts live mode and the orb window never
+/// opens. The code stays.
 pub(crate) const LIVE_ENABLED: bool = false;
 
 pub use approvals::{Answered, Waiting};
 pub use card::NoticeCard;
-pub(crate) use dictation::api_provider;
 
 pub struct Voice {
     app: AppHandle,
@@ -47,28 +40,16 @@ pub struct Voice {
     lives: AtomicU64,
     /// Counts audio files, so each sentence has its own.
     files: AtomicU64,
-    /// What the user picked for dictation. With no provider it is off.
-    dictation: Mutex<Settings>,
-    /// Counts dictation's recordings.
-    recordings: AtomicU64,
-    /// Counts what dictation shows in the orb, so a late hide spares a newer one.
-    dictations: AtomicU64,
 }
 
 impl Voice {
     pub fn new(app: AppHandle, beep: Arc<Beep>) -> Arc<Self> {
-        let settings = data_dir(&app)
-            .map(|dir| tauri::async_runtime::block_on(load_settings(&dir)))
-            .unwrap_or_default();
         Arc::new(Self {
             app,
             beep,
             state: Mutex::new(State::default()),
             lives: AtomicU64::new(0),
             files: AtomicU64::new(0),
-            dictation: Mutex::new(settings),
-            recordings: AtomicU64::new(0),
-            dictations: AtomicU64::new(0),
         })
     }
 

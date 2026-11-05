@@ -8,7 +8,6 @@ import { splitPinned } from "./pinned.ts";
 import { openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
 import { live, S } from "../bar/core.ts";
-import { chatsOn } from "../assistant/local.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound } from "../addproject/addproject.ts";
@@ -40,7 +39,6 @@ import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
 import { threadChats } from "./threadcard.ts";
 import { beepViews, groupShown } from "../settings/subscription.ts";
-import { LOCAL_ASSISTANT } from "../assistant/local.ts";
 import { signedOutFooter } from "../settings/server-state.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { IC } from "../ui/icons.ts";
@@ -110,15 +108,13 @@ export function drawSide() {
   // Terminals on every machine, once the server lists them.
   const termList = allTerms.list(ALL);
   if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: shown === "terminals", on: () => go("terminals") }));
-  // The assistant's page, with or without a key.
-  if (LOCAL_ASSISTANT) top.append(sideItem(IC.chat, "Assistant", 0, { current: shown === "assistant", on: () => go("assistant") }));
   // Sync, once a project syncs: the conflicts waiting across them.
   if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: shown === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
-    if (name === "chats" && g.items == null && !home && groupShown("chats", chatsOn(state.subscribed))) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
+    if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
     if (g.title) {
@@ -288,11 +284,8 @@ function chatMenu(e: MouseEvent, c: ChatItem) {
     { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
     { label: "Rename…", on: () => renameSheet({ title: "Rename chat", value: c.title, run: async title => { await invoke("rename_session", { id: c.id, title }); await reloadChats(); } }) },
     { label: "Open in window", on: () => void openInWindow(c.id) },
-    // Sharing is the server's: a chat kept on this Mac has none.
-    ...(S.local ? [] : [
-      { label: "Copy share link", on: () => void invoke<{ url: string }>("share_session", { id: c.id }).then(link => writeClipboard(link.url), err => console.warn("sharing a chat:", err)) },
-      { label: "Stop sharing", on: () => void invoke("unshare_session", { id: c.id }).catch(err => console.warn("unsharing a chat:", err)) },
-    ]),
+    { label: "Copy share link", on: () => void invoke<{ url: string }>("share_session", { id: c.id }).then(link => writeClipboard(link.url), err => console.warn("sharing a chat:", err)) },
+    { label: "Stop sharing", on: () => void invoke("unshare_session", { id: c.id }).catch(err => console.warn("unsharing a chat:", err)) },
     { label: "Delete…", warn: true, on: () => deleteChat(c) },
   ]);
 }
@@ -451,7 +444,7 @@ registerSidebarGroup<SideChat>("pinned", {
   order: 2,
   title: "Pinned",
   async load() {
-    const chats = chatsOn(state.subscribed) ? splitPinned(await fetchChats(), SIDE_CHATS).pinned : [];
+    const chats = state.subscribed ? splitPinned(await fetchChats(), SIDE_CHATS).pinned : [];
     return [...chats, ...pinnedProjects()];
   },
   row: chatRow,
@@ -469,7 +462,7 @@ registerSidebarGroup<SideChat>("chats", {
     return b;
   },
   async load() {
-    if (!groupShown("chats", chatsOn(state.subscribed))) return null;
+    if (!groupShown("chats", state.subscribed)) return null;
     // Chats about one thread are listed under their project, researches
     // under Research.
     const rows = withoutResearch(await fetchChats(), RESEARCHES).filter(c => c.pinned || !threadChats?.has(c.id));

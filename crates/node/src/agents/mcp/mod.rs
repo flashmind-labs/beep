@@ -345,32 +345,6 @@ impl Upstream {
     }
 }
 
-/// The tools of this server the local assistant gets, as `tools/list` shows them.
-pub fn assistant_tools() -> Vec<serde_json::Value> {
-    catalog::assistant_tools()
-}
-
-/// Runs one of those tools for the node `offers` belongs to, as an agent's call is run: the
-/// result text, or why it failed. Any other tool is refused.
-pub async fn call_tool(
-    offers: &Offers,
-    name: &str,
-    args: serde_json::Value,
-) -> Result<String, String> {
-    if !catalog::for_assistant(name) {
-        return Err(format!("There is no tool {name}."));
-    }
-    let node = Node {
-        offers: offers.clone(),
-    };
-    let called = server::call(&node, "assistant", name, args).await;
-    if called.failed {
-        Err(called.text)
-    } else {
-        Ok(called.text)
-    }
-}
-
 /// What `server` uses on a node: the mesh or the server for calls, the
 /// sessions for questions.
 struct Node {
@@ -615,40 +589,5 @@ mod tests {
                 session: "a3f9c1".into(),
             })
         );
-    }
-
-    #[tokio::test]
-    async fn the_assistant_runs_a_command_on_this_machine() {
-        let dir = tempfile::tempdir().expect("a temp folder");
-        let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
-            .secret_key(iroh::SecretKey::generate())
-            .transport_config(beep_mesh::transport_config())
-            .bind()
-            .await
-            .expect("an endpoint binds");
-        let mesh = beep_mesh::Mesh::create(&dir.path().join("mesh"), endpoint, "Build Box")
-            .await
-            .expect("the mesh is made");
-        let offers = Offers::local(
-            &[],
-            crate::machine::provision::Provision::new(dir.path()),
-            false,
-        );
-        offers.mesh.set(mesh);
-        let listed = call_tool(&offers, "list_machines", serde_json::json!({}))
-            .await
-            .expect("the machines are listed");
-        assert!(listed.contains("build-box"), "{listed}");
-        let ran = call_tool(
-            &offers,
-            "run_on",
-            serde_json::json!({ "machine": "build-box", "command": "echo hello" }),
-        )
-        .await
-        .expect("the command runs");
-        assert!(ran.contains("hello"), "{ran}");
-        let refused = call_tool(&offers, "start_agent", serde_json::json!({})).await;
-        assert!(refused.is_err());
-        assert_eq!(assistant_tools().len(), 5);
     }
 }

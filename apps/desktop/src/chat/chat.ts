@@ -354,12 +354,10 @@ export const answeredTurns = new AnsweredIds();
 export function approvalCard(id: string | null, turn: Turn, { query_id, app, action, fields }: Asking) {
   if (answeredTurns.has(query_id)) return;
   const grant = forRoutine(action);
-  // A tool call of a chat on this Mac is allowed once: nothing is remembered there.
-  const once = grant || S.local;
   const card = h(`<div class="dcard">
     <div class="head">${appTile(app)}<div class="dcol"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
     ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${once ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
+    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
   </div>`);
   card.querySelectorAll<HTMLElement>("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d as Decision)));
   fillAppTiles(card);
@@ -651,7 +649,7 @@ export function settle(id: string | null, e: LiveEntry, pending: PendingApproval
 export async function answer(decision: Decision) {
   const id = S.session, e = live.get(id), pending = e?.approval;
   if (!e || !pending) return;
-  if ((pending.grant || S.local) && (decision === "always" || decision === "session")) decision = "allow";
+  if (pending.grant && (decision === "always" || decision === "session")) decision = "allow";
   const turn = settle(id, e, pending, decision);
   await stopping.get(id);
   const answered = invoke("answer_approval", { session: id, queryId: pending.queryId, decision, onEvent: follow(id, turn) })
@@ -669,14 +667,8 @@ export function followAnswered(id: string | null, turn: Turn, runId: string) {
 /// Stops the run at once: the chat lets go of it and takes the next prompt
 /// while the server is told to stop it.
 export function stop() {
-  const id = S.session, held = here(), run = held?.run;
+  const id = S.session, run = here()?.run;
   if (!run) return;
-  // A chat on this Mac waits for its answer inside the run: stopping denies it.
-  if (held.approval) {
-    held.approval.card.replaceWith(h('<div class="dmuted">Denied</div>'));
-    answeredTurns.mark(held.approval.queryId, id);
-    held.approval = null;
-  }
   const turn = run.turn;
   turn.stopped = true;
   // A run not started yet is stopped once it says its id.
