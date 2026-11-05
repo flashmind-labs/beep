@@ -1,6 +1,6 @@
 //! OpenRouter's chat completions, streamed, and its error text.
 
-use crate::{AssistantError, Call, Event, Setup};
+use crate::{AssistantError, Call, Event, Setup, tools::MAX_CALLS_PER_ROUND};
 use futures::StreamExt;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
@@ -33,6 +33,7 @@ struct Chunk {
 struct Choice {
     #[serde(default)]
     delta: Delta,
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -99,6 +100,9 @@ struct PartialCall {
     arguments: String,
 }
 
+/// The most a line of the stream may hold before it is taken for a broken reply.
+const MAX_LINE_BYTES: usize = 4 << 20;
+
 /// Asks `model` for the next message of `messages` and streams it into `reply`.
 pub(crate) async fn stream_completion(
     setup: &Setup,
@@ -133,6 +137,8 @@ pub(crate) async fn stream_completion(
     let mut stream = response.bytes_stream();
     let mut buffer: Vec<u8> = Vec::new();
     let mut partial: Vec<PartialCall> = Vec::new();
+    // The model said it was done: a finish reason came, or `[DONE]`.
+    let mut ended = false;
     loop {
         let next = tokio::select! {
             biased;
@@ -161,9 +167,16 @@ pub(crate) async fn stream_completion(
                 return Err(AssistantError::Api(message));
             }
             for choice in chunk.choices {
-                apply(choice.delta, reply, &mut partial, events).await;
+                ended |= choice.finish_reason.is_some();
+                apply(choice.delta, reply, &mut partial, events).await?;
             }
         }
+        if buffer.len() > MAX_LINE_BYTES {
+            return Err(AssistantError::Api("The reply was not readable.".into()));
+        }
+    }
+    if !ended {
+        return Err(AssistantError::Api("The reply was cut off.".into()));
     }
     reply.calls = finished_calls(partial);
     Ok(Finish::Complete)
@@ -174,7 +187,7 @@ async fn apply(
     reply: &mut Reply,
     partial: &mut Vec<PartialCall>,
     events: &Sender<Event>,
-) {
+) -> Result<(), AssistantError> {
     if let Some(text) = delta.reasoning.filter(|text| !text.is_empty()) {
         reply.reasoning.push_str(&text);
         // A closed receiver means the window is gone; its owner cancels the run.
@@ -186,6 +199,11 @@ async fn apply(
     }
     for piece in delta.tool_calls.unwrap_or_default() {
         let index = piece.index.unwrap_or(0);
+        if index >= MAX_CALLS_PER_ROUND * 2 {
+            return Err(AssistantError::Api(
+                "The model sent too many tool calls.".into(),
+            ));
+        }
         if partial.len() <= index {
             partial.resize_with(index + 1, PartialCall::default);
         }
@@ -202,6 +220,7 @@ async fn apply(
             }
         }
     }
+    Ok(())
 }
 
 fn finished_calls(partial: Vec<PartialCall>) -> Vec<Call> {

@@ -31,33 +31,34 @@ fn path(dir: &Path, id: Uuid) -> PathBuf {
     dir.join(format!("{id}.json"))
 }
 
-/// Writes the chat through a temporary file, so a crash leaves the old one.
+/// Writes the chat through a temporary file of its own, flushed to disk before it replaces the
+/// old one, so a crash or a second writer leaves a whole file.
 pub async fn save_chat(dir: &Path, chat: &Chat) -> Result<(), AssistantError> {
     tokio::fs::create_dir_all(dir).await?;
     let bytes = serde_json::to_vec(chat)?;
-    let tmp = dir.join(format!("{}.tmp", chat.id));
-    write_private(&tmp, &bytes).await?;
-    tokio::fs::rename(&tmp, path(dir, chat.id)).await?;
+    let tmp = dir.join(format!("{}.{}.tmp", chat.id, Uuid::new_v4()));
+    let written = write_private(&tmp, &bytes).await;
+    let renamed = match written {
+        Ok(()) => tokio::fs::rename(&tmp, path(dir, chat.id)).await,
+        Err(e) => Err(e),
+    };
+    if let Err(e) = renamed {
+        // The temporary file is useless now; the error that matters is the write's.
+        tokio::fs::remove_file(&tmp).await.ok();
+        return Err(e.into());
+    }
     Ok(())
 }
 
-#[cfg(unix)]
 async fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use tokio::io::AsyncWriteExt;
-    let mut file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)
-        .await?;
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(path).await?;
     file.write_all(bytes).await?;
-    file.flush().await
-}
-
-#[cfg(not(unix))]
-async fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    tokio::fs::write(path, bytes).await
+    file.sync_all().await
 }
 
 pub async fn load_chat(dir: &Path, id: Uuid) -> Result<Chat, AssistantError> {
@@ -176,5 +177,18 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[tokio::test]
+    async fn saving_leaves_no_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let one = chat("one", 1);
+        save_chat(dir.path(), &one).await.unwrap();
+        save_chat(dir.path(), &one).await.unwrap();
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, [format!("{}.json", one.id)]);
     }
 }

