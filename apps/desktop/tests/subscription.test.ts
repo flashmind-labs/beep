@@ -26,18 +26,26 @@ test("with no subscription the assistant's keys, pages and links do nothing and 
   }
   for (const key of ["n", ",", "q"]) assert.equal(keyHidden(key, false), false, key);
   for (const page of ["chats", "memories", "routines", "skills", "apps", "research", "model", "ginfo"]) {
-    assert.equal(viewHidden("pane", page, false), true, page);
-    assert.equal(viewHidden("pane", page, true), false, page);
+    assert.equal(viewHidden("pane", page, false, true), true, page);
+    assert.equal(viewHidden("pane", page, true, true), false, page);
   }
-  assert.equal(viewHidden("research", undefined, false), true);
-  assert.equal(viewHidden("researchopen", { session: "s" }, false), true);
-  assert.equal(viewHidden("pane", { chat: { session: null } }, false), true);
-  assert.equal(viewHidden("pane", { group: { id: "g" } }, false), true);
+  assert.equal(viewHidden("research", undefined, false, true), true);
+  assert.equal(viewHidden("researchopen", { session: "s" }, false, true), true);
+  assert.equal(viewHidden("pane", { chat: { session: null } }, false, true), true);
+  assert.equal(viewHidden("pane", { group: { id: "g" } }, false, true), true);
   // What works over the mesh opens.
-  assert.equal(viewHidden("home", undefined, false), false);
-  assert.equal(viewHidden("pane", "agents", false), false);
-  assert.equal(viewHidden("pane", { agentnew: { prompt: "" } }, false), false);
-  assert.equal(viewHidden("pane", "settings", false), false);
+  assert.equal(viewHidden("home", undefined, false, true), false);
+  assert.equal(viewHidden("pane", "agents", false, true), false);
+  assert.equal(viewHidden("pane", { agentnew: { prompt: "" } }, false, true), false);
+  assert.equal(viewHidden("pane", "settings", false, true), false);
+});
+
+test("with no server the link, invite and removed pages do nothing, whatever the subscription", () => {
+  for (const page of ["link", "invite", "revoked"]) {
+    assert.equal(viewHidden("pane", page, false, false), true, page);
+    assert.equal(viewHidden("pane", page, true, false), true, page);
+  }
+  assert.equal(viewHidden("pane", "link", false, true), false);
 });
 
 test("the first-run window shows once, with no subscription", () => {

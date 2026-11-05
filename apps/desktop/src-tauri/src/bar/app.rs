@@ -2,7 +2,7 @@
 //! links and the log, starting over and quitting.
 
 use crate::{
-    beep::{LinkView, Service, identity, state::LinkState, state::NoticeVoice},
+    beep::{LinkView, SERVER_ENABLED, Service, identity, state::LinkState, state::NoticeVoice},
     center::view_cache::ViewCache,
     error::{DesktopError, Result},
     machines::this_mac::{self, Machine},
@@ -21,6 +21,9 @@ pub struct Status {
     session: Option<String>,
     /// Signed out of the server in Settings: `link` reads unlinked meanwhile.
     signed_out: bool,
+    /// Whether the desktop talks to a server at all (`SERVER_ENABLED`). Off, the window shows
+    /// nothing of one: no account, sign in, subscription or assistant.
+    server: bool,
 }
 
 #[tauri::command]
@@ -28,7 +31,8 @@ pub fn status(beep: Service<'_>) -> Status {
     Status {
         link: beep.link_state(),
         session: beep.session(),
-        signed_out: beep.signed_out(),
+        signed_out: SERVER_ENABLED && beep.signed_out(),
+        server: SERVER_ENABLED,
     }
 }
 

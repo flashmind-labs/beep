@@ -16,17 +16,13 @@ use crate::{
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use anyhow::{Context, Result};
-use beep_proto::{
-    AgentAccount,
-    node::agent::{ModelList, ModelOption, ModelPick},
-};
+use beep_proto::node::agent::{ModelList, ModelOption, ModelPick};
 use std::{
     collections::HashMap,
     ffi::OsString,
     future::Future,
     path::{Path, PathBuf},
     process::Stdio,
-    str::FromStr,
     sync::Mutex,
     time::Duration,
 };
@@ -141,8 +137,7 @@ fn listed(offered: Offered, flag: bool) -> ModelList {
 /// and stops it.
 async fn probe(kind: &AgentKind, cwd: &Path) -> Result<Offered> {
     let mut process = command(&kind.program);
-    let account = AgentAccount::from_str(&kind.name).ok();
-    spawn_env::apply(&mut process, Scope::Agent(account));
+    spawn_env::apply(&mut process, Scope::for_agent(&kind.name));
     process
         .args(&kind.args)
         .envs(&kind.env)

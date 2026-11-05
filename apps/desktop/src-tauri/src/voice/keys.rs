@@ -34,8 +34,9 @@ impl Voice {
         if taps == TapStep::Two {
             self.on_two_taps();
         }
-        // Signed out, two taps still open the bar but holding Option says nothing.
-        let hold = if self.beep.signed_out() {
+        // With no server (none, or signed out), two taps still open the bar but holding Option
+        // says nothing: talking needs the server.
+        let hold = if !self.beep.linked() {
             HoldStep::Nothing
         } else {
             hold

@@ -17,7 +17,7 @@ export type Hint = readonly string[];
 
 export function hints(items: readonly Hint[], extra = "") {
   items = forPane(items);
-  const st = linkChip(S.link, S.signedOut);
+  const st = linkChip(S.server, S.link, S.signedOut);
   const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
   // The first two say the most; the rest give way when the row is narrow.
   // The bar's chat opens in the window from here, before the model.
