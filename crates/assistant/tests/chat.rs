@@ -1,8 +1,8 @@
 //! The assistant against a fake HTTP server that streams what OpenRouter and Firecrawl would.
 
 use beep_assistant::{
-    AssistantError, Chat, Endpoint, Event, MAX_TOOL_ROUNDS, Message, Outcome, Setup, WorkQuery,
-    list_models, load_chat, run_turn,
+    AssistantError, Chat, Effort, Endpoint, Event, MAX_TOOL_ROUNDS, Message, Outcome, Setup,
+    WorkQuery, list_models, load_chat, run_turn,
 };
 use secrecy::SecretString;
 use serde_json::{Value, json};
@@ -161,19 +161,13 @@ fn setup(dir: &std::path::Path, openrouter: &Fake, firecrawl: Option<&Fake>) -> 
         firecrawl: firecrawl.map(|f| endpoint(&f.base, "fc-test-key")),
         dir: dir.to_owned(),
         today: "2026-01-02".into(),
+        effort: Effort::Off,
         cancel: CancellationToken::new(),
     }
 }
 
 fn new_chat() -> Chat {
-    Chat {
-        id: Uuid::new_v4(),
-        title: String::new(),
-        model: "vendor/model".into(),
-        created_ms: 1,
-        updated_ms: 1,
-        messages: Vec::new(),
-    }
+    Chat::new(Uuid::new_v4(), "vendor/model".into(), 1)
 }
 
 fn drain(rx: &mut mpsc::Receiver<Event>) -> Vec<Event> {
@@ -708,4 +702,22 @@ async fn calls_on_the_last_round_are_not_run() {
     assert!(
         !matches!(chat.messages.last(), Some(Message::Assistant { calls, .. }) if !calls.is_empty())
     );
+}
+
+#[tokio::test]
+async fn thinking_goes_to_the_service_only_when_asked_for() {
+    let server = fake(vec![sse(&[text("a")]), sse(&[text("b")])]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut setup = setup(dir.path(), &server, None);
+    let (tx, _rx) = mpsc::channel(64);
+    run_turn(&setup, &mut new_chat(), "one".into(), &tx, no_work)
+        .await
+        .unwrap();
+    setup.effort = Effort::High;
+    run_turn(&setup, &mut new_chat(), "two".into(), &tx, no_work)
+        .await
+        .unwrap();
+    let seen = server.seen.lock().unwrap();
+    assert!(seen[0].body.get("reasoning").is_none());
+    assert_eq!(seen[1].body["reasoning"]["effort"], "high");
 }

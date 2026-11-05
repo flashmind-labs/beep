@@ -52,6 +52,7 @@ pub struct Setup {
     pub dir: PathBuf,
     /// For the system prompt, as `2026-11-05`.
     pub today: String,
+    pub effort: crate::Effort,
     pub cancel: CancellationToken,
 }
 

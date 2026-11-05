@@ -12,6 +12,11 @@ pub struct ModelInfo {
     pub name: String,
     /// It takes tool definitions.
     pub tools: bool,
+    /// It reads pictures.
+    pub images: bool,
+    /// USD per million tokens, when listed.
+    pub input_per_m: Option<f64>,
+    pub output_per_m: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +30,24 @@ struct Raw {
     id: String,
     name: Option<String>,
     supported_parameters: Option<Vec<String>>,
+    pricing: Option<Pricing>,
+    architecture: Option<Architecture>,
+}
+
+#[derive(Deserialize)]
+struct Pricing {
+    prompt: Option<String>,
+    completion: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Architecture {
+    input_modalities: Option<Vec<String>>,
+}
+
+/// A price per token as the listing writes it, per million tokens.
+fn per_million(price: Option<&String>) -> Option<f64> {
+    price?.parse::<f64>().ok().map(|per_token| per_token * 1e6)
 }
 
 /// Every model OpenRouter lists, in its order.
@@ -46,6 +69,12 @@ pub async fn list_models(
             tools: raw
                 .supported_parameters
                 .is_none_or(|parameters| parameters.iter().any(|p| p == "tools")),
+            images: raw
+                .architecture
+                .and_then(|a| a.input_modalities)
+                .is_some_and(|m| m.iter().any(|m| m == "image")),
+            input_per_m: per_million(raw.pricing.as_ref().and_then(|p| p.prompt.as_ref())),
+            output_per_m: per_million(raw.pricing.as_ref().and_then(|p| p.completion.as_ref())),
             id: raw.id,
         })
         .collect())
@@ -83,6 +112,9 @@ mod tests {
             id: id.into(),
             name: id.into(),
             tools,
+            images: false,
+            input_per_m: None,
+            output_per_m: None,
         }
     }
 

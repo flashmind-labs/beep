@@ -80,11 +80,7 @@ mod tests {
             arguments: r#"{"query":"rust"}"#.into(),
         };
         let chat = Chat {
-            id: Uuid::new_v4(),
             title: "t".into(),
-            model: "m".into(),
-            created_ms: 0,
-            updated_ms: 0,
             messages: vec![
                 Message::User { text: "q1".into() },
                 Message::Assistant {
@@ -105,6 +101,7 @@ mod tests {
                 },
                 Message::User { text: "q2".into() },
             ],
+            ..Chat::new(Uuid::new_v4(), "m".into(), 0)
         };
         let turns = turns(&chat);
         assert_eq!(turns.len(), 2);

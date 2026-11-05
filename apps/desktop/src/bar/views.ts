@@ -15,6 +15,7 @@ import { renderRoutines } from "../lists/routines.ts";
 import { renderSettings } from "../settings/settings.ts";
 import { renderSkills } from "../lists/skills.ts";
 import { invoke } from "../ui/tauri.ts";
+import { refreshLocal } from "../assistant/local.ts";
 
 // ---------- State ----------
 
@@ -50,9 +51,11 @@ const NAMED: Record<string, () => unknown> = {
 /// Shows the bar on `view`, as Rust names it, or on what it showed last.
 export async function show(view: string | null) {
   const st = await refreshStatus();
+  await refreshLocal();
   loadResearches();
   loadLiveChats();
-  if (S.link === "linked") { loadModels(); loadAgentHosts(); }
+  if (S.link === "linked" || S.local) loadModels();
+  if (S.link === "linked") loadAgentHosts();
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
   // Without a subscription the bar starts agents on the mesh's machines; the chat needs one.

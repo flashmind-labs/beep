@@ -56,8 +56,9 @@ impl Runs {
         self.lock().remove(&id);
     }
 
-    pub(crate) fn is_running(&self, id: Uuid) -> bool {
-        self.lock().contains_key(&id)
+    /// The chats answering now.
+    pub(crate) fn ids(&self) -> Vec<Uuid> {
+        self.lock().keys().copied().collect()
     }
 
     /// Stops chat `id`'s reply; what streamed so far is kept.

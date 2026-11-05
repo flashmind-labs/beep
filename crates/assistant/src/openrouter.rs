@@ -1,6 +1,6 @@
 //! OpenRouter's chat completions, streamed, and its error text.
 
-use crate::{AssistantError, Call, Event, Setup, tools::MAX_CALLS_PER_ROUND};
+use crate::{AssistantError, Call, Effort, Event, Setup, tools::MAX_CALLS_PER_ROUND};
 use futures::StreamExt;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
@@ -119,6 +119,9 @@ pub(crate) async fn stream_completion(
         "stream": true,
         "include_reasoning": true,
     });
+    if setup.effort != Effort::Off {
+        body["reasoning"] = json!({"effort": <&str>::from(setup.effort)});
+    }
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.to_vec());
     }

@@ -25,6 +25,7 @@ import { renderSettings, settingsBack } from "../settings/settings.ts";
 import { renderSkills } from "../lists/skills.ts";
 import type { Status } from "./views.ts";
 import { invoke } from "../ui/tauri.ts";
+import { refreshLocal } from "../assistant/local.ts";
 
 /// What the window can open in the pane: a CenterTarget in its JSON form,
 /// a group, or an agent view.
@@ -61,8 +62,10 @@ async function refreshPaneStatus() {
   S.link = st.link;
   S.signedOut = st.signed_out;
   S.server = st.server;
+  await refreshLocal();
   const researches = loadResearches();
-  if (S.link === "linked") { loadModels(); loadAgentHosts(); }
+  if (S.link === "linked" || S.local) loadModels();
+  if (S.link === "linked") loadAgentHosts();
   await researches;
 }
 
