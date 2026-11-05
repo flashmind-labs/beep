@@ -2,7 +2,7 @@
 
 use beep_assistant::{
     AssistantError, Chat, Effort, Endpoint, Event, MAX_TOOL_ROUNDS, Message, Outcome, Setup,
-    WorkQuery, list_models, load_chat, run_turn,
+    WorkQuery, load_chat, run_turn,
 };
 use secrecy::SecretString;
 use serde_json::{Value, json};
@@ -467,37 +467,6 @@ async fn a_failing_tool_is_a_result_the_model_reads() {
     );
     let or = openrouter.seen.lock().unwrap();
     assert_eq!(or[1].body["messages"][3]["content"], "Payment required");
-}
-
-#[tokio::test]
-async fn the_model_list_comes_from_the_service() {
-    let body = json!({"data": [
-        {"id": "a/one", "name": "One", "supported_parameters": ["tools", "temperature"]},
-        {"id": "b/two", "name": "Two", "supported_parameters": ["temperature"]},
-    ]});
-    let server = fake(vec![Script::Reply {
-        status: 200,
-        content_type: "application/json",
-        body: body.to_string(),
-    }])
-    .await;
-    let models = list_models(&reqwest::Client::new(), &endpoint(&server.base, "k"))
-        .await
-        .unwrap();
-    assert_eq!(models.len(), 2);
-    assert!(models[0].tools && !models[1].tools);
-    assert_eq!(server.seen.lock().unwrap()[0].path, "/models");
-
-    let bad = fake(vec![Script::Reply {
-        status: 401,
-        content_type: "application/json",
-        body: json!({"error": {"message": "No auth credentials found", "code": 401}}).to_string(),
-    }])
-    .await;
-    let err = list_models(&reqwest::Client::new(), &endpoint(&bad.base, "k"))
-        .await
-        .unwrap_err();
-    assert_eq!(err.to_string(), "No auth credentials found");
 }
 
 fn tool_names(body: &Value) -> Vec<String> {

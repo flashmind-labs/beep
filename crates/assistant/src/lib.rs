@@ -16,7 +16,7 @@ mod view;
 
 pub use error::AssistantError;
 pub use message::{Call, Message};
-pub use models::{ModelInfo, Provider, default_model, list_models, list_providers};
+pub use models::{Feature, ModelInfo, Provider, default_model, list_models, list_providers};
 pub use prefs::{Prefs, ProviderPref, load_prefs, save_prefs};
 pub use run::{Event, Outcome, Setup, run_turn};
 pub use store::{
