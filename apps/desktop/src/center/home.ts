@@ -15,6 +15,7 @@ import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
 import { failure, conflict, dot, section, avatar, tag, rowButton, line } from "../ui/pieces.ts";
 import { addMachineButton, useThisMac, machineMenu, machinesSection, offlineNote } from "../machines/table.ts";
 import { allTerms, openTerminals, terminalLine } from "../terminals/view.ts";
+import { conflictRows } from "../project/syncpage.ts";
 import { gitSection, itemLine, refreshGit } from "./openitems.ts";
 import { registerView, go, openResearch, shown } from "./views.ts";
 import { drawSide, projectRows } from "./sidebar.ts";
@@ -253,7 +254,7 @@ export function homeBox(id: string, title: string, count: number | string, open:
   return section(id, button(title, "lk", open), count, null, h("div", "cc-panel", ...rows.slice(0, BOX_ROWS)));
 }
 
-/// What needs you, then boxes two by two: Running and Projects, Pull
+/// What needs you, the sync conflicts, then boxes two by two: Running and Projects, Pull
 /// requests and Issues, Terminals and Coming up. A list with nothing in it
 /// leaves its place empty; a row with nothing in it is left out.
 export function overview(home: HomeView) {
@@ -272,6 +273,8 @@ export function overview(home: HomeView) {
   const out: HTMLElement[] = [];
   if (needs.length) out.push(section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow))));
   if (updates?.length) out.push(updatesSection(updates));
+  const conflicts = conflictRows();
+  if (conflicts.length) out.push(homeBox("sec-sync", "Sync conflicts", conflicts.length, () => go("sync"), conflicts));
   for (const [a, b] of rows) out.push(h("div", "cc-cols", a, b));
   if (!out.length && !state.subscribed) {
     out.push(emptyPanel(h("b", "", "Nothing running"), h("span", "", "Start an agent on this Mac, or add a machine to run it there."), button("Start an agent", "small", () => go("pane", { agentnew: { prompt: "" } }))));

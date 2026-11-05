@@ -23,6 +23,7 @@ import { loadProjectAgent } from "../project/loads.ts";
 import { drawProjects } from "../project/page.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import type { SyncRow } from "../project/filesync.ts";
+import { readSync } from "../project/syncpage.ts";
 
 /// The server answered for Home in this window; until then Home may be
 /// the one the app kept from before.
@@ -69,7 +70,10 @@ export async function refresh() {
   } finally {
     loading = false;
   }
-  if (onScreen()) draw();
+  if (onScreen()) {
+    draw();
+    readSync();
+  }
   // Every terminal's state refreshes with Home, while Home or the
   // Terminals page shows, or before the first list for the sidebar.
   if (state.home?.machines && (onScreen() && (shown === "home" || shown === "terminals") || allTerms.list(ALL) === undefined)) allTerms.load(ALL);

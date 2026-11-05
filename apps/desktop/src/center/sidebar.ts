@@ -35,6 +35,7 @@ import { refresh } from "./refresh.ts";
 import { threadChats } from "./threadcard.ts";
 import { beepViews, groupShown } from "../settings/subscription.ts";
 import { IC } from "../ui/icons.ts";
+import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
@@ -98,6 +99,8 @@ export function drawSide() {
   // Terminals on every machine, once the server lists them.
   const termList = allTerms.list(ALL);
   if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: shown === "terminals", on: () => go("terminals") }));
+  // Sync, once a project syncs: the conflicts waiting across them.
+  if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: shown === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
