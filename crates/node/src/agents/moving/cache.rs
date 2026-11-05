@@ -241,6 +241,12 @@ impl Cache {
             .folder(agent, id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a session name"))?;
         fs::create_dir_all(&folder)?;
+        // A name not taken: two versions set aside within a second must not
+        // write over each other.
+        let mut at = at;
+        while folder.join(format!("lost-{at}.json")).exists() {
+            at += 1;
+        }
         fs::write(
             folder.join(format!("lost-{at}.json")),
             serde_json::to_vec(meta)?,
@@ -423,5 +429,27 @@ mod tests {
         assert!(cache.entries()[0].lost.is_empty());
         assert!(cache.copy(&AgentSlug::from("../x"), "s1").is_none());
         assert!(cache.copy(&agent, "../s1").is_none());
+    }
+
+    #[test]
+    fn two_versions_set_aside_in_the_same_second_both_stay() {
+        let dir = TempDir::new().expect("a temp folder");
+        let cache = Cache::new(dir.path());
+        let agent = AgentSlug::CODEX;
+        let meta = entry("s1", 7, 3).copy.expect("meta");
+        for (name, text) in [("one.jsonl", "1\n"), ("two.jsonl", "2\n")] {
+            let transcript = dir.path().join(name);
+            fs::write(&transcript, text).expect("a transcript");
+            cache
+                .keep_lost(&agent, "s1", &transcript, &meta, 9)
+                .expect("kept");
+        }
+        let lost = cache.entries()[0].lost.clone();
+        assert_eq!(lost.len(), 2, "{lost:?}");
+        let texts: Vec<_> = lost
+            .iter()
+            .map(|at| fs::read_to_string(cache.lost(&agent, "s1", *at).unwrap().0).unwrap())
+            .collect();
+        assert!(texts.contains(&"1\n".to_owned()) && texts.contains(&"2\n".to_owned()));
     }
 }

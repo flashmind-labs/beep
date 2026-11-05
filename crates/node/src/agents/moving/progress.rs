@@ -50,6 +50,8 @@ pub(crate) struct Moves {
     refused: Mutex<HashMap<String, String>>,
     /// The worktree a session being moved out of works in.
     worktrees: Mutex<HashMap<String, PathBuf>>,
+    /// What each of those held when it was sent.
+    sent: Mutex<HashMap<String, String>>,
     /// The synced projects, to tell a target whether it can sync a worktree.
     syncs: Mutex<Option<Syncs>>,
     /// What the moves and copies of this node share, for requests that
@@ -154,12 +156,23 @@ impl Moves {
         lock(&self.tracked).remove(id);
         lock(&self.refused).remove(id);
         lock(&self.worktrees).remove(id);
+        lock(&self.sent).remove(id);
     }
 
     /// The worktree of session `id` is `dir`: a target asks for its commit
     /// and uncommitted work once the session ended.
     pub(super) fn set_worktree(&self, id: &str, dir: PathBuf) {
         lock(&self.worktrees).insert(id.to_owned(), dir);
+    }
+
+    /// The fingerprint of what the worktree of session `id` held when its
+    /// commit and work were sent.
+    pub(super) fn set_sent(&self, id: &str, fingerprint: String) {
+        lock(&self.sent).insert(id.to_owned(), fingerprint);
+    }
+
+    pub(super) fn sent_of(&self, id: &str) -> Option<String> {
+        lock(&self.sent).get(id).cloned()
     }
 
     pub(super) fn worktree_of(&self, id: &str) -> Option<PathBuf> {

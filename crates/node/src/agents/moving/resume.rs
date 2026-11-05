@@ -6,6 +6,7 @@
 
 use super::{
     Env, Harness,
+    background::{Kept, keep_local, unix_secs},
     cache::Meta,
     offers::{harness_of, now_secs},
     rewrite, store,
@@ -175,6 +176,35 @@ pub(super) async fn continue_here(
             "{} has no folder here to continue in: sync the project first",
             meta.project
         );
+    }
+    // A transcript of this session already in the store (the winner's, which
+    // does not run) is kept where the list shows it, as a version that
+    // lost: writing over it would set it aside where nothing lists it.
+    if let Some(harness) = harness_of(agent.as_str())
+        && let Some(local) = env.agents.transcript_file(harness, id).await
+    {
+        let (len, modified) = {
+            let local = local.clone();
+            spawn_blocking(move || -> Result<_> {
+                let meta = std::fs::metadata(&local)?;
+                Ok((meta.len(), unix_secs(&meta)))
+            })
+            .await??
+        };
+        keep_local(
+            env,
+            agent,
+            id,
+            &Kept {
+                project: &meta.project,
+                path: &meta.path,
+                len,
+                modified,
+            },
+            &local,
+        )
+        .await
+        .context("keeping the transcript this machine has of it")?;
     }
     let arrival = Arrival {
         id,

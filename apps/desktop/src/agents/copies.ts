@@ -3,11 +3,11 @@
 // and a version that lost to another machine's can be restored or thrown
 // away. The node brings the copies in on its own; nothing here starts one.
 
-import { type CopyRow, copyKey, copyLists, lostLine, offlineLine } from "./copy-state.ts";
+import { type CopyRow, copyKey, copyLists, discardLabel, lostLine, offlineLine } from "./copy-state.ts";
 import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 
-const CP = { rows: [] as CopyRow[], error: "" };
+const CP = { rows: [] as CopyRow[], error: "", armed: "" };
 const listeners = new Set<() => void>();
 
 /// Calls `f` whenever the copies change, for the list to draw again.
@@ -47,7 +47,7 @@ export function copiesHtml(live: ReadonlySet<string>) {
   const go = (label: string, act: string, pri: boolean) => `<button class="dbtn ${pri ? "pri " : "quiet "}small" data-cpact="${act}">${label}</button>`;
   return `<div class="dlist dcopies">${CP.error ? `<div class="derr dpadx">${esc(CP.error)}</div>` : ""}`
     + offline.map(c => row(c, offlineLine(c, now), go("Continue on this Mac", "continue", true))).join("")
-    + lost.map(c => row(c, lostLine(), go("Restore", "continue", false) + go("Discard", "discard", false))).join("")
+    + lost.map(c => row(c, lostLine(), go("Restore", "continue", false) + go(discardLabel(CP.armed === copyKey(c)), "discard", false))).join("")
     + `</div>`;
 }
 
@@ -59,6 +59,13 @@ export function copiesClick(target: HTMLElement): boolean {
   if (!button || !c) return false;
   const command = button.dataset.cpact === "discard" ? "session_discard_copy" : "session_continue_copy";
   if (button.hasAttribute("disabled")) return true;
+  // Discarding a version is for good: the first click asks, in the row.
+  if (button.dataset.cpact === "discard" && CP.armed !== key) {
+    CP.armed = key ?? "";
+    changed();
+    return true;
+  }
+  CP.armed = "";
   // One click is one request: a second would run the same copy again.
   button.setAttribute("disabled", "");
   CP.error = "";

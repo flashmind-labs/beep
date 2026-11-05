@@ -600,3 +600,76 @@ async fn a_node_with_no_room_refuses_before_it_writes_anything() {
     assert!(format!("{failed:#}").contains("already run"), "{failed:#}");
     assert!(!s.env.roots.codex.exists() && !s.env.roots.claude.exists());
 }
+
+#[tokio::test]
+async fn a_worktree_left_by_a_crash_inside_attach_is_taken_back_when_clean() {
+    use super::{saved::MadeWorktree, worktree::Placed};
+    let s = source_env().await;
+    let main = s
+        .env
+        .state
+        .copy("x")
+        .parent()
+        .expect("a folder")
+        .join("repo");
+    fs::create_dir_all(&main).expect("a folder");
+    git(&main, &["init", "-q", "--initial-branch=main"]);
+    fs::write(main.join("a.txt"), "one\n").expect("a file");
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-q", "-m", "first"]);
+    git(&main, &["branch", "feat"]);
+    let folder = main.join(".worktrees/feat");
+    // The note was kept before `attach`; the node stopped right after the
+    // worktree was added, before the patch.
+    let pending = |folder: &PathBuf| {
+        s.env
+            .state
+            .save(
+                "s1",
+                &Saved {
+                    at: 1,
+                    phase: Phase::Working,
+                    reason: None,
+                    open: None,
+                    made: Some(MadeWorktree {
+                        checkout: main.clone(),
+                        folder: folder.clone(),
+                        placed: Placed::Made,
+                        applied: String::new(),
+                    }),
+                },
+            )
+            .expect("noted");
+    };
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            folder.to_str().expect("utf8"),
+            "feat",
+        ],
+    );
+    pending(&folder);
+    super::target::take_back(&s.env, "s1").await;
+    assert!(!folder.exists(), "clean: removed, and the branch is free");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            folder.to_str().expect("utf8"),
+            "feat",
+        ],
+    );
+    // The same, but something was written in it before the node came back.
+    fs::write(folder.join("a.txt"), "the user's\n").expect("an edit");
+    pending(&folder);
+    super::target::take_back(&s.env, "s1").await;
+    assert_eq!(
+        fs::read_to_string(folder.join("a.txt")).unwrap(),
+        "the user's\n"
+    );
+}

@@ -140,7 +140,7 @@ async fn land(
         let now = target.borrow_and_update().clone();
         match now {
             Target::Landed => {
-                detach(record).await;
+                detach(env, record).await;
                 // It lives on the target now: a note that it was continued
                 // here no longer holds.
                 let (cache, agent, id) =
@@ -166,13 +166,20 @@ async fn land(
 /// The session runs on the target, on the worktree's branch: this machine's
 /// worktree lets go of it, at the same commit, so the branch can sync. The
 /// worktree and its files stay.
-async fn detach(record: &SessionMove) {
+async fn detach(env: &Env, record: &SessionMove) {
     let Some(worktree) = &record.worktree else {
         return;
     };
     let dir = PathBuf::from(&worktree.from);
-    match spawn_blocking(move || worktree::detach(&dir)).await {
-        Ok(Ok(())) => {}
+    // What was sent, when this node sent it (a restart forgets): the
+    // worktree is cleaned only if it still holds exactly that.
+    let sent = env.agents.moves.sent_of(&record.id);
+    match spawn_blocking(move || worktree::detach_clean(&dir, sent.as_deref())).await {
+        Ok(Ok(true)) => log::info!(
+            "the worktree of session {} is detached and clean: its work went with it",
+            record.id
+        ),
+        Ok(Ok(false)) => {}
         Ok(Err(e)) => log::warn!(
             "the worktree of session {} still holds its branch: {e:#}",
             record.id

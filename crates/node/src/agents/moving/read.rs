@@ -11,7 +11,7 @@ use super::{
     Harness,
     offers::{Project, offers},
     progress::Target,
-    worktree::{MAX_PATCH, Work, snapshot},
+    worktree::{MAX_PATCH, Work, preflight, snapshot},
 };
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result, bail};
@@ -217,8 +217,33 @@ pub(super) async fn serve(
                 Some(dir) if !live => Some(dir),
                 _ => None,
             };
+            // What only the snapshot could refuse (a repository of its own
+            // among the new files, changes too large) is refused on the first
+            // read, while the session still runs: the source stops nothing
+            // for a move that cannot be taken.
+            if live
+                && worktree
+                && let Some(dir) = agents.moves.worktree_of(&id)
+            {
+                match spawn_blocking(move || preflight(&dir)).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        let message = format!("{e:#}");
+                        return tx.send(&Reply::Refused { message }).await;
+                    }
+                    Err(e) => {
+                        let message = format!("{e}");
+                        return tx.send(&Reply::Refused { message }).await;
+                    }
+                }
+            }
             match send_after(&mut tx, &found, from, &prefix_hash, live, work).await {
-                Ok(()) => tx.finish().await,
+                Ok(sent) => {
+                    if let Some(sent) = sent {
+                        agents.moves.set_sent(&id, sent);
+                    }
+                    tx.finish().await
+                }
                 Err(e) => {
                     let message = format!("{e:#}");
                     tx.send(&Reply::Refused { message }).await
@@ -256,7 +281,7 @@ pub(super) async fn serve(
             };
             let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
             match send_after(&mut tx, &found, from, &prefix_hash, live, None).await {
-                Ok(()) => tx.finish().await,
+                Ok(_) => tx.finish().await,
                 Err(e) => {
                     let message = format!("{e:#}");
                     tx.send(&Reply::Refused { message }).await
@@ -318,7 +343,7 @@ async fn send_after(
     prefix_hash: &[u8],
     live: bool,
     worktree: Option<PathBuf>,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let mut file = File::open(&found.path).await?;
     let size = file.metadata().await?.len();
     if size > MAX_TRANSCRIPT {
@@ -351,8 +376,10 @@ async fn send_after(
         })
         .await?;
     }
+    let mut sent = None;
     if let Some(dir) = worktree {
         let work = spawn_blocking(move || snapshot(&dir)).await??;
+        sent = Some(work.fingerprint());
         tx.send(&Reply::Work { head: work.head }).await?;
         for piece in work.patch.chunks(CHUNK) {
             tx.send(&Reply::Patch {
@@ -361,7 +388,10 @@ async fn send_after(
             .await?;
         }
     }
-    tx.send(&Reply::End { size, live }).await
+    tx.send(&Reply::End { size, live }).await?;
+    // What a worktree held when it was sent, for the source to know later
+    // that it still holds that and nothing else.
+    Ok(sent)
 }
 
 /// The blake3 hash of the first `len` bytes of `file`.

@@ -350,10 +350,14 @@ async fn settle(env: &Env, peer: EndpointId, offer: &Offer, local: &Path) -> Res
         .get(&Key::SessionMove(offer.id.clone()))
         .and_then(|bytes| SessionMove::from_bytes(&bytes).ok())
     {
-        let unfinished = env
-            .state
-            .load(&offer.id)
-            .is_none_or(|saved| !saved.is_over(record.at));
+        // Only the two ends of a move keep its state: for a machine that
+        // is neither, an old record is history, not an unfinished move.
+        let me = env.mesh.me();
+        let unfinished = (record.from == me || record.to == me)
+            && env
+                .state
+                .load(&offer.id)
+                .is_none_or(|saved| !saved.is_over(record.at));
         if unfinished || record.at / 1000 > note.at {
             log::info!("session {}: not settled, a move names it", offer.id);
             return Ok(());
@@ -392,6 +396,40 @@ async fn keep_as_lost(
     len: u64,
     modified: u64,
 ) -> Result<()> {
+    keep_local(
+        env,
+        &offer.agent,
+        &offer.id,
+        &Kept {
+            project: &offer.project,
+            path: &offer.path,
+            len,
+            modified,
+        },
+        local,
+    )
+    .await
+}
+
+/// What is known of a transcript kept as a version that lost: the project
+/// and folder its session ran in, its length and its last write (unix
+/// seconds).
+pub(super) struct Kept<'a> {
+    pub(super) project: &'a str,
+    pub(super) path: &'a str,
+    pub(super) len: u64,
+    pub(super) modified: u64,
+}
+
+/// Moves the transcript at `local` out of its harness's store into the cache
+/// as a version that lost, where the list shows it.
+pub(super) async fn keep_local(
+    env: &Env,
+    agent: &AgentSlug,
+    id: &str,
+    kept: &Kept<'_>,
+    local: &Path,
+) -> Result<()> {
     let hash = hash_of(local).await?;
     let file_name = local
         .file_name()
@@ -400,18 +438,18 @@ async fn keep_as_lost(
         .to_owned();
     let meta = Meta {
         from: env.mesh.me(),
-        project: offer.project.clone(),
-        path: offer.path.clone(),
+        project: kept.project.to_owned(),
+        path: kept.path.to_owned(),
         file_name,
-        size: len,
+        size: kept.len,
         hash,
-        last_activity: modified,
+        last_activity: kept.modified,
         fetched_at: now_secs(),
     };
     let (cache, agent, id, local) = (
         env.cache.clone(),
-        offer.agent.clone(),
-        offer.id.clone(),
+        agent.clone(),
+        id.to_owned(),
         local.to_owned(),
     );
     let at = now_secs();
@@ -419,7 +457,7 @@ async fn keep_as_lost(
     Ok(())
 }
 
-fn unix_secs(meta: &fs::Metadata) -> u64 {
+pub(super) fn unix_secs(meta: &fs::Metadata) -> u64 {
     meta.modified()
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
