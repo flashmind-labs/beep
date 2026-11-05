@@ -8,7 +8,10 @@
 //! Agents that compact on their own with no setting (Gemini CLI, flsh) are
 //! left to it.
 
-use beep_proto::{AgentContext, node::harness::AutoCompact};
+use beep_proto::{
+    AgentContext,
+    node::{agent::AgentCommand, harness::AutoCompact},
+};
 use std::collections::BTreeMap;
 
 /// The prompt that asks an agent to compact its conversation.
@@ -131,7 +134,7 @@ pub(super) enum Route {
 impl Route {
     /// Whether the node sends `/compact` under `policy`, given the commands
     /// the agent advertised.
-    pub(super) fn takes_compact(self, policy: Policy, commands: &[String]) -> bool {
+    pub(super) fn takes_compact(self, policy: Policy, commands: &[AgentCommand]) -> bool {
         let tokens = matches!(policy, Policy::AtTokens(_));
         let node_compacts = match self {
             Self::Advertised => true,
@@ -143,7 +146,7 @@ impl Route {
         node_compacts
             && commands
                 .iter()
-                .any(|name| name.trim_start_matches('/') == "compact")
+                .any(|command| command.name.trim_start_matches('/') == "compact")
     }
 }
 
@@ -163,7 +166,7 @@ pub(super) struct Compactor {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TurnEnd<'a> {
     pub(super) usage: Option<AgentContext>,
-    pub(super) commands: &'a [String],
+    pub(super) commands: &'a [AgentCommand],
 }
 
 impl Compactor {
@@ -215,11 +218,17 @@ mod tests {
         Some(AgentContext { used, size })
     }
 
-    fn commands(names: &[&str]) -> Vec<String> {
-        names.iter().map(|name| (*name).to_owned()).collect()
+    fn commands(names: &[&str]) -> Vec<AgentCommand> {
+        names
+            .iter()
+            .map(|name| AgentCommand {
+                name: (*name).to_owned(),
+                ..AgentCommand::default()
+            })
+            .collect()
     }
 
-    fn ended(compactor: &mut Compactor, usage: Option<AgentContext>, commands: &[String]) {
+    fn ended(compactor: &mut Compactor, usage: Option<AgentContext>, commands: &[AgentCommand]) {
         compactor.turn_ended(TurnEnd { usage, commands });
     }
 
