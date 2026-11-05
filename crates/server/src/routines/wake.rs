@@ -2,7 +2,7 @@
 
 use crate::{
     account::user::User,
-    app::{App, Draws, Message, UserNotice},
+    app::{App, Draws, Message},
     protocol::{DeviceKind, Run},
     store::{CreateRun, Location, RunStatus, SessionRef},
 };
@@ -163,6 +163,15 @@ impl Rule {
         }
     }
 
+    /// Where the user reads that the alert came from.
+    fn source(self) -> &'static str {
+        match self {
+            Rule::Place => "Places",
+            Rule::Accounts | Rule::Triaged => "Apps",
+            Rule::Digest => "Digest",
+        }
+    }
+
     fn text(self) -> &'static str {
         match self {
             Rule::Place => PLACE_RULE,
@@ -292,13 +301,15 @@ pub async fn wake_with(
 /// How a woken run ended.
 pub(crate) struct Finished<'a> {
     pub label: &'a str,
+    pub rule: Rule,
     pub status: RunStatus,
     /// Whether the model called `notify_user`.
     pub notified: bool,
     pub reply: &'a str,
 }
 
-/// Sends a woken run's reply and keeps its chat if asked, else deletes it silently.
+/// Sends a woken run's reply and keeps it as an alert if asked, else deletes its chat silently.
+/// An alert is a session the chat lists leave out until the user replies in it.
 pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished<'_>) {
     let Ok(chat) = Uuid::parse_str(&run.session_id) else {
         return;
@@ -311,16 +322,19 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
                 user: user.id().to_owned(),
                 id: chat,
             };
-            match app
+            if let Err(error) = app
                 .store
                 .set_generated_title(&session, finished.label)
                 .await
             {
-                // Nobody listening just means no phone is online.
-                Ok(_) => drop(app.notifications.send(UserNotice::changed(user.id(), ""))),
-                Err(error) => {
-                    log::warn!("wake: unable to title the chat: {error}; run_id={}", run.id)
-                }
+                log::warn!("wake: unable to title the chat: {error}; run_id={}", run.id);
+            }
+            // Before the notice goes out, so an app that asks about it finds it.
+            if let Err(error) = user
+                .add_alert(chat, finished.rule.source(), finished.reply)
+                .await
+            {
+                log::warn!("wake: unable to keep the alert: {error}; run_id={}", run.id);
             }
             app.notify_run_complete(user, run, finished.status, finished.reply)
                 .await;

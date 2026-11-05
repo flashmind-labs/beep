@@ -10,6 +10,7 @@ use beep_server::{
     agent::models::ModelChoices,
     agent::subagents::Pool,
     app::{App, ServerTools, UserNotice},
+    protocol::Session,
     routines::events::{
         self, Accepted, EventApp, Limits, Settings, Topic, Urgency, Verdict, normalize,
     },
@@ -506,4 +507,80 @@ async fn duplicates_do_not_count_toward_the_hourly_limit() {
         events::accept(&h.app, alice, mail("d3")).await.unwrap(),
         Accepted::Limited
     );
+}
+
+#[tokio::test]
+async fn a_notified_wake_is_an_alert_until_the_user_replies() {
+    let h = Harness::new().await;
+    let mut notices = h.app.notifications.subscribe();
+    let alice = &h.alice;
+
+    let review = normalize::from_github_notification(&github_notification(
+        "review_requested",
+        "Add caching",
+    ))
+    .unwrap();
+    events::submit(&h.app, alice.id(), review).await;
+    let notice = next_notice(&mut notices).await;
+    let chat = Uuid::parse_str(&notice.notice.session_id).expect("a session id");
+
+    // The alert exists by the time the notice goes out, unread, with what
+    // Beep said.
+    let alerts = alice.alerts().await.unwrap();
+    assert_eq!(alerts.len(), 1);
+    assert_eq!(alerts[0].chat, chat);
+    assert_eq!(alerts[0].source, "Apps");
+    assert!(!alerts[0].read);
+    assert!(alerts[0].text.contains("Want me to review it?"));
+
+    // Released apps still list it, as before. The new list and search leave
+    // it out.
+    let listed = |sessions: Vec<Session>| sessions.iter().any(|s| s.id == chat.to_string());
+    assert!(listed(alice.sessions().await.unwrap()));
+    assert!(!listed(alice.chats().await.unwrap()));
+    assert_eq!(
+        alice.search_sessions("review", 10).await.unwrap().len(),
+        1,
+        "the old search finds it"
+    );
+    assert!(alice.search_chats("review", 10).await.unwrap().is_empty());
+    // Another user's calls change nothing.
+    assert!(h.bob.alerts().await.unwrap().is_empty());
+    h.bob.read_alerts(&[chat]).await.unwrap();
+    assert!(!alice.alerts().await.unwrap()[0].read);
+
+    alice.read_alerts(&[chat]).await.unwrap();
+    assert!(alice.alerts().await.unwrap()[0].read);
+
+    // A reply makes it a normal chat: it leaves the alerts and joins the lists.
+    alice
+        .create_run(chat, &Uuid::new_v4().to_string(), "Yes, review it")
+        .await
+        .unwrap();
+    assert!(alice.alerts().await.unwrap().is_empty());
+    assert!(listed(alice.chats().await.unwrap()));
+    assert!(!alice.search_chats("review", 10).await.unwrap().is_empty());
+    // Dismissing what is a chat now keeps it.
+    alice.dismiss_alerts(&[chat]).await.unwrap();
+    assert!(listed(alice.sessions().await.unwrap()));
+}
+
+#[tokio::test]
+async fn a_dismissed_alert_is_gone_with_its_chat() {
+    let h = Harness::new().await;
+    let mut notices = h.app.notifications.subscribe();
+    let alice = &h.alice;
+
+    let review = normalize::from_github_notification(&github_notification(
+        "review_requested",
+        "Add caching",
+    ))
+    .unwrap();
+    events::submit(&h.app, alice.id(), review).await;
+    let chat = Uuid::parse_str(&next_notice(&mut notices).await.notice.session_id).unwrap();
+    assert_eq!(alice.alerts().await.unwrap().len(), 1);
+
+    alice.dismiss_alerts(&[chat]).await.unwrap();
+    assert!(alice.alerts().await.unwrap().is_empty());
+    assert!(alice.sessions().await.unwrap().is_empty());
 }

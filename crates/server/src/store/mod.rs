@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 mod actions;
 mod agent_images;
 mod agent_session_starts;
+mod alerts;
 pub(crate) use agent_session_starts::SessionOn;
 mod agent_spend;
 mod agent_usage;
@@ -91,6 +92,7 @@ pub use actions::ActionRow;
 pub(crate) use agent_images::{AgentImageBytes, AgentImageOf};
 pub(crate) use agent_spend::{DayModelRow, DaySpendRow, Periods};
 pub(crate) use agent_usage::{ModelRow, PlanRow, SpendRow};
+pub use alerts::AlertRow;
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
@@ -127,7 +129,7 @@ pub(crate) use projects::{
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};
 pub use sessions::{
-    DeletedTurn, FoundSession, QuietSession, SessionRef, StoredContext, TurnsToDelete,
+    DeletedTurn, FoundSession, Listing, QuietSession, SessionRef, StoredContext, TurnsToDelete,
 };
 pub use shares::{CopiedShare, Share};
 pub use skills::{NewSkill, Review, SKILL_LIMIT, SkillOwner, SkillPatch, SkillRow};
