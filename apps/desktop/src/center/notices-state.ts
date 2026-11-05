@@ -25,11 +25,6 @@ export function unreadCount(alerts: Alerts): number {
   return alerts ? alerts.filter(a => !a.read).length : 0;
 }
 
-/// The bell shows only where alerts exist.
-export function bellShown(alerts: Alerts): boolean {
-  return alerts !== null;
-}
-
 /// The badge's text, empty when everything is read.
 export function badge(alerts: Alerts): string {
   const n = unreadCount(alerts);

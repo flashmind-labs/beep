@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, leavesTerminal, moveTab, readLayout, resolvePath, splitTabs, tabDock, zoomAt } from "../src/agentpane/media-state.ts";
+import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, isCloseKey, leavesTerminal, moveTab, readLayout, resolvePath, splitTabs, tabDock, zoomAt } from "../src/agentpane/media-state.ts";
 
 test("a relative path is the session folder's", () => {
   assert.equal(resolvePath("/srv/project", "out/a.glb"), "/srv/project/out/a.glb");
@@ -73,4 +73,11 @@ test("Esc in a pane terminal leaves it, except for a program on the alternate sc
   assert.equal(leavesTerminal(key({ altKey: true }), "normal"), false);
   assert.equal(leavesTerminal(key({ key: "a" }), "normal"), false);
   assert.equal(leavesTerminal(key({ isComposing: true }), "normal"), false);
+});
+
+test("cmd+w is the close key, typed in a terminal too", () => {
+  assert.equal(isCloseKey({ key: "w", metaKey: true, shiftKey: false }), true);
+  assert.equal(isCloseKey({ key: "W", metaKey: true, shiftKey: false }), true, "caps lock");
+  assert.equal(isCloseKey({ key: "w", metaKey: false, shiftKey: false }), false, "the shell gets a plain w");
+  assert.equal(isCloseKey({ key: "w", metaKey: true, shiftKey: true }), false);
 });

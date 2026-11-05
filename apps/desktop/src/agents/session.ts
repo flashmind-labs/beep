@@ -15,7 +15,7 @@ import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usa
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
-import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
+import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
@@ -26,6 +26,7 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt } from "./older-state.ts";
 import { onPlaces, placeOf } from "./place.ts";
@@ -101,9 +102,12 @@ export async function pollAgent() {
       if (page.session.question?.id !== AG.answering) AG.answering = null;
       // A session opened with no folder (from a notice) draws again once a read gives it.
       const placed = !AG.page?.session.cwd && !!page.session.cwd;
+      // A session taken over from outside gets its composer in place of the banner.
+      const taken = !!AG.page?.session.external && !page.session.external;
       // The older entries held stay while the newest are read again.
       AG.page = joinRuns(AG.page, page);
       if (placed) drawAgentFrame();
+      else if (taken && $("#agconv")) drawAgentFrame(true);
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
       AG.readError = "";
@@ -185,7 +189,7 @@ export function agentHints() {
   }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ...mode, ["⇧⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
+  return slim([...paste, [ICON.ret, "send"], ...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
@@ -267,7 +271,7 @@ onPlaces(() => {
 export function drawAgentFrame(inPlace = false) {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
-    ? `<div class="dmuted dblock dbanner">Started outside Beep. Beep follows it here${canTakeOver(s.agent) ? "; to steer it, ask Beep in a chat to take it over once it stops" : ""}.</div>`
+    ? `<div class="dmuted dblock dbanner"><span class="agoutside">Started outside Beep. Beep follows it here.${canTakeOver(s.agent) ? '<button class="dbtn small" id="agcontinue">Continue</button>' : ""}</span></div>`
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
@@ -303,13 +307,52 @@ export function drawAgentFrame(inPlace = false) {
 }
 
 /// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again.
+async function kidSession(id: string, key?: string) {
+  const row = childRow(sessions, id, key);
+  if (row) return row;
+  try { await loadSessions(); } catch { return null; }
+  return childRow(sessions, id, key);
+}
+
 async function openKid(id: string, key?: string) {
-  let row = childRow(sessions, id, key);
-  if (!row) {
-    try { await loadSessions(); } catch { return; }
-    row = childRow(sessions, id, key);
-  }
+  const row = await kidSession(id, key);
   if (row) openAgent(row, { back: AG.back });
+}
+
+/// The X on a finished row in the pane: a child that is done closes on its
+/// machine first, and its row stays if that fails. Its transcript stays.
+async function closeRow(x: HTMLElement) {
+  const at = Number(x.dataset.subclose);
+  const kid = x.closest<HTMLElement>("[data-kid]");
+  if (kid && "endkid" in x.dataset) {
+    const row = await kidSession(kid.dataset.kid!, kid.dataset.key);
+    if (row) {
+      try {
+        await invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: "close" });
+      } catch (e) {
+        AG.note = readError(e);
+        return drawAgentBody();
+      }
+    }
+  }
+  closeSub(at);
+}
+
+/// Continue on a session started outside Beep: the node takes it over, or
+/// says why not while something still runs it.
+async function continueOutside() {
+  const s = AG.page?.session;
+  const button = $<HTMLButtonElement>("#agcontinue");
+  if (!s || button?.disabled) return;
+  if (button) button.disabled = true;
+  try {
+    const started = await invoke<{ session: AgentRow }>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id });
+    openAgent(started.session, { back: AG.back });
+  } catch (e) {
+    if (button) button.disabled = false;
+    AG.note = readError(e);
+    drawAgentBody();
+  }
 }
 
 function agentClick(e: MouseEvent) {
@@ -324,6 +367,9 @@ function agentClick(e: MouseEvent) {
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
+  if (target.closest("#agcontinue")) return void continueOutside();
+  const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
+  if (closing) return void closeRow(closing);
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
