@@ -26,7 +26,7 @@ use std::{
 use tokio::{sync::Semaphore, time::timeout};
 
 /// Projects read at once.
-pub(crate) const AT_ONCE: usize = 4;
+pub(crate) const AT_ONCE: usize = 32;
 /// How long one project may take, so a slow or offline machine does not hold Home.
 const PER_PROJECT: Duration = Duration::from_secs(20);
 
