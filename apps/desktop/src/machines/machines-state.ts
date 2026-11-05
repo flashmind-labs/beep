@@ -88,3 +88,29 @@ export const errorText = (e: unknown) => String(e).replace(/^bad request: /, "")
 export function updatedTo(m: { online: boolean; version: string }, to: string) {
   return m.online && /^\d/.test(m.version) && !isNewer(to, m.version);
 }
+
+/// The version a tool's Update installed this session, by "<machine> <tool>".
+export type Installed = ReadonlyMap<string, string>;
+
+/// The version to show for `name`: what was installed this session while
+/// the machine still reports an older one.
+export function shownVersion(installed: Installed, key: string, name: string, raw: string | null | undefined) {
+  const bare = bareVersion(name, raw), to = installed.get(key);
+  return to && (!bare || isNewer(to, bare)) ? to : bare;
+}
+
+/// Whether Update to `latest` is still worth offering: not when this
+/// session installed `latest` or something newer.
+export function updateOffered(installed: Installed, key: string, latest: string) {
+  const to = installed.get(key);
+  return !to || isNewer(latest, to);
+}
+
+/// "Updated flsh to 0.2.6" for each tool of a machine installed this
+/// session that the machine does not report yet.
+export function updatedNotes(installed: Installed, machine: string, tools: readonly ReportedTool[]): string[] {
+  return tools.flatMap(t => {
+    const to = installed.get(`${machine} ${t.name}`);
+    return to && shownVersion(installed, `${machine} ${t.name}`, t.name, t.version) === to && bareVersion(t.name, t.version) !== to ? [`Updated ${t.name} to ${to}`] : [];
+  });
+}
