@@ -190,7 +190,8 @@ Exceptions to the field rule:
 - Signed types (`Device`, `OpBody` and `Signed` in `crates/mesh`) never gain a
   field in place. A signature is checked over the decoded value encoded again,
   so one extra element makes every stored and relayed signature fail and the
-  mesh does not open. To change one, bump `SIGN_DOMAIN` and the mesh ALPNs.
+  mesh does not open. To change one, bump `SIGN_DOMAIN`, the mesh ALPNs and
+  `MESH_DIR`.
 - Readers already in the field that read with plain `rmp_serde` refuse a
   longer message: the terminal host (`terminal::Request`, `Reply`, `Hello`)
   while a 0.2.x host can still be running, and the transfer `Manifest` while a

@@ -238,7 +238,7 @@ async fn linked_key(server: &Server, name: &str) -> SecretKey {
 /// and is answered in maps; the server serves it as any other.
 #[tokio::test]
 async fn a_node_from_before_beep_node_2_still_links() {
-    use beep_server::protocol::node::{Down, NODE_ALPN_NAMED, NodeHello, link_on};
+    use beep_server::protocol::node::{NODE_ALPN_NAMED, NodeHello};
     let server = server().await;
     let key = linked_key(&server, "old box").await;
     let node = endpoint(key.clone()).await;
@@ -246,8 +246,7 @@ async fn a_node_from_before_beep_node_2_still_links() {
         .connect(server.addr.clone(), NODE_ALPN_NAMED)
         .await
         .expect("the server takes beep-node/1");
-    let (send, recv) = connection.open_bi().await.unwrap();
-    let (mut tx, mut rx) = link_on(&connection, send, recv);
+    let (mut send, mut recv) = connection.open_bi().await.unwrap();
     let hello = NodeHello {
         version: "0.1.0".to_owned(),
         name: "old box".to_owned(),
@@ -259,12 +258,24 @@ async fn a_node_from_before_beep_node_2_still_links() {
         agent_settings: false,
         branch_checkouts: false,
     };
-    tx.send(&hello).await.unwrap();
-    let welcome = timeout(Duration::from_secs(20), rx.recv::<Down>())
-        .await
-        .expect("welcomed in time")
-        .unwrap();
-    assert!(matches!(welcome, Some(Down::Welcome { .. })), "{welcome:?}");
+    let body = rmp_serde::to_vec_named(&hello).unwrap();
+    let len = u32::try_from(body.len()).unwrap().to_be_bytes();
+    send.write_all(&len).await.unwrap();
+    send.write_all(&body).await.unwrap();
+    // Read raw: the lenient reader takes both forms, and a released node does not.
+    let welcome = timeout(Duration::from_secs(20), async {
+        let mut len = [0u8; 4];
+        recv.read_exact(&mut len).await.unwrap();
+        let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
+        recv.read_exact(&mut body).await.unwrap();
+        body
+    })
+    .await
+    .expect("welcomed in time");
+    let value = welcome
+        .strip_prefix(b"\x81\xa7Welcome".as_slice())
+        .expect("a Welcome");
+    assert_eq!(value[0] & 0xf0, 0x80, "fields in a map: {welcome:?}");
     let live = online(&server.app, &key.public().to_string()).await;
     assert_eq!(live.name, "old box");
 }
