@@ -10,7 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use beep_fleet::{Desk, FleetError, Peers, Session};
 use beep_mesh::{Mesh, PeerClient};
-use beep_proto::{ImportedProject, MirrorImport, RemoveProject};
+use beep_proto::{ImportedProject, MirrorImport, RemoveProject, node::EnvReport};
 use iroh::EndpointId;
 use std::sync::Arc;
 use tauri::State;
@@ -41,6 +41,10 @@ impl Peers for Fleet {
 
     async fn client(&self, machine: EndpointId) -> std::result::Result<PeerClient, FleetError> {
         Fleet::client(self, machine).await.map_err(into_fleet)
+    }
+
+    fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
+        self.status().last_env(machine)
     }
 }
 
