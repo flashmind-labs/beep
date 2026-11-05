@@ -146,8 +146,11 @@ export async function renderMachines(id: string | null = null) {
   if (shown()) drawMachines();
   // Looking the newest releases up can take a while; the page shows first.
   try {
-    MC.tools = await invoke<ToolUpdate[]>("tool_updates");
-    if (shown()) drawMachines();
+    const tools = await invoke<ToolUpdate[]>("tool_updates");
+    // The page only changes when a newer release shows up.
+    const same = JSON.stringify(tools) === JSON.stringify(MC.tools);
+    MC.tools = tools;
+    if (shown() && !same) drawMachines();
   } catch (e) {
     console.warn("tool updates:", e);
   }
