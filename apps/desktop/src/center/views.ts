@@ -50,6 +50,11 @@ function windowScope(): ProjectScope | null {
   };
 }
 
+/// Opens research `session` as a page of the window.
+export function openResearch(session: string) {
+  return go("researchopen", { session });
+}
+
 /// Shows `target` in the main window, bringing it up.
 export function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));

@@ -16,7 +16,7 @@ import { failure, conflict, dot, section, avatar, tag, rowButton, line } from ".
 import { addMachineButton, useThisMac, machineMenu, machinesSection, offlineNote } from "../machines/table.ts";
 import { allTerms, openTerminals, terminalLine } from "../terminals/view.ts";
 import { gitSection, itemLine, refreshGit } from "./openitems.ts";
-import { registerView, go } from "./views.ts";
+import { registerView, go, openResearch } from "./views.ts";
 import { drawSide, projectRows } from "./sidebar.ts";
 import { homeProjectRow, projectsSection } from "../project/page.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
@@ -28,7 +28,7 @@ export function runningRow(r: RunningRow) {
   const { title, sub } = runningLine(r, state.home?.projects || []);
   const right = [r.status === "asking" ? tag("wait", "needs you") : runningWhen(r)];
   const row = r.kind === "research"
-    ? line(null, title, sub, right, () => invoke("open_research", { session: r.session }).catch(() => {}))
+    ? line(null, title, sub, right, () => openResearch(r.session))
     // The pane's agent view follows and answers it.
     : line(harnessEl(r.agent), title, sub, right, () => go("pane", { agent: r }));
   row.dataset.key = runningKey(r);

@@ -19,9 +19,11 @@ export interface Started {
 
 // ---------- Window state ----------
 
-/// What a view's mount gets: a pane target, or the Projects page's pick.
-export type ViewArg = PaneTarget | ProjectsArg | undefined;
+/// What a view's mount gets: a pane target, the Projects page's pick, or a research.
+export type ViewArg = PaneTarget | ProjectsArg | ResearchArg | undefined;
 export interface ProjectsArg { project: string | null }
+/// The research an opened research page shows.
+export interface ResearchArg { session: string }
 
 /// A view's header: its title and line, buttons, and an element beside the title.
 export interface ViewHead { title: string; sub?: string; tools?: Node[]; scope?: Node }
