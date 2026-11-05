@@ -48,7 +48,7 @@ export function chatHints() {
   if (typed?.trim()) return hints([[ICON.ret, "ask"], ...(S.link === "linked" ? [["⌘R", "research"] as Hint] : []), ["esc", "to hide"]], chip);
   if (PANE) return hints([["⌘K", "search"], ["⌘N", "new chat"], [`⇧${ICON.ret}`, "new line"], ["⌥ ⌥", "quick chat"]], chip);
   if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new chat"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ["tap ⌥", "live"], ["hold ⌥", "talk"], ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
+  return hints([["⌘N", "new chat"], ["⌘K", "chats"], ...(S.live ? [["tap ⌥", "live"], ["hold ⌥", "talk"]] as Hint[] : []), ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
 }
 // Shown from first launch until the bar is first opened with a double tap of Option.
 export const KNOWS_HOTKEY = "beep.knowsHotkey";
@@ -97,7 +97,7 @@ export function toggleKeys() {
   $("#viewer")?.remove();
   bar.append(h(`<div class="dover" id="keys" role="dialog" aria-label="Keyboard shortcuts">
     <div class="vt"><span class="tt"><b>Keyboard shortcuts</b></span></div>
-    ${keyGroups(shortcutSheet(SHORTCUTS, S.link === "linked"))}
+    ${keyGroups(shortcutSheet(S.live ? SHORTCUTS : SHORTCUTS.filter(([t]) => t !== "Talking" && t !== "Say in live mode"), S.link === "linked"))}
     ${hints([["esc", "close"]])}</div>`));
 }
 

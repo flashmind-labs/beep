@@ -31,6 +31,10 @@ use session::State;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, atomic::AtomicU64};
 use tauri::{AppHandle, Emitter};
 
+/// Whether live mode and the orb exist. Off, Option never starts live mode, the orb window never
+/// opens, and dictation reports through macOS notifications. The code stays.
+pub(crate) const LIVE_ENABLED: bool = false;
+
 pub use approvals::{Answered, Waiting};
 pub use card::NoticeCard;
 pub(crate) use dictation::api_provider;
