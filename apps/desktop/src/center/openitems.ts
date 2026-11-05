@@ -161,7 +161,7 @@ export function gitSection(view: GitItemsView) {
     const rows = lazyRows(key, "", shown.length, (from, to) => shown.slice(from, to).map(i => {
       const p = repos.get(`${i.host} ${i.repo}`);
       return openItemRow(i, p?.project ?? null, f, { pick: issues ? pickBox(key, i.url, draw) : null, action: p && !p.project ? rowImportButton(p) : null });
-    }), 0, 20);
+    }), 0, 12);
     const body = rows.length ? rows : [h("div", "cc-empty", h("span", "", none))];
     return section("", title, shown.length, null, h("div", "cc-panel cc-open", listControls(key, draw, issues), chips, ...body, issues ? startBar(key, entries, draw) : null));
   };
