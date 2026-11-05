@@ -10,7 +10,10 @@
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
 use beep_proto::node::{
     Down, LinkRx, LinkTx, NODE_ALPN, NODE_ALPN_NAMED, NodeHello, Open, Opened,
-    agent::{Event as AgentEvent, Request as AgentRequest},
+    agent::{
+        Event as AgentEvent, MovePhase, Request as AgentRequest, SESSIONS_PROTOCOL, SessionsReply,
+        SessionsRequest, Status,
+    },
     link,
     process::{Reply as ProcessReply, Request as ProcessRequest},
     shell::{Event as ShellEvent, PROTOCOL as SHELL, Request as ShellRequest},
@@ -22,7 +25,7 @@ use beep_proto::{
     node::{
         EnvSecret, MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
-        mesh_state::{Credential, StateValue, SyncSpec},
+        mesh_state::{Credential, SessionMove, StateValue, SyncSpec},
         sync::{
             PROTOCOL as SYNC, Project as SyncProject, Reply as SyncReply, Request as SyncRequest,
         },
@@ -178,6 +181,19 @@ struct Link {
     id: EndpointId,
 }
 
+/// A node that was stopped: its folder and fake home are kept.
+struct Stopped {
+    dir: TempDir,
+    home: TempDir,
+    id: EndpointId,
+}
+
+impl Stopped {
+    async fn start(self) -> Node {
+        Node::run(self.dir, self.home, self.id).await
+    }
+}
+
 /// A `beep-node run` process: its folder, its fake home and its log lines.
 struct Node {
     /// Kills the process when dropped.
@@ -208,6 +224,10 @@ impl Node {
     async fn start(config: Config) -> Self {
         let dir = TempDir::new().expect("a temp folder");
         let home = TempDir::new().expect("a temp folder");
+        // The agents' stores exist, as on a machine that has run them.
+        for store in [".claude/projects", ".codex/sessions", ".pi/agent/sessions"] {
+            fs::create_dir_all(home.path().join(store)).expect("a store folder");
+        }
         let key = SecretKey::generate();
         let key_file = dir.path().join("key");
         fs::write(&key_file, key.to_bytes()).expect("the key is written");
@@ -247,6 +267,19 @@ impl Node {
         Self::run(dir, home, key.public()).await
     }
 
+    /// Stops the process; `Stopped::start` runs it again on the same folder.
+    async fn stop(self) -> Stopped {
+        let Self {
+            mut _child,
+            id,
+            dir,
+            home,
+            ..
+        } = self;
+        _child.kill().await.expect("the node stops");
+        Stopped { dir, home, id }
+    }
+
     /// Stops the process and starts it again on the same folder.
     async fn restart(self) -> Self {
         let Self {
@@ -269,6 +302,13 @@ impl Node {
             .env("XDG_CONFIG_HOME", home.path().join("config"))
             .env("XDG_DATA_HOME", home.path().join("data"))
             .env("BEEP_NODE_NO_RELAY", "1")
+            // The agents' session stores stay in the fake home.
+            .env("CLAUDE_CONFIG_DIR", home.path().join(".claude"))
+            .env("CODEX_HOME", home.path().join(".codex"))
+            .env(
+                "PI_CODING_AGENT_SESSION_DIR",
+                home.path().join(".pi/agent/sessions"),
+            )
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -309,7 +349,10 @@ impl Node {
             panic!("the node ended before logging {text:?}");
         })
         .await
-        .unwrap_or_else(|_| panic!("the node did not log {text:?} in time"))
+        .unwrap_or_else(|_| {
+            let tail: Vec<_> = self.log.iter().rev().take(40).rev().collect();
+            panic!("the node did not log {text:?} in time; it logged {tail:#?}")
+        })
     }
 
     /// `beep-node mesh join -`, with the ticket on stdin.
@@ -1128,11 +1171,15 @@ async fn start_refusal(conn: &Link, cwd: &Path) -> Option<String> {
 }
 
 fn adapter(log: &Path) -> (String, Vec<String>) {
+    adapter_of(ADAPTER, log)
+}
+
+fn adapter_of(script: &str, log: &Path) -> (String, Vec<String>) {
     (
         "sh".to_owned(),
         vec![
             "-c".to_owned(),
-            ADAPTER.to_owned(),
+            script.to_owned(),
             "fake-adapter".to_owned(),
             log.display().to_string(),
         ],
@@ -1294,6 +1341,12 @@ async fn synced_pair() -> Pair {
 
 /// `a` runs the fake coding agent when `agent` is set.
 async fn synced_pair_with_agent(agent: bool) -> Pair {
+    synced_pair_with(agent.then_some(ADAPTER), None).await
+}
+
+/// `a` and `b` run a fake coding agent, the script given; each logs to
+/// `sent.jsonl` and `sent-b.jsonl` in `work`.
+async fn synced_pair_with(agent: Option<&str>, agent_b: Option<&str>) -> Pair {
     let work = TempDir::new().expect("a temp folder");
     let desktop = desktop(None).await;
     let roots = [
@@ -1304,13 +1357,14 @@ async fn synced_pair_with_agent(agent: bool) -> Pair {
     let mut a = Node::start(Config {
         name: Some("box-a"),
         files: vec![roots[0].path().to_owned()],
-        agent: agent.then(|| adapter(&sent)),
+        agent: agent.map(|script| adapter_of(script, &sent)),
         ..Config::default()
     })
     .await;
     let mut b = Node::start(Config {
         name: Some("box-b"),
         files: vec![roots[1].path().to_owned()],
+        agent: agent_b.map(|script| adapter_of(script, &work.path().join("sent-b.jsonl"))),
         ..Config::default()
     })
     .await;
@@ -1870,4 +1924,323 @@ async fn a_sync_spec_that_stops_reading_keeps_its_last_good_value() {
     pair.a.logged("ignored sync/proj in the mesh").await;
     let conn = pair.desktop.reach(pair.a.id).await;
     assert_eq!(sync_names(&conn).await, ["proj"]);
+}
+
+/// A coding agent in shell that can load sessions and logs each line it is
+/// sent to `$1`.
+const MOVE_ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+while read -r line; do
+  printf '%s\n' "$line" >> "$1"
+  case "$line" in
+    *'"initialize"'*) reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}' ;;
+    *'"session/new"'*) reply '{"sessionId":"s"}' ;;
+    *'"session/load"'*) reply '{}' ;;
+    *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;
+    *'"method"'*'"id"'*|*'"id"'*'"method"'*) reply '{}' ;;
+  esac
+done
+"#;
+
+const MOVED_ID: &str = "s";
+const ROLLOUT: &str = "rollout-2026-11-04T09-30-00-s.jsonl";
+
+/// Codex's rollout for session `s` as it lies on a node that ran it in `folder`.
+fn rollout_on(node: &Node, folder: &Path) -> PathBuf {
+    let path = node
+        .home
+        .path()
+        .join(".codex/sessions/2026/11/04")
+        .join(ROLLOUT);
+    fs::create_dir_all(path.parent().expect("a folder")).expect("the day's folder");
+    let cwd = folder.display().to_string();
+    fs::write(
+        &path,
+        format!(
+            "{}\n{}\n{}\n",
+            json!({"timestamp":"2026-11-04T09:30:00.000Z","type":"session_meta","payload":{"id":MOVED_ID,"cwd":cwd,"runtime_workspace_roots":[cwd]}}),
+            json!({"timestamp":"2026-11-04T09:30:01.000Z","type":"turn_context","payload":{"cwd":cwd,"model":"m"}}),
+            json!({"timestamp":"2026-11-04T09:30:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":format!("look at {cwd}/main.rs")}]}}),
+        ),
+    )
+    .expect("a rollout");
+    path
+}
+
+/// What the desktop writes to move session `s` from `a` to `b`.
+async fn ask_to_move(desktop: &Member, from: EndpointId, to: EndpointId, stop: bool) {
+    let record = SessionMove {
+        agent: "codex".into(),
+        id: MOVED_ID.to_owned(),
+        from,
+        to,
+        project: "proj".to_owned(),
+        path: String::new(),
+        mode: None,
+        stop,
+        at: 1_793_696_400_000,
+    };
+    desktop
+        .mesh
+        .set(
+            Key::SessionMove(MOVED_ID.to_owned()),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+}
+
+/// How session `s`'s move stands, as the node it moves to says.
+async fn progress_on(conn: &Link) -> Option<beep_proto::node::agent::MoveProgress> {
+    let mut asked = ready(conn, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::MoveProgress {
+            session: MOVED_ID.to_owned(),
+        })
+        .await
+        .expect("the request is sent");
+    match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("the node answered in time")
+        .expect("the answer reads")
+    {
+        Some(SessionsReply::Moving { progress }) => progress,
+        other => panic!("not a move answer: {other:?}"),
+    }
+}
+
+/// Waits for the fake agent to have been sent a line containing `text`.
+async fn line_sent(log: &Path, text: &str) -> String {
+    timeout(LIMIT, async {
+        loop {
+            let read = fs::read_to_string(log).unwrap_or_default();
+            if let Some(line) = read.lines().find(|line| line.contains(text)) {
+                return line.to_owned();
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the agent was never sent {text:?}"))
+}
+
+/// Waits until the move of `s` stands where `done` says.
+async fn until_progress(
+    conn: &Link,
+    what: &str,
+    done: impl Fn(&beep_proto::node::agent::MoveProgress) -> bool,
+) {
+    timeout(LIMIT, async {
+        loop {
+            if progress_on(conn).await.is_some_and(|p| done(&p)) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the move never reached: {what}"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_running_session_moves_to_the_other_machine_with_its_conversation_and_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    fs::write(pair.a_folder.join("main.rs"), "fn main() {}\n").expect("a file");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The session runs on `a`, in its checkout.
+    let mut agent = ready(&conn_a, "codex/1").await;
+    agent
+        .tx
+        .send(&AgentRequest::Start {
+            cwd: Some(pair.a_folder.display().to_string()),
+            prompt: "go".to_owned(),
+            model: None,
+            effort: None,
+            checkout: None,
+        })
+        .await
+        .expect("the start is sent");
+    timeout(LIMIT, async {
+        loop {
+            match agent.rx.recv::<AgentEvent>().await.expect("an event reads") {
+                Some(AgentEvent::TurnDone { .. }) => return,
+                Some(AgentEvent::Ended { reason }) => panic!("the session ended: {reason}"),
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("the turn finished in time");
+    let source_rollout = rollout_on(&pair.a, &pair.a_folder);
+
+    ask_to_move(&pair.desktop, pair.a.id, pair.b.id, false).await;
+    pair.a
+        .logged("the move of session s is done on this side")
+        .await;
+    pair.b.logged("took over codex session s").await;
+
+    // The target stores the conversation for its own checkout, privately,
+    // with every other byte as the source had it.
+    let b_rollout = pair
+        .b
+        .home
+        .path()
+        .join(".codex/sessions/2026/11/04")
+        .join(ROLLOUT);
+    let moved = fs::read_to_string(&b_rollout).expect("the transcript is in the store");
+    let (from, to) = (
+        pair.a_folder.display().to_string(),
+        pair.b_folder.display().to_string(),
+    );
+    let original = fs::read_to_string(&source_rollout).expect("the source keeps its own");
+    assert!(original.contains(&from) && !original.contains(&to));
+    assert!(moved.contains(&to));
+    assert_eq!(
+        moved.lines().last(),
+        original.lines().last(),
+        "a line with no folder field is as it was"
+    );
+    assert!(
+        !moved.lines().take(2).any(|line| line.contains(&from)),
+        "{moved}"
+    );
+    assert_eq!(
+        fs::metadata(&b_rollout)
+            .expect("it exists")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    // The files had arrived before the session resumed.
+    assert_eq!(
+        fs::read_to_string(pair.b_folder.join("main.rs")).expect("synced"),
+        "fn main() {}\n"
+    );
+    // It resumed the session in its own checkout.
+    let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
+    assert!(
+        load.contains(r#""sessionId":"s""#) && load.contains(&to),
+        "{load}"
+    );
+    assert!(!load.contains(&from), "{load}");
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+    // The source ended it, and keeps the transcript.
+    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().all(|s| s.state.status == Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+    assert!(source_rollout.exists());
+    // The first prompt tells the agent the session moved and from where.
+    let mut follow = ready(&conn_b, "codex/1").await;
+    follow
+        .tx
+        .send(&AgentRequest::Attach {
+            session: MOVED_ID.to_owned(),
+        })
+        .await
+        .expect("the attach is sent");
+    follow
+        .tx
+        .send(&AgentRequest::Prompt {
+            text: "continue".to_owned(),
+        })
+        .await
+        .expect("the prompt is sent");
+    timeout(LIMIT, async {
+        loop {
+            if let Some(AgentEvent::TurnDone { .. }) = follow
+                .rx
+                .recv::<AgentEvent>()
+                .await
+                .expect("an event reads")
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the turn finished in time");
+    let log = fs::read_to_string(pair.work.path().join("sent-b.jsonl")).expect("the agent's log");
+    let prompt = log
+        .lines()
+        .find(|line| line.contains("session/prompt") && line.contains("continue"))
+        .expect("the prompt reached the agent");
+    assert!(
+        prompt.contains("moved from another machine") && prompt.contains(&from),
+        "{prompt}"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_move_waits_for_a_source_that_is_offline_and_goes_on_when_it_returns() {
+    let Pair {
+        desktop,
+        a,
+        mut b,
+        a_folder,
+        b_folder,
+        work,
+        roots: _roots,
+    } = synced_pair_with(None, Some(MOVE_ADAPTER)).await;
+    fs::write(a_folder.join("main.rs"), "fn main() {}\n").expect("a file");
+    rollout_on(&a, &a_folder);
+    has_text(&b_folder.join("main.rs"), "fn main() {}\n").await;
+    let conn_b = desktop.reach(b.id).await;
+    let (a_id, b_id) = (a.id, b.id);
+    let down = a.stop().await;
+
+    ask_to_move(&desktop, a_id, b_id, false).await;
+    until_progress(&conn_b, "waiting for the source", |p| {
+        p.phase == MovePhase::Waiting && p.source_away
+    })
+    .await;
+    let b_rollout = b
+        .home
+        .path()
+        .join(".codex/sessions/2026/11/04")
+        .join(ROLLOUT);
+    assert!(
+        !b_rollout.exists(),
+        "nothing is stored before the source answers"
+    );
+    let log = work.path().join("sent-b.jsonl");
+    assert!(
+        !fs::read_to_string(&log).is_ok_and(|log| log.contains("session/load")),
+        "the session did not start on a guess"
+    );
+
+    let _a = down.start().await;
+    b.logged("took over codex session s").await;
+    let moved = fs::read_to_string(&b_rollout).expect("the transcript is in the store");
+    let header: Vec<_> = moved.lines().take(2).collect();
+    assert!(
+        header
+            .iter()
+            .all(|line| line.contains(&b_folder.display().to_string()))
+    );
+    assert!(
+        !header
+            .iter()
+            .any(|line| line.contains(&a_folder.display().to_string()))
+    );
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
 }

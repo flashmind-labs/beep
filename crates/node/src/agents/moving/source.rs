@@ -17,6 +17,7 @@ pub(super) async fn run(env: &Env, record: &SessionMove) -> Result<()> {
     if env.state.load(&record.id).is_some_and(|saved| done(&saved)) {
         return Ok(());
     }
+    env.agents.until_reopened().await;
     if let Some(session) = env
         .agents
         .get(&record.id)

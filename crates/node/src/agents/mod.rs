@@ -158,6 +158,9 @@ pub struct Agents {
     /// Set once the server sent the user's agent settings, which resumed
     /// sessions start with.
     settled: watch::Sender<bool>,
+    /// Set once the sessions open before the last stop have been resumed, or
+    /// there were none.
+    reopened: watch::Sender<bool>,
     /// The folders sessions started outside Beep worked in, from the
     /// agents' logs, with when they were read; one read at a time.
     sighted: AsyncMutex<Option<Sighted>>,
@@ -192,6 +195,7 @@ impl Agents {
             stopping: Arc::default(),
             holding: watch::Sender::new(false),
             settled: watch::Sender::new(false),
+            reopened: watch::Sender::new(false),
             sighted: AsyncMutex::default(),
             on_disk: AsyncMutex::default(),
         }
