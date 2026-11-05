@@ -61,6 +61,8 @@ pub(crate) use acp::{Line, LineReader};
 pub(crate) use images::{Picture, block_picture};
 pub use kinds::{AgentKind, detect};
 pub(crate) use live::cut;
+pub(crate) use moving::SESSIONS_ALPN;
+pub use moving::SessionsAlpn;
 pub use requests::serve_sessions;
 pub(crate) use restart::OpenSession;
 pub(crate) use session::{Answered, Asking};
