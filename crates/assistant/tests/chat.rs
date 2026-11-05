@@ -181,6 +181,10 @@ async fn no_ask(_: String) -> bool {
     false
 }
 
+async fn yes(_: String) -> bool {
+    true
+}
+
 async fn no_work(_: WorkQuery) -> Result<String, String> {
     Err("no work in this test".into())
 }
@@ -777,8 +781,8 @@ fn fake_mcp_server() {
                  "annotations": {"readOnlyHint": true}},
                 {"name": "write", "description": "Writes a note.",
                  "inputSchema": {"type": "object", "properties": {"note": {"type": "string"}}}},
-                {"name": "boom", "annotations": {"readOnlyHint": true}},
-                {"name": "secret", "annotations": {"readOnlyHint": true}},
+                {"name": "boom", "inputSchema": {"type": "object"}},
+                {"name": "secret", "inputSchema": {"type": "object"}},
             ]}),
             Some("tools/call") => {
                 let name = message["params"]["name"].as_str().unwrap_or_default();
@@ -856,7 +860,7 @@ fn calls_logged(log: &std::path::Path) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_read_only_mcp_tool_runs_unasked_and_its_result_closes_the_web() {
+async fn an_mcp_tool_result_is_untrusted_and_closes_the_web() {
     let firecrawl = fake(vec![]).await;
     let openrouter = fake(vec![
         sse(&[call(
@@ -876,15 +880,13 @@ async fn a_read_only_mcp_tool_runs_unasked_and_its_result_closes_the_web() {
     with_mcp(&mut setup, &hub, vec![fake_stdio("files", &log)]);
     let mut chat = new_chat();
     let (tx, mut rx) = mpsc::channel(64);
-    let outcome = run_turn(&setup, &mut chat, "echo hi".into(), &tx, no_work, no_ask)
+    let outcome = run_turn(&setup, &mut chat, "echo hi".into(), &tx, no_work, yes)
         .await
         .unwrap();
     assert_eq!(outcome, Outcome::Done);
     let events = drain(&mut rx);
-    assert!(
-        !events.iter().any(|e| matches!(e, Event::Approval(_))),
-        "a read-only tool does not ask"
-    );
+    // The registry does not pass on `readOnlyHint`, so even a read-only tool asks.
+    assert!(events.iter().any(|e| matches!(e, Event::Approval(_))));
     assert!(events.contains(&Event::ToolStarted {
         call_id: "m1".into(),
         name: "mcp_files_echo".into(),
@@ -1056,7 +1058,7 @@ async fn a_server_that_will_not_start_shows_its_error_and_the_chat_goes_on() {
     let McpStatus::Failed { error } = hub.status("ghost") else {
         panic!("not failed: {:?}", hub.status("ghost"))
     };
-    assert!(error.starts_with("could not start"), "{error}");
+    assert!(error.starts_with("failed to spawn"), "{error}");
     let seen = openrouter.seen.lock().unwrap();
     assert!(
         !tool_names(&seen[0].body)
@@ -1078,7 +1080,7 @@ async fn environment_values_reach_the_server_and_nothing_else_does() {
     let mut setup = setup(dir.path(), &openrouter, None);
     with_mcp(&mut setup, &hub, vec![fake_stdio("files", &log)]);
     let (tx, _rx) = mpsc::channel(64);
-    run_turn(&setup, &mut new_chat(), "go".into(), &tx, no_work, no_ask)
+    run_turn(&setup, &mut new_chat(), "go".into(), &tx, no_work, yes)
         .await
         .unwrap();
     {
@@ -1132,6 +1134,14 @@ async fn fake_http_mcp() -> (Url, Arc<Mutex<Vec<String>>>) {
                     let n = socket.read(&mut buf).await.unwrap();
                     body.extend_from_slice(&buf[..n]);
                 }
+                // The client may also open a stream with GET or end the session with DELETE: not
+                // supported here.
+                if !head.starts_with("POST") {
+                    let refuse = "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    socket.write_all(refuse.as_bytes()).await.unwrap();
+                    socket.shutdown().await.ok();
+                    return;
+                }
                 let message: Value = serde_json::from_slice(&body).unwrap();
                 let method = message["method"].as_str().unwrap_or_default().to_owned();
                 if method != "initialize" {
@@ -1155,11 +1165,11 @@ async fn fake_http_mcp() -> (Url, Arc<Mutex<Vec<String>>>) {
                     };
                     match method.as_str() {
                         "initialize" => json_reply(
-                            json!({"protocolVersion": "2025-06-18", "capabilities": {}}),
+                            json!({"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "fake", "version": "0"}}),
                             "Mcp-Session-Id: sess-1\r\n",
                         ),
                         "tools/list" => json_reply(
-                            json!({"tools": [{"name": "lookup", "annotations": {"readOnlyHint": true}}]}),
+                            json!({"tools": [{"name": "lookup", "inputSchema": {"type": "object"}}]}),
                             "",
                         ),
                         _ => {
@@ -1204,7 +1214,7 @@ async fn an_http_server_gets_its_token_and_session_and_may_answer_in_events() {
     .unwrap();
     with_mcp(&mut setup, &hub, vec![notes]);
     let (tx, _rx) = mpsc::channel(64);
-    let outcome = run_turn(&setup, &mut new_chat(), "look".into(), &tx, no_work, no_ask)
+    let outcome = run_turn(&setup, &mut new_chat(), "look".into(), &tx, no_work, yes)
         .await
         .unwrap();
     assert_eq!(outcome, Outcome::Done);

@@ -4,11 +4,8 @@
 
 mod call;
 mod config;
-mod conn;
 mod error;
-mod http;
 mod hub;
-mod stdio;
 
 pub(crate) use call::run;
 pub use call::{Approval, ApprovalField};
@@ -17,5 +14,3 @@ pub use config::{
 };
 pub use error::McpError;
 pub use hub::{McpHub, McpStatus, McpTool};
-
-use conn::answer;

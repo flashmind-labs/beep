@@ -1,20 +1,32 @@
-//! The one owner of the MCP connections. A server is started the first time a chat needs it, kept
-//! for later chats, and ended when it is removed or the app quits. A server that fails to start
-//! leaves an error on its row and gives the chat no tools; it never fails the chat.
+//! The one owner of the MCP connections, on top of flashmind's `McpRegistry` (which speaks the
+//! protocol over stdio and HTTP). A server is started the first time a chat needs it, kept for
+//! later chats, and ended when it is removed or the app quits. A server that fails to start leaves
+//! an error on its row and gives the chat no tools; it never fails the chat.
+//!
+//! The registry's own permission paths (`skips_permissions`, restricted tools) belong to its tool
+//! wrappers, which this does not use: `call_tool` runs what it is told, and the chat's approval
+//! card decides. The server list stays in our file (`config`), so the registry gets an in-memory
+//! provider that stores nothing.
 
 use super::{
     McpError,
-    config::McpServer,
-    conn::{Called, Conn},
+    config::{McpServer, Transport},
 };
-use crate::AsyncMutex;
+use anyhow::Result;
+use async_trait::async_trait;
+use flashmind_tools::mcp::{
+    McpConfigProvider, McpContent, McpRegistry, McpServerConfig, McpToolCallResult, McpToolDef,
+};
 use futures::future::join_all;
+use secrecy::ExposeSecret;
 use serde::Serialize;
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Mutex, PoisonError},
+    time::Duration,
 };
+use tokio::time::timeout;
 
 /// Tools offered to the model over all servers.
 const MAX_TOOLS: usize = 64;
@@ -22,8 +34,15 @@ const MAX_TOOLS: usize = 64;
 const DESCRIPTION_CHARS: usize = 400;
 /// Longest name an OpenAI-style tool may have.
 const MAX_NAME: usize = 64;
+/// Starting a server and listing its tools.
+const OPEN_LIMIT: Duration = Duration::from_secs(30);
+/// One tool call.
+const CALL_LIMIT: Duration = Duration::from_secs(60);
+/// Largest input schema passed on to the model, serialized.
+const MAX_SCHEMA: usize = 16 * 1024;
 
-/// A tool of a server, as it is offered to the model.
+/// A tool of a server, as it is offered to the model. The registry does not pass on a tool's
+/// `readOnlyHint`, so every tool asks first.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpTool {
     /// What the model calls it: `mcp_<server>_<tool>`.
@@ -33,8 +52,6 @@ pub struct McpTool {
     pub tool: String,
     pub description: String,
     pub schema: Value,
-    /// The server says it only reads: it runs without asking.
-    pub read_only: bool,
 }
 
 /// How a listed server is doing, as its row shows it.
@@ -51,15 +68,59 @@ pub enum McpStatus {
     },
 }
 
-struct Slot {
-    server: McpServer,
-    conn: AsyncMutex<Option<Arc<Conn>>>,
+/// What a tool call came to.
+pub(crate) struct Called {
+    pub text: String,
+    pub ok: bool,
 }
 
-#[derive(Default)]
+/// The registry wants somewhere to save configs and OAuth credentials. The list is ours and
+/// there is no OAuth here, so this keeps nothing.
+struct NoStore;
+
+#[async_trait]
+impl McpConfigProvider for NoStore {
+    async fn list_configs(&self) -> Result<Vec<McpServerConfig>> {
+        Ok(Vec::new())
+    }
+
+    async fn save_config(&self, _: &McpServerConfig) -> Result<()> {
+        Ok(())
+    }
+
+    async fn delete_config(&self, _: &str) -> Result<()> {
+        Ok(())
+    }
+
+    async fn save_credentials(&self, _: &str, _: &Value) -> Result<()> {
+        Ok(())
+    }
+
+    async fn load_credentials(&self, _: &str) -> Result<Option<Value>> {
+        Ok(None)
+    }
+}
+
 pub struct McpHub {
-    slots: AsyncMutex<HashMap<String, Arc<Slot>>>,
+    registry: McpRegistry,
+    /// The servers the registry knows, by name.
+    added: Mutex<HashSet<String>>,
     status: Mutex<HashMap<String, McpStatus>>,
+}
+
+impl Default for McpHub {
+    fn default() -> Self {
+        // The registry's HTTP client takes no TLS provider of its own and panics without one
+        // installed. One already installed by the app is kept: this then fails, which is fine.
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .ok();
+        Self {
+            registry: McpRegistry::new(std::sync::Arc::new(NoStore), None),
+            added: Mutex::default(),
+            status: Mutex::default(),
+        }
+    }
 }
 
 fn clean(part: &str) -> String {
@@ -82,6 +143,52 @@ fn wire_name(server: &str, tool: &str) -> String {
     name
 }
 
+/// The registry's configuration for `server`. It holds secrets: never log it.
+fn registry_config(server: &McpServer) -> McpServerConfig {
+    let base = McpServerConfig {
+        name: server.name.clone(),
+        ..McpServerConfig::default()
+    };
+    match &server.transport {
+        Transport::Stdio { command, args, env } => McpServerConfig {
+            command: Some(command.clone()),
+            args: args.clone(),
+            env: env
+                .iter()
+                .map(|v| (v.name.clone(), v.value.expose_secret().to_owned()))
+                .collect(),
+            ..base
+        },
+        Transport::Http { url, token } => McpServerConfig {
+            url: Some(url.to_string()),
+            bearer_token: token.as_ref().map(|t| t.expose_secret().to_owned()),
+            ..base
+        },
+    }
+}
+
+/// An error's text with the server's address taken out: it may carry a key in its query.
+fn failure(server: &McpServer, e: &anyhow::Error) -> McpError {
+    let mut text = format!("{e:#}");
+    if let Transport::Http { url, .. } = &server.transport {
+        text = text.replace(url.as_str(), &server.summary().detail);
+    }
+    McpError::Failed(text)
+}
+
+/// The text of a call result; a file is named, not shown.
+fn result_text(result: &McpToolCallResult) -> String {
+    let parts: Vec<&str> = result
+        .content
+        .iter()
+        .map(|content| match content {
+            McpContent::Blob(_) => "[file not shown]",
+            McpContent::Text(text) | McpContent::Other(text) => text.as_str(),
+        })
+        .collect();
+    parts.join("\n")
+}
+
 impl McpHub {
     fn set_status(&self, name: &str, status: McpStatus) {
         let mut all = self.status.lock().unwrap_or_else(PoisonError::into_inner);
@@ -94,105 +201,87 @@ impl McpHub {
         all.get(name).cloned().unwrap_or(McpStatus::Idle)
     }
 
-    /// The slot of `server`, made on first use.
-    async fn slot(&self, server: &McpServer) -> Arc<Slot> {
-        let mut slots = self.slots.lock().await;
-        slots
-            .entry(server.name.clone())
-            .or_insert_with(|| {
-                Arc::new(Slot {
-                    server: server.clone(),
-                    conn: AsyncMutex::new(None),
-                })
-            })
-            .clone()
-    }
-
-    /// The open connection of `slot`, started now if there is none.
-    async fn connected(&self, slot: &Slot) -> Result<Arc<Conn>, McpError> {
-        let mut held = slot.conn.lock().await;
-        if let Some(conn) = held.as_ref() {
-            return Ok(conn.clone());
+    /// The tools of `server`, starting it if it is not running.
+    async fn list(&self, server: &McpServer) -> Result<Vec<McpToolDef>, McpError> {
+        let first = self
+            .added
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(server.name.clone());
+        if first {
+            let added = self.registry.add(registry_config(server)).await;
+            added.map_err(|e| failure(server, &e))?;
         }
-        match Conn::open(&slot.server).await {
-            Ok(conn) => {
-                self.set_status(
-                    &slot.server.name,
-                    McpStatus::Ready {
-                        tools: conn.tools.len(),
-                    },
-                );
-                let conn = Arc::new(conn);
-                *held = Some(conn.clone());
-                Ok(conn)
-            }
-            Err(e) => {
-                self.set_status(
-                    &slot.server.name,
-                    McpStatus::Failed {
-                        error: e.to_string(),
-                    },
-                );
-                Err(e)
+        let listed = timeout(OPEN_LIMIT, self.registry.list_tools(&server.name))
+            .await
+            .map_err(|_| McpError::Timeout)?;
+        match listed {
+            Ok(tools) => Ok(tools),
+            Err(_) => {
+                // A connection that went stale: one fresh start before giving up.
+                let again = timeout(OPEN_LIMIT, self.registry.reconnect(&server.name))
+                    .await
+                    .map_err(|_| McpError::Timeout)?;
+                again.map_err(|e| failure(server, &e))
             }
         }
     }
 
     /// The tools of `servers`, starting the ones not running. A server that fails adds nothing.
     pub async fn tools(&self, servers: &[McpServer]) -> Vec<McpTool> {
-        let opened = join_all(servers.iter().map(|server| async move {
-            let slot = self.slot(server).await;
-            self.connected(&slot)
-                .await
-                .ok()
-                .map(|conn| (server.name.clone(), conn))
+        let listed = join_all(servers.iter().map(|server| async move {
+            let result = self.list(server).await;
+            match &result {
+                Ok(defs) => self.set_status(&server.name, McpStatus::Ready { tools: defs.len() }),
+                Err(e) => self.set_status(
+                    &server.name,
+                    McpStatus::Failed {
+                        error: e.to_string(),
+                    },
+                ),
+            }
+            (server.name.clone(), result.unwrap_or_default())
         }))
         .await;
         let mut seen = HashSet::new();
         let mut out = Vec::new();
-        for (server, conn) in opened.into_iter().flatten() {
-            for raw in &conn.tools {
-                let name = wire_name(&server, &raw.name);
+        for (server, defs) in listed {
+            for def in defs {
+                let name = wire_name(&server, &def.name);
                 if out.len() >= MAX_TOOLS || !seen.insert(name.clone()) {
                     continue;
                 }
+                let schema = Some(def.input_schema)
+                    .filter(|s| s.is_object() && s.to_string().len() <= MAX_SCHEMA)
+                    .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}));
                 out.push(McpTool {
                     name,
                     server: server.clone(),
-                    tool: raw.name.clone(),
-                    description: raw.description.chars().take(DESCRIPTION_CHARS).collect(),
-                    schema: raw.schema.clone(),
-                    read_only: raw.read_only,
+                    tool: def.name,
+                    description: def
+                        .description
+                        .unwrap_or_default()
+                        .chars()
+                        .take(DESCRIPTION_CHARS)
+                        .collect(),
+                    schema,
                 });
             }
         }
         out
     }
 
-    /// Calls `tool`. A connection that has closed is dropped, so the next chat starts the server
-    /// again.
+    /// Calls `tool`. The registry starts the server again once if its connection went stale.
     pub(super) async fn call(&self, tool: &McpTool, arguments: Value) -> Result<Called, McpError> {
-        let slot = {
-            let slots = self.slots.lock().await;
-            slots.get(&tool.server).cloned().ok_or(McpError::Closed)?
-        };
-        let conn = self.connected(&slot).await?;
-        let called = conn.call(&tool.tool, arguments).await;
-        if matches!(called, Err(McpError::Closed)) {
-            let mut held = slot.conn.lock().await;
-            // Only the connection that failed: another call may have started a new one.
-            if held.as_ref().is_some_and(|now| Arc::ptr_eq(now, &conn)) {
-                conn.close();
-                *held = None;
-            }
-            self.set_status(
-                &tool.server,
-                McpStatus::Failed {
-                    error: McpError::Closed.to_string(),
-                },
-            );
-        }
-        called
+        let call = self.registry.call_tool(&tool.server, &tool.tool, arguments);
+        let result = timeout(CALL_LIMIT, call)
+            .await
+            .map_err(|_| McpError::Timeout)?
+            .map_err(|e| McpError::Failed(format!("{e:#}")))?;
+        Ok(Called {
+            text: result_text(&result),
+            ok: !result.is_error,
+        })
     }
 
     /// Starts `server` again and says how it went: the Check button.
@@ -204,11 +293,12 @@ impl McpHub {
 
     /// Ends `name`'s process and drops what is known of it, as it is removed or checked again.
     pub async fn forget(&self, name: &str) {
-        let slot = self.slots.lock().await.remove(name);
-        if let Some(slot) = slot
-            && let Some(conn) = slot.conn.lock().await.take()
-        {
-            conn.close();
+        self.added
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(name);
+        if let Err(e) = self.registry.remove(name).await {
+            log::warn!("removing MCP server {name}: {e}");
         }
         self.status
             .lock()
@@ -218,21 +308,7 @@ impl McpHub {
 
     /// Ends every process, as the app quits.
     pub async fn shutdown(&self) {
-        let slots: Vec<Arc<Slot>> = self
-            .slots
-            .lock()
-            .await
-            .drain()
-            .map(|(_, slot)| slot)
-            .collect();
-        for slot in slots {
-            // One still starting is a local of the task that starts it, which ends with the app.
-            if let Ok(mut held) = slot.conn.try_lock()
-                && let Some(conn) = held.take()
-            {
-                conn.close();
-            }
-        }
+        self.registry.shutdown_all().await;
     }
 }
 
