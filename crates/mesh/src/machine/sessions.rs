@@ -8,8 +8,9 @@ use beep_proto::{
     CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
     node::{
         agent::{
-            DiffAsk, Entry, ExternalSession, LiveStatus, ModelList, SESSIONS_PROTOCOL,
-            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer, Worktree,
+            DiffAsk, Entry, ExternalSession, LiveStatus, ModelList, MoveProgress,
+            SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer,
+            Worktree,
         },
         harness::HarnessReport,
     },
@@ -354,6 +355,43 @@ pub async fn custom_agents<S: Sessions + ?Sized>(
         SessionsReply::CustomAgents { agents } => Ok(NodeWork::Done(agents)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
+    }
+}
+
+/// What a node says of a session's move to it.
+pub enum MoveState {
+    Known(MoveProgress),
+    /// The node knows of no such move.
+    Unknown,
+    /// The node is from before moves: it cannot take a session.
+    NeedsUpdate,
+}
+
+/// How the move of `session` to the node stands, as the node says.
+pub async fn move_progress<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+) -> Result<MoveState, MeshError> {
+    let request = SessionsRequest::MoveProgress {
+        session: session.to_owned(),
+    };
+    match node.sessions(request, READ_TIMEOUT).await {
+        Ok(SessionsReply::Moving {
+            progress: Some(progress),
+        }) => Ok(MoveState::Known(progress)),
+        Ok(SessionsReply::Moving { progress: None }) => Ok(MoveState::Unknown),
+        // A node from before moves says it does not serve them...
+        Ok(SessionsReply::Error { message }) if message.starts_with("this node does not serve") => {
+            Ok(MoveState::NeedsUpdate)
+        }
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        // ...or closes the stream.
+        Err(MeshError::Link(e)) => {
+            tracing::debug!("node did not answer a move request; error={e:#}");
+            Ok(MoveState::NeedsUpdate)
+        }
+        Err(e) => Err(e),
     }
 }
 

@@ -1,8 +1,8 @@
 //! The `agents/1` protocol: one request, one reply, about all the sessions.
 
 use super::{
-    Activity, Entry, ExternalSession, LiveStatus, ModelList, Question, SessionFolder, SessionInfo,
-    Steer, StopReason,
+    Activity, Entry, ExternalSession, LiveStatus, ModelList, MoveProgress, Question, SessionFolder,
+    SessionInfo, Steer, StopReason,
 };
 use serde::{Deserialize, Serialize};
 
@@ -176,6 +176,12 @@ pub enum SessionsRequest {
     Worktrees {
         folder: String,
     },
+    /// How the move of session `session` to this node stands, as the target
+    /// says. Answered with `Moving`, or `Error`. A node from before it
+    /// answers `Error` or closes the stream: it cannot take a session.
+    MoveProgress {
+        session: String,
+    },
 }
 
 impl SessionsRequest {
@@ -199,6 +205,7 @@ impl SessionsRequest {
             | Self::CustomAgents { .. }
             | Self::Diff { .. }
             | Self::Worktrees { .. }
+            | Self::MoveProgress { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -330,6 +337,11 @@ pub enum SessionsReply {
     Worktrees {
         worktrees: Vec<Worktree>,
     },
+    /// The answer to `MoveProgress`: `None` when no move of that session
+    /// to this node is known.
+    Moving {
+        progress: Option<MoveProgress>,
+    },
 }
 
 /// One worktree of a repository, as `SessionsRequest::Worktrees` lists it.
@@ -381,6 +393,57 @@ pub enum AlertKind {
 mod tests {
     use super::super::*;
     use super::*;
+
+    /// What a node from before moves reads on `agents/1`.
+    #[derive(Debug, PartialEq, Deserialize)]
+    enum BeforeMoves {
+        List {},
+    }
+
+    #[test]
+    fn the_move_request_is_new_and_a_node_before_it_refuses_it() {
+        let asked = SessionsRequest::MoveProgress {
+            session: "s1".into(),
+        };
+        let bytes = rmp_serde::to_vec(&asked).expect("encodes");
+        // Fixture: a map of one entry, the variant's name, its fields in a
+        // list. It never changes once released.
+        let mut fixture = vec![0x81, 0xac];
+        fixture.extend_from_slice(b"MoveProgress");
+        fixture.extend_from_slice(&[0x91, 0xa2, b's', b'1']);
+        assert_eq!(bytes, fixture);
+        assert_eq!(
+            crate::lenient::from_slice::<SessionsRequest>(&fixture).expect("decodes"),
+            asked
+        );
+        // The older node cannot read it: its stream closes.
+        assert!(rmp_serde::from_slice::<BeforeMoves>(&bytes).is_err());
+        // What it did read still reads.
+        let list = rmp_serde::to_vec(&SessionsRequest::List {}).expect("encodes");
+        assert_eq!(
+            rmp_serde::from_slice::<BeforeMoves>(&list).expect("decodes"),
+            BeforeMoves::List {}
+        );
+    }
+
+    #[test]
+    fn the_move_reply_round_trips() {
+        let reply = SessionsReply::Moving {
+            progress: Some(MoveProgress {
+                phase: MovePhase::Files,
+                copied: 6,
+                total: 6,
+                files_left: 12,
+                source_away: false,
+                reason: None,
+            }),
+        };
+        let bytes = rmp_serde::to_vec(&reply).expect("encodes");
+        assert_eq!(
+            crate::lenient::from_slice::<SessionsReply>(&bytes).expect("decodes"),
+            reply
+        );
+    }
 
     #[test]
     fn only_one_shot_reads_may_be_asked_again() {

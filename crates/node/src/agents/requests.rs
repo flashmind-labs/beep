@@ -263,6 +263,9 @@ pub async fn serve_sessions(
                 message: format!("this node has no agent {agent}"),
             },
         },
+        SessionsRequest::MoveProgress { session } => SessionsReply::Moving {
+            progress: agents.moves.progress(&session),
+        },
         SessionsRequest::Harnesses { refresh } => SessionsReply::Harnesses {
             report: agents.harnesses(refresh).await,
         },
