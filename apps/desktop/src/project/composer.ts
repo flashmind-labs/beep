@@ -239,6 +239,16 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
   projectComp.input.focus();
 }
 
+/// Cmd+N: the bar for project `name`, on `machine` when it has a checkout
+/// there, with its field focused. Nothing starts.
+export function focusBar(name: string, machine: string | null) {
+  if (pc.project !== name) drawProjectComp(name);
+  if (machine && barProject()?.places.some(p => p.machine === machine)) pc.machine = machine;
+  redrawProjects();
+  projectComp.form.scrollIntoView({ block: "nearest" });
+  projectComp.input.focus();
+}
+
 /// Work on it: the bar on a new worktree for the issue, from the default
 /// branch, with the issue's prompt.
 export function workOnIssue(name: string, issue: IssueRow) {
