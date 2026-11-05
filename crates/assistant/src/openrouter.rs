@@ -103,6 +103,33 @@ struct PartialCall {
 /// The most a line of the stream may hold before it is taken for a broken reply.
 const MAX_LINE_BYTES: usize = 4 << 20;
 
+/// The chat request. A preferred provider goes first in `order`; fallbacks stay allowed, so the
+/// chat still runs when that provider is down.
+fn request_body(
+    model: &str,
+    messages: Vec<Value>,
+    tools: &[Value],
+    effort: Effort,
+    provider: Option<&str>,
+) -> Value {
+    let mut body = json!({
+        "model": model,
+        "messages": messages,
+        "stream": true,
+        "include_reasoning": true,
+    });
+    if effort != Effort::Off {
+        body["reasoning"] = json!({"effort": <&str>::from(effort)});
+    }
+    if !tools.is_empty() {
+        body["tools"] = Value::Array(tools.to_vec());
+    }
+    if let Some(provider) = provider {
+        body["provider"] = json!({"order": [provider], "allow_fallbacks": true});
+    }
+    body
+}
+
 /// Asks `model` for the next message of `messages` and streams it into `reply`.
 pub(crate) async fn stream_completion(
     setup: &Setup,
@@ -113,18 +140,13 @@ pub(crate) async fn stream_completion(
     events: &Sender<Event>,
 ) -> Result<Finish, AssistantError> {
     let (endpoint, cancel) = (&setup.openrouter, &setup.cancel);
-    let mut body = json!({
-        "model": model,
-        "messages": messages,
-        "stream": true,
-        "include_reasoning": true,
-    });
-    if setup.effort != Effort::Off {
-        body["reasoning"] = json!({"effort": <&str>::from(setup.effort)});
-    }
-    if !tools.is_empty() {
-        body["tools"] = Value::Array(tools.to_vec());
-    }
+    let body = request_body(
+        model,
+        messages,
+        tools,
+        setup.effort,
+        setup.provider.as_deref(),
+    );
     let request = setup
         .client
         .post(format!("{}/chat/completions", endpoint.base))
@@ -241,4 +263,28 @@ fn finished_calls(partial: Vec<PartialCall>) -> Vec<Call> {
             arguments: call.arguments,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+
+    #[test]
+    fn no_provider_sends_no_provider_field() {
+        let body = request_body("a/b", vec![], &[], Effort::Off, None);
+        assert!(body.get("provider").is_none());
+        assert_eq!(body["model"], "a/b");
+    }
+
+    #[test]
+    fn a_provider_is_preferred_with_fallbacks() {
+        let tools = [json!({"type": "function"})];
+        let body = request_body("a/b", vec![], &tools, Effort::High, Some("deepinfra/turbo"));
+        assert_eq!(
+            body["provider"],
+            json!({"order": ["deepinfra/turbo"], "allow_fallbacks": true})
+        );
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(1));
+    }
 }

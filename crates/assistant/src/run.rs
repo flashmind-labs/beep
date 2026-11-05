@@ -53,6 +53,8 @@ pub struct Setup {
     /// For the system prompt, as `2026-11-05`.
     pub today: String,
     pub effort: crate::Effort,
+    /// The upstream provider to prefer for this model, as its tag; none lets OpenRouter pick.
+    pub provider: Option<String>,
     pub cancel: CancellationToken,
 }
 
