@@ -4,11 +4,11 @@
 use crate::{
     beep::Service,
     error::Result,
-    fleet::{Machines, files as direct},
+    fleet::{Machines, agents as agent_nodes, files as direct},
 };
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetWorkDiff, WorkDiff,
-    node::agent::DiffAsk,
+    node::agent::{DiffAsk, Worktree},
 };
 use serde::Serialize;
 
@@ -161,4 +161,18 @@ pub async fn work_diff(
         }
     };
     Ok(view(diff))
+}
+
+/// The worktrees of the repository holding the session folder `folder` on
+/// `machine_id`. Empty for a machine only a server reaches.
+#[tauri::command]
+pub async fn agent_worktrees(
+    fleet: Machines<'_>,
+    machine_id: String,
+    folder: String,
+) -> Result<Vec<Worktree>> {
+    match fleet.member(&machine_id) {
+        Some(machine) => agent_nodes::worktrees(&fleet, machine, &folder).await,
+        None => Ok(Vec::new()),
+    }
 }

@@ -132,6 +132,7 @@ fn main() {
             agents::artifacts::agent_artifact,
             agents::custom::custom_agents,
             agents::diff::work_diff,
+            agents::diff::agent_worktrees,
             agents::files::agent_tree,
             agents::files::agent_tree_save,
             agents::files::agent_tree_text,

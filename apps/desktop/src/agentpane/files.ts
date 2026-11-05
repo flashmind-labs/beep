@@ -3,7 +3,10 @@
 // out unless asked, git's marks beside what changed.
 
 import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, treeRows } from "./files-state.ts";
+import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
+import { paneRoot } from "./worktree.ts";
+import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
 import { esc } from "../ui/format.ts";
@@ -56,7 +59,7 @@ const WALK_ENTRIES = 50_000;
 /// The Files view of the pane's session, made once per session.
 export function filesView() {
   const s = paneSession();
-  const key = s ? `${s.machine_id}\n${s.cwd}` : "";
+  const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
   if (F.el && F.key === key) return F.el;
   F.el?.remove();
   clearInterval(F.timer);
@@ -68,7 +71,7 @@ export function filesView() {
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
     + `<button class="agpbtn" data-frefresh="1" title="Read the folders again">&#8635;</button></div>`
     + `<div class="agtree" role="tree" tabindex="0"></div>`
-    + `<div class="agpacts"><span class="meta mono" title="${esc(s?.cwd ?? "")}">${esc(s?.cwd ?? "")}</span><span class="sp"></span><span class="hint">Drag a file into the message, or drop files on a folder to upload</span></div></div>`);
+    + `<div class="agpacts"><span class="meta mono" title="${esc(paneRoot())}">${esc(paneRoot())}</span><span class="sp"></span><span class="hint">Drag a file into the message, or drop files on a folder to upload</span></div></div>`);
   F.el = el;
   wire(el);
   load("");
@@ -82,10 +85,27 @@ export function closeFilesMenu() {
   return !!m;
 }
 
+/// Reads the tree of the worktree the pane shows now, in place: the filter
+/// and what git ignores stay as they are, the open file tabs are not touched.
+export function pointFilesAt() {
+  const s = paneSession();
+  if (!F.el || !s) return;
+  Object.assign(F, {
+    key: `${s.machine_id}\n${paneRoot()}`, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, reveal: null,
+  });
+  const meta = F.el.querySelector(".agpacts .meta");
+  if (meta) { meta.textContent = paneRoot(); meta.setAttribute("title", paneRoot()); }
+  load("");
+}
+
 /// Shows `rel`, a file in the session's folder, in the tree: its folders
 /// open, the file picked and in view, the Files tab on screen.
 export function revealPath(rel: string) {
-  const parts = rel.split("/").filter(Boolean);
+  const s = paneSession();
+  // `rel` is in the session's folder; the tree may be of another worktree.
+  const inRoot = s ? relativeTo(paneRoot(), resolvePath(s.cwd, rel)) : null;
+  if (inRoot == null) return;
+  const parts = inRoot.split("/").filter(Boolean);
   if (!parts.length) return;
   showFiles();
   if (F.filter) {
@@ -147,7 +167,7 @@ async function load(dir: string, deep = false) {
   F.reading.add(dir);
   draw();
   try {
-    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: s.cwd, path: dir, ignored: F.ignored, deep });
+    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep });
     if (F.key !== key) return;
     mergeTree(F.listings, got);
     if (!deep) F.roots.add(dir);
@@ -243,8 +263,9 @@ function wire(el: HTMLElement) {
   tree.addEventListener("dragstart", e => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
     if (!row || !e.dataTransfer) return;
-    e.dataTransfer.setData(PATH_TYPE, row.dataset.fpath!);
-    e.dataTransfer.setData("text/plain", row.dataset.fpath!);
+    const named = mentioned(paneRoot(), paneSession()?.cwd ?? "", row.dataset.fpath!);
+    e.dataTransfer.setData(PATH_TYPE, named);
+    e.dataTransfer.setData("text/plain", named);
     e.dataTransfer.effectAllowed = "copy";
   });
   // Files from Finder dropped on a folder (or a file's folder, or the
@@ -298,7 +319,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   m.querySelector<HTMLElement>("button")?.focus();
   const note = (text: string) => {
     const meta = F.el?.querySelector(".agpacts .meta");
-    if (meta) { meta.textContent = text; setTimeout(() => { if (meta.isConnected) meta.textContent = s.cwd; }, 3000); }
+    if (meta) { meta.textContent = text; setTimeout(() => { if (meta.isConnected) meta.textContent = paneRoot(); }, 3000); }
   };
   m.addEventListener("click", e => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-fact]")?.dataset.fact;
@@ -306,9 +327,9 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     e.stopPropagation();
     closeFilesMenu();
     if (act === "open") openWorkFile(path);
-    else if (act === "mention") addMention(path);
+    else if (act === "mention") addMention(mentioned(paneRoot(), s.cwd, path));
     else if (act === "abs" || act === "rel") {
-      const text = act === "abs" ? resolvePath(s.cwd, path) : path;
+      const text = act === "abs" ? resolvePath(paneRoot(), path) : path;
       navigator.clipboard.writeText(text).then(() => note(`Copied ${text}`), err => note(`Could not copy: ${err}`));
     } else if (act === "save") saveWorkFile(path, note);
   });

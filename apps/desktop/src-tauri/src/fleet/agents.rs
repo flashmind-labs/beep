@@ -23,7 +23,7 @@ use beep_proto::{
     PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
     image_key, media_mime,
     node::{
-        agent::{self, Request},
+        agent::{self, Request, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
         mesh_state::StateValue,
     },
@@ -561,6 +561,16 @@ pub(crate) async fn custom_agents(
         machine,
         sessions::custom_agents(&client, folder).await?,
     )
+}
+
+/// The worktrees of the repository holding `folder` on a machine.
+pub(crate) async fn worktrees(
+    fleet: &Fleet,
+    machine: EndpointId,
+    folder: &str,
+) -> Result<Vec<Worktree>> {
+    let client = fleet.client(machine).await?;
+    work(fleet, machine, sessions::worktrees(&client, folder).await?)
 }
 
 /// What a node did in a folder, or its refusal as the user reads it.

@@ -9,7 +9,7 @@ use beep_proto::{
     node::{
         agent::{
             DiffAsk, Entry, ExternalSession, LiveStatus, ModelList, SESSIONS_PROTOCOL,
-            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer,
+            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer, Worktree,
         },
         harness::HarnessReport,
     },
@@ -352,6 +352,22 @@ pub async fn custom_agents<S: Sessions + ?Sized>(
     };
     match ask(node, request).await? {
         SessionsReply::CustomAgents { agents } => Ok(NodeWork::Done(agents)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The worktrees of the repository holding `folder` on the node; none when
+/// it is not in one.
+pub async fn worktrees<S: Sessions + ?Sized>(
+    node: &S,
+    folder: &str,
+) -> Result<NodeWork<Vec<Worktree>>, MeshError> {
+    let request = SessionsRequest::Worktrees {
+        folder: folder.to_owned(),
+    };
+    match ask(node, request).await? {
+        SessionsReply::Worktrees { worktrees } => Ok(NodeWork::Done(worktrees)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
     }
