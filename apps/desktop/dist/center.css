@@ -585,6 +585,14 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .fs-conflict .t code { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .fs-conflict .t span { color: var(--muted); font-size: 11.5px }
 .fs-conflict .acts { display: flex; gap: 6px; flex: none }
+.fs-conflict.open { flex-wrap: wrap }
+.fs-cmp { flex: 0 0 100%; min-width: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden }
+.fs-cmph { display: flex; gap: 12px; padding: 6px 10px; font-size: 11.5px; color: var(--muted); border-bottom: 1px solid var(--border) }
+.fs-cmph small { margin-left: auto }
+.fs-cmpn { padding: 10px; font-size: 12px }
+.fs-cmp .dv { height: min(60vh, 440px) }
+.fs-cmp .dv-head > :not(.dv-splitbtn), .fs-cmp .dv-tree, .fs-cmp .dv-keys, .fs-cmp .dv-facts { display: none }
+.fs-cmp .dv-g { pointer-events: none }
 .fs-wait { display: flex; justify-content: space-between; gap: 10px; padding: 6px 12px; font-size: 12px }
 .fs-wait code { font-family: var(--mono); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .fs-note { font-size: 12px }
