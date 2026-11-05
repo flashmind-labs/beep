@@ -264,6 +264,20 @@ window.addEventListener("keydown", e => {
   if (!e.repeat) toggleZoom();
 }, true);
 
+// ⇧tab with focus in a dock: its next tab, round to the first. A terminal keeps the
+// key, and in the message field it is the mode's.
+window.addEventListener("keydown", e => {
+  if (e.key !== "Tab" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+  const target = e.target as Element;
+  const pane = target.closest<HTMLElement>(".agpane[data-dock]");
+  if (!pane || target.closest(".tm-xterm")) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const d = pane.dataset.dock as Dock, ids = docked()[d];
+  showTab(d, ids[(ids.indexOf(P.on[d]) + 1) % ids.length]);
+  pane.focus({ preventScroll: true });
+}, true);
+
 function wireDivider(dock: Dock) {
   const div = document.getElementById(`agdiv-${dock}`)!;
   const set = (size: number | null) => {
@@ -408,6 +422,13 @@ function drawDock(d: Dock, ids: string[]) {
   }
 }
 
+function showTab(d: Dock, id: string) {
+  // Shown again, the changes are read again.
+  if (id === CHANGES && P.on[d] !== CHANGES && madeChangesView()) reloadChanges();
+  P.on[d] = id;
+  draw();
+}
+
 function paneClick(e: MouseEvent, d: Dock) {
   const target = e.target as HTMLElement;
   const close = target.closest<HTMLElement>("[data-mclose]");
@@ -415,11 +436,7 @@ function paneClick(e: MouseEvent, d: Dock) {
   const tab = target.closest<HTMLElement>("[data-mtab]");
   if (tab) {
     if (P.dragged) return;
-    const id = tab.dataset.mtab!;
-    // Shown again, the changes are read again.
-    if (id === CHANGES && P.on[d] !== CHANGES && madeChangesView()) reloadChanges();
-    P.on[d] = id;
-    return draw();
+    return showTab(d, tab.dataset.mtab!);
   }
   const act = target.closest<HTMLElement>("[data-pact]")?.dataset.pact;
   if (act === "dock") {
