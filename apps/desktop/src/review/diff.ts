@@ -3,8 +3,8 @@
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffView, type ReviewComment, type SplitCell, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
-  inView, lineKey, lineLabel, matchesFilter, numberWidth, parseDraft, placeComments, reviewText, splitPath, splitRows, stepFile, withLoaded,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
+  inView, lineKey, lineLabel, matchesFilter, numberWidth, parseDraft, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { button, el, type Kid } from "../ui/dom.ts";
 
@@ -31,6 +31,19 @@ export interface DiffViewHandle {
 const WIDE = 900;
 /// At this width or less the lines stay unified, as the CSS hides the button.
 const NARROW = 640;
+
+/// Rows per chunk, how far past the viewport chunks stay drawn, and the width
+/// of one character of the code font.
+const CHUNK = 25;
+const MARGIN = 500;
+const CH = 7.2;
+
+/// A run of rows, drawn only while it is near the viewport.
+interface Chunk {
+  box: HTMLElement;
+  draw: () => HTMLElement[];
+  live: boolean;
+}
 
 const SPLIT_KEY = "beep.diffSplit";
 
@@ -136,11 +149,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const placed = () => placedCache ??= placeComments(st.view?.files ?? [], st.draft);
   /// Each file's section, by path, as last drawn.
   let sections = new Map<string, HTMLElement>();
+  /// The chunks of rows of every open file.
+  const chunks = new Set<Chunk>();
   const find = el("input", "dv-find");
   find.placeholder = "Filter files";
   find.setAttribute("aria-label", "Filter files");
   find.spellcheck = false;
-  find.addEventListener("input", () => { st.filter = find.value; drawFiles(); });
+  const matchNote = el("div", "dv-more");
+  find.addEventListener("input", () => { st.filter = find.value; applyFilter(); files.scrollTop = 0; });
   const sum = el("span", "dv-sum");
   const splitBtn = btn("Side by side", "dv-splitbtn", "Show the lines side by side", () => {
     st.split = !st.split;
@@ -186,7 +202,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     st.narrow = narrow;
     if (st.split) redrawBodies();
   }).observe(root);
-  files.addEventListener("scroll", () => markCurrent(), { passive: true });
+  new ResizeObserver(() => windowChunks()).observe(files);
+  files.addEventListener("scroll", () => { windowChunks(); markCurrent(); }, { passive: true });
   files.addEventListener("click", onGutter);
   root.addEventListener("keydown", onKey);
 
@@ -230,9 +247,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
       drawReview();
       return;
     }
-    const list = shown();
-    if (st.filter.trim()) files.append(el("div", "dv-more", `${list.length} of ${v.files.length} files match`));
-    for (const f of list) {
+    files.append(matchNote);
+    for (const f of v.files) {
       const { dir, name } = splitPath(f.path);
       const row = el("button", "dv-tr", el("span", `dv-st ${STATUS_LETTER[f.status]}`, STATUS_LETTER[f.status]),
         el("span", "nm", dir ? el("i", "", dir) : null, el("b", "", name)), el("span", "ct", ...counts(f.additions, f.deletions)));
@@ -246,7 +262,22 @@ export function diffView(src: DiffSource): DiffViewHandle {
       files.append(section);
     }
     if (v.more) files.append(el("div", "dv-more", `And ${v.more.toLocaleString("en-US")} more files not shown.`));
+    applyFilter();
     drawReview();
+  }
+
+  /// Hides the files that do not match, without drawing any again.
+  function applyFilter() {
+    const v = st.view;
+    if (!v) return;
+    v.files.forEach((f, i) => {
+      const hide = !matchesFilter(f, st.filter);
+      sections.get(f.path)!.hidden = hide;
+      tree.children[i].toggleAttribute("hidden", hide);
+    });
+    matchNote.hidden = !st.filter.trim();
+    matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
+    windowChunks();
     markCurrent();
   }
 
@@ -311,32 +342,69 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const split = st.split && !st.narrow;
     const lines = el("div", split ? "dv-lines split" : "dv-lines");
     lines.style.setProperty("--nw", String(Math.max(2, numberWidth(f))));
-    const frag = document.createDocumentFragment();
     const rows = diffRows(f);
-    // Only a file with line comments looks them up as it draws.
-    const lc = placed().files.get(f.path)?.lines;
-    const saved = (...keys: (string | null)[]) => keys.flatMap(k => (k && lc?.get(k)) || []).map(c => commentEl(c, ""));
-    if (split) {
-      for (const r of splitRows(rows)) {
-        if (r.kind === "hunk") frag.append(hunkRow(r.text));
-        else if (r.kind === "gap") frag.append(gapRow(r.lines));
-        else {
-          frag.append(el("div", "dv-pair", cell(r.left), cell(r.right)));
-          if (lc?.size) frag.append(...saved(r.left?.k === "-" ? lineKey("old", r.left.num) : null, r.right ? lineKey("new", r.right.num) : null));
-        }
+    // The widest line is known up front, so the sideways scroll does not
+    // change as rows come and go.
+    lines.style.setProperty("--len", String(rows.reduce((m, r) => (r.kind === "line" ? Math.max(m, r.text.length) : m), 0)));
+    // Line comments are looked up as a chunk draws, so they follow the draft.
+    const nodes = (r: DiffRow | SplitRow): HTMLElement[] => {
+      if (r.kind === "hunk") return [hunkRow(r.text)];
+      if (r.kind === "gap") return [gapRow(r.lines)];
+      const lc = placed().files.get(f.path)?.lines;
+      const saved = (...keys: (string | null)[]) => (lc?.size ? keys.flatMap(k => (k && lc.get(k)) || []).map(c => commentEl(c, "")) : []);
+      if (r.kind === "pair") {
+        return [el("div", "dv-pair", cell(r.left), cell(r.right)),
+          ...saved(r.left?.k === "-" ? lineKey("old", r.left.num) : null, r.right ? lineKey("new", r.right.num) : null)];
       }
-    } else {
-      for (const r of rows) {
-        if (r.kind === "hunk") frag.append(hunkRow(r.text));
-        else if (r.kind === "gap") frag.append(gapRow(r.lines));
-        else {
-          frag.append(lineRow(r.k, r.old, r.new, r.text, r.eol));
-          if (lc?.size) frag.append(...saved(r.k === "-" ? lineKey("old", r.old!) : lineKey("new", r.new!)));
-        }
-      }
+      return [lineRow(r.k, r.old, r.new, r.text, r.eol), ...saved(r.k === "-" ? lineKey("old", r.old!) : lineKey("new", r.new!))];
+    };
+    // Rows are drawn in chunks, only while they are near the viewport; a
+    // chunk off screen is an empty box as tall as it last was.
+    const cols = Math.floor(((files.clientWidth || 900) / 2 - Math.max(2, numberWidth(f)) * CH - 50) / CH);
+    const items: (DiffRow | SplitRow)[] = split ? splitRows(rows) : rows;
+    for (let i = 0; i < items.length; i += CHUNK) {
+      const slice = items.slice(i, i + CHUNK);
+      const box = el("div", "dv-chunk");
+      box.style.height = `${split ? splitHeight(slice as SplitRow[], cols) : slice.reduce((h, r) => h + (r.kind === "gap" ? 22 : 19), 0)}px`;
+      chunks.add({ box, draw: () => slice.flatMap(nodes), live: false });
+      lines.append(box);
     }
-    lines.append(frag);
     return el("div", "dv-scroll", lines);
+  }
+
+  /// Draws the chunks near the viewport and empties the far ones. A chunk
+  /// that is drawn above the viewport and differs from its estimate would
+  /// push the lines down (WebKit has no scroll anchoring), so the scroll
+  /// moves by the difference.
+  function windowChunks() {
+    // A drawn chunk can move the next ones, so go again until nothing changes.
+    for (let pass = 0; pass < 3 && windowStep(); pass++);
+  }
+
+  function windowStep() {
+    let changed = false;
+    const view = files.getBoundingClientRect();
+    const lo = view.top - MARGIN, hi = view.bottom + MARGIN;
+    for (const c of chunks) {
+      if (!c.box.isConnected) { chunks.delete(c); continue; }
+      if (!c.box.getClientRects().length) continue;
+      const r = c.box.getBoundingClientRect();
+      const want = r.bottom > lo && r.top < hi;
+      if (want === c.live) continue;
+      if (want) {
+        const was = c.box.offsetHeight;
+        c.box.replaceChildren(...c.draw());
+        c.box.style.height = "";
+        if (r.bottom <= view.top) files.scrollTop += c.box.offsetHeight - was;
+      } else if (!c.box.querySelector(".dv-cmt.open")) {
+        const h = c.box.offsetHeight;
+        c.box.replaceChildren();
+        c.box.style.height = `${h}px`;
+      } else continue;
+      c.live = want;
+      changed = true;
+    }
+    return changed;
   }
 
   function countLabel(path: string) {
@@ -467,6 +535,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       inner.replaceChildren(...(isFolded(f, st.folded) ? [] : [fileBody(f)]));
     }
     files.scrollTop = keep;
+    windowChunks();
   }
 
   function setFolded(path: string, folded: boolean) {
@@ -478,6 +547,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!folded && inner && !inner.childNodes.length) inner.append(fileBody(f));
     section.classList.toggle("closed", folded);
     section.querySelector(".dv-fh")?.setAttribute("aria-expanded", String(!folded));
+    windowChunks();
   }
 
   function toggle(path: string) {
@@ -573,6 +643,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const next = fileSection(f);
     old.replaceWith(next);
     sections.set(path, next);
+    windowChunks();
   }
 
   async function load() {

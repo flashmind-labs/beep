@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DiffFile, type DiffView, diffRows, splitRows, withLoaded,
+  type DiffFile, type DiffView, diffRows, splitHeight, splitRows, withLoaded,
 } from "../src/review/diff-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
@@ -60,4 +60,10 @@ test("side by side shows context on both sides and starts a new run after it", (
   const ctx = rows[1];
   assert.equal(ctx.kind === "pair" && ctx.left?.k, " ");
   assert.equal(ctx.kind === "pair" && ctx.right?.text, "same");
+});
+
+test("splitHeight counts wrapped lines", () => {
+  const cell = (n: number) => ({ k: " " as const, num: 1, text: "x".repeat(n), eol: false });
+  const rows = [{ kind: "hunk" as const, text: "@@" }, { kind: "gap" as const, lines: 3 }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
+  assert.equal(splitHeight(rows, 10), 19 + 22 + 19 * 3);
 });
