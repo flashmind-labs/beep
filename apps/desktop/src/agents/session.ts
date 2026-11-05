@@ -158,11 +158,11 @@ export function agentHints() {
   if (turnRuns()) {
     const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
     if (stoppingNow()) return slim(keys);
-    return slim([...keys, ...mode, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["esc", "back"]]);
+    return slim([...keys, ...mode, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
   }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ...mode, ["esc", "back"]]);
+  return slim([...paste, [ICON.ret, "send"], ...mode, ["⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.

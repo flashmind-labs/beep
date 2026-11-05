@@ -253,7 +253,7 @@ function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
 const openedSteps = () => new Set([...AG.steps].filter(([, open]) => open).map(([at]) => at));
 
 /// The newest step of the running turn, which starts open when it failed.
-let newestStep: number | null = null;
+export let newestStep: number | null = null;
 
 /// When each turn shown started, by its message's place, as the last draw
 /// worked it out; for the Artifacts tab.
@@ -403,6 +403,13 @@ function restoreScroll(b: HTMLElement, a: ScrollAnchor) {
   const el = a.sel != null ? b.querySelector<HTMLElement>(a.sel) : null;
   if (el) b.scrollTop = keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top);
   else b.scrollTop = a.scroll;
+}
+
+/// The row in view at the top of the log, to pass to `drawAgentBody` as the
+/// row that stays where it is when a key opens or folds many rows at once.
+export function rowInView() {
+  const b = $<ChatBody>("#agbody");
+  return (b && scrollAnchor(b).sel) || "[data-row]";
 }
 
 /// Draws the log again. `keep` finds the row the reader just opened or
