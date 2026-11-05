@@ -146,11 +146,12 @@ export function harnessName(spend: Pick<HarnessSpend, "agent" | "subscription">)
   return spend.subscription ? `${agentLabel(spend.agent)}, subscription` : agentLabel(spend.agent);
 }
 
-/// What a project row adds after its dollars: its API tokens, or on an older
+/// What a project row adds after its dollars: its tokens, or on an older
 /// server the tokens no price covered.
 export function projectExtra(spend: Spend, metered: boolean) {
   if (!metered) return unpricedLine(spend.unpriced);
-  return spend.metered_tokens ? `${tokenCount(spend.metered_tokens)}` : "";
+  const tokens = (spend.subscription ?? []).reduce((sum, t) => sum + t.tokens, spend.metered_tokens ?? 0);
+  return tokens ? tokenCount(tokens) : "";
 }
 
 /// One harness's line in a period: its cost when it reports one, then
@@ -159,6 +160,11 @@ export function harnessLine(spend: HarnessSpend) {
   const tokens = spend.tokens > 0 ? `${tokenCount(spend.tokens)}` : "";
   if (spend.cost_usd == null || spend.subscription) return tokens;
   return tokens ? `${money(spend.cost_usd)} · ${tokens}` : money(spend.cost_usd);
+}
+
+/// What the pill says of today: the dollars paid, else the tokens plans covered.
+export function todayLine(today: { total: Pick<Spend, "cost_usd">; tokens: number }) {
+  return today.total.cost_usd > 0 || !today.tokens ? money(today.total.cost_usd) : tokenCount(today.tokens);
 }
 
 /// Whether there is anything to show: any plan read or any spending.
@@ -181,7 +187,7 @@ function pill(view: UsageView) {
     if (used == null) continue;
     parts.push(h("span", "", `${shortName(plan.agent)} `, h("b", "", `${used}%`), " used"), bar(used, "bar"));
   }
-  parts.push(h("span", "", h("b", "", money(view.today.total.cost_usd)), " today"));
+  parts.push(h("span", "", h("b", "", todayLine(view.today)), " today"));
   return parts;
 }
 
@@ -216,7 +222,7 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
   }));
   const block = h("div", "", seg);
   if (period.projects.length) {
-    block.append(h("h5", "", h("span", "", "By project"), h("span", "", metered ? "API spend" : "at API prices")));
+    block.append(h("h5", "", h("span", "", "By project"), metered ? null : h("span", "", "at API prices")));
     for (const s of period.projects) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", projectExtra(s, metered)));
   } else if (key === "today") {
     block.append(h("div", "us-row", h("small", "", "Nothing yet today")));
@@ -229,10 +235,9 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
       block.append(row);
     }
   }
-  const meteredTokens = period.total.metered_tokens ?? 0;
-  const tokens = metered ? (meteredTokens ? `${tokenCount(meteredTokens)}` : "")
-    : period.tokens ? `${tokenCount(period.tokens)}` : unpricedLine(period.total.unpriced);
-  block.append(spendRow("Total", money(period.total.cost_usd), tokens, true));
+  const tokens = period.tokens ? tokenCount(period.tokens) : metered ? "" : unpricedLine(period.total.unpriced);
+  const paid = period.total.cost_usd > 0 || !tokens;
+  block.append(spendRow("Total", paid ? money(period.total.cost_usd) : "", tokens, true));
   return block;
 }
 

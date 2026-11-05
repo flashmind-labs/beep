@@ -115,6 +115,16 @@ pub enum Billing {
 }
 
 impl Billing {
+    /// Whether a subscription covered `agent`'s use. Unknown is one for Claude
+    /// Code and Codex, whose logs do not say and which mostly run on a plan.
+    pub fn on_subscription(self, agent: &AgentSlug) -> bool {
+        match self {
+            Self::Subscription => true,
+            Self::Metered => false,
+            Self::Unknown => *agent == AgentSlug::CLAUDE || *agent == AgentSlug::CODEX,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Unknown => "unknown",
