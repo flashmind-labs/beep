@@ -248,6 +248,12 @@ impl Agents {
         find_session(&self.lock(), id)
     }
 
+    /// Whether another session could start here now, for a check made
+    /// before anything is changed on its account.
+    pub(super) fn check_room(&self) -> Result<()> {
+        ensure_room(&self.lock())
+    }
+
     /// Every session, oldest first.
     pub(super) fn list(&self) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self.lock().values().map(|s| s.info()).collect();

@@ -34,12 +34,14 @@ export interface MoveTarget {
   harnesses: readonly string[];
   /// It keeps the project's checkout.
   checkout: boolean;
-  /// Its node is from before moves.
+  /// Its node is from before moves, or before worktree moves for a session in one.
   old?: boolean;
+  /// Its Syncthing is set not to sync the session's worktree.
+  ignored?: boolean;
 }
 
 /// The harnesses whose sessions move (the others keep theirs in a database,
-/// or work in a worktree, and wait for later).
+/// and wait for later).
 export const MOVABLE = new Set(["claude", "codex", "pi"]);
 
 const NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi" };
@@ -51,6 +53,7 @@ export const canMove = (s: { agent: string }) => MOVABLE.has(s.agent);
 /// offline machine can: the move waits for it.
 export function targetNote(t: MoveTarget, agent: string): { note: string; enabled: boolean; offline: boolean } {
   if (t.old) return { note: "update this machine first", enabled: false, offline: false };
+  if (t.ignored) return { note: "Syncthing is set not to sync this worktree", enabled: false, offline: false };
   if (!t.checkout) return { note: "no checkout: import first", enabled: false, offline: false };
   if (!t.harnesses.includes(agent)) return { note: `no ${NAMES[agent] ?? agent} here`, enabled: false, offline: false };
   if (!t.online) return { note: "offline: moves when it returns", enabled: true, offline: true };

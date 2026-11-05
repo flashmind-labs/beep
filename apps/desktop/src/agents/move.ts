@@ -72,13 +72,20 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
   // A node from before moves would ignore the move, so it is not offered. One
   // that cannot be asked (offline) is offered: it answers when it returns.
   const takes = await Promise.all(others.map(m => invoke<boolean>("session_move_probe", { machineId: m.id }).catch(() => true)));
+  // A session in a worktree also needs a node that makes the worktree, and a
+  // Syncthing that does not leave it out.
+  const tree = placeOf(s);
+  const trees = await Promise.all(others.map(m => tree?.linked && tree.branch
+    ? invoke<"takes" | "ignored" | "update">("session_move_worktree_probe", { machineId: m.id, project, branch: tree.branch }).catch(() => "takes" as const)
+    : Promise.resolve("takes" as const)));
   return others.map((m, i) => ({
     id: m.id,
     name: m.name,
     online: m.online,
     harnesses: hosts.find(h => h.machine_id === m.id)?.agents ?? [],
     checkout: !!m.folder,
-    old: !takes[i],
+    old: !takes[i] || trees[i] === "update",
+    ignored: trees[i] === "ignored",
   }));
 }
 
@@ -103,9 +110,11 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
   UI.error = "";
   try {
     const project = windowHooks?.sessionProject?.(s)?.name ?? "";
+    const tree = placeOf(s);
     const r = await invoke<MoveRecord>("session_move", {
       machineId: s.machine_id, to: to.id, agent: s.agent, session: s.id, project, cwd: s.cwd,
-      linked: !!placeOf(s)?.linked, mode: null, stop,
+      worktreeFolder: tree?.linked ? tree.folder : null, worktreeBranch: tree?.linked ? tree.branch ?? "" : null,
+      mode: null, stop,
     });
     MV.records.set(r.session, r);
     MV.progress.set(r.session, { answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: !to.online, reason: null });

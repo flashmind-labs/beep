@@ -3,19 +3,24 @@
 //! reading a transcript from the machine that ran it (`beep-sessions/1`).
 
 mod alpn;
+mod background;
+mod cache;
 mod claude;
 mod codex;
 mod dial;
 mod folder;
 mod follow;
 mod json;
+mod offers;
 mod pi;
 mod progress;
 mod read;
+mod resume;
 mod saved;
 mod source;
 mod store;
 mod target;
+mod worktree;
 
 #[cfg(all(test, unix))]
 mod move_tests;
@@ -51,6 +56,8 @@ struct Env {
     syncs: Option<Syncs>,
     state: Folder,
     roots: StoreRoots,
+    cache: cache::Cache,
+    limits: background::Limits,
 }
 
 impl Env {

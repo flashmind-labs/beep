@@ -93,6 +93,8 @@ async fn source_env() -> Source {
             codex: dir.path().join("codex"),
             pi: dir.path().join("pi"),
         },
+        cache: super::cache::Cache::new(dir.path()),
+        limits: super::background::Limits::locate(),
     };
     Source {
         _dir: dir,
@@ -112,6 +114,7 @@ fn record(env: &Env, stop: bool) -> SessionMove {
         mode: None,
         stop,
         at: 1_793_696_400_000,
+        worktree: None,
     }
 }
 
@@ -426,14 +429,21 @@ fn a_transcript_is_written_private_and_a_different_one_is_kept_aside() {
     // The same session moving back: the new one only adds.
     write(&path, &stored("a\nb\n")).expect("replaced");
     assert_eq!(fs::read_to_string(&path).expect("read"), "a\nb\n");
-    assert!(!path.with_extension("jsonl.replaced").exists());
+    let kept = || -> Vec<PathBuf> {
+        fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|f| f.path())
+            .filter(|f| f.to_string_lossy().contains(".replaced-"))
+            .collect()
+    };
+    assert!(kept().is_empty());
     // Another history under that name is not thrown away.
     write(&path, &stored("x\n")).expect("replaced");
     assert_eq!(fs::read_to_string(&path).expect("read"), "x\n");
-    assert_eq!(
-        fs::read_to_string(path.with_extension("jsonl.replaced")).expect("kept"),
-        "a\nb\n"
-    );
+    let kept = kept();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(fs::read_to_string(&kept[0]).expect("kept"), "a\nb\n");
 }
 
 #[test]
@@ -449,4 +459,217 @@ fn a_move_that_ended_is_remembered_by_the_record_it_answered() {
     assert!(valid_id("0b1c2d3e-0000-4000-8000-0123456789ab"));
     assert!(!valid_id("../etc"));
     assert!(!valid_id(""));
+}
+
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// A worktree a move made in `s`'s folder for session `s1`, noted as the
+/// target notes it, and the checkout it belongs to.
+async fn made_for_a_move(s: &Source) -> (PathBuf, PathBuf) {
+    use super::{
+        saved::MadeWorktree,
+        worktree::{attach, detach, snapshot},
+    };
+    let main = s
+        .env
+        .state
+        .copy("x")
+        .parent()
+        .expect("a folder")
+        .join("repo");
+    fs::create_dir_all(&main).expect("a folder");
+    git(&main, &["init", "-q", "--initial-branch=main"]);
+    fs::write(main.join("a.txt"), "one\n").expect("a file");
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-q", "-m", "first"]);
+    let source = main.join("source");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feat",
+            source.to_str().expect("utf8"),
+        ],
+    );
+    fs::write(source.join("new.txt"), "n\n").expect("an untracked file");
+    let work = snapshot(&source).expect("a snapshot");
+    detach(&source).expect("detached");
+    let folder = main.join(".worktrees/feat");
+    let got = attach(&main, &folder, "feat", &work, false).expect("made");
+    s.env
+        .state
+        .save(
+            "s1",
+            &Saved {
+                at: 1,
+                phase: Phase::Working,
+                reason: None,
+                open: None,
+                made: Some(MadeWorktree {
+                    checkout: main.clone(),
+                    folder: folder.clone(),
+                    placed: got.placed,
+                    applied: got.applied,
+                }),
+            },
+        )
+        .expect("noted");
+    (main, folder)
+}
+
+#[tokio::test]
+async fn a_worktree_a_move_made_is_taken_back_once() {
+    let s = source_env().await;
+    let (_main, folder) = made_for_a_move(&s).await;
+    super::target::take_back(&s.env, "s1").await;
+    assert!(!folder.exists(), "unchanged since the patch: removed");
+    assert!(s.env.state.load("s1").expect("kept").made.is_none());
+    // The user puts a folder of their own where it was: a second call, from
+    // a second restart or a cancel, does nothing.
+    fs::create_dir_all(&folder).expect("a folder");
+    fs::write(folder.join("mine.txt"), "mine\n").expect("a file");
+    super::target::take_back(&s.env, "s1").await;
+    assert_eq!(
+        fs::read_to_string(folder.join("mine.txt")).unwrap(),
+        "mine\n"
+    );
+}
+
+#[tokio::test]
+async fn a_worktree_with_edits_since_the_patch_is_left_where_it_is() {
+    let s = source_env().await;
+    let (_main, folder) = made_for_a_move(&s).await;
+    fs::write(folder.join("a.txt"), "edited while the node was down\n").expect("an edit");
+    super::target::take_back(&s.env, "s1").await;
+    assert_eq!(
+        fs::read_to_string(folder.join("a.txt")).unwrap(),
+        "edited while the node was down\n"
+    );
+    assert!(folder.join("new.txt").exists());
+    assert!(s.env.state.load("s1").expect("kept").made.is_none());
+}
+
+#[tokio::test]
+async fn a_node_with_no_room_refuses_before_it_writes_anything() {
+    use super::resume::{Arrival, Folders, How, resume};
+    let s = source_env().await;
+    for _ in 0..8 {
+        s.env
+            .agents
+            .start(
+                &kind(),
+                Some(&s.work.to_string_lossy()),
+                Begin {
+                    prompt: Some("first".into()),
+                    ..Begin::default()
+                },
+            )
+            .expect("a session starts");
+    }
+    let copy = s.work.join("copy.jsonl");
+    fs::write(&copy, "{}\n").expect("a copy");
+    let arrival = Arrival {
+        id: "s9",
+        mode: None,
+        from: s.env.mesh.me(),
+        how: How::Continued,
+    };
+    let folders = Folders {
+        old: s.work.clone(),
+        new: s.work.clone(),
+    };
+    let failed = resume(&s.env, &arrival, &kind(), &folders, "s9.jsonl".into(), copy)
+        .await
+        .expect_err("no room");
+    assert!(format!("{failed:#}").contains("already run"), "{failed:#}");
+    assert!(!s.env.roots.codex.exists() && !s.env.roots.claude.exists());
+}
+
+#[tokio::test]
+async fn a_worktree_left_by_a_crash_inside_attach_is_taken_back_when_clean() {
+    use super::{saved::MadeWorktree, worktree::Placed};
+    let s = source_env().await;
+    let main = s
+        .env
+        .state
+        .copy("x")
+        .parent()
+        .expect("a folder")
+        .join("repo");
+    fs::create_dir_all(&main).expect("a folder");
+    git(&main, &["init", "-q", "--initial-branch=main"]);
+    fs::write(main.join("a.txt"), "one\n").expect("a file");
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-q", "-m", "first"]);
+    git(&main, &["branch", "feat"]);
+    let folder = main.join(".worktrees/feat");
+    // The note was kept before `attach`; the node stopped right after the
+    // worktree was added, before the patch.
+    let pending = |folder: &PathBuf| {
+        s.env
+            .state
+            .save(
+                "s1",
+                &Saved {
+                    at: 1,
+                    phase: Phase::Working,
+                    reason: None,
+                    open: None,
+                    made: Some(MadeWorktree {
+                        checkout: main.clone(),
+                        folder: folder.clone(),
+                        placed: Placed::Made,
+                        applied: String::new(),
+                    }),
+                },
+            )
+            .expect("noted");
+    };
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            folder.to_str().expect("utf8"),
+            "feat",
+        ],
+    );
+    pending(&folder);
+    super::target::take_back(&s.env, "s1").await;
+    assert!(!folder.exists(), "clean: removed, and the branch is free");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            folder.to_str().expect("utf8"),
+            "feat",
+        ],
+    );
+    // The same, but something was written in it before the node came back.
+    fs::write(folder.join("a.txt"), "the user's\n").expect("an edit");
+    pending(&folder);
+    super::target::take_back(&s.env, "s1").await;
+    assert_eq!(
+        fs::read_to_string(folder.join("a.txt")).unwrap(),
+        "the user's\n"
+    );
 }

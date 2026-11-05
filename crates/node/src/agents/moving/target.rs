@@ -7,20 +7,19 @@ use super::{
     dial::dial,
     progress::{Tracker, show},
     read::{self, Refused},
-    rewrite,
-    saved::{Phase, Saved},
-    store,
+    resume::{Arrival, Folders as ResumeFolders, How, resume},
+    saved::{MadeWorktree, Phase, Saved},
+    worktree::{self, Undone, Work},
 };
-use crate::agents::{Begin, found::Agent};
+use crate::agents::found::Agent;
 use anyhow::{Context, Result, bail};
 use beep_mesh::Key;
 use beep_proto::node::{
-    agent::MovePhase,
+    agent::{MovePhase, Status},
     link,
     mesh_state::{SessionMove, StateValue, SyncSpec},
 };
 use std::{
-    borrow::Cow,
     path::{Component, Path, PathBuf},
     time::Duration,
 };
@@ -38,6 +37,8 @@ const LAST_WAIT: Duration = Duration::from_secs(10);
 struct Copied {
     since: Instant,
     file_name: String,
+    /// The worktree's commit and uncommitted work, for a worktree session.
+    work: Option<Work>,
 }
 
 /// The folder the session worked in on the source and the folder it works in
@@ -45,6 +46,15 @@ struct Copied {
 struct Folders {
     old: PathBuf,
     new: PathBuf,
+    /// For a worktree session: this machine's checkout, and the worktree
+    /// the session works in here, which is made when it moves.
+    worktree: Option<Made>,
+}
+
+/// The worktree a target makes.
+struct Made {
+    checkout: PathBuf,
+    folder: PathBuf,
 }
 
 pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
@@ -81,16 +91,51 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
 }
 
 async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
-    let agent = Agent::from_name(record.agent.as_str());
-    let harness = agent
+    if Agent::from_name(record.agent.as_str())
         .and_then(Harness::of)
-        .with_context(|| format!("{} sessions cannot move yet", record.agent))?;
+        .is_none()
+    {
+        bail!("{} sessions cannot move yet", record.agent);
+    }
     let folders = folders(env, record)?;
-    if !folders.new.is_dir() {
-        bail!(
+    // What an earlier try, or an earlier move, made here and left goes first.
+    take_back(env, &record.id).await;
+    env.agents.check_room()?;
+    match &folders.worktree {
+        Some(made) => {
+            if !made.checkout.is_dir() {
+                bail!(
+                    "{} has no checkout on this machine to make a worktree in",
+                    record.project
+                );
+            }
+            if let Some(worktree) = &record.worktree
+                && env
+                    .agents
+                    .moves
+                    .ignores_worktree(&record.project, &worktree.branch)
+                    .await
+            {
+                bail!("Syncthing is set not to sync this worktree, so it cannot move here");
+            }
+            // Whether the branch and folder allow it is known before the
+            // source ends anything.
+            if let Some(worktree) = &record.worktree {
+                let running = runs_in(env, &made.folder);
+                let (checkout, folder, branch) = (
+                    made.checkout.clone(),
+                    made.folder.clone(),
+                    worktree.branch.clone(),
+                );
+                spawn_blocking(move || worktree::check(&checkout, &folder, &branch, running))
+                    .await??;
+            }
+        }
+        None if !folders.new.is_dir() => bail!(
             "{} has no checkout on this machine to resume in",
             record.project
-        );
+        ),
+        None => {}
     }
     let kind = env
         .agents
@@ -115,40 +160,155 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     files(env, record, tracker, copied.since).await?;
     log::info!("session {}: the files are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
-    let stored = {
-        let (id, old, new) = (record.id.clone(), folders.old.clone(), folders.new.clone());
-        spawn_blocking(move || -> Result<_> {
-            let bytes = std::fs::read(&copy)?;
-            Ok(rewrite(harness, &bytes, &id, &copied.file_name, &old, &new))
-        })
-        .await??
-    };
-    let path = env.roots.path(harness, &stored);
-    let at = path.clone();
-    spawn_blocking(move || store::write(&at, &stored)).await??;
-    if let Some(agent) = agent {
-        let (agents, id) = (env.agents.clone(), record.id.clone());
-        spawn_blocking(move || agents.spend.mark_counted(agent, &id, &path))
+    let made = match (&folders.worktree, &record.worktree, &copied.work) {
+        (Some(made), Some(worktree), Some(work)) => {
+            let running = runs_in(env, &made.folder);
+            let (checkout, folder, branch, work) = (
+                made.checkout.clone(),
+                made.folder.clone(),
+                worktree.branch.clone(),
+                work.clone(),
+            );
+            // Noted before anything is made, so a restart or a crash inside
+            // `attach` finds what to take back; with nothing applied yet, a
+            // folder that is clean is all it may remove.
+            let (c, f, b) = (checkout.clone(), folder.clone(), branch.clone());
+            let plan = spawn_blocking(move || worktree::check(&c, &f, &b, running)).await??;
+            env.state
+                .save(
+                    &record.id,
+                    &Saved {
+                        at: record.at,
+                        phase: Phase::Working,
+                        reason: None,
+                        open: None,
+                        made: Some(MadeWorktree {
+                            checkout: checkout.clone(),
+                            folder: folder.clone(),
+                            placed: plan,
+                            applied: String::new(),
+                        }),
+                    },
+                )
+                .context("keeping what the move is about to make")?;
+            let attached = spawn_blocking(move || {
+                worktree::attach(&checkout, &folder, &branch, &work, running)
+            })
             .await?
-            .context("marking the copied usage as counted")?;
+            .context("making the worktree");
+            let attached = match attached {
+                Ok(attached) => attached,
+                Err(e) => {
+                    // `attach` leaves nothing changed when it fails.
+                    let mut saved = env
+                        .state
+                        .load(&record.id)
+                        .unwrap_or_else(|| Saved::over(record.at, Phase::Working, None));
+                    saved.made = None;
+                    if let Err(e) = env.state.save(&record.id, &saved) {
+                        log::warn!("the pending note of session {} stays: {e}", record.id);
+                    }
+                    return Err(e);
+                }
+            };
+            let note = MadeWorktree {
+                checkout: made.checkout.clone(),
+                folder: made.folder.clone(),
+                placed: attached.placed,
+                applied: attached.applied,
+            };
+            // Kept, so a restart or a cancel before the session runs
+            // takes the worktree back.
+            let kept = env.state.save(
+                &record.id,
+                &Saved {
+                    at: record.at,
+                    phase: Phase::Working,
+                    reason: None,
+                    open: None,
+                    made: Some(note.clone()),
+                },
+            );
+            if let Err(e) = kept {
+                // Nothing would remember it: back out now, while it holds
+                // only what was put there.
+                undo_logged(&record.id, note).await;
+                return Err(e).context("keeping the worktree made for the move");
+            }
+            true
+        }
+        (Some(_), ..) => bail!("the source sent no worktree state"),
+        _ => false,
+    };
+    let arrival = Arrival {
+        id: &record.id,
+        mode: record.mode.clone(),
+        from: record.from,
+        how: How::Moved,
+    };
+    let placed = ResumeFolders {
+        old: folders.old.clone(),
+        new: folders.new.clone(),
+    };
+    let resumed = resume(env, &arrival, &kind, &placed, copied.file_name, copy).await;
+    if resumed.is_err() && made {
+        take_back(env, &record.id).await;
     }
-    let cwd = folders.new.to_string_lossy().into_owned();
-    env.agents.start(
-        &kind,
-        Some(&cwd),
-        Begin {
-            resume: Some(record.id.clone()),
-            mode: record.mode.clone(),
-            note: Some(format!("Moved here from {}", env.name_of(&record.from))),
-            brief: Some(Cow::Owned(format!(
-                "This session moved from another machine. Paths in the conversation so far name its old folder, {}; the same checkout is now {}.",
-                folders.old.display(),
-                folders.new.display()
-            ))),
-            ..Begin::default()
-        },
-    )?;
-    Ok(())
+    resumed
+}
+
+/// Whether a session of this node runs in `folder` or below it.
+fn runs_in(env: &Env, folder: &Path) -> bool {
+    env.agents
+        .list()
+        .iter()
+        .any(|info| info.state.status != Status::Ended && Path::new(&info.cwd).starts_with(folder))
+}
+
+/// Takes back the worktree an earlier try of a move made, once: a restart,
+/// a cancel or a failure came between making it and running the session. It
+/// goes only when no session runs in it and it holds exactly what was put
+/// there; anything else is the user's and stays, with a line in the log.
+pub(super) async fn take_back(env: &Env, id: &str) {
+    // Sessions that run again after a restart are not running yet.
+    env.agents.until_reopened().await;
+    let Some(mut saved) = env.state.load(id) else {
+        return;
+    };
+    let Some(made) = saved.made.take() else {
+        return;
+    };
+    // Forgotten first, so this runs once whatever happens next.
+    if let Err(e) = env.state.save(id, &saved) {
+        log::warn!("the worktree of session {id} was not taken back, it could not be noted: {e}");
+        return;
+    }
+    if env.agents.runs(id) || runs_in(env, &made.folder) {
+        log::info!(
+            "the worktree of session {id} stays: a session runs in {}",
+            made.folder.display()
+        );
+        return;
+    }
+    undo_logged(id, made).await;
+}
+
+async fn undo_logged(id: &str, made: MadeWorktree) {
+    let folder = made.folder.clone();
+    let done = spawn_blocking(move || {
+        worktree::undo(&made.checkout, &made.folder, &made.placed, &made.applied)
+    })
+    .await;
+    match done {
+        Ok(Undone::Removed | Undone::Reset) => {
+            log::info!(
+                "the worktree {} made for session {id} was taken back",
+                folder.display()
+            );
+        }
+        Ok(Undone::Left(why)) => log::warn!("the worktree of session {id} stays: {why}"),
+        Err(e) => log::warn!("the worktree of session {id} was not taken back: {e}"),
+    }
 }
 
 /// The old and new folders, from the project's `sync/<name>` record.
@@ -174,9 +334,21 @@ fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
     {
         bail!("the session's folder is not inside the project");
     }
+    let Some(worktree) = &record.worktree else {
+        return Ok(Folders {
+            old: Path::new(theirs).join(relative),
+            new: Path::new(mine).join(relative),
+            worktree: None,
+        });
+    };
+    let top = Path::new(mine).join(beep_proto::node::agent::worktree_path(&worktree.branch));
     Ok(Folders {
-        old: Path::new(theirs).join(relative),
-        new: Path::new(mine).join(relative),
+        old: Path::new(&worktree.from).join(relative),
+        new: top.join(relative),
+        worktree: Some(Made {
+            checkout: PathBuf::from(mine),
+            folder: top,
+        }),
     })
 }
 
@@ -215,6 +387,7 @@ async fn conversation(
                     return Ok(Copied {
                         since: Instant::now(),
                         file_name: pulled.file_name,
+                        work: pulled.work,
                     });
                 }
             }
@@ -234,7 +407,19 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
     let connection = dial(env, record.from).await?;
     let (send, recv) = connection.open_bi().await?;
     let (tx, rx) = link(send, recv);
-    let pulled = read::pull(tx, rx, record.agent.clone(), &record.id, copy).await;
+    let pulled = read::pull(
+        tx,
+        rx,
+        read::Ask {
+            agent: record.agent.clone(),
+            id: &record.id,
+            copy,
+            kind: read::Kind::Move {
+                worktree: record.worktree.is_some(),
+            },
+        },
+    )
+    .await;
     connection.close(0u32.into(), b"done");
     pulled
 }

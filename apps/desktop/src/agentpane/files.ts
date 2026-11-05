@@ -8,6 +8,7 @@ import { resolvePath } from "./media-state.ts";
 import { paneRoot } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
+import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
 import { arrowFocus } from "../ui/menu.ts";
 import { esc } from "../ui/format.ts";
@@ -318,6 +319,18 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   m.style.left = `${Math.max(0, Math.min(x - box.left, box.width - m.offsetWidth - 4))}px`;
   m.style.top = `${Math.max(0, Math.min(y - box.top, box.height - m.offsetHeight - 4))}px`;
   m.querySelector<HTMLElement>("button")?.focus();
+  // A file this Mac has can be opened here, in another app, or shown in Finder.
+  if (!folder) {
+    void localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, { x, y }).then(more => {
+      if (!more.length || !m.isConnected) return;
+      m.append(document.createElement("hr"));
+      for (const item of more) {
+        const b = h(`<button role="menuitem">${esc(item.label)}</button>`);
+        b.addEventListener("click", e => { e.stopPropagation(); closeFilesMenu(); item.on(); });
+        m.append(b);
+      }
+    });
+  }
   const note = (text: string) => {
     const meta = F.el?.querySelector(".agpacts .meta");
     if (meta) { meta.textContent = text; setTimeout(() => { if (meta.isConnected) meta.textContent = paneRoot(); }, 3000); }

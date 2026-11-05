@@ -121,7 +121,7 @@ impl Agents {
     }
 
     /// Every session the agents' stores hold, with the folder it ran in.
-    async fn sightings(&self) -> Result<Vec<found::Seen>> {
+    pub(super) async fn sightings(&self) -> Result<Vec<found::Seen>> {
         let stores = self.stores.clone();
         let others = spawn_blocking(move || stores.sessions(None));
         let (claude, others) = tokio::join!(self.external.sightings(), others);
