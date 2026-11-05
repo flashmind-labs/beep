@@ -31,11 +31,13 @@ import { loadAgents, takePending } from "./pane.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
+import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf } from "../agents/running-state.ts";
 
 followSkin();
+guardClicks();
 
 // The web view's own menu only offers Reload, which restarts the whole UI. Items with a
 // menu of their own stop the event first; here it stays native only where text can be
