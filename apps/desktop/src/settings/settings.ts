@@ -193,9 +193,9 @@ function setDevicesHtml(set: MacSettings) {
       <b class="dtitle">Unlink this Mac?</b><div class="dmuted dblock">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
       <div class="dline"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn quiet" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
-  return devices.map(row).join("") + (owner
-    ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
-    : SET.confirm === "unlink" ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`) + ask;
+  const link = !owner && SET.confirm === "unlink" ? "" : '<button class="dbtn" id="invite">Link a phone…</button>';
+  const unlink = owner || SET.confirm === "unlink" ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`;
+  return `<div class="dsec flat dgroup">Devices${link}</div><div class="dcard ddevices">${devices.map(row).join("")}${unlink}</div>` + ask;
 }
 
 /// Settings, Models: the model every turn of yours uses, how long it thinks,
@@ -215,14 +215,6 @@ function setModelsHtml() {
     ${auto}
     <div class="dfield"><span>Thinking${m.auto ? " (Auto picks it per prompt)" : ""}</span><div class="dchips">${levels}</div></div>
     <div class="derr" id="setModelErr"></div>`;
-}
-
-/// Settings, Account: who this account signs in to GitHub as, when known,
-/// above its devices.
-export function setAccountHtml(linked: boolean) {
-  if (!linked) return "";
-  const gh = Array.isArray(CRED.github) ? CRED.github.find(a => a.default) : null;
-  return gh ? `<div class="dtoggle"><span><b>GitHub</b><small>@${esc(gh.login)}, given to your machines as GH_TOKEN</small></span></div>` : "";
 }
 
 function setAppsHtml() {
@@ -435,7 +427,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   out.push(["agents", sheet && sub?.kind === "agent" ? host("agents")
     : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">Agent accounts</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}<div id="set-agents">${setAgentsHtml()}</div>${sheet ? codingAgentsHtml() : ""}</section>`]);
   out.push(creds, instr);
-  out.push(["devices", sec("devices", "Beep server", `<div id="set-account">${setAccountHtml(linked)}</div>${setServerHtml(set)}`)]);
+  out.push(["devices", sec("devices", "Beep server", setServerHtml(set))]);
   return out;
 }
 
@@ -692,7 +684,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
 /// The subscription's parts of Settings, which fill their sections as each answers.
 function loadServerParts(set: MacSettings, alive: () => boolean) {
   invoke<DeviceList>("list_devices").then(d => { SET.devices = d.devices; SET.reach = d.server; }, e => { console.warn(e); SET.devices ??= []; SET.reach = "unreachable"; })
-    .then(() => { if (alive()) fillSection("devices", `<div id="set-account">${setAccountHtml(S.link === "linked")}</div>${setServerHtml(set)}`); });
+    .then(() => { if (alive()) fillSection("devices", setServerHtml(set)); });
   invoke<Models>("get_models").then(m => { MODELS.info = m; SET.modelsError = false; }, e => { console.warn(e); SET.modelsError = !MODELS.info; })
     .then(() => {
       if (!alive()) return;
