@@ -1,14 +1,23 @@
 //! Moving a session between machines: what a harness stores for a session
-//! once its folder changed. Pure functions over a transcript's bytes.
+//! once its folder changed (pure functions over a transcript's bytes), and
+//! reading a transcript from the machine that ran it (`beep-sessions/1`).
 
+mod alpn;
 mod claude;
 mod codex;
 mod folder;
 mod json;
 mod pi;
+mod read;
+mod store;
 
 #[cfg(test)]
+mod read_tests;
+#[cfg(test)]
 mod tests;
+
+pub use alpn::SessionsAlpn;
+pub(crate) use read::ALPN as SESSIONS_ALPN;
 
 use super::found::Agent;
 use std::path::{Path, PathBuf};
