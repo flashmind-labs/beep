@@ -3372,7 +3372,7 @@ async fn placed_pair() -> Pair {
 
 /// A fake Syncthing GUI on `node`'s machine that keeps `folder` and has `need`
 /// items still to get. Its events never come.
-async fn fake_syncthing(
+async fn fake_syncthing_status(
     node: &Node,
     folder: &Path,
     need: watch::Receiver<u64>,
@@ -3440,7 +3440,7 @@ async fn fake_syncthing_answer(
 async fn a_session_moves_on_a_project_syncthing_keeps_with_no_sync_record_and_no_files() {
     let mut pair = placed_pair().await;
     let (need, told) = watch::channel(3);
-    let _syncthing = fake_syncthing(&pair.b, &pair.b_folder, told).await;
+    let _syncthing = fake_syncthing_status(&pair.b, &pair.b_folder, told).await;
     let conn_a = pair.desktop.reach(pair.a.id).await;
     let conn_b = pair.desktop.reach(pair.b.id).await;
     run_session_in(&conn_a, &pair.a_folder).await;
