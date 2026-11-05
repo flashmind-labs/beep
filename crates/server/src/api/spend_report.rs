@@ -5,7 +5,7 @@ use crate::{
     api::router::Cx,
     protocol::{
         AgentSlug, AgentTokens, GetSpendReport, HarnessBill, ModelId, ModelSpend, ProjectBill,
-        SpendPeriod, SpendReport, node::usage::Billing,
+        SpendPeriod, SpendReport,
     },
     store::{DayModelRow, DaySpendRow},
 };
@@ -47,15 +47,6 @@ pub(super) async fn get_spend_report(
     })
 }
 
-/// Whether a subscription covered `agent`'s use; unknown is one for Claude Code and Codex.
-fn on_subscription(agent: &AgentSlug, billing: Billing) -> bool {
-    match billing {
-        Billing::Subscription => true,
-        Billing::Metered => false,
-        Billing::Unknown => *agent == AgentSlug::CLAUDE || *agent == AgentSlug::CODEX,
-    }
-}
-
 /// One harness paid for one way.
 type HarnessKey<'a> = (&'a AgentSlug, bool);
 
@@ -72,7 +63,7 @@ fn spend_period(
     let mut projects: BTreeMap<String, ProjectBill> = BTreeMap::new();
     let mut harnesses: BTreeMap<HarnessKey, HarnessBill> = BTreeMap::new();
     for row in days.iter().filter(|row| row.day >= from) {
-        let subscription = on_subscription(&row.agent, row.billing);
+        let subscription = row.billing.on_subscription(&row.agent);
         let project = project_of(&row.endpoint, &row.cwd, imports);
         let bill = projects
             .entry(project.clone())
@@ -165,7 +156,7 @@ fn period_models(
     let mut by_model: BTreeMap<(HarnessKey, &ModelId), u64> = BTreeMap::new();
     for row in models {
         if row.from_logs == logged.contains(&row.agent) {
-            let key = (&row.agent, on_subscription(&row.agent, row.billing));
+            let key = (&row.agent, row.billing.on_subscription(&row.agent));
             *by_model.entry((key, &row.model)).or_default() += row.tokens;
         }
     }
@@ -185,6 +176,7 @@ fn period_models(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::node::usage::Billing;
     use iroh::SecretKey;
 
     fn machine() -> EndpointId {
