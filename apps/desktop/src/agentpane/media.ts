@@ -81,6 +81,8 @@ interface PaneSession {
   machine_id: string;
   machine_name: string;
   cwd: string;
+  agent: string;
+  external?: boolean;
 }
 
 const SUBS = "subagents";

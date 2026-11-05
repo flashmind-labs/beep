@@ -25,9 +25,11 @@ import { loading, refresh, fresh } from "./refresh.ts";
 import { IC } from "../ui/icons.ts";
 import { type MachineCard, machineDisk, thisMacRow } from "../machines/machine-state.ts";
 import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
+import { onPlaces, runningLineAt } from "../agents/place.ts";
 
 export function runningRow(r: RunningRow) {
-  const { title, sub } = runningLine(r, state.home?.projects || []);
+  const projects = state.home?.projects || [];
+  const { title, sub } = r.kind === "agent" ? runningLineAt(r, projects) : runningLine(r, projects);
   const right = [r.status === "asking" ? tag("wait", "needs you") : runningWhen(r)];
   const row = r.kind === "research"
     ? line(null, title, sub, right, () => openResearch(r.session))
@@ -361,6 +363,8 @@ export function draw() {
   $<HTMLInputElement>("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
   $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
 }
+
+onPlaces(() => draw());
 
 registerView("home", {
   el: $("#home-box"),

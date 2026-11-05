@@ -51,6 +51,16 @@ export function treeAt(trees: readonly Tree[], cwd: string, path: string) {
   return found;
 }
 
+/// The folder the pane reads for the checkout at `folder`, which the session's
+/// machine says it works in: its worktree in `trees` (see `rootOf`). With no
+/// list, the folder as it is. Null for a folder the list lacks, which was
+/// removed or is too new to be listed: the report asks for the list again.
+export function reportedRoot(trees: readonly Tree[], cwd: string, folder: string) {
+  const t = trees.find(t => bare(t.path) === bare(folder));
+  if (t) return rootOf(t, cwd);
+  return trees.length ? null : bare(folder);
+}
+
 /// Words of a command or title, with quotes, `&&`, `;` and the like cut away.
 const WORD = /[^\s"'`;|&()<>=,]+/g;
 /// What names a folder in the word after it.

@@ -118,6 +118,10 @@ pub(crate) struct Live {
     /// its text, a tool call. Its thinking started then, as agents send
     /// a thought's text late, often all at once as it ends.
     active_at: Option<Instant>,
+    /// The folder the last tool call that named one worked in.
+    folder: Option<PathBuf>,
+    /// A folder whose checkout the session has not looked up yet.
+    pub(crate) place_wanted: Option<PathBuf>,
 }
 
 /// A thought still arriving.

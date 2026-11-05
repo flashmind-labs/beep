@@ -28,6 +28,8 @@ import { esc, money, tokenCount } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { onPlaces, placeOf } from "./place.ts";
+import { placeSub } from "./place-state.ts";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
@@ -357,13 +359,22 @@ export async function renderAgents() {
   if (S.view === "agents") drawAgents(false);
 }
 
+/// A row's sub line: the harness, and the folder and machine; in a linked
+/// worktree the repository, the worktree and the machine.
+function sessionSub(s: AgentSession, harness: string, folder: string) {
+  const worktree = placeSub(placeOf(s), s.machine_name);
+  return (worktree ? [harness, worktree] : [harness, folder, s.machine_name]).filter(Boolean).join(" · ");
+}
+
+onPlaces(() => { if (S.view === "agents") drawAgents(false); });
+
 function sessionRow(s: AgentSession, i: number) {
   const k = agentKind(s.agent), folder = folderName(s.cwd);
   const tail = s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
     : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run" title="${esc(s.doing || "Working")}"><span class="dspin"></span><span class="tx">${esc(s.doing || "Working")}</span></span>`
     : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
   return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
-      <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc([k.name, folder, s.machine_name].filter(Boolean).join(" · "))}</small></span>${tail}</button>`;
+      <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;
 }
 
 /// The sessions the list on screen shows, which its rows index. Another page

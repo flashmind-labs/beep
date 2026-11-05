@@ -37,6 +37,7 @@ mod kinds;
 mod live;
 mod media_file;
 mod models;
+mod place;
 mod plans;
 mod prices;
 mod reach;

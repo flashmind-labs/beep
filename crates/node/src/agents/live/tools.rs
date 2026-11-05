@@ -5,6 +5,7 @@ use super::{
     content::{cut, image_picture, parent_tool},
 };
 use crate::agents::mcp::calls::Tool as BeepTool;
+use crate::agents::place::call_folder;
 use crate::agents::{
     acp::wire_name,
     images::{Picture, picture_of},
@@ -74,6 +75,7 @@ impl Live {
         // A subagent's own call goes on the entry of the call that started
         // it, not in the transcript.
         let parent = parent_tool(call.meta.as_ref()).filter(|id| self.tools.contains_key(id));
+        self.note_folder(call.kind, &call.locations, call.raw_input.as_ref());
         let mut subagent = Subagent::of_call(&call.title, call.raw_input.as_ref());
         let mut tool = ToolCall {
             entry: 0,
@@ -161,6 +163,28 @@ impl Live {
         }
     }
 
+    /// Notes the folder a tool call works in, when it names one and it is
+    /// not the last: the session then looks up its checkout.
+    fn note_folder(
+        &mut self,
+        kind: ToolKind,
+        locations: &[ToolCallLocation],
+        input: Option<&Value>,
+    ) {
+        let edited = locations
+            .first()
+            .filter(|_| EDIT_KINDS.contains(&kind))
+            .map(|location| location.path.as_path());
+        let base = Path::new(&self.info.cwd);
+        let Some(dir) = call_folder(base, input, edited) else {
+            return;
+        };
+        if self.folder.as_deref() != Some(dir.as_path()) {
+            self.folder = Some(dir.clone());
+            self.place_wanted = Some(dir);
+        }
+    }
+
     pub(super) fn tool_call_update(&mut self, update: &ToolCallUpdate) {
         let Some(mut call) = self.tools.remove(&update.tool_call_id) else {
             return;
@@ -200,6 +224,11 @@ impl Live {
             call.status = status;
         }
         self.mark_backgrounded(&mut call, &update.tool_call_id, update.meta.as_ref());
+        self.note_folder(
+            call.kind,
+            fields.locations.as_deref().unwrap_or_default(),
+            fields.raw_input.as_ref(),
+        );
         let more = paths(
             fields.locations.as_deref().unwrap_or_default(),
             fields.raw_input.as_ref(),

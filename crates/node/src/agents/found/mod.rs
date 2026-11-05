@@ -2,7 +2,7 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
-use crate::agents::cut;
+use crate::agents::{cut, place::of_folder};
 use beep_proto::{
     AgentSlug,
     node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
@@ -34,7 +34,7 @@ mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};
 pub(crate) use disk::{forget_checkouts, saved_checkouts, walk};
-pub(crate) use git::{Checkout, checkout, last_commit};
+pub(crate) use git::{Checkout, checkout, last_commit, place};
 pub(crate) use memo::Memo;
 
 /// The most session files one store looks at.
@@ -132,6 +132,8 @@ struct Memos {
     heads: Memo<Option<Seen>>,
     /// Each Codex or pi session file's name or first prompt.
     titles: Memo<Option<String>>,
+    /// Each Codex session file's latest working folder.
+    folders: Memo<Option<PathBuf>>,
     /// Codex's index of the names the user gave.
     names: Memo<Arc<HashMap<String, String>>>,
     /// Each flsh or OpenCode database's sessions.
@@ -143,6 +145,7 @@ impl Default for Memos {
         Self {
             heads: Memo::new(MAX_FILES * 4),
             titles: Memo::new(1_000),
+            folders: Memo::new(1_000),
             names: Memo::new(4),
             databases: Memo::new(1_000),
         }
@@ -191,7 +194,27 @@ impl Stores {
             let Ok(title) = self.memos.titles.read(file, read);
             seen.title = title;
         }
-        describe(seen, now)
+        let folder = self.working_folder(&seen);
+        let place = of_folder(&folder);
+        ExternalSession {
+            place,
+            ..describe(seen, now)
+        }
+    }
+
+    /// The folder `seen` works in now: what its agent last recorded, else
+    /// the folder it started in. Codex's rollout says; pi, flsh and
+    /// OpenCode keep only the folder a session started in.
+    fn working_folder(&self, seen: &Seen) -> PathBuf {
+        let recorded = match (seen.agent, seen.file.as_deref()) {
+            (Agent::Codex, Some(file)) => {
+                let read = || Ok::<_, Infallible>(codex::latest_folder(file));
+                let Ok(folder) = self.memos.folders.read(file, read);
+                folder
+            }
+            _ => None,
+        };
+        recorded.unwrap_or_else(|| seen.cwd.clone())
     }
 
     /// What the first of `threads` with a rollout here did, for a Codex

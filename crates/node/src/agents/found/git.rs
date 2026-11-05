@@ -3,6 +3,7 @@
 //! remote.
 
 use crate::agents::work_folder::git;
+use beep_proto::node::agent::WorkPlace;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -24,6 +25,29 @@ pub(crate) fn checkout(dir: &Path) -> Option<Checkout> {
     let root = main_folder(dir, &top, &common);
     let origin = origin(&root);
     Some(Checkout { root, origin })
+}
+
+/// The checkout `dir` is in, as a session's place: whether it is a linked
+/// worktree of its repository, and the branch. `None` when `dir` is in no
+/// checkout or git is missing. Three runs of git: call it from a blocking
+/// task, and not for every update.
+pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
+    let said = git(dir, &["rev-parse", "--show-toplevel", "--git-common-dir"])?;
+    let mut lines = said.lines();
+    let top = PathBuf::from(lines.next()?.trim());
+    let common = PathBuf::from(lines.next()?.trim());
+    let main = main_folder(dir, &top, &common);
+    let real_top = top.canonicalize().unwrap_or_else(|_| top.clone());
+    let branch = git(dir, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty());
+    Some(WorkPlace {
+        linked: real_top != main,
+        folder: top.to_string_lossy().into_owned(),
+        main: main.to_string_lossy().into_owned(),
+        branch,
+        origin: origin(&main),
+    })
 }
 
 /// The `origin` remote of the checkout at `root`; empty when it has none.
