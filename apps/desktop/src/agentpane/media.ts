@@ -9,7 +9,7 @@ import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
 import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
-import { changesView, dropChanges, madeChangesView, reloadChanges } from "./changes.ts";
+import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView } from "./files.ts";
 import { dropTerm, type PaneTerm } from "./terminal.ts";
 import { drag, tabDown } from "./drag.ts";
@@ -251,6 +251,31 @@ function toggleZoom() {
     P.zoom = shown.find(d => paneOf(d)?.contains(document.activeElement)) ?? shown.find(d => d === "right") ?? shown[0] ?? null;
   }
   place();
+}
+
+/// View diff: the Changes tab zoomed over the conversation, the keyboard in the diff.
+/// A folded dock opens; the layout is otherwise as it was.
+export function showChanges() {
+  if (!shell()) return;
+  const d = dockOf(CHANGES);
+  P.on[d] = CHANGES;
+  P.layout.hidden[d] = false;
+  draw();
+  P.zoom = d;
+  place();
+  focusChanges();
+}
+
+/// Esc in the window with a zoomed or focused pane: the pane steps back and the
+/// conversation's input takes the keys. False when no pane has them.
+export function leavePane() {
+  const focus = document.activeElement;
+  if (!P.zoom && !focus?.closest(".agpane")) return false;
+  P.zoom = null;
+  place();
+  const input = document.getElementById("agmsg");
+  if (input) input.focus(); else (focus as HTMLElement).blur();
+  return true;
 }
 
 // In the capture phase so it comes before the terminal's, a canvas's and every Esc
