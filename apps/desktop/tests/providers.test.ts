@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compactOf, compactProblem, draftChanged, draftOf, envProblem, hasUpdate, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/settings/providers-state.ts";
+import { compactKind, compactOf, compactProblem, draftChanged, draftOf, envProblem, hasUpdate, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/settings/providers-state.ts";
 import { isNewer } from "../src/ui/format.ts";
 
 const settings = { enabled: true, program: "", home: "", args: [], env: [] };
@@ -56,6 +56,13 @@ test("saving sends typed values only, and the switch keeps the saved ones", () =
   assert.equal(envProblem([{ name: "1X", value: "", saved: false }]), "1X is not a variable name.");
   assert.equal(envProblem([{ name: "A", value: "", saved: false }, { name: "A", value: "", saved: true }]), "A is set twice.");
   assert.equal(envProblem([{ name: "", value: "", saved: false }]), "");
+});
+
+test("auto-compact takes a percent, only on and off, or nothing by agent", () => {
+  assert.deepEqual(["claude", "codex", "pi"].map(compactKind), ["percent", "percent", "percent"]);
+  assert.equal(compactKind("opencode"), "toggle");
+  assert.equal(compactKind("flsh"), null);
+  assert.equal(compactKind("gemini"), null);
 });
 
 test("auto-compact is shown for agents the node compacts and refuses a bad percent", () => {
