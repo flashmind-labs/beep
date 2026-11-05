@@ -3,16 +3,13 @@
 //! that compact on their own (Gemini CLI, flsh) are left to it.
 
 use super::Known;
-use beep_proto::AgentContext;
+use beep_proto::{AgentContext, node::harness::AutoCompact};
 use std::collections::BTreeMap;
 
-/// The variable in a harness's env settings that sets its threshold: a
-/// percent of the window (`70`), or `off`.
-pub(super) const COMPACT_AT_VAR: &str = "BEEP_COMPACT_AT";
 /// Claude Code's own threshold, a percent of its window.
 const CLAUDE_AUTOCOMPACT_VAR: &str = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE";
-/// The percent of the window at which a session is compacted.
-const DEFAULT_PERCENT: u8 = 80;
+/// Turns Claude Code's own compaction off.
+const CLAUDE_DISABLE_VAR: &str = "DISABLE_AUTO_COMPACT";
 /// The prompt that asks an agent to compact its conversation.
 pub(super) const COMPACT_PROMPT: &str = "/compact";
 /// What the transcript shows for a compaction, as Claude Code's reader does.
@@ -27,21 +24,22 @@ pub(super) enum Policy {
 }
 
 impl Policy {
-    /// The policy `env`, a harness's variables, sets: the default when it
-    /// sets none or one that does not read.
-    pub(super) fn from_env(env: &BTreeMap<String, String>) -> Self {
-        let Some(value) = env.get(COMPACT_AT_VAR) else {
+    /// The policy a harness's setting gives: the default when it sets
+    /// none or a percent out of range.
+    pub(super) fn from_setting(setting: Option<AutoCompact>) -> Self {
+        let Some(setting) = setting else {
             return Self::default();
         };
-        let value = value.trim().trim_end_matches('%');
-        if value.eq_ignore_ascii_case("off") || value == "0" {
+        if !setting.enabled {
             return Self::Off;
         }
-        match value.parse::<u8>() {
-            Ok(percent) if (1..=100).contains(&percent) => Self::At(percent),
-            _ => {
+        match setting.percent {
+            None => Self::default(),
+            Some(percent) if AutoCompact::valid_percent(percent) => Self::At(percent),
+            Some(percent) => {
                 log::warn!(
-                    "{COMPACT_AT_VAR}={value} is not off or 1 to 100; compacting at {DEFAULT_PERCENT}%"
+                    "auto-compact {percent}% is not 1 to 100; compacting at {}%",
+                    AutoCompact::DEFAULT_PERCENT
                 );
                 Self::default()
             }
@@ -63,22 +61,20 @@ impl Policy {
     /// The variables to add for agent `agent` so its own trigger matches:
     /// Claude Code's, unless the user set it.
     pub(super) fn agent_env(self, agent: &str, env: &BTreeMap<String, String>) -> Option<EnvVar> {
-        let Self::At(percent) = self else {
-            return None;
-        };
-        if agent != "claude" || env.contains_key(CLAUDE_AUTOCOMPACT_VAR) {
+        if agent != "claude" {
             return None;
         }
-        Some(EnvVar {
-            name: CLAUDE_AUTOCOMPACT_VAR,
-            value: percent.to_string(),
-        })
+        let (name, value) = match self {
+            Self::At(percent) => (CLAUDE_AUTOCOMPACT_VAR, percent.to_string()),
+            Self::Off => (CLAUDE_DISABLE_VAR, "1".to_owned()),
+        };
+        (!env.contains_key(name)).then_some(EnvVar { name, value })
     }
 }
 
 impl Default for Policy {
     fn default() -> Self {
-        Self::At(DEFAULT_PERCENT)
+        Self::At(AutoCompact::DEFAULT_PERCENT)
     }
 }
 
@@ -238,25 +234,24 @@ mod tests {
         assert!(!compactor.start(false));
     }
 
+    fn setting(enabled: bool, percent: Option<u8>) -> Option<AutoCompact> {
+        Some(AutoCompact { enabled, percent })
+    }
+
     #[test]
-    fn the_threshold_reads_from_the_harness_env() {
-        assert_eq!(Policy::from_env(&env(&[])), Policy::At(80));
+    fn the_threshold_reads_from_the_setting() {
+        assert_eq!(Policy::from_setting(None), Policy::At(80));
+        assert_eq!(Policy::from_setting(setting(true, None)), Policy::At(80));
         assert_eq!(
-            Policy::from_env(&env(&[(COMPACT_AT_VAR, "70")])),
+            Policy::from_setting(setting(true, Some(70))),
             Policy::At(70)
         );
+        assert_eq!(Policy::from_setting(setting(false, Some(70))), Policy::Off);
         assert_eq!(
-            Policy::from_env(&env(&[(COMPACT_AT_VAR, " 65% ")])),
-            Policy::At(65)
-        );
-        assert_eq!(
-            Policy::from_env(&env(&[(COMPACT_AT_VAR, "OFF")])),
-            Policy::Off
-        );
-        assert_eq!(
-            Policy::from_env(&env(&[(COMPACT_AT_VAR, "150")])),
+            Policy::from_setting(setting(true, Some(150))),
             Policy::At(80)
         );
+        assert_eq!(Policy::from_setting(setting(true, Some(0))), Policy::At(80));
         let mut off = Compactor::new(known("codex"), Policy::Off);
         ended(&mut off, usage(100, 100), &commands(&["compact"]));
         assert!(!off.start(false));
@@ -277,7 +272,16 @@ mod tests {
         );
         let own = env(&[(CLAUDE_AUTOCOMPACT_VAR, "60")]);
         assert_eq!(Policy::At(70).agent_env("claude", &own), None);
-        assert_eq!(Policy::Off.agent_env("claude", &env(&[])), None);
+        let disabled = Policy::Off.agent_env("claude", &env(&[]));
+        assert_eq!(
+            disabled,
+            Some(EnvVar {
+                name: CLAUDE_DISABLE_VAR,
+                value: "1".into()
+            })
+        );
+        let own = env(&[(CLAUDE_DISABLE_VAR, "0")]);
+        assert_eq!(Policy::Off.agent_env("claude", &own), None);
         assert_eq!(Policy::At(70).agent_env("codex", &env(&[])), None);
     }
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { draftChanged, draftOf, envProblem, hasUpdate, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/settings/providers-state.ts";
+import { compactOf, compactProblem, draftChanged, draftOf, envProblem, hasUpdate, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/settings/providers-state.ts";
 import { isNewer } from "../src/ui/format.ts";
 
 const settings = { enabled: true, program: "", home: "", args: [], env: [] };
@@ -56,4 +56,18 @@ test("saving sends typed values only, and the switch keeps the saved ones", () =
   assert.equal(envProblem([{ name: "1X", value: "", saved: false }]), "1X is not a variable name.");
   assert.equal(envProblem([{ name: "A", value: "", saved: false }, { name: "A", value: "", saved: true }]), "A is set twice.");
   assert.equal(envProblem([{ name: "", value: "", saved: false }]), "");
+});
+
+test("auto-compact is shown for agents the node compacts and refuses a bad percent", () => {
+  const claude = harness("claude");
+  const draft = draftOf(claude, { enabled: true, percent: 70 });
+  assert.equal(draft.compactPercent, "70");
+  assert.equal(draftChanged(claude, draft, { enabled: true, percent: 70 }), false);
+  assert.equal(draftChanged(claude, { ...draft, compactOn: false }, { enabled: true, percent: 70 }), true);
+  assert.equal(draftChanged(harness("flsh"), { ...draft, compactOn: false }), false, "flsh compacts on its own");
+  assert.equal(compactOf({ ...draft, compactPercent: "65%" })?.percent, 65);
+  assert.equal(compactOf({ ...draft, compactPercent: "" }), null, "on and blank is the default");
+  assert.deepEqual(compactOf({ ...draft, compactOn: false, compactPercent: "" }), { enabled: false, percent: null });
+  for (const bad of ["0", "101", "abc", "5.5"]) assert.notEqual(compactProblem({ ...draft, compactPercent: bad }), "", bad);
+  assert.equal(compactProblem({ ...draft, compactOn: false, compactPercent: "abc" }), "");
 });

@@ -12,6 +12,7 @@ use beep_proto::{
     node::{
         EnvReport, LinkRx, LinkTx, Open, Opened, ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
+        harness::{AutoCompact, HarnessConfig},
         mesh_state::{Credential, StateValue},
         shell::{self, Event, Request},
         status::Report,
@@ -625,6 +626,27 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
         )
         .await
         .expect("settings are saved");
+    let compact = AutoCompact {
+        enabled: false,
+        percent: Some(60),
+    };
+    studio
+        .save_harness_compact("codex", Some(compact))
+        .await
+        .expect("compaction is saved");
+    assert!(
+        studio
+            .save_harness_compact(
+                "codex",
+                Some(AutoCompact {
+                    enabled: true,
+                    percent: Some(101)
+                })
+            )
+            .await
+            .is_err(),
+        "a percent over 100 is refused"
+    );
     let first = studio
         .save_instructions("- Write plainly.", None, "")
         .await
@@ -634,7 +656,9 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     assert!(stale.is_err(), "a save from an old base is refused");
     until(&f.laptop.mesh, |m| {
         !m.scan("instructions/").is_empty()
-            && m.get(&Key::Harness("codex".into())).is_some()
+            && m.get(&Key::Harness("codex".into()))
+                .and_then(|bytes| HarnessConfig::from_bytes(&bytes).ok())
+                .is_some_and(|config| config.compact.is_some())
             && m.get(&Key::Pin("acme/widget".into())).is_some()
     })
     .await;
@@ -679,8 +703,14 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
         .mesh
         .get(&Key::Harness("codex".into()))
         .expect("held");
-    let config = beep_proto::node::harness::HarnessConfig::from_bytes(&bytes).expect("reads");
+    let config = HarnessConfig::from_bytes(&bytes).expect("reads");
     assert_eq!(config.env[0].value.expose(), "proxy-secret-1");
+    // Saving the other settings keeps the compaction setting.
+    assert_eq!(config.compact, Some(compact));
+    assert_eq!(
+        laptop.harness_compact("codex").expect("read"),
+        Some(compact)
+    );
     laptop.delete_group(group.id).await.expect("deleted");
     until(&f.studio.mesh, |m| {
         m.get(&Key::Group(group.id.to_string())).is_none()

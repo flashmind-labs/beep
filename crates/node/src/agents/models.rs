@@ -388,6 +388,7 @@ mod tests {
             program: "false".into(),
             args: Vec::new(),
             env: [("FLASHMIND_HOME".into(), dir.path().display().to_string())].into(),
+            compact: None,
         };
         assert_eq!(flsh(&kind).await.current.as_deref(), Some("set:home"));
     }
@@ -411,6 +412,7 @@ cat > /dev/null
             program: "sh".into(),
             args: vec!["-c".into(), script.into(), "fake-adapter".into()],
             env: Default::default(),
+            compact: None,
         }
     }
 

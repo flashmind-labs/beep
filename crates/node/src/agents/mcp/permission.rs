@@ -146,6 +146,7 @@ done
             program: "sh".into(),
             args: vec!["-c".into(), ADAPTER.into(), "fake-adapter".into()],
             env: BTreeMap::new(),
+            compact: None,
         };
         let session = offers
             .agents
