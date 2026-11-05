@@ -68,8 +68,10 @@ async fn source_env() -> Source {
         .expect("the mesh is made");
     let work = dir.path().join("work");
     fs::create_dir_all(&work).expect("a work folder");
+    let agents = Arc::new(Agents::new(vec![kind()]));
+    agents.reopen(Vec::new()).await;
     let env = Env {
-        agents: Arc::new(Agents::new(vec![kind()])),
+        agents,
         mesh,
         endpoint,
         syncs: None,

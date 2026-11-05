@@ -124,14 +124,21 @@ async fn reconcile(env: &Arc<Env>, running: &mut HashMap<String, Running>) {
 
 fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<()> {
     AbortOnDropHandle::new(tokio::spawn(async move {
+        log::info!(
+            "taking part in the move of {} session {}, as its {}",
+            record.agent,
+            record.id,
+            if target { "target" } else { "source" }
+        );
         let result = if target {
             let tracker = env.agents.moves.begin(&record.id);
             target::run(&env, &record, &tracker).await
         } else {
             source::run(&env, &record).await
         };
-        if let Err(e) = result {
-            log::warn!("the move of session {} did not finish: {e:#}", record.id);
+        match result {
+            Ok(()) => log::info!("the move of session {} is done on this side", record.id),
+            Err(e) => log::warn!("the move of session {} did not finish: {e:#}", record.id),
         }
     }))
 }

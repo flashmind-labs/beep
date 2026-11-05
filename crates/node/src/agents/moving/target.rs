@@ -108,7 +108,12 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     }
     let copy = env.state.copy(&record.id);
     let copied = conversation(env, record, tracker, &copy).await?;
+    log::info!(
+        "session {}: the conversation is here, waiting for the files",
+        record.id
+    );
     files(env, record, tracker, copied.since).await?;
+    log::info!("session {}: the files are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let stored = {
         let (id, old, new) = (record.id.clone(), folders.old.clone(), folders.new.clone());
@@ -212,7 +217,7 @@ async fn conversation(
                 }
             }
             Err(e) => {
-                log::debug!("session {} not read from its source: {e:#}", record.id);
+                log::info!("session {} not read from its source yet: {e:#}", record.id);
                 show(tracker, |progress| progress.source_away = true);
                 wait = (wait * 2).min(LAST_WAIT);
             }
