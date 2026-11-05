@@ -67,7 +67,7 @@ pub fn computer_name() -> String {
 pub fn forget(app: &AppHandle) -> Result<()> {
     let dir = data_dir(app)?;
     // The mesh was made with the old key, which is no member of a new one.
-    match fs::remove_dir_all(dir.join("node").join("mesh")) {
+    match fs::remove_dir_all(dir.join("node").join("mesh2")) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),

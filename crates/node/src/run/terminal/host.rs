@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{
-    SecretText,
+    SecretText, lenient,
     node::{
         EnvSecret, MAX_FRAME,
         terminal::{Reply, Request},
@@ -74,7 +74,7 @@ impl Conn {
     }
 
     async fn write<T: Serialize>(&mut self, message: &T) -> Result<()> {
-        let body = rmp_serde::to_vec_named(message)?;
+        let body = rmp_serde::to_vec(message)?;
         self.0.send(body.into()).await?;
         Ok(())
     }
@@ -83,8 +83,7 @@ impl Conn {
         let Some(frame) = self.0.next().await else {
             return Ok(None);
         };
-        let message =
-            rmp_serde::from_slice(&frame?).context("could not read a terminal message")?;
+        let message = lenient::from_slice(&frame?).context("could not read a terminal message")?;
         Ok(Some(message))
     }
 }
@@ -411,6 +410,63 @@ mod tests {
         terminal::{MAX_SCROLLBACK, Size},
     };
     use tokio_util::task::AbortOnDropHandle;
+
+    /// A host started by the previous version outlives a node restart. It
+    /// writes maps and reads with plain `rmp_serde`, which takes arrays that
+    /// have just the fields it knows. The shapes are unchanged, so the new
+    /// node's compact messages are read by it and its maps by the new node.
+    #[test]
+    fn a_host_from_the_previous_version_still_works_with_this_node() {
+        let size = Size::DEFAULT;
+        let requests = [
+            Request::Start {
+                command: Some("ls".into()),
+                cwd: None,
+                size,
+            },
+            Request::List {},
+            Request::Stop { id: TaskId(3) },
+            Request::Attach {
+                id: TaskId(3),
+                from: 9,
+            },
+            Request::Input {
+                data: serde_bytes::ByteBuf::from(vec![0u8, 200, 13]),
+            },
+            Request::Resize { size },
+        ];
+        for request in requests {
+            let sent = rmp_serde::to_vec(&request).expect("encodes");
+            let read: Request = rmp_serde::from_slice(&sent).expect("the old host reads it");
+            assert_eq!(read, request);
+        }
+        let hello = Hello {
+            env: vec![EnvSecret {
+                name: "A".into(),
+                value: SecretText::new("b"),
+            }],
+        };
+        let sent = rmp_serde::to_vec(&hello).expect("encodes");
+        let read: Hello = rmp_serde::from_slice(&sent).expect("the old host reads it");
+        assert_eq!(read.env.len(), 1);
+        let replies = [
+            Reply::Terminals {
+                terminals: Vec::new(),
+            },
+            Reply::Output {
+                at: 1,
+                data: serde_bytes::ByteBuf::from(vec![255u8]),
+            },
+            Reply::Error {
+                message: "no".into(),
+            },
+        ];
+        for reply in replies {
+            let sent = rmp_serde::to_vec_named(&reply).expect("encodes");
+            let read: Reply = lenient::from_slice(&sent).expect("this node reads it");
+            assert_eq!(read, reply);
+        }
+    }
 
     /// A stream from the server, relayed by the node to the host in `dir`.
     fn stream(dir: &Path) -> (Conn, AbortOnDropHandle<Result<()>>) {

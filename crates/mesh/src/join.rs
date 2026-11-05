@@ -1,7 +1,7 @@
-//! `beep-join/1`. The joiner shows a ticket secret; the desktop that minted
+//! `beep-join/2`. The joiner shows a ticket secret; the desktop that minted
 //! it spends the secret, signs the `Add` and answers with every op.
 
-use crate::frame::{self, MAX_FRAME, MAX_REQUEST};
+use crate::frame::{self, FrameReader, MAX_FRAME, MAX_REQUEST};
 use crate::mesh::{AddrNote, Inner};
 use crate::{DeviceOp, Devices, JOIN_ALPN, JoinSecret, JoinTicket, MeshError};
 use iroh::Endpoint;
@@ -60,14 +60,14 @@ pub(crate) async fn redeem(
             .connect(ticket.addr.clone(), JOIN_ALPN)
             .await
             .map_err(frame::net)?;
-        let (mut send, mut recv) = conn.open_bi().await.map_err(frame::net)?;
+        let (mut send, recv) = conn.open_bi().await.map_err(frame::net)?;
         let request = Request {
             secret: ticket.secret.clone(),
             name: clean(name),
         };
         frame::send(&mut send, &request).await?;
         send.finish().map_err(frame::net)?;
-        let reply = frame::recv::<Reply>(&mut recv, MAX_FRAME).await?;
+        let reply = FrameReader::new(recv, MAX_FRAME).recv::<Reply>().await?;
         conn.close(0u32.into(), b"done");
         reply.ok_or_else(|| frame::net("no answer"))
     };
@@ -98,11 +98,11 @@ pub(crate) async fn serve(inner: &Inner, conn: Connection) {
     };
     let joiner = conn.remote_id();
     let work = async {
-        let (mut send, mut recv) = timeout(READ, conn.accept_bi())
+        let (mut send, recv) = timeout(READ, conn.accept_bi())
             .await
             .map_err(|_| frame::net("no stream in time"))?
             .map_err(frame::net)?;
-        let request = timeout(READ, frame::recv::<Request>(&mut recv, MAX_REQUEST))
+        let request = timeout(READ, FrameReader::new(recv, MAX_REQUEST).recv::<Request>())
             .await
             .map_err(|_| frame::net("no request in time"))??
             .ok_or_else(|| frame::net("no request"))?;

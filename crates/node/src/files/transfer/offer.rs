@@ -250,7 +250,7 @@ pub(super) async fn offer(
         empty_folders: walked.empty_folders.clone(),
     };
     if manifest != Manifest::default() {
-        let bytes = rmp_serde::to_vec_named(&manifest).context("encoding the manifest")?;
+        let bytes = rmp_serde::to_vec(&manifest).context("encoding the manifest")?;
         let tag = store
             .blobs()
             .add_bytes(bytes)

@@ -311,7 +311,7 @@ impl Task {
         self.saved_at = Instant::now();
         let file = self.shared.file.clone();
         let written = spawn_blocking(move || {
-            let bytes = rmp_serde::to_vec_named(&snapshot)?;
+            let bytes = rmp_serde::to_vec(&snapshot)?;
             crate::link::note::write(&file, &bytes)
         })
         .await

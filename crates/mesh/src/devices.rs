@@ -21,7 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use strum::{Display, IntoStaticStr};
 use thiserror::Error;
 
-const SIGN_DOMAIN: &[u8] = b"beep-mesh/1 device-op";
+const SIGN_DOMAIN: &[u8] = b"beep-mesh/2 device-op";
 /// Ops held while waiting for their author to count.
 const MAX_PENDING: usize = 256;
 
@@ -34,6 +34,7 @@ pub enum DeviceKind {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
+    #[serde(with = "crate::bin::id")]
     pub id: EndpointId,
     pub name: String,
     pub kind: DeviceKind,
@@ -44,13 +45,19 @@ pub struct Device {
 pub(crate) enum OpBody {
     Genesis(Device),
     Add(Device),
-    Remove { id: EndpointId, at_ms: u64 },
+    Remove {
+        #[serde(with = "crate::bin::id")]
+        id: EndpointId,
+        at_ms: u64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceOp {
+    #[serde(with = "crate::bin::id")]
     pub author: EndpointId,
     body: OpBody,
+    #[serde(with = "crate::bin::sig")]
     sig: Signature,
 }
 
@@ -58,7 +65,7 @@ impl DeviceOp {
     fn message(mesh: EndpointId, body: &OpBody) -> Result<Vec<u8>, MeshError> {
         let mut msg = SIGN_DOMAIN.to_vec();
         msg.extend_from_slice(mesh.as_bytes());
-        msg.extend(postcard::to_stdvec(body)?);
+        msg.extend(rmp_serde::to_vec(body)?);
         Ok(msg)
     }
 
@@ -100,7 +107,9 @@ pub enum MeshError {
     #[error("no genesis op")]
     NoGenesis,
     #[error("encoding failed: {0}")]
-    Encode(#[from] postcard::Error),
+    Encode(#[from] rmp_serde::encode::Error),
+    #[error("could not read: {0}")]
+    Decode(#[from] rmp_serde::decode::Error),
     #[error("state file: {0}")]
     Io(#[from] std::io::Error),
     #[error("not a state key: {0}")]
@@ -217,7 +226,7 @@ impl Devices {
         };
         let mut list = Self::empty(key.public());
         let op = DeviceOp::sign(key, key.public(), OpBody::Genesis(device))
-            .expect("postcard encodes a device op");
+            .expect("msgpack encodes a device op");
         list.insert(op);
         list
     }

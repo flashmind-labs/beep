@@ -111,7 +111,7 @@ pub(super) fn read_saved(file: &Path) -> Saved {
             return Saved::default();
         }
     };
-    match rmp_serde::from_slice::<Saved>(&bytes) {
+    match beep_proto::lenient::from_slice::<Saved>(&bytes) {
         Ok(mut saved) => {
             saved.map = saved.map.loaded();
             saved

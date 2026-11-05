@@ -67,7 +67,7 @@ mod tests {
             Request::Tree { max_elements: 60 },
         ] {
             let reply = session.handle(request);
-            let body = rmp_serde::to_vec_named(&reply).expect("a reply encodes");
+            let body = rmp_serde::to_vec(&reply).expect("a reply encodes");
             let back: Reply = rmp_serde::from_slice(&body).expect("a reply decodes");
             match &back {
                 Reply::Tree(tree) => println!("{} ({} bytes)\n{}", tree.app, body.len(), tree.text),
