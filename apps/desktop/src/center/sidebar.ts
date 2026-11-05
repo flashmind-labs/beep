@@ -7,6 +7,7 @@ import { invoke } from "../ui/tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
+import { live, S } from "../bar/core.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound } from "../addproject/addproject.ts";
@@ -249,7 +250,30 @@ function chatRow(c: SideChat) {
   openBtn.type = "button";
   openBtn.title = c.title;
   if (open) openBtn.setAttribute("aria-current", "true");
-  return h("div", "cc-si cc-chat", openBtn, end);
+  const row = h("div", "cc-si cc-chat", openBtn, end);
+  if (c.kind === "chat" && !c.research) row.addEventListener("contextmenu", e => openMenu(e, c.title, [
+    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
+    { label: "Delete…", warn: true, on: () => deleteChat(c) },
+  ]));
+  return row;
+}
+
+/// Asks, then deletes chat `c` as the All chats list does. The open chat
+/// sends the pane to that list.
+function deleteChat(c: SideChat) {
+  confirmSheet({
+    title: `Delete ${c.title}?`,
+    text: "Its messages are deleted for good.",
+    action: "Delete",
+    run: async () => {
+      await invoke("delete_session", { id: c.id });
+      live.delete(c.id);
+      const wasOpen = paneOn().session === c.id;
+      if (S.session === c.id) S.session = null;
+      await reloadChats();
+      if (wasOpen) go("pane", "chats");
+    },
+  });
 }
 
 function runSpin() {
