@@ -9,11 +9,11 @@ use crate::{
 };
 use beep_mesh::{
     Key,
-    machine::sessions::{MoveState, move_progress},
+    machine::sessions::{MoveState, WorktreeMove, move_progress, worktree_move},
 };
 use beep_proto::{
     AgentSlug,
-    node::mesh_state::{SessionMove, StateValue, SyncSpec},
+    node::mesh_state::{MovedWorktree, SessionMove, StateValue, SyncSpec},
 };
 use iroh::EndpointId;
 use std::{
@@ -32,10 +32,18 @@ pub struct MoveAsk<'a> {
     /// The folder the session works in on the source.
     pub cwd: &'a str,
     /// It works in a linked worktree of the project, not its checkout.
-    pub linked: bool,
+    pub worktree: Option<AskedWorktree<'a>>,
     pub mode: Option<String>,
     /// Stop the turn instead of waiting for it.
     pub stop: bool,
+}
+
+/// The linked worktree a session works in on the source.
+pub struct AskedWorktree<'a> {
+    /// The worktree's folder.
+    pub folder: &'a str,
+    /// The branch checked out in it.
+    pub branch: &'a str,
 }
 
 impl Desk {
@@ -48,11 +56,6 @@ impl Desk {
                 ask.agent
             )));
         }
-        if ask.linked {
-            return Err(refused(
-                "a session in a worktree cannot move between machines yet".to_owned(),
-            ));
-        }
         if ask.from == ask.to {
             return Err(refused("the session is on that machine already".to_owned()));
         }
@@ -62,13 +65,19 @@ impl Desk {
             .folders
             .get(&ask.from)
             .ok_or_else(|| refused("the source has no checkout of the project".to_owned()))?;
+        if let Some(worktree) = &ask.worktree {
+            self.check_worktree_move(&ask, worktree).await?;
+        }
+        // A worktree session's folder is below the worktree, else below the
+        // checkout.
+        let base = ask.worktree.as_ref().map_or(theirs.as_str(), |w| w.folder);
         if !spec.folders.contains_key(&ask.to) {
             return Err(refused(
                 "that machine has no checkout of the project: import it first".to_owned(),
             ));
         }
         let path = Path::new(ask.cwd)
-            .strip_prefix(theirs)
+            .strip_prefix(base)
             .ok()
             .filter(|rest| {
                 rest.components()
@@ -87,6 +96,10 @@ impl Desk {
             mode: ask.mode,
             stop: ask.stop,
             at: now_ms(),
+            worktree: ask.worktree.as_ref().map(|w| MovedWorktree {
+                branch: w.branch.to_owned(),
+                from: w.folder.to_owned(),
+            }),
         };
         let _one = WRITES.lock().await;
         self.forget_old_moves(record.at).await?;
@@ -119,6 +132,59 @@ impl Desk {
             move_progress(&client, PROBE).await?,
             MoveState::NeedsUpdate
         ))
+    }
+
+    /// Whether `machine` can take a session working in a worktree on
+    /// `branch` of `project`.
+    pub async fn worktree_move(
+        &self,
+        machine: EndpointId,
+        project: &str,
+        branch: &str,
+    ) -> Result<WorktreeMove> {
+        let client = self.peers.client(machine).await?;
+        Ok(worktree_move(&client, project, branch).await?)
+    }
+
+    /// Refuses, before anything stops, a worktree session that either
+    /// machine cannot move: a node from before worktree moves, or a
+    /// Syncthing set not to sync the worktree.
+    async fn check_worktree_move(
+        &self,
+        ask: &MoveAsk<'_>,
+        worktree: &AskedWorktree<'_>,
+    ) -> Result<()> {
+        if worktree.branch.is_empty() {
+            return Err(refused(
+                "a session in a worktree with no branch cannot move".to_owned(),
+            ));
+        }
+        for machine in [ask.from, ask.to] {
+            // A machine that is away is asked when it returns: the target
+            // checks again before it takes the session.
+            let Ok(answer) = self
+                .worktree_move(machine, ask.project, worktree.branch)
+                .await
+            else {
+                continue;
+            };
+            match answer {
+                WorktreeMove::Takes => {}
+                WorktreeMove::NeedsUpdate => {
+                    return Err(refused(
+                        "update the machines first: one cannot move worktree sessions".to_owned(),
+                    ));
+                }
+                WorktreeMove::Ignored if machine == ask.to => {
+                    return Err(refused(
+                        "Syncthing is set not to sync this worktree, so it cannot move to that machine"
+                            .to_owned(),
+                    ));
+                }
+                WorktreeMove::Ignored => {}
+            }
+        }
+        Ok(())
     }
 
     /// Takes back the move of session `id`: the machines stop it unless

@@ -2377,6 +2377,7 @@ async fn ask_to_move_in(
         mode: None,
         stop,
         at: 1_793_696_400_000,
+        worktree: None,
     };
     desktop
         .mesh
@@ -2717,4 +2718,224 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
                 .is_some_and(|reason| reason.contains("no checkout"))
     })
     .await;
+}
+
+/// Runs git in `dir`, as a test user, and gives what it printed.
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// What the desktop writes to move session `s` from `a` to `b`, out of the
+/// worktree `from` on `branch`.
+async fn ask_to_move_worktree(
+    desktop: &Member,
+    from: EndpointId,
+    to: EndpointId,
+    branch: &str,
+    worktree: &Path,
+) {
+    let record = SessionMove {
+        agent: "codex".into(),
+        id: MOVED_ID.to_owned(),
+        from,
+        to,
+        project: "proj".to_owned(),
+        path: String::new(),
+        mode: None,
+        stop: false,
+        at: 1_793_696_400_000,
+        worktree: Some(beep_proto::node::mesh_state::MovedWorktree {
+            branch: branch.to_owned(),
+            from: worktree.display().to_string(),
+        }),
+    };
+    desktop
+        .mesh
+        .set(
+            Key::SessionMove(MOVED_ID.to_owned()),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+}
+
+/// Starts a session on the node at `conn`, in `cwd`, and waits for its turn.
+async fn run_session_in(conn: &Link, cwd: &Path) {
+    let mut agent = ready(conn, "codex/1").await;
+    agent
+        .tx
+        .send(&AgentRequest::Start {
+            cwd: Some(cwd.display().to_string()),
+            prompt: "go".to_owned(),
+            model: None,
+            effort: None,
+            checkout: None,
+        })
+        .await
+        .expect("the start is sent");
+    timeout(LIMIT, async {
+        loop {
+            match agent.rx.recv::<AgentEvent>().await.expect("an event reads") {
+                Some(AgentEvent::TurnDone { .. }) => return,
+                Some(AgentEvent::Ended { reason }) => panic!("the session ended: {reason}"),
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("the turn finished in time");
+}
+
+/// A repository in `folder` with `feat` checked out in a worktree under
+/// `.worktrees/`, holding uncommitted work; gives the worktree.
+fn repo_with_dirty_worktree(folder: &Path) -> PathBuf {
+    git_in(folder, &["init", "-q", "--initial-branch=main"]);
+    fs::write(folder.join("main.rs"), "fn main() {}\n").expect("a file");
+    git_in(folder, &["add", "."]);
+    git_in(folder, &["commit", "-q", "-m", "first"]);
+    git_in(folder, &["branch", "feat"]);
+    let worktree = folder.join(".worktrees/feat");
+    git_in(
+        folder,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().expect("utf8"),
+            "feat",
+        ],
+    );
+    fs::write(worktree.join("main.rs"), "fn main() { todo!() }\n").expect("a change");
+    fs::write(worktree.join("notes.txt"), "not committed\n").expect("a new file");
+    worktree
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_in_a_worktree_moves_with_its_branch_and_uncommitted_work() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    // The checkout and its branches reach `b`; the worktree folder does not.
+    timeout(LIMIT, async {
+        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the branch reached the other machine");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree).await;
+    pair.b.logged("took over codex session s").await;
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+
+    // `b` made a worktree on the same branch with the uncommitted work.
+    let b_worktree = pair.b_folder.join(".worktrees/feat");
+    assert_eq!(
+        git_in(&b_worktree, &["symbolic-ref", "--short", "HEAD"]),
+        "feat"
+    );
+    assert_eq!(
+        fs::read_to_string(b_worktree.join("main.rs")).expect("the change came"),
+        "fn main() { todo!() }\n"
+    );
+    assert_eq!(
+        fs::read_to_string(b_worktree.join("notes.txt")).expect("the new file came"),
+        "not committed\n"
+    );
+    let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
+    assert!(load.contains(&b_worktree.display().to_string()), "{load}");
+    // `a` lost nothing, and its worktree let go of the branch.
+    assert_eq!(
+        fs::read_to_string(a_worktree.join("notes.txt")).expect("kept"),
+        "not committed\n"
+    );
+    timeout(LIMIT, async {
+        while std::process::Command::new("git")
+            .args(["symbolic-ref", "-q", "HEAD"])
+            .current_dir(&a_worktree)
+            .output()
+            .expect("git runs")
+            .status
+            .success()
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the source's worktree was detached");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_machine_whose_syncthing_ignores_the_worktree_refuses_it_and_the_session_stays() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    // `b` is kept by Syncthing, which is told to leave worktrees out.
+    fs::create_dir(pair.b_folder.join(".stfolder")).expect("the marker");
+    fs::write(pair.b_folder.join(".stignore"), ".worktrees\n").expect("the ignore file");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The picker's question gets the refusal before anything is written.
+    let mut asked = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    asked
+        .tx
+        .send(&SessionsRequest::MoveCheck {
+            project: "proj".to_owned(),
+            branch: "feat".to_owned(),
+        })
+        .await
+        .expect("the request is sent");
+    match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::MoveChecked { ignored }) => assert!(ignored),
+        other => panic!("not a move check: {other:?}"),
+    }
+    // A record written anyway fails on `b` before `a` stops anything.
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree).await;
+    until_progress(&conn_b, "refused", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("Syncthing is set not to sync"))
+    })
+    .await;
+    pair.a.logged("the move of session s did not finish").await;
+    assert!(!pair.b_folder.join(".worktrees/feat").exists());
+    // `a` still runs the session.
+    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.state.status != Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
 }

@@ -687,6 +687,39 @@ impl Syncs {
             .unwrap_or_default()
     }
 
+    /// Whether Syncthing keeps `project`'s folder in step here and its
+    /// `.stignore` leaves out `relative`, a folder of the project. A
+    /// `.stignore` that cannot be read counts as leaving it out.
+    pub(crate) async fn syncthing_ignores(&self, project: &str, relative: &str) -> bool {
+        let folder = {
+            let running = lock(&self.inner.projects)
+                .get(project)
+                .map(|running| running.project.folder.clone());
+            running.or_else(|| {
+                lock(&self.inner.held)
+                    .get(project)
+                    .map(|held| held.project.folder.clone())
+            })
+        };
+        let Some(folder) = folder else {
+            return false;
+        };
+        let folder = PathBuf::from(folder);
+        if self.inner.syncthing.check(&folder).await.is_none() {
+            return false;
+        }
+        let relative = PathBuf::from(relative);
+        spawn_blocking(move || match stignore::Stignore::load_above(&folder) {
+            Ok(rules) => rules.iter().any(|rule| rule.ignores(&relative, true)),
+            Err(e) => {
+                log::warn!("a .stignore does not read: {e:#}");
+                true
+            }
+        })
+        .await
+        .unwrap_or(true)
+    }
+
     fn project(&self, name: &str) -> Option<Arc<Shared>> {
         lock(&self.inner.projects)
             .get(name)

@@ -8,12 +8,13 @@ use super::{
     Env,
     progress::Target,
     saved::{Phase, Saved},
+    worktree,
 };
 use crate::agents::{OpenSession, Session, session::Command};
 use anyhow::{Context, Result, anyhow};
 use beep_proto::node::{agent::Status, mesh_state::SessionMove};
-use std::sync::Arc;
-use tokio::sync::watch;
+use std::{path::PathBuf, sync::Arc};
+use tokio::{sync::watch, task::spawn_blocking};
 
 pub(super) async fn run(
     env: &Env,
@@ -25,6 +26,11 @@ pub(super) async fn run(
         return Ok(());
     }
     env.agents.until_reopened().await;
+    if let Some(worktree) = &record.worktree {
+        env.agents
+            .moves
+            .set_worktree(&record.id, PathBuf::from(&worktree.from));
+    }
     // A target reads the session as running until its files are scanned.
     let held = env.agents.moves.hold(&record.id);
     // Set once the session ended here: a restart finds it in what is kept.
@@ -133,6 +139,7 @@ async fn land(
         let now = target.borrow_and_update().clone();
         match now {
             Target::Landed => {
+                detach(record).await;
                 return env
                     .state
                     .save(&record.id, &Saved::over(record.at, Phase::Done, None))
@@ -142,6 +149,27 @@ async fn land(
             Target::Taken | Target::Unknown => {}
         }
         target.changed().await.context("the move lost its target")?;
+    }
+}
+
+/// The session runs on the target, on the worktree's branch: this machine's
+/// worktree lets go of it, at the same commit, so the branch can sync. The
+/// worktree and its files stay.
+async fn detach(record: &SessionMove) {
+    let Some(worktree) = &record.worktree else {
+        return;
+    };
+    let dir = PathBuf::from(&worktree.from);
+    match spawn_blocking(move || worktree::detach(&dir)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => log::warn!(
+            "the worktree of session {} still holds its branch: {e:#}",
+            record.id
+        ),
+        Err(e) => log::warn!(
+            "the worktree of session {} was not detached: {e}",
+            record.id
+        ),
     }
 }
 

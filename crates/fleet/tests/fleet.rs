@@ -1608,7 +1608,10 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
         to: second.id,
         project: "acme/app",
         cwd,
-        linked,
+        worktree: linked.then_some(beep_fleet::AskedWorktree {
+            folder: "/srv/build/app/.worktrees/x",
+            branch: "",
+        }),
         mode: None,
         stop: false,
     };

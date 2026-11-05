@@ -80,7 +80,7 @@ async fn read_from(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
     let connection = client.connect(server.endpoint().addr(), ALPN).await?;
     let (send, recv) = connection.open_bi().await?;
     let (tx, rx) = link(send, recv);
-    pull(tx, rx, AgentSlug::CODEX, id, copy).await
+    pull(tx, rx, AgentSlug::CODEX, id, copy, false).await
 }
 
 fn serving(agents: &Arc<Agents>) -> impl std::future::Future<Output = Router> {
@@ -313,6 +313,7 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         mode: None,
         stop: false,
         at: 1,
+        worktree: None,
     };
     // The source serves its target.
     assert!(permits(Some(&record), a, b, Asked::Read, ID));

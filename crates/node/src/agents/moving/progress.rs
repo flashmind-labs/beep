@@ -3,10 +3,12 @@
 //! that a session it ended is still served as running until its files are
 //! scanned, and that it gave a move up.
 
+use crate::files::sync::Syncs;
 use crate::lock;
 use beep_proto::node::agent::{MovePhase, MoveProgress};
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 use tokio::sync::watch;
@@ -41,6 +43,10 @@ pub(crate) struct Moves {
     tracked: Mutex<HashMap<String, Tracked>>,
     held: Mutex<HashSet<String>>,
     refused: Mutex<HashMap<String, String>>,
+    /// The worktree a session being moved out of works in.
+    worktrees: Mutex<HashMap<String, PathBuf>>,
+    /// The synced projects, to tell a target whether it can sync a worktree.
+    syncs: Mutex<Option<Syncs>>,
 }
 
 /// A session the source ended is served as running while this lives, so a
@@ -83,6 +89,36 @@ impl Moves {
     pub(super) fn forget(&self, id: &str) {
         lock(&self.tracked).remove(id);
         lock(&self.refused).remove(id);
+        lock(&self.worktrees).remove(id);
+    }
+
+    /// The worktree of session `id` is `dir`: a target asks for its commit
+    /// and uncommitted work once the session ended.
+    pub(super) fn set_worktree(&self, id: &str, dir: PathBuf) {
+        lock(&self.worktrees).insert(id.to_owned(), dir);
+    }
+
+    pub(super) fn worktree_of(&self, id: &str) -> Option<PathBuf> {
+        lock(&self.worktrees).get(id).cloned()
+    }
+
+    /// The projects this node syncs, for `ignores_worktree`.
+    pub(super) fn use_syncs(&self, syncs: Option<Syncs>) {
+        *lock(&self.syncs) = syncs;
+    }
+
+    /// Whether Syncthing keeps `project` here and its `.stignore` leaves
+    /// out a worktree on `branch`.
+    pub(crate) async fn ignores_worktree(&self, project: &str, branch: &str) -> bool {
+        let syncs = lock(&self.syncs).clone();
+        match syncs {
+            Some(syncs) => {
+                syncs
+                    .syncthing_ignores(project, &beep_proto::node::agent::worktree_path(branch))
+                    .await
+            }
+            None => false,
+        }
     }
 
     /// How the move of `id` stands here, when this machine is part of one.
