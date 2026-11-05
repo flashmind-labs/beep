@@ -4,7 +4,7 @@
 // each update patches only what changed, so spinners keep turning.
 import { copyCode } from "../agents/turnrows.ts";
 import { atBottom } from "../agents/logscroll.ts";
-import { paneSize } from "../agentpane/media-state.ts";
+import { isZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
 import type { ResearchArg } from "../center/state.ts";
@@ -60,6 +60,9 @@ try { paneWidth = Number(localStorage.getItem(WIDTH_KEY)) || null; } catch { /* 
 
 const ignore = () => {};
 const active = () => shown === "researchopen" && !!page?.root.isConnected;
+/// The side pane is zoomed by ⇧esc. Not kept: another research starts unzoomed.
+let zoomed = false;
+let watch: ResizeObserver | null = null;
 
 registerView("researchopen", {
   title: () => ({ title: "Research" }),
@@ -78,6 +81,7 @@ registerView("researchopen", {
 // ---------- The page ----------
 
 function build(el: HTMLElement, session: string) {
+  zoomed = false;
   R = fresh(session);
   polls = 0;
   const root = h(`<div class="rs"><div class="dhead"></div>
@@ -93,7 +97,9 @@ function build(el: HTMLElement, session: string) {
   page.ask.addEventListener("keydown", onAskKey);
   for (const part of [page.log, page.view]) part.addEventListener("scroll", () => document.getElementById("rquote")?.remove(), true);
   wireDivider(page);
-  new ResizeObserver(place).observe(page.shell);
+  watch?.disconnect();
+  watch = new ResizeObserver(place);
+  watch.observe(page.shell);
   place();
   void start();
 }
@@ -111,8 +117,20 @@ async function start() {
 }
 
 const place = () => {
-  if (page) page.pane.style.flexBasis = `${paneSize("right", paneWidth, page.shell.clientWidth)}px`;
+  if (!page) return;
+  page.pane.style.flexBasis = `${paneSize("right", paneWidth, page.shell.clientWidth)}px`;
+  page.shell.classList.toggle("zoomed", zoomed);
+  page.pane.classList.toggle("zoomed", zoomed);
 };
+
+// ⇧esc: the side pane fills the page over the chat, as in a session; only classes
+// change, so nothing in it reloads. In the capture phase so no Esc handler sees it.
+window.addEventListener("keydown", e => {
+  if (!active() || !isZoomKey(e)) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (!e.repeat) { zoomed = !zoomed; place(); }
+}, true);
 
 /// The grip between the chat and the pane: drag to resize, double-click to reset.
 function wireDivider(p: Page) {
@@ -220,8 +238,10 @@ async function send(text: string, start = false) {
 /// Takes a research from Rust: the entries are only those after `R.after`.
 function take(r: ResearchView) {
   const { entries, ...research } = r;
-  R.entries = [...R.entries, ...entries];
-  if (entries.length) R.after = entries.at(-1)!.seq;
+  // Opening reads the list while a poll may be reading it too: keep only what is new.
+  const added = entries.filter(e => e.seq > R.after);
+  R.entries = [...R.entries, ...added];
+  if (added.length) R.after = added.at(-1)!.seq;
   R.research = research;
 }
 
@@ -245,7 +265,9 @@ async function poll(now = false) {
   } finally {
     inflight = false;
   }
-  if (active() && R.session === session) timer = setTimeout(poll, busy() ? POLL_BUSY : POLL_IDLE);
+  // Whichever research is open now keeps polling, also when this read was for another.
+  clearTimeout(timer);
+  if (active()) timer = setTimeout(poll, busy() ? POLL_BUSY : POLL_IDLE);
 }
 
 // ---------- Input ----------
