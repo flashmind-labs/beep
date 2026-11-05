@@ -434,3 +434,56 @@ async fn a_worktree_read_before_the_source_registered_the_worktree_reads_as_runn
     let plain = pull_with(mine.path().join("b.jsonl"), false).await;
     assert!(!plain.live);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_live_read_refuses_what_the_snapshot_cannot_read_before_the_source_stops_anything() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command};
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    // A worktree with a new file whose name is not UTF-8: the snapshot
+    // cannot read it, and no size estimate would see that.
+    let repo = TempDir::new().expect("a temp folder");
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}");
+    };
+    git(&["init", "-q", "--initial-branch=main"]);
+    fs::write(repo.path().join("a.txt"), "one\n").expect("a file");
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    fs::write(repo.path().join(OsStr::from_bytes(b"bad\xff.txt")), "x\n").expect("a file");
+    source
+        .agents
+        .moves
+        .set_worktree(ID, repo.path().to_path_buf());
+    // The session still runs: the read is a live one.
+    let _held = source.agents.moves.hold(ID);
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+    let copy = mine.path().join("copy.jsonl");
+    let err = pull(
+        tx,
+        rx,
+        super::read::Ask {
+            agent: AgentSlug::CODEX,
+            id: ID,
+            copy: &copy,
+            kind: super::read::Kind::Move { worktree: true },
+        },
+    )
+    .await
+    .expect_err("refused on the live read");
+    assert!(err.is::<super::read::Refused>(), "{err:#}");
+}

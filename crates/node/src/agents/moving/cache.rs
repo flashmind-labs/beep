@@ -236,7 +236,7 @@ impl Cache {
         transcript: &Path,
         meta: &Meta,
         at: u64,
-    ) -> io::Result<()> {
+    ) -> io::Result<u64> {
         let folder = self
             .folder(agent, id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a session name"))?;
@@ -261,7 +261,24 @@ impl Cache {
         // user's alone.
         #[cfg(unix)]
         fs::set_permissions(&kept, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-        Ok(())
+        Ok(at)
+    }
+
+    /// Puts the version set aside at `at` back at `to`, when nothing is
+    /// there; false when something is, and the version stays listed.
+    pub(super) fn put_back(&self, agent: &AgentSlug, id: &str, at: u64, to: &Path) -> bool {
+        if to.exists() {
+            return false;
+        }
+        let Some((kept, _)) = self.lost(agent, id, at) else {
+            return false;
+        };
+        let moved = fs::rename(&kept, to).is_ok()
+            || (fs::copy(&kept, to).is_ok() && fs::remove_file(&kept).is_ok());
+        if moved {
+            self.drop_lost(agent, id, at);
+        }
+        moved
     }
 
     /// The version that lost at `at`, and what is known of it.
@@ -451,5 +468,31 @@ mod tests {
             .map(|at| fs::read_to_string(cache.lost(&agent, "s1", *at).unwrap().0).unwrap())
             .collect();
         assert!(texts.contains(&"1\n".to_owned()) && texts.contains(&"2\n".to_owned()));
+    }
+
+    #[test]
+    fn a_version_set_aside_goes_back_only_where_nothing_is() {
+        let dir = TempDir::new().expect("a temp folder");
+        let cache = Cache::new(dir.path());
+        let agent = AgentSlug::CODEX;
+        let meta = entry("s1", 7, 3).copy.expect("meta");
+        let store = dir.path().join("store.jsonl");
+        fs::write(&store, "mine\n").expect("a transcript");
+        let at = cache
+            .keep_lost(&agent, "s1", &store, &meta, 9)
+            .expect("kept");
+        assert!(!store.exists());
+        // The session did not start: it goes back, and is no longer listed.
+        assert!(cache.put_back(&agent, "s1", at, &store));
+        assert_eq!(fs::read_to_string(&store).unwrap(), "mine\n");
+        assert!(cache.entries().iter().all(|e| e.lost.is_empty()));
+        // Something else is there now: the version stays listed, untouched.
+        let at = cache
+            .keep_lost(&agent, "s1", &store, &meta, 9)
+            .expect("kept again");
+        fs::write(&store, "written meanwhile\n").expect("another transcript");
+        assert!(!cache.put_back(&agent, "s1", at, &store));
+        assert_eq!(cache.entries()[0].lost, [at]);
+        assert_eq!(fs::read_to_string(&store).unwrap(), "written meanwhile\n");
     }
 }

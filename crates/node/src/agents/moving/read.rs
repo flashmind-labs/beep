@@ -11,7 +11,7 @@ use super::{
     Harness,
     offers::{Project, offers},
     progress::Target,
-    worktree::{MAX_PATCH, Work, preflight, snapshot},
+    worktree::{MAX_PATCH, Work, snapshot},
 };
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result, bail};
@@ -224,8 +224,12 @@ pub(super) async fn serve(
             if live
                 && worktree
                 && let Some(dir) = agents.moves.worktree_of(&id)
+                && agents.moves.first_preview(&id)
             {
-                match spawn_blocking(move || preflight(&dir)).await {
+                // The snapshot itself, bounded at `MAX_PATCH` and thrown
+                // away: whatever it cannot read, the final read could not
+                // either.
+                match spawn_blocking(move || snapshot(&dir).map(|_| ())).await {
                     Ok(Ok(())) => {}
                     Ok(Err(e)) => {
                         let message = format!("{e:#}");

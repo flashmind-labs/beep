@@ -177,9 +177,13 @@ pub(super) async fn continue_here(
             meta.project
         );
     }
-    // A transcript of this session already in the store (the winner's, which
-    // does not run) is kept where the list shows it, as a version that
-    // lost: writing over it would set it aside where nothing lists it.
+    // The last check that can fail comes first; then a transcript of this
+    // session already in the store (the winner's, which does not run) is
+    // kept where the list shows it, as a version that lost: writing over it
+    // would set it aside where nothing lists it. If the session still does
+    // not start, it goes back.
+    env.agents.check_room()?;
+    let mut aside = None;
     if let Some(harness) = harness_of(agent.as_str())
         && let Some(local) = env.agents.transcript_file(harness, id).await
     {
@@ -191,7 +195,7 @@ pub(super) async fn continue_here(
             })
             .await??
         };
-        keep_local(
+        let at = keep_local(
             env,
             agent,
             id,
@@ -205,6 +209,7 @@ pub(super) async fn continue_here(
         )
         .await
         .context("keeping the transcript this machine has of it")?;
+        aside = Some((at, local));
     }
     let arrival = Arrival {
         id,
@@ -212,7 +217,16 @@ pub(super) async fn continue_here(
         from: meta.from,
         how: How::Continued,
     };
-    resume(env, &arrival, &kind, &folders, meta.file_name.clone(), copy).await?;
+    if let Err(e) = resume(env, &arrival, &kind, &folders, meta.file_name.clone(), copy).await {
+        if let Some((at, local)) = aside {
+            let (cache, slug, key) = (env.cache.clone(), agent.clone(), id.to_owned());
+            let back = spawn_blocking(move || cache.put_back(&slug, &key, at, &local)).await;
+            if !back.unwrap_or(false) {
+                log::warn!("the transcript of session {id} stays among the versions kept");
+            }
+        }
+        return Err(e);
+    }
     // The copy goes, and a note stays of the point it was taken at, so a
     // later session of another machine that went on from there is known.
     let (cache, agent, id) = (env.cache.clone(), agent.clone(), id.to_owned());
