@@ -65,16 +65,29 @@ test("auto-compact takes a percent, only on and off, or nothing by agent", () =>
   assert.equal(compactKind("gemini"), null);
 });
 
+test("auto-compact reads a percent or a token count", () => {
+  const draft = draftOf(harness("claude"));
+  const of = (text: string) => compactOf({ ...draft, compactPercent: text });
+  assert.deepEqual(of("80%"), { enabled: true, percent: 80, tokens: null });
+  assert.deepEqual(of("80"), { enabled: true, percent: 80, tokens: null });
+  assert.deepEqual(of("100"), { enabled: true, percent: 100, tokens: null });
+  assert.deepEqual(of(" 350000 "), { enabled: true, percent: null, tokens: 350000 });
+  assert.deepEqual(of("101"), { enabled: true, percent: null, tokens: 101 });
+  assert.equal(compactProblem({ ...draft, compactPercent: "350000" }), "");
+  const saved = draftOf(harness("claude"), { enabled: true, percent: null, tokens: 350000 });
+  assert.equal(saved.compactPercent, "350000");
+});
+
 test("auto-compact is shown for agents the node compacts and refuses a bad percent", () => {
   const claude = harness("claude");
-  const draft = draftOf(claude, { enabled: true, percent: 70 });
+  const draft = draftOf(claude, { enabled: true, percent: 70, tokens: null });
   assert.equal(draft.compactPercent, "70");
-  assert.equal(draftChanged(claude, draft, { enabled: true, percent: 70 }), false);
-  assert.equal(draftChanged(claude, { ...draft, compactOn: false }, { enabled: true, percent: 70 }), true);
+  assert.equal(draftChanged(claude, draft, { enabled: true, percent: 70, tokens: null }), false);
+  assert.equal(draftChanged(claude, { ...draft, compactOn: false }, { enabled: true, percent: 70, tokens: null }), true);
   assert.equal(draftChanged(harness("flsh"), { ...draft, compactOn: false }), false, "flsh compacts on its own");
   assert.equal(compactOf({ ...draft, compactPercent: "65%" })?.percent, 65);
   assert.equal(compactOf({ ...draft, compactPercent: "" }), null, "on and blank is the default");
-  assert.deepEqual(compactOf({ ...draft, compactOn: false, compactPercent: "" }), { enabled: false, percent: null });
-  for (const bad of ["0", "101", "abc", "5.5"]) assert.notEqual(compactProblem({ ...draft, compactPercent: bad }), "", bad);
+  assert.deepEqual(compactOf({ ...draft, compactOn: false, compactPercent: "" }), { enabled: false, percent: null, tokens: null });
+  for (const bad of ["0", "0%", "101%", "abc", "5.5", "-5", "350000%", "80 000"]) assert.equal(compactProblem({ ...draft, compactPercent: bad }), "Auto-compact is 1 to 100%, or a token count.", bad);
   assert.equal(compactProblem({ ...draft, compactOn: false, compactPercent: "abc" }), "");
 });
