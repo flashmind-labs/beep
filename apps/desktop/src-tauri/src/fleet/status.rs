@@ -14,10 +14,11 @@ use beep_proto::{
         status::{PROTOCOL, Report},
         traffic::TrafficReport,
         update,
-        version::{self, Version},
+        version::{self, Version, clock_is_off, clock_offset_ms},
     },
 };
 use iroh::EndpointId;
+use serde::Serialize;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
@@ -34,6 +35,15 @@ use tokio::{
 /// mesh changing.
 const RETRY: Duration = Duration::from_secs(15);
 
+/// A machine whose clock is off, as the Machines screens read it.
+#[derive(Debug, Serialize)]
+pub struct ClockOff {
+    id: String,
+    /// How far ahead of this Mac's clock it is, in milliseconds; negative
+    /// when behind.
+    offset_ms: i64,
+}
+
 /// A report and when it came.
 struct Sampled<T> {
     at: SystemTime,
@@ -48,6 +58,9 @@ struct Peer {
     seen_at: Option<SystemTime>,
     /// The beep-node it runs; not known to a node from before `version/1`.
     version: Option<String>,
+    /// How far its clock is ahead of this Mac's, in milliseconds, when the
+    /// node said its time in a round trip that was quick enough.
+    clock_offset_ms: Option<i64>,
     offers: Vec<String>,
     env: Option<EnvReport>,
     stats: Option<Sampled<StatsReport>>,
@@ -61,6 +74,7 @@ impl Peer {
             online: false,
             seen_at: None,
             version: None,
+            clock_offset_ms: None,
             offers: Vec::new(),
             env: None,
             stats: None,
@@ -103,9 +117,10 @@ impl Shared {
         self.changes.send_modify(|count| *count += 1);
     }
 
-    fn set_version(&self, id: EndpointId, version: String) {
+    fn set_version(&self, id: EndpointId, version: String, clock_offset_ms: Option<i64>) {
         if let Some(peer) = self.peers().get_mut(&id) {
             peer.version = Some(version);
+            peer.clock_offset_ms = clock_offset_ms;
         }
         self.changes.send_modify(|count| *count += 1);
     }
@@ -244,6 +259,25 @@ impl Status {
                     memory_used_mb: report.memory_used_mb,
                     memory_total_mb: report.memory_total_mb,
                     load: report.load,
+                })
+            })
+            .collect()
+    }
+
+    /// The machines that are on and whose clock is far enough off to warn
+    /// about, with how far ahead of this Mac's it is (negative: behind).
+    pub fn clocks_off(&self) -> Vec<ClockOff> {
+        self.shared
+            .peers()
+            .values()
+            .filter(|peer| peer.online)
+            .filter_map(|peer| {
+                let offset = peer
+                    .clock_offset_ms
+                    .filter(|offset| clock_is_off(*offset))?;
+                Some(ClockOff {
+                    id: peer.device.id.to_string(),
+                    offset_ms: offset,
                 })
             })
             .collect()
@@ -392,17 +426,29 @@ fn retry_due(ended: Option<Instant>) -> bool {
     ended.is_none_or(|at| at.elapsed() >= RETRY)
 }
 
-/// The beep-node the machine runs, when it says.
-async fn node_version(client: &PeerClient) -> Option<String> {
+/// This Mac's Unix time in milliseconds.
+fn unix_ms() -> Option<u64> {
+    let since = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+    u64::try_from(since.as_millis()).ok()
+}
+
+/// The beep-node the machine runs, when it says, and how far its clock is
+/// ahead of ours, measured over the same round trip.
+async fn node_version(client: &PeerClient) -> Option<(String, Option<i64>)> {
+    let before = unix_ms();
     let (_tx, mut rx) = client.open(version::PROTOCOL).await.ok()?;
-    let Version { version } = rx.recv().await.ok()??;
-    Some(version)
+    let Version { version, now_ms } = rx.recv().await.ok()??;
+    let offset = match (before, unix_ms(), now_ms) {
+        (Some(before), Some(after), Some(remote)) => clock_offset_ms(before, after, remote),
+        _ => None,
+    };
+    Some((version, offset))
 }
 
 /// Takes the reports of one machine until it closes the stream or fails.
 async fn follow(client: PeerClient, id: EndpointId, shared: Arc<Shared>) {
-    if let Some(version) = node_version(&client).await {
-        shared.set_version(id, version);
+    if let Some((version, offset)) = node_version(&client).await {
+        shared.set_version(id, version, offset);
     }
     // Our half stays open: finishing it tells the node we are done.
     let (_tx, mut rx) = match client.open(PROTOCOL).await {

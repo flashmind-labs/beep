@@ -271,6 +271,7 @@ fn main() {
             machines::list::list_machines,
             machines::list::machine_log,
             machines::list::machine_traffic,
+            machines::list::machine_clocks,
             machines::list::mesh_remove,
             machines::list::remove_machine,
             machines::list::save_machine_log,
