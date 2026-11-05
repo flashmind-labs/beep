@@ -64,6 +64,7 @@ export function route(scope: ProjectScope | null, view: ViewName, arg?: unknown)
   }
   if (view !== "pane" || !arg || typeof arg !== "object") return "main";
   if ("agentnew" in arg) return "here";
+  if ("draft" in arg) return (arg as { draft: { project: string } }).draft.project === scope.project ? "here" : "main";
   if ("agent" in arg) return agentInProject((arg as { agent: AgentLike }).agent, scope.folders) ? "here" : "main";
   if ("chat" in arg) {
     const session = (arg as { chat: { session: string | null } }).chat.session;

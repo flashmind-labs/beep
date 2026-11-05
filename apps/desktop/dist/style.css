@@ -173,6 +173,9 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dhead .tt small { font-size: 12px; color: var(--muted) }
 .agproj { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; cursor: pointer }
 .agproj:hover { text-decoration: underline }
+.agempty { height: 100%; display: grid; place-items: center; color: var(--dim); font-size: 13px }
+#agdraft { flex: none }
+#agdraft > .cc-pjc { margin-inline: 16px }
 .dhead .aguse { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap }
 .dhead .aguse:empty { display: none }
 .dhead .agedit { flex: none; display: flex; gap: 2px }

@@ -67,6 +67,9 @@ export interface Screen {
   focused(): boolean;
   onData(cb: (data: string) => void): void;
   onResize(cb: (size: { cols: number; rows: number }) => void): void;
+  /// Esc typed in it, which it does not send on; only a pane's terminal sets this.
+  /// A program on the alternate screen (vim, less) still gets Esc.
+  onEscape(cb: () => void): void;
   /// Whether keys typed go anywhere.
   setInput(on: boolean): void;
   dispose(): void;
@@ -146,9 +149,6 @@ interface ProjectTerminals {
   busy: boolean;
 }
 
-/// A machine row as `terminalPlaces` reads it: `whereRows` gives them.
-type Where = { kind: string; id: string; name: string; folder: string | null };
-
 /// How often a view-only terminal's output is read again.
 const POLL_MS = 2000;
 /// The size a terminal starts at, before its screen is fitted.
@@ -214,12 +214,6 @@ export function terminalTile(
     })),
     empty: "No terminals yet",
   };
-}
-
-/// The machines a terminal can start on: those with a checkout, each with
-/// its folder.
-export function terminalPlaces(where: readonly Where[] | null | undefined): TerminalPlace[] {
-  return (where || []).filter((r): r is Where & { folder: string } => r.kind === "here" && !!r.folder).map(r => ({ id: r.id, name: r.name, folder: r.folder }));
 }
 
 /// Where a chunk of `len` bytes from byte `at` meets the `next` byte the
@@ -549,11 +543,10 @@ export function makeTerminals(deps: TerminalDeps) {
     redraw();
   }
 
-  /// The New terminal form. On the Terminals page (`ALL`) the folder may
-  /// stay empty, for the machine's workspace or home folder.
-  function formView(name: string, places: TerminalPlace[]) {
-    const t = of(name);
-    const anywhere = name === ALL;
+  /// The New terminal form of the Terminals page: the folder may stay empty,
+  /// for the machine's workspace or home folder.
+  function formView(places: TerminalPlace[]) {
+    const t = of(ALL);
     const f = t.form!;
     // A redraw while typing keeps the field and the caret.
     const was = document.activeElement?.closest?.(".tm-form") ? document.activeElement : null;
@@ -573,24 +566,18 @@ export function makeTerminals(deps: TerminalDeps) {
       return h("label", "tm-f", h("span", "", label), field);
     };
     const chips = h("div", "tm-chips", ...places.map(m => {
-      return press(button(m.name, "dchip", () => { f.machine = m.id; if (!anywhere) f.cwd = m.folder; redraw(); }), f.machine === m.id);
+      return press(button(m.name, "dchip", () => { f.machine = m.id; redraw(); }), f.machine === m.id);
     }));
-    const go = button(t.busy ? "Starting…" : anywhere ? "Open" : "Start", "pri", () => {
-      if (f.machine && (anywhere || f.cwd.trim())) start(name, f);
+    const go = button(t.busy ? "Starting…" : "Open", "pri", () => {
+      if (f.machine) start(ALL, f);
     });
     go.disabled = t.busy || !places.length;
-    const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", anywhere ? "No machine is online" : "No machine has this project yet"));
+    const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", "No machine is online"));
     const acts = h("div", "in-acts", go, button("Cancel", "quiet", () => { t.form = null; redraw(); }));
-    const form = anywhere
-      ? h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
-        input("cwd", "Folder", "Empty for the workspace or home folder"),
-        input("command", "Command", "Empty for your shell"),
-        input("name", "Name", "The command, or shell, when empty"), acts)
-      : h("form", "cc-panel tm-form",
-        input("command", "Command", "Empty for a shell, or npm run dev"),
-        input("name", "Name", "The command, or shell, when empty"),
-        machine,
-        input("cwd", "Folder", "The project's folder"), acts);
+    const form = h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
+      input("cwd", "Folder", "Empty for the workspace or home folder"),
+      input("command", "Command", "Empty for your shell"),
+      input("name", "Name", "The command, or shell, when empty"), acts);
     form.addEventListener("submit", e => { e.preventDefault(); go.click(); });
     return form;
   }
@@ -659,47 +646,6 @@ export function makeTerminals(deps: TerminalDeps) {
         h("span", "", `started ${ago(open.started_at)}`)));
   }
 
-  /// The full view: tabs, then the open terminal or the form.
-  function panel(name: string, where: readonly Where[] | null | undefined) {
-    if (shown !== name) { dropAll(); shown = name; }
-    const t = of(name);
-    if (t.list === undefined) load(name);
-    const places = terminalPlaces(where);
-    const tabs = h("div", "in-tabs tm-tabs", ...(t.list || []).map(x => {
-      const b = button("", "tm-tab", () => select(name, x.id));
-      b.append(h("span", `ddot${x.state === "running" ? "" : " off"}`), x.name);
-      if (t.open === x.id) b.setAttribute("aria-current", "true");
-      return b;
-    }));
-    const add = button("+", "tm-tab", () => {
-      t.open = null;
-      t.form = { command: "", name: "", machine: places[0]?.id || null, cwd: places[0]?.folder || "" };
-      redraw();
-    });
-    add.setAttribute("aria-label", "New terminal");
-    add.title = "New terminal";
-    tabs.append(add);
-    const out: HTMLElement[] = [tabs];
-    if (t.error) out.push(h("div", "cc-err", t.error));
-    if (t.list === null) {
-      out.push(emptyPanel(h("b", "", "The server needs an update before it keeps terminals.")));
-      watch(null);
-      return out;
-    }
-    if (t.form) out.push(formView(name, places));
-    const open = t.open && (t.list || []).find(x => x.id === t.open);
-    if (open) {
-      out.push(openView(name, open));
-    } else {
-      watch(null);
-      if (!t.form) {
-        out.push(emptyPanel(h("b", "", t.list?.length ? "Pick a terminal" : "No terminals yet"),
-          button("New terminal", "pri", () => add.click())));
-      }
-    }
-    return out;
-  }
-
   /// Opens the New terminal form of the Terminals page on `machine`.
   function newOn(machine: string | null) {
     const t = of(ALL);
@@ -742,7 +688,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const open = t.open && (t.list || []).find(x => x.id === t.open);
     if (t.form) {
       watch(null);
-      right = formView(ALL, places);
+      right = formView(places);
     } else if (open) {
       right = openView(ALL, open);
     } else {
@@ -761,7 +707,6 @@ export function makeTerminals(deps: TerminalDeps) {
     load,
     ensure,
     list: (name: string) => of(name).list,
-    panel,
     machinesPanel,
     newOn,
     /// Opens terminal `id` on the Terminals page, attached live.

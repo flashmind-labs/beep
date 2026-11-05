@@ -6,7 +6,7 @@ import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts
 import { pastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { agentFor, pageAgent, tasksSection, workersSection, cardsSection } from "./agent.ts";
-import { terminalTile } from "../terminals/terminals.ts";
+import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
 import { branchTile } from "../review/review.ts";
 import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { fileSyncTile } from "./filesync.ts";
@@ -38,7 +38,6 @@ export function splitOn(p: Project) {
 /// draws.
 export function openTile(key: string | null, draw = true) {
   pa.tile = key;
-  if (key !== "machines") terms.stop();
   if (key !== "sync") fsync.stop();
   if (key !== "review") revs.stop();
   if (!draw) return;
@@ -134,7 +133,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
     // A machine's terminals sit below it, as on Home.
-    { key: "machines", title: "Machines", sub: [machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [whereSection(p, rows, known), ...terms.panel(p.name, rows)] },
+    { key: "machines", title: "Machines", sub: [machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [whereSection(p, rows, known), terminalsSection(p.name)] },
     { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
   ];
   const threads = thr.threads(pid);
@@ -214,6 +213,18 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   return [h("div", "pj-split", list, det)];
 }
 
+/// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
+function openTerminal(name: string, t: TerminalRow) {
+  go("pane", { draft: { project: name, machine: t.machine_id, terminal: t } });
+}
+
+/// The project's terminals, which keep running on their machines; a row opens one.
+function terminalsSection(name: string) {
+  const list = terms.list(name) ?? [];
+  const body = list.length ? h("div", "cc-panel", ...list.map(t => terminalLine(t, () => openTerminal(name, t)))) : emptyPanel(h("span", "", "None yet. ⌘T opens one."));
+  return section("", "Terminals", list.length || "", null, body);
+}
+
 /// The project's Overview: what runs and ran on the left, the open work on
 /// the right, each title opening that row of the list. Issues scroll in their box.
 function projectOverview(p: Project, running: RunningAgent[], open: { run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: Kid; issueNote: Kid }, where: ReturnType<typeof machineTile>) {
@@ -234,7 +245,7 @@ function projectOverview(p: Project, running: RunningAgent[], open: { run: Split
     sessionsSection(p, running),
     ran.length ? homeBox("", "Actions", tile.count, () => openTile("actions"), ran) : null,
     machines.length ? homeBox("", "Machines", where.count, () => openTile("machines"), machines) : null,
-    list.length ? homeBox("", "Terminals", list.length, () => openTile("machines"), list.map(t => terminalLine(t, () => openTile("machines")))) : null,
+    list.length ? homeBox("", "Terminals", list.length, () => openTile("machines"), list.map(t => terminalLine(t, () => openTerminal(p.name, t)))) : null,
   ];
   const right = [
     prs.length ? box("Pull requests", prs, prs[0].key) : section("", "Pull requests", "", null, emptyPanel(h("span", "", open.prNote))),
