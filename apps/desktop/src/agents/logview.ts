@@ -139,16 +139,17 @@ function subagentsShown(p: AgentPage) {
 
 /// A subagent opened as its own conversation: the way back, what it was
 /// asked, its steps and what it answered.
+/// What a subagent's log holds.
 function childHtml(p: AgentPage, at: number) {
   const x = subOf(at), s = p.session, k = agentKind(s.agent);
   const steps = x.sub.steps.map(st => `<div class="dcoderen tool"><span class="mk">${mark(st.status)}</span><code class="tt" title="${esc(st.title)}">${esc(stepLabel(`${st.title} [${st.status}]`, st.status === "in_progress" && x.working))}</code></div>`).join("");
   const earlier = x.sub.count > x.sub.steps.length ? `<div class="dmuted">${x.sub.count - x.sub.steps.length} earlier steps not shown</div>` : "";
   const none = !x.sub.count && !x.working ? `<div class="dcoderen other">Steps not reported by ${esc(k.name)}.</div>` : "";
   const result = x.sub.result ? `<div class="dcoderen agent">${esc(x.sub.result)}</div>` : x.working ? '<div class="dmuted"><span class="dspin"></span> Working…</div>' : "";
-  return `<div class="dcoderlog"><div class="dcrumb"><button id="agparent">${esc(s.title || "Session")}</button><span>›</span><b>${esc(x.title)}</b><span class="sp"></span><button class="dbtn" id="agparent2" data-parent="1">Open parent<kbd>esc</kbd></button></div>
+  return `<div class="dcrumb"><button id="agparent">${esc(s.title || "Session")}</button><span>›</span><b>${esc(x.title)}</b><span class="sp"></span><button class="dbtn" id="agparent2" data-parent="1">Open parent<kbd>esc</kbd></button></div>
     <div class="dcoderen user"><b>${esc(x.agent || "Task")}</b><span>${esc(x.title)}</span></div>
     ${turnHeadHtml({ state: x.working ? "working" : "done", ms: x.ms, stats: "", key: null, opened: false })}
-    ${earlier}${steps}${none}${result}</div>`;
+    ${earlier}${steps}${none}${result}`;
 }
 
 /// Back from a subagent to its session.
@@ -282,7 +283,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
     out.push(entryRow(p.entries[at - p.earlier], at));
   }
   flush();
-  return out.join("");
+  return out;
 }
 
 /// Calls of one kind in a row as one line, the first few targets beside
@@ -300,7 +301,7 @@ function runRow(p: AgentPage, ats: number[]) {
 
 /// The log in turns: each message, then a heading with how long the agent
 /// worked, then its work and its answer.
-function turnsHtml(p: AgentPage) {
+function turnsHtml(p: AgentPage): string[] {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
   newestStep = null;
   thinking = false;
@@ -311,12 +312,12 @@ function turnsHtml(p: AgentPage) {
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  const html = turns.map(t => {
+  const html = turns.flatMap(t => {
     // Notes before the first message are not a turn of work.
-    if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row).join("");
+    if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row);
     const last = t === lastTurn, running = active && last;
     const user = t.user == null ? "" : row(t.user);
-    if (!running && !t.steps.length && !t.answer.length) return user;
+    if (!running && !t.steps.length && !t.answer.length) return [user];
     const { start, end } = span({
       first: p.earlier === 0 && t.key === 0, last, running,
       seenStart: m.starts.get(t.key), seenEnd: m.ends.get(t.key),
@@ -326,7 +327,7 @@ function turnsHtml(p: AgentPage) {
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
     const opened = m.opened.has(t.key);
-    let work: string, stats = turnStats(p.entries, t, p.earlier);
+    let work: string[], stats = turnStats(p.entries, t, p.earlier);
     // The newest step of a running turn, shown as it goes.
     const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
     if (newest != null) newestStep = newest;
@@ -348,7 +349,7 @@ function turnsHtml(p: AgentPage) {
       // The heading is the fold: what the folded steps did, on its line.
       if (folding.some(at => entry(at).kind === "tool")) stats = summary(p.entries, t, p.earlier, folding);
       const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
-      work = pics + rowsOf(p, t.steps.filter(at => kept.has(at)));
+      work = [pics, ...rowsOf(p, t.steps.filter(at => kept.has(at)))];
     }
     const head = turnHeadHtml({ state, start, ms, stats, key: t.steps.length ? t.key : null, opened });
     // What the agent thinks or does now, on one dim line, unless the
@@ -360,10 +361,10 @@ function turnsHtml(p: AgentPage) {
       state, thinking: thinking, start,
       doing: state === "working" && doing !== "Thinking" && doing !== shownTitle && liveAt == null ? doing : "",
     }) : "";
-    return user + head + work + t.answer.map(row).join("") + live;
-  }).join("");
+    return [user, head, ...work, ...t.answer.map(row), live];
+  });
   m.wasLive = liveAt;
-  return html;
+  return html.filter(Boolean);
 }
 
 /// The question's answers; the first that allows and the first that does
@@ -444,7 +445,9 @@ export function drawAgentBody(keep?: string, polled = false) {
     ? `<div class="dcard dcoder">${question}${plan}${files}${queued}</div>` : "";
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
-  const entries = child != null ? childHtml(p, child) : p.entries.length && AG.log ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`
+  // The log's turns go in as chunks, so one that did not change is not parsed again.
+  const chunks = child != null ? [childHtml(p, child)] : p.entries.length && AG.log ? [earlier, ...turnsHtml(p)] : null;
+  const entries = chunks ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
   const err = p.error ? (s.external ? `<div class="derr">${esc(p.error)}</div>` : errorCardHtml(p.error)) : "";
@@ -453,7 +456,7 @@ export function drawAgentBody(keep?: string, polled = false) {
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? subagentsShown(p) : [];
-  if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, polled)) { AG.rest = ""; return; }
+  if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, chunks, polled)) { AG.rest = ""; return; }
   // The pane follows the agent, or the subagent opened, into a worktree.
   followAgent(p.entries, p.earlier, child != null ? subOf(child).sub.steps.map(st => st.title) : null);
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
@@ -490,7 +493,7 @@ export function drawAgentBody(keep?: string, polled = false) {
 /// Puts the log's html in the page, replacing only the rows that changed.
 /// A poll leaves a row the reader is selecting in place until it is
 /// unselected: false then, with that row as it was.
-function showLog(b: HTMLElement, html: string, polled: boolean) {
+function showLog(b: HTMLElement, html: string, chunks: string[] | null, polled: boolean) {
   let main = b.querySelector<HTMLElement>(":scope > .dagmain");
   if (!main || !patchable(main)) {
     b.innerHTML = `<div class="dagmain"></div><button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
@@ -504,7 +507,7 @@ function showLog(b: HTMLElement, html: string, polled: boolean) {
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
-  return patchRows(main, next.content, held);
+  return patchRows(main, next.content, chunks, held);
 }
 
 const DOWN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';

@@ -12,7 +12,7 @@ import { AnsweredIds } from "./approvals.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";
 import type { LiveEntry, PendingApproval } from "../bar/core.ts";
 import { chatHints, drawStop, refreshHints } from "../bar/hints.ts";
-import { loadTurnAgent, sourceRow } from "./history.ts";
+import { drawThrough, earlierPrompts, loadTurnAgent, sourceRow } from "./history.ts";
 import type { WebSource } from "./history.ts";
 import { heard, takeDraft } from "../bar/live.ts";
 import { fillPics, picRow, productRow, replyPic, sentFile } from "./media.ts";
@@ -88,9 +88,11 @@ interface ModelPick {
   thinking: string;
 }
 
-/// The right-edge map of prompts, which keeps the turns its ticks stand for.
+/// The right-edge map of prompts, which keeps the turns its ticks stand for,
+/// after a tick for each earlier prompt not drawn yet.
 interface PromptMap extends HTMLElement {
   turns?: HTMLElement[];
+  early?: number;
 }
 
 export function renderChat() {
@@ -181,40 +183,52 @@ export function drawLatest() {
 export const MAP_QUIET_AFTER = 12;
 
 /// A tick per prompt on the right edge once the chat scrolls: hover one to read
-/// the prompt, click it to jump there.
+/// the prompt, click it to jump there. Prompts not drawn yet have ticks too,
+/// spread above the drawn ones; a click draws them.
 export function drawMap() {
   const b = body();
   const turns = b && S.view === "chat" ? ([...b.children] as HTMLElement[]).filter(t => t.querySelector(ASK)) : [];
+  const early = b ? earlierPrompts(b) : [];
   let map = $<PromptMap>("#map");
   if (!b || turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
   if (!map) map = bar.appendChild(h<PromptMap>('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
+  const all = early.length + turns.length;
   // A long chat's ticks are a wall of noise: they show only on hover.
-  map.classList.toggle("many", turns.length > MAP_QUIET_AFTER);
-  if (map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
+  map.classList.toggle("many", all > MAP_QUIET_AFTER);
+  if (map.early !== early.length || map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
     map.turns = turns;
-    map.replaceChildren(...turns.map(t => {
+    map.early = early.length;
+    const tick = (q: string, jump: () => void) => {
       const tk = h('<button class="tk"><i></i><span class="tip"></span></button>');
-      const q = askText(t);
       tk.querySelector(".tip")!.textContent = q;
       tk.setAttribute("aria-label", q);
-      tk.addEventListener("click", () => { b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }); focusAsk(); });
+      tk.addEventListener("click", () => { jump(); focusAsk(); });
       return tk;
-    }));
+    };
+    map.replaceChildren(
+      ...early.map((q, i) => tick(q, () => {
+        drawThrough(b, i);
+        const t = ([...b.children] as HTMLElement[]).filter(t => t.querySelector(ASK))[i];
+        if (t) b.scrollTop = t.offsetTop - b.offsetTop - 6;
+      })),
+      ...turns.map(t => tick(askText(t), () => b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }))),
+    );
   }
   map.style.top = b.offsetTop + "px";
   map.style.height = b.clientHeight + "px";
-  turns.forEach((t, i) => {
-    const at = (t.offsetTop - b.offsetTop) / b.scrollHeight * 100;
-    (map.children[i] as HTMLElement).style.top = Math.min(97, Math.max(3, at)) + "%";
-  });
+  // Earlier prompts spread evenly above; the drawn ones by where they sit, in the share of the track their count takes.
+  const place = (i: number, at: number) => { (map!.children[i] as HTMLElement).style.top = Math.min(97, Math.max(3, at / all * 100)) + "%"; };
+  early.forEach((_, i) => place(i, i));
+  turns.forEach((t, i) => place(early.length + i, early.length + (t.offsetTop - b.offsetTop) / b.scrollHeight * turns.length));
   markMap();
 }
 /// Marks the prompt whose turn is at the top of the view.
 export function markMap() {
   const b = body(), map = $<PromptMap>("#map");
   if (!b || !map?.turns) return;
-  let cur = 0;
-  map.turns.forEach((t, i) => { if (t.offsetTop - b.offsetTop <= b.scrollTop + b.clientHeight / 3) cur = i; });
+  const early = map.early ?? 0;
+  let cur = early;
+  map.turns.forEach((t, i) => { if (t.offsetTop - b.offsetTop <= b.scrollTop + b.clientHeight / 3) cur = early + i; });
   [...map.children].forEach((tk, i) => tk.classList.toggle("on", i === cur));
 }
 
