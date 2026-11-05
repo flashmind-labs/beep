@@ -65,7 +65,7 @@ async function refreshPaneStatus() {
   await refreshLocal();
   const researches = loadResearches();
   if (S.link === "linked" || S.local) loadModels();
-  if (S.link === "linked") loadAgentHosts();
+  if (S.link === "linked" || S.local) loadAgentHosts();
   await researches;
 }
 

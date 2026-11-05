@@ -4,15 +4,16 @@
 
 use super::{runs::Runs, stream::drive};
 use crate::{
-    beep::{BarEvent, Beep, Turn, epoch_ms, identity::data_dir},
+    beep::{BarEvent, Beep, Decision, Turn, epoch_ms, identity::data_dir},
     chat::{history::ToolStep, markdown},
     error::{DesktopError, Result},
     fleet::projects::desk,
 };
 use beep_assistant::{
-    AssistantError, Chat, ChatSummary, Effort, Endpoint, FIRECRAWL_BASE, Feature, OPENROUTER_BASE,
-    Prefs, Setup, default_model, delete_chat, http_client, list_chats, list_models, load_chat,
-    load_prefs, pin_chat, rename_chat, save_prefs, search_chats, turns,
+    AssistantError, Chat, ChatSummary, Effort, Endpoint, FIRECRAWL_BASE, Feature, Mcp, McpHub,
+    OPENROUTER_BASE, Prefs, Setup, default_model, delete_chat, http_client, list_chats,
+    list_models, load_chat, load_prefs, load_servers, pin_chat, rename_chat, save_prefs,
+    search_chats, turns,
 };
 use beep_fleet::Session as MeshSession;
 use beep_proto::{ApiProvider, ModelChoice, Models, ReasoningLevel, Session, SessionMatch};
@@ -23,7 +24,7 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
-use tauri::{AppHandle, Emitter, ipc::Channel};
+use tauri::{AppHandle, Emitter, Manager, ipc::Channel};
 use uuid::Uuid;
 
 pub(super) const NO_KEY: &str = "Add an OpenRouter key in Assistant first.";
@@ -181,6 +182,15 @@ pub(crate) async fn send(
     // Registered before the chat is read, so no other reply or delete can change it meanwhile.
     let cancel = runs.begin(id, prompt.window)?;
     let prefs = load_prefs(&dir).await;
+    // A list that does not read leaves the chat without MCP tools; the page shows why.
+    let servers = load_servers(&dir).await.unwrap_or_else(|e| {
+        log::warn!("MCP servers not read: {e}");
+        Vec::new()
+    });
+    let mcp = Mcp {
+        hub: app.state::<Arc<McpHub>>().inner().clone(),
+        servers,
+    };
     let mut setup = Setup {
         client: http_client(),
         openrouter: Endpoint {
@@ -195,6 +205,7 @@ pub(crate) async fn send(
         today: chrono::Local::now().format("%Y-%m-%d").to_string(),
         effort: prefs.effort,
         provider: None,
+        mcp: Some(mcp),
         cancel,
     };
     let chat = match prepare(&setup, id, prefs.clone()).await {
@@ -250,6 +261,39 @@ async fn prepare(setup: &Setup, id: Uuid, mut prefs: Prefs) -> Result<Chat> {
 async fn latest_model(dir: &Path) -> Option<String> {
     let chats = list_chats(dir).await.ok()?;
     chats.into_iter().next().map(|chat| chat.model)
+}
+
+/// Gives the user's answer to a tool call the reply of chat `session` waits on, then holds until
+/// that reply ends: the window follows the answer as it follows a resumed run, and the reply
+/// itself goes on in the stream that started it.
+pub(crate) async fn answer(
+    runs: &Runs,
+    session: &str,
+    query_id: &str,
+    decision: Decision,
+    channel: Channel<BarEvent>,
+) -> Result<()> {
+    let id = chat_uuid(session)?;
+    // Taken before the answer, after which the reply may end at once.
+    let over = runs.over(id);
+    // Allow, for this session and always all mean yes, once: nothing is remembered here.
+    let allow = !matches!(decision, Decision::Deny);
+    if !runs.answer(id, query_id, allow) {
+        return Err(DesktopError::BadRequest(
+            "That question is not waiting any more.".into(),
+        ));
+    }
+    let started = BarEvent::Started {
+        run_id: session.to_owned(),
+        session_id: session.to_owned(),
+    };
+    if channel.send(started).is_err() {
+        return Ok(());
+    }
+    if let Some(over) = over {
+        over.cancelled().await;
+    }
+    Ok(())
 }
 
 /// Sends the chat's `index`th prompt again, after taking it and what followed back.

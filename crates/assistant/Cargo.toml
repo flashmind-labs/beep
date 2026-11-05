@@ -6,17 +6,21 @@ rust-version = "1.93"
 publish = false
 
 [dependencies]
+anyhow = "1"
+async-trait = "0.1"
+flashmind-tools = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false, features = ["mcp"] }
 flashmind-llm = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false }
 flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }
 futures = "0.3"
 log = "0.4"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
-tokio = { version = "1", features = ["fs", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "sync", "time"] }
 tokio-util = "0.7"
 uuid = { version = "1", features = ["v4", "serde"] }
 

@@ -339,7 +339,6 @@ export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agen
 
 /// The machines that can run an agent; none for an account that may not use machines.
 export async function loadAgentHosts() {
-  if (S.link !== "linked") return;
   try {
     AG.hosts = await invoke<AgentHost[]>("agent_hosts");
     preloadModels(AG.hosts);
