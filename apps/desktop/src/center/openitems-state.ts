@@ -129,7 +129,7 @@ export function reviewStart(
   machines: readonly { id: string; online: boolean }[] | null | undefined,
 ) {
   const tool = item.host === "github.com" ? "gh" : "teacli";
-  const prompt = `Review PR ${item.url}. Read the diff with ${tool}, and post your review only after I approve it.`;
+  const prompt = `Review PR ${item.url}. Read the diff with ${tool}, read the code around each change, and run the tests that cover it. Report real defects with file, line and how they fail, and say what you ran. Post your review only after I approve it.`;
   const online = new Set((machines || []).filter(m => m.online).map(m => m.id));
   const at = project?.machines?.find(m => online.has(m.id) && m.folder) || null;
   const places = (project?.machines || []).filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
