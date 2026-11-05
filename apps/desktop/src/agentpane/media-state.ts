@@ -235,3 +235,6 @@ export function zoomAt(v: ImageView, factor: number, px: number, py: number): Im
   const k = scale / v.scale;
   return { scale, x: px - (px - v.x) * k, y: py - (py - v.y) * k, fit: false };
 }
+
+/// ⇧esc, which zooms a side pane over its conversation and back.
+export const isZoomKey = (e: KeyboardEvent) => e.key === "Escape" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;

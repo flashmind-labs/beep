@@ -10,7 +10,7 @@ import { askBeep } from "./center.ts";
 import { type ViewHead, state } from "./state.ts";
 import { projectDot } from "../ui/pieces.ts";
 import { startedWhen } from "./home.ts";
-import { shown, go, drawTop } from "./views.ts";
+import { shown, go, drawTop, openResearch } from "./views.ts";
 import { paneOn, chatList, projectRows, openProjects } from "./sidebar.ts";
 import { loadThreadChats, threadHead, pinButton, threadChats } from "./threadcard.ts";
 import { refresh } from "./refresh.ts";
@@ -98,6 +98,7 @@ export async function takePending(fallback: string | null) {
   if (target === "home" || target === "instructions" || target === "providers" || target === "terminals" || target === "research") return go(target);
   if (typeof target === "object" && "projects" in target) return go("projects", target.projects);
   if (typeof target === "object" && "ask" in target) return askBeep(target.ask.prompt);
+  if (typeof target === "object" && "open_research" in target) return openResearch(target.open_research.session);
   go("pane", target);
   // Home is not on screen, but the sidebar counts come from it.
   refresh();

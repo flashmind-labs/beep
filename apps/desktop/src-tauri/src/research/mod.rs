@@ -1,11 +1,8 @@
-//! Research windows: one per research chat, showing the lead's chat, the
-//! team's workspace and its agents. The bar starts researches and opens
-//! them; the window polls the server for what the team did.
+//! Research: starting one, listing them and what the team did. A research
+//! opens as a page of the command center, which polls the server for it.
 
 pub(crate) mod commands;
 pub(crate) mod view;
-mod window;
 
 pub(crate) use commands::Pending;
 pub(crate) use view::Cache;
-pub(crate) use window::closed;
