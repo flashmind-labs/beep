@@ -1,9 +1,11 @@
 // Esc up the window's pages: a project's open tile, then the Projects page,
 // then Home. A session goes to its project first (agents.ts).
 
+import type { ViewName } from "./state.ts";
+
 export interface EscAt {
   /// The page showing.
-  page: string | null;
+  page: ViewName | null;
   /// The project the Projects page shows; null for the list.
   picked: string | null;
   /// A tile of the project's list is open.

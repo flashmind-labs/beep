@@ -7,6 +7,7 @@ import { dbtn, emptyPanel, stateChip, svgEl, secBlock } from "../ui/parts.ts";
 import { localProjectId } from "./localid.ts";
 import type { Kid } from "../ui/dom.ts";
 import type { ChatApproval } from "../agents/running-state.ts";
+import type { ViewName } from "../center/state.ts";
 
 /// A project agent with its chat (ProjectAgent).
 export interface ProjectAgent {
@@ -102,7 +103,7 @@ export type RowActs = Omit<ProjectActs, "answer">;
 
 /// What the window shows, for `newChatProject`.
 export interface ChatAt {
-  shown: string | null;
+  shown: ViewName | null;
   picked?: string | null;
   view?: string | null;
   session?: string | null;

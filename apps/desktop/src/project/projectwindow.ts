@@ -1,4 +1,5 @@
 // A project in a window of its own.
+import type { ViewName } from "../center/state.ts";
 
 /// What a click needs to say, as a `MouseEvent` has it.
 export interface ClickLike {
@@ -55,7 +56,7 @@ export function agentInProject(agent: AgentLike, folders: ProjectScope["folders"
 }
 
 /// Where `go(view, arg)` opens.
-export function route(scope: ProjectScope | null, view: string, arg?: unknown): Route {
+export function route(scope: ProjectScope | null, view: ViewName, arg?: unknown): Route {
   if (!scope) return "here";
   if (view === "projects") {
     const project = (arg as { project?: string | null } | undefined)?.project;
@@ -100,7 +101,8 @@ const VIEWS = new Set(["home", "instructions", "providers", "terminals", "resear
 
 /// The main window's target for `go(view, arg)`; Home for anything it
 /// cannot be told.
-export function mainTarget(view: string, arg?: unknown): CenterTarget {
+export function mainTarget(view: ViewName, arg?: unknown): CenterTarget {
+  // Every name in VIEWS is also a CenterTarget string.
   if (VIEWS.has(view)) return view as CenterTarget;
   if (view === "researchopen") return { open_research: { session: (arg as { session: string }).session } };
   if (view === "projects") return { projects: { project: (arg as { project?: string | null } | undefined)?.project ?? null } };
