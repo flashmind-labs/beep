@@ -705,27 +705,22 @@ impl Syncs {
             .unwrap_or_default()
     }
 
-    /// Whether Syncthing keeps `project`'s folder in step here and its
-    /// `.stignore` leaves out `relative`, a folder of the project. A
+    /// Whether Beep syncs `project` here with `peer`, once a change to the
+    /// list that is going on is done.
+    pub(crate) async fn syncs_with(&self, project: &str, peer: &EndpointId) -> bool {
+        let _settled = self.inner.configuring.lock().await;
+        self.project(project)
+            .is_some_and(|shared| shared.has_peer(peer))
+    }
+
+    /// Whether Syncthing keeps `folder`, a project's checkout, in step here
+    /// and its `.stignore` leaves out `relative`, a folder of the project. A
     /// `.stignore` that cannot be read counts as leaving it out.
-    pub(crate) async fn syncthing_ignores(&self, project: &str, relative: &str) -> bool {
-        let folder = {
-            let running = lock(&self.inner.projects)
-                .get(project)
-                .map(|running| running.project.folder.clone());
-            running.or_else(|| {
-                lock(&self.inner.held)
-                    .get(project)
-                    .map(|held| held.project.folder.clone())
-            })
-        };
-        let Some(folder) = folder else {
-            return false;
-        };
-        let folder = PathBuf::from(folder);
-        if self.inner.syncthing.check(&folder).await.is_none() {
+    pub(crate) async fn syncthing_ignores(&self, folder: &Path, relative: &str) -> bool {
+        if self.inner.syncthing.check(folder).await.is_none() {
             return false;
         }
+        let folder = folder.to_owned();
         let relative = PathBuf::from(relative);
         spawn_blocking(move || match stignore::Stignore::load_above(&folder) {
             Ok(rules) => rules.iter().any(|rule| rule.ignores(&relative, true)),

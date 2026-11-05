@@ -8,16 +8,12 @@ use super::{
     Env, Harness,
     background::{Kept, keep_local, unix_secs},
     cache::Meta,
-    offers::{harness_of, now_secs},
+    offers::{harness_of, now_secs, project_folder},
     rewrite, store,
 };
 use crate::agents::{AgentKind, Begin, found::Agent};
 use anyhow::{Context, Result, bail};
-use beep_mesh::Key;
-use beep_proto::{
-    AgentSlug,
-    node::mesh_state::{StateValue, SyncSpec},
-};
+use beep_proto::AgentSlug;
 use iroh::EndpointId;
 use std::{
     borrow::Cow,
@@ -243,20 +239,11 @@ pub(super) async fn continue_here(
 }
 
 /// The folder a copied session worked in on its machine and the same
-/// folder here, from the project's `sync/<name>` record.
+/// folder here.
 fn continued_folders(env: &Env, meta: &Meta) -> Result<Folders> {
-    let bytes = env
-        .mesh
-        .get(&Key::Sync(meta.project.clone()))
-        .with_context(|| format!("{} is not a synced project", meta.project))?;
-    let spec = SyncSpec::from_bytes(&bytes).context("the project's record does not read")?;
-    let theirs = spec
-        .folders
-        .get(&meta.from)
+    let theirs = project_folder(&env.mesh, &meta.project, &meta.from)
         .context("the machine that ran it does not keep the project")?;
-    let mine = spec
-        .folders
-        .get(&env.mesh.me())
+    let mine = project_folder(&env.mesh, &meta.project, &env.mesh.me())
         .context("this machine does not keep the project")?;
     let relative = Path::new(&meta.path);
     if relative
@@ -266,7 +253,7 @@ fn continued_folders(env: &Env, meta: &Meta) -> Result<Folders> {
         bail!("the session's folder is not inside the project");
     }
     Ok(Folders {
-        old: Path::new(theirs).join(relative),
-        new: Path::new(mine).join(relative),
+        old: Path::new(&theirs).join(relative),
+        new: Path::new(&mine).join(relative),
     })
 }

@@ -336,8 +336,8 @@ applies too; one it cannot read refuses the folder and says why.
 - Commits on both sides of a branch: the later commit keeps the branch, and the
   other stays as `refs/beep-conflicts/<ref>-<tag>`, listed as a conflict. If one
   is an ancestor of the other, the branch moves forward and the ref goes.
-- Two checkouts never merged before sync only once they are at one commit;
-  until then both show why, and neither changes.
+- Two checkouts merge whatever commits they are at, as with Syncthing: the newer
+  version of a file wins and the other becomes a conflict copy.
 - Locks, `FETCH_HEAD`, reflogs, hooks and `.git/worktrees` stay on their
   machine, and so does any folder whose `.git` is a file (a linked worktree or
   a submodule). Its branch still travels; it waits on a machine that has it
@@ -345,6 +345,8 @@ applies too; one it cannot read refuses the folder and says why.
 - Peers talk `beep-sync/3`. Nodes on `beep-sync/1` or `/2` do not sync with it.
 - Add on a project's machine row makes the folder there and joins sync: the empty
   folder takes the files and `.git` from the others (`Desk::add_to_machine`).
+
+A session also moves on a project Syncthing keeps in step: folders come from the place records when `sync/<name>` does not name the machine, and the target trusts Syncthing, waiting up to two minutes for its folder to be complete. A project neither keeps is refused before the source stops.
 
 ## iOS app
 

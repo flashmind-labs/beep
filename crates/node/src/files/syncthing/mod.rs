@@ -51,6 +51,21 @@ impl Managed {
     }
 }
 
+/// How a folder stands, as `/rest/db/status` says.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FolderStatus {
+    pub(crate) need_total_items: u64,
+    state: String,
+}
+
+impl FolderStatus {
+    /// Syncthing has everything it knows of and is not working on the folder.
+    pub(crate) fn is_complete(&self) -> bool {
+        self.need_total_items == 0 && self.state == "idle"
+    }
+}
+
 /// Where the GUI listens and the key it takes, from `config.xml`.
 #[derive(Debug)]
 struct Gui {
@@ -93,6 +108,16 @@ impl Syncthing {
     pub async fn check(&self, folder: &Path) -> Option<Managed> {
         let listed = self.api_folders().await;
         self.decide(folder, listed).await
+    }
+
+    /// How the Syncthing folder `id` stands now.
+    pub(crate) async fn folder_status(&self, id: &str) -> Result<FolderStatus> {
+        let gui = self.gui().await?;
+        let path = format!("/rest/db/status?folder={}", query_value(id));
+        let body = timeout(TIMEOUT, get(&gui, &path))
+            .await
+            .context("waiting for Syncthing's folder status")??;
+        serde_json::from_slice(&body).context("Syncthing's folder status does not read")
     }
 
     /// Waits until Syncthing pauses, resumes or reconfigures a folder, or
@@ -327,6 +352,18 @@ async fn get(gui: &Gui, path: &str) -> Result<Vec<u8>> {
         bail!("Syncthing answered {status}");
     }
     Ok(reply.split_off(split + 4))
+}
+
+/// `value` as it goes in a URL's query.
+fn query_value(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'-' | b'_' | b'.' | b'~' => char::from(byte).to_string(),
+            _ if byte.is_ascii_alphanumeric() => char::from(byte).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
 
 /// The folders not paused, with `~` expanded and symlinks resolved.

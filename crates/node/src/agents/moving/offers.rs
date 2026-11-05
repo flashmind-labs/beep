@@ -7,8 +7,10 @@ use crate::agents::{
     found::{Agent, within},
 };
 use beep_mesh::{Key, Mesh};
-use beep_proto::node::mesh_state::{StateValue, SyncSpec};
+use beep_proto::node::mesh_state::{Place, StateValue, SyncSpec};
+use iroh::EndpointId;
 use std::{
+    collections::BTreeSet,
     fs::File,
     io::Read,
     path::{Path, PathBuf},
@@ -28,17 +30,46 @@ pub(crate) struct Project {
     pub(crate) folder: PathBuf,
 }
 
-/// The projects of `mesh` this machine keeps a checkout of.
+/// The folder `project` has on `machine`: from its `sync/<name>` record when
+/// that names the machine, else from the machine's place record. A project
+/// imported on one machine at a time has only the place records.
+pub(super) fn project_folder(mesh: &Mesh, project: &str, machine: &EndpointId) -> Option<String> {
+    mesh.get(&Key::Sync(project.to_owned()))
+        .and_then(|bytes| SyncSpec::from_bytes(&bytes).ok())
+        .and_then(|mut spec| spec.folders.remove(machine))
+        .or_else(|| {
+            let bytes = mesh.get(&Key::Project(format!("{project}/{machine}")))?;
+            Place::from_bytes(&bytes).ok().map(|place| place.folder)
+        })
+}
+
+/// The projects of `mesh` this machine keeps a checkout of, named by either
+/// kind of record.
 pub(super) fn projects_of(mesh: &Mesh) -> Vec<Project> {
     let me = mesh.me();
-    mesh.scan("sync/")
+    let mine = me.to_string();
+    let synced = mesh
+        .scan("sync/")
         .into_iter()
-        .filter_map(|(key, bytes)| {
-            let Key::Sync(name) = key else {
-                return None;
-            };
-            let spec = SyncSpec::from_bytes(&bytes).ok()?;
-            let folder = PathBuf::from(spec.folders.get(&me)?);
+        .filter_map(|(key, _)| match key {
+            Key::Sync(name) => Some(name),
+            _ => None,
+        });
+    let placed = mesh
+        .scan("project/")
+        .into_iter()
+        .filter_map(|(key, _)| match key {
+            Key::Project(name) => {
+                let (project, machine) = name.rsplit_once('/')?;
+                (machine == mine).then(|| project.to_owned())
+            }
+            _ => None,
+        });
+    let names: BTreeSet<String> = synced.chain(placed).collect();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let folder = PathBuf::from(project_folder(mesh, &name, &me)?);
             Some(Project { name, folder })
         })
         .collect()
