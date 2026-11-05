@@ -44,6 +44,8 @@ import { openSettings } from "../settings/sheet.ts";
 import { IC } from "../ui/icons.ts";
 import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
+import type { HomeView } from "./home-state.ts";
+import { lazyRows } from "../ui/lazyrows.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
@@ -122,11 +124,13 @@ export function drawSide() {
     }
     const none = typeof g.empty === "function" ? g.empty() : g.empty;
     if (none && !g.items.length) grp.append(typeof none === "string" ? h("span", "cc-si none", none) : none);
-    for (const item of g.items) {
+    // Hundreds of projects draw a screenful at a time as the sidebar scrolls.
+    const items = g.items;
+    grp.append(...lazyRows(`side:${name}`, "", items.length, (from, to) => items.slice(from, to).map(item => {
       const el = g.row(item);
       if (g.onPick) el.addEventListener("click", () => g.onPick!(item));
-      grp.append(el);
-    }
+      return el;
+    })));
     if (g.foot) grp.append(...g.foot());
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
@@ -484,8 +488,14 @@ registerSidebarGroup("views", {
 export function projectRows() {
   const home = state.home;
   if (!home || (!home.running && !home.projects)) return null;
-  return mergeProjects(home.projects, home.running);
+  // Home, the sidebar and the pages all ask on each draw; the answer only
+  // changes with the lists it is made from.
+  if (merged?.projects !== home.projects || merged.running !== home.running) {
+    merged = { projects: home.projects, running: home.running, rows: mergeProjects(home.projects, home.running) };
+  }
+  return merged.rows;
 }
+let merged: { projects: HomeView["projects"]; running: HomeView["running"]; rows: Project[] } | undefined;
 
 /// The project headings folded in the sidebar, kept between launches. Only
 /// the main window has a sidebar.

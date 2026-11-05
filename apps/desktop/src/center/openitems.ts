@@ -19,6 +19,7 @@ import { reloadChats, projectRows, loadFound } from "./sidebar.ts";
 import { type LabelFilter, labelFilter, labelChip } from "../project/split.ts";
 import { refresh } from "./refresh.ts";
 import { IC } from "../ui/icons.ts";
+import { lazyRows } from "../ui/lazyrows.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
@@ -156,10 +157,11 @@ export function gitSection(view: GitItemsView) {
     const issues = kind === "issue";
     const entries = shown.map((i): StartEntry => ({ key: i.url, project: repos.get(`${i.host} ${i.repo}`)?.project?.name ?? null, number: i.number, title: i.title, url: i.url }));
     const chips = f.all.length ? h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))) : null;
-    const rows = shown.map(i => {
+    // Hundreds of items draw a screenful at a time.
+    const rows = lazyRows(key, "", shown.length, (from, to) => shown.slice(from, to).map(i => {
       const p = repos.get(`${i.host} ${i.repo}`);
       return openItemRow(i, p?.project ?? null, f, { pick: issues ? pickBox(key, i.url, draw) : null, action: p && !p.project ? rowImportButton(p) : null });
-    });
+    }), 0, 20);
     const body = rows.length ? rows : [h("div", "cc-empty", h("span", "", none))];
     return section("", title, shown.length, null, h("div", "cc-panel cc-open", listControls(key, draw, issues), chips, ...body, issues ? startBar(key, entries, draw) : null));
   };
