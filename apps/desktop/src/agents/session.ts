@@ -12,6 +12,8 @@ import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
+import { childRow, parentRow } from "./nesting-state.ts";
+import { sessions } from "./sessions.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
@@ -264,6 +266,11 @@ function agentClick(e: MouseEvent) {
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
+  // An agent another agent started opens as its own session.
+  const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
+  if (kid) { const row = childRow(sessions, kid.dataset.kid!, kid.dataset.key); if (row) openAgent(row, { back: AG.back }); return; }
+  const up = target.closest("#agup, #agup2");
+  if (up) { const row = AG.open && parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }); if (row) openAgent(row, { back: AG.back }); return; }
   if (target.closest("#agparent")) return closeChild();
   // "Show all N lines" opens the whole output in a box that scrolls.
   const all = target.closest<HTMLElement>("#agbody [data-all]");

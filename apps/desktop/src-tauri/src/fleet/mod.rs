@@ -12,6 +12,7 @@ mod carry;
 pub(crate) mod files;
 mod mesh;
 pub(crate) mod migrate;
+mod parents;
 pub(crate) mod projects;
 mod status;
 pub(crate) mod terminals;
@@ -31,6 +32,7 @@ use beep_node::{
 use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
+pub(crate) use parents::SessionParent;
 pub use status::{ClockOff, Status};
 use std::{
     path::{Path, PathBuf},
@@ -118,6 +120,8 @@ pub struct Fleet {
     move_task: Mutex<Option<JoinHandle<()>>>,
     /// The newest release of each tool a node installs.
     releases: ToolReleases,
+    /// Who started each session the nodes listed, to nest them.
+    parents: parents::Parents,
 }
 
 impl Fleet {
@@ -149,7 +153,13 @@ impl Fleet {
             joining: AsyncMutex::new(()),
             move_task: Mutex::default(),
             releases: ToolReleases::default(),
+            parents: parents::Parents::default(),
         }
+    }
+
+    /// The session that started `session` on `machine`, when an agent did.
+    pub(crate) fn parent_of(&self, machine: &str, session: &str) -> Option<SessionParent> {
+        self.parents.of(machine, session)
     }
 
     /// `serve`, then `start_services`. Takes the time it takes and is meant

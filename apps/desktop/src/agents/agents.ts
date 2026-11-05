@@ -4,6 +4,7 @@
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
+import { nest, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
@@ -57,6 +58,16 @@ export interface AgentSession {
   /// Started outside Beep, which only follows it.
   external: boolean;
   question: AgentQuestion | null;
+  /// The session whose agent started this one, when an agent did.
+  parent?: AgentParent | null;
+}
+
+/// Where the session that started another runs and the ids it is listed
+/// under: the agent's own, and the one its node gave it before that.
+export interface AgentParent {
+  machine_id: string;
+  id: string;
+  key: string;
 }
 
 /// What the session view needs of a session to open it: a row from
@@ -368,12 +379,13 @@ function sessionSub(s: AgentSession, harness: string, folder: string) {
 
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 
-function sessionRow(s: AgentSession, i: number) {
+function sessionRow({ row: s, depth }: { row: AgentSession; depth: number }, i: number) {
   const k = agentKind(s.agent), folder = folderName(s.cwd);
   const tail = s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
     : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run" title="${esc(s.doing || "Working")}"><span class="dspin"></span><span class="tx">${esc(s.doing || "Working")}</span></span>`
     : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
-  return `<button class="dchat" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
+  const kid = depth ? ` kid" style="--depth:${depth}` : "";
+  return `<button class="dchat${kid}" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
       <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;
 }
 
@@ -382,12 +394,13 @@ function sessionRow(s: AgentSession, i: number) {
 let drawn: AgentSession[] = [];
 
 export function drawAgents(loading: boolean) {
-  const list = drawn = sessions;
+  const list = sessions, shown = nest(list);
+  drawn = shown.map(n => n.row);
   const machines = new Set(list.map(s => s.machine_id)).size;
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
     ${AG.error ? `<div class="derr dpadx">${esc(AG.error)}</div>` : ""}
-    ${list.length ? `<div class="dlist top" role="listbox">${list.map(sessionRow).join("")}</div>`
+    ${list.length ? `<div class="dlist top" role="listbox">${shown.map(sessionRow).join("")}</div>`
       : loading ? "" : emptyPage(AGENT_ICON, "No sessions running.", "Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.")}
     ${hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`;
   bar.onclick = e => {
@@ -450,6 +463,9 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
 /// its session, else goes back.
 export function agentBack() {
   if (S.view === "agent" && (closeModelPicker() || closeChild())) return;
+  // A session an agent started goes back to the session that started it.
+  const up = S.view === "agent" && AG.open ? parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }) : undefined;
+  if (up) return openAgent(up, { back: AG.back });
   // In the window a session's parent is its project, wherever it was opened from.
   if (S.view === "agent" && windowHooks) {
     if (leavePane()) return;
