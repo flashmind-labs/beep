@@ -44,6 +44,7 @@ pub fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
         }
         AgentSteer::DropSteers {} => Request::DropSteers {},
         AgentSteer::SetMode { mode } => Request::SetMode { mode },
+        AgentSteer::StopTask { task } => Request::StopTask { task },
         AgentSteer::Cancel {} => Request::Cancel {},
         AgentSteer::Close {} => Request::Close {},
         AgentSteer::Configure {

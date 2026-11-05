@@ -131,6 +131,33 @@ ffi_structs! {
         pub plan: Option<String>,
     }
 
+    /// The commands a session Beep runs has in the background, as
+    /// `GetAgentSessionTasks` gives them. Empty from a node too old to say.
+    #[derive(Default)]
+    pub struct AgentSessionTasks {
+        /// Oldest first; one stays after it ended.
+        pub tasks: Vec<AgentTask>,
+    }
+
+    /// A command a coding agent left running in the background.
+    pub struct AgentTask {
+        /// The agent's own id, which `AgentSteer::StopTask` names.
+        pub id: String,
+        pub name: String,
+        pub description: String,
+        /// Such as `running` or `stopped`.
+        pub state: String,
+        pub can_stop: bool,
+        /// The file its output goes to, on the machine.
+        pub output_file: Option<String>,
+        /// How it ended, when the agent says.
+        pub summary: Option<String>,
+        /// The transcript entry of the tool call that started it, counted
+        /// from the start of the session, as `AgentSessionView::earlier`
+        /// counts.
+        pub entry: Option<u64>,
+    }
+
     /// One mode of a coding-agent session.
     pub struct AgentMode {
         pub id: String,
@@ -206,6 +233,9 @@ ffi_enum! {
     /// not yet delivered. `SetMode` switches the running session to `mode`, one
     /// `GetAgentSessionModes` lists; a server older than `Feature::AGENT_MODES`
     /// refuses it.
+    /// `StopTask` stops one of the commands `GetAgentSessionTasks` lists
+    /// without ending the turn; a server older than `Feature::AGENT_TASKS`
+    /// refuses it.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum AgentSteer {
         0 Prompt { text: String }
@@ -216,6 +246,7 @@ ffi_enum! {
         5 Steer { text: String, images: Vec<Upload> } since AGENT_STEER
         6 DropSteers {} since AGENT_STEER
         7 SetMode { mode: String } since AGENT_MODES
+        8 StopTask { task: String } since AGENT_TASKS
     }
 }
 

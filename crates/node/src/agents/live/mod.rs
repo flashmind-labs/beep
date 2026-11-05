@@ -16,6 +16,7 @@ use std::{
 };
 
 mod content;
+mod tasks;
 mod tools;
 mod transcript;
 mod updates;
@@ -44,6 +45,9 @@ const ARTIFACT_TOOL: &str = "Artifact";
 /// The `_meta` key claude-agent-acp forwards Claude Code's rate limit
 /// events under, in a `usage_update`.
 const CLAUDE_RATE_LIMIT: &str = "_claude/rateLimit";
+
+/// The most background tasks kept.
+const MAX_TASKS: usize = 20;
 
 /// The most of a thought kept to find its line.
 const MAX_THOUGHT: usize = 8 * 1024;

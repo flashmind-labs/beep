@@ -15,6 +15,7 @@ import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./ima
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
+import { readTasks, stopTask } from "./tasks.ts";
 import { editorTools } from "../project/editors.ts";
 import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
@@ -65,9 +66,10 @@ export async function pollAgent() {
   AG.inflight = o;
   const read = ++AG.polls;
   try {
-    const [page, modes] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }), readModes(o)]);
+    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }), readModes(o), readTasks(o)]);
     if (isOpen(o)) {
       AG.modes = modes;
+      AG.tasks = tasks;
       const sig = JSON.stringify(page);
       if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
       if (page.session.question?.id !== AG.answering) AG.answering = null;
@@ -212,7 +214,7 @@ export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted dblock dbanner">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
-    : `<div id="agplan"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
+    : `<div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
   bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small title="${esc(s.cwd)}">${esc(s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>
@@ -242,6 +244,8 @@ function agentClick(e: MouseEvent) {
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
   if (target.closest("#agmodelb")) return toggleModelPicker();
   if (target.closest("#agmodeb")) { cycleMode(); $("#agmsg")?.focus(); return; }
+  const task = target.closest<HTMLElement>("[data-agtask]");
+  if (task) return void stopTask(task.dataset.agtask!);
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");

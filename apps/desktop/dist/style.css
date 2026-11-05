@@ -1158,3 +1158,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 /* ⇧esc: a dock fills the session over the conversation; its width and place are untouched. */
 .agpane.zoomed { position: absolute; inset: 0; z-index: 3; flex: none; max-width: none; background: var(--surface) }
 .agshell.zoomed .agdiv { display: none }
+#agtasks:empty { display: none }
+.ag-task { display: flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-size: 12.5px }
+.ag-task .dspin { flex: none; width: 10px; height: 10px }
+.ag-task .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono) }

@@ -131,3 +131,16 @@ pub(in crate::api) async fn get_agent_session_modes(
         plan: info.plan_ready,
     })
 }
+
+pub(in crate::api) async fn get_agent_session_tasks(
+    cx: Cx,
+    get: GetAgentSessionTasks,
+) -> Reply<AgentSessionTasks> {
+    let live = live_host(&cx, &get.machine_id).await?;
+    let info = limited(live.online.agent_sessions())
+        .await?
+        .into_iter()
+        .find(|info| info.id == get.session && info.agent == get.agent)
+        .ok_or(ApiError::NotFound {})?;
+    Ok(beep_mesh::machine::session_tasks(info.state.tasks))
+}

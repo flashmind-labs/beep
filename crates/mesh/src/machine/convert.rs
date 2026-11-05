@@ -2,8 +2,8 @@
 
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentModel, AgentModelPick, AgentModels, AgentOption,
-    AgentPlanStatus, AgentPlanStep, AgentQuestion, AgentSessionView, AgentStatus,
-    MachineCapability, MachineSession,
+    AgentPlanStatus, AgentPlanStep, AgentQuestion, AgentSessionTasks, AgentSessionView,
+    AgentStatus, AgentTask, MachineCapability, MachineSession,
     node::{
         Capability,
         agent::{
@@ -167,6 +167,25 @@ pub fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
         turns,
         entries: Vec::new(),
         earlier: 0,
+    }
+}
+
+/// The background tasks a node reports, as an app reads them.
+pub fn session_tasks(tasks: Vec<agent::Task>) -> AgentSessionTasks {
+    AgentSessionTasks {
+        tasks: tasks
+            .into_iter()
+            .map(|task| AgentTask {
+                id: task.id,
+                name: task.name,
+                description: task.description,
+                state: task.state.as_str().to_owned(),
+                can_stop: task.can_stop,
+                output_file: task.output_file,
+                summary: task.summary,
+                entry: task.entry,
+            })
+            .collect(),
     }
 }
 
