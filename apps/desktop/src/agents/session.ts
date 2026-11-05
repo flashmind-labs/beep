@@ -26,6 +26,7 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt } from "./older-state.ts";
 import { onPlaces, placeOf } from "./place.ts";
@@ -303,13 +304,35 @@ export function drawAgentFrame(inPlace = false) {
 }
 
 /// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again.
+async function kidSession(id: string, key?: string) {
+  const row = childRow(sessions, id, key);
+  if (row) return row;
+  try { await loadSessions(); } catch { return null; }
+  return childRow(sessions, id, key);
+}
+
 async function openKid(id: string, key?: string) {
-  let row = childRow(sessions, id, key);
-  if (!row) {
-    try { await loadSessions(); } catch { return; }
-    row = childRow(sessions, id, key);
-  }
+  const row = await kidSession(id, key);
   if (row) openAgent(row, { back: AG.back });
+}
+
+/// The X on a finished row in the pane: a child that is done closes on its
+/// machine first, and its row stays if that fails. Its transcript stays.
+async function closeRow(x: HTMLElement) {
+  const at = Number(x.dataset.subclose);
+  const kid = x.closest<HTMLElement>("[data-kid]");
+  if (kid && "endkid" in x.dataset) {
+    const row = await kidSession(kid.dataset.kid!, kid.dataset.key);
+    if (row) {
+      try {
+        await invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: "close" });
+      } catch (e) {
+        AG.note = readError(e);
+        return drawAgentBody();
+      }
+    }
+  }
+  closeSub(at);
 }
 
 function agentClick(e: MouseEvent) {
@@ -324,8 +347,8 @@ function agentClick(e: MouseEvent) {
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
-  const closeRow = target.closest<HTMLElement>(".agpane [data-subclose]");
-  if (closeRow) return closeSub(Number(closeRow.dataset.subclose));
+  const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
+  if (closing) return void closeRow(closing);
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
