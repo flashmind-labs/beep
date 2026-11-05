@@ -4,6 +4,9 @@ import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
 import { type AgentRow, loadAgentHosts, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.ts";
+import { openDraft } from "../agents/draft.ts";
+import { newTerminal, openTerminal } from "../agentpane/media.ts";
+import type { TerminalRow } from "../terminals/terminals.ts";
 import { sessions } from "../agents/sessions.ts";
 import { renderApps } from "../settings/apps.ts";
 import { body, focusAsk, grow, newChat, renderChat, send } from "../chat/chat.ts";
@@ -31,7 +34,8 @@ export type PaneTarget =
   | null
   | { chat: { session: string | null } }
   | { group: { id: string } }
-  | { agent: AgentRow & { kind?: string }; from?: BackTo }
+  | { agent: AgentRow & { kind?: string }; from?: BackTo; adopt?: boolean }
+  | { draft: { project: string; machine: string | null; terminal?: true | TerminalRow } }
   | { agentnew: { prompt?: string; at?: AgentPlace | null }; from?: BackTo };
 
 /// Pages the window opens in the pane by name.
@@ -101,7 +105,13 @@ export const pane = {
       if ("agent" in target) {
         const { machine_id, agent, id } = target.agent;
         const row = sessions.find(s => s.machine_id === machine_id && s.agent === agent && s.id === id);
-        return openAgent(row ?? target.agent, { back: target.from ?? "agents" });
+        return openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
+      }
+      if ("draft" in target) {
+        openDraft(target.draft.project, target.draft.machine);
+        const { terminal } = target.draft;
+        if (terminal === true) newTerminal(); else if (terminal) openTerminal(terminal);
+        return;
       }
       if ("agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
     }

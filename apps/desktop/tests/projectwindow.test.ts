@@ -14,6 +14,8 @@ test("a project window keeps its project and what opens from it", () => {
   assert.equal(route(scope, "pane", { agent: agent("build-box", "/srv/site") }), "here");
   assert.equal(route(scope, "pane", { agent: agent("build-box", "/srv/site/.worktrees/fix") }), "here");
   assert.equal(route(scope, "pane", { agentnew: { prompt: "" } }), "here");
+  assert.equal(route(scope, "pane", { draft: { project: "org/site", machine: null } }), "here");
+  assert.equal(route(scope, "pane", { draft: { project: "org/other", machine: null } }), "main");
   assert.equal(route(scope, "pane", { chat: { session: "chat-site" } }), "here");
 });
 

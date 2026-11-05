@@ -13,7 +13,8 @@ const ROW: TerminalRow = {
 function fakeScreen(cols = 100, rows = 30) {
   const shown: string[] = [];
   let resized: (size: { cols: number; rows: number }) => void = () => {};
-  const screen: Screen & { shown: string[]; resize(cols: number, rows: number): void } = {
+  let escaped: () => void = () => {};
+  const screen: Screen & { shown: string[]; resize(cols: number, rows: number): void; pressEsc(): void } = {
     el: {} as HTMLElement,
     shown,
     write: data => shown.push(new TextDecoder().decode(data)),
@@ -24,6 +25,8 @@ function fakeScreen(cols = 100, rows = 30) {
     focused: () => false,
     onData() {},
     onResize: cb => { resized = cb; },
+    onEscape: cb => { escaped = cb; },
+    pressEsc: () => escaped(),
     setInput() {},
     dispose() {},
     resize(c, r) { cols = c; rows = r; resized({ cols, rows }); },
@@ -52,7 +55,7 @@ test("a dropped stream reconnects in the footer, not on the screen", async t => 
   t.mock.timers.enable({ apis: ["setTimeout"] });
   calls.length = 0;
   const screen = fakeScreen();
-  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {} });
+  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
   const first = nextAttach();
   attach(term);
   first.send({ kind: "attached" });
@@ -72,10 +75,20 @@ test("a dropped stream reconnects in the footer, not on the screen", async t => 
   assert.equal(termStatus(term, "build-box"), "build-box · what you type goes there");
 });
 
+test("Esc typed in the screen reaches the tab's hook, not the shell", () => {
+  calls.length = 0;
+  const screen = fakeScreen();
+  let left = 0;
+  paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape: () => { left++; } });
+  screen.pressEsc();
+  assert.equal(left, 1);
+  assert.equal(count("terminal_input"), 0, "nothing was sent to the terminal");
+});
+
 test("a stream that a newer attach replaced ending does not reconnect", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   calls.length = 0;
-  const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {} });
+  const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {}, onEscape() {} });
   const first = nextAttach();
   attach(term);
   const second = nextAttach();

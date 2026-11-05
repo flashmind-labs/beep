@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, moveTab, readLayout, resolvePath, splitTabs, tabDock, zoomAt } from "../src/agentpane/media-state.ts";
+import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, leavesTerminal, moveTab, readLayout, resolvePath, splitTabs, tabDock, zoomAt } from "../src/agentpane/media-state.ts";
 
 test("a relative path is the session folder's", () => {
   assert.equal(resolvePath("/srv/project", "out/a.glb"), "/srv/project/out/a.glb");
@@ -63,4 +63,14 @@ test("zooming keeps the point under the pointer in place", () => {
   // The picture point under (100, 50) is the same before and after.
   assert.equal((100 - v.x) / v.scale, 100);
   assert.equal(zoomAt({ scale: ZOOM_MAX, x: 0, y: 0, fit: false }, 2, 0, 0).scale, ZOOM_MAX);
+});
+
+test("Esc in a pane terminal leaves it, except for a program on the alternate screen", () => {
+  const key = (over: Partial<Parameters<typeof leavesTerminal>[0]> = {}) => ({ key: "Escape", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: false, ...over });
+  assert.equal(leavesTerminal(key(), "normal"), true);
+  assert.equal(leavesTerminal(key(), "alternate"), false, "vim, less and htop get Esc");
+  assert.equal(leavesTerminal(key({ shiftKey: true }), "normal"), false, "shift-esc is the zoom");
+  assert.equal(leavesTerminal(key({ altKey: true }), "normal"), false);
+  assert.equal(leavesTerminal(key({ key: "a" }), "normal"), false);
+  assert.equal(leavesTerminal(key({ isComposing: true }), "normal"), false);
 });

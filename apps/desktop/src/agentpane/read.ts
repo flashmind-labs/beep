@@ -1,9 +1,8 @@
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { fileSize } from "../chat/media.ts";
-import { dropTerm, forgetTerm, openTerm, termStatus } from "./terminal.ts";
-import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab } from "./media.ts";
-import { paneRoot } from "./worktree.ts";
+import { dropTerm, followTerm, forgetTerm, openTerm, termStatus } from "./terminal.ts";
+import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab, leavePane } from "./media.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
@@ -67,17 +66,18 @@ function redraw(t: MediaTab) {
 
 /// Starts a terminal tab's shell; when it exits the tab goes.
 export async function startTerminal(t: MediaTab) {
-  const s = P.session;
-  if (!s) return;
+  const hooks = {
+    onEnd: () => {
+      if (t.term) forgetTerm(t.term);
+      t.term = undefined;
+      closeTab(t.id);
+    },
+    onLink: () => drawTermStatus(t),
+    onEscape: leavePane,
+  };
   try {
-    const term = await openTerm({ machine_id: s.machine_id, cwd: paneRoot(), name: t.name }, {
-      onEnd: () => {
-        if (t.term) forgetTerm(t.term);
-        t.term = undefined;
-        closeTab(t.id);
-      },
-      onLink: () => drawTermStatus(t),
-    });
+    // One that runs already is followed; a new one starts where the tab was opened.
+    const term = await (t.existing ? followTerm(t.existing, hooks) : openTerm({ ...t.at!, name: t.name }, hooks));
     if (!P.tabs.includes(t)) return dropTerm(term);
     t.term = term;
   } catch (e) {
@@ -89,7 +89,7 @@ export async function startTerminal(t: MediaTab) {
 
 export function drawTermStatus(t: MediaTab) {
   const meta = t.el?.querySelector(".agpacts .meta");
-  if (meta && t.term) meta.textContent = termStatus(t.term, P.session?.machine_name ?? "the machine");
+  if (meta && t.term) meta.textContent = termStatus(t.term, t.term.row.machine_name);
   const again = t.el?.querySelector<HTMLElement>("[data-tattach]");
   if (again && t.term) again.hidden = t.term.link !== "detached";
 }

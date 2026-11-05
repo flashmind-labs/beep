@@ -28,7 +28,8 @@ import { openUrl } from "../center/openitems.ts";
 import { shown, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
 import { openTile } from "./split.ts";
-import { workOnIssue, continuePr, reviewPr, fixRun, fixConflict } from "./composer.ts";
+import { AG } from "../agents/agents.ts";
+import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, fixRun, fixConflict } from "./composer.ts";
 import { redrawSync } from "./syncpage.ts";
 import { loadProjectAgent } from "./loads.ts";
 import { drawProjects } from "./page.ts";
@@ -103,6 +104,8 @@ onPlaces(() => redrawProjects());
 
 export function redrawProjects() {
   if (shown === "projects") drawProjects(projectsEl());
+  // The empty agent view has the same bar.
+  else if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }
 
 /// View diff: the session working on `branch`, if there is one, as a function that
