@@ -124,3 +124,14 @@
 .dv-lost:empty { display: none }
 .dv-lost { margin-top: 10px; padding-bottom: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm) }
 .dv-lh { padding: 6px 10px 0; color: var(--muted); font-size: 12px }
+.dv-fbw { position: relative; display: inline-flex }
+.dv-fb { display: inline-flex; align-items: center; gap: 6px }
+.dv-fb[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent) }
+.dv-fb .dspin { width: 10px; height: 10px }
+.dv-fb small { color: var(--muted); font-size: 11.5px }
+.dv-cmt .by { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; color: var(--muted); font-size: 11.5px; vertical-align: 1px }
+.dv-cmt .by .cc-ag { width: 14px; height: 14px; border-radius: 4px }
+.dv-fbnote { display: grid; gap: 6px; margin: 8px 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; line-height: 18px }
+.dv-fbnote[hidden] { display: none }
+.dv-fbnote pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/17px var(--mono); color: var(--muted); max-height: 120px; overflow: auto }
+.dv-fbnote .a { display: flex; gap: 8px }
