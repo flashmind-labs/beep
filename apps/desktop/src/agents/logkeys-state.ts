@@ -1,4 +1,4 @@
-// What ⌘T, ⌘Y and ⇧⌘Y act on in a session's log, apart from the screen.
+// What ⌘U, ⌘Y and ⇧⌘Y act on in a session's log, apart from the screen.
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { type LogEntry, type Turn, toolKind } from "./agentturns.ts";
 
@@ -14,7 +14,7 @@ export function commandRows(entries: LogEntry[], offset = 0) {
   return out;
 }
 
-/// The places of the thoughts in the log: the rows ⌘T opens and folds.
+/// The places of the thoughts in the log: the rows ⌘U opens and folds.
 export function thoughtRows(entries: LogEntry[], offset = 0) {
   const out: number[] = [];
   entries.forEach((en, i) => { if (en.kind === "thought") out.push(offset + i); });

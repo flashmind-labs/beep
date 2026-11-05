@@ -1,4 +1,4 @@
-// ⌘T and ⌘Y in a session: open or fold every thought, every command, or
+// ⌘U and ⌘Y in a session: open or fold every thought, every command, or
 // (⇧⌘Y) the last command. They write the same state a click does, then
 // draw the log again with the row in view held where it is.
 import { parseTool } from "./agentlog.ts";
@@ -40,7 +40,7 @@ export function toggleLastCommand() {
   return true;
 }
 
-/// ⌘T: every thought opens, or folds when all are open. Opening also opens
+/// ⌘U: every thought opens, or folds when all are open. Opening also opens
 /// the turns that hold them, as their steps are folded into the heading.
 export function toggleThoughts() {
   const p = AG.page, o = AG.open;

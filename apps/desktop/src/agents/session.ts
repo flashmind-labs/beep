@@ -185,7 +185,7 @@ export function agentHints() {
   }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ...mode, ["⇧⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
+  return slim([...paste, [ICON.ret, "send"], ...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
