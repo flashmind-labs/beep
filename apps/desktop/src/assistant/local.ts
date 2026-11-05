@@ -4,6 +4,9 @@
 import { S } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
 
+/// Whether the window offers the assistant's page, as `LOCAL_ASSISTANT` in Rust.
+export const LOCAL_ASSISTANT = false;
+
 /// Asks Rust and keeps the answer in `S.local`. True when it changed.
 export async function refreshLocal() {
   const was = S.local;

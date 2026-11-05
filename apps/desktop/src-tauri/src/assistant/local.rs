@@ -48,7 +48,9 @@ pub(super) async fn key(fleet: &Arc<MeshSession>, provider: ApiProvider) -> Opti
 
 /// Whether the chat is local: no server, and an OpenRouter key this Mac can open.
 pub(crate) async fn on(beep: &Beep, fleet: &Arc<MeshSession>) -> bool {
-    beep.server().is_none() && key(fleet, ApiProvider::OpenRouter).await.is_some()
+    super::LOCAL_ASSISTANT
+        && beep.server().is_none()
+        && key(fleet, ApiProvider::OpenRouter).await.is_some()
 }
 
 /// Tells the windows the chat list changed. An empty id is only a list change, which leaves an

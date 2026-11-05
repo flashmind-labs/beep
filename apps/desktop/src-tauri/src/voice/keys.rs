@@ -6,7 +6,7 @@ use super::{
     hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, WINDOW},
     session::{Start, open_audio},
 };
-use crate::{bar, beep::SERVER_ENABLED};
+use crate::{assistant::LOCAL_ASSISTANT, bar, beep::SERVER_ENABLED};
 use beep_live::Input;
 use std::{
     sync::Arc,
@@ -38,6 +38,8 @@ impl Voice {
         // (`LIVE_ENABLED`) or the server is switched off: live mode needs the server.
         let hold = if LIVE_ENABLED && self.beep.linked() {
             hold
+        } else if !LOCAL_ASSISTANT {
+            return;
         } else if !SERVER_ENABLED || !LIVE_ENABLED {
             return self.dictate_hold(hold);
         } else {
