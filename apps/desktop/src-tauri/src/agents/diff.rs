@@ -8,7 +8,7 @@ use crate::{
 };
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetWorkDiff, WorkDiff,
-    node::agent::{DiffAsk, Worktree},
+    node::agent::{DiffAsk, WorkPlace, Worktree},
 };
 use serde::Serialize;
 
@@ -164,6 +164,23 @@ pub async fn work_diff(
         }
     };
     Ok(view(diff))
+}
+
+/// Where a session works, as its machine worked it out: the checkout, whether
+/// it is a linked worktree, the branch. `None` for a machine only a server
+/// reaches or a node that does not say.
+#[tauri::command]
+pub async fn agent_place(
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+    external: bool,
+) -> Result<Option<WorkPlace>> {
+    match fleet.member(&machine_id) {
+        Some(machine) => agent_nodes::place(&fleet, machine, &agent, &session, external).await,
+        None => Ok(None),
+    }
 }
 
 /// The worktrees of the repository holding the session folder `folder` on

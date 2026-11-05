@@ -23,6 +23,8 @@ import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
+import { placeOf } from "../agents/place.ts";
+import { placeSub } from "../agents/place-state.ts";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the
@@ -290,7 +292,8 @@ function openAgentRow(r: SessionRow) { go("pane", { agent: { kind: "agent", ...r
 function sessionRow(s: SessionRow) {
   const tile = harnessEl(s.agent);
   tile.title = agentLabel(s.agent);
-  const meta = [tile, s.status, s.machine_name, base(s.cwd), s.last_activity ? ago(s.last_activity) : ""]
+  const worktree = placeSub(placeOf(s), s.machine_name);
+  const meta = [tile, s.status, ...(worktree ? [worktree] : [s.machine_name, base(s.cwd)]), s.last_activity ? ago(s.last_activity) : ""]
     .filter(Boolean).map(x => typeof x === "string" ? h("span", "", x) : x);
   const row = h("button", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta));
   row.addEventListener("click", () => openAgentRow(s));

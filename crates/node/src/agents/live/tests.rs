@@ -576,3 +576,47 @@ fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
         "sleep_test [completed]\n[steps] 0"
     );
 }
+
+#[test]
+fn a_session_looks_up_its_place_when_a_call_changes_the_folder() {
+    let mut live = live();
+    assert_eq!(
+        live.place_wanted.take().as_deref(),
+        Some(std::path::Path::new("/srv/project")),
+        "the folder it started in"
+    );
+    // A read names a file, not where the agent works.
+    live.apply(&read_call("r1", "/srv/other/a.rs"));
+    assert_eq!(live.place_wanted, None);
+    // A call that names a working folder moves it, once.
+    let exec = |id: &str, workdir: &str| {
+        update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": id,
+            "title": "exec_command",
+            "kind": "execute",
+            "status": "pending",
+            "rawInput": {"cmd": "ls", "workdir": workdir}
+        }))
+    };
+    live.apply(&exec("e1", "/srv/project/.worktrees/fix"));
+    assert_eq!(
+        live.place_wanted.take().as_deref(),
+        Some(std::path::Path::new("/srv/project/.worktrees/fix"))
+    );
+    live.apply(&exec("e2", "/srv/project/.worktrees/fix"));
+    assert_eq!(live.place_wanted, None, "the same folder again");
+    // An edit counts for the folder of its file.
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call",
+        "toolCallId": "w1",
+        "title": "Edit lib.rs",
+        "kind": "edit",
+        "status": "pending",
+        "locations": [{"path": "/srv/project/src/lib.rs"}]
+    })));
+    assert_eq!(
+        live.place_wanted.take().as_deref(),
+        Some(std::path::Path::new("/srv/project/src"))
+    );
+}

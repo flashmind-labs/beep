@@ -131,6 +131,27 @@ pub struct SessionInfo {
     pub mode: Option<String>,
     /// The plan `question` asks to approve, in Markdown.
     pub plan_ready: Option<String>,
+    /// Where it works now, as the node worked it out; `None` before the
+    /// node knows or when the folder is in no git checkout.
+    pub place: Option<WorkPlace>,
+}
+
+/// The git checkout a session works in, as its node works it out from what
+/// the agent records: its latest folder, else its last tool call's.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkPlace {
+    /// The top of the checkout holding the folder.
+    pub folder: String,
+    /// The main folder of the repository: the checkout `folder` was added
+    /// to when it is a linked worktree, else `folder`.
+    pub main: String,
+    /// `folder` is a linked worktree, not the repository's main checkout.
+    pub linked: bool,
+    /// The branch checked out; `None` when the head is detached.
+    pub branch: Option<String>,
+    /// The `origin` remote's URL; empty when there is none.
+    pub origin: String,
 }
 
 /// A session mode an agent offers.

@@ -4,19 +4,22 @@
 
 use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
 use crate::agents::claude::unix_seconds;
+use crate::agents::place::call_folder;
 use serde_json::Value;
 use std::{
     collections::HashMap,
     convert::Infallible,
     env,
     fs::File,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 /// The longest title index read.
 const MAX_INDEX: u64 = 8 * 1024 * 1024;
+/// The most of a rollout's end read for the folder it works in.
+const MAX_TAIL: u64 = 2 * 1024 * 1024;
 
 /// Codex's folder, when it has sessions here.
 pub(super) fn locate() -> Option<PathBuf> {
@@ -108,6 +111,48 @@ pub(super) fn title(path: &Path) -> Option<String> {
     head_lines(path).ok()?.find_map(|line| prompt(&line))
 }
 
+/// The folder the rollout at `path` last worked in: the `cwd` of its last
+/// `turn_context`, or the `workdir` a later tool call gave (taken from the
+/// folder before it when relative), read from the end of the file. `None`
+/// when that stretch names none; the header's `cwd` then holds.
+pub(super) fn latest_folder(path: &Path) -> Option<PathBuf> {
+    let mut file = File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let cut_at = len.saturating_sub(MAX_TAIL);
+    file.seek(SeekFrom::Start(cut_at)).ok()?;
+    let mut reader = BufReader::new(file.take(MAX_TAIL));
+    if cut_at > 0 {
+        reader.read_until(b'\n', &mut Vec::new()).ok()?;
+    }
+    let mut turn: Option<PathBuf> = None;
+    let mut folder: Option<PathBuf> = None;
+    for line in reader.lines().map_while(Result::ok) {
+        let is_turn = line.contains("\"turn_context\"");
+        if !is_turn && !line.contains("workdir") {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let payload = &value["payload"];
+        if is_turn && value["type"] == "turn_context" {
+            if let Some(cwd) = payload["cwd"].as_str().filter(|cwd| !cwd.is_empty()) {
+                turn = Some(PathBuf::from(cwd));
+                folder.clone_from(&turn);
+            }
+        } else if payload["type"] == "function_call"
+            && let Some(args) = payload["arguments"]
+                .as_str()
+                .and_then(|args| serde_json::from_str::<Value>(args).ok())
+            && let Some(dir) =
+                call_folder(turn.as_deref().unwrap_or(Path::new("/")), Some(&args), None)
+        {
+            folder = Some(dir);
+        }
+    }
+    folder
+}
+
 /// The first prompt: an `event_msg` of type `user_message`, or an
 /// `item_completed` `UserMessage` in newer versions.
 fn prompt(line: &str) -> Option<String> {
@@ -176,6 +221,49 @@ mod tests {
         assert!(one.started_at > 0);
         assert_eq!(one.title, None);
         assert_eq!(title(&path).as_deref(), Some("Add a retry flag"));
+    }
+
+    #[test]
+    fn the_latest_folder_is_a_calls_workdir_after_the_turns_cwd() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let turn = |cwd: &str| {
+            format!(r#"{{"type":"turn_context","payload":{{"cwd":"{cwd}","model":"m"}}}}"#)
+        };
+        let call = |args: &str| {
+            let args = args.replace('"', "\\\"");
+            format!(
+                r#"{{"type":"response_item","payload":{{"type":"function_call","name":"exec_command","arguments":"{args}","call_id":"c"}}}}"#
+            )
+        };
+        let path = write(
+            root.path(),
+            "rollout-a.jsonl",
+            &[
+                meta(ID, r#""cli""#),
+                turn("/srv/project"),
+                call(r#"{"cmd":"ls","workdir":"/srv/project/.worktrees/fix"}"#),
+            ],
+        );
+        assert_eq!(
+            latest_folder(&path),
+            Some(PathBuf::from("/srv/project/.worktrees/fix"))
+        );
+        // A later turn's cwd wins over an earlier call's workdir.
+        let path = write(
+            root.path(),
+            "rollout-b.jsonl",
+            &[
+                turn("/srv/project"),
+                call(r#"{"cmd":"ls","workdir":"/srv/project/.worktrees/fix"}"#),
+                turn("/srv/project/.worktrees/other"),
+            ],
+        );
+        assert_eq!(
+            latest_folder(&path),
+            Some(PathBuf::from("/srv/project/.worktrees/other"))
+        );
+        let none = write(root.path(), "rollout-c.jsonl", &[meta(ID, r#""cli""#)]);
+        assert_eq!(latest_folder(&none), None);
     }
 
     #[test]
