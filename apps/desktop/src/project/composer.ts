@@ -1,8 +1,8 @@
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
-import { ago, reason } from "../ui/format.ts";
+import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-import { filterProjects, agentLabel } from "./projects-state.ts";
+import { filterProjects } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { pageAgent } from "./agent.ts";
@@ -10,7 +10,7 @@ import { type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, reviewPrompt
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
-import { AG, AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "../agents/agents.ts";
+import { AG, AGENT_ORDER, type AgentHost, byPreference } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.ts";
 import { S } from "../bar/core.ts";
 import { loadSessions, sessions } from "../agents/sessions.ts";
@@ -61,13 +61,9 @@ export const projectComp = (() => {
   clear.type = "button";
   clear.title = "Back to a plain start";
   clear.addEventListener("click", () => { pc.target = null; input.value = ""; redrawProjects(); });
-  // With a session already in the target's worktree, Resume goes first.
-  const fresh = h("button", "dbtn", "Start new");
-  fresh.type = "button";
-  fresh.addEventListener("click", () => startFromBar(true));
   const err = h("span", "cc-err");
   err.setAttribute("role", "status");
-  const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, fresh, send);
+  const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, send);
   const form = h("form", "cc-pjc", h("div", "box", input, row, pick), err);
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
@@ -115,7 +111,7 @@ export const projectComp = (() => {
   addEventListener("mousedown", e => {
     if (pc.open && !pick.contains(e.target as Node) && !harness.contains(e.target as Node)) closeBarPicker();
   }, true);
-  return { form, input, machine, folder, branch, clear, fresh, harness, send, err, pick };
+  return { form, input, machine, folder, branch, clear, harness, send, err, pick };
 })();
 
 function closeBarPicker() {
@@ -209,18 +205,8 @@ export function drawProjectComp(name: string) {
   c.harness.setAttribute("aria-expanded", String(pc.open));
   drawBarPicker(host, offered);
   c.send.disabled = pc.starting || !place;
-  const was = place && barExisting(name, place);
-  c.fresh.hidden = !was;
-  c.fresh.disabled = pc.starting;
-  c.send.firstChild!.textContent = pc.starting ? "Starting" : was ? resumeLabel(was) : "Start";
+  c.send.firstChild!.textContent = pc.starting ? "Starting" : "Start";
   draftPlace(place);
-}
-
-/// "Resume Fix the crash (Claude Code, 2 h)": the bar's button for a
-/// session already in the target's worktree.
-function resumeLabel(s: AgentSession) {
-  const title = s.title || "the session";
-  return `Resume ${title.length > 40 ? title.slice(0, 40) + "..." : title} (${agentLabel(s.agent)}, ${ago(s.last_activity)})`;
 }
 
 /// The newest session of ours in the bar target's worktree on the bar's
@@ -365,7 +351,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 
 /// Starts a coding agent on the bar's task in the project's checkout, then
 /// opens its session; Esc there comes back to the project.
-async function startFromBar(fresh = false) {
+async function startFromBar() {
   const c = projectComp, p = barProject(), text = c.input.value.trim();
   let place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
   if (p && !place && pc.machine !== "auto") place = barPlace(p.places, pc.hosts ?? [], "auto");
@@ -373,10 +359,9 @@ async function startFromBar(fresh = false) {
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.err.textContent = "Name the branch first."; return; }
   const was = barExisting(p.name, place);
-  if (was && !fresh) return resumeFromBar(was, text);
   const { agent } = barHarness(place);
   const model = pc.picked.model.trim() || null, effort = pc.picked.effort;
-  // Start new beside a session goes in that session's worktree.
+  // A session already in the target's worktree: the new one goes beside it.
   const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
     : t ? { cwd: place.cwd, checkout: targetPlan(t) }
     : startPlace(pc.checkout, place.cwd, baseFor(null, pc.branches.get(p.name)));
@@ -390,31 +375,6 @@ async function startFromBar(fresh = false) {
     pc.target = null;
     keepMachine(p.name, place.machine_id);
     go("pane", { agent: started.session, adopt: true });
-  } catch (e) {
-    c.err.textContent = reason(e);
-  } finally {
-    pc.starting = false;
-    redrawProjects();
-  }
-}
-
-/// Sends the bar's task to session `s` as its next message: resumes it
-/// when it ended, else prompts it where it runs. Then opens it.
-async function resumeFromBar(s: AgentSession, text: string) {
-  const c = projectComp;
-  c.err.textContent = "";
-  pc.starting = true;
-  redrawProjects();
-  try {
-    if (s.status === "ended") {
-      const started = await invoke<Started>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id, prompt: text });
-      go("pane", { agent: started.session, adopt: true });
-    } else {
-      await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: { prompt: { text } } });
-      go("pane", { agent: { kind: "agent", ...s }, adopt: true });
-    }
-    c.input.value = "";
-    pc.target = null;
   } catch (e) {
     c.err.textContent = reason(e);
   } finally {
