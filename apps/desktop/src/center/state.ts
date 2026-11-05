@@ -10,6 +10,7 @@ import type { GitItemsView } from "./openitems-state.ts";
 import type { ProjectAgent, ProjectView } from "../project/agent.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import type { SyncRow } from "../project/filesync.ts";
+import type { GitRow } from "../project/gitsync-state.ts";
 
 /// What `agent_resume` gives.
 export interface Started {
@@ -67,6 +68,8 @@ export const state = {
   foundError: null as { name: string; message: string } | null,
   sessions: new Map<string, SessionRow[]>(),
   where: new Map<string, ProjectMachineRow[] | null>(),
+  /// Each project's checkouts' branches, as `project_git_state` read them.
+  gitsync: new Map<string, GitRow[]>(),
   agents: undefined as ProjectAgent[] | null | undefined,
   pview: new Map<string, { view: ProjectView | null; error: string | null }>(),
   sync: [] as SyncRow[],
@@ -131,6 +134,10 @@ export function warm(name: string) {
   if (!state.where.get(name)) {
     const where = pages.get<ProjectMachineRow[]>("where", name);
     if (where) state.where.set(name, where);
+  }
+  if (!state.gitsync.has(name)) {
+    const git = pages.get<GitRow[]>("gitsync", name);
+    if (git) state.gitsync.set(name, git);
   }
   if (!state.sessions.has(name)) {
     const sessions = pages.get<SessionRow[]>("sessions", name);

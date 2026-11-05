@@ -2,6 +2,7 @@
 //! parsers for their output, and the names they use.
 
 pub mod branches;
+pub mod checkout_sync;
 pub mod commands;
 pub mod credential_check;
 pub mod credentials;
