@@ -31,3 +31,17 @@ export type MakeButton = (label: string | Node, cls: string, on: (e: MouseEvent)
 /// "12 min" or "now": how long ago a time in milliseconds was, as the window
 /// says it.
 export type Ago = (ms: number) => string;
+
+/// The first element of `html`.
+export function h<T extends Element = HTMLElement>(html: string): T {
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild as T;
+}
+
+/// Children for `replaceChildren` or `append` without the empty slots a
+/// conditional leaves (`null`, `undefined`, `false`), which the DOM would
+/// print as text.
+export function present<T>(kids: readonly (T | null | undefined | false)[] | null | undefined) {
+  return (kids || []).filter((k): k is T => k != null && k !== false);
+}

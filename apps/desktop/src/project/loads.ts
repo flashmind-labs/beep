@@ -1,12 +1,11 @@
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
-import { ago, since } from "../ui/format.ts";
+import { ago, base, reason, since } from "../ui/format.ts";
 import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote } from "../ui/parts.ts";
-import { MACHINE_REFRESH_MS, SWITCH_MS } from "./pagecache.ts";
+import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
-import { harnessEl } from "../agents/harnessicon.ts";
-import { base, machineSync, type RunningAgent } from "../center/home-state.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
 import { foundRow } from "../addproject/addproject.ts";
 import { foundFor, withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
@@ -15,14 +14,15 @@ import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
 import { type Started, state, pages, keep, pageFresh } from "../center/state.ts";
-import { failure, section, rowButton } from "../center/pieces.ts";
+import { failure, section, rowButton } from "../ui/pieces.ts";
 import { openUrl, openItemRow, repoLine, refreshGit } from "../center/openitems.ts";
 import { shown, go } from "../center/views.ts";
 import { projectRows, importSheet, addProject, importFromPage } from "../center/sidebar.ts";
 import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
-import { reason } from "../addproject/importproject-state.ts";
+import { machineSync } from "../machines/machine-state.ts";
+import type { RunningAgent } from "../agents/running-state.ts";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the

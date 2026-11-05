@@ -3,10 +3,12 @@
 
 import { type Artifact, artifactVersion, frameHtml, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { clock } from "../agents/agentturns.ts";
-import { esc, h, invoke } from "../bar/core.ts";
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.ts";
 import { paneSession } from "./media.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// An artifact made ready to show, as `agent_artifact` gives it.
 type Shown =

@@ -5,8 +5,9 @@
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
 import { effortNote, effortsOf, modelLabel, modelRows, pillDetail, placePopover, railOf } from "./agentpick.ts";
 import { agentKind } from "./agents.ts";
-import { esc, invoke } from "../bar/core.ts";
-import { harnessTile } from "./harnessicon.ts";
+import { harnessTile } from "../ui/harnessicon.ts";
+import { esc } from "../ui/format.ts";
+import { invoke } from "../ui/tauri.ts";
 
 const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';

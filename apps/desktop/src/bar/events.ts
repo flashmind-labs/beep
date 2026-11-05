@@ -4,7 +4,7 @@ import { chartClick } from "../chat/charts.ts";
 import { ANSWER, answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
 import { loadChats } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
-import { bar, COPY_ICON, G, h, here, ICON, invoke, listen, live, type LinkState, PANE, S, type Turn } from "./core.ts";
+import { bar, G, here, live, type LinkState, PANE, S } from "./core.ts";
 import { drawGroup, type GroupApproval, loadGroup } from "../chat/groups.ts";
 import { learnedHotkey, refreshHints } from "./hints.ts";
 import { refreshSession } from "../chat/history.ts";
@@ -15,7 +15,11 @@ import { closeRerunMenu, rerun, rerunClick, rerunMenu } from "../chat/rerun.ts";
 import { routeClick } from "../chat/routes.ts";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
-import { copyCode } from "../chat/turnrows.ts";
+import { copyCode } from "../agents/turnrows.ts";
+import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { h } from "../ui/dom.ts";
+import { invoke, listen } from "../ui/tauri.ts";
+import type { Turn } from "../ui/turn.ts";
 
 /// A button that says what it did for a moment, then goes back.
 interface UndoButton extends HTMLElement {

@@ -3,7 +3,7 @@
 // under the machine).
 
 import { endsForGood, fromBase64, newView, retryDelay, sizeChanged, splice, type Screen, type TermEvent, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
-import { Channel, invoke } from "../bar/core.ts";
+import { Channel, invoke } from "../ui/tauri.ts";
 
 /// The size a terminal starts at, before its screen is fitted.
 const START_SIZE = { cols: 100, rows: 30 };

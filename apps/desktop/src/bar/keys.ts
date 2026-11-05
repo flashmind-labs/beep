@@ -5,7 +5,7 @@ import { A, addServer, drawApps, drawMcpTools, renderApps } from "../settings/ap
 import { attachedCount, unattach } from "../chat/attach.ts";
 import { answer, newChat, openInWindow, popQueued, renderChat, send, sendQueued, stop, toWindow } from "../chat/chat.ts";
 import { chatAction, chatMode, drawChats, openRow, renderChats } from "../chat/chats.ts";
-import { $, $$, bar, G, here, invoke, PANE, queued, S, windowHooks } from "./core.ts";
+import { $, $$, bar, G, here, PANE, queued, S, windowHooks } from "./core.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, renderGroup, renderGroupInfo, renderGroupNew, sendGroup } from "../chat/groups.ts";
 import { toggleKeys } from "./hints.ts";
@@ -22,7 +22,8 @@ import { createRoutine, drawGrants, GR, grantKeys, R, renderGrants, renderRoutin
 import { renderSettings } from "../settings/settings.ts";
 import { K, renderSkills, skillAction, skillKeys } from "../lists/skills.ts";
 import { answerWork, waitingQuestion } from "./work.ts";
-import { windowTakes } from "../center/windowkeys.ts";
+import { windowTakes } from "../ui/windowkeys.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Keys ----------
 

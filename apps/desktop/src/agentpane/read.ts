@@ -1,9 +1,9 @@
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
-import { invoke } from "../bar/core.ts";
 import { fileSize } from "../chat/media.ts";
 import { dropTerm, forgetTerm, openTerm, termStatus } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab } from "./media.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
 export const MAX_FILE = 128 * 1024 * 1024;

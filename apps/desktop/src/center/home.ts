@@ -1,18 +1,18 @@
 // Home: its tabs, the Running now, Needs you, Coming up and Updates
 // sections, and the Connecting page before Home first loads.
 import { patchChildren } from "../ui/patch.ts";
-import { harnessEl } from "../agents/harnessicon.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
 import { plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
-import { machineDisk, needsLine, runningKey, runningLine, runningWhen, byRecent, thisMacRow, type HomeView, type MachineCard, type NeedsYou, type RunningAgent, type RunningRow, type UpdateRow, type CronRow } from "./home-state.ts";
+import { needsLine, type HomeView, type NeedsYou, type UpdateRow, type CronRow } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { waitingFirst } from "./openitems-state.ts";
 import { ALL } from "../terminals/terminals.ts";
-import { type Outcome, $, IC, CONNECT_STUCK_MS, state } from "./state.ts";
-import { whenOf, scheduleText, failure, conflict, dot, section, avatar, tag, rowButton, line } from "./pieces.ts";
+import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
+import { failure, conflict, dot, section, avatar, tag, rowButton, line } from "../ui/pieces.ts";
 import { addMachineButton, useThisMac, machineMenu, machinesSection, offlineNote } from "../machines/table.ts";
 import { allTerms, openTerminals, terminalLine } from "../terminals/view.ts";
 import { gitSection, itemLine, refreshGit } from "./openitems.ts";
@@ -20,6 +20,9 @@ import { registerView, go } from "./views.ts";
 import { drawSide, projectRows } from "./sidebar.ts";
 import { homeProjectRow, projectsSection } from "../project/page.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
+import { IC } from "../ui/icons.ts";
+import { type MachineCard, machineDisk, thisMacRow } from "../machines/machine-state.ts";
+import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
 
 export function runningRow(r: RunningRow) {
   const { title, sub } = runningLine(r, state.home?.projects || []);
@@ -78,6 +81,21 @@ function needsRow(n: NeedsYou) {
 }
 
 // ---------- Coming up ----------
+
+export function whenOf(iso: string) {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return { time: "", day: "" };
+  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  const day = days <= 0 ? "today" : days === 1 ? "tomorrow" : at.toLocaleDateString([], { weekday: "short" });
+  return { time, day };
+}
+/// A routine's schedule in words. The row already shows when it runs next,
+/// so a one-off is just "Once".
+export function scheduleText(s: string) {
+  if (/^\d{4}-\d\d-\d\dT/.test(s)) return "Once";
+  return pane.when(s) ?? s;
+}
 
 function comingRow(c: CronRow) {
   const w = whenOf(c.next_run_at);

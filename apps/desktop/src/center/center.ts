@@ -8,14 +8,14 @@ import { initSideResize } from "./sidewidth.ts";
 import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { type HomeView, type MacControl, projectOf, repoOf } from "./home-state.ts";
+import type { HomeView } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
 import { agentFor, shortName, newChatProject } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { firstRun } from "./firstrun.ts";
 import { viewHidden, keyHidden } from "../settings/subscription.ts";
-import { windowTakes } from "./windowkeys.ts";
+import { windowTakes } from "../ui/windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
 import { dismissedUpdates, draw, jump } from "./home.ts";
@@ -29,7 +29,9 @@ import { loadAgents, takePending } from "./pane.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
-import { reason } from "../addproject/importproject-state.ts";
+import { reason } from "../ui/format.ts";
+import type { MacControl } from "../machines/machine-state.ts";
+import { projectOf, repoOf } from "../agents/running-state.ts";
 
 followSkin();
 

@@ -4,9 +4,11 @@ import type * as CredentialsModule from "./credentials.ts";
 import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount, Provider } from "./credentials.ts";
 import { when } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
-import { Channel, esc, invoke, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import type { Machine } from "../machines/machines.ts";
 import { fillSection, SET, setAccountHtml, setRoot, setShown, setSkeleton } from "./settings.ts";
+import { Channel, invoke } from "../ui/tauri.ts";
+import { esc } from "../ui/format.ts";
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
 /// `mod`).

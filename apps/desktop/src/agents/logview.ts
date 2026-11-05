@@ -1,13 +1,13 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
-import { linkified } from "../ui/format.ts";
+import { esc, linkified } from "../ui/format.ts";
 import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
-import { $, type ChatBody, esc, ICON, S } from "../bar/core.ts";
+import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
-import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "../chat/turnrows.ts";
+import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { fillAgentPics, gonePic } from "./images.ts";
@@ -15,6 +15,8 @@ import { filesHtml, planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
 import { drawQueue } from "./messages.ts";
+import type { ChatBody } from "../ui/turn.ts";
+import { ICON } from "../ui/icons.ts";
 
 /// A step's mark: done, failed, running or did not finish.
 const mark = (status: string) => stepMark(status, AGENT_ACTIVE.has(AG.page?.session.status));

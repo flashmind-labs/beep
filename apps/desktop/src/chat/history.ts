@@ -1,13 +1,16 @@
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, ASK, askText, body, drawLatest, drawWork, failed, makeTurn, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
-import { answerHtml } from "./turnrows.ts";
-import { $$, changed, esc, h, invoke, live, queued, S, windowHooks } from "../bar/core.ts";
-import type { ChatBody, Step, Turn } from "../bar/core.ts";
+import { answerHtml } from "../agents/turnrows.ts";
+import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
 import type { ImageRef, SentFile } from "./media.ts";
 import { replyActs } from "./rerun.ts";
 import { QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { keepWaitingQuestions, loadQuestions } from "../bar/work.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
+import type { ChatBody, Step, Turn } from "../ui/turn.ts";
 
 /// A tool call of a saved reply (`ToolStep`).
 export interface ToolStep extends ToolOutput {

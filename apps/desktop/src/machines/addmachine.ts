@@ -2,11 +2,10 @@
 import { invoke } from "../ui/tauri.ts";
 import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen } from "./addmachine-state.ts";
-import type { MacControl, MachineView } from "../center/home-state.ts";
-import { button, el } from "../ui/dom.ts";
+import { button, el, present } from "../ui/dom.ts";
 import { copyButton, focusBack, sheetShell } from "../ui/parts.ts";
-import { present } from "../addproject/importproject-state.ts";
 import { openJoinTicket } from "./jointicket.ts";
+import type { MacControl, MachineView } from "./machine-state.ts";
 
 /// A ticket as `mesh_invite` gives it (TokenView).
 interface NodeToken {

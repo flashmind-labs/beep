@@ -4,9 +4,11 @@
 
 import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, treeRows } from "./files-state.ts";
 import { resolvePath } from "./media-state.ts";
-import { esc, h, invoke } from "../bar/core.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// The type a row of the tree drags as, its path relative to the session's folder.
 export const PATH_TYPE = "application/x-beep-path";

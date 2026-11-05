@@ -4,7 +4,7 @@ import { ago } from "../ui/format.ts";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
-import { type Project } from "./projects-state.ts";
+import type { Project } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { agentFor, pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
@@ -20,7 +20,7 @@ import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "
 import { makeThreadDetail } from "./threaddetail.ts";
 import { makeRuns, type RunDetail } from "./runs.ts";
 import { type Outcome, state, keptSection, views } from "../center/state.ts";
-import { failure } from "../center/pieces.ts";
+import { failure } from "../ui/pieces.ts";
 import { openUrl } from "../center/openitems.ts";
 import { shown, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
@@ -194,7 +194,6 @@ export const pc = {
   machine: "auto",
   checkout: DEFAULT_CHECKOUT,
   hosts: null as AgentHost[] | null,
-  sessions: [] as AgentSession[],
   branches: new Map<string, BaseBranches | null>(),
   starting: false,
   /// The harness, model and thinking picked, and the machine and harness

@@ -1,5 +1,5 @@
-import type { AgentQuestion, RunningAgent, RunningRow } from "../center/home-state.ts";
 import { plural } from "../ui/format.ts";
+import type { AgentQuestion, RunningAgent, RunningRow } from "../agents/running-state.ts";
 // Projects as the window lists them, their groups and the overview's cards,
 // as pure functions so they can be tested without Tauri.
 

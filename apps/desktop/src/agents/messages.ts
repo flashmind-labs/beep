@@ -2,14 +2,17 @@
 // answers to its questions, and interrupting it.
 import { type Attached, batches, dropDelivered, steersToQueue, type Waiting } from "./agentqueue.ts";
 import { composeMessage } from "../chat/compose.ts";
-import { $, h, ICON, invoke } from "../bar/core.ts";
+import { $ } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
-import { queueRowHtml } from "../chat/turnrows.ts";
+import { queueRowHtml } from "./turnrows.ts";
 import { type Started, type Steer, AG, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL, AGENT_ACTIVE, where } from "./agents.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// The steers and queued messages above the field, each with what goes
 /// with it, to edit or take out.

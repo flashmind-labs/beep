@@ -1,8 +1,11 @@
 import { renderChat } from "../chat/chat.ts";
 import { copy } from "../ui/parts.ts";
-import { $, $$, bar, esc, ICON, invoke, S } from "./core.ts";
+import { $, $$, bar, S } from "./core.ts";
 import { loadModels } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Link ----------
 

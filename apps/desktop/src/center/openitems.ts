@@ -1,22 +1,23 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
-import { ago, plural } from "../ui/format.ts";
+import { ago, plural, reason } from "../ui/format.ts";
 import { dbtn as button, note, svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
-import { folderUnder, reason } from "../addproject/importproject-state.ts";
+import { folderUnder } from "../addproject/importproject-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
 import { openMenu } from "../ui/menu.ts";
 import { ITEMS_SHOWN, itemChips, projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
-import { IC, state } from "./state.ts";
-import { projectDot, section, tag, rowButton, line } from "./pieces.ts";
+import { state } from "./state.ts";
+import { projectDot, section, tag, rowButton, line } from "../ui/pieces.ts";
 import { draw } from "./home.ts";
 import { shown, go } from "./views.ts";
 import { reloadChats, projectRows, openProjects, loadFound } from "./sidebar.ts";
 import { type LabelFilter, labelFilter, labelChip } from "../project/split.ts";
 import { refresh } from "./refresh.ts";
+import { IC } from "../ui/icons.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));

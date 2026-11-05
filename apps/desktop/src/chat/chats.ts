@@ -1,6 +1,6 @@
 import { openInWindow } from "./chat.ts";
 import { copy } from "../ui/parts.ts";
-import { $, $$, bar, type ChatRow, type ChatsMode, esc, G, h, ICON, invoke, live, PANE, S } from "../bar/core.ts";
+import { $, $$, bar, type ChatRow, type ChatsMode, G, live, PANE, S } from "../bar/core.ts";
 import { authorName, type GroupSummary, renderGroup, renderInvite } from "./groups.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "./history.ts";
@@ -8,6 +8,10 @@ import { LIVE_CHATS, VOICE_ICON } from "../bar/live.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { withoutResearch } from "../research/research-list.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Chats ----------
 
