@@ -18,6 +18,7 @@ import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, turnRuns } from "./session.ts";
 import { closeChild } from "./logview.ts";
+import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
@@ -375,6 +376,13 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
+    // ⌘T opens or folds every thought, ⌘Y every command, ⇧⌘Y the last one.
+    // They work from the field: neither key edits text.
+    if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
+      const k = e.key.toLowerCase();
+      if (k === "t" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
+      if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
+    }
     if (e.key === "Tab" && e.shiftKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();
