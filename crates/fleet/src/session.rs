@@ -14,7 +14,7 @@ use std::{
     hash::Hash,
     sync::{
         Arc, Mutex, PoisonError,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -150,6 +150,8 @@ pub struct Session {
     limit: Arc<Semaphore>,
     /// The background reads, owned here: they stop with the session.
     tasks: Mutex<JoinSet<()>>,
+    /// Whether the first desk put the projects already imported in sync.
+    checkouts_synced: AtomicBool,
 }
 
 impl Session {
@@ -170,6 +172,7 @@ impl Session {
             epoch: AtomicU64::new(0),
             limit: Arc::new(Semaphore::new(READS_AT_ONCE)),
             tasks: Mutex::default(),
+            checkouts_synced: AtomicBool::new(false),
         }))
     }
 
@@ -181,6 +184,12 @@ impl Session {
             .map_err(|_| FleetError::NoMesh("still opening".into()))??;
         desk.settle = self.options.settle;
         desk.github_api.clone_from(&self.options.github_api);
+        if !self.checkouts_synced.swap(true, Ordering::Relaxed)
+            && let Err(e) = desk.sync_all_checkouts().await
+        {
+            // The next session writes them; the desk is good without.
+            log::warn!("the imported projects are not all synced: {e}");
+        }
         Ok(desk)
     }
 

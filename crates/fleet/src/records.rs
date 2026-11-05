@@ -6,7 +6,7 @@
 use crate::AsyncMutex;
 use crate::error::Result;
 use beep_mesh::{Key, Mesh};
-use beep_proto::node::mesh_state::StateValue;
+use beep_proto::node::mesh_state::{StateValue, SyncSpec};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -125,6 +125,40 @@ pub(crate) fn find_project(mesh: &Mesh, name: &str) -> Option<Stored> {
     projects(mesh)
         .into_iter()
         .find(|stored| stored.name.eq_ignore_ascii_case(name.trim()))
+}
+
+/// Keeps `stored` in step on every machine of the mesh with a checkout: its `sync/` record names
+/// them once there are two, and what else the record says stays. A record with no machines is a
+/// project pinned to where it is, which never syncs. The caller holds `WRITES`.
+pub(crate) async fn sync_checkouts(mesh: &Mesh, stored: &Stored) -> Result<()> {
+    let places: Vec<(&EndpointId, &Place)> = stored
+        .places
+        .iter()
+        .filter(|(machine, _)| mesh.is_member(**machine))
+        .collect();
+    if places.len() < 2 {
+        return Ok(());
+    }
+    let key = Key::Sync(stored.name.clone());
+    let mut spec = SyncSpec::default();
+    if mesh.get(&key).is_some() {
+        // One that does not read may say more than this build knows: it stays.
+        let Some(held) = read::<SyncSpec>(mesh, &key) else {
+            return Ok(());
+        };
+        if held.folders.is_empty() {
+            return Ok(());
+        }
+        spec = held;
+    }
+    let before = spec.clone();
+    for (machine, place) in places {
+        spec.folders.insert(*machine, place.folder.clone());
+    }
+    if spec != before {
+        write(mesh, key, Some(&spec)).await?;
+    }
+    Ok(())
 }
 
 pub(crate) fn project_key(name: &str) -> Key {

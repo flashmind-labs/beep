@@ -3,7 +3,7 @@
 //! members of one mesh. Waits ride on `updates()` and outer timeouts; nothing sleeps.
 
 use async_trait::async_trait;
-use beep_fleet::{Desk, FleetError, ImportJob, Peers, project_id};
+use beep_fleet::{Desk, FleetError, ImportJob, Options, Peers, Session, project_id};
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
@@ -13,7 +13,7 @@ use beep_proto::{
         EnvReport, LinkRx, LinkTx, Open, Opened, ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         harness::{AutoCompact, HarnessConfig},
-        mesh_state::{Credential, StateValue},
+        mesh_state::{Credential, StateValue, SyncSpec},
         shell::{self, Event, Request},
         status::Report,
         usage::{HourSpend, PlanUsage, SessionSpend},
@@ -1009,6 +1009,79 @@ async fn two_desktops_importing_a_project_on_different_machines_keep_both() {
         names.sort_unstable();
         assert_eq!(names, ["build-box", "mac-box"]);
     }
+}
+
+#[tokio::test]
+async fn a_project_on_two_machines_syncs_and_a_pause_and_a_pin_stay() {
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    let (build, mac) = (Arc::new(FakeNode::default()), Arc::new(FakeNode::default()));
+    let nodes = [(&f.build, &build), (&second, &mac)];
+    let studio = desk(&f.studio, &nodes).await;
+    let job = |machine: String| ImportJob {
+        repo: "acme/widget",
+        machine_id: Some(machine.leak()),
+        folder: None,
+        parent: None,
+        worktrees: &[],
+    };
+    let key = Key::Sync("acme/widget".to_owned());
+    let spec = |mesh: &Mesh| {
+        mesh.get(&key)
+            .map(|bytes| SyncSpec::from_bytes(&bytes).expect("a spec reads"))
+    };
+
+    // One checkout has nothing to sync with; two do, imported one at a time.
+    studio
+        .import(job(f.build.id.to_string()))
+        .await
+        .expect("the first import works");
+    assert_eq!(spec(&f.studio.mesh), None);
+    studio
+        .import(job(second.id.to_string()))
+        .await
+        .expect("the second import works");
+    let written = spec(&f.studio.mesh).expect("the record is written");
+    assert_eq!(written.folders.keys().copied().collect::<Vec<_>>().len(), 2);
+    assert!(written.folders.contains_key(&f.build.id) && written.folders.contains_key(&second.id));
+
+    // A project imported before the rule gets its record with the session's first desk.
+    f.studio
+        .mesh
+        .set(key.clone(), None)
+        .await
+        .expect("the record goes");
+    let peers = peering(&f.studio, &nodes, &[]);
+    let session = Session::new(peers.clone(), Options::default(), |_| {}).expect("a session");
+    session.desk().await.expect("the desk opens");
+    assert_eq!(spec(&f.studio.mesh), Some(written.clone()));
+
+    // A record that says more keeps it: a pause, or a pin with no machines.
+    studio
+        .pause_sync("acme/widget", true)
+        .await
+        .expect("it pauses");
+    studio
+        .import(job(f.build.id.to_string()))
+        .await
+        .expect("importing again works");
+    assert!(spec(&f.studio.mesh).expect("still there").paused);
+    let pinned = SyncSpec::default().to_bytes().expect("a spec encodes");
+    f.studio
+        .mesh
+        .set(key.clone(), Some(pinned))
+        .await
+        .expect("the pin is written");
+    let session = Session::new(peers, Options::default(), |_| {}).expect("a session");
+    let desk = session.desk().await.expect("the desk opens");
+    assert_eq!(spec(&f.studio.mesh), Some(SyncSpec::default()));
+    assert!(
+        desk.sync_detail("acme/widget")
+            .await
+            .expect("a detail")
+            .pinned
+    );
 }
 
 #[tokio::test]
