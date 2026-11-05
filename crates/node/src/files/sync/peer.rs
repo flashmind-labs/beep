@@ -252,7 +252,7 @@ async fn pull_once(
             break;
         };
         match reply {
-            Reply::Head { commit, behind } => {
+            Reply::Head { behind, .. } => {
                 // A connection that worked: losing it is no reason to wait long.
                 *wait = FIRST_RETRY;
                 log::debug!(
@@ -261,7 +261,7 @@ async fn pull_once(
                     peer.id,
                     started.elapsed()
                 );
-                shared.first_contact(&peer.id, commit).await?;
+                shared.first_contact(&peer.id).await?;
                 last = behind;
                 if last.is_none() {
                     shared.heard(&peer.id);

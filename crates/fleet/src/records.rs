@@ -6,6 +6,7 @@
 use crate::AsyncMutex;
 use crate::error::Result;
 use beep_mesh::{Key, Mesh};
+pub(crate) use beep_proto::node::mesh_state::Place;
 use beep_proto::node::mesh_state::{StateValue, SyncSpec};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
@@ -26,16 +27,6 @@ pub(crate) static WRITES: AsyncMutex<()> = AsyncMutex::const_new(());
 pub struct ProjectRecord {
     /// The repository's web page.
     pub url: String,
-}
-
-/// One machine's checkout of a project.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Place {
-    pub folder: String,
-    pub imported_ms: u64,
-    /// The user's fork cloned as `origin`, as `org/repo`.
-    #[serde(default)]
-    pub fork: Option<String>,
 }
 
 /// `group/<id>`: folders the sidebar lists projects under.
@@ -64,7 +55,6 @@ pub struct SavedVersion {
 impl StateValue for ProjectRecord {}
 impl StateValue for GroupRecord {}
 impl StateValue for PinRecord {}
-impl StateValue for Place {}
 impl StateValue for SavedVersion {}
 
 /// A project as the mesh holds it.

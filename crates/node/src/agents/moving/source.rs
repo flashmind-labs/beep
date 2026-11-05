@@ -117,11 +117,15 @@ async fn end(
 
 /// Has the project scanned now, so what the session wrote last is in the
 /// list the target pulls. A folder that is not scanned would let it resume
-/// on files from before.
+/// on files from before. A project Beep does not sync with the target has
+/// no such list: Syncthing carries it.
 async fn scan(env: &Env, record: &SessionMove) -> Result<()> {
     let Some(syncs) = &env.syncs else {
         return Ok(());
     };
+    if !syncs.syncs_with(&record.project, &record.to).await {
+        return Ok(());
+    }
     syncs
         .rescan(&record.project)
         .await
