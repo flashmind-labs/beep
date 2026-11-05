@@ -27,7 +27,7 @@ import { openUrl } from "../center/openitems.ts";
 import { shown, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
 import { openTile } from "./split.ts";
-import { workOnIssue, continuePr, fixRun } from "./composer.ts";
+import { workOnIssue, continuePr, reviewPr, fixRun } from "./composer.ts";
 import { loadProjectAgent } from "./loads.ts";
 import { drawProjects } from "./page.ts";
 import { loadThreadChats, threadChats } from "../center/threadcard.ts";
@@ -181,6 +181,7 @@ export function repoActs(p: Project): RepoActs {
     review: agentActs.review,
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
+    reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
     checks: agent ? runs.checks(agent.project_id) : null,
     showRun: (run: number, host?: string | null) => {
       if (!agent) return;

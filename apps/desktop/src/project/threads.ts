@@ -240,6 +240,7 @@ export interface RepoActs {
   review?: (branch: string) => void;
   workOn: (issue: IssueRow) => void;
   continuePr: (pr: PullRequestRow) => Promise<void>;
+  reviewPr: (pr: PullRequestRow) => Promise<void>;
 }
 
 /// What the window hands `makeThreads`. `openChat(chatId)` shows a chat in
@@ -450,7 +451,11 @@ export function makeThreads(deps: ThreadDeps) {
     cont.title = "Start a coding agent on this pull request's branch";
     buttons.push(cont);
     if (l.branch && ctx.review) buttons.push(button("Review", "", () => ctx.review!(l.branch!)));
-    return actsEl(s, [`r${n}`, `c${n}`], buttons);
+    const agentReview = button(s.busy.has(`a${n}`) ? "Reading…" : "Agent review", "", () => act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)));
+    agentReview.disabled = s.busy.has(`a${n}`);
+    agentReview.title = "Starts an agent that reviews this PR and posts its comments on it";
+    buttons.push(agentReview);
+    return actsEl(s, [`r${n}`, `c${n}`, `a${n}`], buttons);
   }
 
   /// An open issue's buttons: Work on it, Plan and Discuss.

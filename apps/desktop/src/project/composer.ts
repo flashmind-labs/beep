@@ -6,7 +6,7 @@ import { filterProjects, agentLabel } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { pageAgent } from "./agent.ts";
-import { type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, reviewPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
@@ -253,6 +253,20 @@ export async function continuePr(name: string, pr: PullRequestRow) {
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
   fillBar(name, `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, { kind: "pr", number: pr.number, branch: head.branch });
+}
+
+/// Agent review: fills the bar with a review prompt. A fork's branch is not
+/// on `origin`, so that review starts on a new worktree from the default
+/// branch and reads the diff through the forge CLI.
+export async function reviewPr(name: string, pr: PullRequestRow) {
+  const agent = pageAgent(state.agents, name, state.subscribed);
+  if (!agent) return;
+  const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
+  const forge = forgeOf(pr.url);
+  const target: BarTarget = head.fork
+    ? { kind: "issue", number: pr.number, branch: `review-pr-${pr.number}`, base: baseFor(null, pc.branches.get(name)) }
+    : { kind: "pr", number: pr.number, branch: head.branch };
+  fillBar(name, reviewPrompt(pr, forge, head.fork), target);
 }
 
 /// Fix this: the bar on the failed run's branch (a new branch when it ran
