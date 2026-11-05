@@ -34,6 +34,12 @@ impl Voice {
         if taps == TapStep::Two {
             self.on_two_taps();
         }
+        // Signed out, two taps still open the bar but holding Option says nothing.
+        let hold = if self.beep.signed_out() {
+            HoldStep::Nothing
+        } else {
+            hold
+        };
         match hold {
             HoldStep::Wait(press) => {
                 if self.voice() == hotkey::Voice::Off {

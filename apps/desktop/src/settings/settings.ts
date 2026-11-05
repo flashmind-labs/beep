@@ -3,7 +3,7 @@
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
-import { bar, S, windowHooks } from "../bar/core.ts";
+import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
@@ -14,7 +14,8 @@ import { back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, page
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "../chat/tools.ts";
 import { show } from "../bar/views.ts";
-import { SUBSCRIPTION_NOTE, signInWay } from "./subscription.ts";
+import { ACTION_LABEL, type Reach, serverKind, serverView, SIGN_OUT_ASK } from "./server-state.ts";
+import { signInWay } from "./subscription.ts";
 import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -55,6 +56,12 @@ interface Device {
   /// The device that made the account, which links and removes others.
   primary: boolean;
   this_device: boolean;
+}
+
+/// The devices Settings lists, and whether the server they came from answered (`list_devices`).
+interface DeviceList {
+  devices: Device[];
+  server: Reach;
 }
 
 /// Settings, This Mac: the switch that lets Beep use this Mac, where its
@@ -112,12 +119,15 @@ export const SET: {
   token: number;
   devices: Device[] | null;
   machines: Machine[] | null | undefined;
-  confirm: boolean;
+  /// The question the section asks before it acts.
+  confirm: false | "unlink" | "signout";
+  /// Whether the server answered the last list of devices; null before it did.
+  reach: Reach | null;
   modelsError?: boolean;
   path: SettingsPath | null;
   local: { set: MacSettings; mac: MacControl | null; linked: boolean } | null;
   unembed: (() => void) | null;
-} = { root: null, token: 0, devices: null, machines: undefined, confirm: false, path: null, local: null, unembed: null };
+} = { root: null, token: 0, devices: null, machines: undefined, confirm: false, reach: null, path: null, local: null, unembed: null };
 
 /// Changes a model setting from Settings and redraws the section with
 /// what the server answers.
@@ -142,14 +152,33 @@ export const setShown = () => SET.root ? SET.root.isConnected : S.view === "sett
 // In the window the fields are in the sheet, not the pane.
 window.addEventListener("focus", () => {
   const $set = (sel: string) => setRoot().querySelector<HTMLInputElement>(sel);
-  if (setShown() && !$set("#unlinkYes") && !$set("#credSecret")?.value && !$set("#agSecret")?.value) renderSettings();
+  if (setShown() && !$set("#unlinkYes") && !$set("#signOutYes") && !$set("#credSecret")?.value && !$set("#agSecret")?.value) renderSettings();
 });
 
 /// Rows that stand in for a section until the server answers.
 export const setSkeleton = (n: number) => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
 
-function setDevicesHtml(linked: boolean, set: MacSettings) {
-  if (!linked) return `<div class="dtoggle"><span><b>Subscription</b><small>${SUBSCRIPTION_NOTE}</small></span><button class="dbtn pri" id="subscribe">Sign in</button></div><div id="subNote"></div>`;
+/// Settings, Beep server: where this Mac stands with the server and what it can do about it,
+/// then the account's devices while signed in.
+function setServerHtml(set: MacSettings) {
+  const kind = serverKind(S.link, S.signedOut, SET.reach);
+  const view = serverView(kind);
+  // A Mac with no account starts one in the browser or here; one signed out connects again.
+  const button = (a: (typeof view.actions)[number]) => {
+    const id = a === "sign-in" ? (kind === "no-account" ? "subscribe" : "signIn") : a === "sign-out" ? "signOut" : "serverRetry";
+    return `<button class="dbtn${a === "sign-in" ? " pri" : ""}" id="${id}">${ACTION_LABEL[a]}</button>`;
+  };
+  const asking = SET.confirm === "signout" && view.actions.includes("sign-out");
+  const head = `<div class="dtoggle"><span><b>${view.title}</b><small>${esc(view.note)}</small></span>${asking ? "" : view.actions.map(button).join("")}</div>`;
+  const ask = asking ? `<div class="dcard"><div class="dask">
+      <b class="dtitle">${SIGN_OUT_ASK.title}</b><div class="dmuted dblock">${SIGN_OUT_ASK.note}</div>
+      <div class="dline"><button class="dbtn warn" id="signOutYes">${SIGN_OUT_ASK.confirm}</button><button class="dbtn quiet" id="signOutNo">${SIGN_OUT_ASK.cancel}</button></div></div></div>` : "";
+  const tail = `<div id="subNote"></div><div class="derr" id="serverErr"></div>`;
+  return head + ask + tail + (view.devices ? setDevicesHtml(set) : "");
+}
+
+/// The account's devices, with the phone link and Unlink this Mac.
+function setDevicesHtml(set: MacSettings) {
   if (SET.devices === null) return setSkeleton(2);
   const devices = SET.devices;
   // Whether this Mac made the account, and so links and removes devices.
@@ -160,13 +189,13 @@ function setDevicesHtml(linked: boolean, set: MacSettings) {
     const remove = owner && !d.this_device ? `<button class="dbtn quiet" data-remove="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ICON.x}</button>` : "";
     return `<div class="dtoggle"><span><b class="dline tight">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
   };
-  const ask = SET.confirm ? `<div class="dcard"><div class="dask">
+  const ask = SET.confirm === "unlink" ? `<div class="dcard"><div class="dask">
       <b class="dtitle">Unlink this Mac?</b><div class="dmuted dblock">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
       <div class="dline"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn quiet" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
   return devices.map(row).join("") + (owner
     ? '<div class="dtoggle"><span><small>Scan its code from Beep on the phone to bring its chats here</small></span><button class="dbtn pri" id="invite">Link a phone…</button></div>'
-    : SET.confirm ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`) + ask;
+    : SET.confirm === "unlink" ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn" id="invite">Link a phone…</button><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`) + ask;
 }
 
 /// Settings, Models: the model every turn of yours uses, how long it thinks,
@@ -257,7 +286,33 @@ function bindSettings(el: Element) {
   $in("#setModel")?.addEventListener("change", e => setModelChange("set_model", { id: (e.target as HTMLSelectElement).value }));
   $in("#setAuto")?.addEventListener("click", () => setModelChange("set_auto_model", { enabled: !MODELS.info!.auto }));
   each("data-setlevel", b => b.addEventListener("click", () => setModelChange("set_thinking", { level: b.dataset.setlevel })));
-  $in("#unlink")?.addEventListener("click", () => renderSettings(true));
+  $in("#unlink")?.addEventListener("click", () => renderSettings("unlink"));
+  $in("#signOut")?.addEventListener("click", () => renderSettings("signout"));
+  $in("#signOutNo")?.addEventListener("click", () => renderSettings());
+  $in("#signOutYes")?.addEventListener("click", async e => {
+    (e.currentTarget as HTMLButtonElement).disabled = true;
+    try {
+      await invoke("sign_out");
+      renderSettings();
+    } catch (err) {
+      (e.currentTarget as HTMLButtonElement).disabled = false;
+      const msg = setRoot().querySelector("#serverErr");
+      if (msg) msg.textContent = String(err);
+    }
+  });
+  $in("#signIn")?.addEventListener("click", async e => {
+    const button = e.currentTarget as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      // The events that follow redraw Settings and bring the server's parts back.
+      await invoke("sign_in");
+    } catch (err) {
+      button.disabled = false;
+      const msg = setRoot().querySelector("#serverErr");
+      if (msg) msg.textContent = String(err);
+    }
+  });
+  $in("#serverRetry")?.addEventListener("click", () => renderSettings());
   $in("#unlinkNo")?.addEventListener("click", () => renderSettings());
   $in("#unlinkYes")?.addEventListener("click", async () => {
     try {
@@ -370,7 +425,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
   const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
   // Without a subscription these work over the mesh; the rest is the assistant's.
-  if (!linked) return [...out, creds, machines, instr, ["devices", sec("devices", "Subscription", setDevicesHtml(linked, set))]];
+  if (!linked) return [...out, creds, machines, instr, ["devices", sec("devices", "Beep server", setServerHtml(set))]];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
   if (mac) out.push(["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]);
@@ -380,7 +435,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   out.push(["agents", sheet && sub?.kind === "agent" ? host("agents")
     : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">Agent accounts</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}<div id="set-agents">${setAgentsHtml()}</div>${sheet ? codingAgentsHtml() : ""}</section>`]);
   out.push(creds, instr);
-  out.push(["devices", sec("devices", "Account", `<div id="set-account">${setAccountHtml(linked)}</div>${setDevicesHtml(linked, set)}`)]);
+  out.push(["devices", sec("devices", "Beep server", `<div id="set-account">${setAccountHtml(linked)}</div>${setServerHtml(set)}`)]);
   return out;
 }
 
@@ -430,8 +485,7 @@ function navHtml(shown: SettingsPage[], path: SettingsPath) {
   return navEntries(shown, path, subEntries).map(({ page, sub, current }) => {
     const on = current ? ' aria-current="true"' : "";
     if (sub) return `<button class="cc-si sub" data-sub="${esc(subKey(sub))}"${on}><span class="tt">${esc(subLabel(sub))}</span></button>`;
-    const label = page === "devices" && SET.local?.linked === false ? "Subscription" : pageLabel(page);
-    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(label)}</span>${navCount(page)}</button>`;
+    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(pageLabel(page))}</span>${navCount(page)}</button>`;
   }).join("");
 }
 
@@ -588,7 +642,7 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
 /// The sheet opens on `page` when given, else on the page picked last.
-export async function renderSettings(confirm = false, root?: HTMLElement, page?: string) {
+export async function renderSettings(confirm: false | "unlink" | "signout" = false, root?: HTMLElement, page?: string) {
   // A new sheet starts on `page`, or where the last one was left.
   if (root !== undefined && root !== SET.root) SET.path = isPage(page) ? selectPage(page) : recallPath(store());
   if (root !== undefined) SET.root = root;
@@ -637,8 +691,8 @@ export async function renderSettings(confirm = false, root?: HTMLElement, page?:
 
 /// The subscription's parts of Settings, which fill their sections as each answers.
 function loadServerParts(set: MacSettings, alive: () => boolean) {
-  invoke<Device[]>("list_devices").then(d => { SET.devices = d; }, e => { console.warn(e); SET.devices ??= []; })
-    .then(() => { if (alive()) fillSection("devices", `<div id="set-account">${setAccountHtml(true)}</div>${setDevicesHtml(true, set)}`); });
+  invoke<DeviceList>("list_devices").then(d => { SET.devices = d.devices; SET.reach = d.server; }, e => { console.warn(e); SET.devices ??= []; SET.reach = "unreachable"; })
+    .then(() => { if (alive()) fillSection("devices", `<div id="set-account">${setAccountHtml(S.link === "linked")}</div>${setServerHtml(set)}`); });
   invoke<Models>("get_models").then(m => { MODELS.info = m; SET.modelsError = false; }, e => { console.warn(e); SET.modelsError = !MODELS.info; })
     .then(() => {
       if (!alive()) return;
@@ -655,5 +709,7 @@ function loadServerParts(set: MacSettings, alive: () => boolean) {
     });
 }
 
-// Signing in changes which pages Settings has.
-listen<string>("link-state", () => { if (setShown()) renderSettings(); });
+// Signing in or out changes which pages Settings has. The state is taken here too, so the
+// redraw never reads what the bar's own listener has not stored yet.
+listen<boolean>("signed-out", e => { S.signedOut = e.payload; });
+listen<LinkState>("link-state", e => { S.link = e.payload; if (setShown()) renderSettings(); });

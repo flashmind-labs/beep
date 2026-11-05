@@ -22,11 +22,13 @@ import { invoke } from "../ui/tauri.ts";
 export interface Status {
   link: LinkState;
   session: string | null;
+  signed_out: boolean;
 }
 
 export async function refreshStatus() {
   const st = await invoke<Status>("status");
   S.link = st.link;
+  S.signedOut = st.signed_out;
   // The bar's chat is not the window's.
   if (S.session === null && !PANE) S.session = st.session;
   return st;
