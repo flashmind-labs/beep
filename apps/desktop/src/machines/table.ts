@@ -5,7 +5,7 @@ import { dbtn as button, emptyPanel, headedTable, note } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { trafficRows, trafficSummary } from "./traffic-state.ts";
-import { confirmSheet, openMenu } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { ALL, byMachine } from "../terminals/terminals.ts";
 import { OFFLINE_NOTE_MS, state } from "../center/state.ts";
 import { shown } from "../center/views.ts";
@@ -127,12 +127,15 @@ interface Removable {
   online?: boolean;
 }
 
-/// Right-clicking `els` opens the menu for machine `m`, offline or not; none
-/// for this Mac.
+/// Right-clicking `els` opens the menu for machine `m`: a terminal on it when it is
+/// online, and removing it, which this Mac cannot do to itself.
 export function machineMenu(m: Removable, ...els: Element[]) {
   for (const el of els) el.addEventListener("contextmenu", e => {
-    if (!m.id || m.id === state.mac?.id) return;
-    openMenu(e as MouseEvent, m.name, [{ label: "Remove…", warn: true, on: () => removeMachine(m) }]);
+    if (!m.id) return;
+    const items: MenuItem[] = [];
+    if (m.online !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
+    if (m.id !== state.mac?.id) items.push({ label: "Remove…", warn: true, on: () => removeMachine(m) });
+    if (items.length) openMenu(e as MouseEvent, m.name, items);
   });
 }
 
