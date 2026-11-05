@@ -31,7 +31,7 @@ use beep_node::{
 use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
-pub use status::Status;
+pub use status::{ClockOff, Status};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
