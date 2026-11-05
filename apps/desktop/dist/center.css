@@ -324,6 +324,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-mt.pj-where > :not(.th) { padding: 12px 14px }
 .cc-mt.pj-where > .th { padding-left: 14px; padding-right: 14px }
 .cc-mt.pj-where .nm { gap: 4px }
+.cc-mt.pj-where .gs-line { display: block; flex-basis: 100%; font-size: 12px; color: var(--muted) }
+.cc-mt.pj-where .gs.err { color: var(--err) }
 
 /* One project: where it lives, its agents and its sessions. */
 .pv-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px }

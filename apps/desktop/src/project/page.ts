@@ -19,7 +19,7 @@ import { importButton, projectTable, overviewSection, loadOverview, projectDetai
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, redrawProjectsPage } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
-import { noteRecent, revalidate, prefetchRecentSoon, whereDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
+import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
 
@@ -115,6 +115,7 @@ registerView("projects", {
       warm(state.picked);
       if (pages.due("sessions", state.picked)) sessionsDue.add(state.picked);
       if (pages.due("where", state.picked)) whereDue.add(state.picked);
+      if (pages.due("gitsync", state.picked)) gitDue.add(state.picked);
       noteRecent(state.picked);
     }
     openTile(null, false);

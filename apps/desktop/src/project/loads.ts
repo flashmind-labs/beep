@@ -26,6 +26,7 @@ import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { placeSub } from "../agents/place-state.ts";
+import { agentCanFix, fixPrompt, gitLine, movingLabel, moveKey, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the
@@ -184,6 +185,77 @@ async function copyHere(p: Project, m: WhereRow, key: string) {
   redrawProjectsPage();
 }
 
+/// The projects whose checkouts' branches are being read, and those to read
+/// again on the next draw.
+const readingGit = new Set<string>();
+export const gitDue = new Set<string>();
+
+/// Reads each checkout's branch and distance from its upstream. Kept apart
+/// from "where" so a slow fetch never holds the page.
+export async function loadGit(name: string) {
+  if (readingGit.has(name)) return;
+  readingGit.add(name);
+  gitDue.delete(name);
+  try {
+    const rows = await invoke<GitRow[]>("project_git_state", { project: name });
+    state.gitsync.set(name, rows);
+    keep("gitsync", name, rows);
+  } catch (e) {
+    console.warn("project git state:", e);
+    if (!state.gitsync.has(name)) state.gitsync.set(name, []);
+  } finally {
+    readingGit.delete(name);
+  }
+  if (shown === "projects" && state.picked === name) redrawProjectsPage();
+}
+
+/// A running move's direction and a refused one's reason, by project and machine.
+const moves = new Map<string, { moving: GitMove | null; failed?: string }>();
+
+/// Pulls or pushes on one machine; the counts come back with the answer.
+async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
+  const key = moveKey(p.name, m.id);
+  if (moves.get(key)?.moving || !row.branch) return;
+  moves.set(key, { moving: move });
+  redrawProjectsPage();
+  try {
+    const next = await invoke<GitRow>("project_git_move", { project: p.name, machineId: m.id, branch: row.branch, direction: move });
+    moves.delete(key);
+    const rows = withRow(state.gitsync.get(p.name), next);
+    state.gitsync.set(p.name, rows);
+    keep("gitsync", p.name, rows);
+  } catch (e) {
+    moves.set(key, { moving: null, failed: reason(e) });
+  }
+  redrawProjectsPage();
+}
+
+/// Under a checkout's folder: its branch and distance, and the reason a move
+/// was refused; and the Pull and Push buttons.
+function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons: HTMLElement[] } {
+  const row = state.gitsync.get(p.name)?.find(r => r.machine_id === m.id);
+  if (!row) return { note: null, buttons: [] };
+  const line = gitLine(row);
+  const note = h("small", "gs" + (line.error ? " err" : ""), ...(line.branch ? [h("code", "", line.branch), " "] : []), line.text);
+  if (!line.buttons) return { note, buttons: [] };
+  const mv = moves.get(moveKey(p.name, m.id));
+  const busy = !!mv?.moving;
+  const pull = button(mv?.moving === "pull" ? movingLabel("pull") : "Pull", "small", () => gitMove(p, m, row, "pull"));
+  const push = button(mv?.moving === "push" ? movingLabel("push") : "Push", "small", () => gitMove(p, m, row, "push"));
+  pull.disabled = busy || !line.pull;
+  push.disabled = busy || !line.push;
+  const buttons = [pull, push];
+  if (mv?.failed) {
+    const why = h("small", "gs err", mv.failed);
+    note.append(h("br"), why);
+    if (agentCanFix(mv.failed)) {
+      const at = { machine: m.id, cwd: m.folder!, places: projectPlaces(p), project: p.name };
+      buttons.push(button("Fix with an agent", "small", () => go("pane", { agentnew: { prompt: fixPrompt(row.branch, row.upstream), at } })));
+    }
+  }
+  return { note, buttons };
+}
+
 /// One machine's row under "Where it lives": its folder and what to do
 /// there, or why there is none.
 export function whereRow(p: Project, m: WhereRow) {
@@ -204,7 +276,9 @@ export function whereRow(p: Project, m: WhereRow) {
       note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it here.`;
       folder.append(" ", note);
     }
-    return [name, folder, h("span", "acts", finder, copy, start)];
+    const git = gitCells(p, m);
+    if (git.note) folder.append(h("span", "gs-line", git.note));
+    return [name, folder, h("span", "acts", ...git.buttons, finder, copy, start)];
   }
   const key = `${p.name}\n${m.id}`;
   const copied = copies.get(key);

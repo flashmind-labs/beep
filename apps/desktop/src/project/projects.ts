@@ -17,7 +17,7 @@ import { groupMenu, editGroup, startRename, renameGroup, removeGroup } from "./g
 import { splitOn, projectSplit } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
-import { whereRow, readingWhere, whereDue, loadWhere, sessionsSection, hostOf } from "./loads.ts";
+import { whereRow, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection, hostOf } from "./loads.ts";
 import { IC } from "../ui/icons.ts";
 import { byRecent, type RunningAgent } from "../agents/running-state.ts";
 
@@ -159,6 +159,7 @@ export function projectDetail(p: Project) {
   if (p.imported) warm(p.name);
   const machines = p.imported ? state.where.get(p.name) : null;
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
+  if (p.imported && (!state.gitsync.has(p.name) || gitDue.has(p.name))) loadGit(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
   const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
