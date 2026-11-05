@@ -176,6 +176,15 @@ pub enum SessionsRequest {
     Worktrees {
         folder: String,
     },
+    /// Deletes the ended session `session` of the harness `agent` from this
+    /// machine: its transcript file and the node's record of it. `session`
+    /// is the agent's own id or the node's. Answered with `Deleted`, or
+    /// `Error` saying why not, such as a session that still runs. A node
+    /// from before it answers `Error` or closes the stream.
+    DeleteSession {
+        agent: String,
+        session: String,
+    },
 }
 
 impl SessionsRequest {
@@ -207,6 +216,7 @@ impl SessionsRequest {
             | Self::FollowUsage { .. }
             | Self::RefreshPlanUsage {}
             | Self::WriteFile { .. }
+            | Self::DeleteSession { .. }
             | Self::FollowAlerts {} => false,
         }
     }
@@ -330,6 +340,8 @@ pub enum SessionsReply {
     Worktrees {
         worktrees: Vec<Worktree>,
     },
+    /// The answer to `DeleteSession`.
+    Deleted {},
 }
 
 /// One worktree of a repository, as `SessionsRequest::Worktrees` lists it.

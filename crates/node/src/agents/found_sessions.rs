@@ -312,7 +312,7 @@ impl Agents {
     /// What `found`, a session in `agent`'s logs, is doing, once a
     /// recent write alone is checked: Codex keeps a session's rollout open
     /// while it runs, and a session Beep ran here ended with Beep.
-    async fn presence(&self, agent: Agent, found: &ExternalSession) -> Presence {
+    pub(super) async fn presence(&self, agent: Agent, found: &ExternalSession) -> Presence {
         if found.pid.is_some() {
             return found.presence;
         }

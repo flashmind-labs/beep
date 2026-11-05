@@ -420,6 +420,26 @@ pub(crate) async fn resume(
     Ok(started(&fleet.host_of(machine), opened.info, String::new()))
 }
 
+/// Deletes the ended session `session` of `agent` from a machine; the node
+/// refuses one that runs, saying why.
+pub(crate) async fn delete_session(
+    fleet: &Fleet,
+    machine: EndpointId,
+    agent: &str,
+    session: &str,
+) -> Result<()> {
+    let client = fleet.client(machine).await?;
+    let done = sessions::delete_session(&client, agent, session)
+        .await
+        .map_err(|e| {
+            DesktopError::BadRequest(format!(
+                "Could not delete the session on {}: {e:#}",
+                fleet.name_of(machine)
+            ))
+        })?;
+    work(fleet, machine, done)
+}
+
 /// Orders a running session. Only sessions Beep runs take orders.
 pub(crate) async fn steer(
     fleet: &Fleet,

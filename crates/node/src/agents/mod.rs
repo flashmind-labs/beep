@@ -25,6 +25,7 @@ mod alerts;
 mod checkout;
 mod compaction;
 mod custom_agents;
+mod delete;
 mod flsh_config;
 mod found_sessions;
 mod harnesses;

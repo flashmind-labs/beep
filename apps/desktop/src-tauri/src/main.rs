@@ -156,6 +156,8 @@ fn main() {
             agents::media::agent_file_save,
             agents::media::agent_image,
             agents::media::agent_thumb,
+            agents::sessions::agent_deletable,
+            agents::sessions::agent_delete,
             agents::sessions::agent_hosts,
             agents::sessions::agent_models,
             agents::sessions::agent_preview,
