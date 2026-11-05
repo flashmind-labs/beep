@@ -4,7 +4,7 @@ use beep_proto::GitItem;
 use reqwest::{Client, Response, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 use thiserror::Error;
 use tokio::sync::Semaphore;
 
@@ -34,6 +34,8 @@ pub enum HostError {
 pub struct Found {
     pub item: GitItem,
     pub labels: Vec<String>,
+    /// When the host says it was created. Not part of `GitItem`, whose bytes released apps read.
+    pub opened_at: Option<SystemTime>,
 }
 
 /// A label as GitHub and Forgejo give it on an issue.

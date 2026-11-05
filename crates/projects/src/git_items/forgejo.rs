@@ -46,6 +46,8 @@ struct Issue {
     title: String,
     updated_at: DateTime<Utc>,
     #[serde(default)]
+    created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     comments: u32,
     /// Present on pull requests.
     #[serde(default)]
@@ -142,6 +144,7 @@ fn item(host: &str, issue: &Issue) -> Found {
     Found {
         item,
         labels: label_names(&issue.labels),
+        opened_at: issue.created_at.map(SystemTime::from),
     }
 }
 
@@ -178,6 +181,20 @@ mod tests {
        "comments": 1, "updated_at": "2026-10-20T08:00:00Z", "pull_request": null,
        "repository": {"full_name": "tools-org/uploader"}}
     ]"#;
+
+    #[test]
+    fn an_issue_carries_its_created_time() {
+        let listed = issues(
+            r#"[{"number": 3, "title": "t", "html_url": "https://git.example.com/o/r/issues/3",
+                 "updated_at": "2026-10-30T09:15:00Z", "created_at": "2026-10-01T10:00:00+02:00",
+                 "repository": {"full_name": "o/r"}}]"#,
+        );
+        let items = merge("git.example.com", vec![(Query::AuthoredIssues, listed)]);
+        let created = DateTime::parse_from_rfc3339("2026-10-01T08:00:00Z")
+            .expect("a valid time")
+            .with_timezone(&Utc);
+        assert_eq!(items[0].opened_at, Some(SystemTime::from(created)));
+    }
 
     #[test]
     fn issues_parse_with_their_repository() {

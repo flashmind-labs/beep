@@ -30,8 +30,9 @@ export interface GitItemRow {
   comments: number;
   /// Missing from a list kept by an older app.
   labels?: string[];
-  /// When it opened, in milliseconds since the Unix epoch. Not sent yet, so
-  /// the lists keep such rows under Any time and sort them last.
+  /// When it opened, in milliseconds since the Unix epoch. A host that does
+  /// not say leaves it out, and the lists keep such rows under Any time and
+  /// sort them last.
   opened_at?: number | null;
 }
 
