@@ -1154,3 +1154,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .cc-rsteps i { flex: 1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .cc-rsteps i.done { background: color-mix(in srgb, var(--ok) 70%, transparent) }
 .cc-rsteps i.now { background: var(--accent) }
+/* ⇧esc: a dock fills the session over the conversation; its width and place are untouched. */
+.agpane.zoomed { position: absolute; inset: 0; z-index: 3; flex: none; max-width: none; background: var(--surface) }
+.agshell.zoomed .agdiv { display: none }
