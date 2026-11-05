@@ -201,10 +201,12 @@ interface AgentState {
   attError: string;
   attTimer: ReturnType<typeof setTimeout> | undefined;
   noImages: string | null;
-  /// The tool entries opened to their full output, by place in the session,
-  /// the pasted blocks left open ("place:block"), and the module that reads
+  /// The pasted blocks left open ("place:block"), and the module that reads
   /// tool entries, once loaded.
   opened: Set<number | string>;
+  /// What the reader chose for a tool row (true open, false closed), by place
+  /// in the session. A row they never touched has no entry.
+  steps: Map<number, boolean>;
   log: typeof import("./agentlog.ts") | null;
   /// The steps whose whole output shows, by place in the session.
   all: Set<number>;
@@ -232,7 +234,7 @@ export const AG: AgentState = {
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null,
+  opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null,
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.

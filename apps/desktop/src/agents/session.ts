@@ -31,7 +31,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
+    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
   });
   drawAgentFrame();
   pollAgent();
@@ -330,7 +330,7 @@ function agentClick(e: MouseEvent) {
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
   if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd")) {
     const at = Number(tool.dataset.at);
-    if (!AG.opened.delete(at)) AG.opened.add(at);
+    AG.steps.set(at, !tool.classList.contains("open"));
     return drawAgentBody(clickedRow(tool));
   }
   // A pasted block opens by itself; remember it so a redraw keeps it open.

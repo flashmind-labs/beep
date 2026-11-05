@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, summary, toolKind, toolRuns, withoutDiffs } from "../src/agents/agentturns.ts";
+import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, withoutDiffs } from "../src/agents/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -127,4 +127,25 @@ test("finished calls of one kind in a row fold into one run; failures, running c
   assert.equal(runLabel("read", 6), "Read 6 files");
   assert.equal(runLabel("command", 1), "Ran 1 command");
   assert.equal(runLabel("search", 3), "Searched 3 times");
+});
+
+test("a row the reader chose stays as chosen when it is no longer the newest step", () => {
+  // Failed and newest it starts open; the reader closes it, and a new step must not reopen it.
+  assert.equal(stepOpen(true, true, undefined), true);
+  assert.equal(stepOpen(true, true, false), false);
+  assert.equal(stepOpen(true, false, false), false);
+  // Opened by the reader it stays open after a new step arrives, failed or not.
+  assert.equal(stepOpen(true, false, true), true);
+  assert.equal(stepOpen(false, false, true), true);
+  assert.equal(stepOpen(false, true, undefined), false);
+  assert.equal(stepOpen(true, false, undefined), false);
+});
+
+test("a row the reader opened is not folded into a group or the turn's heading", () => {
+  const log = [u("go"), t("Read a.rs [completed]"), t("Read b.rs [completed]"), t("Read c.rs [completed]"), a("done")];
+  const turn = splitTurns(log)[0];
+  assert.deepEqual(toolRuns(log, [1, 2, 3]), [[1, 2, 3]]);
+  assert.deepEqual(toolRuns(log, [1, 2, 3], 0, new Set([2])), [[1], [2], [3]]);
+  assert.deepEqual(keptSteps(log, turn), []);
+  assert.deepEqual(keptSteps(log, turn, 0, new Set([1, 3])), [1, 3]);
 });
