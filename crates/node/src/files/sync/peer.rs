@@ -240,7 +240,17 @@ async fn pull_once(
     })
     .await?;
     let mut last = None;
-    while let Some(reply) = rx.recv::<Reply>().await? {
+    let mut again = shared.watch_pull_again();
+    again.mark_unchanged();
+    loop {
+        let reply = tokio::select! {
+            reply = rx.recv::<Reply>() => reply?,
+            // Asked to start over: dropping the connection ends the pull.
+            _ = again.changed() => return Ok(()),
+        };
+        let Some(reply) = reply else {
+            break;
+        };
         match reply {
             Reply::Head { commit, behind } => {
                 // A connection that worked: losing it is no reason to wait long.
@@ -255,6 +265,7 @@ async fn pull_once(
                 last = behind;
                 if last.is_none() {
                     shared.heard(&peer.id);
+                    shared.caught_up(&peer.id);
                 }
             }
             Reply::Changes {
@@ -266,6 +277,7 @@ async fn pull_once(
                 if last.is_some_and(|last| upto >= last) {
                     last = None;
                     shared.heard(&peer.id);
+                    shared.caught_up(&peer.id);
                 }
             }
             Reply::Refused { message } => bail!("the peer refused: {message}"),

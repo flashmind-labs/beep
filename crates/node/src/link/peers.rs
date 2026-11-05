@@ -313,8 +313,21 @@ impl Peers {
         if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().follow(active.mesh.clone());
         }
-        let follow = from_mesh::follow(active.mesh, self.inner.endpoint.id(), offers);
-        *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(follow)));
+        let follow = from_mesh::follow(
+            active.mesh.clone(),
+            self.inner.endpoint.id(),
+            offers.clone(),
+        );
+        let moves = crate::agents::follow_moves(
+            active.mesh,
+            self.inner.endpoint.clone(),
+            self.inner.dir.clone(),
+            offers.agents.clone(),
+            offers.transfers.get().map(|transfers| transfers.syncs()),
+        );
+        *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
+            tokio::join!(follow, moves);
+        })));
     }
 
     /// The node's transfer and sync services started: the mesh drives them.

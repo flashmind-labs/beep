@@ -1187,3 +1187,26 @@ body:not(.cbody) .dlive { position: static; background: none }
 .cm-row .n { flex: none; color: var(--fg); font-weight: 500 }
 .cm-row .d { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cm-row small { flex: none; color: var(--dim); font-size: 11.5px }
+
+/* Moving a session to another machine: the machine menu in the head, the steps above the composer. */
+.dhead { position: relative }
+.mvb { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 0 5px; margin-left: -5px; border-radius: 5px; font-size: 12px; color: var(--muted) }
+.mvb:hover:not(:disabled), .mvb[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg) }
+.mvb:disabled { cursor: default }
+.mvb svg { opacity: .7 }
+.mvm { left: 50px; right: auto; top: calc(100% - 8px); width: 300px }
+.mvm .mvh { padding: 4px 8px 3px; font-size: 11px; color: var(--dim) }
+.mvm button[disabled] { opacity: .45; cursor: default }
+.mvm button[disabled]:hover { background: none }
+.mvm b { font-weight: 500 }
+.mvs { flex: none; display: grid; gap: 5px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12.5px }
+.mvs .h { display: flex; align-items: center; gap: 8px; min-height: 24px }
+.mvs .h b { font-weight: 500 }
+.mvs .sp { flex: 1 }
+.mvs .t { color: var(--muted) }
+.mvs .r { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums }
+.mvs .r.todo { color: var(--dim) }
+.mvs .mk { width: 14px; height: 14px; display: inline-grid; place-items: center; flex: none; color: var(--ok) }
+.mvs .r.todo .mk::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--dim) }
+.mvs .mk .dspin { width: 11px; height: 11px }
+.mvs.bar { display: flex; align-items: center; gap: 8px }

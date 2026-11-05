@@ -310,6 +310,29 @@ async fn a_project_is_not_in_sync_before_its_peers_are_heard() {
 }
 
 #[tokio::test]
+async fn catching_up_needs_a_pull_that_went_through_and_a_round_after_it() {
+    let mut project = Project::new(&["a.txt"]).await;
+    let shared = project.task.shared.clone();
+    let peer = SecretKey::from_bytes(&[9; 32]).public();
+    shared.set_peers(vec![EndpointAddr::new(peer)]);
+    let since = tokio::time::Instant::now();
+    // A failed pull marks the peer heard, as the progress display wants...
+    shared.heard(&peer);
+    assert!(!shared.caught_up_since(&peer, since));
+    // ...a pull that went through says it has all the peer had, once a
+    // round has brought the folder in line with what it merged.
+    shared.caught_up(&peer);
+    assert!(!shared.caught_up_since(&peer, since));
+    project.task.apply().await;
+    assert!(shared.caught_up_since(&peer, since));
+    // Not for a time after it, and not for another peer.
+    assert!(!shared.caught_up_since(&peer, tokio::time::Instant::now()));
+    let other = SecretKey::from_bytes(&[8; 32]).public();
+    assert!(!shared.caught_up_since(&other, since));
+    project.stop().await;
+}
+
+#[tokio::test]
 async fn a_paused_project_says_so_and_settles_nothing() {
     let project = Project::new(&["a.txt", COPY]).await;
     project.task.shared.set_paused(true);
@@ -804,4 +827,23 @@ fn a_saved_file_written_as_maps_is_still_read() {
     let read = super::state::read_saved(&file);
     assert_eq!(read.cursors["peer"].seq, 7);
     assert!(file.exists(), "a readable file is not set aside");
+}
+
+#[tokio::test]
+async fn a_round_that_could_not_check_its_folder_does_not_count_as_applied() {
+    let mut project = Project::new(&["notes.txt"]).await;
+    let peer = SecretKey::generate().public();
+    let since = Instant::now();
+    project.task.shared.caught_up(&peer);
+    let away = project.base.join("away");
+    fs::rename(&project.folder, &away).unwrap();
+    project.task.apply().await;
+    assert!(
+        !project.task.shared.caught_up_since(&peer, since),
+        "a folder that is not there has everything in line"
+    );
+    fs::rename(&away, &project.folder).unwrap();
+    project.task.apply().await;
+    assert!(project.task.shared.caught_up_since(&peer, since));
+    project.stop().await;
 }

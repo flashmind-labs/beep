@@ -37,7 +37,10 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{task::spawn_blocking, time::timeout};
+use tokio::{
+    task::spawn_blocking,
+    time::{Instant, timeout},
+};
 use tokio_util::task::AbortOnDropHandle;
 
 mod disk;
@@ -574,6 +577,51 @@ impl Syncs {
             .collect();
         out.extend(lock(&self.inner.held).values().map(Held::status));
         out
+    }
+
+    /// Waits until this node has everything `peer` had in `project` at
+    /// some point after `since`: a pull that went through, not one that
+    /// failed, brought its list, and the files are here. `progress` sees
+    /// the project's status at each change. Never ends while `peer` is out
+    /// of reach.
+    pub async fn have_all_from(
+        &self,
+        project: &str,
+        peer: &EndpointId,
+        since: Instant,
+        mut progress: impl FnMut(&ProjectStatus),
+    ) -> Result<()> {
+        let Some(shared) = self.project(project) else {
+            bail!("{project} is not synced on this machine");
+        };
+        if !shared.has_peer(peer) {
+            bail!("{project} is not synced with that machine");
+        }
+        let mut status = shared.watch_status();
+        if !shared.caught_up_since(peer, since) {
+            shared.pull_again();
+        }
+        loop {
+            let now = shared.status();
+            progress(&now);
+            // An error in the status, such as two checkouts at different
+            // commits or a folder that cannot be checked, is a reason the
+            // files are not all here, whatever the counts say.
+            if shared.caught_up_since(peer, since)
+                && now.pending == 0
+                && now.waiting.is_empty()
+                && !now.paused
+                && now.error.is_none()
+            {
+                return Ok(());
+            }
+            tokio::select! {
+                changed = status.changed() => if changed.is_err() {
+                    bail!("{project} stopped syncing");
+                },
+                () = shared.stopped() => bail!("{project} stopped syncing"),
+            }
+        }
     }
 
     /// What `project`'s sync leaves out, at most `limit` paths.

@@ -238,7 +238,8 @@ impl Actor {
             return;
         };
         // Held for an update; they go when the hold ends, or after the
-        // restart.
+        // restart. A session that moves still runs what waited before the
+        // move: nothing new comes in, and it ends once the queue is empty.
         if *self.holding.borrow() {
             return;
         }

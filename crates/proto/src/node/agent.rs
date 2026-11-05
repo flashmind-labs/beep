@@ -19,12 +19,14 @@
 mod checkout;
 mod external;
 mod models;
+mod moving;
 mod session;
 mod sessions;
 
 pub use checkout::*;
 pub use external::*;
 pub use models::*;
+pub use moving::*;
 pub use session::*;
 pub use sessions::*;
 

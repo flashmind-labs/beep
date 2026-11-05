@@ -3,7 +3,7 @@
 
 use crate::{
     agents::mcp::{self, Upstream},
-    agents::{AgentKind, Agents},
+    agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn},
     files::Folders,
     files::search::Searches,
     files::transfer::Transfers,
@@ -213,7 +213,11 @@ pub async fn serve(
     }
     let mut router = Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peers.peer_handler())
-        .accept(JOIN_ALPN, peers.join_handler());
+        .accept(JOIN_ALPN, peers.join_handler())
+        .accept(
+            SESSIONS_ALPN,
+            SessionsAlpn::new(offers.agents.clone(), offers.mesh.clone()),
+        );
     if let Some(served) = served {
         router = served.add_to(router);
     }

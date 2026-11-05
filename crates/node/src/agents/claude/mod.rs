@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::task::spawn_blocking;
 
+pub(crate) use discover::slug;
 pub(crate) use transcript::{Excerpt, unix_seconds};
 
 mod discover;

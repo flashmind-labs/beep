@@ -225,6 +225,50 @@ fn data(len: usize, seed: u8) -> Vec<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_node_waits_for_all_a_peer_had_from_a_pull_that_went_through() {
+    let (a, b) = pair().await;
+    write(&a.path("src/main.rs"), "fn main() {}\n");
+    eventually("the first node to list the file", || a.status().files >= 1).await;
+    let a_id = a.addr().id;
+    let since = tokio::time::Instant::now();
+    let mut seen = 0;
+    timeout(
+        LIMIT,
+        b.running()
+            .transfers
+            .syncs()
+            .have_all_from(PROJECT, &a_id, since, |_| seen += 1),
+    )
+    .await
+    .expect("in time")
+    .expect("synced");
+    assert!(seen >= 1);
+    // The files are here when it answers, not on their way.
+    assert_eq!(
+        read(&b.path("src/main.rs")).as_deref(),
+        Some(b"fn main() {}\n".as_slice())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_node_does_not_count_a_peer_it_cannot_reach_as_caught_up() {
+    let (mut a, b) = pair().await;
+    let a_id = a.addr().id;
+    a.stop().await;
+    let waited = timeout(
+        Duration::from_secs(3),
+        b.running().transfers.syncs().have_all_from(
+            PROJECT,
+            &a_id,
+            tokio::time::Instant::now(),
+            |_| {},
+        ),
+    )
+    .await;
+    assert!(waited.is_err(), "it ended without hearing from the peer");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_folder_syncs_both_ways_and_build_output_stays() {
     let (a, b) = pair().await;
     write(&a.path("Cargo.toml"), "[package]\nname = \"game\"\n");
