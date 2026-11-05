@@ -226,6 +226,8 @@ export interface ReviewComment {
   side: "old" | "new";
   line: number | null;
   text: string;
+  /// The harness that wrote it, for a comment an agent made.
+  by?: string;
 }
 
 /// How a row is named in [`Placed`]: the side and its line number.
@@ -302,7 +304,8 @@ export function parseDraft(raw: string | null): ReviewComment[] {
     const got: unknown = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(got)) return [];
     return got.filter((c): c is ReviewComment => !!c && typeof c.path === "string" && typeof c.text === "string"
-      && (c.side === "old" || c.side === "new") && (c.line === null || Number.isInteger(c.line)));
+      && (c.side === "old" || c.side === "new") && (c.line === null || Number.isInteger(c.line)))
+      .map(c => (typeof c.by === "string" && /^[a-z0-9-]{1,32}$/.test(c.by) ? c : { path: c.path, side: c.side, line: c.line, text: c.text }));
   } catch {
     return [];
   }
