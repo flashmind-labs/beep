@@ -138,28 +138,6 @@ pub(crate) async fn work_diff(
     work(fleet, machine, sessions::diff(&client, ask).await?)
 }
 
-/// What changed on `branch` of a project against the checkout's own
-/// default branch, read at the checkout `place`.
-pub(crate) async fn branch_diff(
-    fleet: &Fleet,
-    place: &Place,
-    branch: &str,
-    only: Vec<String>,
-    lockfiles: bool,
-) -> Result<WorkDiff> {
-    let branch = beep_projects::model::branch_name(branch)
-        .ok_or_else(|| ApiError::bad_request(format!("{} is not a branch name.", branch.trim())))?;
-    let ask = DiffAsk {
-        root: place.folder.clone(),
-        // Empty: the node compares against the checkout's default.
-        base: String::new(),
-        head: branch.to_owned(),
-        only,
-        lockfiles,
-    };
-    work_diff(fleet, place.machine, ask).await
-}
-
 /// The checkouts coding agents worked in, per online machine; a machine
 /// that cannot say is left out.
 pub(crate) async fn found_folders(fleet: &Fleet) -> Vec<MachineFound> {

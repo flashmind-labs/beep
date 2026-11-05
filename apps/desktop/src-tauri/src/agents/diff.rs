@@ -1,15 +1,14 @@
-//! The diff viewer: what changed in a coding agent session's checkout, or
-//! on a project's branch, read by the node where the checkout is.
+//! The diff viewer: what changed in a coding agent session's checkout, read
+//! by the node where the checkout is.
 
 use crate::{
     beep::Service,
     error::Result,
     fleet::{Machines, files as direct},
-    projects::branches::{Placed, placed},
 };
 use beep_proto::{
-    DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetBranchDiff,
-    GetWorkDiff, WorkDiff, node::agent::DiffAsk,
+    DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetWorkDiff, WorkDiff,
+    node::agent::DiffAsk,
 };
 use serde::Serialize;
 
@@ -161,32 +160,5 @@ pub async fn work_diff(
             .await?
         }
     };
-    Ok(view(diff))
-}
-
-/// What changed on `branch` of `project` against its default branch.
-#[tauri::command]
-pub async fn branch_diff(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    project: String,
-    branch: String,
-    only: Vec<String>,
-    lockfiles: bool,
-) -> Result<DiffView> {
-    if let Placed::Mesh(places) = placed(&beep, &fleet, &project).await?
-        && let Some(place) = places.first()
-    {
-        let diff = direct::branch_diff(&fleet, place, &branch, only, lockfiles).await?;
-        return Ok(view(diff));
-    }
-    let diff = beep
-        .call(GetBranchDiff {
-            project,
-            branch,
-            only,
-            lockfiles,
-        })
-        .await?;
     Ok(view(diff))
 }

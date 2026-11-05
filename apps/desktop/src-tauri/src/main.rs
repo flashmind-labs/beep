@@ -131,7 +131,6 @@ fn main() {
             agents::accounts::save_agent_token,
             agents::artifacts::agent_artifact,
             agents::custom::custom_agents,
-            agents::diff::branch_diff,
             agents::diff::work_diff,
             agents::files::agent_tree,
             agents::files::agent_tree_save,

@@ -13,7 +13,9 @@ import type { Picked } from "../agents/agentpicker.ts";
 import type { AgentHost, AgentSession } from "../agents/agents.ts";
 import { makeTerminals } from "../terminals/terminals.ts";
 import { makeScreen } from "../terminals/termview.ts";
-import { openBranchDiff } from "../review/diffsheet.ts";
+import { branchSession } from "../review/branchsession-state.ts";
+import { loadSessions, sessions } from "../agents/sessions.ts";
+import { showChanges } from "../agentpane/media.ts";
 import { makeReviews, mergeBlock, type ReviewHead } from "../review/review.ts";
 import { makeFileSync } from "./filesync.ts";
 import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
@@ -46,7 +48,7 @@ export const revs = makeReviews({
   openUrl,
   openTile: (key: string) => openTile(key),
   machines: () => state.home?.machines || [],
-  diff: openBranchDiff,
+  diff: viewDiff,
   kept: keptSection("branches"),
 });
 
@@ -99,6 +101,19 @@ export function redrawProjects() {
   if (shown === "projects") drawProjects(projectsEl());
 }
 
+/// View diff: the session working on `branch`, if there is one, as a function that
+/// opens it on the Changes tab, zoomed. A branch with no session has no diff to show.
+function viewDiff(project: string, branch: string) {
+  const data = revs.branches(project);
+  const worktree = data?.branches.find(b => b.name === branch)?.worktree;
+  const session = branchSession(sessions, data?.machine_id, worktree);
+  if (!session) return null;
+  return () => {
+    go("pane", { agent: session });
+    showChanges();
+  };
+}
+
 /// The Projects page and its header, while it shows.
 export function redrawProjectsPage() {
   if (shown === "projects") { drawProjects(projectsEl()); drawTop(); }
@@ -110,7 +125,7 @@ export const agentActs = {
   outcome: (id: string) => pa.outcomes.get(id),
   openUrl,
   review: (branch: string) => { if (state.picked) revs.openBranch(state.picked, branch); },
-  diff: (branch: string) => { if (state.picked) openBranchDiff(state.picked, branch); },
+  diff: (branch: string) => (state.picked ? viewDiff(state.picked, branch) : null),
   /// Merge… on a task in review asks the project agent to merge once the
   /// branch's newest review allows it and the branch has not moved since;
   /// otherwise it opens the review, which says what stands in the way.
