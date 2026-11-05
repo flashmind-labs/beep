@@ -8,6 +8,7 @@ import type { ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { reason, since } from "../ui/format.ts";
 import { emptyPanel, note, secHead } from "../ui/parts.ts";
+import { openMenu, type MenuItem } from "../ui/menu.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 
@@ -453,6 +454,15 @@ export function makeRuns(deps: RunDeps) {
     head.setAttribute("aria-expanded", String(opened));
     head.addEventListener("click", () => toggle(id, r));
     head.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(id, r); } });
+    head.addEventListener("contextmenu", e => {
+      const items: MenuItem[] = [{ label: `Open on ${hostLabel(r.host, hosts)}`, on: () => openUrl(r.url) }];
+      // What the opened run's buttons do, once its detail is read.
+      const d = opened ? s.detail : null;
+      if (d?.run.state === "failed") items.push({ label: "Fix this", on: () => fix(d) });
+      const job = d?.jobs.find(j => j.state === "failed");
+      if (job?.url) items.push({ label: "Full log", on: () => openUrl(job.url!) });
+      openMenu(e, `${r.workflow} #${r.number}`, items);
+    });
     const el = h("div", `pj-runrow ${chip.cls || "idle"}${opened ? " open" : ""}`, head);
     if (opened) el.append(detailEl(s));
     return el;

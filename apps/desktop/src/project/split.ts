@@ -18,6 +18,7 @@ import { tag, line, section } from "../ui/pieces.ts";
 import { homeBox } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
+import { sessionMenu } from "../agents/sessionmenu.ts";
 import { customAgentsSection, whereSection, agentsSection } from "./projects.ts";
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
@@ -60,6 +61,8 @@ interface SplitItem {
   start?: StartEntry;
   right?: Kid;
   open?: () => void;
+  /// What right-clicking the row does.
+  menu?: (e: MouseEvent) => void;
   detail?: () => Node[];
 }
 
@@ -107,6 +110,7 @@ function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter, pick?: HTML
   row.title = i.title;
   if (i.key === lit) row.setAttribute("aria-current", "true");
   row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
+  if (i.menu) row.addEventListener("contextmenu", i.menu);
   return pick ? h("div", "pj-prow", pick, row) : row;
 }
 
@@ -141,6 +145,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLineAt(r, state.home?.projects || []),
     right: r.status === "asking" ? tag("wait", "needs you") : runningWhen(r), open: () => go("pane", { agent: r }),
+    menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));
   if (runItems.length) groups.push({ title: "Running", items: runItems });
   groups.push({ title: "Project", items: project });
@@ -157,6 +162,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     return {
       key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
       right: chip && stateChip(chip.cls, chip.text, chip.cls === "running"),
+      menu: e => thr.prMenu(e, agent, acts, l),
       detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
     };
   });
@@ -168,6 +174,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     lead: num(l.number), title: l.title,
     sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
     right: l.task && stateChip(l.task.state, l.task.state, l.task.state === "running"),
+    menu: l.issue ? (e => thr.issueMenu(e, agent, acts, l.issue!)) : undefined,
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
   }));

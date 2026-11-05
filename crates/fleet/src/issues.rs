@@ -4,6 +4,7 @@
 use crate::{
     desk::Desk,
     error::Result,
+    open_items::merge,
     projects::{DeskMachines, DeskProject},
     records::{now_ms, time},
 };
@@ -151,7 +152,8 @@ impl Desk {
         })
     }
 
-    /// The user's open pull requests and issues on every git host they have a token for.
+    /// The open pull requests and issues of every imported project, read through the machines,
+    /// with the user's own on every git host they have a token for.
     pub async fn git_items(&self) -> Result<OpenedItems> {
         let opened = self.opened();
         let logins: Vec<Login<'_>> = opened
@@ -164,17 +166,22 @@ impl Desk {
             .filter(|login| matches!(login.slot, Slot::GitHub | Slot::Forgejo(_)))
             .filter(|login| !login.secret.expose_secret().is_empty())
             .collect();
+        let mut names = project_names(&self.mesh);
+        names.sort();
         let key: Vec<String> = logins
             .iter()
             .map(|login| {
                 let tail = last4(login.secret.expose_secret());
                 format!("{:?}/{tail}/{:?}", login.slot, login.account)
             })
+            .chain(names.iter().map(|name| format!("project/{name}")))
             .collect();
         if let Some(kept) = fresh(&key) {
             return Ok(kept);
         }
-        let items = read(&self.hosts, &logins).await?;
+        let (tokens, projects) =
+            tokio::join!(read(&self.hosts, &logins), self.read_projects(&names));
+        let items = merge(tokens?, projects);
         *BOARD.lock().unwrap_or_else(PoisonError::into_inner) = Some(Kept {
             key,
             at: Instant::now(),

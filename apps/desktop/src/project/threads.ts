@@ -6,6 +6,7 @@ import { STATE_LABEL, reviewState } from "../review/review.ts";
 import type { ReviewState, ReviewView } from "../review/review.ts";
 import { plural, reason } from "../ui/format.ts";
 import { emptyPanel, freshNote, stateChip, secHead } from "../ui/parts.ts";
+import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
 import type { ChecksRow } from "./runs.ts";
 
@@ -477,6 +478,32 @@ export function makeThreads(deps: ThreadDeps) {
     return actsEl(s, [`i${n}`, `d${n}`], buttons);
   }
 
+  /// A pull request row's right-click menu: what its buttons do.
+  function prMenu(e: MouseEvent, agent: Agent, ctx: RepoActs, l: PrLine) {
+    const n = l.pr.number;
+    const items: MenuItem[] = [{ label: "Open on forge", on: () => openUrl(l.pr.url) }];
+    if (l.needs_reply) items.push({ label: "Let the agent reply", on: () => void act(agent.project_id, `r${n}`, async () => {
+      openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n }));
+    }) });
+    items.push({ label: "Continue", on: () => void act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)) });
+    if (l.branch && ctx.review) {
+      const branch = l.branch;
+      items.push({ label: "Review", on: () => ctx.review!(branch) });
+    }
+    items.push({ label: "Agent review", on: () => void act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)) });
+    openMenu(e, `#${n} ${l.pr.title}`, items);
+  }
+
+  /// An issue row's right-click menu: what its buttons do.
+  function issueMenu(e: MouseEvent, agent: Agent, ctx: RepoActs, i: IssueRow) {
+    openMenu(e, `#${i.number} ${i.title}`, [
+      { label: "Open on forge", on: () => openUrl(i.url) },
+      { label: "Work on it", on: () => ctx.workOn(i) },
+      { label: "Plan", on: () => void track(agent, i.number) },
+      { label: "Discuss", on: () => void discuss(agent, i.number) },
+    ]);
+  }
+
   /// The user's pull requests and issues, with replies and chats.
   function threadsPanel(agent: Agent) {
     const s = of(agent.project_id);
@@ -530,6 +557,8 @@ export function makeThreads(deps: ThreadDeps) {
     issueLines: (agent: Agent, ctx: RepoActs) => issueLines(of(agent.project_id).issues || [], ctx.tasks),
     prButtons,
     issueButtons,
+    prMenu,
+    issueMenu,
     threadsPanel,
   };
 }

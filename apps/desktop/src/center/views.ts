@@ -4,19 +4,19 @@ import type { PaneTarget } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { chatProject } from "../project/agent.ts";
-import { type ProjectsArg, type ViewArg, type ViewHead, type CenterView, $, state, views } from "./state.ts";
+import { type ProjectsArg, type ViewArg, type ViewHead, type CenterView, type ViewName, $, state, views } from "./state.ts";
 import { drawSide, projectRows } from "./sidebar.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { threadChats } from "./threadcard.ts";
 import { PageHistory } from "./pagehistory.ts";
 import { viewHidden } from "../settings/subscription.ts";
 
-export let shown: string | null = null;
+export let shown: ViewName | null = null;
 /// The argument `shown` was opened with, so Esc from an agent view can return to it.
 export let shownArg: ViewArg;
 
 /// Adds a view the window can show.
-export function registerView(name: string, view: CenterView) {
+export function registerView(name: ViewName, view: CenterView) {
   let el = view.el;
   if (!el) {
     el = h("div", "cc-box");
@@ -60,7 +60,7 @@ export function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
 }
 
-const pages = new PageHistory<{ view: string; arg: ViewArg }>();
+const pages = new PageHistory<{ view: ViewName; arg: ViewArg }>();
 /// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
 let moving = false;
 
@@ -83,7 +83,7 @@ export function goHistory(forward: boolean) {
 }
 
 /// Shows view `name`, passing `arg` to its mount.
-export function go(name: string, arg?: ViewArg): boolean {
+export function go(name: ViewName, arg?: ViewArg): boolean {
   // A link to a page only a subscription has lands on Home.
   if (viewHidden(name, arg, state.subscribed)) return go("home");
   if (route(windowScope(), name, arg) === "main") {

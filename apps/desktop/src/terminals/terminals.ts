@@ -6,6 +6,7 @@
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
 import { emptyPanel } from "../ui/parts.ts";
 import { press } from "../ui/dom.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
 import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../ui/pagecache.ts";
@@ -599,26 +600,42 @@ export function makeTerminals(deps: TerminalDeps) {
     const t = of(name);
     const live = liveOf(name, open.id);
     const acts: HTMLElement[] = [];
+    const items: MenuItem[] = [];
+    const toggleTyping = () => {
+      live.watching = !live.watching;
+      live.screen.setInput(live.link === "attached" && !live.watching);
+      if (!live.watching) live.screen.focus();
+      redraw();
+    };
+    const detachHere = () => { detach(live); redraw(); };
+    const attachHere = () => { live.tries = 0; attach(name, live); redraw(); };
     if (live.link === "attached" || live.link === "attaching") {
-      const typing = button(live.watching ? "Take control" : "View only", "small", () => {
-        live.watching = !live.watching;
-        live.screen.setInput(live.link === "attached" && !live.watching);
-        if (!live.watching) live.screen.focus();
-        redraw();
-      });
+      const typing = button(live.watching ? "Take control" : "View only", "small", toggleTyping);
       typing.title = live.watching ? "Type into the terminal again" : "Stop typing into it, keep watching";
-      const off = button("Detach", "small", () => { detach(live); redraw(); });
+      const off = button("Detach", "small", detachHere);
       off.title = "Stop following it here; it keeps running";
       acts.push(typing, off);
+      items.push({ label: live.watching ? "Take control" : "View only", on: toggleTyping }, { label: "Detach", on: detachHere });
     } else if (live.link === "detached" || (live.link === "ended" && open.state === "offline")) {
-      acts.push(button("Attach", "small pri", () => { live.tries = 0; attach(name, live); redraw(); }));
+      acts.push(button("Attach", "small pri", attachHere));
+      items.push({ label: "Attach", on: attachHere });
     }
-    acts.push(button(open.state === "running" ? "Kill…" : "Close", "small warn", () => {
-      if (open.state !== "running" || confirm(`Stop ${open.name} on ${open.machine_name}?`)) close(name, open.id);
-    }));
+    const running = open.state === "running";
+    const stop = () => {
+      if (!running) return void close(name, open.id);
+      confirmSheet({
+        title: `Stop ${open.name}?`,
+        text: `It stops running on ${open.machine_name}.`,
+        action: "Stop",
+        run: () => close(name, open.id),
+      });
+    };
+    acts.push(button(running ? "Kill…" : "Close", "small warn", stop));
+    items.push({ label: running ? "Kill…" : "Close", warn: true, on: stop });
     const head = h("div", "tm-head",
       h("span", "", h("b", "", open.name), ` ${open.machine_name} · ${open.cwd}`),
       h("span", "tm-st", stateLabel(open)), ...acts);
+    head.addEventListener("contextmenu", e => openMenu(e, open.name, items));
     let body: HTMLElement;
     if (live.link === "view_only") {
       const o = t.output;

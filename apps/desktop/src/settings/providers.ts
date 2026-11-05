@@ -6,6 +6,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { checkedLabel, compactKind, compactOf, compactProblem, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasCompact, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
+import type { ViewName } from "../center/state.ts";
 import { copyButton, emptyPanel } from "../ui/parts.ts";
 import { flshPanel } from "./flsh.ts";
 import { failBanner } from "../ui/failbanner.ts";
@@ -15,7 +16,7 @@ interface MachineRow { id: string; name: string; online: boolean }
 
 /// What the window hands `registerProviders`.
 interface ProvidersDeps {
-  registerView: (name: string, view: { title: () => { title: string; sub: string; tools: Node[] }; mount(root: HTMLElement, arg?: unknown): void }) => void;
+  registerView: (name: ViewName, view: { title: () => { title: string; sub: string; tools: Node[] }; mount(root: HTMLElement, arg?: unknown): void }) => void;
   invoke: typeof Invoke;
   h: MakeEl;
   button: MakeButton;

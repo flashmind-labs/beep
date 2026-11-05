@@ -1,6 +1,8 @@
 // What a Mac with no subscription shows. Machines, projects, terminals and coding agents work
 // over the mesh; the assistant needs the subscription, so what is for it is left out.
 
+import type { ViewName } from "../center/state.ts";
+
 /// Why to subscribe, as Settings says it.
 export const SUBSCRIPTION_NOTE = "Adds chats, memories, routines, skills, apps, research, the project agent and phones.";
 
@@ -48,7 +50,7 @@ const ASSISTANT_PAGES = ["chats", "memories", "routines", "rnew", "grants", "ski
 
 /// Whether going to window view `name` with `arg` opens something only a subscription has, such as
 /// a deep link from the tray, another window or a notification. The window shows Home instead.
-export function viewHidden(name: string, arg: unknown, subscribed: boolean) {
+export function viewHidden(name: ViewName, arg: unknown, subscribed: boolean) {
   if (subscribed) return false;
   if (name === "research" || name === "researchopen") return true;
   if (name !== "pane") return false;

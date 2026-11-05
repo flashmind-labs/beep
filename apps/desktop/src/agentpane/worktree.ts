@@ -5,7 +5,7 @@
 // again. Nothing here runs git checkout: only what the pane reads changes.
 // State is per session and kept in memory.
 
-import { type Entry, type Tree, follow, followSteps, reportedRoot, rootOf, treeName } from "./worktree-state.ts";
+import { type Entry, type Tree, follow, followSteps, removedCheckout, reportedRoot, rootOf, treeName } from "./worktree-state.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
@@ -27,6 +27,9 @@ const REPORT_MS = 5000;
 const W = {
   place: null as Place | null,
   trees: [] as Tree[],
+  /// The folder the pane works from: the session's, or its main checkout once
+  /// the session's own is gone (a removed worktree).
+  cwd: "",
   reading: false,
   /// Asked to read the list while it was being read.
   again: false,
@@ -59,7 +62,7 @@ const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
 /// or that the menu needs drawing again (false).
 export function startWorktrees(place: Place, changed: (root: boolean) => void) {
   Object.assign(W, {
-    place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, last: bare(place.cwd), next: 0, child: null, handled: false,
+    place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, cwd: bare(place.cwd), last: bare(place.cwd), next: 0, child: null, handled: false,
     log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, changed,
   });
   readTrees();
@@ -102,9 +105,11 @@ async function readTrees() {
     if (JSON.stringify(got) !== JSON.stringify(W.trees)) {
       W.trees = got;
       listed = true;
-      // Read the log again, from its start, against the new list.
-      Object.assign(W, { next: 0, last: bare(p.cwd), seen: null });
-      const roots = got.map(t => rootOf(t, p.cwd));
+      // A removed worktree: go on from the main checkout. The log is read
+      // again from its start, against the new list and folder.
+      W.cwd = removedCheckout(got, p.cwd) ?? bare(p.cwd);
+      Object.assign(W, { next: 0, last: W.cwd, seen: null });
+      const roots = got.map(t => rootOf(t, W.cwd));
       if (W.pick && !roots.includes(W.pick)) W.pick = null;
     }
   } catch {
@@ -123,8 +128,8 @@ async function readTrees() {
 /// where the agent works.
 function want() {
   const p = W.place;
-  const reported = p && W.placed ? reportedRoot(W.trees, p.cwd, W.placed.folder) : null;
-  return W.child ?? (W.follow ? reported ?? W.seen : W.pick) ?? bare(p?.cwd ?? "");
+  const reported = p && W.placed ? reportedRoot(W.trees, W.cwd, W.placed.folder) : null;
+  return W.child ?? (W.follow ? reported ?? W.seen : W.pick) ?? W.cwd;
 }
 
 /// A comment box with text in the Changes tab: a switch waits for it to close.
@@ -154,8 +159,8 @@ function scan() {
   const p = W.place;
   const { entries, earlier } = W.log;
   if (!p?.cwd) return;
-  if (W.next < earlier || W.next > earlier + entries.length) Object.assign(W, { next: earlier, last: bare(p.cwd) });
-  const got = follow(entries.slice(W.next - earlier), W.trees, p.cwd, W.last);
+  if (W.next < earlier || W.next > earlier + entries.length) Object.assign(W, { next: earlier, last: W.cwd });
+  const got = follow(entries.slice(W.next - earlier), W.trees, W.cwd, W.last);
   W.next += got.done;
   W.last = got.kept;
   if (got.hit) W.seen = got.last;
@@ -180,7 +185,7 @@ export function followAgent(entries: Entry[], earlier: number, steps: string[] |
   if (!steps) W.handled = false;
   W.child = null;
   if (steps && !W.handled) {
-    const got = followSteps(steps, W.trees, p.cwd);
+    const got = followSteps(steps, W.trees, W.cwd);
     if (got.hit) W.child = got.last;
     ask(got.unknown);
   }
@@ -201,11 +206,25 @@ function pickRoot(root: string | null) {
   W.changed(false);
 }
 
+/// The session's folder is gone and the pane works from its main checkout.
+function removed(p: Place) {
+  return W.cwd !== bare(p.cwd);
+}
+
+/// The branch the pane shows in place of a removed worktree, while it is the
+/// one showing; null otherwise.
+export function removedBranch() {
+  const p = W.place;
+  const main = W.trees.find(t => t.own);
+  return p && main && removed(p) && W.shown === W.cwd ? treeName(main) : null;
+}
+
 function menuHtml(p: Place) {
   const main = W.trees.find(t => t.own);
+  const gone = removed(p);
   const items = W.trees.map(t => {
-    const root = rootOf(t, p.cwd);
-    const sub = t.own ? "the session's folder"
+    const root = rootOf(t, W.cwd);
+    const sub = t.own ? (gone ? "main checkout" : "the session's folder")
       : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
     const here = W.seen === root ? " · agent here" : "";
     return `<button role="menuitemradio" aria-checked="${root === W.shown}" data-wt="${esc(root)}" title="${esc(t.path)}"><code>${esc(treeName(t))}</code><small>${esc(sub)}${here}</small></button>`;
@@ -218,13 +237,13 @@ function menuHtml(p: Place) {
 /// to show, or the pane is not on the session's folder.
 export function drawWorktrees(host: HTMLElement, here: boolean) {
   const p = W.place;
-  const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd) || !!W.placed?.linked);
-  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.placed]) : "";
+  const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd) || removed(p) || !!W.placed?.linked);
+  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.cwd, W.placed]) : "";
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   host.hidden = !show;
   if (!show || !p) return host.replaceChildren();
-  const now = W.trees.find(t => rootOf(t, p.cwd) === W.shown);
+  const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
   const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
   host.innerHTML = `<button class="agpbtn agwt" aria-haspopup="menu" aria-expanded="${W.open}" title="The worktree Files and Changes show"><code>${esc(label)}</code><span aria-hidden="true">&#9662;</span></button>${W.open ? menuHtml(p) : ""}`;
   host.onclick = e => {

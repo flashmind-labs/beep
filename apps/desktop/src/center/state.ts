@@ -72,6 +72,8 @@ export const state = {
   sync: [] as SyncRow[],
   traffic: [] as MachineTraffic[],
   git: null as GitItemsView | null,
+  /// Why `git_items` threw, when it did.
+  gitError: null as string | null,
   top: [] as string[],
   overview: undefined as OverviewCard[] | null | undefined,
   groups: undefined as ProjectGroup[] | null | undefined,
@@ -141,8 +143,11 @@ export function pageFresh(section: PageSection, id: string, loading: boolean) {
   return freshness(pages.at(section, id), loading, Date.now());
 }
 
+/// The names of the views the window can show, one per `registerView`.
+export type ViewName = "home" | "pane" | "projects" | "providers" | "research" | "researchopen" | "sync" | "instructions" | "terminals";
+
 /// The views the window can show, by name.
-export const views = new Map<string, CenterView & { el: HTMLElement }>();
+export const views = new Map<ViewName, CenterView & { el: HTMLElement }>();
 
 /// A sidebar group.
 export interface SidebarGroup<T> {

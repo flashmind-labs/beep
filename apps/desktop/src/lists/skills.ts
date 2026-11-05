@@ -4,6 +4,7 @@ import { arrowKey, clampSel, confirmCard, confirmKey, confirmRow, dayDiff, empty
 import { switchHtml, esc, plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 
 // ---------- Skills ----------
 
@@ -105,6 +106,7 @@ export function drawSkills(): void {
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
   bar.onclick = skillClick;
+  bar.oncontextmenu = skillMenu;
 }
 
 /// One skill: its instructions, or the editor.
@@ -130,6 +132,31 @@ export function drawSkill(): void {
       <button class="dbtn" data-k="edit">Edit<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn warn" data-k="vdelete">Delete<kbd>⌘⌫</kbd></button></div>${err}${confirm}
     <div class="dbody pt"><div class="dmuted">${esc(skillMeta(k))}</div><div class="reply">${k.html}</div>${undo}</div>`
     + hints(K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]]);
+}
+
+/// A skill row's right-click menu: what its buttons do. Delete asks first.
+function skillMenu(e: MouseEvent) {
+  if (S.view !== "skills") return;
+  const row = (e.target as HTMLElement).closest<HTMLElement>(".drt[data-i]");
+  if (!row) return;
+  K.sel = Number(row.dataset.i);
+  const k = K.list[K.sel];
+  const items: MenuItem[] = [
+    { label: "Open", on: () => void skillAction("view") },
+    { label: k.enabled ? "Turn off" : "Turn on", on: () => void skillAction("toggle") },
+  ];
+  if (k.can_undo) items.push({ label: "Undo", on: () => void skillAction("undo") });
+  items.push({
+    label: "Delete…",
+    warn: true,
+    on: () => confirmSheet({
+      title: `Delete ${k.name}?`,
+      text: "The skill is deleted for good.",
+      action: "Delete",
+      run: () => skillAction("delete-yes"),
+    }),
+  });
+  openMenu(e, k.name, items);
 }
 
 export function skillClick(e: MouseEvent) {

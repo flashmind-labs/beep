@@ -5,6 +5,7 @@ mod desk;
 mod error;
 mod issues;
 pub mod migrate;
+mod open_items;
 mod peer;
 mod projects;
 mod records;

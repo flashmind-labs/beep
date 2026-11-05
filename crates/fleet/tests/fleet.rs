@@ -536,6 +536,40 @@ async fn issues_and_pull_requests_read_with_no_server() {
 }
 
 #[tokio::test]
+async fn home_lists_an_imported_projects_items_with_no_token() {
+    let f = fleet().await;
+    let node = widget_host();
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await;
+    studio
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    let items = studio.git_items().await.expect("home's items read");
+    let rows = &items.items.found.items;
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter()
+            .any(|row| row.number == 7 && row.repo == "acme/widget")
+    );
+    assert!(rows.iter().any(|row| row.number == 9 && row.authored));
+    assert!(items.opened_at.iter().all(Option::is_some));
+    assert!(
+        items
+            .items
+            .found
+            .hosts
+            .iter()
+            .all(|host| host.error.is_none())
+    );
+}
+
+#[tokio::test]
 async fn usage_sums_every_machine() {
     let f = fleet().await;
     let second = join(&f.studio, DeviceKind::Node, "mac-box").await;

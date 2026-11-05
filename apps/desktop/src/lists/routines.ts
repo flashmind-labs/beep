@@ -6,6 +6,7 @@ import { arrowKey, clampSel, CLOCK_ICON, confirmKey, confirmRow, dayDiff, dayMon
 import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { confirmSheet, openMenu } from "../ui/menu.ts";
 
 // ---------- Routines ----------
 
@@ -135,6 +136,31 @@ export function drawRoutines() {
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
   bar.onclick = routineClick;
+  bar.oncontextmenu = routineMenu;
+}
+
+/// A routine row's right-click menu: what its buttons do. Delete asks first.
+function routineMenu(e: MouseEvent) {
+  if (S.view !== "routines") return;
+  const row = (e.target as HTMLElement).closest<HTMLElement>(".drt[data-i]");
+  if (!row) return;
+  R.sel = Number(row.dataset.i);
+  const c = R.list[R.sel];
+  openMenu(e, c.label, [
+    { label: "Run now", on: () => void routineAction("run") },
+    { label: "Edit", on: () => void routineAction("edit") },
+    { label: c.enabled ? "Pause" : "Resume", on: () => void routineAction("toggle") },
+    {
+      label: "Delete…",
+      warn: true,
+      on: () => confirmSheet({
+        title: `Delete ${c.label}?`,
+        text: "The routine stops running.",
+        action: "Delete",
+        run: () => routineAction("delete-yes"),
+      }),
+    },
+  ]);
 }
 
 export function routineClick(e: MouseEvent) {
