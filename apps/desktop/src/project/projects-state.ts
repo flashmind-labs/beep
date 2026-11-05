@@ -160,7 +160,10 @@ export function mergeProjects(
     rows.set(p.name, row);
   }
   for (const r of (running || []).filter(isAgent)) {
-    const row = [...rows.values()].find(p => p.machines.some(m => m.id === r.machine_id && within(r.cwd, m.folder)));
+    let row: Project | undefined;
+    for (const p of rows.values()) {
+      if (p.machines.some(m => m.id === r.machine_id && within(r.cwd, m.folder))) { row = p; break; }
+    }
     if (!row) continue;
     row.agents += 1;
     const at = r.last_activity || r.started_at || null;
