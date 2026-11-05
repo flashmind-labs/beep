@@ -320,6 +320,8 @@ installs `beep-node-<version>-x86_64-pc-windows-msvc.zip` into
 (the Dockerfile's `node-dist-windows` stage). Updates move the running exe
 aside to `beep-node.exe.old`, removed by the next update.
 
+`send_files` works like scp and needs no shared folders: any path here, any folder there (made if missing), and always directly over the mesh when the target is in it. Other file access (`files/1`, project sync, session moves) keeps to `files` in `node.toml`.
+
 ## beep-sync and git
 
 The whole checkout syncs: tracked files, ignored files and `.git`

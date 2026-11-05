@@ -1481,6 +1481,57 @@ async fn agent_mcp(desktop: &Member, node: &Node, work: &Path, sent: &Path) -> M
 
 #[cfg(unix)]
 #[tokio::test]
+async fn an_agent_sends_files_between_machines_that_share_no_folders() {
+    let desktop = desktop(None).await;
+    let work = TempDir::new().expect("a temp folder");
+    let sent = work.path().join("sent.jsonl");
+    let a = Node::start(Config {
+        name: Some("box-a"),
+        agent: Some(adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    let b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    desktop.reach(b.id).await;
+    let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
+    timeout(LIMIT, async {
+        while !mcp
+            .call("list_machines", json!({}))
+            .await
+            .0
+            .contains("box-b: online")
+        {}
+    })
+    .await
+    .expect("box-b came online in time");
+    let note = work.path().join("note.txt");
+    fs::write(&note, "for b").expect("a file");
+    let dest = work.path().join("landed");
+    let (text, failed) = mcp
+        .call(
+            "send_files",
+            json!({
+                "machine": "box-b",
+                "paths": [note.display().to_string()],
+                "dest": dest.display().to_string(),
+            }),
+        )
+        .await;
+    assert!(!failed, "{text}");
+    assert_eq!(
+        fs::read_to_string(dest.join("note.txt")).expect("the file landed"),
+        "for b"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
     let desktop = desktop(None).await;
     let work = TempDir::new().expect("a temp folder");
@@ -1762,11 +1813,33 @@ async fn an_agent_syncs_a_project_and_sends_a_file_with_no_server() {
         fs::read_to_string(pair.roots[1].path().join("note.txt")).expect("the file landed"),
         "for b"
     );
-    // Outside what it shares, the node sends nothing.
+    // Like scp: from outside what it shares, to a new folder outside what
+    // the other machine shares.
+    let outside = TempDir::new().expect("a temp folder");
+    let from = outside.path().join("site");
+    fs::create_dir(&from).expect("a folder");
+    fs::write(from.join("index.html"), "hello").expect("a file");
+    let dest = outside.path().join("deep/dest");
     let (text, failed) = mcp
         .call(
             "send_files",
-            json!({ "machine": "box-b", "paths": ["/etc/hostname"] }),
+            json!({
+                "machine": "box-b",
+                "paths": [from.display().to_string()],
+                "dest": dest.display().to_string(),
+            }),
+        )
+        .await;
+    assert!(!failed, "{text}");
+    assert_eq!(
+        fs::read_to_string(dest.join("site/index.html")).expect("the folder landed"),
+        "hello"
+    );
+    // A missing file is the one thing it refuses.
+    let (text, failed) = mcp
+        .call(
+            "send_files",
+            json!({ "machine": "box-b", "paths": ["/no/such/file"] }),
         )
         .await;
     assert!(failed, "{text}");

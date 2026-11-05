@@ -27,6 +27,7 @@ use iroh_blobs::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    fs,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -413,7 +414,7 @@ impl Transfers {
         let inner = &self.inner;
         let resolved = {
             let (folders, path) = (inner.folders.clone(), path.to_owned());
-            spawn_blocking(move || folders.resolve(&path)).await??
+            spawn_blocking(move || folders.everywhere().resolve(&path)).await??
         };
         let offered = offer::offer(
             &inner.store,
@@ -430,24 +431,26 @@ impl Transfers {
         })
     }
 
-    /// Fetches what a source offered with `offer_to` into `dest` (the first
-    /// shared folder when none), writing under the first free name. Only
-    /// shared folders are written, as for any transfer.
+    /// Fetches what a source offered with `offer_to` into `dest`, made if
+    /// missing (the first shared folder, else the home folder, when none),
+    /// writing under the first free name.
     pub(crate) async fn receive(&self, incoming: Incoming) -> Result<Received> {
         let inner = &self.inner;
         let _permit =
             inner.running.clone().try_acquire_owned().map_err(|_| {
                 anyhow!("busy: {MAX_RUNNING} transfers are running on this machine")
             })?;
-        let folder = match &incoming.dest {
-            Some(dest) => inner.folders.resolve(dest)?,
-            None => inner
-                .folders
-                .first()
-                .map(Path::to_path_buf)
-                .context("this node shares no folders")?,
-        };
-        let folder = check_fetch(inner, &incoming.name, &folder.to_string_lossy()).await?;
+        place::plain_name(&incoming.name)?;
+        let (folders, dest) = (inner.folders.clone(), incoming.dest.clone());
+        let folder = spawn_blocking(move || {
+            let everywhere = folders.everywhere();
+            let start = everywhere.first().context("this machine has no folders")?;
+            let dest = start.join(dest.unwrap_or_default());
+            fs::create_dir_all(&dest).with_context(|| format!("making {}", dest.display()))?;
+            place::open_target(&everywhere, &dest.to_string_lossy())
+        })
+        .await??;
+        let folder = Arc::new(folder);
         let hash = Hash::from_bytes(incoming.content.hash);
         let job = fetch::Job {
             from: incoming.from,
