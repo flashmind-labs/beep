@@ -8,7 +8,7 @@ import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, diffView } from "../review/diff.ts";
 import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
-import { paneRoot, refreshWorktrees } from "./worktree.ts";
+import { paneRoot, refreshWorktrees, removedBranch } from "./worktree.ts";
 import { reviewIn } from "./worktree-state.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -18,6 +18,8 @@ const C = {
   key: "",
   el: null as HTMLElement | null,
   view: null as DiffViewHandle | null,
+  /// The line saying the session's worktree was removed.
+  note: null as HTMLElement | null,
 };
 
 /// The Changes view of the pane's session, made the first time it shows.
@@ -33,6 +35,7 @@ export function changesView() {
     Object.assign(C, { el, view: null });
     return el;
   }
+  C.note = h('<div class="dv-note" hidden></div>');
   const view = diffView({
     uncommitted: true,
     load: (only, lockfiles, uncommitted) => {
@@ -43,9 +46,18 @@ export function changesView() {
     open: { label: "Open in a tab", run: openWorkFile },
     review: { key: `${s.machine_id}\n${s.id}`, send: text => sendReview(reviewIn(text, paneRoot(), s.cwd)) },
   });
-  el.append(view.el);
+  el.append(C.note, view.el);
+  drawNote();
   Object.assign(C, { el, view });
   return el;
+}
+
+/// Says so while the pane shows the main checkout in place of a removed worktree.
+function drawNote() {
+  const branch = removedBranch();
+  if (!C.note) return;
+  C.note.hidden = !branch;
+  C.note.textContent = branch ? `The session's worktree was removed. Showing ${branch}.` : "";
 }
 
 /// The view, when it was made for the pane's session.
@@ -61,6 +73,7 @@ export function dropChanges() {
 
 /// Reads the changes again, as the tab shows once more.
 export function reloadChanges() {
+  drawNote();
   C.view?.reload();
 }
 

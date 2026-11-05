@@ -124,3 +124,44 @@ export function confirmSheet(options: ConfirmOptions) {
   ]));
   act.focus();
 }
+
+/// A sheet with one text field, filled with `value`; Save runs `run` with what was typed,
+/// and a failure shows in the sheet.
+export function renameSheet(options: { title: string; value: string; run: (text: string) => Promise<unknown> }) {
+  closeMenu();
+  let busy = false;
+  const { sheet, close: shut } = openSheet(options.title, "am-sheet", { canClose: () => !busy });
+  const close = () => { if (!busy) shut(); };
+  const field = el("input", "gp-field");
+  field.value = options.value;
+  field.spellcheck = false;
+  const error = el("div", "am-msg bad");
+  error.hidden = true;
+  const save = async () => {
+    const text = field.value.trim();
+    if (busy || !text || text === options.value) return close();
+    busy = true;
+    saveBtn.disabled = true;
+    error.hidden = true;
+    try {
+      await options.run(text);
+      busy = false;
+      close();
+    } catch (e) {
+      busy = false;
+      saveBtn.disabled = false;
+      error.textContent = reason(e);
+      error.hidden = false;
+    }
+  };
+  field.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void save(); } });
+  const saveBtn = button("Save", "dbtn pri", save);
+  sheet.append(
+    el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
+    el("div", "am-line", field),
+    error,
+    el("div", "gp-foot", button("Cancel", "dbtn quiet", close), saveBtn),
+  );
+  field.focus();
+  field.select();
+}

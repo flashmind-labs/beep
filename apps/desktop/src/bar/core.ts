@@ -1,6 +1,7 @@
 // The bar's page, and the pane the command center window shows it in.
 import type { GroupState } from "../chat/groups.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
+import type { ViewName } from "../center/state.ts";
 
 export const bar = document.getElementById("bar")!;
 /// True when this page runs as a pane in the command center window rather
@@ -153,7 +154,7 @@ export interface WindowHooks {
   settingsAway(view: string | null): void;
   /// Draws window view `name` (such as "providers") inside `root`, a page of
   /// the Settings sheet, opened with `arg`.
-  embedView?(name: string, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void): () => void;
+  embedView?(name: ViewName, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void): () => void;
   /// ⌘N in the pane: the window picks the chat.
   newChat(): void;
   /// Esc from an agent view goes back to the view that opened it.
@@ -167,7 +168,7 @@ export interface WindowHooks {
 
 /// A window view to go back to, as the window opened an agent view from it.
 export interface BackTo {
-  view: string;
+  view: ViewName;
   arg?: unknown;
 }
 

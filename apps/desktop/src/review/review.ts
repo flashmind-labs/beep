@@ -9,7 +9,8 @@ import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "../project/board.ts";
 import { plural, reason } from "../ui/format.ts";
-import { emptyPanel, errorNote, freshNote, note, stateChip, svgEl, secHead } from "../ui/parts.ts";
+import { emptyPanel, errorNote, freshNote, note, stateChip, svgEl, secHead, writeClipboard } from "../ui/parts.ts";
+import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
@@ -533,8 +534,21 @@ export function makeReviews(deps: ReviewDeps) {
       if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
       const title = h("span", "t", h("code", "", b.name));
       title.title = b.subject;
-      return h("div", "pj-task pj-br", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
+      const row = h("div", "pj-task pj-br", title, stateChip("", isDefault ? "default" : b.local ? "local" : "origin"),
         h("span", "m", ...meta.map(x => h("span", "", x))), acts.childNodes.length ? acts : null);
+      row.addEventListener("contextmenu", e => {
+        const items: MenuItem[] = [];
+        if (diff) items.push({ label: "View diff", on: diff });
+        if (r) items.push({ label: "Open review", on: () => openBranch(name, b.name) });
+        if (!isDefault && b.ahead > 0) items.push({ label: r ? "Review again" : "Review", on: () => openBranch(name, b.name, !!r) });
+        if (!isDefault && !b.worktree) {
+          const here = worktreeMachines(machines(), data.machine_id).find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
+          items.push({ label: `Worktree on ${here.name}`, on: () => addWorktree(name, b.name, here) });
+        }
+        items.push({ label: "Copy name", on: () => void writeClipboard(b.name) });
+        openMenu(e, b.name, items);
+      });
+      return row;
     });
     out.push(h("div", "", secHead("Branches", data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null,
       freshNote(freshness(kept.at(name), reading.has(name), Date.now())), button("Refresh", "quiet small", () => load(name))),

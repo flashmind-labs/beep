@@ -7,7 +7,7 @@ import { el as h } from "../ui/dom.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { chatProject, shortName, type ProjectAgent } from "../project/agent.ts";
 import { askBeep } from "./center.ts";
-import { type ViewHead, state } from "./state.ts";
+import { type ViewHead, type ViewName, state } from "./state.ts";
 import { projectDot } from "../ui/pieces.ts";
 import { startedWhen } from "./home.ts";
 import { shown, go, drawTop, openResearch } from "./views.ts";
@@ -92,7 +92,7 @@ export async function loadAgents() {
 // ---------- Handoffs ----------
 
 /// Shows what the bar or tray asked for, once; Home when nothing is waiting.
-export async function takePending(fallback: string | null) {
+export async function takePending(fallback: ViewName | null) {
   const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
   if (target == null) return fallback && go(fallback);
   if (target === "home" || target === "instructions" || target === "providers" || target === "terminals" || target === "research") return go(target);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Tree, follow, followSteps, reviewIn, rootOf, treeAt } from "../src/agentpane/worktree-state.ts";
+import { type Tree, follow, followSteps, removedCheckout, reviewIn, rootOf, treeAt } from "../src/agentpane/worktree-state.ts";
 
 const tree = (path: string, branch: string | null, own = false): Tree => ({ path, branch, head: "abc1234", own });
 const main = tree("/srv/app", "main", true);
@@ -115,6 +115,25 @@ test("a subagent's steps give its worktree", () => {
   assert.equal(got.last, "/srv/app-side");
   assert.equal(got.hit, true);
   assert.equal(followSteps(["cargo test"], trees, "/srv/app").hit, false);
+});
+
+test("a folder that is gone gives the main checkout, a live one gives null", () => {
+  const gone = (cwd: string, list: Tree[]) => removedCheckout(list, cwd);
+  // The node lists the main checkout as own for a removed one.
+  assert.equal(gone("/srv/app/.worktrees/fix", [main, side]), "/srv/app");
+  assert.equal(gone("/srv/app/.worktrees/fix/crates/x/", [main]), "/srv/app");
+  assert.equal(gone("/srv/app/.claude/worktrees/fix", [main]), "/srv/app");
+  assert.equal(gone("/srv/app-gone", [main]), "/srv/app");
+  // A live one inside the main checkout is its own tree.
+  assert.equal(gone("/srv/app/.worktrees/fix", [{ ...main, own: false }, { ...fix, own: true }, side]), null);
+  assert.equal(gone("/srv/app/.worktrees/fix/src", [{ ...main, own: false }, { ...fix, own: true }]), null);
+  // The main checkout, or a folder in it.
+  assert.equal(gone("/srv/app", trees), null);
+  assert.equal(gone("/srv/app/crates/x", trees), null);
+  assert.equal(gone("/srv/app/worktrees-notes", [main]), null);
+  // No list, or no tree holding the folder.
+  assert.equal(gone("/srv/app", []), null);
+  assert.equal(gone("/srv/app", [{ ...main, own: false }]), null);
 });
 
 test("a review of another worktree says which", () => {
