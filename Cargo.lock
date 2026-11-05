@@ -484,6 +484,8 @@ dependencies = [
 name = "beep-assistant"
 version = "0.1.0"
 dependencies = [
+ "flashmind-llm",
+ "flashmind-types",
  "futures",
  "log",
  "reqwest 0.12.28",
