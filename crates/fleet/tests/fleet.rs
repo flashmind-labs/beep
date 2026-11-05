@@ -250,6 +250,8 @@ struct Peering {
     broken: AtomicBool,
     /// The mesh never finishes opening.
     never: bool,
+    /// What machines said before, which `last_env` gives back.
+    kept: HashMap<EndpointId, EnvReport>,
 }
 
 #[async_trait]
@@ -266,6 +268,10 @@ impl Peers for Peering {
 
     fn me(&self) -> EndpointId {
         self.me
+    }
+
+    fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
+        self.kept.get(&machine).cloned()
     }
 
     async fn client(&self, machine: EndpointId) -> Result<PeerClient, FleetError> {
@@ -290,6 +296,7 @@ fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<P
         stuck: stuck.iter().map(|dev| dev.id).collect(),
         broken: AtomicBool::new(false),
         never: false,
+        kept: HashMap::new(),
     })
 }
 
@@ -1545,4 +1552,53 @@ async fn a_node_from_before_session_moves_is_not_offered_one() {
             .await
             .expect("the new node answers")
     );
+}
+
+/// What a machine with Claude Code and a Codex sign-in says about itself.
+fn with_agents() -> EnvReport {
+    EnvReport {
+        tools: ["claude", "codex"]
+            .iter()
+            .map(|name| ToolInfo {
+                name: (*name).into(),
+                version: None,
+            })
+            .collect(),
+        logins: vec![beep_proto::node::Login {
+            tool: "codex".into(),
+            signed_in: true,
+            account: None,
+        }],
+        ..EnvReport::default()
+    }
+}
+
+#[tokio::test]
+async fn the_agent_accounts_list_this_mac_though_its_own_probe_says_nothing() {
+    let f = fleet().await;
+    let build = Arc::new(FakeNode {
+        tools: vec!["claude"],
+        ..FakeNode::default()
+    });
+    // This Mac has no node to ask here: all it has is what its node reported before.
+    let peering = Peering {
+        mesh: f.laptop.mesh.clone(),
+        me: f.laptop.id,
+        nodes: HashMap::from([(f.build.id, build.session())]),
+        stuck: Vec::new(),
+        broken: AtomicBool::new(false),
+        never: false,
+        kept: HashMap::from([(f.laptop.id, with_agents())]),
+    };
+    let laptop = Desk::open(Arc::new(peering)).await.expect("the desk opens");
+    let accounts = laptop.agent_accounts().await.expect("it lists");
+    let names: Vec<_> = accounts
+        .machines
+        .iter()
+        .map(|machine| machine.machine_name.as_str())
+        .collect();
+    assert_eq!(names, ["build-box", "Laptop"], "{accounts:?}");
+    let mine = &accounts.machines[1];
+    assert!(mine.claude && mine.codex && mine.online);
+    assert_eq!(mine.codex_signed_in, Some(true));
 }

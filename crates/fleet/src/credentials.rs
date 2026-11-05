@@ -13,7 +13,7 @@ use crate::{
     peer::probe,
     records::{WRITES, now_ms, time},
 };
-use beep_mesh::Key;
+use beep_mesh::{DeviceStatus, Key};
 use beep_projects::{
     credential_check::{
         Checked, Checker,
@@ -26,13 +26,19 @@ use beep_projects::{
 use beep_proto::{
     AgentAccount, AgentAccounts, AgentMachine, AgentToken, ApiProvider, Credential,
     CredentialCheck, CredentialKind, GITHUB_ENV_VAR, GitHubAccount, SecretText,
-    node::{EnvSecret, ForgejoLogin, mesh_state::Credential as Value},
+    node::{EnvReport, EnvSecret, ForgejoLogin, mesh_state::Credential as Value},
 };
+use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use secrecy::{ExposeSecret, SecretString};
-use std::{collections::BTreeMap, str::FromStr};
+use std::{collections::BTreeMap, str::FromStr, time::Duration};
+use tokio::time::timeout;
 
 /// The longest secret taken.
+/// Machines asked about their agents at once.
+const ACCOUNTS_AT_ONCE: usize = 4;
+/// How long one machine has to answer, so an unreachable one does not hold the card.
+const ACCOUNTS_PER_MACHINE: Duration = Duration::from_secs(8);
 const MAX_SECRET: usize = 4096;
 const PREFIX: &str = "credential/";
 
@@ -678,44 +684,39 @@ impl Desk {
                     unreadable: false,
                 })
         };
-        let mut machines = Vec::new();
-        for status in self.mesh.devices() {
-            let id = status.device.id;
-            let said = match status.online {
-                true => match self.peers.client(id).await {
-                    Ok(client) => probe(&client).await.ok(),
-                    Err(_) => None,
-                },
-                false => None,
-            };
-            let tools = said.as_ref().and_then(|said| said.env.as_ref());
-            let has =
-                |name: &str| tools.is_some_and(|env| env.tools.iter().any(|t| t.name == name));
-            let (claude, codex) = (has("claude"), has("codex"));
-            if !claude && !codex {
-                continue;
-            }
-            machines.push(AgentMachine {
-                machine_id: id.to_string(),
-                machine_name: status.device.name,
-                online: status.online,
-                claude,
-                codex,
-                claude_sessions: 0,
-                codex_signed_in: tools.and_then(|env| {
-                    env.logins
-                        .iter()
-                        .find(|login| login.tool == "codex")
-                        .map(|login| login.signed_in)
-                }),
-            });
-        }
+        // Owned values in the futures, so the call stays `Send` for a Tauri command.
+        let mut machines: Vec<AgentMachine> = stream::iter(self.mesh.devices())
+            .map(|status| async move {
+                let env = self.agent_env(&status).await;
+                agent_machine(status, env)
+            })
+            .buffer_unordered(ACCOUNTS_AT_ONCE)
+            .filter_map(|machine| async move { machine })
+            .collect()
+            .await;
         machines.sort_by_key(|machine| machine.machine_name.to_lowercase());
         Ok(AgentAccounts {
             claude: token(AgentAccount::Claude),
             codex_key: token(AgentAccount::Codex),
             machines,
         })
+    }
+
+    /// What `status`'s machine has: what it says now, else what it last said, which a machine
+    /// that is off, slow, or this Mac's own node on its first probe has kept.
+    async fn agent_env(&self, status: &DeviceStatus) -> Option<EnvReport> {
+        let id = status.device.id;
+        let live = match status.online {
+            true => timeout(ACCOUNTS_PER_MACHINE, async {
+                let client = self.peers.client(id).await.ok()?;
+                probe(&client).await.ok()?.env
+            })
+            .await
+            .ok()
+            .flatten(),
+            false => None,
+        };
+        live.or_else(|| self.peers.last_env(id))
     }
 
     /// Saves the token `agent` signs in with, for every machine.
@@ -751,4 +752,30 @@ impl Desk {
             .ok_or(FleetError::NotFound)?;
         self.drop_keys(&old.id).await
     }
+}
+
+/// A machine's row, when it has Claude Code or Codex.
+fn agent_machine(status: DeviceStatus, env: Option<EnvReport>) -> Option<AgentMachine> {
+    let has = |name: &str| {
+        env.as_ref()
+            .is_some_and(|env| env.tools.iter().any(|tool| tool.name == name))
+    };
+    let (claude, codex) = (has("claude"), has("codex"));
+    if !claude && !codex {
+        return None;
+    }
+    Some(AgentMachine {
+        machine_id: status.device.id.to_string(),
+        machine_name: status.device.name,
+        online: status.online,
+        claude,
+        codex,
+        claude_sessions: 0,
+        codex_signed_in: env.and_then(|env| {
+            env.logins
+                .iter()
+                .find(|login| login.tool == "codex")
+                .map(|login| login.signed_in)
+        }),
+    })
 }

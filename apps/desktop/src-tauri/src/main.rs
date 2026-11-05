@@ -214,6 +214,8 @@ fn main() {
             beep::devices::remove_device,
             beep::devices::use_here,
             beep::login::complete_login,
+            beep::signout::sign_in,
+            beep::signout::sign_out,
             beep::login::login_hosted,
             beep::login::start_login,
             beep::login::use_own_server,
