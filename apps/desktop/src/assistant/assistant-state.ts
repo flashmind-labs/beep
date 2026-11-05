@@ -48,7 +48,7 @@ export function newKey(provider: KeyProvider, secret: string) {
 }
 
 /// The line under the MCP servers heading.
-export const MCP_NOTE = "Tools for chats on this Mac. One that changes something asks first. Results are private: web search turns off in that chat.";
+export const MCP_NOTE = "Tools for chats on this Mac. Each call asks first. Results are private: web search turns off in that chat.";
 
 /// How a listed server is doing (`McpStatus`).
 export type McpState = { state: "idle" } | { state: "ready"; tools: number } | { state: "failed"; error: string };

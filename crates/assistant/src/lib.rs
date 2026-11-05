@@ -33,8 +33,6 @@ pub use view::{Step, TurnView, turns};
 
 use secrecy::SecretString;
 
-/// The async mutex, under one name for the crate.
-pub(crate) type AsyncMutex<T> = tokio::sync::Mutex<T>;
 use serde::{Deserialize, Serialize};
 
 /// How hard the model thinks before it answers.

@@ -1,5 +1,5 @@
-//! Running one call of the model against an MCP server: asking the user first unless the tool is
-//! read-only, then calling it and marking what comes back as someone else's text.
+//! Running one call of the model against an MCP server: asking the user first, then calling it
+//! and marking what comes back as someone else's text.
 
 use super::{McpHub, McpTool};
 use crate::{
@@ -69,21 +69,19 @@ where
     A: Fn(String) -> G,
     G: Future<Output = bool>,
 {
-    if !tool.read_only {
-        let query_id = Uuid::new_v4().to_string();
-        let answer = approve(query_id.clone());
-        let asked = Event::Approval(Approval {
-            query_id,
-            server: tool.server.clone(),
-            tool: tool.tool.clone(),
-            fields: fields(&arguments),
-        });
-        events.send(asked).await.ok();
-        match tokio::time::timeout(ANSWER_LIMIT, answer).await {
-            Ok(true) => {}
-            Ok(false) => return ToolResult::failed("The user did not allow this call."),
-            Err(_) => return ToolResult::failed("The user did not answer, so it was not run."),
-        }
+    let query_id = Uuid::new_v4().to_string();
+    let answer = approve(query_id.clone());
+    let asked = Event::Approval(Approval {
+        query_id,
+        server: tool.server.clone(),
+        tool: tool.tool.clone(),
+        fields: fields(&arguments),
+    });
+    events.send(asked).await.ok();
+    match tokio::time::timeout(ANSWER_LIMIT, answer).await {
+        Ok(true) => {}
+        Ok(false) => return ToolResult::failed("The user did not allow this call."),
+        Err(_) => return ToolResult::failed("The user did not answer, so it was not run."),
     }
     match hub.call(tool, arguments).await {
         Ok(called) => ToolResult {
