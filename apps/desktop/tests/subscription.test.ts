@@ -30,6 +30,7 @@ test("with no subscription the assistant's keys, pages and links do nothing and 
     assert.equal(viewHidden("pane", page, true), false, page);
   }
   assert.equal(viewHidden("research", undefined, false), true);
+  assert.equal(viewHidden("researchopen", { session: "s" }, false), true);
   assert.equal(viewHidden("pane", { chat: { session: null } }, false), true);
   assert.equal(viewHidden("pane", { group: { id: "g" } }, false), true);
   // What works over the mesh opens.
