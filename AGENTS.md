@@ -247,7 +247,7 @@ in `build.mjs`.
 - `machines/`: the Machines list, Home's machine table, Add a machine.
 - `terminals/`: terminals kept running on the machines.
 - `settings/`: the Settings pages and sheet.
-- `research/`: the research window (entry `research.ts`) and its lists.
+- `research/`: the Research page and an opened research (`open.ts`, laid out like a session).
 - `orb/`: the orb window (entry `orb.ts`).
 - `ui/`: shared helpers with no page behind them: Tauri bindings, DOM builders, icons, formatting, menus, the page cache, and the Home and Projects row pieces.
 
@@ -265,7 +265,7 @@ and lists every Tauri command; each `mod.rs` only declares and re-exports.
 - `agents/`: coding agent sessions, files, diffs, artifacts, harnesses, sign-ins.
 - `machines/`: the account's machines, terminals, and this Mac as a node.
 - `settings/`: apps, credentials, git sign-ins, grants, memories, routines, skills, models.
-- `research/`: research windows and their commands.
+- `research/`: research commands and what the team did.
 - `notices/`: routing server notices, macOS notifications, sub-agent questions.
 - `tray/`: the tray menu and what waits on the user.
 - `platform/`: log file, login `PATH`, editors, app updates.

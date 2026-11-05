@@ -1,10 +1,9 @@
-//! What a research window and the bar ask of a research: starting and
+//! What the command center and the bar ask of a research: starting and
 //! opening one, listing them, its chat, stopping it and exporting its paper.
 
-use super::window::open_window;
 use crate::{
-    bar,
     beep::{BarEvent, Pick, Sent, Service, Turn},
+    center::{self, CenterTarget},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
 };
@@ -19,7 +18,7 @@ use std::{
 use tauri::{AppHandle, Manager, State, ipc::Channel};
 use uuid::Uuid;
 
-/// Topics typed in the bar, waiting for their window to send them.
+/// Topics typed in the bar, waiting for the research's page to send them.
 #[derive(Default)]
 pub struct Pending(Mutex<HashMap<Uuid, String>>);
 
@@ -39,13 +38,14 @@ impl Pending {
     }
 }
 
-/// Starts a research on `topic` in a new chat and opens its window, which
-/// sends the topic. Returns the chat.
+/// Starts a research on `topic` in a new chat and opens it in the command
+/// center, whose page sends the topic. Returns the chat.
 #[tauri::command]
 pub fn research_begin(
     app: AppHandle,
     beep: Service<'_>,
     pending: State<'_, Pending>,
+    window: State<'_, center::Pending>,
     topic: String,
 ) -> Result<Uuid> {
     let topic = topic.trim();
@@ -55,18 +55,20 @@ pub fn research_begin(
     let session = Uuid::new_v4();
     beep.add_research(session);
     pending.put(session, topic.to_owned());
-    open_window(&app, session)?;
-    bar::hide(&app);
+    center::open_on(&app, &window, CenterTarget::OpenResearch { session })?;
     Ok(session)
 }
 
-/// Opens the window of a research started earlier.
+/// Opens a research started earlier in the command center.
 #[tauri::command]
-pub fn open_research(app: AppHandle, beep: Service<'_>, session: Uuid) -> Result<()> {
+pub fn open_research(
+    app: AppHandle,
+    beep: Service<'_>,
+    window: State<'_, center::Pending>,
+    session: Uuid,
+) -> Result<()> {
     beep.add_research(session);
-    open_window(&app, session)?;
-    bar::hide(&app);
-    Ok(())
+    center::open_on(&app, &window, CenterTarget::OpenResearch { session })
 }
 
 /// The chats started here as researches.
@@ -76,7 +78,7 @@ pub fn research_sessions(beep: Service<'_>) -> Vec<Uuid> {
 }
 
 /// Every research of the account, newest first, wherever it started. Each
-/// is remembered here, so its chat opens in a research window.
+/// is remembered here, so its chat opens as a research.
 #[tauri::command]
 pub async fn list_researches(beep: Service<'_>) -> Result<Vec<ResearchItem>> {
     let listed = beep.call(ListResearches {}).await?;
@@ -110,7 +112,7 @@ impl From<ResearchSummary> for ResearchItem {
     }
 }
 
-/// The topic the window should send first, once.
+/// The topic the research's page should send first, once.
 #[tauri::command]
 pub fn research_pending(pending: State<'_, Pending>, session: Uuid) -> Option<String> {
     pending.take(session)

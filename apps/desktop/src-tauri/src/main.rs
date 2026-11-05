@@ -86,7 +86,7 @@ fn main() {
         })
         .setup(|app| Ok(setup(app)?))
         .on_window_event(|window, event| match event {
-            // Only the bar is a popover; research windows stay put. Live
+            // Only the bar is a popover; the other windows stay put. Live
             // mode goes on in the orb, so the microphone never runs unseen.
             WindowEvent::Focused(false)
                 if window.label() == bar::LABEL && window.is_visible().unwrap_or(false) =>
@@ -116,7 +116,7 @@ fn main() {
                     .app_handle()
                     .state::<center::AgentsShown>()
                     .clear(window.label());
-                research::closed(window.app_handle(), window.label());
+                center::closed(window.app_handle(), window.label());
             }
             _ => {}
         })

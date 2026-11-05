@@ -1,48 +1,17 @@
-/* The research window: the lead's chat, the workspace and the agents, as in the desktop mock. */
-html, body.rbody { background: var(--ink) }
-.rwin { height: 100vh; display: flex; flex-direction: column; background: var(--ink) }
-.rwin .tb { height: 38px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 82px; border-bottom: 1px solid var(--border) }
-.rwin .tb .name { flex: 0 1 auto; min-width: 0; margin: 0; font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.rwin .tb .stat { flex: none; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums }
-#stop { margin-left: auto; flex: none }
-.rgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(250px, 30%) minmax(0, 1fr) 248px }
-.rgrid.wide { grid-template-columns: minmax(250px, 28%) minmax(0, 1fr) 320px }
-.rgrid > section { min-width: 0; min-height: 0; display: flex; flex-direction: column }
-.rgrid > section + section { border-left: 1px solid var(--border) }
-/* Every column starts with a row of the same height: its name, the tabs, or who a thread belongs to. */
+/* An opened research: the lead's chat and a side pane of tabs, as in the desktop mock. */
 .rhd { flex: none; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; min-width: 0 }
 .rhd h4 { margin: 0; font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
 .rhd small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .rhd b { font-weight: 600 }
 .rhd .who { display: grid; line-height: 15px; min-width: 0 }
-.rhd .rx { margin-left: auto; border: 0; background: transparent; color: var(--muted); display: grid; padding: 4px; border-radius: var(--radius-sm) }
-.rhd .rx:hover { color: var(--fg) }
 .rpane { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; line-height: 20px }
 .rpane::-webkit-scrollbar { display: none }
 .rpane > * { flex: none }
-.rmain .ask { max-width: 90% }
-.rmain .rwho { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted) }
-.rmain .racts { display: flex; gap: 8px; flex-wrap: wrap }
 .rstatus { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); font-size: 12.5px; color: var(--muted) }
 .rstatus .dspin { flex: none }
-/* The message field closes the lead's column; dragging its top edge makes it taller. */
-.rask { flex: none; position: relative; margin: auto 10px 10px }
-.rask .dinput.small { border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); padding: 8px 10px; font-size: 13.5px; line-height: 20px; align-items: stretch }
-.rask .dinput.small:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.rask .dinput textarea { align-self: stretch }
-.rask .grip { position: absolute; left: 0; right: 0; top: -6px; height: 8px; cursor: ns-resize; z-index: 1 }
-.rask .grip::after { content: ""; position: absolute; left: 50%; top: 3px; width: 36px; height: 3px; margin-left: -18px; border-radius: 2px; background: var(--muted); opacity: 0 }
-.rask:hover .grip::after, .rask .grip.on::after { opacity: .6 }
 /* A tile with the agent's letter in its color, as the command center's agent tiles. */
 .rav { width: 20px; height: 20px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--c); background: var(--elev); border: 1px solid var(--border); flex: none }
-.rtabs { gap: 2px; padding: 0 12px 0 6px; align-items: stretch }
-.rtabs [role="tab"] { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px; padding: 2px 9px 0; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px }
-.rtabs [role="tab"]:hover { color: var(--fg) }
-.rtabs [role="tab"][aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent) }
-.rtabs .n { font-size: 11px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums }
-.rtabs .sp { flex: 1 }
-.rtabs .dbtn { align-self: center }
-.rtabs .dbtn .dspin, .racts .dbtn .dspin { width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px }
+.agpacts .dbtn .dspin, .racts .dbtn .dspin { width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px }
 /* A box of rows, as the command center's panels. */
 .rbox { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); overflow: hidden; min-width: 0 }
 .rbox > * + * { border-top: 1px solid color-mix(in srgb, var(--fg) 5%, transparent) }
@@ -72,8 +41,8 @@ html, body.rbody { background: var(--ink) }
 .rtbl .src small { color: var(--muted); font-size: 11.5px }
 .rtbl .src q { color: var(--muted); margin-top: 2px }
 .rtbl .by { display: flex; align-items: flex-start; gap: 6px; color: var(--muted); white-space: nowrap }
-.rside .rpane { padding: 10px }
-.rside .rpane.thread { gap: 6px; padding: 10px 12px; user-select: text }
+.rpane.agents { padding: 10px }
+.rpane.thread { gap: 6px; padding: 10px 12px; user-select: text }
 .rround { position: relative; margin-left: auto }
 .rround .dmenu { position: absolute; right: 0; top: 26px; z-index: 5; width: 200px }
 .rag { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 0 8px; align-items: center; padding: 7px 8px; border: 0; background: transparent; text-align: left; color: var(--fg); width: 100% }
@@ -81,7 +50,15 @@ html, body.rbody { background: var(--ink) }
 .rag b { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .rag small { grid-column: 2 / -1; font-size: 11.5px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .rag .model { grid-column: 2 / -1; font-size: 10.5px; line-height: 14px; color: var(--dim) }
-.rwork { position: relative }
-.rwork .dsaved { bottom: 16px; white-space: nowrap }
-.rwork .dsaved .dspin { border-color: color-mix(in srgb, var(--ink) 30%, transparent); border-top-color: var(--ink) }
+.rs-pane .dsaved { bottom: 56px; white-space: nowrap }
+.rs-pane .dsaved .dspin { border-color: color-mix(in srgb, var(--ink) 30%, transparent); border-top-color: var(--ink) }
 .rquote { position: fixed; z-index: 10; min-height: 26px; box-shadow: 0 4px 14px color-mix(in srgb, var(--shade) 45%, transparent) }
+
+.rs { flex: 1; min-height: 0; display: flex; flex-direction: column }
+.rs-log { padding: 12px 20px }
+.rs-pane { position: relative }
+.rs-pane .rpane { user-select: text; cursor: auto }
+.rs .dhead .rdocic { display: grid; color: var(--dim); flex: none }
+.rs .dhead .tt small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.rs .dhead .cc-rsteps { flex: none }
+.racts { display: flex; gap: 8px; flex-wrap: wrap }
