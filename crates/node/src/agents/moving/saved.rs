@@ -1,6 +1,7 @@
 //! What a node keeps of a move across a restart: how it ended, and the
 //! copy of the conversation while it waits (`<state>/moves/`).
 
+use crate::agents::OpenSession;
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -11,19 +12,42 @@ use std::{
 pub(super) enum Phase {
     /// Not over: a restart does it again from the copy.
     Working,
-    /// Over: the source ended the session, or the target runs it.
+    /// The source ended the session and waits to hear that the target runs
+    /// it; if the target gives up, the session starts again here.
+    Closed,
+    /// Over: the target runs the session.
     Done,
     /// Over, without moving the session.
     Failed,
 }
 
 /// The state of the move that the record made at `at` asked for.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) struct Saved {
     pub(super) at: u64,
     pub(super) phase: Phase,
     #[serde(default)]
     pub(super) reason: Option<String>,
+    /// What starts the session again at the source, once it ended there.
+    #[serde(default)]
+    pub(super) open: Option<OpenSession>,
+}
+
+impl Saved {
+    /// A move that ended as `phase`.
+    pub(super) fn over(at: u64, phase: Phase, reason: Option<String>) -> Self {
+        Self {
+            at,
+            phase,
+            reason,
+            open: None,
+        }
+    }
+
+    /// Over, for this record: nothing is left to do after a restart.
+    pub(super) fn is_over(&self, at: u64) -> bool {
+        self.at == at && matches!(self.phase, Phase::Done | Phase::Failed)
+    }
 }
 
 /// The node's `moves` folder.

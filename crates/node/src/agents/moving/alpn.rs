@@ -1,7 +1,9 @@
 //! Serves `beep-sessions/1` to the mesh's devices.
 
-use super::read::serve;
+use super::read::{Asked, serve};
 use crate::{agents::Agents, link::Membership};
+use beep_mesh::{Key, Mesh};
+use beep_proto::node::mesh_state::{SessionMove, StateValue};
 use iroh::{
     EndpointId,
     endpoint::Connection,
@@ -32,6 +34,33 @@ impl SessionsAlpn {
     }
 }
 
+/// Whether `ask` about session `id` is one the move record in the mesh
+/// allows between this node (`me`) and `peer`: a target reads the
+/// transcript of the session that moves to it, and a source asks the
+/// target how the move stands. A device that no record names reads
+/// nothing, whatever it is in the mesh.
+pub(super) fn permits(
+    record: Option<&SessionMove>,
+    me: EndpointId,
+    peer: EndpointId,
+    ask: Asked,
+    id: &str,
+) -> bool {
+    let Some(record) = record.filter(|record| record.id == id) else {
+        return false;
+    };
+    match ask {
+        Asked::Read => record.from == me && record.to == peer,
+        Asked::State => record.to == me && record.from == peer,
+    }
+}
+
+/// The move record of session `id` in `mesh`.
+fn record_of(mesh: &Mesh, id: &str) -> Option<SessionMove> {
+    let bytes = mesh.get(&Key::SessionMove(id.to_owned()))?;
+    SessionMove::from_bytes(&bytes).ok()
+}
+
 impl fmt::Debug for SessionsAlpn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("SessionsAlpn")
@@ -60,7 +89,15 @@ impl ProtocolHandler for SessionsAlpn {
                     }
                     let (tx, rx) = beep_proto::node::link(send, recv);
                     let agents = self.agents.clone();
-                    streams.spawn(async move { serve(tx, rx, &agents).await });
+                    let Some(mesh) = self.membership.get() else {
+                        continue;
+                    };
+                    streams.spawn(async move {
+                        let allow = |ask: Asked, id: &str| {
+                            permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
+                        };
+                        serve(tx, rx, &agents, &allow).await
+                    });
                 }
                 Some(ended) = streams.join_next() => {
                     match ended {

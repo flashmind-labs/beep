@@ -247,3 +247,87 @@ fn a_moved_transcript_is_not_counted_again_but_what_follows_is() {
     let sessions = by_session(&reports);
     assert!((cost(sessions["s9"]) - 1.0).abs() < 1e-9, "{reports:?}");
 }
+
+#[test]
+fn a_session_that_comes_back_keeps_what_it_spent_here_before() {
+    let fixture = fixture();
+    let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let path = fixture
+        .roots
+        .claude
+        .clone()
+        .expect("a claude root")
+        .join("-work-app/s9.jsonl");
+    let first = claude_line("s9", "m9", "2026-11-03T08:30:00.000Z", 1_000_000);
+    append(&path, &first);
+    let before = spend.pass_all(NOW);
+    assert!(
+        (cost(by_session(&before)["s9"]) - 5.0).abs() < 1e-9,
+        "{before:?}"
+    );
+    // It ran elsewhere meanwhile and returns with that transcript: the
+    // folder is written differently and a turn was added.
+    let back = format!(
+        "{}{}",
+        first.replace("/srv/project", "/home/user/app"),
+        claude_line("s9", "m10", "2026-11-03T08:40:00.000Z", 200_000)
+    );
+    fs::write(&path, back).expect("the transcript comes back");
+    spend
+        .mark_counted(Agent::Claude, "s9", &path)
+        .expect("marked");
+    let after = spend.pass_all(NOW);
+    assert!(
+        (cost(by_session(&after)["s9"]) - 5.0).abs() < 1e-9,
+        "the hours it spent here stay, and the turn run elsewhere is not added: {after:?}"
+    );
+    append(
+        &path,
+        &claude_line("s9", "m11", "2026-11-03T08:50:00.000Z", 100_000),
+    );
+    let reports = spend.pass_all(NOW);
+    assert!(
+        (cost(by_session(&reports)["s9"]) - 5.5).abs() < 1e-9,
+        "{reports:?}"
+    );
+}
+
+#[test]
+fn a_moved_codex_session_keeps_its_folder_and_provider_for_what_runs_here() {
+    let fixture = fixture();
+    let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let path = fixture
+        .roots
+        .codex
+        .clone()
+        .expect("a codex root")
+        .join("2026/11/03/rollout-2026-11-03T07-00-00-t9.jsonl");
+    let count = |at: &str, total: u64| {
+        format!(
+            "{{\"timestamp\":\"{at}\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"token_count\",\"info\":{{\"total_token_usage\":{{\"input_tokens\":{total},\"cached_input_tokens\":0,\"output_tokens\":0,\"total_tokens\":{total}}},\"last_token_usage\":{{\"input_tokens\":1000000,\"cached_input_tokens\":0,\"output_tokens\":0,\"total_tokens\":1000000}}}}}}}}\n"
+        )
+    };
+    append(
+        &path,
+        &format!(
+            "{}{}{}",
+            "{\"timestamp\":\"2026-11-03T07:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"t9\",\"cwd\":\"/work/app\",\"model_provider\":\"openrouter\"}}\n",
+            "{\"timestamp\":\"2026-11-03T07:00:01.000Z\",\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-6.1-sol\"}}\n",
+            count("2026-11-03T07:01:00.000Z", 1_000_000),
+        ),
+    );
+    spend
+        .mark_counted(Agent::Codex, "t9", &path)
+        .expect("marked");
+    // A turn run here: its lines name neither the folder nor the provider
+    // nor the model, the header did.
+    append(&path, &count("2026-11-03T08:30:00.000Z", 2_000_000));
+    let reports = spend.pass(NOW);
+    let report = by_session(&reports)["t9"];
+    assert_eq!(report.cwd, "/work/app");
+    assert!(
+        (cost(report) - 2.0).abs() < 1e-9,
+        "only the new turn: {report:?}"
+    );
+    assert_eq!(report.hours[0].billing, Billing::Metered);
+}

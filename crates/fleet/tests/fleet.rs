@@ -129,6 +129,8 @@ struct FakeNode {
     tools: Vec<&'static str>,
     /// The diffs it was asked for.
     diffed: Mutex<Vec<DiffAsk>>,
+    /// It knows session moves; a node from before them closes the stream.
+    moves: bool,
 }
 
 impl FakeNode {
@@ -211,6 +213,14 @@ impl FakeNode {
                     };
                     self.diffed.lock().expect("log").push(ask);
                     tx.send(&SessionsReply::Diff { diff }).await.ok();
+                    return;
+                }
+                if self.moves
+                    && let Ok(Some(SessionsRequest::MoveProgress { .. })) = first
+                {
+                    tx.send(&SessionsReply::Moving { progress: None })
+                        .await
+                        .ok();
                     return;
                 }
                 let Ok(Some(SessionsRequest::FollowUsage { .. })) = first else {
@@ -1426,7 +1436,7 @@ async fn a_harness_variable_taken_out_drops_its_record_and_one_left_blank_keeps_
 #[tokio::test]
 async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cannot_go() {
     use beep_fleet::MoveAsk;
-    use beep_proto::node::mesh_state::{StateValue, SyncSpec};
+    use beep_proto::node::mesh_state::{SessionMove, StateValue, SyncSpec};
     let f = fleet().await;
     let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
     until(&f.studio.mesh, |m| online(m, second.id)).await;
@@ -1483,8 +1493,56 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
         .expect("the move is asked for");
     assert_eq!(record.path, "crates/a");
     assert_eq!(desk.moves().len(), 1);
+    // A record of a move long over goes when the next move is asked for.
+    let old = SessionMove {
+        at: 1,
+        id: "s0".into(),
+        ..record.clone()
+    };
+    f.studio
+        .mesh
+        .set(
+            Key::SessionMove("s0".to_owned()),
+            Some(old.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the old record is written");
+    assert_eq!(desk.moves().len(), 2);
+    let again = MoveAsk {
+        id: "s2",
+        ..ask("codex", "/srv/build/app", false)
+    };
+    desk.move_session(again).await.expect("a second move");
+    let mut ids: Vec<_> = desk.moves().into_iter().map(|m| m.id).collect();
+    ids.sort();
+    assert_eq!(ids, ["s1", "s2"], "the old record is gone");
+    desk.cancel_move("s2").await.expect("taken back");
     // Another desktop sees it, and may take it back.
     until(&f.laptop.mesh, |m| m.scan("session-move/").len() == 1).await;
     desk.cancel_move("s1").await.expect("taken back");
     until(&f.laptop.mesh, |m| m.scan("session-move/").is_empty()).await;
+}
+
+#[tokio::test]
+async fn a_node_from_before_session_moves_is_not_offered_one() {
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    let old = Arc::new(FakeNode::default());
+    let new = Arc::new(FakeNode {
+        moves: true,
+        ..FakeNode::default()
+    });
+    let desk = desk(&f.studio, &[(&f.build, &old), (&second, &new)]).await;
+    assert!(
+        !desk
+            .takes_moves(f.build.id)
+            .await
+            .expect("the old node answers")
+    );
+    assert!(
+        desk.takes_moves(second.id)
+            .await
+            .expect("the new node answers")
+    );
 }

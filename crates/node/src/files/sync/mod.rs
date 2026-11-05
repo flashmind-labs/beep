@@ -604,10 +604,14 @@ impl Syncs {
         loop {
             let now = shared.status();
             progress(&now);
+            // An error in the status, such as two checkouts at different
+            // commits or a folder that cannot be checked, is a reason the
+            // files are not all here, whatever the counts say.
             if shared.caught_up_since(peer, since)
                 && now.pending == 0
                 && now.waiting.is_empty()
                 && !now.paused
+                && now.error.is_none()
             {
                 return Ok(());
             }

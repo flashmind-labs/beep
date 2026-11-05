@@ -1,7 +1,7 @@
 // What the window knows of the moves in the mesh: the records and how each
 // target says it goes. The lists and the session view both read it.
 
-import { type MoveProgress, type MoveRecord, bySession, dedupe, listLabel } from "./move-state.ts";
+import { type MoveProgress, type MoveRecord, bySession, dedupe, effective, listLabel } from "./move-state.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// Records older than this are not asked about again.
@@ -40,6 +40,9 @@ export async function refreshMoves() {
   moved();
 }
 
+/// How the move of session `id` stands, read for the window.
+export const stateOf = (id: string) => effective(MV.progress.get(id), MV.records.get(id), Date.now());
+
 /// `rows` with a session that moved shown once.
 export const withoutCopies = <T extends { machine_id: string; id: string; agent: string }>(rows: readonly T[]) => dedupe(rows, [...MV.records.values()]);
 
@@ -47,5 +50,5 @@ export const withoutCopies = <T extends { machine_id: string; id: string; agent:
 export function moveLabel(s: { id: string; machine_id: string; machine_name: string }) {
   const r = MV.records.get(s.id);
   if (!r || r.from !== s.machine_id) return null;
-  return listLabel(r, MV.progress.get(s.id), id => (id === s.machine_id ? s.machine_name : nameOf(id)));
+  return listLabel(r, stateOf(s.id), id => (id === s.machine_id ? s.machine_name : nameOf(id)));
 }

@@ -1970,13 +1970,24 @@ fn rollout_on(node: &Node, folder: &Path) -> PathBuf {
 
 /// What the desktop writes to move session `s` from `a` to `b`.
 async fn ask_to_move(desktop: &Member, from: EndpointId, to: EndpointId, stop: bool) {
+    ask_to_move_in(desktop, from, to, stop, "").await;
+}
+
+/// As `ask_to_move`, for a session in `path` below the project's folder.
+async fn ask_to_move_in(
+    desktop: &Member,
+    from: EndpointId,
+    to: EndpointId,
+    stop: bool,
+    path: &str,
+) {
     let record = SessionMove {
         agent: "codex".into(),
         id: MOVED_ID.to_owned(),
         from,
         to,
         project: "proj".to_owned(),
-        path: String::new(),
+        path: path.to_owned(),
         mode: None,
         stop,
         at: 1_793_696_400_000,
@@ -2243,4 +2254,81 @@ async fn a_move_waits_for_a_source_that_is_offline_and_goes_on_when_it_returns()
             .any(|line| line.contains(&a_folder.display().to_string()))
     );
     until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was() {
+    // `b` has no folder for the session: it gives up the move before `a`
+    // ends anything.
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), None).await;
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let mut agent = ready(&conn_a, "codex/1").await;
+    agent
+        .tx
+        .send(&AgentRequest::Start {
+            cwd: Some(pair.a_folder.display().to_string()),
+            prompt: "go".to_owned(),
+            model: None,
+            effort: None,
+            checkout: None,
+        })
+        .await
+        .expect("the start is sent");
+    timeout(LIMIT, async {
+        loop {
+            match agent.rx.recv::<AgentEvent>().await.expect("an event reads") {
+                Some(AgentEvent::TurnDone { .. }) => return,
+                Some(AgentEvent::Ended { reason }) => panic!("the session ended: {reason}"),
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("the turn finished in time");
+    rollout_on(&pair.a, &pair.a_folder);
+
+    ask_to_move_in(&pair.desktop, pair.a.id, pair.b.id, false, "missing").await;
+    pair.a.logged("the move of session s did not finish").await;
+    // `a` still runs the session, and takes a message again.
+    let mut follow = ready(&conn_a, "codex/1").await;
+    follow
+        .tx
+        .send(&AgentRequest::Attach {
+            session: MOVED_ID.to_owned(),
+        })
+        .await
+        .expect("the attach is sent");
+    follow
+        .tx
+        .send(&AgentRequest::Prompt {
+            text: "carry on".to_owned(),
+        })
+        .await
+        .expect("the prompt is sent");
+    line_sent(&pair.work.path().join("sent.jsonl"), "carry on").await;
+    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.state.status != Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_progress(&conn_b, "failed", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("no checkout"))
+    })
+    .await;
 }

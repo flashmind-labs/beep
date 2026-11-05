@@ -255,6 +255,23 @@ fn read_log(
     Ok(touched)
 }
 
+/// What the log at `path` says of its session, with none of what it spent:
+/// the header's folder and provider, the model and the running totals a
+/// request that follows needs.
+pub(super) fn header_of(agent: Agent, path: &Path, accounts: &AccountFiles) -> io::Result<LogFile> {
+    let mut entry = LogFile::new(agent);
+    let log = Listed {
+        agent,
+        path: path.to_owned(),
+        stamp: Stamp::of(path)?,
+    };
+    let mut budget = MAX_BYTES;
+    read_log(&mut entry, &log, &mut budget, &mut Accounts::read(accounts))?;
+    // What it spent was counted where it ran.
+    entry.parts.clear();
+    Ok(entry)
+}
+
 /// Skips the rest of an overlong line: the bytes skipped, newline
 /// included, or `None` when the line is not finished yet.
 fn skip_line(reader: &mut impl BufRead) -> io::Result<Option<u64>> {

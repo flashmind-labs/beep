@@ -89,6 +89,7 @@ impl Desk {
             at: now_ms(),
         };
         let _one = WRITES.lock().await;
+        self.forget_old_moves(record.at).await?;
         self.mesh
             .set(
                 Key::SessionMove(ask.id.to_owned()),
@@ -96,6 +97,28 @@ impl Desk {
             )
             .await?;
         Ok(record)
+    }
+
+    /// Deletes the records of moves that are over by now, so the mesh does
+    /// not keep one for every session that ever moved. Done under the write
+    /// lock, as the new record is written.
+    async fn forget_old_moves(&self, now: u64) -> Result<()> {
+        for (key, record) in scan::<SessionMove>(&self.mesh, "session-move/") {
+            if now.saturating_sub(record.at) > KEEP_MOVES_MS {
+                self.mesh.set(key, None).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the node of `machine` takes part in moves: a node from before
+    /// them does not, and a session must not be sent to it.
+    pub async fn takes_moves(&self, machine: EndpointId) -> Result<bool> {
+        let client = self.peers.client(machine).await?;
+        Ok(!matches!(
+            move_progress(&client, PROBE).await?,
+            MoveState::NeedsUpdate
+        ))
     }
 
     /// Takes back the move of session `id`: the machines stop it unless
@@ -122,6 +145,14 @@ impl Desk {
         Ok(move_progress(&client, id).await?)
     }
 }
+
+/// How long the record of a move is kept: a session that moved shows once
+/// while it is, and a move still waiting for a machine that is away is not
+/// lost in a few days.
+const KEEP_MOVES_MS: u64 = 30 * 24 * 3600 * 1000;
+
+/// A session id no move has, to ask a node whether it knows moves at all.
+const PROBE: &str = "probe";
 
 fn refused(message: String) -> FleetError {
     FleetError::Refused(message)

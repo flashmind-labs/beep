@@ -148,7 +148,27 @@ impl Agents {
         let _ = self.reopened.subscribe().wait_for(|done| *done).await;
     }
 
-    async fn reopen_one(&self, open: OpenSession) -> Result<()> {
+    /// Whether the sessions open before the last stop run again, or there
+    /// were none. Until then a session may be about to come back, so one
+    /// that does not run is not yet one that ended.
+    pub(crate) fn reopened(&self) -> bool {
+        *self.reopened.borrow()
+    }
+
+    /// What it takes to start session `id` again, as it runs now.
+    pub(crate) fn open_session(&self, id: &str) -> Option<OpenSession> {
+        let session = self.get(id)?;
+        let live = session.live.borrow();
+        Some(OpenSession {
+            agent: session.agent.clone(),
+            session: live.agent_session.clone()?,
+            cwd: PathBuf::from(&live.info.cwd),
+            held: Vec::new(),
+            mode: live.info.mode.clone(),
+        })
+    }
+
+    pub(crate) async fn reopen_one(&self, open: OpenSession) -> Result<()> {
         let kind = self
             .kinds
             .iter()

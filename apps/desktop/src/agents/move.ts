@@ -4,8 +4,8 @@
 // mesh; the target says how far it is (`move-state.ts` holds the logic).
 
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
-import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
-import { MV, moved, nameOf, refreshMoves } from "./move-store.ts";
+import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
+import { MV, moved, nameOf, refreshMoves, stateOf } from "./move-store.ts";
 import { $, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { esc } from "../ui/format.ts";
@@ -29,7 +29,7 @@ export function drawMove() {
   drawHead(s);
   drawBox(s);
   const r = here(s);
-  if (r && going(MV.progress.get(s.id)) && !UI.timer) UI.timer = window.setTimeout(poll, POLL_MS);
+  if (r && going(stateOf(s.id)) && !UI.timer) UI.timer = window.setTimeout(poll, POLL_MS);
 }
 
 async function poll() {
@@ -41,7 +41,7 @@ async function poll() {
 function drawHead(s: AgentRow) {
   const el = $("#aghere");
   if (!el) return;
-  const mid = going(MV.progress.get(s.id)) && here(s)?.from === s.machine_id;
+  const mid = going(stateOf(s.id)) && here(s)?.from === s.machine_id;
   if (!canMove(s) || s.external || !windowHooks?.sessionProject?.(s)?.name) return;
   el.innerHTML = `<button class="mvb" id="agmoveb" ${mid ? "disabled" : ""} aria-haspopup="menu" aria-expanded="${UI.open}" title="${mid ? "Moving" : "Move this session to another machine"}">${esc(s.machine_name)}${mid ? "" : CHEV}</button>`;
   $("#agmoveb")?.addEventListener("click", e => { e.stopPropagation(); void toggle(s); });
@@ -68,12 +68,17 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
   ]);
   AG.hosts ??= hosts;
   for (const m of rows ?? []) MV.names.set(m.id, m.name);
-  return (rows ?? []).filter(m => m.id !== s.machine_id).map(m => ({
+  const others = (rows ?? []).filter(m => m.id !== s.machine_id);
+  // A node from before moves would ignore the move, so it is not offered. One
+  // that cannot be asked (offline) is offered: it answers when it returns.
+  const takes = await Promise.all(others.map(m => invoke<boolean>("session_move_probe", { machineId: m.id }).catch(() => true)));
+  return others.map((m, i) => ({
     id: m.id,
     name: m.name,
     online: m.online,
     harnesses: hosts.find(h => h.machine_id === m.id)?.agents ?? [],
     checkout: !!m.folder,
+    old: !takes[i],
   }));
 }
 
@@ -122,14 +127,20 @@ async function cancel(s: AgentRow) {
 function drawBox(s: AgentRow) {
   const box = $("#agmovebox");
   if (!box) return;
-  const r = here(s), p = MV.progress.get(s.id);
+  const r = here(s), p = stateOf(s.id);
+  box.onclick = e => {
+    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-mvact]")?.dataset.mvact;
+    if (act === "cancel") void cancel(s);
+    if (act === "stop" && r) void start(s, UI.targets.find(t => t.id === r.to) ?? { id: r.to, name: nameOf(r.to), online: true, harnesses: [], checkout: true }, true);
+  };
   if (UI.error) {
     box.innerHTML = `<div class="mvs" role="alert"><div class="h"><span class="t">${esc(UI.error)}</span></div></div>`;
     return;
   }
   if (!r || r.from !== s.machine_id || !p || !going(p)) {
+    // The session stayed where it was; the record stays to say why until it is dismissed.
     box.innerHTML = p?.answer === "known" && p.phase === "failed" && r?.from === s.machine_id
-      ? `<div class="mvs" role="status"><div class="h"><span class="t">${esc(`Move failed: ${p.reason ?? "the move did not finish"}. Still on ${s.machine_name}.`)}</span></div></div>`
+      ? `<div class="mvs" role="status"><div class="h"><span class="t">${esc(`Move failed: ${p.reason ?? "the move did not finish"}. Still on ${s.machine_name}.`)}</span><span class="sp"></span><button class="dbtn quiet small" data-mvact="cancel">Dismiss</button></div></div>`
       : "";
     return;
   }
@@ -142,9 +153,4 @@ function drawBox(s: AgentRow) {
     const cancelable = p.phase !== "resuming";
     box.innerHTML = `<div class="mvs" role="status"><div class="h"><b>Moving to ${esc(to)}</b><span class="sp"></span>${cancelable ? '<button class="dbtn quiet small" data-mvact="cancel">Cancel move</button>' : ""}</div>${rows}</div>`;
   }
-  box.onclick = e => {
-    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-mvact]")?.dataset.mvact;
-    if (act === "cancel") void cancel(s);
-    if (act === "stop") void start(s, UI.targets.find(t => t.id === r.to) ?? { id: r.to, name: to, online: true, harnesses: [], checkout: true }, true);
-  };
 }
