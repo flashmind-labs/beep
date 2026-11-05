@@ -71,14 +71,13 @@ function typedModelRow(view: DictationView) {
 }
 
 function modelList(view: DictationView) {
-  const search = h("input", "dsecret");
-  search.type = "search";
+  const search = h("input", "");
   search.placeholder = "Search models";
   search.value = state.query;
   search.autocomplete = "off";
   search.spellcheck = false;
   search.setAttribute("aria-label", "Search models");
-  const list = h("div", "");
+  const list = h("div", "dc-models");
   const fill = () => {
     if (state.models === undefined) return list.replaceChildren(h("div", "cc-row cc-empty", h("span", "", "Loading models…")));
     if (state.models === null) return list.replaceChildren(h("div", "cc-row cc-empty", h("span", "", "Could not list the models. Type one below.")));
@@ -97,7 +96,7 @@ function modelList(view: DictationView) {
   };
   search.addEventListener("input", () => { state.query = search.value; fill(); });
   fill();
-  return h("div", "", h("div", "", search), list);
+  return h("div", "", h("div", "dfield dc-search", search), list);
 }
 
 function draw() {
