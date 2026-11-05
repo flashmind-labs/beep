@@ -23,7 +23,7 @@ use beep_proto::{
     PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
     image_key, media_mime,
     node::{
-        agent::{self, Request, WorkPlace, Worktree},
+        agent::{self, AgentCommand, Request, WorkPlace, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
         mesh_state::StateValue,
     },
@@ -591,6 +591,17 @@ pub(crate) async fn worktrees(
 ) -> Result<Vec<Worktree>> {
     let client = fleet.client(machine).await?;
     work(fleet, machine, sessions::worktrees(&client, folder).await?)
+}
+
+/// The commands and skills the running session `session` offers on a
+/// machine.
+pub(crate) async fn commands(
+    fleet: &Fleet,
+    machine: EndpointId,
+    session: &str,
+) -> Result<Vec<AgentCommand>> {
+    let client = fleet.client(machine).await?;
+    work(fleet, machine, sessions::commands(&client, session).await?)
 }
 
 /// Where the session `session` of `agent` works, as its node worked it out

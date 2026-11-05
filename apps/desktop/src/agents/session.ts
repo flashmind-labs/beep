@@ -9,6 +9,7 @@ import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneFrame, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
+import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
@@ -238,7 +239,10 @@ export function drawAgentFrame() {
   startPane(s);
   void drawEditors(s);
   const msg = $<HTMLTextAreaElement>("#agmsg");
-  if (msg) composeField(msg, { images: agentAttach, grow: 156 });
+  if (msg) {
+    composeField(msg, { images: agentAttach, grow: 156 });
+    bindMentionMenu(msg);
+  }
   drawAgentAttached();
   drawModelPill();
   const b = $$<ChatBody>("#agbody");
