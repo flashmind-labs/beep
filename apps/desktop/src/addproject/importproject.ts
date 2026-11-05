@@ -3,7 +3,8 @@
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet, segmented } from "../ui/parts.ts";
-import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, folderUnder, folderNote, folderHelp } from "./importproject-state.ts";
+import { START, defaultParent as parentOn, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, folderUnder, folderNote, folderHelp, type LastImport } from "./importproject-state.ts";
+import { folderBrowser } from "./folderbrowser.ts";
 import { button, el, present, press } from "../ui/dom.ts";
 import type { ImportEvent } from "./importproject-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
@@ -33,13 +34,6 @@ export interface ImportProjectOptions {
   machine?: string | null;
   /// Fills in the folder it goes in.
   folder?: string | null;
-}
-
-/// The machine and the folder projects went under at the last import, kept
-/// across launches so the next import starts there.
-export interface LastImport {
-  machine: string;
-  root: string | null;
 }
 
 const LAST_KEY = "beep.lastImport.v1";
@@ -372,16 +366,10 @@ function branchesBlock() {
   ];
 }
 
-/// The parent a clone goes under before anything is typed: the last one used
-/// on the picked machine, else its projects folder.
+/// The parent a clone goes under before anything is typed.
 function defaultParent() {
   if (!state.machine) return null;
-  const last = lastImport();
-  if (last?.root && last.machine === state.machine) return last.root;
-  const base = bases.get(state.machine);
-  if (!base) return null;
-  const os = machines.find(x => x.id === state.machine)?.env?.os;
-  return `${base.replace(/\/+$/, "")}/${os === "linux" ? "projects" : "Projects"}`;
+  return parentOn(state.machine, bases.get(state.machine), machines.find(x => x.id === state.machine)?.env?.os, lastImport());
 }
 
 /// "Goes in <parent>/<org>/<repo>." under the parent field.
@@ -509,19 +497,11 @@ function setMenu(next: FolderMenu) {
 /// The folder browser for another machine: the folder, its folders, and
 /// what importing there does.
 function browser(listing: MachineFolder) {
-  const up = button("Up", "dbtn quiet ip-up", () => browseTo(listing.parent));
-  up.disabled = !listing.parent || reading;
-  const where = el("span", "", listing.path);
-  where.title = listing.path;
-  const into = (name: string) => `${listing.path.replace(/\/+$/, "")}/${name}`;
-  const dirs = el("div", "dirs", ...listing.folders.map(name => {
-    const b = button(name, "", () => browseTo(into(name)));
-    b.disabled = reading;
-    return b;
-  }));
-  if (!listing.folders.length) dirs.append(el("span", "none", listing.exists ? "No folders in here" : "Not there yet"));
-  if (listing.more) dirs.append(el("span", "none", `and ${listing.more} more`));
-  const foot = el("div", "foot", el("span", "note", folderNote(listing, state.repo)),
-    button("Cancel", "dbtn quiet", () => update({ type: "browse", listing: null })), button("Use this folder", "dbtn pri", () => update({ type: "choose", listing })));
-  return el("div", "ip-browse", el("div", "at", up, where), dirs, foot);
+  return folderBrowser(listing, {
+    reading,
+    note: folderNote(listing, state.repo),
+    go: browseTo,
+    cancel: () => update({ type: "browse", listing: null }),
+    use: () => update({ type: "choose", listing }),
+  });
 }

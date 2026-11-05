@@ -1523,6 +1523,72 @@ async fn checkouts_at_other_commits_wait_unchanged_when_the_mesh_names_them() {
     }
 }
 
+#[tokio::test]
+async fn a_new_empty_folder_takes_the_whole_checkout_with_its_git() {
+    let (a, root, folder) = bare_node().await;
+    let mut pair = bare_nodes(a, root, folder).await;
+    let (from, to) = (pair.a_folder.clone(), pair.b_folder.clone());
+    git_in(&from, &["init", "-q", "-b", "main"]);
+    git_in(
+        &from,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.com/acme/widget.git",
+        ],
+    );
+    fs::create_dir(from.join("src")).expect("a folder");
+    fs::write(from.join("src/main.rs"), "fn main() {}\n").expect("a file");
+    fs::write(from.join(".gitignore"), "*.env\n").expect("a file");
+    git_in(&from, &["add", "."]);
+    git_in(&from, &["commit", "-q", "-m", "first"]);
+    git_in(&from, &["branch", "side"]);
+    fs::write(from.join("src/lib.rs"), "pub fn f() {}\n").expect("a file");
+    git_in(&from, &["add", "."]);
+    git_in(&from, &["commit", "-q", "-m", "second"]);
+    fs::write(from.join("local.env"), "ignored").expect("a file");
+    fs::write(from.join("src/main.rs"), "fn main() { todo!() }\n").expect("an edit");
+    let head = git_in(&from, &["rev-parse", "HEAD"]);
+    let log = git_in(&from, &["log", "--format=%H"]);
+
+    pair.sync().await;
+
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    timeout(LIMIT, async {
+        while !git_is_at(&to, &head) || git_in(&to, &["status", "--porcelain"]) != "M src/main.rs" {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the branch and index came in time");
+
+    assert_eq!(git_in(&to, &["log", "--format=%H"]), log);
+    assert_eq!(
+        git_in(&to, &["rev-parse", "side"]),
+        git_in(&from, &["rev-parse", "side"])
+    );
+    assert_eq!(
+        git_in(&to, &["remote", "get-url", "origin"]),
+        "https://example.com/acme/widget.git"
+    );
+    assert!(git_in(&to, &["for-each-ref", "refs/beep-conflicts"]).is_empty());
+    has_text(&to.join("src/main.rs"), "fn main() { todo!() }\n").await;
+    has_text(&to.join("local.env"), "ignored").await;
+    assert_eq!(
+        fs::read_to_string(from.join("src/main.rs")).expect("the edit stays"),
+        "fn main() { todo!() }\n"
+    );
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    until_status(&conn_b, |status| {
+        status.state == beep_proto::node::sync::State::Idle && status.pending == 0
+    })
+    .await;
+    let source = proj_status(&conn_a).await.expect("a status");
+    let target = proj_status(&conn_b).await.expect("a status");
+    assert_eq!(target.files, source.files);
+}
+
 /// What a fake Syncthing says of its one folder: paused or not, and the
 /// number of its last event.
 #[derive(Clone, Copy)]
@@ -3112,6 +3178,15 @@ fn git_in(dir: &Path, args: &[&str]) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// Whether the checkout in `dir` has its `HEAD` at `commit`.
+fn git_is_at(dir: &Path, commit: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == commit)
 }
 
 /// What the desktop writes to move session `s` from `a` to `b`, out of the

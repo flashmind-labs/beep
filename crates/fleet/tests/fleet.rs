@@ -10,7 +10,7 @@ use beep_mesh::{
 use beep_proto::{
     CredentialKind, SecretText, WorkDiff,
     node::{
-        EnvReport, LinkRx, LinkTx, Open, Opened, ToolInfo,
+        EnvReport, LinkRx, LinkTx, Open, Opened, SyncthingFolder, ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         harness::{AutoCompact, HarnessConfig},
         mesh_state::{Credential, StateValue, SyncSpec},
@@ -131,6 +131,8 @@ struct FakeNode {
     diffed: Mutex<Vec<DiffAsk>>,
     /// It knows session moves; a node from before them closes the stream.
     moves: bool,
+    /// The folders its Syncthing keeps in step.
+    syncthing: Vec<SyncthingFolder>,
 }
 
 impl FakeNode {
@@ -170,6 +172,7 @@ impl FakeNode {
                             version: None,
                         })
                         .collect(),
+                    syncthing: self.syncthing.clone(),
                     ..EnvReport::default()
                 };
                 if tx.send(&Report::Offers(offers)).await.is_err()
@@ -1082,6 +1085,151 @@ async fn a_project_on_two_machines_syncs_and_a_pause_and_a_pin_stay() {
             .expect("a detail")
             .pinned
     );
+}
+
+#[tokio::test]
+async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
+    let f = fleet().await;
+    let joined = |name: &'static str| {
+        let studio = &f.studio;
+        async move {
+            let dev = join(studio, DeviceKind::Node, name).await;
+            until(&studio.mesh, |m| online(m, dev.id)).await;
+            dev
+        }
+    };
+    let (empty, full, kept) = (
+        joined("empty-box").await,
+        joined("full-box").await,
+        joined("kept-box").await,
+    );
+    let build = Arc::new(FakeNode::default());
+    let lister = |prints: &'static str| {
+        Arc::new(FakeNode {
+            prints: vec![("ls -A", prints)],
+            ..FakeNode::default()
+        })
+    };
+    let at_empty = lister("BEEP_FOLDER: missing /srv/it's new\n");
+    let at_full = lister("BEEP_FOLDER: path /srv/work\nBEEP_FOLDER: full\n");
+    let at_kept = Arc::new(FakeNode {
+        prints: vec![("ls -A", "BEEP_FOLDER: path /sync/share/widget\n")],
+        syncthing: vec![SyncthingFolder {
+            id: "share".into(),
+            label: String::new(),
+            path: "/sync/share".into(),
+        }],
+        ..FakeNode::default()
+    });
+    let studio = desk(
+        &f.studio,
+        &[
+            (&f.build, &build),
+            (&empty, &at_empty),
+            (&full, &at_full),
+            (&kept, &at_kept),
+        ],
+    )
+    .await;
+    studio
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    let key = Key::Sync("acme/widget".to_owned());
+    let spec = |mesh: &Mesh| {
+        mesh.get(&key)
+            .map(|bytes| SyncSpec::from_bytes(&bytes).expect("a spec reads"))
+    };
+    let made = |node: &FakeNode| {
+        let ran = node.ran.lock().expect("log");
+        ran.iter()
+            .filter(|command| command.contains("mkdir"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let refused = |said: Result<_, FleetError>| match said {
+        Err(FleetError::Refused(text)) => text,
+        Err(e) => panic!("another error: {e}"),
+        Ok(_) => panic!("it was not refused"),
+    };
+
+    // A folder holding other files, or one Syncthing keeps, is refused: nothing made or written.
+    let said = studio
+        .add_to_machine("acme/widget", &full.id.to_string(), "/srv/work")
+        .await;
+    assert_eq!(
+        refused(said),
+        "/srv/work has other files. Choose another folder."
+    );
+    assert!(made(&at_full).is_empty());
+    let said = studio
+        .add_to_machine("acme/widget", &kept.id.to_string(), "/sync/share/widget")
+        .await;
+    assert_eq!(
+        refused(said),
+        "Syncthing keeps /sync/share/widget in step on kept-box. Choose another folder."
+    );
+    assert!(made(&at_kept).is_empty());
+    assert_eq!(spec(&f.studio.mesh), None);
+
+    // A folder that is not there is made, quoted, and both machines sync.
+    let added = studio
+        .add_to_machine("ACME/widget", &empty.id.to_string(), "/srv/it's new")
+        .await
+        .expect("it is added");
+    assert_eq!(added.project, "acme/widget");
+    assert_eq!(added.folder, "/srv/it's new");
+    assert_eq!(
+        made(&at_empty),
+        [r#"mkdir -p -- "/srv/it's new" 2>&1"#.to_owned()]
+    );
+    let written = spec(&f.studio.mesh).expect("the record is written");
+    assert_eq!(
+        written.folders.get(&empty.id).map(String::as_str),
+        Some("/srv/it's new")
+    );
+    assert!(written.folders.contains_key(&f.build.id));
+    let rows = studio
+        .project_machines("acme/widget")
+        .await
+        .expect("the machines");
+    let row = rows
+        .iter()
+        .find(|row| row.machine_id == empty.id.to_string())
+        .expect("its row");
+    assert_eq!(row.folder.as_deref(), Some("/srv/it's new"));
+
+    // On it already, a second Add changes nothing.
+    let said = studio
+        .add_to_machine("acme/widget", &empty.id.to_string(), "/srv/other")
+        .await;
+    assert_eq!(
+        refused(said),
+        "acme/widget is already on empty-box, in /srv/it's new."
+    );
+    assert_eq!(made(&at_empty).len(), 1);
+
+    // A project pinned to where it is never syncs, so no folder would ever fill.
+    let pinned = SyncSpec::default().to_bytes().expect("a spec encodes");
+    f.studio
+        .mesh
+        .set(key.clone(), Some(pinned))
+        .await
+        .expect("the pin is written");
+    let said = studio
+        .add_to_machine("acme/widget", &full.id.to_string(), "/srv/new")
+        .await;
+    assert_eq!(
+        refused(said),
+        "acme/widget is pinned to where it is: it never syncs."
+    );
+    assert!(made(&at_full).is_empty());
 }
 
 #[tokio::test]

@@ -22,6 +22,7 @@ import { projectRows, importSheet, addProject, importFromPage } from "../center/
 import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
+import { openAddToMachine } from "./addmachine.ts";
 import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
@@ -285,6 +286,22 @@ export function whereRow(p: Project, m: WhereRow) {
   const said = h("span", "os", copied?.text || m.text);
   if (m.kind === "none" && m.checked_at) said.title = `Checked ${since(m.checked_at)}`;
   const what = h("span", "nm", said);
+  if (m.kind === "none" && m.syncthing) {
+    // Sync would hold, so nothing would ever arrive.
+    const note = h("small", "", "Synced by Syncthing");
+    note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it.`;
+    what.append(" ", note);
+  }
+  if (m.kind === "none" && m.add) {
+    const add = button("Add", "small", () => openAddToMachine({
+      project: p.name,
+      machine: m,
+      os: state.home?.machines?.find(x => x.id === m.id)?.env?.os,
+      macId: state.mac?.id || null,
+      added: () => { refresh(); loadWhere(p.name); },
+    }));
+    return [name, what, h("span", "acts", add)];
+  }
   if (m.kind === "none" && m.copy && copied?.state !== "failed") {
     const copy = button(copied ? "Copying…" : "Copy here", "small", () => copyHere(p, m, key));
     copy.disabled = !!copied;

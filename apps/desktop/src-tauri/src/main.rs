@@ -348,6 +348,7 @@ fn main() {
             projects::page::center_project_send,
             projects::page::center_stop_worker,
             projects::page::center_update_task,
+            projects::page::project_add_to_machine,
             projects::page::project_copy,
             projects::page::project_machines,
             projects::page::project_sessions,

@@ -16,7 +16,9 @@ use beep_projects::{
     Shell,
     branches::add_worktree,
     imports::{
+        ImportError,
         flow::{self, Effects, Env, Import},
+        folder::{self, FolderPath},
         found::{self, MachineFound},
         host_repos::read_hosts,
         hosts::{find_fork, forgejo_of, project_forges},
@@ -33,6 +35,7 @@ use beep_proto::{
     BranchPlace, CheckoutFailure, CreateProject, CreatedProject, FoundProject, HostRepos,
     ImportFork, ImportPreview, ImportedProject, ProjectForge, ProjectGroup,
     groups::{group_name, group_paths},
+    node::mesh_state::SyncSpec,
 };
 use iroh::EndpointId;
 use std::{collections::HashMap, sync::Arc};
@@ -402,6 +405,72 @@ impl Desk {
                 log::info!("import: worktree not added; node={on}: {why}");
             }
         }
+    }
+
+    /// Puts `project` on `machine` in `folder`, which is missing or empty: makes the folder and
+    /// records the checkout, and with it the project's sync, which brings the files and `.git`.
+    pub async fn add_to_machine(
+        &self,
+        project: &str,
+        machine: &str,
+        folder: &str,
+    ) -> Result<ImportedProject> {
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        let id: EndpointId = machine.parse().map_err(|_| ImportError::NoSuchMachine)?;
+        let seen = self.seen_one(id).await.ok_or(ImportError::NoSuchMachine)?;
+        let name = &seen.machine.name;
+        if let Some(place) = stored.places.get(&id) {
+            return Err(FleetError::refused(format!(
+                "{} is already on {name}, in {}.",
+                stored.name, place.folder
+            )));
+        }
+        // A record with no machines, or one this build cannot read, stays as it is.
+        let sync = Key::Sync(stored.name.clone());
+        if self.mesh.get(&sync).is_some()
+            && read::<SyncSpec>(&self.mesh, &sync).is_none_or(|spec| spec.folders.is_empty())
+        {
+            return Err(FleetError::refused(format!(
+                "{} is pinned to where it is: it never syncs.",
+                stored.name
+            )));
+        }
+        if !seen.machine.online {
+            return Err(ImportError::Offline(name.clone()).into());
+        }
+        let shell = seen.machine.shell()?;
+        let asked = FolderPath::parse(folder)?.ok_or(ImportError::BadFolder)?;
+        let there = folder::look(shell, name, &asked).await?;
+        if there.exists && !there.empty {
+            return Err(FleetError::refused(format!(
+                "{} has other files. Choose another folder.",
+                there.path
+            )));
+        }
+        if seen
+            .env
+            .as_ref()
+            .is_some_and(|env| env.syncthing_folder(&there.path).is_some())
+        {
+            return Err(FleetError::refused(format!(
+                "Syncthing keeps {} in step on {name}. Choose another folder.",
+                there.path
+            )));
+        }
+        folder::make(shell, name, &asked).await?;
+
+        let _write = WRITES.lock().await;
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        let place = Place {
+            folder: there.path,
+            imported_ms: now_ms(),
+            // `.git/config` comes from the others, and with it their `origin`.
+            fork: stored.places.values().find_map(|place| place.fork.clone()),
+        };
+        write(&self.mesh, place_key(&stored.name, id), Some(&place)).await?;
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        sync_checkouts(&self.mesh, &stored).await?;
+        Ok(flow::project(row(&stored, id, &place), name.clone(), false))
     }
 
     /// Makes the project `request` asks for.

@@ -99,12 +99,17 @@ impl Desk {
 
     /// Only this Mac's own machine, without asking the others anything.
     pub(crate) async fn local_machine(&self) -> Option<Machine> {
+        Some(self.seen_one(self.local).await?.machine)
+    }
+
+    /// One machine of the mesh with what it said about itself, without asking the others.
+    pub(crate) async fn seen_one(&self, machine: EndpointId) -> Option<Seen> {
         let status = self
             .mesh
             .devices()
             .into_iter()
-            .find(|status| status.device.id == self.local)?;
-        Some(self.look(status).await.machine)
+            .find(|status| status.device.id == machine)?;
+        Some(self.look(status).await)
     }
 
     async fn look(&self, status: DeviceStatus) -> Seen {
