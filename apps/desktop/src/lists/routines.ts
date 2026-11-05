@@ -1,8 +1,11 @@
-import { $, $$, bar, esc, ICON, invoke, S } from "../bar/core.ts";
+import { $, $$, bar, S } from "../bar/core.ts";
 import { appTile, fillAppTiles } from "../chat/applogo.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { arrowKey, clampSel, CLOCK_ICON, confirmKey, confirmRow, dayDiff, dayMonth, emptyPage, errLine, type ListState, loadList, PLAY_ICON, PLUS_ICON } from "./memories.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Routines ----------
 

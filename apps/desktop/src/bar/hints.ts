@@ -1,12 +1,14 @@
 import { attachedCount } from "../chat/attach.ts";
 import { focusAsk, forRoutine, stop } from "../chat/chat.ts";
-import { $, bar, h, here, ICON, PANE, queued, S } from "./core.ts";
+import { $, bar, here, PANE, queued, S } from "./core.ts";
 import type { LinkState } from "./core.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
 import { shortcutSheet } from "../settings/subscription.ts";
-import { stopFace } from "../chat/turnrows.ts";
+import { stopFace } from "../agents/turnrows.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
 
 // ---------- Hints ----------
 
@@ -82,6 +84,7 @@ export const SHORTCUTS: [string, Hint[]][] = [
   ["Talking", [["tap ⌥", "Live mode, with Beep open"], ["hold ⌥", "Talk while held, with Beep open"], ...LIVE_TALK]],
   ["Say in live mode", LIVE_SAY],
   ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⇧⌘${ICON.ret}`, "Allow for this session"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
+  ["In a coding agent", [["⇧esc", "Zoom the side pane over the conversation, again to put it back"]]],
   ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
 ];
 

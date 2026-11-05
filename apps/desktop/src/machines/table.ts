@@ -3,14 +3,13 @@
 import { since } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, note } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineProjects, thisMacRow, type MacControl, type MachineCard, type MachineProject, type MacRow } from "../center/home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { trafficRows, trafficSummary } from "./traffic-state.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
 import { ALL, byMachine } from "../terminals/terminals.ts";
 import { OFFLINE_NOTE_MS, state } from "../center/state.ts";
 import { shown } from "../center/views.ts";
-import { dot, section, plusLabel, rowButton } from "../center/pieces.ts";
+import { dot, section, plusLabel, rowButton } from "../ui/pieces.ts";
 import { draw } from "../center/home.ts";
 import { allTerms, termMachines, openTerminals, terminalRow } from "../terminals/view.ts";
 import { reloadGroup, openAddMachine, openProjects } from "../center/sidebar.ts";
@@ -19,6 +18,7 @@ import { openTile } from "../project/split.ts";
 import { refresh } from "../center/refresh.ts";
 import { notJoinedSection } from "./notjoined.ts";
 import { splitJoined } from "./notjoined-state.ts";
+import { type MacControl, machineCaps, type MachineCard, machineDisk, machineMemory, machineNow, machineOs, type MachineProject, machineProjects, type MacRow, thisMacRow } from "./machine-state.ts";
 
 export const addMachineButton = (cls: string) => plusLabel("Add a machine", cls, openAddMachine);
 

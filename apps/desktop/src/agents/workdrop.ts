@@ -4,9 +4,11 @@
 
 import { MAX_UPLOAD, UPLOAD_FOLDER, joinPath, mentionText, shortSize, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.ts";
-import { esc, ICON, invoke } from "../bar/core.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// A file on its way to the session's machine.
 interface Upload {

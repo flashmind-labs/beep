@@ -8,13 +8,17 @@ import { terminalName } from "./files-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
 import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artifacts.ts";
-import { changeListeners, esc, h, ICON, invoke, PANE, S } from "../bar/core.ts";
+import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView } from "./files.ts";
 import { dropTerm, type PaneTerm } from "./terminal.ts";
 import { drag, tabDown } from "./drag.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {
@@ -95,6 +99,9 @@ export const P = {
   watch: null as ResizeObserver | null,
   /// A tab drag just ended: the click that follows it does nothing.
   dragged: false,
+  /// The dock zoomed over the whole session by ⇧esc. Not kept: a new session or a
+  /// restart starts unzoomed.
+  zoom: null as Dock | null,
 };
 
 function loadLayout(): PaneLayout {
@@ -157,6 +164,7 @@ export function startPane(s: PaneSession) {
   P.subs = "";
   P.subCount = 0;
   P.moved.clear();
+  P.zoom = null;
   const el = shell();
   if (!el) return;
   P.watch?.disconnect();
@@ -227,7 +235,33 @@ function place() {
     pane.style.flexBasis = `${paneSize(d, P.layout[d], total)}px`;
     div.setAttribute("aria-orientation", d === "right" ? "vertical" : "horizontal");
   }
+  // A zoomed dock that folded, emptied or moved away ends the zoom.
+  if (P.zoom && paneOf(P.zoom)?.hidden !== false) P.zoom = null;
+  el.classList.toggle("zoomed", !!P.zoom);
+  for (const d of DOCKS) paneOf(d)?.classList.toggle("zoomed", P.zoom === d);
 }
+
+/// ⇧esc: the dock with focus, else the right one, else the bottom one, fills the session
+/// over the conversation; again puts it back. Only classes change, so a model, a video
+/// or a terminal keeps its state and fits the new size on its own.
+function toggleZoom() {
+  if (P.zoom) P.zoom = null;
+  else {
+    const shown = DOCKS.filter(d => paneOf(d)?.hidden === false);
+    P.zoom = shown.find(d => paneOf(d)?.contains(document.activeElement)) ?? shown.find(d => d === "right") ?? shown[0] ?? null;
+  }
+  place();
+}
+
+// In the capture phase so it comes before the terminal's, a canvas's and every Esc
+// handler, none of which should see it.
+window.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (S.view !== "agent" || !P.session) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (!e.repeat) toggleZoom();
+}, true);
 
 function wireDivider(dock: Dock) {
   const div = document.getElementById(`agdiv-${dock}`)!;

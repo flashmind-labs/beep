@@ -1,9 +1,13 @@
 import { hostOf } from "../settings/apps.ts";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk } from "./chat.ts";
-import { $, bar, COPY_ICON, esc, h, ICON, invoke } from "../bar/core.ts";
-import type { Turn } from "../bar/core.ts";
+import { $, bar } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
+import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
+import type { Turn } from "../ui/turn.ts";
 
 // ---------- Files ----------
 

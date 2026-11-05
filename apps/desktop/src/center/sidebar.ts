@@ -1,13 +1,12 @@
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
 import { patchChildren } from "../ui/patch.ts";
-import { plural } from "../ui/format.ts";
+import { plural, reason } from "../ui/format.ts";
 import { svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
-import type { MachineCard } from "./home-state.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound } from "../addproject/addproject.ts";
@@ -20,8 +19,8 @@ import { ALL } from "../terminals/terminals.ts";
 import { runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import { withoutResearch } from "../research/research-list.ts";
 import { RESEARCHES } from "../research/researches.ts";
-import { type ChatItem, type ProjectPin, type SideChat, $, IC, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
-import { projectDot, skeleton } from "./pieces.ts";
+import { type ChatItem, type ProjectPin, type SideChat, $, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
+import { projectDot, skeleton } from "../ui/pieces.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { single } from "./openitems.ts";
@@ -33,8 +32,9 @@ import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
 import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
 import { threadChats } from "./threadcard.ts";
-import { reason } from "../addproject/importproject-state.ts";
 import { beepViews, groupShown } from "../settings/subscription.ts";
+import { IC } from "../ui/icons.ts";
+import type { MachineCard } from "../machines/machine-state.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };

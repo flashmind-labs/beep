@@ -2,18 +2,19 @@
 import { plural } from "../ui/format.ts";
 import { svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { thisMacRow, type MachineCard, type MacRow } from "../center/home-state.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openGroupSheet } from "./groupsheet.ts";
 import { openMenu } from "../ui/menu.ts";
-import { IC, state } from "../center/state.ts";
-import { dot, rowButton } from "../center/pieces.ts";
+import { state } from "../center/state.ts";
+import { dot, rowButton } from "../ui/pieces.ts";
 import { useThisMac, machineMenu } from "../machines/table.ts";
 import { shown } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, projectRows, plusButton, emptyRow, openAddMachine, openProjects } from "../center/sidebar.ts";
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { jump } from "../center/home.ts";
+import { IC } from "../ui/icons.ts";
+import { type MachineCard, type MacRow, thisMacRow } from "../machines/machine-state.ts";
 
 /// A group's heading in the sidebar; right-click for its menu.
 export function groupHeading(g: ProjectGroup) {

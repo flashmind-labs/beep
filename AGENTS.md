@@ -229,7 +229,7 @@ in `build.mjs`.
 - `project/`: the Projects page and one project's page.
 - `addproject/`: the Add a project, Import a project and New project sheets.
 - `review/`: branches, reviews and the diff viewer.
-- `agents/`: coding agents: start form, picker, a session's log, the list.
+- `agents/`: coding agents: start form, picker, a session's log, the list (`sessions.ts` is the one shared session list).
 - `agentpane/`: a session's side pane: media, files, changes, artifacts.
 - `chat/`: chats, groups, the composer and reply cards.
 - `lists/`: Memories, Routines and Skills.
@@ -238,7 +238,7 @@ in `build.mjs`.
 - `settings/`: the Settings pages and sheet.
 - `research/`: the research window (entry `research.ts`) and its lists.
 - `orb/`: the orb window (entry `orb.ts`).
-- `ui/`: shared helpers: Tauri bindings, DOM builders, formatting, menus.
+- `ui/`: shared helpers with no page behind them: Tauri bindings, DOM builders, icons, formatting, menus, the page cache, and the Home and Projects row pieces.
 
 `apps/desktop/src-tauri/src` is grouped by domain. `main.rs` starts the app
 and lists every Tauri command; each `mod.rs` only declares and re-exports.

@@ -1,6 +1,6 @@
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
-import { ago } from "../ui/format.ts";
+import { ago, reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { filterProjects, agentLabel } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -11,6 +11,7 @@ import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "../agents/agents.ts";
+import { loadSessions, sessions } from "../agents/sessions.ts";
 import { issueBranch, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.ts";
 import { type Started, state } from "../center/state.ts";
@@ -18,7 +19,6 @@ import { shown, go } from "../center/views.ts";
 import { projectRows } from "../center/sidebar.ts";
 import { redrawProjects, pc } from "./sections.ts";
 import { projectPlaces } from "./loads.ts";
-import { reason } from "../addproject/importproject-state.ts";
 
 /// The tallest the bar's field grows before it scrolls, in pixels.
 const BAR_FIELD_MAX = 200;
@@ -84,7 +84,7 @@ export const projectComp = (() => {
   folder.addEventListener("click", e => {
     const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
     if (!place) return;
-    const trees = knownWorktrees(pc.sessions, place.machine_id, place.cwd);
+    const trees = knownWorktrees(sessions, place.machine_id, place.cwd);
     const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
     openMenu(e, "Folder", [
       { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
@@ -143,7 +143,7 @@ function barProject() {
 function loadProjectBar(name: string) {
   const redraw = () => { if (shown === "projects" && state.picked === name) redrawProjects(); };
   invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; preloadModels(list); redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
-  invoke<AgentSession[]>("agent_sessions").then(list => { pc.sessions = list; }).catch(e => console.warn("agent sessions:", e));
+  loadSessions().catch(e => console.warn("agent sessions:", e));
   if (!pc.branches.has(name)) {
     invoke<BaseBranches | null>("project_branches", { project: name })
       .catch(() => null)
@@ -220,7 +220,7 @@ function barExisting(name: string, place: { machine_id: string; cwd: string }) {
   // Where the branch list (read on one machine) found its worktree.
   const listed = pc.branches.get(name) as unknown as { machine_id?: string; branches: readonly { name: string; worktree?: string | null }[] } | null | undefined;
   const known = listed?.machine_id === place.machine_id ? listed.branches.find(b => b.name === t.branch.trim())?.worktree : null;
-  return sessionIn(pc.sessions, place.machine_id, targetFolders(t, place.cwd, known));
+  return sessionIn(sessions, place.machine_id, targetFolders(t, place.cwd, known));
 }
 
 /// Fills the bar for project `name` with `text` and `target`, on the
@@ -231,7 +231,7 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
   projectComp.input.value = text;
   projectComp.err.textContent = "";
   // Read again: a session may have started in the worktree since.
-  invoke<AgentSession[]>("agent_sessions").then(list => { pc.sessions = list; redrawProjects(); }).catch(e => console.warn("agent sessions:", e));
+  loadSessions().then(redrawProjects).catch(e => console.warn("agent sessions:", e));
   redrawProjects();
   projectComp.form.scrollIntoView({ block: "nearest" });
   projectComp.input.focus();

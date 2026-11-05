@@ -1,12 +1,17 @@
 import { ASK, askText, body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
-import { $, $$, bar, entry, esc, h, here, ICON, invoke, listen, live, PANE, S, type Turn } from "./core.ts";
+import { $, $$, bar, entry, here, live, PANE, S } from "./core.ts";
 import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
 import { openSession } from "../chat/history.ts";
 import { notice } from "../chat/media.ts";
 import { forgetHeight } from "./size.ts";
 import { type HeldQuestion, waitingQuestion } from "./work.ts";
-import { userRowHtml } from "../chat/turnrows.ts";
+import { userRowHtml } from "../agents/turnrows.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke, listen } from "../ui/tauri.ts";
+import type { Turn } from "../ui/turn.ts";
 
 // ---------- Live voice ----------
 

@@ -3,7 +3,7 @@ import { renderAgentNew } from "../agents/agentnew.ts";
 import { loadApps, renderApps } from "../settings/apps.ts";
 import { focusAsk, newChat, renderChat } from "../chat/chat.ts";
 import { renderChats } from "../chat/chats.ts";
-import { $, bar, GROUP_VIEWS, invoke, type LinkState, PANE, S } from "./core.ts";
+import { $, bar, GROUP_VIEWS, type LinkState, PANE, S } from "./core.ts";
 import { loadGroup } from "../chat/groups.ts";
 import { openSession } from "../chat/history.ts";
 import { renderLink, renderRevoked } from "./link.ts";
@@ -14,6 +14,7 @@ import { loadResearches, renderResearches } from "../research/researches.ts";
 import { renderRoutines } from "../lists/routines.ts";
 import { renderSettings } from "../settings/settings.ts";
 import { renderSkills } from "../lists/skills.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- State ----------
 

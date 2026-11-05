@@ -1,6 +1,9 @@
-import { bar, esc, h, ICON, invoke, listen, S } from "../bar/core.ts";
+import { bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
-import { plural } from "../ui/format.ts";
+import { esc, plural } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 
 // ---------- Apps ----------
 
