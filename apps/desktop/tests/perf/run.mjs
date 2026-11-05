@@ -157,7 +157,7 @@ async function measure(browser, name) {
 
   // One refresh redraw: the window's focus event reads Home again.
   const refreshes = [];
-  if (profile) await profiled(context, page, `${name} refresh`, () => page.evaluate(async () => { window.dispatchEvent(new Event("focus")); await window.__gaps(500); }));
+  if (profile) await profiled(context, page, `${name} refresh`, () => page.evaluate(async () => { window.dispatchEvent(new Event("focus")); await new Promise(r => setTimeout(r, 400)); }));
   for (let i = 0; i < 3; i++) {
     const r = await page.evaluate(async () => {
       window.__parseMs = 0;
