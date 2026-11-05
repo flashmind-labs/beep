@@ -7,6 +7,7 @@ import {
   inView, lineKey, lineLabel, matchesFilter, numberWidth, parseDraft, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { button, el, type Kid } from "../ui/dom.ts";
+import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 /// Where a diff comes from and what its files can open in.
 export interface DiffSource {
@@ -310,6 +311,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
     }
     const fh = el("div", "dv-fh", el("span", "dv-chev", icon(SVG.chev)), path, el("span", `dv-chip ${f.status}`, f.status),
       el("span", "dv-fct", ...counts(f.additions, f.deletions)), el("span", "dv-fcm", countLabel(f.path)), acts);
+    fh.addEventListener("contextmenu", e => {
+      const items: MenuItem[] = [{ label: "Copy path", on: () => void copy(f.path) }];
+      if (src.open && f.status !== "deleted") {
+        const open = src.open;
+        items.unshift({ label: open.label, on: () => open.run(f.path) });
+      }
+      openMenu(e, f.path, items);
+    });
     fh.tabIndex = 0;
     fh.setAttribute("role", "button");
     fh.setAttribute("aria-expanded", String(!folded));
