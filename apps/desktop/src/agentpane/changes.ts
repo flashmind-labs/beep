@@ -1,12 +1,15 @@
 // The Changes tab of a coding agent session's pane: what changed in the
 // session's folder against its default branch, commits, uncommitted
 // changes and new files alike, read by git on the session's machine the
-// first time the tab shows and again each time it shows after.
+// first time the tab shows and again each time it shows after. It is of
+// the worktree the pane shows (`worktree.ts`) and reads again on a switch.
 
 import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, diffView } from "../review/diff.ts";
 import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
+import { paneRoot, refreshWorktrees } from "./worktree.ts";
+import { reviewIn } from "./worktree-state.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -31,11 +34,13 @@ export function changesView() {
     return el;
   }
   const view = diffView({
-    load: (only, lockfiles) => s
-      ? invoke<DiffView>("work_diff", { machineId: s.machine_id, root: s.cwd, only, lockfiles })
-      : Promise.reject(new Error("No session shows.")),
+    load: (only, lockfiles) => {
+      // A refresh reads the worktrees again too.
+      if (!only.length) refreshWorktrees();
+      return invoke<DiffView>("work_diff", { machineId: s.machine_id, root: paneRoot(), only, lockfiles });
+    },
     open: { label: "Open in a tab", run: openWorkFile },
-    review: { key: `${s.machine_id}\n${s.id}`, send: sendReview },
+    review: { key: `${s.machine_id}\n${s.id}`, send: text => sendReview(reviewIn(text, paneRoot(), s.cwd)) },
   });
   el.append(view.el);
   Object.assign(C, { el, view });

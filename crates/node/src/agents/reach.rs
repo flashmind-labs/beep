@@ -2,15 +2,19 @@
 //! requests (`Reach`, `Access`). Every path is checked with its links and
 //! `..` resolved.
 
-use super::{Agents, SIGHTING_WAIT, media_file::resolve};
+use super::{Agents, SIGHTING_WAIT, media_file::resolve, worktrees};
 use crate::{agents::claude, agents::found::LogRoots};
 use anyhow::{Context, Result, bail};
+use std::time::Duration;
 use std::{
     fs,
     io::ErrorKind,
     path::{Component, Path, PathBuf},
 };
 use tokio::{task::spawn_blocking, time::timeout};
+
+/// How long git may take to list the worktrees of the sessions' repositories.
+const WORKTREE_WAIT: Duration = Duration::from_secs(5);
 
 /// What a request does with what it names. Read and written: the node's
 /// workspace and shared folders, and the folders sessions work in. Only
@@ -107,6 +111,18 @@ impl Agents {
         }
     }
 
+    /// The folders the node's sessions work in, once each.
+    fn session_folders(&self) -> Vec<PathBuf> {
+        let mut folders: Vec<PathBuf> = self
+            .lock()
+            .values()
+            .map(|session| PathBuf::from(session.info().cwd))
+            .collect();
+        folders.sort();
+        folders.dedup();
+        folders
+    }
+
     /// What file requests may reach, the sessions' folders among them;
     /// those of sessions started outside Beep only with `sighted`.
     fn reach(&self, sighted: Vec<PathBuf>) -> Reach {
@@ -154,6 +170,20 @@ impl Agents {
         .context("the path check stopped")??;
         if held {
             return Ok(real);
+        }
+        // A worktree of a session's repository outside its folder is read
+        // like the folder, never written. Git is asked now, so a path the
+        // desktop merely names does not count.
+        if access != Access::Write {
+            let folders = self.session_folders();
+            let asked_real = real.clone();
+            let listed = spawn_blocking(move || worktrees::listed_in(&folders, &asked_real));
+            if timeout(WORKTREE_WAIT, listed)
+                .await
+                .is_ok_and(|done| done.unwrap_or(false))
+            {
+                return Ok(real);
+            }
         }
         // The folders of sessions started outside Beep cost a look in the
         // harnesses' logs, so only when the others did not hold it. The
