@@ -10,6 +10,7 @@ pub(crate) mod flsh_settings;
 pub(crate) mod harnesses;
 pub(crate) mod instructions;
 pub(crate) mod media;
+pub(crate) mod moving;
 pub(crate) mod sessions;
 pub(crate) mod steer;
 pub(crate) mod work_copy;

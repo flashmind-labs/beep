@@ -26,17 +26,20 @@ import { IC } from "../ui/icons.ts";
 import { type MachineCard, machineDisk, thisMacRow } from "../machines/machine-state.ts";
 import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
 import { onPlaces, runningLineAt } from "../agents/place.ts";
+import { moveLabel, onMoves } from "../agents/move-store.ts";
 
 export function runningRow(r: RunningRow) {
   const projects = state.home?.projects || [];
   const { title, sub } = r.kind === "agent" ? runningLineAt(r, projects) : runningLine(r, projects);
-  const right = [r.status === "asking" ? tag("wait", "needs you") : runningWhen(r)];
+  const moving = r.kind === "agent" ? moveLabel(r) : null;
+  const right = [moving ? tag(moving.chip === "Moving" ? "run" : "bad", moving.chip) : r.status === "asking" ? tag("wait", "needs you") : runningWhen(r)];
   const row = r.kind === "research"
     ? line(null, title, sub, right, () => openResearch(r.session))
     // The pane's agent view follows and answers it.
     : line(harnessEl(r.agent), title, sub, right, () => go("pane", { agent: r }));
   if (r.kind === "agent") row.addEventListener("contextmenu", e => void sessionMenu(e, r, s => go("pane", { agent: s })));
   row.dataset.key = runningKey(r);
+  if (moving?.why) row.title = moving.why;
   return row;
 }
 
@@ -365,6 +368,7 @@ export function draw() {
 }
 
 onPlaces(() => draw());
+onMoves(() => draw());
 
 registerView("home", {
   el: $("#home-box"),
