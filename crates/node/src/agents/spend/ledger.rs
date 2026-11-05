@@ -320,6 +320,24 @@ impl Ledger {
         })
     }
 
+    /// Every session read so far.
+    pub(super) fn sessions(&self) -> BTreeSet<SessionKey> {
+        let logs = self.logs.values().map(|log| (log.agent, &log.parts));
+        let databases = self
+            .databases
+            .values()
+            .map(|database| (database.agent, &database.parts));
+        logs.chain(databases)
+            .filter_map(|(agent, parts)| Some((agent?, parts)))
+            .flat_map(|(agent, parts)| {
+                parts.keys().map(move |session| SessionKey {
+                    agent,
+                    session: session.clone(),
+                })
+            })
+            .collect()
+    }
+
     /// The latest hour `key` spent in, to send the newest sessions first.
     pub(super) fn last_hour(&self, key: &SessionKey) -> u64 {
         let parts = self
