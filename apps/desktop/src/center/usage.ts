@@ -155,11 +155,13 @@ export function projectExtra(spend: Spend, metered: boolean) {
 }
 
 /// One harness's line in a period: its cost when it reports one, then
-/// tokens; tokens only for use a subscription covered.
+/// tokens. Use a subscription covered shows its estimate at API prices
+/// as `~$61`, when there is one.
 export function harnessLine(spend: HarnessSpend) {
   const tokens = spend.tokens > 0 ? `${tokenCount(spend.tokens)}` : "";
-  if (spend.cost_usd == null || spend.subscription) return tokens;
-  return tokens ? `${money(spend.cost_usd)} · ${tokens}` : money(spend.cost_usd);
+  if (spend.cost_usd == null || (spend.subscription && spend.cost_usd < 0.5)) return tokens;
+  const cost = spend.subscription ? `~$${Math.round(spend.cost_usd)}` : money(spend.cost_usd);
+  return tokens ? `${cost} · ${tokens}` : cost;
 }
 
 /// What the pill says of today: the dollars paid, else the tokens plans covered.
@@ -256,7 +258,7 @@ function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void
   blocks.push(
     periodBlock(view, key, pick),
     h("div", "us-note", view.metered
-      ? "Dollars are API spend. Plan use shows as tokens."
+      ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total."
       : "Dollars are what the same work would cost at API prices."),
   );
   const pop = h("div", "us-pop", ...blocks);

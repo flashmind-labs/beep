@@ -147,10 +147,13 @@ wire_structs! {
     pub struct HarnessBill {
         /// Its slug, such as `claude`.
         pub agent: AgentSlug,
-        /// A subscription covered it: tokens only, `cost_usd` is `None`.
+        /// A subscription covered it: tokens only, `cost_usd` is `None` in a
+        /// server's reply.
         pub subscription: bool,
         /// Metered API spend in US dollars; `None` when none of it was priced
-        /// or a subscription covered it.
+        /// or a subscription covered it. The desktop's own report (never sent
+        /// by a server) fills it on a subscription bill with the estimate at
+        /// API prices, which is in no total.
         pub cost_usd: Option<f64>,
         pub tokens: u64,
         /// The tokens by model, the most first, when it says.
