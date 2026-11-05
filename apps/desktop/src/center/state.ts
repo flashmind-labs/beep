@@ -72,6 +72,8 @@ export const state = {
   sync: [] as SyncRow[],
   traffic: [] as MachineTraffic[],
   git: null as GitItemsView | null,
+  /// Why `git_items` threw, when it did.
+  gitError: null as string | null,
   top: [] as string[],
   overview: undefined as OverviewCard[] | null | undefined,
   groups: undefined as ProjectGroup[] | null | undefined,
