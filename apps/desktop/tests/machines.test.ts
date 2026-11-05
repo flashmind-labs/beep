@@ -22,3 +22,19 @@ test("a node behind the newest is marked", () => {
   assert.equal(nodeBehind("0.1.22", newest), false);
   assert.equal(nodeBehind("dev", newest), false);
 });
+
+test("a tool updated this session keeps its version and loses its button", async () => {
+  const { shownVersion, updateOffered, updatedNotes } = await import("../src/machines/machines-state.ts");
+  const installed = new Map([["m1 flsh", "0.2.6"]]);
+  const stale = [{ name: "flsh", version: "flsh 0.2.5" }];
+  assert.equal(shownVersion(installed, "m1 flsh", "flsh", "flsh 0.2.5"), "0.2.6");
+  assert.equal(shownVersion(installed, "m1 flsh", "flsh", "flsh 0.2.6"), "0.2.6");
+  assert.equal(shownVersion(installed, "m1 flsh", "flsh", "flsh 0.2.7"), "0.2.7");
+  assert.equal(shownVersion(installed, "m2 flsh", "flsh", "flsh 0.2.5"), "0.2.5");
+  assert.equal(updateOffered(installed, "m1 flsh", "0.2.6"), false);
+  assert.equal(updateOffered(installed, "m1 flsh", "0.2.7"), true);
+  assert.equal(updateOffered(installed, "m2 flsh", "0.2.6"), true);
+  assert.deepEqual(updatedNotes(installed, "m1", stale), ["Updated flsh to 0.2.6"]);
+  assert.deepEqual(updatedNotes(installed, "m1", [{ name: "flsh", version: "0.2.6" }]), []);
+  assert.deepEqual(updatedNotes(installed, "m2", stale), []);
+});
