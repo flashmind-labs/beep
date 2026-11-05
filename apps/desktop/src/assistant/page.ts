@@ -281,6 +281,13 @@ function chatsSection() {
   return h("div", "", secHead("Chats", h("small", "", "Kept on this Mac only."), add), page.error ? h("div", "derr", page.error) : null, body);
 }
 
+/// An element holding the SVG `html`.
+function icon(html: string) {
+  const span = h("span", "ck");
+  span.innerHTML = html;
+  return span;
+}
+
 function modelPicker(open: Open) {
   const search = h("input");
   search.placeholder = page.models ? `Search ${page.models.models.length} models` : "Search models";
@@ -296,7 +303,7 @@ function modelPicker(open: Open) {
       return list.replaceChildren(h("div", "cc-empty", h("span", "derr", page.modelError), again));
     }
     const rows = filterModels(page.models.models, search.value).map(m => {
-      const row = h("button", "cc-row as-model", h("span", "t", h("b", "", m.name), h("span", "", m.id)), h("span", "r", m.id === open.model ? ICON.check : "", m.tools ? null : h("span", "dtag", "no tools")));
+      const row = h("button", "cc-row as-model", h("span", "t", h("b", "", m.name), h("span", "", m.id)), h("span", "r", m.id === open.model ? icon(ICON.check) : null, m.tools ? null : h("span", "dtag", "no tools")));
       row.type = "button";
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(m.id === open.model));
