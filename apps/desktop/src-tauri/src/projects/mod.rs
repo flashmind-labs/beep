@@ -5,6 +5,7 @@ pub(crate) mod branches;
 pub(crate) mod create;
 pub(crate) mod file_sync;
 pub(crate) mod git_items;
+pub(crate) mod git_sync;
 pub(crate) mod groups;
 pub(crate) mod import;
 pub(crate) mod list;
