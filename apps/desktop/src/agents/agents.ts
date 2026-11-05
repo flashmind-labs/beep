@@ -402,7 +402,7 @@ function sessionRow({ row: s, depth }: { row: AgentSession; depth: number }, i: 
   const tail = moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`
     : s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
     : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run" title="${esc(s.doing || "Working")}"><span class="dspin"></span><span class="tx">${esc(s.doing || "Working")}</span></span>`
-    : `<span class="w">${s.external ? "In terminal" : esc(cap(s.status))}</span>`;
+    : `<span class="w">${s.external && s.status !== "ended" ? "In terminal" : esc(cap(s.status))}</span>`;
   const kid = depth ? ` kid" style="--depth:${depth}` : "";
   return `<button class="dchat${kid}" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
       <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;

@@ -23,6 +23,7 @@ import { drawSide, projectRows } from "./sidebar.ts";
 import { homeProjectRow, projectsSection } from "../project/page.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
 import { IC } from "../ui/icons.ts";
+import { resetRows } from "../ui/lazyrows.ts";
 import { type MachineCard, machineDisk, thisMacRow } from "../machines/machine-state.ts";
 import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
 import { onPlaces, runningLineAt } from "../agents/place.ts";
@@ -270,12 +271,12 @@ export function overview(home: HomeView) {
   const prs = items.filter(i => i.kind === "pull_request"), issues = items.filter(i => i.kind === "issue");
   const terms = home.machines?.length ? allTerms.list(ALL) || [] : [], projects = projectRows() || [];
   const rows = [
-    [running?.length ? homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow)) : null,
-      projects.length ? homeBox("", "Projects", projects.length, () => openHomeTab("projects"), projects.map((p, i) => homeProjectRow(p, i))) : null],
-    [prs.length ? homeBox("", "Pull requests", prs.length, () => openHomeTab("git"), prs.map(itemLine)) : null,
-      issues.length ? homeBox("", "Issues", issues.length, () => openHomeTab("git"), issues.map(itemLine)) : null],
-    [terms.length ? homeBox("", "Terminals", terms.length, () => openHomeTab("machines"), terms.map(t => terminalLine(t, () => openTerminals({ id: t.id })))) : null,
-      coming?.length ? homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)) : null],
+    [running?.length ? homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).slice(0, BOX_ROWS).map(runningRow)) : null,
+      projects.length ? homeBox("", "Projects", projects.length, () => openHomeTab("projects"), projects.slice(0, BOX_ROWS).map((p, i) => homeProjectRow(p, i))) : null],
+    [prs.length ? homeBox("", "Pull requests", prs.length, () => openHomeTab("git"), prs.slice(0, BOX_ROWS).map(itemLine)) : null,
+      issues.length ? homeBox("", "Issues", issues.length, () => openHomeTab("git"), issues.slice(0, BOX_ROWS).map(itemLine)) : null],
+    [terms.length ? homeBox("", "Terminals", terms.length, () => openHomeTab("machines"), terms.slice(0, BOX_ROWS).map(t => terminalLine(t, () => openTerminals({ id: t.id })))) : null,
+      coming?.length ? homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.slice(0, BOX_ROWS).map(comingRow)) : null],
   ].filter(r => r.some(b => b));
   const out: HTMLElement[] = [];
   if (needs.length) out.push(section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow))));
@@ -373,7 +374,7 @@ onMoves(() => draw());
 registerView("home", {
   el: $("#home-box"),
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
-  mount() { refresh(); refreshGit(); },
+  mount() { resetRows("home:"); refresh(); refreshGit(); },
 });
 
 /// Element Home scrolls to once it has drawn.

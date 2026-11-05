@@ -96,7 +96,11 @@ impl Agents {
             }
         };
         if let Some(found) = &mut found {
-            found.presence = self.presence(agent, found).await;
+            // Deleting cannot be undone: for Claude Code a recent write still
+            // counts, in case a process Beep cannot see is writing it.
+            if agent != Agent::Claude {
+                found.presence = self.presence(agent, found).await;
+            }
             let live = found.pid.is_some() || (found.presence.is_live() && !ours);
             if live {
                 bail!(

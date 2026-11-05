@@ -8,7 +8,7 @@ import { invoke } from "../ui/tauri.ts";
 export const FLOATING = new Set(["latest", "map", "keys", "viewer", "saved"]);
 /// How tall the bar gets while a picture is open, within the screen.
 export const VIEWER_HEIGHT = 560;
-export const scrolls = (el: Element) => el.classList.contains("dbody") || el.classList.contains("dlist") || el.classList.contains("dkeys");
+export const scrolls = (el: Element) => el.classList.contains("dbody") || el.classList.contains("dlist") || el.classList.contains("dkeys") || el.classList.contains("agc-wrap");
 /// How tall `el` is with all of its content, scrolled or not.
 const tall = (el: HTMLElement) => scrolls(el) ? el.scrollHeight : el.offsetHeight;
 export const natural = (el: Element) => ([...el.children] as HTMLElement[]).reduce((n, c) => n + tall(c), 0);
