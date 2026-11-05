@@ -469,26 +469,39 @@ export function drawQueue() {
 /// chat's body while the bar shows another chat.
 export function follow(id: string | null, turn: Turn) {
   const channel = new Channel<BarEvent>();
+  // Text and thoughts arrive many times a frame: the newest answer and the
+  // work box are drawn once per frame, and before any other event.
+  let html: string | null = null, work = false, frame = 0;
+  const flush = () => {
+    cancelAnimationFrame(frame);
+    frame = 0;
+    if (html != null) { reply(turn).innerHTML = answerHtml(html); html = null; }
+    if (work) { work = false; drawWork(turn); }
+    if (turn.isConnected) keepDown();
+  };
+  const later = () => { frame ||= requestAnimationFrame(flush); };
   channel.onmessage = ev => {
     // A stopped turn only needs its run's id, to stop it.
     if (turn.stopped) return ev.kind === "started" && turn.started?.(ev.run_id);
+    if (ev.kind !== "text" && ev.kind !== "reasoning" && frame) flush();
     switch (ev.kind) {
       case "started":
         entry(id).run = { id: ev.run_id, turn };
         if (id === S.session) refreshHints();
         break;
       case "text": {
-        const first = !turn.querySelector(ANSWER);
+        if (html == null && !turn.querySelector(ANSWER)) work = true;
         endThought(turn);
-        reply(turn).innerHTML = answerHtml(ev.html);
-        if (first) drawWork(turn);
-        break;
+        html = ev.html;
+        later();
+        return;
       }
       case "reasoning":
         if (!turn.thought || turn.thought.ms != null) turn.thought = { text: turn.thought?.text ?? "", start: Date.now() };
         turn.thought.text += ev.delta;
-        drawWork(turn);
-        break;
+        work = true;
+        later();
+        return;
       case "tool_started":
         if (QUIET_TOOLS.has(ev.name)) break;
         endThought(turn);
