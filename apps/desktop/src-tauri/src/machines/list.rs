@@ -7,7 +7,7 @@ use crate::{
     center::home_sessions::HOME_CHANGED,
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, files as direct},
+    fleet::{ClockOff, Fleet, Machines, files as direct},
     projects::unknown_op,
 };
 use beep_proto::{
@@ -260,6 +260,12 @@ pub async fn list_machines(
 ) -> Result<Vec<MachineView>> {
     let machines = machines(&app, &fleet, &held);
     Ok(machines.into_iter().map(MachineView::from).collect())
+}
+
+/// The machines that are on with a clock far enough off to warn about.
+#[tauri::command]
+pub async fn machine_clocks(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<ClockOff>> {
+    Ok(fleet.status().clocks_off())
 }
 
 /// What a machine moved over iroh, as the Machines screens read it.

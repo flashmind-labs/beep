@@ -50,7 +50,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     task::JoinSet,
@@ -875,6 +875,11 @@ pub(crate) async fn serve_open(
             tx.send(&Opened::Ready {}).await?;
             tx.send(&version::Version {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
+                // A clock before 1970 is left unsaid: the desktop warns of nothing.
+                now_ms: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|since| u64::try_from(since.as_millis()).ok()),
             })
             .await
         }

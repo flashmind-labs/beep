@@ -10,6 +10,7 @@ import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, reason } from "../ui/format.ts";
 import { diffView } from "../review/diff.ts";
 import { compareFiles } from "./compare.ts";
+import { clockWarning, loadClocks } from "../machines/clock.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
 export interface SyncProgress {
@@ -277,6 +278,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     const was = JSON.stringify([s.detail, s.error]);
     try {
       s.detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
+      await loadClocks(invoke);
       s.error = "";
       kept.put(name, s.detail);
     } catch (e) {
@@ -349,6 +351,8 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (bar) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
     const meta = h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)), m.folder ? h("code", "", m.folder) : null);
     const row = h("div", "fs-row", head, bar, meta);
+    const clock = clockWarning(m.machine_id, null);
+    if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
     if (m.error) row.append(h("div", "cc-err", m.error));
     if (m.hint) row.append(h("div", "fs-m", `Rescanned instead of watched. To watch it, run ${m.hint}`));
     return row;
