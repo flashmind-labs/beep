@@ -17,6 +17,7 @@ import { type Started, state, pages, keep, pageFresh } from "../center/state.ts"
 import { failure, section, rowButton } from "../ui/pieces.ts";
 import { openUrl, openItemRow, repoLine, refreshGit } from "../center/openitems.ts";
 import { shown, go } from "../center/views.ts";
+import { sessionMenu } from "../agents/sessionmenu.ts";
 import { projectRows, importSheet, addProject, importFromPage } from "../center/sidebar.ts";
 import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { drawProjects } from "./page.ts";
@@ -294,6 +295,7 @@ function sessionRow(s: SessionRow) {
     .filter(Boolean).map(x => typeof x === "string" ? h("span", "", x) : x);
   const row = h("button", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta));
   row.addEventListener("click", () => openAgentRow(s));
+  row.addEventListener("contextmenu", e => void sessionMenu(e, s, row => go("pane", { agent: row })));
   return row;
 }
 

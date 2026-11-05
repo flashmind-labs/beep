@@ -18,6 +18,7 @@ import { tag, line, section } from "../ui/pieces.ts";
 import { homeBox } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
+import { sessionMenu } from "../agents/sessionmenu.ts";
 import { customAgentsSection, whereSection, agentsSection } from "./projects.ts";
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
@@ -59,6 +60,8 @@ interface SplitItem {
   start?: StartEntry;
   right?: Kid;
   open?: () => void;
+  /// What right-clicking the row does.
+  menu?: (e: MouseEvent) => void;
   detail?: () => Node[];
 }
 
@@ -106,6 +109,7 @@ function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter, pick?: HTML
   row.title = i.title;
   if (i.key === lit) row.setAttribute("aria-current", "true");
   row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
+  if (i.menu) row.addEventListener("contextmenu", i.menu);
   return pick ? h("div", "pj-prow", pick, row) : row;
 }
 
@@ -140,6 +144,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
     right: r.status === "asking" ? tag("wait", "needs you") : runningWhen(r), open: () => go("pane", { agent: r }),
+    menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));
   if (runItems.length) groups.push({ title: "Running", items: runItems });
   groups.push({ title: "Project", items: project });
