@@ -36,6 +36,10 @@ pub async fn use_here(app: AppHandle, beep: Service<'_>) -> Result<()> {
 }
 
 async fn start_here(app: &AppHandle, beep: &Beep) -> Result<()> {
+    // A Mac signed out has an account: signing in is the same key again.
+    if beep.signed_out() {
+        return super::signout::resume(app, beep).await;
+    }
     if beep.link_state() != LinkState::Unlinked {
         return Ok(());
     }
@@ -72,13 +76,27 @@ impl From<LinkedDevice> for DeviceView {
     }
 }
 
+/// Whether the server answered a list of its devices.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerReach {
+    /// There is no server, or this Mac is signed out of it.
+    None,
+    Answered,
+    Unreachable,
+}
+
+/// The devices Settings lists, and whether the server they came from answered.
+#[derive(Serialize)]
+pub struct Devices {
+    devices: Vec<DeviceView>,
+    server: ServerReach,
+}
+
 /// The desktops of the mesh, then the phones the server links, when there
 /// is a server.
 #[tauri::command]
-pub async fn list_devices(
-    beep: Service<'_>,
-    fleet: State<'_, Arc<Fleet>>,
-) -> Result<Vec<DeviceView>> {
+pub async fn list_devices(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Result<Devices> {
     let mut devices: Vec<DeviceView> = fleet
         .machines()
         .into_iter()
@@ -92,18 +110,25 @@ pub async fn list_devices(
             primary: true,
         })
         .collect();
+    let mut server = ServerReach::None;
     if beep.server().is_some() {
         match beep.call(ListDevices {}).await {
-            Ok(linked) => devices.extend(
-                linked
-                    .into_iter()
-                    .filter(|device| device.kind.as_str() == "phone")
-                    .map(DeviceView::from),
-            ),
-            Err(e) => log::debug!("the server's devices are not listed: {e}"),
+            Ok(linked) => {
+                server = ServerReach::Answered;
+                devices.extend(
+                    linked
+                        .into_iter()
+                        .filter(|device| device.kind.as_str() == "phone")
+                        .map(DeviceView::from),
+                );
+            }
+            Err(e) => {
+                server = ServerReach::Unreachable;
+                log::debug!("the server's devices are not listed: {e}");
+            }
         }
     }
-    Ok(devices)
+    Ok(Devices { devices, server })
 }
 
 /// A code that moves the phone that scans it, with its chats, into this

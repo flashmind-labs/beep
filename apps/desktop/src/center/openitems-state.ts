@@ -73,9 +73,9 @@ export function waitsOnYou(item: Item) {
   return item.review_requested || (item.authored && (item.review === "changes_requested" || item.checks_failing));
 }
 
-/// Orders items: those waiting on the user first, then the newest.
-export function waitingFirst(a: Item & Pick<GitItemRow, "updated_at">, b: Item & Pick<GitItemRow, "updated_at">) {
-  return Number(waitsOnYou(b)) - Number(waitsOnYou(a)) || b.updated_at - a.updated_at;
+/// Orders items by the latest activity, newest first.
+export function newestFirst(a: Pick<GitItemRow, "updated_at">, b: Pick<GitItemRow, "updated_at">) {
+  return b.updated_at - a.updated_at;
 }
 
 /// The repository's web page from an item's.
@@ -104,7 +104,7 @@ export function projectsWithOpen<P extends OpenProject>(
     row.last = Math.max(row.last, item.updated_at);
     row.items.push(item);
   }
-  for (const row of rows.values()) row.items.sort(waitingFirst);
+  for (const row of rows.values()) row.items.sort(newestFirst);
   return [...rows.values()].sort((a, b) => (Math.sign(b.waiting) - Math.sign(a.waiting)) || b.last - a.last);
 }
 
