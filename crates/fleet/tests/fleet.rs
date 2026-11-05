@@ -555,6 +555,7 @@ async fn usage_sums_every_machine() {
                 model: "claude-opus-4-1".into(),
                 input_tokens: tokens,
                 cost_usd: cost,
+                billing: beep_proto::node::usage::Billing::Metered,
                 ..HourSpend::default()
             }],
         },
