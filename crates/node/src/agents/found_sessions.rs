@@ -188,6 +188,43 @@ impl Agents {
         Ok(sessions)
     }
 
+    /// Sessions of `agent`, one other than Claude Code, started outside
+    /// Beep, newest first: at most `limit`, or only `session` when given.
+    pub(super) async fn stores_external(
+        &self,
+        agent: &str,
+        limit: u32,
+        session: Option<String>,
+    ) -> Result<Vec<ExternalSession>> {
+        let agent = Agent::from_name(agent)
+            .filter(|agent| *agent != Agent::Claude)
+            .with_context(|| format!("this node lists no {agent} sessions started outside Beep"))?;
+        let owned = self.owned();
+        let stores = self.stores.clone();
+        let mut sessions = spawn_blocking(move || {
+            let now = SystemTime::now();
+            let mut seen = stores.sessions(Some(agent));
+            seen.sort_by_key(|seen| Reverse(seen.last_activity));
+            match session {
+                Some(id) => seen.retain(|seen| seen.id == id),
+                None => seen.truncate(
+                    usize::try_from(limit)
+                        .unwrap_or(MAX_IN_FOLDERS)
+                        .clamp(1, MAX_IN_FOLDERS),
+                ),
+            }
+            seen.into_iter()
+                .map(|seen| stores.describe(seen, now))
+                .collect::<Vec<_>>()
+        })
+        .await?;
+        for found in &mut sessions {
+            found.presence = self.presence(agent, found).await;
+            found.taken_over = owned.get(&found.id).cloned();
+        }
+        Ok(sessions)
+    }
+
     /// The sessions this node runs, by the agent's own id, to the node's id.
     pub(super) fn owned(&self) -> HashMap<String, String> {
         self.lock()

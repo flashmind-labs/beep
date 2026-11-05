@@ -444,7 +444,8 @@ export function drawAgentBody(keep?: string) {
   const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
   const entries = child != null ? childHtml(p, child) : p.entries.length && AG.log ? `<div class="dcoderlog">${earlier}${turnsHtml(p)}</div>`
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
-  const err = p.error ? errorCardHtml(p.error) : "";
+  // What stopped an outside session's log from reading is not a failed turn.
+  const err = p.error ? (s.external ? `<div class="derr">${esc(p.error)}</div>` : errorCardHtml(p.error)) : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note && AG.note === AG.readError && AG.note.startsWith("Reconnecting") ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";

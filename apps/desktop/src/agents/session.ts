@@ -10,7 +10,7 @@ import { openLinked, openPath, openPicture, paneFrame, showArtifact, startPane }
 import { atBottom } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, agentAvatar, folderName, where, stateTag } from "./agents.ts";
+import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
@@ -224,7 +224,7 @@ async function drawEditors(s: AgentRow) {
 export function drawAgentFrame() {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
-    ? `<div class="dmuted dblock dbanner">Started outside Beep. Beep follows it here; to steer it, ask Beep in a chat to take it over once it stops.</div>`
+    ? `<div class="dmuted dblock dbanner">Started outside Beep. Beep follows it here${canTakeOver(s.agent) ? "; to steer it, ask Beep in a chat to take it over once it stops" : ""}.</div>`
     : `<div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
