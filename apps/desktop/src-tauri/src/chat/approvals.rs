@@ -28,6 +28,8 @@ pub(crate) struct ChatAnswer {
 }
 
 /// Answers an approval card and streams the run it resumes into `on_event`.
+// Tauri fills in the state arguments; the window passes only the rest.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn answer_approval(
     app: AppHandle,
