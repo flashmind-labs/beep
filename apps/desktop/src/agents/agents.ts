@@ -22,6 +22,7 @@ import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, openEditorKey, turnRuns } from "./session.ts";
 import { sessionMenu } from "./sessionmenu.ts";
+import { TAKEOVER } from "./sessionmenu-state.ts";
 import { closeChild } from "./logview.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, jumpToEnd, logJumpKey } from "./older.ts";
@@ -325,7 +326,6 @@ export const AGENT_KINDS: Record<string, AgentKind> = {
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
 };
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
-const TAKEOVER = new Set(["claude", "codex", "pi", "flsh", "opencode"]);
 export const canTakeOver = (a: string) => TAKEOVER.has(a);
 export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
@@ -449,11 +449,12 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
     // ⌘T a terminal in the pane, ⌘1 ⌘2 ⌘3 its Files, Changes and Artifacts, ⌘O the folder in
-    // the editor. ⇧⌘T opens or folds every thought, ⌘Y every command, ⇧⌘Y the last one.
+    // the editor. ⌘U opens or folds every thought, ⌘Y every command, ⇧⌘Y the last one.
     // They work from the field and from a terminal: none edits text.
     if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
       const k = e.key.toLowerCase();
-      if (k === "t") { e.preventDefault(); if (e.shiftKey) toggleThoughts(); else newTerminal(); return true; }
+      if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(); return true; }
+      if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
       if (!e.shiftKey && (k === "1" || k === "2" || k === "3")) { e.preventDefault(); showPaneTab(Number(k) - 1); return true; }
       if (k === "o" && !e.shiftKey) { e.preventDefault(); openEditorKey(); return true; }

@@ -2,6 +2,7 @@
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/loopclock.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";
+import { isCloseKey } from "../agentpane/media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
@@ -62,8 +63,8 @@ initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id =
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
 
 document.addEventListener("keydown", e => {
-  // Keys typed into a terminal are the terminal's, Esc and Tab too.
-  if (e.target instanceof Element && e.target.closest(".tm-xterm")) return;
+  // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W.
+  if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e)) return;
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home.
   if (e.key === "Escape" && !e.defaultPrevented) {
     const up = escUp({ page: shown, picked: state.picked, tile: !!pa.tile, alone: !!windowProject });
@@ -81,7 +82,7 @@ document.addEventListener("keydown", e => {
   }
   // ⌘W closes the focused pane's tab, else this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
-  if (key === "w" && !e.shiftKey) { e.preventDefault(); if (closeFocusedTab()) return; invoke("center_close_window").catch(() => window.close()); return; }
+  if (isCloseKey(e)) { e.preventDefault(); if (closeFocusedTab()) return; invoke("center_close_window").catch(() => window.close()); return; }
   // ⌘⇧N: the project on screen in a window of its own.
   if (key === "n" && e.shiftKey && shown === "projects" && state.picked && !windowProject) {
     e.preventDefault();

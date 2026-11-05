@@ -14,13 +14,16 @@ export interface SessionOffers {
   delete: boolean;
 }
 
+/// The agents whose sessions started outside Beep can be taken over.
+export const TAKEOVER = new Set(["claude", "codex", "pi", "flsh", "opencode"]);
+
 /// The items for a session in `status`. A session started outside Beep can
-/// only be followed, but once it ended its conversation can still be deleted.
+/// be continued here, and once it ended its conversation can still be deleted.
 /// A running one must be closed first. `reachable` is whether this Mac can ask
 /// the machine to delete: not one only a server reaches.
 export function sessionOffers(s: { status: string; external: boolean; agent: string }, reachable = true): SessionOffers {
   const ended = s.status === "ended";
   const del = ended && reachable && DELETABLE.has(s.agent);
-  if (s.external) return { stop: false, close: false, resume: false, delete: del };
+  if (s.external) return { stop: false, close: false, resume: TAKEOVER.has(s.agent), delete: del };
   return { stop: TURN.has(s.status), close: !ended, resume: ended, delete: del };
 }

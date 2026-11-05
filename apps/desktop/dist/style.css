@@ -652,7 +652,12 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agdropzone[hidden] { display: none }
 .agpviews, .agpview { flex: 1; min-height: 0; display: flex; flex-direction: column }
 .agpview[hidden] { display: none !important }
+.agoutside { display: flex; align-items: center; justify-content: space-between; gap: 10px }
 .agpview.subs { overflow: auto; padding: 6px; gap: 2px; display: grid; align-content: start }
+.agpview.subs .dsubrow { grid-template-columns: 16px minmax(0, 1fr) 16px }
+.dsubrow .x { display: grid; place-items: center; height: 20px; color: var(--muted); font-style: normal; visibility: hidden }
+.dsubrow:hover .x { visibility: visible }
+.dsubrow .x:hover { color: var(--fg) }
 .agpstage { flex: 1; min-height: 0; position: relative; overflow: hidden; display: grid; place-items: center; background: var(--deep) }
 .agpstage.img { display: block; cursor: grab; touch-action: none } .agpstage.img.drag { cursor: grabbing }
 .agpstage.img img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; image-rendering: auto; user-select: none; -webkit-user-drag: none }
