@@ -1427,7 +1427,7 @@ async fn background_commands_show_as_running_and_stop_without_ending_the_turn() 
 /// An adapter that writes the compaction variables it started with to
 /// the file in `$2`, then exits, which ends the session.
 const ENV_ADAPTER: &str = r#"
-printf '%s|%s|%s\n' "$CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" "$DISABLE_AUTO_COMPACT" "$OPENCODE_DISABLE_AUTOCOMPACT" > "$2"
+printf '%s|%s|%s|%s\n' "$CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" "$DISABLE_AUTO_COMPACT" "$OPENCODE_DISABLE_AUTOCOMPACT" "$CODEX_CONFIG" > "$2"
 "#;
 
 /// What the adapter of agent `name` saw in its environment, given its
@@ -1452,15 +1452,27 @@ async fn an_agent_with_its_own_compaction_starts_with_the_setting() {
         Some(AutoCompact {
             enabled: true,
             percent,
+            tokens: None,
         })
     };
     let off = Some(AutoCompact {
         enabled: false,
         percent: None,
+        tokens: None,
     });
-    assert_eq!(compaction_env("claude", at(Some(65))).await, "65||");
-    assert_eq!(compaction_env("claude", off).await, "|1|");
-    assert_eq!(compaction_env("opencode", off).await, "||1");
-    assert_eq!(compaction_env("opencode", at(Some(65))).await, "||");
-    assert_eq!(compaction_env("codex", off).await, "||");
+    assert_eq!(compaction_env("claude", at(Some(65))).await, "65|||");
+    assert_eq!(compaction_env("claude", off).await, "|1||");
+    assert_eq!(compaction_env("opencode", off).await, "||1|");
+    assert_eq!(compaction_env("opencode", at(Some(65))).await, "|||");
+    assert_eq!(compaction_env("codex", off).await, "|||");
+    let tokens = Some(AutoCompact {
+        enabled: true,
+        percent: None,
+        tokens: Some(350_000),
+    });
+    assert_eq!(compaction_env("claude", tokens).await, "|1||");
+    assert_eq!(
+        compaction_env("codex", tokens).await,
+        r#"|||{"model_auto_compact_token_limit":350000}"#
+    );
 }

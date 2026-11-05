@@ -67,8 +67,9 @@ interface EnvDraft {
 }
 
 /// When the nodes compact a harness's sessions (AutoCompact): null is the
-/// default, on at 80%.
-export type Compact = { enabled: boolean; percent: number | null } | null;
+/// default, on at 80%. A token count wins over the percent; saving one leaves
+/// the percent null, which is all a node from before it reads.
+export type Compact = { enabled: boolean; percent: number | null; tokens: number | null } | null;
 
 /// The runtime fields as the form holds them.
 export interface HarnessDraft {
@@ -77,7 +78,7 @@ export interface HarnessDraft {
   args: string;
   env: EnvDraft[];
   compactOn: boolean;
-  /// The percent as typed, "" for the default.
+  /// The percent or token count as typed, "" for the default.
   compactPercent: string;
 }
 
@@ -221,32 +222,34 @@ export const compactKind = (agent: string) => COMPACT_KIND[agent] ?? null;
 /// Whether the form shows auto-compact for this harness.
 export const hasCompact = (agent: string) => compactKind(agent) !== null;
 
-/// The percent typed, 1 to 100 with an optional "%", or null when blank or
-/// not one.
-function parsePercent(text: string) {
-  const t = text.trim().replace(/%$/, "").trim();
-  if (!/^\d+$/.test(t)) return null;
-  const n = Number(t);
-  return n >= 1 && n <= 100 ? n : null;
+/// What was typed: "80%" or "80" (1 to 100) is a percent, a bare number
+/// above 100 is a token count. Null when blank or neither.
+function parseCompact(text: string): { percent: number | null; tokens: number | null } | null {
+  const m = /^(\d+)\s*(%?)$/.exec(text.trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (n >= 1 && n <= 100) return { percent: n, tokens: null };
+  if (n > 100 && m[2] === "" && Number.isSafeInteger(n)) return { percent: null, tokens: n };
+  return null;
 }
 
-/// Why the percent cannot be saved, or "" when it can.
+/// Why the field cannot be saved, or "" when it can.
 export function compactProblem(draft: HarnessDraft) {
   const t = draft.compactPercent.trim();
-  return !draft.compactOn || t === "" || parsePercent(t) !== null ? "" : "Auto-compact is 1 to 100%.";
+  return !draft.compactOn || t === "" || parseCompact(t) !== null ? "" : "Auto-compact is 1 to 100%, or a token count.";
 }
 
 /// What the form's auto-compact fields save: null for the default.
 export function compactOf(draft: HarnessDraft): Compact {
-  const percent = parsePercent(draft.compactPercent);
-  return draft.compactOn && percent === null ? null : { enabled: draft.compactOn, percent };
+  const parsed = parseCompact(draft.compactPercent);
+  return draft.compactOn && parsed === null ? null : { enabled: draft.compactOn, percent: parsed?.percent ?? null, tokens: parsed?.tokens ?? null };
 }
 
 /// The form's fields for `h`'s saved settings and `compact`.
 export function draftOf(h: HarnessView, compact: Compact = null): HarnessDraft {
   return {
     compactOn: compact?.enabled ?? true,
-    compactPercent: compact?.percent != null ? String(compact.percent) : "",
+    compactPercent: compact?.tokens != null ? String(compact.tokens) : compact?.percent != null ? String(compact.percent) : "",
     program: h.settings.program,
     home: h.settings.home,
     args: joinArgs(h.settings.args),
