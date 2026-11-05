@@ -1,9 +1,10 @@
 // What the window last drew from the server, kept by the app so a window
 // that opens shows Home, the projects and the sidebar at once, then
 // updates them in place once the server answers.
-import type { HomeView, SyncRow, UpdateRow } from "./home-state.ts";
+import type { HomeView, UpdateRow } from "./home-state.ts";
 import type { OverviewCard, ProjectGroup } from "../project/projects-state.ts";
 import type { ProjectAgent } from "../project/agent.ts";
+import type { SyncRow } from "../project/filesync.ts";
 
 /// The views as `center_cached` hands them over; one never kept is missing.
 export interface CachedViews {

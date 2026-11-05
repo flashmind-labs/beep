@@ -2,7 +2,7 @@
 // line. The log redraws on every read, so whether each follows is kept here.
 
 import { liveText } from "./karaoke.ts";
-import { esc } from "../bar/core.ts";
+import { esc } from "../ui/format.ts";
 
 /// The live thoughts that follow their newest line, until the reader
 /// scrolls them.

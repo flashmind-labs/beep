@@ -3,6 +3,7 @@
 
 import { agentLabel } from "../project/projects-state.ts";
 import { el as h } from "../ui/dom.ts";
+import { money, tokenCount } from "../ui/format.ts";
 
 export interface UsageWindow {
   minutes: number;
@@ -132,18 +133,6 @@ export function asOf(at: number, now: number) {
   const hours = Math.floor(min / HOUR);
   if (hours < 24) return `as of ${hours} h ago`;
   return `as of ${Math.floor(hours / 24)} d ago`;
-}
-
-/// "$4.20".
-export function money(usd: number) {
-  return `$${(Number.isFinite(usd) ? usd : 0).toFixed(2)}`;
-}
-
-/// "1.3M", "12K", "800".
-export function tokenCount(n: number) {
-  if (n >= 100_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return String(n);
 }
 
 /// "1.1M Codex tokens", one agent after another.

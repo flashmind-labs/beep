@@ -7,7 +7,7 @@ import { el as h } from "../ui/dom.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
 import { type ViewArg, views } from "../center/state.ts";
-import { skeleton } from "../center/pieces.ts";
+import { skeleton } from "../ui/pieces.ts";
 import { shown, shownArg, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet

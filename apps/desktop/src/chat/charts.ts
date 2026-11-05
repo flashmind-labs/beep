@@ -1,5 +1,8 @@
-import { esc, h, invoke, type Turn } from "../bar/core.ts";
 import { sentBox } from "./media.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
+import type { Turn } from "../ui/turn.ts";
 
 // ---------- Charts ----------
 

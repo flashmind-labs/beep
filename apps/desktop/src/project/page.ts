@@ -9,8 +9,8 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { editorTools } from "./editors.ts";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor } from "./agent.ts";
-import { type ProjectsArg, IC, state, pages, warm } from "../center/state.ts";
-import { projectDot, section, line } from "../center/pieces.ts";
+import { type ProjectsArg, state, pages, warm } from "../center/state.ts";
+import { projectDot, section, line } from "../ui/pieces.ts";
 import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, newWindowOn, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
@@ -21,6 +21,7 @@ import { liveMode, redrawProjectsPage } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
+import { IC } from "../ui/icons.ts";
 
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();

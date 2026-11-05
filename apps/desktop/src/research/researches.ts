@@ -1,11 +1,13 @@
 import { failed, grow, newTurn } from "../chat/chat.ts";
 import { when } from "../chat/chats.ts";
-import { $, $$, bar, esc, ICON, invoke, S } from "../bar/core.ts";
+import { $, $$, bar, S } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
 import { emptyPage, errLine } from "../lists/memories.ts";
 import { chipHtml, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
-import { plural } from "../ui/format.ts";
+import { esc, plural } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Research ----------
 

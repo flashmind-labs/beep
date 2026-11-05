@@ -1,9 +1,8 @@
 // A project page's split: the list of tasks, PRs, issues and machines on
 // the left, the picked row's view on the right.
-import { harnessEl } from "../agents/harnessicon.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts";
-import { runningKey, runningLine, runningWhen, byRecent, type RunningAgent } from "../center/home-state.ts";
 import { pastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { agentFor, pageAgent, tasksSection, workersSection, cardsSection } from "./agent.ts";
@@ -12,14 +11,16 @@ import { branchTile } from "../review/review.ts";
 import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
-import { IC, state } from "../center/state.ts";
-import { tag, line, section } from "../center/pieces.ts";
+import { state } from "../center/state.ts";
+import { tag, line, section } from "../ui/pieces.ts";
 import { homeBox } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { customAgentsSection, whereSection, agentsSection } from "./projects.ts";
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
+import { IC } from "../ui/icons.ts";
+import { byRecent, type RunningAgent, runningKey, runningLine, runningWhen } from "../agents/running-state.ts";
 
 /// The split shows for an imported project whose agent's view has loaded, and with no
 /// subscription for every imported project: it has no agent to wait for.

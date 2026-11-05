@@ -1,6 +1,6 @@
 // Settings, Agent accounts: how the coding agents sign in on your machines.
 
-import { harnessTile } from "../agents/harnessicon.ts";
+import { harnessTile } from "../ui/harnessicon.ts";
 
 type Esc = (s: unknown) => string;
 /// "today", "3 days ago": how long ago a time in milliseconds was.

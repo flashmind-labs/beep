@@ -1,21 +1,6 @@
 // The bar's page, and the pane the command center window shows it in.
 import type { GroupState } from "../chat/groups.ts";
-
-export { invoke, Channel, listen } from "../ui/tauri.ts";
-
-export const ICON = {
-  check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
-  x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
-  chev: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
-  ret: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4"/></svg>',
-  pin: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>',
-  group: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14a5 5 0 016 5"/></svg>',
-  doc: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>',
-  phone: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18h2"/></svg>',
-  image: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>',
-  save: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
-};
-export const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/></svg>';
+import type { ChatBody, Turn } from "../ui/turn.ts";
 
 export const bar = document.getElementById("bar")!;
 /// True when this page runs as a pane in the command center window rather
@@ -110,63 +95,9 @@ export const S: BarState = new Proxy<BarState>({
   },
 });
 
-export { esc } from "../ui/format.ts";
-/// The first element of `html`.
-export function h<T extends Element = HTMLElement>(html: string): T {
-  const t = document.createElement("template");
-  t.innerHTML = html.trim();
-  return t.content.firstElementChild as T;
-}
 export const $ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel);
 /// An element `$` is sure to find, as the view on screen draws it.
 export const $$ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel)!;
-
-/// A tool step of a turn, as the chat shows it. A step still running when
-/// its turn ends is marked stopped.
-export interface Step {
-  id: string;
-  /// The tool's name, for its row's icon.
-  name: string;
-  label: string;
-  state: "run" | "ok" | "bad" | "stop";
-}
-
-/// The model's thought in a turn: its text so far, when it started and, once
-/// something else came, how long it took. `touched` and `open` keep the
-/// reader's choice of folding it; `ended` that it folded once already.
-export interface TurnThought {
-  text: string;
-  start: number;
-  ms?: number;
-  touched?: boolean;
-  open?: boolean;
-  ended?: boolean;
-}
-
-/// A turn of a chat: a prompt and its reply. The element keeps what the
-/// chat needs to redraw and answer it.
-export interface Turn extends HTMLDivElement {
-  steps: Step[];
-  folded: boolean;
-  done?: boolean;
-  user?: boolean;
-  failed?: boolean;
-  stopped?: boolean;
-  /// Resolves the run id of a turn stopped before it started.
-  started?: (runId: string | null) => void;
-  agent?: string;
-  model?: string;
-  status?: string;
-  /// When this window saw it start and end.
-  begun?: number;
-  ended?: number;
-  thought?: TurnThought;
-}
-
-/// A chat's scrolling body, which knows whether it follows the newest turn.
-export interface ChatBody extends HTMLElement {
-  stuck?: boolean;
-}
 
 export interface LiveRun {
   id: string | null;

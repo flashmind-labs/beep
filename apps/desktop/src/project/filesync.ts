@@ -4,12 +4,10 @@
 // every machine.
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { secHead, emptyPanel } from "../ui/parts.ts";
-import { bytes } from "../center/home-state.ts";
-import type { SyncRow } from "../center/home-state.ts";
-import { reason } from "../addproject/importproject-state.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
-import { PageCache, type SectionStore } from "./pagecache.ts";
+import { PageCache, type SectionStore } from "../ui/pagecache.ts";
+import { bytes, reason } from "../ui/format.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
 export interface SyncProgress {
@@ -370,4 +368,16 @@ export function makeFileSync(deps: FileSyncDeps) {
     panel,
     stop: () => watch(null),
   };
+}
+
+
+/// One machine's sync of one project, as `project_sync` lists it (SyncRow).
+export interface SyncRow {
+  project: string;
+  machine_id: string;
+  /// `offline`, `scanning`, `syncing`, `in_sync` or `failed`.
+  status: string;
+  files: number;
+  pending: number;
+  error: string | null;
 }

@@ -1,16 +1,18 @@
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
-import { harnessTile } from "../agents/harnessicon.ts";
+import { harnessTile } from "../ui/harnessicon.ts";
 import { bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, specLine, toolChips, updatedTo } from "./machines-state.ts";
-import { bar, esc, ICON, invoke, S } from "../bar/core.ts";
-import { bytes } from "../center/home-state.ts";
+import { bar, S } from "../bar/core.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
 import { copy } from "../ui/parts.ts";
 import { notice } from "../chat/media.ts";
 import { emptyPage, errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";
+import { bytes, esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Machines ----------
 

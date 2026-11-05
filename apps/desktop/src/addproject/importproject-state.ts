@@ -1,6 +1,7 @@
 // What the "Import a project" sheet shows and how it steps, as pure
 // functions so they can be tested without Tauri. importproject.ts draws it.
 import type { ProjectRow, MachineFolder } from "../project/projects-state.ts";
+import { reason } from "../ui/format.ts";
 
 /// "org/repo", a GitHub URL, a Forgejo URL or `git@host:org/repo`: what the
 /// server takes. It says why when it is none of these.
@@ -22,13 +23,6 @@ export interface MachineChip {
 export function machineChips(machines: readonly { id: string; name: string; online: boolean }[] | null | undefined): MachineChip[] {
   const online = (machines || []).filter(m => m.online);
   return [{ id: null, label: "Auto" }, ...online.map(m => ({ id: m.id, label: m.name }))];
-}
-
-/// Children for `replaceChildren` or `append` without the empty slots a
-/// conditional leaves (`null`, `undefined`, `false`), which the DOM would
-/// print as text.
-export function present<T>(kids: readonly (T | null | undefined | false)[] | null | undefined) {
-  return (kids || []).filter((k): k is T => k != null && k !== false);
 }
 
 /// `org/repo` for a GitHub remote, so the field reads as if typed; any other
@@ -164,11 +158,6 @@ export function next(state: ImportState, event: ImportEvent): ImportState {
     default:
       return state;
   }
-}
-
-/// A refusal as the server said it, without what the bridge puts before it.
-export function reason(e: unknown) {
-  return String(e).replace(/^(bad request|error):\s*/i, "");
 }
 
 /// The server's sentence, without what the bridge puts before it.

@@ -1,10 +1,14 @@
 import { type AgentReport, cardKey, parseAgentReport, type ReportStep } from "./agentcard.ts";
 import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, agentAvatar, agentKind, stateTag } from "../agents/agents.ts";
+import { loadSessions } from "../agents/sessions.ts";
 import { filesHtml, planHtml, questionHtml } from "../agents/coderhtml.ts";
 import { openAgent } from "../agents/session.ts";
-import { esc, h, ICON, invoke } from "../bar/core.ts";
-import type { Turn } from "../bar/core.ts";
 import { ANSWER } from "./chat.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
+import type { Turn } from "../ui/turn.ts";
 
 // ---------- Coding agent card in a reply ----------
 
@@ -14,8 +18,6 @@ import { ANSWER } from "./chat.ts";
 
 /// How often a working session's card asks again.
 const CARD_POLL_MS = 3000;
-/// How long one read of every session serves the cards that look for theirs.
-const SESSIONS_FRESH_MS = 15000;
 
 /// A card's element, which keeps what it shows and where its session is.
 interface CoderCard extends HTMLElement {
@@ -24,16 +26,6 @@ interface CoderCard extends HTMLElement {
   found?: { row: AgentSession; page: AgentPage | null };
   answering?: number | null;
   timer?: ReturnType<typeof setTimeout>;
-}
-
-let sessions: { at: number; list: Promise<AgentSession[]> } | null = null;
-
-/// Every session on the user's machines, read at most every few seconds.
-function allSessions() {
-  if (!sessions || Date.now() - sessions.at > SESSIONS_FRESH_MS) {
-    sessions = { at: Date.now(), list: invoke<AgentSession[]>("agent_sessions").catch((): AgentSession[] => []) };
-  }
-  return sessions.list;
 }
 
 /// Draws or updates the card for the session a `code_agent` result
@@ -57,7 +49,7 @@ export function coderCard(turn: Turn, text: string | null | undefined) {
 
 async function find(card: CoderCard) {
   const r = card.report;
-  const row = (await allSessions()).find(s => s.id === r.id && s.agent === r.agent);
+  const row = (await loadSessions().catch((): AgentSession[] => [])).find(s => s.id === r.id && s.agent === r.agent);
   if (!row || !card.isConnected) return;
   card.found = { row, page: null };
   poll(card);

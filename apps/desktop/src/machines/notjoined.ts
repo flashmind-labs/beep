@@ -3,9 +3,9 @@
 import { dbtn as button, copy } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
-import { machineOs, type MachineCard } from "../center/home-state.ts";
-import { dot, line, section, tag } from "../center/pieces.ts";
+import { dot, line, section, tag } from "../ui/pieces.ts";
 import { notJoinedSub } from "./notjoined-state.ts";
+import { type MachineCard, machineOs } from "./machine-state.ts";
 
 /// A ticket's line, copied from the button that asked for it; a failure shows on the button.
 async function copyJoinLine(on: HTMLButtonElement) {

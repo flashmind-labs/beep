@@ -3,13 +3,12 @@
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, freshNote, svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { byRecent, type RunningAgent } from "../center/home-state.ts";
 import { awaitsView, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
-import { IC, pages, state, warm, pageFresh } from "../center/state.ts";
-import { projectDot, section, plusLabel } from "../center/pieces.ts";
+import { pages, state, warm, pageFresh } from "../center/state.ts";
+import { projectDot, section, plusLabel } from "../ui/pieces.ts";
 import { machineMenu } from "../machines/table.ts";
 import { runningRow } from "../center/home.ts";
 import { single } from "../center/openitems.ts";
@@ -19,6 +18,8 @@ import { splitOn, projectSplit } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { whereRow, readingWhere, whereDue, loadWhere, sessionsSection, hostOf } from "./loads.ts";
+import { IC } from "../ui/icons.ts";
+import { byRecent, type RunningAgent } from "../agents/running-state.ts";
 
 export const importButton = (cls: string) => plusLabel("Add a project", cls, addProject);
 

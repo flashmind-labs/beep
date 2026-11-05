@@ -8,7 +8,7 @@ import type { CenterTarget } from "../project/projectwindow.ts";
 import { chatProject, shortName, type ProjectAgent } from "../project/agent.ts";
 import { askBeep } from "./center.ts";
 import { type ViewHead, state } from "./state.ts";
-import { projectDot } from "./pieces.ts";
+import { projectDot } from "../ui/pieces.ts";
 import { startedWhen } from "./home.ts";
 import { shown, go, drawTop } from "./views.ts";
 import { paneOn, chatList, projectRows, openProjects } from "./sidebar.ts";

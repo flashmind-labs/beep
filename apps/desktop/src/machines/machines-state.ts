@@ -1,6 +1,6 @@
+import { isNewer } from "../ui/format.ts";
 // What a row of the Machines list shows, as pure functions so they can be
 // tested without Tauri. machines.ts draws it.
-import { isNewer } from "../settings/providers-state.ts";
 
 /// A tool a machine reported, with what its version command printed.
 export interface ReportedTool {

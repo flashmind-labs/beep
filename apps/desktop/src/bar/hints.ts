@@ -1,12 +1,14 @@
 import { attachedCount } from "../chat/attach.ts";
 import { focusAsk, forRoutine, stop } from "../chat/chat.ts";
-import { $, bar, h, here, ICON, PANE, queued, S } from "./core.ts";
+import { $, bar, here, PANE, queued, S } from "./core.ts";
 import type { LinkState } from "./core.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
 import { shortcutSheet } from "../settings/subscription.ts";
-import { stopFace } from "../chat/turnrows.ts";
+import { stopFace } from "../agents/turnrows.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
 
 // ---------- Hints ----------
 
