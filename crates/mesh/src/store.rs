@@ -136,9 +136,11 @@ impl Core {
         }
     }
 
-    /// Removes the mesh in `dir`, and one a swap left aside.
+    /// Removes the mesh in `dir`, one a swap left aside, and the folder of a
+    /// mesh from an older version, which holds credentials in plain text.
     pub(crate) fn forget(dir: &Path) -> Result<(), MeshError> {
         remove_if_present(&dir.join(MESH_DIR))?;
+        remove_if_present(&dir.join(OLD_MESH_DIR))?;
         remove_if_present(&dir.join(ASIDE))?;
         sync_dir(dir)?;
         Ok(())

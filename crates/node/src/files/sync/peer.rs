@@ -36,8 +36,8 @@ const LAST_RETRY: Duration = Duration::from_secs(60);
 /// The most projects one peer pulls at once over a connection.
 const MAX_STREAMS: usize = 64;
 
-/// Sent as msgpack maps with named fields, like the node link, so nodes of
-/// different versions can add fields. The same goes for `Reply`.
+/// Sent as compact msgpack, like the node link, so a field is added only at
+/// the end with `#[serde(default)]`. The same goes for `Reply`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 enum Request {

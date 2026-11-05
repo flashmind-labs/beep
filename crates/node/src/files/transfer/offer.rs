@@ -250,6 +250,8 @@ pub(super) async fn offer(
         empty_folders: walked.empty_folders.clone(),
     };
     if manifest != Manifest::default() {
+        // A released receiver reads this with plain `rmp_serde` over an
+        // unchanged protocol name, so `Manifest` gains no field (AGENTS.md).
         let bytes = rmp_serde::to_vec(&manifest).context("encoding the manifest")?;
         let tag = store
             .blobs()

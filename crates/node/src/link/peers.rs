@@ -1,4 +1,4 @@
-//! The node in its mesh: `beep-peer/1` and `beep-join/1` on the node's
+//! The node in its mesh: `beep-peer/2` and `beep-join/2` on the node's
 //! endpoint, and what a peer gets from the node. A desktop gets what the
 //! server gets, every session. Another node gets `status/1` and `tools/1`
 //! only. A node never mints a ticket or adds a device; it only joins one.
@@ -184,12 +184,12 @@ impl Peers {
             .map(take)
     }
 
-    /// The `beep-peer/1` handler.
+    /// The `beep-peer/2` handler.
     pub fn peer_handler(&self) -> PeerAlpn {
         PeerAlpn(self.clone())
     }
 
-    /// The `beep-join/1` handler.
+    /// The `beep-join/2` handler.
     pub fn join_handler(&self) -> JoinAlpn {
         JoinAlpn(self.clone())
     }
@@ -374,7 +374,7 @@ impl Peers {
     }
 }
 
-/// Serves `beep-peer/1`.
+/// Serves `beep-peer/2`.
 #[derive(Clone)]
 pub struct PeerAlpn(Peers);
 
@@ -398,7 +398,7 @@ impl ProtocolHandler for PeerAlpn {
     }
 }
 
-/// Serves `beep-join/1`; a node refuses it, since only a desktop mints
+/// Serves `beep-join/2`; a node refuses it, since only a desktop mints
 /// tickets.
 #[derive(Clone)]
 pub struct JoinAlpn(Peers);

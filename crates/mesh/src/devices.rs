@@ -32,6 +32,9 @@ pub enum DeviceKind {
     Desktop,
 }
 
+/// Signed by encoding the decoded value again, so it never gains a field in
+/// place: one extra element fails every stored signature. Change it only
+/// with a new `SIGN_DOMAIN` and new ALPNs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
     #[serde(with = "crate::bin::id")]
@@ -41,6 +44,7 @@ pub struct Device {
     pub added_at_ms: u64,
 }
 
+/// Signed by re-encoding, like `Device`: its variants gain no field in place.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum OpBody {
     Genesis(Device),

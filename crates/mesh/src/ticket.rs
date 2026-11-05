@@ -64,11 +64,12 @@ impl JoinTicket {
     /// which cannot tell an old ticket from a mistyped one.
     pub fn parse(text: &str) -> Result<Self, TicketError> {
         let text = text.trim();
-        let old = text.starts_with(OLD_KIND) && !text.starts_with(Self::KIND);
-        if old {
-            return Err(TicketError::Old);
-        }
-        Self::decode_string(text).map_err(|_| TicketError::Unreadable)
+        // Base32 includes `2`, so an old ticket can begin like a new one:
+        // decide only after the new format failed to read it.
+        Self::decode_string(text).map_err(|_| match text.starts_with(OLD_KIND) {
+            true => TicketError::Old,
+            false => TicketError::Unreadable,
+        })
     }
 
     pub fn expired(&self, now_ms: u64) -> bool {
@@ -129,7 +130,7 @@ mod tests {
         );
         assert_eq!(
             JoinTicket::parse("beepjoin2abcdefg").unwrap_err(),
-            TicketError::Unreadable
+            TicketError::Old
         );
         assert_eq!(
             JoinTicket::parse("hello").unwrap_err(),

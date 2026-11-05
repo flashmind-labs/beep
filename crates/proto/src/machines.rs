@@ -226,7 +226,7 @@ ffi_structs! {
         pub counters: Vec<TrafficCounter>,
     }
 
-    /// One lifetime total, such as `alpn.beep-sync/1.tx` or `endpoint.relay.rx`.
+    /// One lifetime total, such as `alpn.beep-sync/3.tx` or `endpoint.relay.rx`.
     pub struct TrafficCounter {
         pub key: String,
         pub bytes: u64,

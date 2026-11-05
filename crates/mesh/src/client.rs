@@ -3,11 +3,11 @@
 
 use crate::{Mesh, MeshError};
 use anyhow::anyhow;
-use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, local_link};
+use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, link_on, local_link};
 use futures::Stream;
 use futures::stream::unfold;
 use iroh::EndpointId;
-use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::endpoint::Connection;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::{self, Debug, Formatter};
@@ -36,9 +36,10 @@ pub type SessionFn =
 #[error("{0} is offline")]
 pub struct Offline(pub EndpointId);
 
-/// Opens a raw bi stream to a peer, picking the connection afresh each time.
+/// Opens a stream to a peer, picking the connection afresh each time, and
+/// writes it the way that connection's protocol is written.
 type OpenBi = Arc<
-    dyn Fn() -> Pin<Box<dyn Future<Output = Result<(SendStream, RecvStream), MeshError>> + Send>>
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<(LinkTx, LinkRx), MeshError>> + Send>>
         + Send
         + Sync,
 >;
@@ -73,10 +74,11 @@ impl PeerClient {
             via: Via::Peer(Arc::new(move || {
                 let connection = connection.clone();
                 Box::pin(async move {
-                    connection
+                    let (send, recv) = connection
                         .open_bi()
                         .await
-                        .map_err(|e| MeshError::Link(e.into()))
+                        .map_err(|e| MeshError::Link(e.into()))?;
+                    Ok(link_on(&connection, send, recv))
                 })
             })),
         }
@@ -89,9 +91,12 @@ impl PeerClient {
             via: Via::Peer(Arc::new(move || {
                 let mesh = mesh.clone();
                 Box::pin(async move {
-                    mesh.open_bi(peer)
+                    // Mesh streams are always compact.
+                    let (send, recv) = mesh
+                        .open_bi(peer)
                         .await
-                        .map_err(|e| MeshError::Link(e.into()))
+                        .map_err(|e| MeshError::Link(e.into()))?;
+                    Ok(link(send, recv))
                 })
             })),
         }
@@ -136,8 +141,7 @@ impl PeerClient {
     async fn begin(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
         match &self.via {
             Via::Peer(open_bi) => timeout(OPEN_TIMEOUT, async {
-                let (send, recv) = open_bi().await?;
-                let (mut tx, rx) = link(send, recv);
+                let (mut tx, rx) = open_bi().await?;
                 send_open(&mut tx, protocol).await?;
                 Ok((tx, rx))
             })

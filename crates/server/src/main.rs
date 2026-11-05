@@ -202,10 +202,8 @@ async fn main() -> Result<()> {
     pusher.start(notices);
     let handler = transport::BeepHandler::new(app.clone(), pusher);
     let node_handler = nodes::NodeHandler::new(app.clone(), endpoint.id());
-    let mut router = Router::builder(endpoint)
-        .accept(transport::ALPN, handler)
-        .accept(nodes::NODE_ALPN, node_handler.clone())
-        .accept(nodes::NODE_ALPN_NAMED, node_handler);
+    let mut router = Router::builder(endpoint).accept(transport::ALPN, handler);
+    router = nodes::accept_nodes(router, node_handler);
     if app.login().is_some() {
         router = router.accept(LOGIN_ALPN, login::LoginCheck);
     }

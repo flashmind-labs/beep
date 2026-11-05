@@ -197,7 +197,7 @@ pub async fn serve(
         }
         offers.extra.push(Arc::new(folders));
     }
-    // The mesh: peers reach the node over `beep-peer/1` with or without a
+    // The mesh: peers reach the node over `beep-peer/2` with or without a
     // server. The router runs from here, so a join takes effect at once.
     let peers = Peers::new(
         endpoint.clone(),
