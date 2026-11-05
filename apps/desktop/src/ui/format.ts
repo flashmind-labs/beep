@@ -56,8 +56,9 @@ export function money(usd: number) {
   return `$${(Number.isFinite(usd) ? usd : 0).toFixed(2)}`;
 }
 
-/// "1.3M", "12K", "800".
+/// "1.1B", "1.3M", "12K", "800".
 export function tokenCount(n: number) {
+  if (n >= 999_950_000) return `${(n / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
   if (n >= 100_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
   return String(n);
