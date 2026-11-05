@@ -412,7 +412,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .cc-line > .num { font-family: var(--mono); font-size: 11px; color: var(--muted); justify-self: center }
 .cc-line:has(> .num) { grid-template-columns: minmax(28px, max-content) minmax(0, 1fr) auto }
 /* A label: a small neutral chip after a row's meta text and in the detail pane. */
-.pj-tag { display: inline-block; margin-left: 4px; padding: 0 6px; font-style: normal; font-size: 10px; line-height: 14px; vertical-align: 1px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
+.pj-tag { display: inline-block; flex: none; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 4px; padding: 0 6px; font-style: normal; font-size: 10px; line-height: 14px; vertical-align: 1px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--muted) }
 .pj-dh .meta .pj-tag { margin-left: 0 }
 /* Label chips above a list and on its rows: a click filters, the picked one lit. */
 .pj-labels { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 14px 6px }
