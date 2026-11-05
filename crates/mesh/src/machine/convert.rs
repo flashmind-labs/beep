@@ -124,6 +124,7 @@ fn presence_status(presence: Presence) -> AgentStatus {
     match presence {
         Presence::Working => AgentStatus::Working {},
         Presence::Waiting => AgentStatus::Waiting {},
+        Presence::Stopped => AgentStatus::Ended {},
         _ => AgentStatus::Running {},
     }
 }
@@ -306,5 +307,23 @@ mod tests {
             ..codex
         };
         assert_eq!(past_session(&host, claude).status, AgentStatus::Running {});
+    }
+
+    #[test]
+    fn an_outside_session_nothing_runs_has_ended() {
+        let host = Host {
+            id: "m".into(),
+            name: "build-box".into(),
+        };
+        let session = |presence| ExternalSession {
+            id: "s".into(),
+            agent: "claude".into(),
+            presence,
+            ..ExternalSession::default()
+        };
+        let status = |presence| external_session(&host, session(presence)).status;
+        assert_eq!(status(Presence::Stopped), AgentStatus::Ended {});
+        assert_eq!(status(Presence::Recent), AgentStatus::Running {});
+        assert_eq!(status(Presence::Unknown), AgentStatus::Running {});
     }
 }

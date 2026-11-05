@@ -102,12 +102,12 @@ export async function pollAgent() {
       if (page.session.question?.id !== AG.answering) AG.answering = null;
       // A session opened with no folder (from a notice) draws again once a read gives it.
       const placed = !AG.page?.session.cwd && !!page.session.cwd;
-      // A session taken over from outside gets its composer in place of the banner.
-      const taken = !!AG.page?.session.external && !page.session.external;
+      // The session closed or was taken over: the composer replaces the banner.
+      const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
       // The older entries held stay while the newest are read again.
       AG.page = joinRuns(AG.page, page);
       if (placed) drawAgentFrame();
-      else if (taken && $("#agconv")) drawAgentFrame(true);
+      else if (field && $("#agconv")) drawAgentFrame(true);
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
       AG.readError = "";
@@ -180,7 +180,7 @@ export function agentHints() {
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (AG.child != null) return slim([["esc", "parent session"]]);
-  if (s?.external) return slim([["esc", "back"]]);
+  if (s && followsOnly(s)) return slim([["esc", "back"]]);
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
   if (turnRuns()) {
     const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
@@ -265,13 +265,19 @@ onPlaces(() => {
   if (s && here && !here.querySelector(".mvb")) here.textContent = placeSub(placeOf(s), s.machine_name) ?? s.machine_name;
 });
 
+/// A session started outside Beep that only shows here: still running there,
+/// or of an agent Beep cannot take over. A closed one continues from the field.
+function followsOnly(s: AgentRow) {
+  return s.external && !(s.status === "ended" && canTakeOver(s.agent));
+}
+
 /// The parts that stay while the session updates: the head, the body and the field.
 /// With `inPlace` only the head and the conversation are replaced, so the pane
 /// beside them, its terminals running, is not drawn again.
 export function drawAgentFrame(inPlace = false) {
   const s = AG.page!.session, k = agentKind(s.agent);
-  const field = s.external
-    ? `<div class="dmuted dblock dbanner"><span class="agoutside">Started outside Beep. Beep follows it here.${canTakeOver(s.agent) ? '<button class="dbtn small" id="agcontinue">Continue</button>' : ""}</span></div>`
+  const field = followsOnly(s)
+    ? `<div class="dmuted dblock dbanner">${canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here."}</div>`
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
@@ -338,23 +344,6 @@ async function closeRow(x: HTMLElement) {
   closeSub(at);
 }
 
-/// Continue on a session started outside Beep: the node takes it over, or
-/// says why not while something still runs it.
-async function continueOutside() {
-  const s = AG.page?.session;
-  const button = $<HTMLButtonElement>("#agcontinue");
-  if (!s || button?.disabled) return;
-  if (button) button.disabled = true;
-  try {
-    const started = await invoke<{ session: AgentRow }>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id });
-    openAgent(started.session, { back: AG.back });
-  } catch (e) {
-    if (button) button.disabled = false;
-    AG.note = readError(e);
-    drawAgentBody();
-  }
-}
-
 function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
   const target = e.target as HTMLElement;
@@ -367,7 +356,6 @@ function agentClick(e: MouseEvent) {
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
-  if (target.closest("#agcontinue")) return void continueOutside();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
   if (closing) return void closeRow(closing);
   // A subagent opens as its own conversation; the crumb goes back.
