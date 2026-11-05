@@ -11,6 +11,16 @@ export interface MenuItem {
   on: () => void;
 }
 
+/// Moves focus to the next or previous button in `box` for ArrowDown or ArrowUp, round the
+/// ends; false for any other key.
+export function arrowFocus(box: HTMLElement, key: string) {
+  if (key !== "ArrowDown" && key !== "ArrowUp") return false;
+  const all = [...box.querySelectorAll<HTMLElement>("button")];
+  const at = all.indexOf(document.activeElement as HTMLElement);
+  all[(at + (key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
+  return true;
+}
+
 let open: { box: HTMLElement; close: () => void } | null = null;
 
 /// Opens a menu titled `title` where `e` was clicked, in place of the system's.
@@ -37,12 +47,8 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   }
   const away = (ev: MouseEvent) => { if (!box.contains(ev.target as Node)) close(); };
   const keys = (ev: KeyboardEvent) => {
-    const all = [...box.querySelectorAll<HTMLElement>("button")];
-    const at = all.indexOf(document.activeElement as HTMLElement);
     if (ev.key === "Escape") { close(); focusBack(back); }
-    else if (ev.key === "ArrowDown") all[(at + 1) % all.length]?.focus();
-    else if (ev.key === "ArrowUp") all[(at - 1 + all.length) % all.length]?.focus();
-    else return;
+    else if (!arrowFocus(box, ev.key)) return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
   };
