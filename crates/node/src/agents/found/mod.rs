@@ -21,6 +21,7 @@ use std::{
 
 mod codex;
 mod codex_run;
+mod delete;
 mod disk;
 mod flsh;
 mod git;
@@ -31,6 +32,7 @@ pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
 mod transcript;
 
+pub(crate) use delete::{remove_dir_in, remove_file_in};
 pub(crate) use disk::{forget_checkouts, saved_checkouts, walk};
 pub(crate) use git::{Checkout, checkout, last_commit};
 pub(crate) use memo::Memo;

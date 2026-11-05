@@ -7,7 +7,7 @@ use crate::{
     beep::{Beep, Service, epoch_ms},
     center::AgentsShown,
     chat::markdown,
-    error::Result,
+    error::{DesktopError, Result},
     fleet::{Fleet, Machines, agents as direct, extra},
     machines::list::Outside,
     projects::{known, unknown_op},
@@ -27,7 +27,7 @@ use beep_proto::{
 };
 use serde::Serialize;
 use std::{sync::Arc, time::Instant};
-use tauri::{AppHandle, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 use uuid::Uuid;
 
 /// A machine that can run a coding agent.
@@ -457,6 +457,34 @@ pub async fn agent_resume(
         session: started.session.into(),
         why: started.why,
     })
+}
+
+/// Whether this Mac can ask the machine to delete sessions: it is in the mesh.
+#[tauri::command]
+pub fn agent_deletable(fleet: Machines<'_>, machine_id: String) -> bool {
+    fleet.member(&machine_id).is_some()
+}
+
+/// Deletes an ended session's conversation from the machine for good. Only a
+/// machine in the mesh can: the node does it, and refuses one that still
+/// runs, so the page offers Close first.
+#[tauri::command]
+pub async fn agent_delete(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+) -> Result<()> {
+    let machine = fleet.member(&machine_id).ok_or_else(|| {
+        DesktopError::BadRequest("Only a machine in the mesh can delete sessions.".into())
+    })?;
+    direct::delete_session(&fleet, machine, &agent, &session).await?;
+    // The windows read their session lists again.
+    if let Err(e) = app.emit("sessions-changed", session) {
+        log::warn!("could not tell the windows a session was deleted: {e}");
+    }
+    Ok(())
 }
 
 /// One session in full. The calling webview's session view shows it, so

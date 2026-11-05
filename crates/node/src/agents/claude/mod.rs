@@ -165,6 +165,28 @@ impl External {
         Ok(spawn_blocking(move || store.find(&id)).await?)
     }
 
+    /// Deletes session `id`'s transcript and its side folder; `false` when
+    /// there is no such transcript. Both are found through the store and
+    /// must lie inside its projects folder.
+    pub(crate) async fn delete(&self, id: &str) -> Result<bool> {
+        let Some(store) = self.store.clone() else {
+            return Ok(false);
+        };
+        let id = id.to_owned();
+        spawn_blocking(move || {
+            let Some(file) = store.find(&id) else {
+                return Ok(false);
+            };
+            let projects = store.projects();
+            crate::agents::found::remove_file_in(&projects, &file)?;
+            if let Some(side) = file.parent().map(|folder| folder.join(&id)) {
+                crate::agents::found::remove_dir_in(&projects, &side)?;
+            }
+            Ok(true)
+        })
+        .await?
+    }
+
     /// Takes hook events on the socket in `dir` until the node stops.
     pub async fn listen_hooks(&self, dir: &Path) -> Result<()> {
         watch::listen(&hooks::socket_path(dir), &self.hub, &self.live).await
