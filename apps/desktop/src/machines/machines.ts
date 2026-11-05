@@ -2,7 +2,7 @@
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
-import { bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, specLine, toolChips, updatedTo } from "./machines-state.ts";
+import { bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, shownVersion, specLine, toolChips, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
@@ -61,9 +61,11 @@ export const MC: {
   tools: ToolUpdate[];
   /// A tool's Update by "<machine> <tool>": installing, or why it failed.
   toolUps: Map<string, { busy: boolean; error: string }>;
+  /// The version each Update installed this session, by "<machine> <tool>".
+  installed: Map<string, string>;
   /// What each machine moved over iroh (ListMachineTraffic).
   traffic: MachineTraffic[];
-} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map(), tools: [], toolUps: new Map(), traffic: [] };
+} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [] };
 
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
@@ -232,6 +234,7 @@ async function updateTool(id: string, tool: string) {
   try {
     const to = await invoke<string>("update_machine_tool", { machineId: id, tool });
     MC.toolUps.delete(key);
+    MC.installed.set(key, to);
     MC.tools = MC.tools.filter(u => !(u.machine_id === id && u.tool === tool));
     const found = MC.list?.find(m => m.id === id)?.env?.tools.find(t => t.name === tool);
     if (found) found.version = to;
@@ -414,9 +417,8 @@ function machinePage(m: Machine) {
   }
   if (env?.tools.length) {
     const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
-    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(bareVersion(t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
-    html += `<div class="dset-hrow"><div class="dset-h">Tools</div>${tools.map(t => toolUpdate(m, t)).join("")}</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
-    html += [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([, up]) => errLine(up.error)).join("");
+    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(shownVersion(MC.installed, `${m.id} ${t.name}`, t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
+    html += `<div class="dset-hrow"><div class="dset-h">Tools</div>${tools.map(t => toolUpdate(m, t)).join("")}${toolNotes(m, env.tools)}</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   html += trafficTable(m) + logSection(m);
   return html + `<div class="dmach dset-rm">${button ? `<div class="dset-rm-row"><span class="t"><b>Remove this machine</b><small>${removeNote(m)}</small></span>${button}</div>` : ""}${ask}</div>`;
@@ -435,9 +437,16 @@ function trafficTable(m: Machine) {
 /// Update above a machine's Tools table, when a newer release of `t` is out.
 function toolUpdate(m: Machine, t: MachineEnv["tools"][number]) {
   const up = MC.tools.find(u => u.machine_id === m.id && u.tool === t.name);
-  if (!up || !m.online) return "";
+  if (!up || !m.online || !updateOffered(MC.installed, `${m.id} ${t.name}`, up.latest)) return "";
   const busy = MC.toolUps.get(`${m.id} ${t.name}`)?.busy;
   return `<button class="dbtn small" data-toolup="${esc(t.name)}" data-id="${esc(m.id)}"${busy ? " disabled" : ""}>${busy ? `Updating ${esc(t.name)}…` : `Update ${esc(t.name)} to ${esc(up.latest)}`}</button>`;
+}
+
+/// In the Tools row: what Update installed this session, and why one failed.
+function toolNotes(m: Machine, tools: MachineEnv["tools"]) {
+  const done = updatedNotes(MC.installed, m.id, tools).map(n => `<small class="dmuted">${esc(n)}</small>`);
+  const failed = [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([k, up]) => `<small class="derr">${esc(`${k.slice(m.id.length + 1)}: ${up.error}`)}</small>`);
+  return done.join("") + failed.join("");
 }
 
 /// Add a machine, which opens the same sheet as the window's Home; the
