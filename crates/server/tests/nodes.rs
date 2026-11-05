@@ -202,9 +202,7 @@ async fn server() -> Server {
     );
     let server_endpoint = endpoint(SecretKey::generate()).await;
     let handler = nodes::NodeHandler::new(app.clone(), server_endpoint.id());
-    let router = Router::builder(server_endpoint)
-        .accept(nodes::NODE_ALPN, handler)
-        .spawn();
+    let router = nodes::accept_nodes(Router::builder(server_endpoint), handler).spawn();
     let addr = router.endpoint().addr();
     let user = app
         .sign_in(&alice.public())
@@ -234,6 +232,73 @@ async fn linked_key(server: &Server, name: &str) -> SecretKey {
         .await
         .unwrap();
     key
+}
+
+/// A node from before `beep-node/2` dials `beep-node/1`, says hello in maps
+/// and is answered in maps; the server serves it as any other.
+#[tokio::test]
+async fn a_node_from_before_beep_node_2_still_links() {
+    use beep_server::protocol::node::{NODE_ALPN_NAMED, NodeHello};
+    let server = server().await;
+    let key = linked_key(&server, "old box").await;
+    let node = endpoint(key.clone()).await;
+    let connection = node
+        .connect(server.addr.clone(), NODE_ALPN_NAMED)
+        .await
+        .expect("the server takes beep-node/1");
+    let (mut send, mut recv) = connection.open_bi().await.unwrap();
+    let hello = NodeHello {
+        version: "0.1.0".to_owned(),
+        name: "old box".to_owned(),
+        offers: Vec::new(),
+        workspace: None,
+        setup: None,
+        credentials: false,
+        checkouts: false,
+        agent_settings: false,
+        branch_checkouts: false,
+    };
+    let body = rmp_serde::to_vec_named(&hello).unwrap();
+    let len = u32::try_from(body.len()).unwrap().to_be_bytes();
+    send.write_all(&len).await.unwrap();
+    send.write_all(&body).await.unwrap();
+    // Read raw: the lenient reader takes both forms, and a released node does not.
+    let welcome = timeout(Duration::from_secs(20), async {
+        let mut len = [0u8; 4];
+        recv.read_exact(&mut len).await.unwrap();
+        let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
+        recv.read_exact(&mut body).await.unwrap();
+        body
+    })
+    .await
+    .expect("welcomed in time");
+    let value = welcome
+        .strip_prefix(b"\x81\xa7Welcome".as_slice())
+        .expect("a Welcome");
+    assert_eq!(value[0] & 0xf0, 0x80, "fields in a map: {welcome:?}");
+    let live = online(&server.app, &key.public().to_string()).await;
+    assert_eq!(live.name, "old box");
+}
+
+/// A node that offers both settles on `beep-node/2`: the Router keeps the
+/// order it was built in, and a swap would leave every node on maps.
+#[tokio::test]
+async fn a_node_offering_both_protocols_settles_on_the_newer() {
+    use beep_server::protocol::node::{NODE_ALPN, NODE_ALPN_NAMED};
+    let server = server().await;
+    let node = endpoint(SecretKey::generate()).await;
+    let connection = node
+        .connect_with_opts(
+            server.addr.clone(),
+            NODE_ALPN,
+            iroh::endpoint::ConnectOptions::new()
+                .with_additional_alpns(vec![NODE_ALPN_NAMED.to_vec()]),
+        )
+        .await
+        .expect("connects")
+        .await
+        .expect("the handshake finishes");
+    assert_eq!(connection.alpn(), NODE_ALPN);
 }
 
 #[tokio::test]

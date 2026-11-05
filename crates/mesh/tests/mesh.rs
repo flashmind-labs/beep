@@ -189,7 +189,7 @@ async fn a_lone_device_leaves_its_mesh_for_another() {
     // The next start opens the new mesh, and nothing waits aside.
     drop(mesh);
     endpoint.close().await;
-    assert!(!dir.path().join("mesh.old").exists());
+    assert!(!dir.path().join("mesh2.old").exists());
     let again = Mesh::open(dir.path(), bind(&key).await)
         .await
         .expect("opens")
@@ -266,8 +266,8 @@ async fn forgetting_a_mesh_leaves_a_folder_with_none() {
 async fn a_swap_cut_short_leaves_the_old_mesh_or_the_new_one() {
     let lone = create("Laptop").await;
     let (key, dir) = lone.stop().await;
-    let mesh_dir = dir.path().join("mesh");
-    let aside = dir.path().join("mesh.old");
+    let mesh_dir = dir.path().join("mesh2");
+    let aside = dir.path().join("mesh2.old");
     // Cut after the old mesh moved aside, with the new one half written.
     copy_dir(&mesh_dir, &aside);
     std::fs::remove_file(mesh_dir.join("devices.bin")).expect("half written");
@@ -918,4 +918,65 @@ async fn dropping_a_network_follow_reaches_the_session() {
         .await
         .expect("the session noticed")
         .expect("signal");
+}
+
+#[tokio::test]
+async fn a_device_on_the_previous_protocols_is_turned_away() {
+    let a = create("a").await;
+    let old = bind(&SecretKey::generate()).await;
+    for alpn in [&b"beep-peer/1"[..], b"beep-join/1"] {
+        assert!(
+            old.connect(a.router.endpoint().addr(), alpn).await.is_err(),
+            "{} was served",
+            String::from_utf8_lossy(alpn)
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_mesh_folder_from_before_the_move_is_left_alone_and_not_read() {
+    let dir = TempDir::new().expect("temp dir");
+    let old = dir.path().join("mesh");
+    create_dir_all(&old).expect("folder");
+    std::fs::write(old.join("devices.bin"), b"postcard era bytes").expect("old file");
+    let key = SecretKey::generate();
+    let opened = Mesh::open(dir.path(), bind(&key).await)
+        .await
+        .expect("opens");
+    assert!(opened.is_none(), "the old folder was taken for a mesh");
+    let made = Mesh::create(dir.path(), bind(&key).await, "new")
+        .await
+        .expect("a new mesh starts beside it");
+    assert_eq!(made.devices().len(), 1);
+    assert_eq!(
+        std::fs::read(old.join("devices.bin")).expect("still there"),
+        b"postcard era bytes"
+    );
+    assert!(dir.path().join("mesh2").join("devices.bin").exists());
+}
+
+#[tokio::test]
+async fn a_stranger_may_not_send_more_than_a_small_join_request() {
+    let a = create("a").await;
+    let stranger = bind(&SecretKey::generate()).await;
+    let connection = stranger
+        .connect(a.router.endpoint().addr(), JOIN_ALPN)
+        .await
+        .expect("connects");
+    let (mut send, _recv) = connection.open_bi().await.expect("stream");
+    send.write_all(&5000u32.to_be_bytes()).await.expect("write");
+    timeout(LIMIT, connection.closed()).await.expect("closed");
+    assert_eq!(a.mesh.devices().len(), 1);
+}
+
+#[tokio::test]
+async fn forgetting_also_removes_a_mesh_folder_from_before_the_move() {
+    let dir = TempDir::new().expect("temp dir");
+    let old = dir.path().join("mesh");
+    create_dir_all(&old).expect("folder");
+    std::fs::write(old.join("state.log"), b"credentials").expect("old file");
+    Mesh::forget(dir.path())
+        .await
+        .expect("the mesh is forgotten");
+    assert!(!old.exists());
 }

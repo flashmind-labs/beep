@@ -177,6 +177,31 @@ Every connection opens with `Hello`, which carries the app's `WIRE`; apps from
 before it are wire 1. To ship a new shape, add a `Feature`, raise `WIRE` in
 `crates/proto/src/transport/version.rs`, and bless the new `tests/wire/<n>` directory.
 
+Node and mesh messages (the node link, mesh frames and files, mesh state values,
+the terminal host) are compact msgpack with no field names, so their fields are
+read by position too. A new field goes at the end with `#[serde(default)]`.
+Never insert, reorder, retype or remove one, and never use
+`skip_serializing_if` or `to_vec_named` (only the `beep-node/1` link writes
+maps, for released nodes). Read with `beep_proto::lenient::from_slice`, which
+skips trailing fields a newer sender added; plain `rmp_serde` refuses them.
+
+Exceptions to the field rule:
+
+- Signed types (`Device`, `OpBody` and `Signed` in `crates/mesh`) never gain a
+  field in place. A signature is checked over the decoded value encoded again,
+  so one extra element makes every stored and relayed signature fail and the
+  mesh does not open. To change one, bump `SIGN_DOMAIN`, the mesh ALPNs and
+  `MESH_DIR`.
+- Readers already in the field that read with plain `rmp_serde` refuse a
+  longer message: the terminal host (`terminal::Request`, `Reply`, `Hello`)
+  while a 0.2.x host can still be running, and the transfer `Manifest` while a
+  released receiver can still be reached. Neither gains a field until then.
+
+ALPNs: `beep-peer/2` and `beep-join/2` (a mesh from before them is in `mesh`,
+never read; the device joins again with a new ticket, kept in `mesh2`),
+`beep-node/2` (the server also accepts `beep-node/1`, maps, for released nodes;
+a node offers both) and `beep-sync/3`. Change a protocol's bytes, bump its name.
+
 ## Desktop app
 
 `apps/desktop` is the macOS tray app (Tauri 2, its own Cargo workspace). Run
@@ -299,7 +324,7 @@ applies too; one it cannot read refuses the folder and says why.
   machine, and so does any folder whose `.git` is a file (a linked worktree or
   a submodule). Its branch still travels; it waits on a machine that has it
   checked out in a linked worktree.
-- Peers talk `beep-sync/2`. Nodes on `beep-sync/1` do not sync with it.
+- Peers talk `beep-sync/3`. Nodes on `beep-sync/1` or `/2` do not sync with it.
 
 ## iOS app
 

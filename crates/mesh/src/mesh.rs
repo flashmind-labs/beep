@@ -26,8 +26,8 @@ use tracing::{debug, error, warn};
 
 /// How long a ticket lives unless the caller says otherwise.
 pub const DEFAULT_TICKET_TTL: Duration = Duration::from_secs(60 * 60);
-pub const PEER_ALPN: &[u8] = b"beep-peer/1";
-pub const JOIN_ALPN: &[u8] = b"beep-join/1";
+pub const PEER_ALPN: &[u8] = b"beep-peer/2";
+pub const JOIN_ALPN: &[u8] = b"beep-join/2";
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(12);
@@ -95,6 +95,7 @@ pub type StreamHandler =
 /// An address and the owner's counter for it. Higher replaces lower.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct AddrNote {
+    #[serde(with = "crate::bin::addr")]
     pub addr: EndpointAddr,
     pub generation: u64,
 }
@@ -689,7 +690,7 @@ impl fmt::Display for InUse {
     }
 }
 
-/// Serves `beep-peer/1`: members only.
+/// Serves `beep-peer/2`: members only.
 #[derive(Clone)]
 pub struct MeshProtocol {
     inner: Arc<Inner>,
@@ -732,7 +733,7 @@ impl ProtocolHandler for MeshProtocol {
     }
 }
 
-/// Serves `beep-join/1`: desktops only.
+/// Serves `beep-join/2`: desktops only.
 #[derive(Clone)]
 pub struct JoinProtocol {
     inner: Arc<Inner>,

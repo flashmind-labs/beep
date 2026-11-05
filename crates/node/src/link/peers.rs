@@ -1,4 +1,4 @@
-//! The node in its mesh: `beep-peer/1` and `beep-join/1` on the node's
+//! The node in its mesh: `beep-peer/2` and `beep-join/2` on the node's
 //! endpoint, and what a peer gets from the node. A desktop gets what the
 //! server gets, every session. Another node gets `status/1` and `tools/1`
 //! only. A node never mints a ticket or adds a device; it only joins one.
@@ -24,7 +24,6 @@ use iroh::{
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
 };
-use iroh_tickets::Ticket;
 use serde::de::IgnoredAny;
 use std::{
     collections::BTreeSet,
@@ -185,12 +184,12 @@ impl Peers {
             .map(take)
     }
 
-    /// The `beep-peer/1` handler.
+    /// The `beep-peer/2` handler.
     pub fn peer_handler(&self) -> PeerAlpn {
         PeerAlpn(self.clone())
     }
 
-    /// The `beep-join/1` handler.
+    /// The `beep-join/2` handler.
     pub fn join_handler(&self) -> JoinAlpn {
         JoinAlpn(self.clone())
     }
@@ -214,8 +213,7 @@ impl Peers {
     /// never logged or put in an error. A node whose mesh removed it has no
     /// mesh to keep and takes the new one in its place.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
-        let ticket = JoinTicket::decode_string(ticket.trim())
-            .map_err(|_| anyhow::anyhow!("that is not a join ticket"))?;
+        let ticket = JoinTicket::parse(ticket)?;
         let old = self.active().map(|active| active.mesh);
         if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
             bail!("this node already belongs to a mesh");
@@ -376,7 +374,7 @@ impl Peers {
     }
 }
 
-/// Serves `beep-peer/1`.
+/// Serves `beep-peer/2`.
 #[derive(Clone)]
 pub struct PeerAlpn(Peers);
 
@@ -400,7 +398,7 @@ impl ProtocolHandler for PeerAlpn {
     }
 }
 
-/// Serves `beep-join/1`; a node refuses it, since only a desktop mints
+/// Serves `beep-join/2`; a node refuses it, since only a desktop mints
 /// tickets.
 #[derive(Clone)]
 pub struct JoinAlpn(Peers);
@@ -683,6 +681,7 @@ async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
 #[cfg(all(test, feature = "cli"))]
 mod tests {
     use super::*;
+    use iroh_tickets::Ticket;
 
     /// Answers the wait's probe, then one join, the way the node does.
     fn serve_probe_then_join(mut listener: Listener) {

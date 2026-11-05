@@ -20,7 +20,7 @@ use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::time::timeout;
 
-const LINK_TX: &str = "alpn.beep-node/1.tx";
+const LINK_TX: &str = "alpn.beep-node/2.tx";
 
 /// These tests never run a model turn.
 struct NoModel;

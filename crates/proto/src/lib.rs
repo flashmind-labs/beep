@@ -20,6 +20,7 @@ mod chat;
 mod error;
 #[cfg(feature = "uniffi")]
 mod ffi;
+pub mod lenient;
 pub mod link;
 #[cfg(feature = "logging")]
 pub mod logging;

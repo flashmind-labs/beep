@@ -1,4 +1,5 @@
-//! Nodes: machines running `beep-node`, each holding one connection open on `NODE_ALPN`.
+//! Nodes: machines running `beep-node`, each holding one connection open on `NODE_ALPN`, or
+//! `NODE_ALPN_NAMED` for a node from before it.
 
 mod describe;
 mod link;
@@ -6,7 +7,7 @@ mod serve;
 pub use describe::describe;
 pub(crate) use describe::{MACHINES_HEADER, machines};
 pub use link::{NewToken, TokenRefusal, create_token, link_machine};
-pub use serve::NodeHandler;
+pub use serve::{NodeHandler, accept_nodes};
 
 pub mod attachments;
 pub mod workspace;
@@ -50,8 +51,8 @@ mod webhook;
 
 pub(crate) use crate::protocol::agent_name;
 pub use crate::protocol::node::{
-    NODE_ALPN, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES, shell::PROTOCOL as SHELL,
-    sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
+    NODE_ALPN, NODE_ALPN_NAMED, desktop::PROTOCOL as DESKTOP, files::PROTOCOL as FILES,
+    shell::PROTOCOL as SHELL, sync::PROTOCOL as SYNC, transfer::PROTOCOL as TRANSFER,
 };
 pub use agent::{AgentLink, Mark, StartOn, Watched};
 pub(crate) use agent::{News, NodeFile, NodeImage, NodeWork, SessionRefused, WorkRead, WorkWrite};

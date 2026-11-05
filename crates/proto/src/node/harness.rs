@@ -3,8 +3,8 @@
 //! `agents/1`, and the user's settings for them, which the server sends
 //! with `Down::AgentSettings` and the node applies when it starts one.
 //!
-//! Like the rest of the node link these are msgpack maps, so either side
-//! may add a field with `#[serde(default)]`.
+//! Like the rest of the node link these are compact msgpack, so a field is
+//! added only at the end with `#[serde(default)]`.
 
 mod output;
 

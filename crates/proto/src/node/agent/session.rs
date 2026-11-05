@@ -329,7 +329,7 @@ pub struct Entry {
     pub text: String,
     /// How long a thought took, in milliseconds, once it ended. Only on
     /// `EntryKind::Thought` entries.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub ms: Option<u64>,
 }
 

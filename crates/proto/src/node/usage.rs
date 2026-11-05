@@ -1,8 +1,8 @@
 //! What coding agents cost and how much of their plans is left, as a node
 //! reports it on a `SessionsRequest::FollowUsage` stream.
 //!
-//! Like the rest of the node link these are msgpack maps, so either side
-//! may add a field with `#[serde(default)]`.
+//! Like the rest of the node link these are compact msgpack, so a field is
+//! added only at the end with `#[serde(default)]`.
 
 use crate::{AgentSlug, ModelId};
 use serde::{Deserialize, Serialize};

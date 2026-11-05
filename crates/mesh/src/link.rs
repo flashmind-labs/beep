@@ -7,11 +7,11 @@
 //! checks origins against the list. Sync never decides "in sync" from
 //! heads: it sends `since(what the peer holds)` and keeps going.
 
-use crate::frame::{self, MAX_FRAME};
+use crate::frame::{self, FrameReader, MAX_FRAME};
 use crate::mesh::{AddrNote, Inner, Live, MAX_STREAMS, PeerStream};
 use crate::{DeviceOp, Entry, Heads, MeshError};
 use iroh::EndpointId;
-use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::endpoint::{Connection, SendStream};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::mem::take;
@@ -41,6 +41,7 @@ pub(crate) enum Frame {
     /// Both sides send one first, before anything else.
     Hello {
         addrs: Vec<AddrNote>,
+        #[serde(with = "crate::bin::heads")]
         heads: Heads,
         /// Random per start of a `Mesh`: a new one means the peer restarted.
         session: u64,
@@ -211,7 +212,7 @@ async fn run(
 /// The sync stream after both hellos.
 struct Shaken {
     send: SendStream,
-    recv: RecvStream,
+    recv: FrameReader,
     /// What the peer holds.
     heads: Heads,
     session: u64,
@@ -232,9 +233,10 @@ async fn handshake(
             conn.accept_bi().await.map_err(frame::net)
         }
     };
-    let (mut send, mut recv) = timeout(SETUP, opened)
+    let (mut send, recv) = timeout(SETUP, opened)
         .await
         .map_err(|_| frame::net("no sync stream"))??;
+    let mut recv = FrameReader::new(recv, MAX_FRAME);
     let heads = inner.store.run(|core| Ok(core.heads())).await?;
     let first = inner.addr_list();
     let hello = Frame::Hello {
@@ -243,7 +245,7 @@ async fn handshake(
         session: inner.session,
     };
     frame::send(&mut send, &hello).await?;
-    let theirs = timeout(SETUP, frame::recv::<Frame>(&mut recv, MAX_FRAME))
+    let theirs = timeout(SETUP, recv.recv::<Frame>())
         .await
         .map_err(|_| frame::net("no hello"))??;
     let Some(Frame::Hello {
@@ -268,11 +270,11 @@ async fn read(
     inner: Arc<Inner>,
     conn: Connection,
     peer: EndpointId,
-    mut recv: RecvStream,
+    mut recv: FrameReader,
     known: Known,
 ) -> Result<(), MeshError> {
     let mut refused = 0;
-    while let Some(frame) = frame::recv::<Frame>(&mut recv, MAX_FRAME).await? {
+    while let Some(frame) = recv.recv::<Frame>().await? {
         match frame {
             Frame::Hello { .. } => return Err(frame::net("a second hello")),
             Frame::Addrs(addrs) => inner.learn(addrs, Some(peer)).await,
@@ -333,7 +335,7 @@ async fn send_entries(
     let mut page = Vec::new();
     let mut bytes = 0;
     for entry in entries {
-        bytes += postcard::to_stdvec(&entry)?.len();
+        bytes += rmp_serde::to_vec(&entry)?.len();
         page.push(entry);
         if page.len() >= ENTRIES_PER_FRAME || bytes >= BYTES_PER_FRAME {
             flush(send, &mut page, known).await?;

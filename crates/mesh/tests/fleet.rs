@@ -18,7 +18,7 @@ use beep_node::{
 use beep_proto::{
     TerminalEvent,
     node::{
-        Open, Opened,
+        NODE_ALPN, NODE_ALPN_NAMED, Open, Opened,
         agent::{DiffAsk, Event, Request, Status},
         link,
         process::TaskId,
@@ -427,4 +427,55 @@ async fn a_terminal_attach_ends_when_the_peer_goes_away() {
         .await
         .expect("the stream did not hang");
     assert!(matches!(after, Ok(None) | Err(_)), "{after:?}");
+}
+
+/// The first frame a client writes on a stream it opens over `alpn`.
+async fn first_frame_over(alpn: &'static [u8]) -> Vec<u8> {
+    let server = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .alpns(vec![alpn.to_vec()])
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let addr = server.addr();
+    let accepting = tokio::spawn(async move {
+        let connection = server
+            .accept()
+            .await
+            .expect("a connection arrives")
+            .await
+            .expect("it is accepted");
+        let (_send, mut recv) = connection.accept_bi().await.expect("a stream arrives");
+        let mut len = [0u8; 4];
+        recv.read_exact(&mut len).await.expect("a frame length");
+        let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
+        recv.read_exact(&mut body).await.expect("a frame");
+        body
+    });
+    let client = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let connection = client.connect(addr, alpn).await.expect("it connects");
+    let peer = PeerClient::new(connection);
+    // Nobody answers `Open`, so the call ends by timeout or by the close.
+    let _ = timeout(Duration::from_millis(500), peer.open("update/1")).await;
+    timeout(LIMIT, accepting)
+        .await
+        .expect("answered in time")
+        .expect("the task finished")
+}
+
+#[tokio::test]
+async fn a_client_writes_maps_on_a_connection_from_before_compact() {
+    let body = first_frame_over(NODE_ALPN_NAMED).await;
+    // 0x80 to 0x8f is a msgpack map; an array starts 0x90.
+    assert_eq!(body[0] & 0xf0, 0x80, "{body:?}");
+}
+
+#[tokio::test]
+async fn a_client_writes_arrays_on_a_current_connection() {
+    let body = first_frame_over(NODE_ALPN).await;
+    assert_eq!(body[0] & 0xf0, 0x90, "{body:?}");
 }

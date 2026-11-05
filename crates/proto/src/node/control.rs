@@ -5,7 +5,12 @@ use crate::SecretText;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-pub const NODE_ALPN: &[u8] = b"beep-node/1";
+/// The server link. Messages are compact msgpack, read by position.
+pub const NODE_ALPN: &[u8] = b"beep-node/2";
+/// The server link of released nodes, whose messages are msgpack maps. A node
+/// offers it after `NODE_ALPN` and a server accepts both, so either side may
+/// be updated first.
+pub const NODE_ALPN_NAMED: &[u8] = b"beep-node/1";
 
 /// The code the server closes a node's connection with when it refuses the
 /// hello's setup token; the reason says why, in words for the user.
@@ -26,13 +31,13 @@ pub struct NodeHello {
     /// The folder Beep keeps the user's files in and runs its code in, when
     /// this node is the user's own environment (such as deploy/onprem's
     /// node container). It is also the first folder `files/1` shares.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub workspace: Option<String>,
     /// A setup token to claim before anything else (`beep-node setup`):
     /// the server links this node's key to the account that made the token,
     /// says so with `Down::Linked`, then welcomes it as any linked node. A
     /// server from before tokens closes the connection with "not linked".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub setup: Option<NodeSetup>,
     /// The node takes `Down::Credentials`. A node from before it never
     /// gets the user's credentials.
@@ -61,7 +66,7 @@ pub struct NodeSetup {
     pub token: String,
     /// The name the user gave on the machine, which wins over the token's.
     /// Without either, the machine is called by the hello's `name`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub name: Option<String>,
 }
 

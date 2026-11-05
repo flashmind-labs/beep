@@ -1,7 +1,7 @@
 //! What the desktop keeps in the mesh's replicated state: projects, groups, pins, and the
 //! saved text of the user's instructions. Sync, credentials and agent settings use the types the
-//! nodes read (`beep_proto::node::mesh_state`). Values are msgpack maps with named fields, so a
-//! field may be added with `#[serde(default)]`.
+//! nodes read (`beep_proto::node::mesh_state`). Values are compact msgpack, so a field is added
+//! only at the end with `#[serde(default)]`.
 
 use crate::AsyncMutex;
 use crate::error::Result;
