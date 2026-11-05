@@ -93,6 +93,8 @@ async fn source_env() -> Source {
             codex: dir.path().join("codex"),
             pi: dir.path().join("pi"),
         },
+        cache: super::cache::Cache::new(dir.path()),
+        limits: super::background::Limits::locate(),
     };
     Source {
         _dir: dir,

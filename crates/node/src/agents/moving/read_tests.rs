@@ -30,7 +30,7 @@ impl ProtocolHandler for Open {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, &|_, _| true).await;
+        let _ = super::read::serve(tx, rx, &self.0, &|_, _| true, &[]).await;
         connection.closed().await;
         Ok(())
     }
@@ -80,7 +80,17 @@ async fn read_from(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
     let connection = client.connect(server.endpoint().addr(), ALPN).await?;
     let (send, recv) = connection.open_bi().await?;
     let (tx, rx) = link(send, recv);
-    pull(tx, rx, AgentSlug::CODEX, id, copy, false).await
+    pull(
+        tx,
+        rx,
+        super::read::Ask {
+            agent: AgentSlug::CODEX,
+            id,
+            copy,
+            kind: super::read::Kind::Move { worktree: false },
+        },
+    )
+    .await
 }
 
 fn serving(agents: &Arc<Agents>) -> impl std::future::Future<Output = Router> {
@@ -200,7 +210,7 @@ impl ProtocolHandler for Strict {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, &|_, _| false).await;
+        let _ = super::read::serve(tx, rx, &self.0, &|_, _| false, &[]).await;
         connection.closed().await;
         Ok(())
     }
@@ -358,4 +368,34 @@ async fn a_session_the_source_is_finishing_with_reads_as_running_until_it_lets_g
     assert!(read_from(&server, &copy, ID).await.expect("a read").live);
     drop(held);
     assert!(!read_from(&server, &copy, ID).await.expect("a read").live);
+}
+
+#[tokio::test]
+async fn a_background_read_of_a_session_no_project_offers_is_refused() {
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+    // The server offers the sessions of no project, so no session is offered.
+    let err = pull(
+        tx,
+        rx,
+        super::read::Ask {
+            agent: AgentSlug::CODEX,
+            id: ID,
+            copy: &copy,
+            kind: super::read::Kind::Background { rate: 1 << 30 },
+        },
+    )
+    .await
+    .expect_err("refused");
+    assert!(format!("{err:#}").contains("not offered"), "{err:#}");
+    assert!(!copy.exists());
 }

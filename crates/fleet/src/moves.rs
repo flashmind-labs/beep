@@ -9,11 +9,17 @@ use crate::{
 };
 use beep_mesh::{
     Key,
-    machine::sessions::{MoveState, WorktreeMove, move_progress, worktree_move},
+    machine::sessions::{
+        MoveState, NodeCopies, NodeWork, WorktreeMove, continue_copy, copies, discard_copy,
+        move_progress, worktree_move,
+    },
 };
 use beep_proto::{
     AgentSlug,
-    node::mesh_state::{MovedWorktree, SessionMove, StateValue, SyncSpec},
+    node::{
+        agent::CopyView,
+        mesh_state::{MovedWorktree, SessionMove, StateValue, SyncSpec},
+    },
 };
 use iroh::EndpointId;
 use std::{
@@ -185,6 +191,32 @@ impl Desk {
             }
         }
         Ok(())
+    }
+
+    /// The copies of other machines' sessions that this Mac's node keeps.
+    /// `None` for a node from before background copies.
+    pub async fn session_copies(&self) -> Result<Option<Vec<CopyView>>> {
+        let client = self.peers.client(self.local).await?;
+        Ok(match copies(&client).await? {
+            NodeCopies::Listed(listed) => Some(listed),
+            NodeCopies::NeedsUpdate => None,
+        })
+    }
+
+    /// Has this Mac's node run its copy of a session (or its version set
+    /// aside at `lost`) in its own checkout. Refused in the node's words.
+    pub async fn continue_copy(&self, agent: &str, id: &str, lost: Option<u64>) -> Result<()> {
+        let client = self.peers.client(self.local).await?;
+        match continue_copy(&client, agent, id, lost).await? {
+            NodeWork::Done(()) => Ok(()),
+            NodeWork::Refused(why) => Err(refused(why)),
+        }
+    }
+
+    /// Has this Mac's node throw a copy away.
+    pub async fn discard_copy(&self, agent: &str, id: &str, lost: Option<u64>) -> Result<()> {
+        let client = self.peers.client(self.local).await?;
+        Ok(discard_copy(&client, agent, id, lost).await?)
     }
 
     /// Takes back the move of session `id`: the machines stop it unless

@@ -9,6 +9,7 @@
 
 use super::{
     Harness,
+    offers::{Project, offers},
     progress::Target,
     worktree::{MAX_PATCH, Work, snapshot},
 };
@@ -54,6 +55,17 @@ pub(crate) enum Request {
         #[serde(default)]
         worktree: bool,
     },
+    /// What this machine offers for background copies: its sessions of the
+    /// mesh's projects, active in the last 30 days.
+    List {},
+    /// As `Read`, for a background copy: any mesh member may ask, for a
+    /// session `List` offers. Nothing of a worktree is sent.
+    Copy {
+        agent: AgentSlug,
+        id: String,
+        from: u64,
+        prefix_hash: Vec<u8>,
+    },
     /// Asks how the move of session `id` made at `at` stands, which the
     /// machine it moves to knows. Sent by the source.
     State { id: String, at: u64 },
@@ -90,6 +102,10 @@ pub(crate) enum Reply {
     Refused {
         message: String,
     },
+    /// The answer to `List`.
+    Offers {
+        offers: Vec<Offer>,
+    },
     /// The answer to `State`.
     State {
         /// The target can take the session.
@@ -108,6 +124,24 @@ pub(super) enum Asked {
     Read,
     /// A source asks the target how the move stands.
     State,
+    /// Any mesh member lists what this machine offers, or copies one.
+    Background,
+}
+
+/// A session this machine offers other machines a background copy of.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Offer {
+    pub(crate) agent: AgentSlug,
+    pub(crate) id: String,
+    /// The mesh project it ran in.
+    pub(crate) project: String,
+    /// The folder it ran in, relative to the project's checkout here.
+    pub(crate) path: String,
+    /// Unix seconds.
+    pub(crate) last_activity: u64,
+    /// The transcript's size and its blake3 hash.
+    pub(crate) size: u64,
+    pub(crate) hash: Vec<u8>,
 }
 
 /// Whether the peer may make a request of this kind about session `id`.
@@ -145,6 +179,7 @@ pub(super) async fn serve(
     mut rx: LinkRx,
     agents: &Agents,
     allow: Allow<'_>,
+    projects: &[Project],
 ) -> Result<()> {
     let refuse = |message: &str| Reply::Refused {
         message: message.to_owned(),
@@ -178,6 +213,44 @@ pub(super) async fn serve(
                 _ => None,
             };
             match send_after(&mut tx, &found, from, &prefix_hash, live, work).await {
+                Ok(()) => tx.finish().await,
+                Err(e) => {
+                    let message = format!("{e:#}");
+                    tx.send(&Reply::Refused { message }).await
+                }
+            }
+        }
+        Some(Request::List {}) => {
+            if !allow(Asked::Background, "") {
+                return tx.send(&refuse("not in the mesh")).await;
+            }
+            let offers = offers(agents, projects).await;
+            tx.send(&Reply::Offers { offers }).await?;
+            tx.finish().await
+        }
+        Some(Request::Copy {
+            agent,
+            id,
+            from,
+            prefix_hash,
+        }) => {
+            if !allow(Asked::Background, &id) {
+                return tx.send(&refuse("not in the mesh")).await;
+            }
+            // Only what `List` offers: a session of a mesh project.
+            let offered = offers(agents, projects)
+                .await
+                .iter()
+                .any(|offer| offer.id == id && offer.agent == agent);
+            if !offered {
+                return tx.send(&refuse("that session is not offered")).await;
+            }
+            let found = match locate(agents, &agent, &id).await {
+                Ok(found) => found,
+                Err(message) => return tx.send(&Reply::Refused { message }).await,
+            };
+            let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            match send_after(&mut tx, &found, from, &prefix_hash, live, None).await {
                 Ok(()) => tx.finish().await,
                 Err(e) => {
                     let message = format!("{e:#}");
@@ -321,25 +394,50 @@ pub(crate) struct Pulled {
     pub(crate) work: Option<Work>,
 }
 
-/// Brings the copy at `copy` up to date from the stream of a source.
+/// What `pull` asks for.
+pub(crate) struct Ask<'a> {
+    pub(crate) agent: AgentSlug,
+    pub(crate) id: &'a str,
+    pub(crate) copy: &'a Path,
+    pub(crate) kind: Kind,
+}
+
+/// Whose copy it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// The target of a move reads the session; `worktree` asks for the
+    /// worktree's commit and uncommitted work as well.
+    Move { worktree: bool },
+    /// A background copy, at most `rate` bytes a second.
+    Background { rate: u64 },
+}
+
+/// Brings the copy at `ask.copy` up to date from the stream of a source.
 /// A copy that diverged is kept beside it as `<name>.diverged`.
-pub(crate) async fn pull(
-    mut tx: LinkTx,
-    mut rx: LinkRx,
-    agent: AgentSlug,
-    id: &str,
-    copy: &Path,
-    worktree: bool,
-) -> Result<Pulled> {
-    let (from, prefix_hash) = held(copy).await?;
-    tx.send(&Request::Read {
+pub(crate) async fn pull(mut tx: LinkTx, mut rx: LinkRx, ask: Ask<'_>) -> Result<Pulled> {
+    let Ask {
         agent,
-        id: id.to_owned(),
-        from,
-        prefix_hash,
-        worktree,
-    })
-    .await?;
+        id,
+        copy,
+        kind,
+    } = ask;
+    let (from, prefix_hash) = held(copy).await?;
+    let request = match kind {
+        Kind::Move { worktree } => Request::Read {
+            agent,
+            id: id.to_owned(),
+            from,
+            prefix_hash,
+            worktree,
+        },
+        Kind::Background { .. } => Request::Copy {
+            agent,
+            id: id.to_owned(),
+            from,
+            prefix_hash,
+        },
+    };
+    tx.send(&request).await?;
     let (start, file_name) = match rx.recv::<Reply>().await? {
         Some(Reply::Head { from, file_name }) => (from, file_name),
         Some(Reply::Refused { message }) => return Err(Refused(message).into()),
@@ -362,7 +460,16 @@ pub(crate) async fn pull(
     let mut work: Option<Work> = None;
     loop {
         match rx.recv::<Reply>().await? {
-            Some(Reply::Chunk { data }) => out.write_all(&data).await?,
+            Some(Reply::Chunk { data }) => {
+                out.write_all(&data).await?;
+                if let Kind::Background { rate } = kind {
+                    // Receiving slowly slows the sender through the
+                    // connection's flow control: a background copy never
+                    // takes the link.
+                    let secs = data.len() as f64 / rate.max(1) as f64;
+                    tokio::time::sleep(std::time::Duration::from_secs_f64(secs)).await;
+                }
+            }
             Some(Reply::Work { head }) => {
                 work = Some(Work {
                     head,
