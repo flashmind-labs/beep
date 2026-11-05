@@ -381,6 +381,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
     for (let pass = 0; pass < 3 && windowStep(); pass++);
   }
 
+  /// Whether the user's selection reaches into `box`: emptying it would lose the text.
+  function selected(box: HTMLElement) {
+    const sel = document.getSelection();
+    return !!sel && !sel.isCollapsed && sel.containsNode(box, true);
+  }
+
   function windowStep() {
     let changed = false;
     const view = files.getBoundingClientRect();
@@ -396,7 +402,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
         c.box.replaceChildren(...c.draw());
         c.box.style.height = "";
         if (r.bottom <= view.top) files.scrollTop += c.box.offsetHeight - was;
-      } else if (!c.box.querySelector(".dv-cmt.open")) {
+      } else if (!c.box.querySelector(".dv-cmt.open") && !selected(c.box)) {
         const h = c.box.offsetHeight;
         c.box.replaceChildren();
         c.box.style.height = `${h}px`;
