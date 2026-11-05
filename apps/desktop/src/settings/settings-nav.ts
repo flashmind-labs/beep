@@ -12,7 +12,7 @@ const SETTINGS_PAGES = [
   ["agents", "Agent accounts"],
   ["creds", "Credentials"],
   ["instr", "Instructions"],
-  ["devices", "Account"],
+  ["devices", "Beep server"],
 ] as const;
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number][0];

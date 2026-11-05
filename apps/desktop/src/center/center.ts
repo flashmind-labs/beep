@@ -6,7 +6,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
 import { pane } from "../bar/pane.ts";
-import type { BackTo } from "../bar/core.ts";
+import { type BackTo, S } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import type { HomeView } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -200,9 +200,10 @@ async function showCached() {
   const [cached, mac, link] = await Promise.all([
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
     invoke<MacControl>("mac_control").catch(() => null),
-    invoke<{ link: string }>("status").catch(() => null),
+    invoke<{ link: string; signed_out: boolean }>("status").catch(() => null),
   ]);
   state.subscribed = link?.link === "linked";
+  S.signedOut = link?.signed_out ?? false;
   $("#home-comp").style.display = state.subscribed ? "" : "none";
   const home = seed(state, cached, dismissedUpdates);
   state.mac ??= mac;
@@ -233,4 +234,4 @@ listen<string>("link-state", e => {
 });
 
 // A reload starts with no chat open, as the window just opened does.
-Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {})).then(start).then(() => { if (state.subscribed) loadAgents(); });
+Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {}, S.signedOut)).then(start).then(() => { if (state.subscribed) loadAgents(); });
