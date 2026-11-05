@@ -56,8 +56,6 @@
 
 .rs { flex: 1; min-height: 0; display: flex; flex-direction: column }
 .rs-log { padding: 12px 20px }
-/* Turns off screen are skipped by layout while the page is resized. */
-.rs-log .dcoderlog > * { content-visibility: auto; contain-intrinsic-size: auto 120px }
 .rs-pane { position: relative }
 .rs-pane .rpane { user-select: text; cursor: auto }
 .rs .dhead .rdocic { display: grid; color: var(--dim); flex: none }
