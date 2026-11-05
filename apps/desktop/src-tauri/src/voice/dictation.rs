@@ -4,7 +4,7 @@
 //! aloud, and the sound stays in memory.
 
 use super::{
-    Voice,
+    LIVE_ENABLED, Voice,
     audio::{Audio, MicChunk, mic_allowed},
     event::LiveEvent,
     hotkey::{self, HOLD, HoldStep},
@@ -15,6 +15,7 @@ use super::{
 use crate::{
     fleet::projects::desk,
     machines::desktop::{permissions, request},
+    notices::notify,
 };
 use beep_dictation::{
     DictationError, Length, Provider, RATE, Settings, is_full, judge, max_bytes, transcribe,
@@ -300,6 +301,9 @@ impl Voice {
     // The orb, as dictation uses it: only the orb hears these, never the bar.
 
     fn emit_orb(&self, event: LiveEvent) {
+        if !LIVE_ENABLED {
+            return;
+        }
         if let Err(e) = self.app.emit_to(orb::LABEL, "live", &event) {
             log::debug!("telling the orb about dictation: {e}");
         }
@@ -342,6 +346,9 @@ impl Voice {
 
     /// Tells the user something in the orb, then takes it away, unless something newer showed.
     fn message(self: &Arc<Self>, text: &str) {
+        if !LIVE_ENABLED {
+            return notify::text(&self.app, "Dictation", text);
+        }
         let shown = self.dictations.fetch_add(1, Ordering::Relaxed) + 1;
         if let Err(e) = orb::show(&self.app) {
             log::warn!("showing the orb: {e}");

@@ -25,6 +25,7 @@ export interface Status {
   session: string | null;
   signed_out: boolean;
   server: boolean;
+  live: boolean;
 }
 
 export async function refreshStatus() {
@@ -32,6 +33,7 @@ export async function refreshStatus() {
   S.link = st.link;
   S.signedOut = st.signed_out;
   S.server = st.server;
+  S.live = st.live;
   // The bar's chat is not the window's.
   if (S.session === null && !PANE) S.session = st.session;
   return st;

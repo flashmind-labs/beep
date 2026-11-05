@@ -66,6 +66,8 @@ using the server's credentials and harness values as soon as the account is move
 
 `SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back. `MEMORY_TOOLS` (`crates/node/src/agents/mcp/mod.rs`) likewise keeps the memory tools from coding agents.
 
+`LIVE_ENABLED` (`apps/desktop/src-tauri/src/voice/mod.rs`) is false: the orb window never opens, Option never starts live mode (hold still dictates, two taps still open the bar), live hints and shortcuts are hidden, and a dictation error is a macOS notification.
+
 With an OpenRouter key saved, chats run on this Mac (`assistant_local`). The chat commands read and write local files and call OpenRouter (`crates/assistant`, `src-tauri/src/assistant/`), and the same chat window renders them. A Firecrawl key adds web search. Web tools turn off for the rest of a chat once a session has been read in it.
 
 Dictation works without the server too: with a provider picked in Assistant (OpenRouter, OpenAI or Mistral, each with its saved key), holding Option records a clip and types the words where the cursor is (`voice/dictation.rs`, `crates/dictation`, calls through flashmind's providers). It needs the Accessibility permission, sends nothing to a chat and is off until a provider is picked.
