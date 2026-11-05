@@ -45,6 +45,9 @@ export interface ChatsState {
 export interface BarState {
   view: View;
   link: LinkState;
+  /// Signed out of the server in Settings. `link` reads "unlinked" meanwhile, so the paths
+  /// that work with no account work the same; this says why.
+  signedOut: boolean;
   session: string | null;
   chats: ChatsState;
   /// The last chat list, drawn at once while a fresh one loads.
@@ -82,6 +85,7 @@ export function changed() {
 export const S: BarState = new Proxy<BarState>({
   view: "chat",
   link: "unlinked",
+  signedOut: false,
   session: null,
   chats: { list: [], sel: 0, query: "" },
   cache: [],

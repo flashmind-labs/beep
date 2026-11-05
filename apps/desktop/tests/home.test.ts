@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { type MacControl, machineDisk, machineProjects, thisMacRow } from "../src/machines/machine-state.ts";
-import { byRecent, remotePath, runningKey, runningLine, runningWhen } from "../src/agents/running-state.ts";
+import { byRecent, remotePath, runningKey, runningLine, runningWhen, sameSession } from "../src/agents/running-state.ts";
 
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
   const row = (project: string, machine_id: string, status: string) => ({ project, machine_id, status, files: 90, pending: 10, error: null });
@@ -81,4 +81,13 @@ test("the disk column shows the other volume with the most free", () => {
   assert.equal(d.other, "D: 512 GB free");
   assert.equal(machineDisk({ online: true, stats: { disks: stats.disks.slice(0, 1) } }).other, "");
   assert.equal(machineDisk({ online: true, stats: { disks: [stats.disks[0], { path: "/mnt/data", free_bytes: 1, total_bytes: 2 }] } }).other, "data 1 B free");
+});
+
+test("the open session is the same only on its machine and agent", () => {
+  const open = { machine_id: "m1", agent: "codex", session: "s1" };
+  assert.equal(sameSession(open, { machine_id: "m1", agent: "codex", id: "s1" }), true);
+  assert.equal(sameSession(open, { machine_id: "m2", agent: "codex", id: "s1" }), false);
+  assert.equal(sameSession(open, { machine_id: "m1", agent: "claude", id: "s1" }), false);
+  assert.equal(sameSession(open, { machine_id: "m1", agent: "codex", id: "s2" }), false);
+  assert.equal(sameSession(null, { machine_id: "m1", agent: "codex", id: "s1" }), false);
 });

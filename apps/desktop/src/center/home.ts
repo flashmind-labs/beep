@@ -10,7 +10,7 @@ import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
 import { needsLine, type HomeView, type NeedsYou, type UpdateRow, type CronRow } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { waitingFirst } from "./openitems-state.ts";
+import { newestFirst } from "./openitems-state.ts";
 import { ALL } from "../terminals/terminals.ts";
 import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
 import { failure, conflict, dot, section, avatar, tag, rowButton, line } from "../ui/pieces.ts";
@@ -266,7 +266,7 @@ export function homeBox(id: string, title: string, count: number | string, open:
 /// leaves its place empty; a row with nothing in it is left out.
 export function overview(home: HomeView) {
   const { running, coming_up: coming, needs_you: needs, updates } = home;
-  const items = [...(state.git?.items || [])].sort(waitingFirst);
+  const items = [...(state.git?.items || [])].sort(newestFirst);
   const prs = items.filter(i => i.kind === "pull_request"), issues = items.filter(i => i.kind === "issue");
   const terms = home.machines?.length ? allTerms.list(ALL) || [] : [], projects = projectRows() || [];
   const rows = [
