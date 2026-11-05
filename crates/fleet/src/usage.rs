@@ -402,19 +402,27 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
             if spent == 0 {
                 continue;
             }
-            let cost = paid(&part);
+            // A subscription bill carries its use at API prices as an estimate. The
+            // desktop reads this report in process and shows it apart: it is in no
+            // total, and the server's replies keep `None` there.
+            let cost: f64 = part.iter().map(|row| row.hour.cost_usd).sum();
             harnesses.push(HarnessBill {
                 agent: agent.clone(),
                 subscription,
-                cost_usd: (!subscription && cost > 0.0).then_some(cost),
+                cost_usd: (cost > 0.0).then_some(cost),
                 tokens: spent,
                 models: models(part.into_iter()),
             });
         }
     }
-    harnesses.sort_by(|a, b| {
-        cmp_cost(a.cost_usd.unwrap_or(0.0), b.cost_usd.unwrap_or(0.0)).then(b.tokens.cmp(&a.tokens))
-    });
+    let spent = |h: &HarnessBill| {
+        if h.subscription {
+            0.0
+        } else {
+            h.cost_usd.unwrap_or(0.0)
+        }
+    };
+    harnesses.sort_by(|a, b| cmp_cost(spent(a), spent(b)).then(b.tokens.cmp(&a.tokens)));
     SpendPeriod {
         cost_usd: paid(&all),
         metered_tokens: tokens(&all, false),
@@ -466,6 +474,8 @@ mod tests {
         assert_eq!(bill.metered_tokens, 1_000);
         assert_eq!(bill.subscription_tokens, 1_000);
         let covered = bill.harnesses.iter().find(|h| h.subscription);
-        assert_eq!(covered.and_then(|h| h.cost_usd), None);
+        assert_eq!(covered.and_then(|h| h.cost_usd), Some(5.0));
+        let metered = bill.harnesses.iter().find(|h| !h.subscription);
+        assert_eq!(metered.and_then(|h| h.cost_usd), Some(5.0));
     }
 }

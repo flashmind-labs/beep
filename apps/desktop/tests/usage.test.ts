@@ -15,7 +15,9 @@ test("subscription use shows as tokens under its own line", () => {
   const covered = { agent: "claude", subscription: true, cost_usd: null, tokens: 1_023_500_000, models: [] };
   assert.equal(harnessName(covered), "Claude Code, subscription");
   assert.equal(harnessLine(covered), "1B");
-  assert.equal(harnessLine({ ...covered, cost_usd: 361.58 }), "1B");
+  assert.equal(harnessLine({ ...covered, cost_usd: 361.58 }), "~$362 · 1B");
+  assert.equal(harnessLine({ ...covered, cost_usd: 0 }), "1B");
+  assert.equal(harnessLine({ ...covered, subscription: false, cost_usd: 5.85, tokens: 600_000 }), "$5.85 · 0.6M");
   const project = { project: "widget", cost_usd: 2.1, unpriced: [], metered_tokens: 800_000, subscription: [{ name: "claude", tokens: 210_000_000 }] };
   assert.equal(projectExtra(project, true), "210.8M");
   assert.equal(projectExtra({ ...project, unpriced: [{ name: "codex", tokens: 1_100_000 }] }, false), "1.1M Codex tokens");
