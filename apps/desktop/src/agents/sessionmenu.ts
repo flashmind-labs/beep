@@ -2,7 +2,7 @@
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import type { EditorRow } from "../project/editors.ts";
+import { openInEditor } from "../project/editors.ts";
 import type { AgentRow, Started } from "./agents.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 
@@ -38,14 +38,4 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     });
   }
   openMenu(e, s.title || "Session", items);
-}
-
-/// The first installed editor opens `folder`, as the session's Open in button does.
-async function openInEditor(folder: string) {
-  try {
-    const [first] = await invoke<EditorRow[]>("editors");
-    if (first) await invoke("open_in_editor", { editor: first.id, path: folder });
-  } catch (err) {
-    console.warn("open in editor:", err);
-  }
 }

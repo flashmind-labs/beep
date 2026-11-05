@@ -5,7 +5,7 @@ import { invoke } from "../ui/tauri.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openGroupSheet } from "./groupsheet.ts";
-import { openMenu } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { state } from "../center/state.ts";
 import { dot, rowButton } from "../ui/pieces.ts";
 import { useThisMac, machineMenu } from "../machines/table.ts";
@@ -17,18 +17,20 @@ import { IC } from "../ui/icons.ts";
 import { type MachineCard, type MacRow, thisMacRow } from "../machines/machine-state.ts";
 
 /// A group's heading in the sidebar; right-click for its menu.
-export function groupHeading(g: ProjectGroup) {
+export function groupHeading(g: ProjectGroup, extra: MenuItem[] = []) {
   const head = h("button", "cc-org gp", icon(IC.folder), g.name);
   head.title = `${g.paths.join(", ")} on every machine`;
-  head.addEventListener("contextmenu", e => groupMenu(e, g));
+  head.addEventListener("contextmenu", e => groupMenu(e, g, extra));
   return head;
 }
 
-export function groupMenu(e: MouseEvent, g: ProjectGroup) {
+/// `extra` goes first, for what only the place that shows the group can do.
+export function groupMenu(e: MouseEvent, g: ProjectGroup, extra: MenuItem[] = []) {
   openMenu(e, g.name, [
+    ...extra,
     { label: "Rename…", on: () => startRename(g) },
     { label: "Folders…", on: () => editGroup(g) },
-    { label: "Remove group", warn: true, on: () => removeGroup(g) },
+    { label: "Remove group…", warn: true, on: () => removeGroup(g) },
   ]);
 }
 
@@ -68,17 +70,18 @@ export async function renameGroup(g: ProjectGroup, name: string) {
   }
 }
 
-export async function removeGroup(g: ProjectGroup) {
-  const before = state.groups;
-  state.groups = (before || []).filter(x => x.id !== g.id);
-  redrawGroups();
-  try {
-    await invoke("project_group_delete", { id: g.id });
-  } catch (e) {
-    console.warn("removing a group:", e);
-    state.groups = before;
-    redrawGroups();
-  }
+/// Asks, then removes group `g`. Its projects and folders stay.
+export function removeGroup(g: ProjectGroup) {
+  confirmSheet({
+    title: `Remove ${g.name}?`,
+    text: "The group goes. Its projects stay.",
+    action: "Remove",
+    run: async () => {
+      await invoke("project_group_delete", { id: g.id });
+      state.groups = (state.groups || []).filter(x => x.id !== g.id);
+      redrawGroups();
+    },
+  });
 }
 
 function redrawGroups() {
