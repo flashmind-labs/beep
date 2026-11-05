@@ -6,6 +6,12 @@ import {
   type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
   inView, lineKey, lineLabel, matchesFilter, numberWidth, parseDraft, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
+import { loadDraft, saveDraft } from "./draftstore.ts";
+import { feedbackButton } from "./feedback.ts";
+import { mergeComments } from "./feedback-state.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
+import type { AgentSession } from "../agents/agents.ts";
+import { agentLabel } from "../project/projects-state.ts";
 import { button, el, type Kid } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 
@@ -20,6 +26,9 @@ export interface DiffSource {
   /// Where review comments are kept and go: `key` names the draft in
   /// storage, `send` delivers the review text and says why it did not ("" when it went).
   review: { key: string; send: (text: string) => Promise<string> };
+  /// The machine the diff's checkout is on, for Feedback from an agent; a diff
+  /// without one has the button disabled. `prefer` is the harness offered first.
+  agent?: { machine: { id: string; name: string }; prefer?: string; open: (session: AgentSession) => void };
 }
 
 export interface DiffViewHandle {
@@ -54,17 +63,6 @@ function loadSplit() {
 
 function saveSplit(on: boolean) {
   try { localStorage.setItem(SPLIT_KEY, on ? "1" : "0"); } catch { /* kept for this launch only */ }
-}
-
-function loadDraft(id: string) {
-  try { return parseDraft(localStorage.getItem(`beep.diffReview.${id}`)); } catch { return []; }
-}
-
-function saveDraft(id: string, draft: readonly ReviewComment[]) {
-  try {
-    if (draft.length) localStorage.setItem(`beep.diffReview.${id}`, JSON.stringify(draft));
-    else localStorage.removeItem(`beep.diffReview.${id}`);
-  } catch { /* kept for this launch only */ }
 }
 
 const SVG = {
@@ -186,7 +184,19 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const cmts = el("span", "dv-cmts");
   const send = button("Send review", "dbtn pri small", () => sendReview());
   const lostBox = el("div", "dv-lost");
-  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, cmts, send, find, ...(src.uncommitted ? [uncommittedBtn] : []), splitBtn, expand, collapse, refresh);
+  const feedback = feedbackButton({
+    key: src.review.key,
+    machine: src.agent?.machine ?? null,
+    prefer: src.agent?.prefer,
+    open: session => src.agent?.open(session),
+    view: () => st.view,
+    uncommitted: () => st.uncommitted,
+    load: async uncommitted => (await src.load([], false, uncommitted)).files,
+    add: addAgentComments,
+    bounds: () => root,
+    say,
+  });
+  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, cmts, send, feedback.el, find, ...(src.uncommitted ? [uncommittedBtn] : []), splitBtn, expand, collapse, refresh);
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
   const files = el("div", "dv-files");
@@ -194,7 +204,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const body = el("div", "dv-body", tree, files);
   const keys = el("div", "dv-keys");
   keys.innerHTML = "<span><kbd>j</kbd><kbd>k</kbd>next, previous file</span><span><kbd>x</kbd>fold the file</span><span><kbd>/</kbd>filter</span>";
-  root.append(head, body, keys);
+  root.append(head, feedback.note, body, keys);
 
   new ResizeObserver(() => {
     root.classList.toggle("wide", root.clientWidth >= WIDE);
@@ -228,6 +238,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     find.disabled = none;
     refresh.disabled = st.loading;
     refresh.title = st.loading ? "Reading…" : "Read the changes again";
+    feedback.redraw();
   }
 
   function drawFiles() {
@@ -449,10 +460,30 @@ export function diffView(src: DiffSource): DiffViewHandle {
     drawReview();
   }
 
+  /// Draft comments from an agent's review, left out when the draft has them already; says how many were new.
+  function addAgentComments(add: ReviewComment[]) {
+    const merged = mergeComments(st.draft, add);
+    if (!merged.added) return 0;
+    st.draft = merged.draft;
+    changed();
+    const keep = files.scrollTop;
+    drawFiles();
+    files.scrollTop = keep;
+    return merged.added;
+  }
+
+  /// Who wrote a comment an agent made: its mark and name.
+  function byEl(by: string) {
+    const name = agentLabel(by);
+    const tag = el("span", "by", harnessEl(by), name);
+    tag.title = `Written by ${name}`;
+    return tag;
+  }
+
   /// A comment as saved, with Edit and remove.
   function commentEl(c: ReviewComment, label: string) {
     const place = c.line == null ? "Comment on this file" : "Comment on this line";
-    const row = el("div", "dv-cmt", el("div", "b", label ? el("code", "", label) : null, label ? " " : null, c.text),
+    const row = el("div", "dv-cmt", el("div", "b", c.by ? byEl(c.by) : null, label ? el("code", "", label) : null, label ? " " : null, c.text),
       el("div", "a", el("button", "", "Edit"), el("button", "", "×")));
     const [edit, drop] = row.querySelectorAll("button");
     edit.type = drop.type = "button";

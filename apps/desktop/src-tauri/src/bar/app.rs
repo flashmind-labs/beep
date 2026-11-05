@@ -19,6 +19,8 @@ use tauri_plugin_autostart::ManagerExt;
 pub struct Status {
     link: LinkState,
     session: Option<String>,
+    /// Signed out of the server in Settings: `link` reads unlinked meanwhile.
+    signed_out: bool,
 }
 
 #[tauri::command]
@@ -26,6 +28,7 @@ pub fn status(beep: Service<'_>) -> Status {
     Status {
         link: beep.link_state(),
         session: beep.session(),
+        signed_out: beep.signed_out(),
     }
 }
 

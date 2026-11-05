@@ -56,6 +56,7 @@ const start = () => started ??= refreshPaneStatus().catch(() => {});
 async function refreshPaneStatus() {
   const st = await invoke<Status>("status");
   S.link = st.link;
+  S.signedOut = st.signed_out;
   const researches = loadResearches();
   if (S.link === "linked") { loadModels(); loadAgentHosts(); }
   await researches;
