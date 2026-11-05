@@ -18,7 +18,7 @@ use beep_proto::node::sync::{Keep, ProjectStatus};
 use iroh::{EndpointAddr, EndpointId};
 use iroh_blobs::Hash;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
     time::Duration,
@@ -57,8 +57,6 @@ pub(in crate::files::sync) struct Shared {
     /// Paused by the server: no scans, fetches or pulls.
     pub(super) paused: watch::Sender<bool>,
     pub(super) stop: CancellationToken,
-    /// Why this node will not merge with a peer yet (`first_contact`).
-    holds: Mutex<BTreeMap<EndpointId, String>>,
     /// The peers yet to send what they had, or to prove out of reach. Until
     /// they have, this node cannot say it is in sync.
     unheard: Mutex<HashSet<EndpointId>>,
@@ -113,7 +111,6 @@ impl Shared {
             rescans: watch::Sender::new(0),
             paused: watch::Sender::new(start.paused),
             stop: CancellationToken::new(),
-            holds: Mutex::default(),
             unheard: Mutex::new(unheard),
             caught: Mutex::default(),
             applied: Mutex::new(Instant::now()),
@@ -272,67 +269,36 @@ impl Shared {
         Ok(head)
     }
 
-    /// Fails while this checkout and a peer's, never merged before, are at
-    /// different commits. Merging them would mix two working trees file by
-    /// file and pick a winner per branch, on machines that may have been
-    /// apart for months. Neither changes until they are at one commit, which
-    /// the user gets them to with git. A side with no commit yet takes the
-    /// other's, and from then on it is ordinary concurrent editing.
-    pub(in crate::files::sync) async fn first_contact(
-        &self,
-        peer: &EndpointId,
-        theirs: Option<Oid>,
-    ) -> Result<()> {
+    /// Marks `peer` as merged with from now on, after a scan. Commits play no
+    /// part: as with Syncthing, the newer version of a file wins and the other
+    /// becomes a conflict copy, and a branch follows its later commit.
+    pub(in crate::files::sync) async fn first_contact(&self, peer: &EndpointId) -> Result<()> {
         if self.is_matched(peer) {
             return Ok(());
         }
         self.scan_before_matching().await?;
-        let ours = self.head().await?;
-        if let (Some(ours), Some(theirs)) = (ours, theirs)
-            && ours != theirs
-        {
-            let message = format!(
-                "this checkout is at {} and another machine's at {}: nothing syncs with it \
-                 until both are at one commit",
-                ours.hex(),
-                theirs.hex()
-            );
-            log::warn!("{}: {message}", self.name);
-            crate::lock(&self.holds).insert(*peer, message.clone());
-            self.publish(|status| status.error = Some(message.clone()));
-            bail!(message);
-        }
-        crate::lock(&self.holds).remove(peer);
         let mut state = self.lock();
         state.saved.matched.insert(peer.to_string());
         state.unsaved = true;
         drop(state);
-        // Publishes the status again, without the hold.
         self.merged.notify_one();
         Ok(())
     }
 
-    /// Whether this checkout was at one commit with `peer` before.
+    /// Whether this checkout has merged with `peer` before.
     pub(in crate::files::sync) fn is_matched(&self, peer: &EndpointId) -> bool {
         self.lock().saved.matched.contains(&peer.to_string())
     }
 
     /// Brings the list in line with the folder before it is compared with
-    /// a peer's that never matched it, or sent to one. The user may have
-    /// just moved the checkout to a commit with git, and a list from before
-    /// that has the old branch: merged with the peer's, it would move a
-    /// checkout that now agrees onto the commit the other one just left.
+    /// a peer's that never matched it, or sent to one. A list from before the
+    /// user's last edits would count those as older than they are.
     pub(in crate::files::sync) async fn scan_before_matching(&self) -> Result<()> {
         if self.is_paused() {
             return Ok(());
         }
         self.rescan(MATCH_SCAN).await?;
         Ok(())
-    }
-
-    /// Why the project does not merge with some peer, if so.
-    pub(super) fn hold(&self) -> Option<String> {
-        crate::lock(&self.holds).values().next().cloned()
     }
 
     /// Merges what a peer sent, and where it got to.

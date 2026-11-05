@@ -336,8 +336,8 @@ applies too; one it cannot read refuses the folder and says why.
 - Commits on both sides of a branch: the later commit keeps the branch, and the
   other stays as `refs/beep-conflicts/<ref>-<tag>`, listed as a conflict. If one
   is an ancestor of the other, the branch moves forward and the ref goes.
-- Two checkouts never merged before sync only once they are at one commit;
-  until then both show why, and neither changes.
+- Two checkouts merge whatever commits they are at, as with Syncthing: the newer
+  version of a file wins and the other becomes a conflict copy.
 - Locks, `FETCH_HEAD`, reflogs, hooks and `.git/worktrees` stay on their
   machine, and so does any folder whose `.git` is a file (a linked worktree or
   a submodule). Its branch still travels; it waits on a machine that has it
