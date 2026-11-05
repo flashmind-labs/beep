@@ -116,11 +116,15 @@ impl Task {
     /// Brings the folder in line with the list.
     pub(super) async fn apply(&mut self) {
         let began = Instant::now();
-        self.apply_round().await;
-        self.shared.applied_from(began);
+        // A round that could not even check its folder brought nothing in
+        // line, so whoever waits for one after a pull keeps waiting.
+        if self.apply_round().await {
+            self.shared.applied_from(began);
+        }
     }
 
-    async fn apply_round(&mut self) {
+    /// Whether the folder was checked, so what the round did counts.
+    async fn apply_round(&mut self) -> bool {
         // A merge may set this off long after the last scan; the folder
         // may have been swapped or unmounted since.
         let checked = match self.check_root().await {
@@ -143,7 +147,7 @@ impl Task {
             self.scan_failed = true;
             self.fail("not syncing", &e);
             self.publish_status(None);
-            return;
+            return false;
         }
         let work = {
             let state = self.shared.lock();
@@ -161,7 +165,7 @@ impl Task {
             self.waiting.clear();
             self.finish_git().await;
             self.publish_status(None);
-            return;
+            return true;
         }
         self.publish_status(Some(SyncState::Syncing));
         let total = work.len();
@@ -268,6 +272,7 @@ impl Task {
             self.fail("keeping the files in the store failed", &e);
         }
         self.publish_status(None);
+        true
     }
 
     fn note_failure(&mut self, round: &mut Round, path: String, size: u64, e: &anyhow::Error) {

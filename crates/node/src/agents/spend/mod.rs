@@ -151,16 +151,27 @@ impl Spend {
         path: &std::path::Path,
     ) -> std::io::Result<()> {
         let stamp = ledger::Stamp::of(path)?;
+        // What the header says (the folder, the provider, the model) is
+        // read from the log, so later requests are billed and filed as the
+        // log's own would be.
+        let header = scan::header_of(agent, path, &self.roots.accounts)?;
         let mut guard = lock(&self.ledger);
         let ledger = guard.get_or_insert_with(|| match &self.path {
             Some(path) => Ledger::load(path),
             None => Ledger::default(),
         });
-        let mut log = ledger::LogFile::new(agent);
+        // A session that came back here keeps what it spent here before: its
+        // log is read on from its new end, not started over.
+        let log = ledger.logs.entry(path.to_owned()).or_default();
+        log.agent = Some(agent);
         log.stamp = stamp;
         log.read = stamp.len;
         log.session = Some(session.to_owned());
-        ledger.logs.insert(path.to_owned(), log);
+        log.cwd = header.cwd.or(log.cwd.take());
+        log.model = header.model.or(log.model.take());
+        log.provider = header.provider.or(log.provider.take());
+        log.total = header.total;
+        log.recent = header.recent;
         ledger.changed = true;
         match &self.path {
             Some(saved) => ledger.save(saved),

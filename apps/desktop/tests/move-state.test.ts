@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, dedupe, fmtBytes, going, listLabel, moveRows, targetNote } from "../src/agents/move-state.ts";
+import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, dedupe, effective, fmtBytes, going, listLabel, moveRows, targetNote } from "../src/agents/move-state.ts";
 
 const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: false, reason: null, ...over });
 const record: MoveRecord = { session: "s1", agent: "codex", from: "laptop-id", to: "studio-id", project: "acme/app", at: 10 };
@@ -84,4 +84,27 @@ test("a session the target does not list yet stays on its source", () => {
 test("the latest record of a session wins", () => {
   const later = { ...record, from: "studio-id", to: "laptop-id", at: 20 };
   assert.equal(bySession([later, record]).get("s1"), later);
+});
+
+test("a target that has not heard of a recent move yet is waited for, and an old silence says nothing", () => {
+  const unknown = progress({ answer: "unknown" });
+  assert.equal(effective(unknown, record, record.at + 30_000)?.phase, "waiting");
+  assert.ok(going(effective(unknown, record, record.at + 30_000)));
+  assert.equal(effective(unknown, record, record.at + 10 * 60_000), null);
+  assert.equal(effective(undefined, record, record.at), null);
+  assert.equal(effective(progress({ phase: "files" }), record, record.at + 10 * 60_000)?.phase, "files");
+});
+
+test("a node from before moves shows the move as failed, with the session still on its source", () => {
+  const old = effective(progress({ answer: "update" }), record, record.at + 1000);
+  assert.equal(old?.phase, "failed");
+  const label = listLabel(record, old, names);
+  assert.equal(label?.chip, "Move failed");
+  assert.match(label?.why ?? "", /too old.*Still on laptop/);
+  assert.ok(!going(old));
+});
+
+test("the files step says why they do not come", () => {
+  const rows = moveRows(progress({ phase: "files", total: 1_000_000, files_left: 3, reason: "this checkout is at abc and another machine's at def" }), "laptop", "studio");
+  assert.equal(rows[1].text, "Project files: this checkout is at abc and another machine's at def");
 });

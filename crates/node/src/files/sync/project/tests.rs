@@ -828,3 +828,22 @@ fn a_saved_file_written_as_maps_is_still_read() {
     assert_eq!(read.cursors["peer"].seq, 7);
     assert!(file.exists(), "a readable file is not set aside");
 }
+
+#[tokio::test]
+async fn a_round_that_could_not_check_its_folder_does_not_count_as_applied() {
+    let mut project = Project::new(&["notes.txt"]).await;
+    let peer = SecretKey::generate().public();
+    let since = Instant::now();
+    project.task.shared.caught_up(&peer);
+    let away = project.base.join("away");
+    fs::rename(&project.folder, &away).unwrap();
+    project.task.apply().await;
+    assert!(
+        !project.task.shared.caught_up_since(&peer, since),
+        "a folder that is not there has everything in line"
+    );
+    fs::rename(&away, &project.folder).unwrap();
+    project.task.apply().await;
+    assert!(project.task.shared.caught_up_since(&peer, since));
+    project.stop().await;
+}

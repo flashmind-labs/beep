@@ -4,8 +4,9 @@
 
 use super::{
     Env, Harness,
+    dial::dial,
     progress::{Tracker, show},
-    read::{self, ALPN},
+    read::{self, Refused},
     rewrite,
     saved::{Phase, Saved},
     store,
@@ -18,7 +19,6 @@ use beep_proto::node::{
     link,
     mesh_state::{SessionMove, StateValue, SyncSpec},
 };
-use iroh::EndpointAddr;
 use std::{
     borrow::Cow,
     path::{Component, Path, PathBuf},
@@ -26,11 +26,9 @@ use std::{
 };
 use tokio::{
     task::spawn_blocking,
-    time::{Instant, sleep, timeout},
+    time::{Instant, sleep},
 };
 
-/// How long to wait for a connection to the source.
-const CONNECT_WITHIN: Duration = Duration::from_secs(15);
 /// The waits between tries to reach the source, doubling up to the last.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
 const LAST_WAIT: Duration = Duration::from_secs(10);
@@ -51,10 +49,16 @@ struct Folders {
 
 pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
     let saved = env.state.load(&record.id);
-    if saved
-        .as_ref()
-        .is_some_and(|saved| saved.at == record.at && saved.phase != Phase::Working)
-    {
+    if let Some(saved) = saved.filter(|saved| saved.is_over(record.at)) {
+        // After a restart, how it ended is still what the source and the
+        // desktop are told.
+        show(tracker, |progress| match saved.phase {
+            Phase::Done => progress.phase = MovePhase::Done,
+            _ => {
+                progress.phase = MovePhase::Failed;
+                progress.reason = saved.reason;
+            }
+        });
         return Ok(());
     }
     let result = move_here(env, record, tracker).await;
@@ -71,14 +75,7 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
     });
     env.state.clear(&record.id, false);
     env.state
-        .save(
-            &record.id,
-            &Saved {
-                at: record.at,
-                phase,
-                reason,
-            },
-        )
+        .save(&record.id, &Saved::over(record.at, phase, reason))
         .context("keeping how the move ended")?;
     result
 }
@@ -106,6 +103,9 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         // A restart between starting and noting it.
         return Ok(());
     }
+    if env.syncs.is_none() {
+        bail!("this machine shares no folders, so the project's files cannot come here");
+    }
     let copy = env.state.copy(&record.id);
     let copied = conversation(env, record, tracker, &copy).await?;
     log::info!(
@@ -127,9 +127,9 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     let at = path.clone();
     spawn_blocking(move || store::write(&at, &stored)).await??;
     if let Some(agent) = agent {
-        env.agents
-            .spend
-            .mark_counted(agent, &record.id, &path)
+        let (agents, id) = (env.agents.clone(), record.id.clone());
+        spawn_blocking(move || agents.spend.mark_counted(agent, &id, &path))
+            .await?
             .context("marking the copied usage as counted")?;
     }
     let cwd = folders.new.to_string_lossy().into_owned();
@@ -201,6 +201,8 @@ async fn conversation(
         match pull_once(env, record, copy).await {
             Ok(pulled) => {
                 wait = FIRST_WAIT;
+                // The source let a read through: the session can move.
+                env.agents.moves.take(&record.id);
                 show(tracker, |progress| {
                     progress.source_away = false;
                     progress.copied = pulled.size;
@@ -216,6 +218,8 @@ async fn conversation(
                     });
                 }
             }
+            // The source will not serve it, as it is: waiting changes nothing.
+            Err(e) if e.is::<Refused>() => return Err(e),
             Err(e) => {
                 log::info!("session {} not read from its source yet: {e:#}", record.id);
                 show(tracker, |progress| progress.source_away = true);
@@ -227,16 +231,7 @@ async fn conversation(
 }
 
 async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read::Pulled> {
-    let addr = env
-        .mesh
-        .devices()
-        .into_iter()
-        .find(|status| status.device.id == record.from)
-        .and_then(|status| status.addr)
-        .unwrap_or_else(|| EndpointAddr::new(record.from));
-    let connection = timeout(CONNECT_WITHIN, env.endpoint.connect(addr, ALPN))
-        .await
-        .context("could not reach the source in time")??;
+    let connection = dial(env, record.from).await?;
     let (send, recv) = connection.open_bi().await?;
     let (tx, rx) = link(send, recv);
     let pulled = read::pull(tx, rx, record.agent.clone(), &record.id, copy).await;
@@ -254,7 +249,13 @@ async fn files(env: &Env, record: &SessionMove, tracker: &Tracker, since: Instan
     syncs
         .have_all_from(&record.project, &record.from, since, |status| {
             let left = status.pending.max(status.waiting.len() as u64);
-            show(tracker, |progress| progress.files_left = left);
+            // Why the files do not come, such as two checkouts at different
+            // commits, rather than a count that does not move.
+            let reason = status.error.clone();
+            show(tracker, |progress| {
+                progress.files_left = left;
+                progress.reason = reason;
+            });
         })
         .await
 }

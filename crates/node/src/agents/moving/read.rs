@@ -7,7 +7,7 @@
 //! Sent as compact msgpack: a field is added only at the end with
 //! `#[serde(default)]`.
 
-use super::Harness;
+use super::{Harness, progress::Target};
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -15,6 +15,7 @@ use beep_proto::{
     node::{LinkRx, LinkTx},
 };
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::{
     io::SeekFrom,
     path::{Path, PathBuf},
@@ -44,6 +45,9 @@ pub(crate) enum Request {
         from: u64,
         prefix_hash: Vec<u8>,
     },
+    /// Asks how the move of session `id` made at `at` stands, which the
+    /// machine it moves to knows. Sent by the source.
+    State { id: String, at: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,32 +72,115 @@ pub(crate) enum Reply {
     Refused {
         message: String,
     },
+    /// The answer to `State`.
+    State {
+        /// The target can take the session.
+        taken: bool,
+        /// Why the target gave up, when it did.
+        failed: Option<String>,
+        /// The session runs on the target.
+        landed: bool,
+    },
 }
 
-/// Answers one `Read` on a stream.
-pub(super) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents) -> Result<()> {
-    let Some(Request::Read {
-        agent,
-        id,
-        from,
-        prefix_hash,
-    }) = rx.recv::<Request>().await?
-    else {
-        return Ok(());
+/// What a request is, for the check of who may make it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Asked {
+    /// A target reads the transcript.
+    Read,
+    /// A source asks the target how the move stands.
+    State,
+}
+
+/// Whether the peer may make a request of this kind about session `id`.
+pub(super) type Allow<'a> = &'a (dyn Fn(Asked, &str) -> bool + Send + Sync);
+
+/// The source turned a read away, for good: asking again changes nothing.
+#[derive(Debug)]
+pub(crate) struct Refused(pub(crate) String);
+
+impl fmt::Display for Refused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "the source refused: {}", self.0)
+    }
+}
+
+impl std::error::Error for Refused {}
+
+/// A bare transcript name: no folder, and the `.jsonl` every harness's
+/// transcript has. The name comes from another machine, so it must not
+/// lead out of the store.
+pub(super) fn valid_file_name(name: &str) -> bool {
+    let bare = Path::new(name)
+        .file_name()
+        .is_some_and(|only| only == std::ffi::OsStr::new(name));
+    bare && name.len() <= 255
+        && name.len() > ".jsonl".len()
+        && name.ends_with(".jsonl")
+        && !name.starts_with('.')
+        && !name.contains(['/', '\\', '\0'])
+}
+
+/// Answers one request on a stream.
+pub(super) async fn serve(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    agents: &Agents,
+    allow: Allow<'_>,
+) -> Result<()> {
+    let refuse = |message: &str| Reply::Refused {
+        message: message.to_owned(),
     };
-    let found = match locate(agents, &agent, &id).await {
-        Ok(found) => found,
-        Err(message) => return tx.send(&Reply::Refused { message }).await,
-    };
-    // Whether it runs is read before the file, so bytes written between
-    // the two are never missed by a reader that sees it ended.
-    let live = agents.runs(&id);
-    match send_after(&mut tx, &found, from, &prefix_hash, live).await {
-        Ok(()) => tx.finish().await,
-        Err(e) => {
-            let message = format!("{e:#}");
-            tx.send(&Reply::Refused { message }).await
+    match rx.recv::<Request>().await? {
+        Some(Request::Read {
+            agent,
+            id,
+            from,
+            prefix_hash,
+        }) => {
+            if !allow(Asked::Read, &id) {
+                return tx.send(&refuse("no move of that session to you")).await;
+            }
+            if let Some(why) = agents.moves.refusal(&id) {
+                return tx.send(&refuse(&why)).await;
+            }
+            let found = match locate(agents, &agent, &id).await {
+                Ok(found) => found,
+                Err(message) => return tx.send(&Reply::Refused { message }).await,
+            };
+            // Whether it runs is read before the file, so bytes written
+            // between the two are never missed by a reader that sees it
+            // ended. A session that may still be coming back from a
+            // restart, or that the source is still finishing with, counts
+            // as running.
+            let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            match send_after(&mut tx, &found, from, &prefix_hash, live).await {
+                Ok(()) => tx.finish().await,
+                Err(e) => {
+                    let message = format!("{e:#}");
+                    tx.send(&Reply::Refused { message }).await
+                }
+            }
         }
+        Some(Request::State { id, at }) => {
+            if !allow(Asked::State, &id) {
+                return tx.send(&refuse("no move of that session from you")).await;
+            }
+            let (taken, failed, landed) = match agents.moves.target(&id, at) {
+                Target::Unknown => (false, None, false),
+                Target::Taken => (true, None, false),
+                Target::Failed(reason) => (false, Some(reason), false),
+                Target::Landed => (true, None, true),
+            };
+            tx.send(&Reply::State {
+                taken,
+                failed,
+                landed,
+            })
+            .await?;
+            tx.finish().await
+        }
+        None => Ok(()),
     }
 }
 
@@ -216,9 +303,12 @@ pub(crate) async fn pull(
     .await?;
     let (start, file_name) = match rx.recv::<Reply>().await? {
         Some(Reply::Head { from, file_name }) => (from, file_name),
-        Some(Reply::Refused { message }) => bail!("the source refused: {message}"),
+        Some(Reply::Refused { message }) => return Err(Refused(message).into()),
         _ => bail!("the source ended without answering"),
     };
+    if !valid_file_name(&file_name) {
+        return Err(Refused(format!("it named the transcript {file_name:?}")).into());
+    }
     let restarted = from > 0 && start == 0;
     if restarted {
         let mut aside = copy.as_os_str().to_owned();
@@ -246,7 +336,7 @@ pub(crate) async fn pull(
                     restarted,
                 });
             }
-            Some(Reply::Refused { message }) => bail!("the source refused: {message}"),
+            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             _ => bail!("the source stopped before the end"),
         }
     }

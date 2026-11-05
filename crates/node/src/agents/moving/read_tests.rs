@@ -30,7 +30,7 @@ impl ProtocolHandler for Open {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0).await;
+        let _ = super::read::serve(tx, rx, &self.0, &|_, _| true).await;
         connection.closed().await;
         Ok(())
     }
@@ -52,6 +52,8 @@ fn source(content: &str) -> Source {
         stores: Stores::at(Some(dir.path()), None, None),
         ..Agents::default()
     };
+    // The sessions open before the last stop run again: none were open.
+    agents.reopened.send_replace(true);
     Source {
         _dir: dir,
         rollout,
@@ -180,4 +182,179 @@ async fn a_device_outside_the_mesh_is_turned_away() {
         format!("{closed:?}").contains("not in the mesh"),
         "{closed:?}"
     );
+}
+
+/// Serves reads, and says what each says: nothing a stranger can do reads.
+#[derive(Clone)]
+struct Strict(Arc<Agents>);
+
+impl std::fmt::Debug for Strict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Strict")
+    }
+}
+
+impl ProtocolHandler for Strict {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let (tx, rx) = link(send, recv);
+        let _ = super::read::serve(tx, rx, &self.0, &|_, _| false).await;
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+/// A source that sends the file name it is told to.
+#[derive(Clone)]
+struct Naming(&'static str);
+
+impl std::fmt::Debug for Naming {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Naming")
+    }
+}
+
+impl ProtocolHandler for Naming {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let (mut tx, mut rx) = link(send, recv);
+        let _ = rx.recv::<super::read::Request>().await;
+        let _ = tx
+            .send(&super::read::Reply::Head {
+                from: 0,
+                file_name: self.0.to_owned(),
+            })
+            .await;
+        let _ = tx
+            .send(&super::read::Reply::End {
+                size: 0,
+                live: false,
+            })
+            .await;
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+#[test]
+fn only_a_bare_jsonl_name_is_a_transcript_name() {
+    use super::read::valid_file_name;
+    assert!(valid_file_name("rollout-2026-11-04T09-30-00-abc.jsonl"));
+    assert!(valid_file_name("2026-11-04T09-30-00_abc.jsonl"));
+    for bad in [
+        "",
+        ".jsonl",
+        "../x.jsonl",
+        "a/b.jsonl",
+        "/etc/cron.d/x.jsonl",
+        "..\\x.jsonl",
+        "x.jsonl/..",
+        "x.txt",
+        ".hidden.jsonl",
+        "x\0.jsonl",
+        "..",
+    ] {
+        assert!(!valid_file_name(bad), "{bad:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_source_that_names_the_transcript_outside_the_store_is_refused_and_nothing_is_written() {
+    for name in [
+        "../../escape.jsonl",
+        "/tmp/escape.jsonl",
+        "a/b.jsonl",
+        "x.txt",
+    ] {
+        let server = Router::builder(endpoint().await)
+            .accept(ALPN, Naming(name))
+            .spawn();
+        let mine = TempDir::new().expect("a temp folder");
+        let copy = mine.path().join("copy.jsonl");
+        let err = read_from(&server, &copy, ID).await.expect_err("refused");
+        assert!(err.is::<super::read::Refused>(), "{name}: {err:#}");
+        assert!(!copy.exists(), "{name}");
+    }
+}
+
+#[tokio::test]
+async fn a_device_no_move_names_reads_nothing() {
+    let source = source(&header("{\"secret\":1}\n"));
+    let server = Router::builder(endpoint().await)
+        .accept(ALPN, Strict(source.agents.clone()))
+        .spawn();
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    let err = read_from(&server, &copy, ID).await.expect_err("refused");
+    assert!(err.is::<super::read::Refused>(), "{err:#}");
+    assert!(!copy.exists());
+}
+
+#[test]
+fn a_move_record_lets_only_its_two_machines_read_and_ask() {
+    use super::{alpn::permits, read::Asked};
+    use beep_proto::node::mesh_state::SessionMove;
+    let (a, b, c) = (
+        SecretKey::generate().public(),
+        SecretKey::generate().public(),
+        SecretKey::generate().public(),
+    );
+    let record = SessionMove {
+        agent: AgentSlug::CODEX,
+        id: ID.into(),
+        from: a,
+        to: b,
+        project: "p".into(),
+        path: String::new(),
+        mode: None,
+        stop: false,
+        at: 1,
+    };
+    // The source serves its target.
+    assert!(permits(Some(&record), a, b, Asked::Read, ID));
+    // Nobody else reads, a member of the mesh or not, and not the other way.
+    assert!(!permits(Some(&record), a, c, Asked::Read, ID));
+    assert!(!permits(Some(&record), b, a, Asked::Read, ID));
+    assert!(!permits(None, a, b, Asked::Read, ID));
+    assert!(!permits(
+        Some(&record),
+        a,
+        b,
+        Asked::Read,
+        "another-session"
+    ));
+    // The target answers its source.
+    assert!(permits(Some(&record), b, a, Asked::State, ID));
+    assert!(!permits(Some(&record), b, c, Asked::State, ID));
+    assert!(!permits(Some(&record), a, b, Asked::State, ID));
+}
+
+#[tokio::test]
+async fn a_session_that_may_still_be_coming_back_from_a_restart_reads_as_running() {
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    source.agents.reopened.send_replace(false);
+    let pulled = read_from(&server, &copy, ID).await.expect("a read");
+    assert!(pulled.live, "the source may still append when it reopens");
+    source.agents.reopened.send_replace(true);
+    let pulled = read_from(&server, &copy, ID).await.expect("a read");
+    assert!(!pulled.live);
+}
+
+#[tokio::test]
+async fn a_session_the_source_is_finishing_with_reads_as_running_until_it_lets_go() {
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    let held = source.agents.moves.hold(ID);
+    assert!(read_from(&server, &copy, ID).await.expect("a read").live);
+    drop(held);
+    assert!(!read_from(&server, &copy, ID).await.expect("a read").live);
 }

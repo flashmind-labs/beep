@@ -5,6 +5,7 @@
 mod alpn;
 mod claude;
 mod codex;
+mod dial;
 mod folder;
 mod follow;
 mod json;

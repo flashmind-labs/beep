@@ -101,13 +101,13 @@ pub(super) enum Command {
     /// Takes back the node's questions whose caller stopped waiting, so their cards go and a
     /// late answer is refused.
     Withdraw,
-    /// The session is about to move to another machine: no queued prompt
-    /// starts a turn from here on, and the running turn is stopped when
-    /// `stop` says so. The queue is kept.
+    /// The session is about to move to another machine: it takes no new
+    /// prompt, runs the ones already queued and ends once they are done.
+    /// The running turn and the queue are stopped when `stop` says so.
     Moving {
         stop: bool,
     },
-    /// The move is off: queued prompts start turns again.
+    /// The move is off: prompts are taken again.
     NotMoving,
 }
 

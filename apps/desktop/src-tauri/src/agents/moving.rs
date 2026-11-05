@@ -128,6 +128,14 @@ pub async fn session_move(
     Ok(desk(&fleet).await?.move_session(ask).await?.into())
 }
 
+/// Whether the node of `machine_id` takes part in moves; one from before
+/// them would ignore a move and leave the session where it is.
+#[tauri::command]
+pub async fn session_move_probe(fleet: FleetState<'_>, machine_id: String) -> Result<bool> {
+    let machine = machine(&machine_id)?;
+    Ok(desk(&fleet).await?.takes_moves(machine).await?)
+}
+
 /// Takes back the move of `session`, unless it already resumed on the target.
 #[tauri::command]
 pub async fn session_move_cancel(fleet: FleetState<'_>, session: String) -> Result<()> {

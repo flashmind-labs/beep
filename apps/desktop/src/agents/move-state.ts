@@ -89,7 +89,9 @@ export function moveRows(p: MoveProgress, from: string, to: string): MoveRow[] {
     case "files":
       return [
         { state: "done", text: `Conversation ${fmtBytes(p.total)}` },
-        { state: "run", text: `Project files${left}` },
+        // Why the files do not come, such as checkouts at two commits, is
+        // better than a count that does not move.
+        { state: "run", text: p.reason ? `Project files: ${p.reason}` : `Project files${left}` },
         { state: "todo", text: resume },
       ];
     default:
@@ -99,6 +101,21 @@ export function moveRows(p: MoveProgress, from: string, to: string): MoveRow[] {
         { state: "run", text: resume },
       ];
   }
+}
+
+/// How long a target may take to see a record in the mesh before the
+/// window stops saying it waits for it.
+export const SEEN_WITHIN_MS = 2 * 60_000;
+
+/// What the target says of a move, read for the window: a target that has
+/// not heard of a recent move yet still has to take it up, so it waits; one
+/// that never heard of an old one (it restarted since) says nothing; a node
+/// from before moves cannot take the session at all.
+export function effective(p: MoveProgress | null | undefined, record: MoveRecord | undefined, now: number): MoveProgress | null {
+  if (!p || !record) return p ?? null;
+  if (p.answer === "update") return { ...p, answer: "known", phase: "failed", reason: "that machine's beep-node is too old to take sessions" };
+  if (p.answer === "unknown") return now - record.at < SEEN_WITHIN_MS ? { ...p, answer: "known", phase: "waiting" } : null;
+  return p;
 }
 
 const GOING = new Set<MovePhase>(["waiting", "conversation", "files", "resuming"]);

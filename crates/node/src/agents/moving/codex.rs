@@ -1,6 +1,8 @@
 //! Codex: `<home>/sessions/<yyyy>/<mm>/<dd>/rollout-<time>-<id>.jsonl`. The
 //! folder is in the `session_meta` line (`cwd`, `runtime_workspace_roots`)
-//! and in each `turn_context` line (`cwd`), as a path or a file URI.
+//! and in each `turn_context` line (`cwd`). Codex's own schema types them as
+//! plain path strings (`runtimeWorkspaceRoots` is a list of them); a `file://`
+//! URI would be moved too, should one turn up.
 
 use super::{
     Stored,
