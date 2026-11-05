@@ -12,6 +12,7 @@ use crate::agents::{
     subagent::Run,
     unix_now,
     usage::{UsageHub, claude_rate_limit},
+    window::window,
 };
 use agent_client_protocol::schema::v1::{RequestPermissionRequest, SessionUpdate, ToolCallId};
 use beep_proto::{
@@ -130,10 +131,19 @@ impl Live {
     }
 
     /// The last `last` entries and how many came before them.
+    #[cfg(test)]
     pub(crate) fn transcript(&self, last: usize) -> (Vec<Entry>, u64) {
-        let skip = self.transcript.len().saturating_sub(last);
-        let entries = self.transcript.iter().skip(skip).cloned().collect();
-        (entries, self.dropped + skip as u64)
+        self.transcript_before(last, None)
+    }
+
+    /// The last `last` entries before the one with index `before` (the end
+    /// when `None`) and how many came before them. Entries the session
+    /// dropped are gone: past them the answer is empty.
+    pub(crate) fn transcript_before(&self, last: usize, before: Option<u64>) -> (Vec<Entry>, u64) {
+        let range = window(self.dropped, self.transcript.len(), last, before);
+        let earlier = self.dropped + range.start as u64;
+        let entries = self.transcript.range(range).cloned().collect();
+        (entries, earlier)
     }
 
     pub(crate) fn push(&mut self, kind: EntryKind, text: &str) {
@@ -158,6 +168,12 @@ impl Live {
 
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
+        // Until the agent names the session, its first prompt does.
+        if self.info.title.is_none()
+            && let Some(line) = text.lines().map(str::trim).find(|line| !line.is_empty())
+        {
+            self.info.title = Some(cut(line, MAX_LINE));
+        }
         self.end_thought(Instant::now());
         self.active_at = Some(Instant::now());
         self.in_message = false;

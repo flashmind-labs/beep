@@ -271,6 +271,17 @@ impl Online {
         Ok(sessions::transcript(self, session, last, thoughts).await?)
     }
 
+    /// As `transcript`, the entries before entry `before` when given.
+    pub async fn transcript_before(
+        &self,
+        session: &str,
+        last: u32,
+        thoughts: bool,
+        before: Option<u64>,
+    ) -> Result<(Vec<Entry>, u32)> {
+        Ok(sessions::transcript_before(self, session, last, thoughts, before).await?)
+    }
+
     pub async fn external_sessions(
         &self,
         agent: &str,

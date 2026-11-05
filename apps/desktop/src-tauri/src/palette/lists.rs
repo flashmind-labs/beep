@@ -150,6 +150,12 @@ impl PaletteCache {
         self.read_chats.notify_one();
     }
 
+    /// Signing in or out changed what the server lists: read everything again, soon.
+    pub(crate) fn link_changed(&self) {
+        self.read_lists.notify_one();
+        self.read_chats.notify_one();
+    }
+
     /// Changes the lists and rebuilds the index. The windows hear of it only
     /// when the index came out different.
     fn update(&self, app: &AppHandle, change: impl FnOnce(&mut PaletteLists)) {

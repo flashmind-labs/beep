@@ -53,6 +53,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     let linked = link == LinkState::Linked;
     let status = match link {
         LinkState::Linked => "Linked to your phone",
+        LinkState::Unlinked if beep.signed_out() => "Signed out of the Beep server",
         LinkState::Unlinked => "No subscription",
         LinkState::Revoked => "Removed from the account",
     };
@@ -112,7 +113,12 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         separator()?;
     }
     if !linked {
-        item("link", "Subscription…", true, None)?;
+        let title = if beep.signed_out() {
+            "Sign in…"
+        } else {
+            "Subscription…"
+        };
+        item("link", title, true, None)?;
     }
     item("settings", "Settings…", true, Some("cmd+,"))?;
     match update::ready(app) {

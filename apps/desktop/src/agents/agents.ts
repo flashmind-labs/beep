@@ -21,6 +21,8 @@ import { openAgent, turnRuns } from "./session.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { closeChild } from "./logview.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
+import { jumpToStart, jumpToEnd, logJumpKey } from "./older.ts";
+import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
@@ -91,7 +93,8 @@ export interface AgentPage {
   error: string | null;
   queued: number;
   turns: number;
-  /// The newest entries, and how many came before them.
+  /// The entries held, newest last, and how many came before them. A read
+  /// brings the newest; older ones are joined on as the reader goes up.
   entries: AgentEntry[];
   earlier: number;
 }
@@ -248,6 +251,9 @@ interface AgentState {
   modes: AgentModes | null;
   /// The open session's background commands, when the server says.
   tasks: AgentTask[];
+  /// Reading older entries: why no more come, whether a read is out, and
+  /// whether the search for the oldest turn's prompt gave up.
+  older: { stop: OlderStop; loading: boolean; gaveUp: boolean };
 }
 
 export const AG: AgentState = {
@@ -258,6 +264,7 @@ export const AG: AgentState = {
   sig: "", rest: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  older: { stop: "", loading: false, gaveUp: false },
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
@@ -421,6 +428,10 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (k === "t" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
     }
+    // Home and ⌘↑ go to the first entry of the log, End and ⌘↓ to the last,
+    // unless the field has text to move through.
+    const jump = logJumpKey(e, cmd);
+    if (jump) { e.preventDefault(); void (jump === "start" ? jumpToStart() : jumpToEnd()); return true; }
     if (e.key === "Tab" && e.shiftKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();

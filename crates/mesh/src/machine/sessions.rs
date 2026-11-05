@@ -8,8 +8,9 @@ use beep_proto::{
     CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
     node::{
         agent::{
-            DiffAsk, Entry, ExternalSession, LiveStatus, ModelList, SESSIONS_PROTOCOL,
-            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer, Worktree,
+            AgentCommand, DiffAsk, Entry, ExternalSession, LiveStatus, ModelList,
+            SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer,
+            Worktree,
         },
         harness::HarnessReport,
     },
@@ -125,10 +126,24 @@ pub async fn transcript<S: Sessions + ?Sized>(
     last: u32,
     thoughts: bool,
 ) -> Result<(Vec<Entry>, u32), MeshError> {
+    transcript_before(node, session, last, thoughts, None).await
+}
+
+/// As `transcript`, the `last` entries before entry `before` when given. A
+/// node from before `before` answers with the last entries: an answer whose
+/// `earlier` plus entries (thoughts kept) does not end at `before` is that.
+pub async fn transcript_before<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+    last: u32,
+    thoughts: bool,
+    before: Option<u64>,
+) -> Result<(Vec<Entry>, u32), MeshError> {
     let request = SessionsRequest::Transcript {
         session: session.to_owned(),
         last,
         thoughts,
+        before,
     };
     match ask(node, request).await? {
         SessionsReply::Transcript { entries, earlier } => Ok((entries, earlier)),
@@ -368,6 +383,22 @@ pub async fn worktrees<S: Sessions + ?Sized>(
     };
     match ask(node, request).await? {
         SessionsReply::Worktrees { worktrees } => Ok(NodeWork::Done(worktrees)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The commands and skills the running session `session` offers on the
+/// node; none when it is not running or the agent reports none.
+pub async fn commands<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+) -> Result<NodeWork<Vec<AgentCommand>>, MeshError> {
+    let request = SessionsRequest::Commands {
+        session: session.to_owned(),
+    };
+    match ask(node, request).await? {
+        SessionsReply::Commands { commands } => Ok(NodeWork::Done(commands)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
     }

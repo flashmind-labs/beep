@@ -115,9 +115,13 @@ impl Beep {
         &self.endpoint
     }
 
-    /// The server this app is set to talk to, if it has one.
+    /// The server this app talks to now, if it has one. None while signed
+    /// out, so what mirrors changes to the server leaves it alone.
     pub fn server(&self) -> Option<EndpointId> {
-        self.server.as_ref().map(|server| server.id)
+        self.server
+            .as_ref()
+            .filter(|_| !self.signed_out())
+            .map(|server| server.id)
     }
 
     /// Whether this app is linked to a server: one is set and the link code
@@ -146,12 +150,15 @@ impl Beep {
         self.server.as_ref().map(|server| server.push.clone())
     }
 
-    /// The server's side of the app, or `NoServer`.
+    /// The server's side of the app, or `NoServer`. A Mac signed out gets
+    /// `Unlinked`, the answer of one with no account, so every path that
+    /// works without a server works the same.
     fn node(&self) -> Result<&Node> {
-        self.server
-            .as_ref()
-            .map(|server| &server.node)
-            .ok_or(DesktopError::NoServer)
+        let server = self.server.as_ref().ok_or(DesktopError::NoServer)?;
+        if self.signed_out() {
+            return Err(DesktopError::Unlinked);
+        }
+        Ok(&server.node)
     }
 
     pub fn use_mac(&self) -> bool {
@@ -177,12 +184,37 @@ impl Beep {
         self.file.save(&saved);
     }
 
+    /// Where the link stands. A Mac signed out reads as unlinked.
     pub fn link_state(&self) -> LinkState {
-        self.saved().link
+        self.saved().effective_link()
     }
 
+    /// Sets the link, which ends a sign-out.
     pub fn set_link_state(&self, link: LinkState) {
-        self.update_saved(|s| s.link = link);
+        self.update_saved(|s| {
+            s.link = link;
+            s.signed_out = false;
+        });
+    }
+
+    /// Whether the user signed this Mac out of the server in Settings.
+    pub fn signed_out(&self) -> bool {
+        self.saved().signed_out
+    }
+
+    /// Notes a sign-out or a sign-in, saved so a launch keeps it.
+    pub(super) fn set_signed_out(&self, signed_out: bool) {
+        self.update_saved(|s| s.signed_out = signed_out);
+    }
+
+    /// Signs out: no call is made from now on, and the connection open
+    /// closes, ending the streams on it. The key and the link are kept, so
+    /// signing in returns to the same account.
+    pub(super) async fn sign_out(&self) {
+        self.set_signed_out(true);
+        if let Some(client) = self.client.lock().await.take() {
+            client.close();
+        }
     }
 
     pub fn session(&self) -> Option<String> {
@@ -351,6 +383,7 @@ impl Beep {
         self.update_saved(|s| {
             s.server = Some(server);
             s.link = link;
+            s.signed_out = false;
         });
     }
 
@@ -562,6 +595,45 @@ mod tests {
             Err(DesktopError::NoServer)
         ));
         assert!(!beep.has_login().await);
+    }
+
+    #[tokio::test]
+    async fn a_signed_out_mac_connects_to_nothing_and_signs_back_in_with_its_key() {
+        let dir = TempDir::new().expect("a temp dir");
+        let server = SecretKey::generate().public();
+        // A file as an earlier run left it: linked, then signed out.
+        fs::write(
+            dir.path().join("state.json"),
+            r#"{"link":"linked","signed_out":true}"#,
+        )
+        .expect("the state is written");
+        let beep = app(&dir, Some(server)).await;
+        assert!(beep.signed_out());
+        assert_eq!(beep.link_state(), LinkState::Unlinked);
+        assert!(!beep.linked());
+        assert_eq!(beep.server(), None);
+        let error = beep.call(ListSessions {}).await.expect_err("signed out");
+        assert!(matches!(error, DesktopError::Unlinked), "{error:?}");
+        let error = beep
+            .guest_call(ListSessions {})
+            .await
+            .expect_err("signed out");
+        assert!(matches!(error, DesktopError::Unlinked), "{error:?}");
+        assert!(!beep.has_login().await);
+        assert!(
+            beep.client.lock().await.is_none(),
+            "no connection was opened"
+        );
+        // Signing in again is the one change: the same link, the same key.
+        beep.set_signed_out(false);
+        assert!(!beep.signed_out());
+        assert!(beep.linked());
+        assert_eq!(beep.server(), Some(server));
+        // The link set while signed out ends the sign-out.
+        beep.sign_out().await;
+        assert!(beep.signed_out());
+        beep.set_link_state(LinkState::Linked);
+        assert!(!beep.signed_out());
     }
 
     #[tokio::test]

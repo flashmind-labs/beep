@@ -2,7 +2,7 @@
 //! the last entries as the node answers a transcript request with them.
 
 use super::{Agent, Stores, codex_run};
-use crate::agents::{claude::Excerpt, cut};
+use crate::agents::{claude::Excerpt, cut, window::window};
 use anyhow::{Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
@@ -11,6 +11,7 @@ use std::{
     fs::File,
     io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
     path::Path,
+    sync::Arc,
 };
 
 /// The most of a session file read, from its end.
@@ -22,29 +23,35 @@ impl Stores {
     /// The last `last` entries of session `id` in the files these stores
     /// keep; `None` when no store has it. Blocks: run it with
     /// `spawn_blocking`.
-    pub(crate) fn transcript(&self, id: &str, last: usize) -> Result<Option<Excerpt>> {
+    pub(crate) fn transcript(
+        &self,
+        id: &str,
+        last: usize,
+        before: Option<u64>,
+    ) -> Result<Option<Excerpt>> {
         let Some(seen) = self.sessions(None).into_iter().find(|seen| seen.id == id) else {
             return Ok(None);
         };
-        let read = match (seen.agent, &seen.file) {
-            (Agent::Codex, Some(file)) => codex(file, last)?,
-            (Agent::Pi, Some(file)) => pi(file, last)?,
+        let entries = match (seen.agent, &seen.file) {
+            (Agent::Codex, Some(file)) => self
+                .memos
+                .transcripts
+                .read(file, || codex(file).map(Arc::new))?,
+            (Agent::Pi, Some(file)) => self
+                .memos
+                .transcripts
+                .read(file, || pi(file).map(Arc::new))?,
             (agent, _) => bail!(
                 "{}'s transcript cannot be read yet, only its title and folder",
                 agent.as_str()
             ),
         };
-        Ok(Some(read))
-    }
-}
-
-/// The last `last` of `entries`, and how many came before them.
-fn tail(mut entries: Vec<Entry>, last: usize) -> Excerpt {
-    let skip = entries.len().saturating_sub(last);
-    Excerpt {
-        entries: entries.split_off(skip),
-        earlier: skip as u64,
-        pictures: Vec::new(),
+        let range = window(0, entries.len(), last, before);
+        Ok(Some(Excerpt {
+            earlier: range.start as u64,
+            entries: entries[range].to_vec(),
+            pictures: Vec::new(),
+        }))
     }
 }
 
@@ -86,7 +93,7 @@ fn text_of(content: &Value) -> String {
 /// A Codex rollout: prompts from `user_message` events (the `response_item`
 /// ones also hold the context Codex adds), its replies, reasoning summaries
 /// and calls, named as a subagent's steps are (`codex_run::call_title`).
-fn codex(path: &Path, last: usize) -> io::Result<Excerpt> {
+fn codex(path: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
     for value in lines(path)? {
         let payload = &value["payload"];
@@ -115,12 +122,12 @@ fn codex(path: &Path, last: usize) -> io::Result<Excerpt> {
         };
         entries.extend(made);
     }
-    Ok(tail(entries, last))
+    Ok(entries)
 }
 
 /// A pi session: `message` lines, each a user prompt, an assistant message
 /// of text, thinking and tool calls, or a tool result that marks its call.
-fn pi(path: &Path, last: usize) -> io::Result<Excerpt> {
+fn pi(path: &Path) -> io::Result<Vec<Entry>> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut calls: HashMap<String, usize> = HashMap::new();
     for value in lines(path)? {
@@ -169,5 +176,5 @@ fn pi(path: &Path, last: usize) -> io::Result<Excerpt> {
             _ => {}
         }
     }
-    Ok(tail(entries, last))
+    Ok(entries)
 }

@@ -39,6 +39,8 @@ import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
 import { threadChats } from "./threadcard.ts";
 import { beepViews, groupShown } from "../settings/subscription.ts";
+import { signedOutFooter } from "../settings/server-state.ts";
+import { openSettings } from "../settings/sheet.ts";
 import { IC } from "../ui/icons.ts";
 import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
@@ -129,7 +131,13 @@ export function drawSide() {
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
   const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
-  if (home?.machines) {
+  const out = signedOutFooter(S.signedOut);
+  if (out) {
+    // Signed out: the state, and the way to Sign in, in place of the machine count.
+    const signIn = button(out.action, "quiet", () => openSettings("devices"));
+    signIn.classList.add("small");
+    foot.append(signIn);
+  } else if (home?.machines) {
     const add = plusButton("Add a machine", openAddMachine);
     add.classList.add("dbtn", "quiet");
     foot.append(add);
@@ -149,6 +157,8 @@ export function drawSide() {
 }
 
 function footer(machines: MachineCard[] | null | undefined): Kid[] {
+  const out = signedOutFooter(S.signedOut);
+  if (out) return [h("span", "", h("span", "ddot off"), ` ${out.text}`)];
   const p = problem();
   if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad"}`), ` ${p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused"}`)];
   if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];

@@ -234,6 +234,11 @@ impl Status {
             .collect()
     }
 
+    /// What `machine` last reported about itself, if it did.
+    pub fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
+        self.shared.peers().get(&machine)?.env.clone()
+    }
+
     /// The apps, graphics cards and abilities of each machine; one that has
     /// not reported is listed empty.
     pub fn details(&self) -> Vec<MachineDetails> {

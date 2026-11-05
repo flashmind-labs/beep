@@ -20,7 +20,7 @@ use crate::{
 };
 use agent_client_protocol::schema::v1::McpServer;
 use anyhow::{Context, Result};
-use beep_proto::node::agent::{AnswerOption, Effort, EntryKind, SessionInfo, Status};
+use beep_proto::node::agent::{AgentCommand, AnswerOption, Effort, EntryKind, SessionInfo, Status};
 use beep_proto::{AgentAccount, ModelId};
 use futures::stream::FuturesUnordered;
 use std::{
@@ -322,6 +322,11 @@ impl Session {
 
     pub(super) fn info(&self) -> SessionInfo {
         self.live.borrow().info.clone()
+    }
+
+    /// The commands and skills the agent last reported.
+    pub(super) fn commands(&self) -> Vec<AgentCommand> {
+        self.live.borrow().commands.clone()
     }
 
     /// Hands `command` to the session and waits until it is done or refused.

@@ -63,7 +63,8 @@ pub(in crate::api) async fn get_agent_session(
     let thoughts = cx.supports(Feature::THOUGHTS);
     match timeout(
         NODE_LIMIT,
-        live.online.transcript(&get.session, last, thoughts),
+        live.online
+            .transcript_before(&get.session, last, thoughts, get.before),
     )
     .await
     {

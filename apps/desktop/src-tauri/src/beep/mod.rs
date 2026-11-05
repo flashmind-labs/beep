@@ -7,6 +7,7 @@ pub(crate) mod identity;
 mod link;
 pub(crate) mod login;
 mod run;
+pub(crate) mod signout;
 pub(crate) mod state;
 pub(crate) mod sync;
 

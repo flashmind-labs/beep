@@ -11,6 +11,7 @@ import { refreshSession } from "../chat/history.ts";
 import { drawLink, loginFailed, renderLink, renderRevoked } from "./link.ts";
 import { openViewer } from "../chat/media.ts";
 import { loadModels, modelClick, renderModel } from "../settings/model.ts";
+import { renderSettings } from "../settings/settings.ts";
 import { closeRerunMenu, rerun, rerunClick, rerunMenu } from "../chat/rerun.ts";
 import { routeClick } from "../chat/routes.ts";
 import { forgetHeight } from "./size.ts";
@@ -28,8 +29,11 @@ interface UndoButton extends HTMLElement {
 
 // Only the Option double tap shows the bar without naming a view.
 if (!PANE) listen<string | null>("bar-shown", e => { forgetHeight(); if (e.payload == null) learnedHotkey(); show(e.payload); });
+listen<boolean>("signed-out", e => { S.signedOut = e.payload; });
 listen<LinkState>("link-state", async e => {
   S.link = e.payload;
+  // Signed out while the bar shows the assistant: it opens on coding agents instead.
+  if (S.signedOut && S.view !== "settings" && S.view !== "login" && S.view !== "link") return void show(null);
   if (S.view === "link" && S.link === "linked") {
     clearInterval(S.timer);
     drawLink("linked");
@@ -70,7 +74,7 @@ function flash(b: UndoButton, done: string, back: string) {
 // copies its link instead.
 bar.addEventListener("click", e => {
   const t = e.target as HTMLElement;
-  if (t.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : renderLink();
+  if (t.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : S.signedOut ? renderSettings() : renderLink();
   if (t.closest('[data-act="model"]')) return renderModel();
   if (t.closest('[data-act="openWindow"]')) return openInWindow(S.session);
   if (S.view === "model") return modelClick(e);
