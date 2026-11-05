@@ -411,6 +411,24 @@ pub async fn worktrees<S: Sessions + ?Sized>(
     }
 }
 
+/// Deletes the ended session `session` of `agent` from the node; it refuses
+/// one that runs, and a harness it cannot edit.
+pub async fn delete_session<S: Sessions + ?Sized>(
+    node: &S,
+    agent: &str,
+    session: &str,
+) -> Result<NodeWork<()>, MeshError> {
+    let request = SessionsRequest::DeleteSession {
+        agent: agent.to_owned(),
+        session: session.to_owned(),
+    };
+    match hinted(ask(node, request).await, "delete sessions")? {
+        SessionsReply::Deleted {} => Ok(NodeWork::Done(())),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
 /// What changed in the checkout `ask.root` on the node.
 pub async fn diff<S: Sessions + ?Sized>(
     node: &S,

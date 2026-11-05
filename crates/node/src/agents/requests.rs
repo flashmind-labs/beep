@@ -257,6 +257,12 @@ pub async fn serve_sessions(
                     message: "git took too long to list the worktrees".into(),
                 })
         }
+        SessionsRequest::DeleteSession { agent, session } => {
+            match agents.delete_session(&agent, &session).await {
+                Ok(()) => SessionsReply::Deleted {},
+                Err(e) => failed(e),
+            }
+        }
         SessionsRequest::Models { agent } => match agents.models(&agent).await {
             Some(models) => SessionsReply::Models { models },
             None => SessionsReply::Error {

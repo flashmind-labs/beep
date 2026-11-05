@@ -23,7 +23,8 @@ export function arrowFocus(box: HTMLElement, key: string) {
 
 let open: { box: HTMLElement; close: () => void } | null = null;
 
-/// Opens a menu titled `title` where `e` was clicked, in place of the system's.
+/// Opens a menu titled `title` where `e` was clicked, in place of the system's. The
+/// returned function swaps in a fuller list while the menu is still open.
 export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[]) {
   e.preventDefault();
   e.stopPropagation();
@@ -40,11 +41,15 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
     window.removeEventListener("scroll", close, true);
     if (open?.box === box) open = null;
   };
-  for (const item of items) {
-    const b = button(item.label, item.warn ? "warn" : "", () => { close(); item.on(); });
-    b.setAttribute("role", "menuitem");
-    box.append(b);
-  }
+  const fill = (list: readonly MenuItem[]) => {
+    box.querySelectorAll("button").forEach(b => b.remove());
+    for (const item of list) {
+      const b = button(item.label, item.warn ? "warn" : "", () => { close(); item.on(); });
+      b.setAttribute("role", "menuitem");
+      box.append(b);
+    }
+  };
+  fill(items);
   const away = (ev: MouseEvent) => { if (!box.contains(ev.target as Node)) close(); };
   const keys = (ev: KeyboardEvent) => {
     if (ev.key === "Escape") { close(); focusBack(back); }
@@ -63,6 +68,14 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   window.addEventListener("scroll", close, true);
   open = { box, close };
   box.querySelector<HTMLElement>("button")?.focus();
+  return (list: readonly MenuItem[]) => {
+    if (open?.box !== box) return;
+    const at = [...box.querySelectorAll("button")].indexOf(document.activeElement as HTMLButtonElement);
+    fill(list);
+    box.querySelectorAll<HTMLElement>("button")[Math.max(at, 0)]?.focus();
+    const r = box.getBoundingClientRect();
+    box.style.top = `${Math.max(4, Math.min(e.clientY, innerHeight - r.height - 4))}px`;
+  };
 }
 
 export function closeMenu() {
