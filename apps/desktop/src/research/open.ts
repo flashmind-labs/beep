@@ -143,8 +143,15 @@ function wireDivider(p: Page) {
     div.setPointerCapture(e.pointerId);
     p.shell.classList.add("resizing");
     div.classList.add("active");
-    const move = (ev: PointerEvent) => set(p.shell.getBoundingClientRect().right - ev.clientX);
+    // One layout per frame however many moves arrive; the last one wins.
+    let x = 0, frame = 0;
+    const flush = () => { frame = 0; set(p.shell.getBoundingClientRect().right - x); };
+    const move = (ev: PointerEvent) => {
+      x = ev.clientX;
+      if (!frame) frame = requestAnimationFrame(flush);
+    };
     const up = () => {
+      if (frame) { cancelAnimationFrame(frame); flush(); }
       div.removeEventListener("pointermove", move);
       div.removeEventListener("pointerup", up);
       p.shell.classList.remove("resizing");
