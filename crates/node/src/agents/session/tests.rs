@@ -923,6 +923,44 @@ reply '{"stopReason":"end_turn"}'
 cat > /dev/null
 "#;
 
+/// An adapter that lists one command on its first turn and a different
+/// list, with a skill, on its second.
+const COMMANDS_ADAPTER: &str = r#"
+handshake "$1"
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
+read -r line; log "$1"
+update '{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"review","description":"Review the changes","input":{"hint":"[branch]"}}]}'
+reply '{"stopReason":"end_turn"}'
+read -r line; log "$1"
+update '{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"review","description":"Review the changes"},{"name":"skill:plan","description":"Plan the work"}]}'
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_commands_an_agent_reports_are_kept_with_descriptions_and_follow_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", COMMANDS_ADAPTER, &log);
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    settle(&session).await;
+    let first = session.commands();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].name, "review");
+    assert_eq!(first[0].description, "Review the changes");
+    assert_eq!(first[0].hint, "[branch]");
+    session
+        .order(Command::Prompt(Prompt::from("next".to_owned())))
+        .await
+        .unwrap();
+    until(&session, |live| live.info.turns >= 2).await;
+    let names: Vec<String> = session.commands().into_iter().map(|c| c.name).collect();
+    assert_eq!(names, ["review", "skill:plan"]);
+    assert_eq!(session.commands()[1].description, "Plan the work");
+}
+
 /// The text of each prompt the adapter got.
 fn prompts(log: &Path) -> Vec<String> {
     sent(log)
