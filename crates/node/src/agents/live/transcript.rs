@@ -158,6 +158,12 @@ impl Live {
 
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
+        // Until the agent names the session, its first prompt does.
+        if self.info.title.is_none()
+            && let Some(line) = text.lines().map(str::trim).find(|line| !line.is_empty())
+        {
+            self.info.title = Some(cut(line, MAX_LINE));
+        }
         self.end_thought(Instant::now());
         self.active_at = Some(Instant::now());
         self.in_message = false;
