@@ -2,7 +2,8 @@ import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, agentKeys } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentRow, agentKeys, drawAgents } from "../src/agents/agents.ts";
+import { loadSessions } from "../src/agents/sessions.ts";
 import { agentHints, pollAgent } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { switchSessionModel } from "../src/agents/modelpill.ts";
@@ -185,4 +186,19 @@ test("Esc stops at once and sends steers not delivered with the queue", async ()
   await read({ ...page, session: { ...page.session, status: "idle" } });
   assert.equal(AG.stopping, null);
   assert.deepEqual(steers(), [{ prompt: { text: "steer me\n\nthen this" } }], "in the order typed");
+});
+
+test("replacing the shared session list does not change what a drawn row opens", async () => {
+  const row = (id: string) => ({ machine_id: "m1", machine_name: "build-box", id, agent: "claude", cwd: "/srv/project", status: "idle", external: false, question: null });
+  answers.agent_sessions = [row("a1"), row("a2")];
+  S.view = "agents";
+  AG.sel = 0;
+  await loadSessions();
+  drawAgents(false);
+  // Another page reads a shorter list; this one is not redrawn.
+  answers.agent_sessions = [row("a2")];
+  await loadSessions();
+  // The fake bar cannot draw the session view; what matters is which session it set to open.
+  try { agentKeys({ key: "Enter", preventDefault() {} } as KeyboardEvent, false); } catch {}
+  assert.equal(AG.open?.session, "a1");
 });

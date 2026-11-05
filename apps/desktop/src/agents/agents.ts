@@ -340,8 +340,12 @@ function sessionRow(s: AgentSession, i: number) {
       <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc([k.name, folder, s.machine_name].filter(Boolean).join(" · "))}</small></span>${tail}</button>`;
 }
 
+/// The sessions the list on screen shows, which its rows index. Another page
+/// can replace the shared list without a redraw here.
+let drawn: AgentSession[] = [];
+
 export function drawAgents(loading: boolean) {
-  const list = sessions;
+  const list = drawn = sessions;
   const machines = new Set(list.map(s => s.machine_id)).size;
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
@@ -353,7 +357,7 @@ export function drawAgents(loading: boolean) {
     if (S.view !== "agents") return;
     const target = e.target as HTMLElement;
     const r = target.closest<HTMLElement>("[data-agi]");
-    if (r) return openAgent(sessions[Number(r.dataset.agi)], { back: "agents" });
+    if (r) return openAgent(drawn[Number(r.dataset.agi)], { back: "agents" });
     if (target.closest("#agNew")) renderAgentNew("", "agents");
   };
 }
@@ -381,7 +385,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     return false;
   }
   if (S.view === "agents") {
-    const n = sessions.length;
+    const n = drawn.length;
     if (!n) return false;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -389,7 +393,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       drawAgents(false);
       return true;
     }
-    if (e.key === "Enter") { e.preventDefault(); openAgent(sessions[AG.sel], { back: "agents" }); return true; }
+    if (e.key === "Enter") { e.preventDefault(); openAgent(drawn[AG.sel], { back: "agents" }); return true; }
   }
   return false;
 }
