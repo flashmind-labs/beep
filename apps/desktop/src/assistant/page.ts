@@ -83,6 +83,8 @@ function chatBody(): ChatBody {
   body.stuck = true;
   body.onscroll = () => { body.stuck = body.scrollHeight - body.scrollTop - body.clientHeight < 40; };
   // Links in a reply open in the browser; a code block's button copies it.
+  // Only an https link opens, in the system browser; no other click or link navigates this page.
+  body.addEventListener("auxclick", e => { if ((e.target as HTMLElement).closest("a[href]")) e.preventDefault(); });
   body.addEventListener("click", e => {
     const t = e.target as HTMLElement;
     const code = t.closest<HTMLElement>(".dcoderen.agent [data-copy]");
@@ -90,7 +92,7 @@ function chatBody(): ChatBody {
     const a = t.closest<HTMLAnchorElement>("a[href]");
     if (!a) return;
     e.preventDefault();
-    if (/^https?:\/\//.test(a.href)) invoke("open_url", { url: a.href }).catch(err => console.warn("opening the link:", err));
+    if (a.protocol === "https:" && a.getAttribute("href")?.startsWith("https:")) invoke("open_url", { url: a.href }).catch(err => console.warn("opening the link:", err));
   });
   return body;
 }

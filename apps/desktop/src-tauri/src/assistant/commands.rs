@@ -16,7 +16,11 @@ use beep_assistant::{
 use beep_proto::ApiProvider;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use std::{io::ErrorKind, path::PathBuf, time::SystemTime};
+use std::{
+    io::ErrorKind,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 use tauri::{AppHandle, State, WebviewWindow, ipc::Channel};
 use tokio::sync::mpsc::{self, Receiver};
 use tokio_util::sync::CancellationToken;
@@ -95,10 +99,13 @@ pub async fn assistant_open(app: AppHandle, runs: State<'_, Runs>, id: String) -
 #[tauri::command]
 pub async fn assistant_delete(app: AppHandle, runs: State<'_, Runs>, id: String) -> Result<()> {
     let id = chat_id(&id)?;
-    if runs.is_running(id) {
-        return Err(DesktopError::BadRequest("Stop the reply first.".into()));
-    }
-    delete_chat(&chats_dir(&app)?, id).await.map_err(bad)
+    let dir = chats_dir(&app)?;
+    // Held while the file goes, so a reply cannot start in between and write it back.
+    runs.begin(id, "delete")
+        .map_err(|_| DesktopError::BadRequest("Stop the reply first.".into()))?;
+    let deleted = delete_chat(&dir, id).await.map_err(bad);
+    runs.finish(id);
+    deleted
 }
 
 /// Stops a chat's reply. What streamed so far is kept.
@@ -145,6 +152,32 @@ pub struct Prompt {
     today: String,
 }
 
+/// The chat to answer in: the saved one, or a new one, on `model` when one was picked.
+async fn load_for_send(dir: &Path, id: Uuid, model: &str) -> Result<Chat> {
+    let mut chat = match load_chat(dir, id).await {
+        Ok(chat) => chat,
+        Err(AssistantError::Store(e)) if e.kind() == ErrorKind::NotFound => {
+            let now = epoch_ms(SystemTime::now());
+            Chat {
+                id,
+                title: String::new(),
+                model: String::new(),
+                created_ms: now,
+                updated_ms: now,
+                messages: Vec::new(),
+            }
+        }
+        Err(e) => return Err(bad(e)),
+    };
+    if !model.trim().is_empty() {
+        chat.model = model.trim().to_owned();
+    }
+    if chat.model.is_empty() {
+        return Err(DesktopError::BadRequest("Pick a model first.".into()));
+    }
+    Ok(chat)
+}
+
 /// Sends a prompt and streams the reply into `on_event` until it ends, is stopped, or fails.
 #[tauri::command]
 pub async fn assistant_send(
@@ -163,28 +196,15 @@ pub async fn assistant_send(
     let key = openrouter_key(&session).await?;
     let firecrawl = desk(&session).await?.api_key(ApiProvider::Firecrawl);
     let dir = chats_dir(&app)?;
-    let mut chat = match load_chat(&dir, id).await {
-        Ok(chat) => chat,
-        Err(AssistantError::Store(e)) if e.kind() == ErrorKind::NotFound => {
-            let now = epoch_ms(SystemTime::now());
-            Chat {
-                id,
-                title: String::new(),
-                model: String::new(),
-                created_ms: now,
-                updated_ms: now,
-                messages: Vec::new(),
-            }
-        }
-        Err(e) => return Err(bad(e)),
-    };
-    if !prompt.model.trim().is_empty() {
-        chat.model = prompt.model.trim().to_owned();
-    }
-    if chat.model.is_empty() {
-        return Err(DesktopError::BadRequest("Pick a model first.".into()));
-    }
+    // Registered before the chat is read, so no other reply or delete can change it meanwhile.
     let cancel = runs.begin(id, window.label())?;
+    let chat = match load_for_send(&dir, id, &prompt.model).await {
+        Ok(chat) => chat,
+        Err(e) => {
+            runs.finish(id);
+            return Err(e);
+        }
+    };
     let setup = Setup {
         client: http_client(),
         openrouter: Endpoint {

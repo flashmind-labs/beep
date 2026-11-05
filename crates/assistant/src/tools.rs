@@ -8,6 +8,17 @@ use serde_json::{Value, json};
 pub const MAX_TOOL_ROUNDS: usize = 10;
 /// Calls run in one round; the rest are refused.
 pub(crate) const MAX_CALLS_PER_ROUND: usize = 6;
+/// Why the web tools are refused once the chat holds a coding agent session's text.
+pub(crate) const WEB_OFF: &str = "Web search is off in this chat because it has read coding agent sessions. Tell the user to start a new chat to search the web.";
+
+/// Whether the web tools are off for the rest of this chat: a session list or log is in it, and
+/// a page or search could carry its text out in a URL or a query. Read from the saved messages,
+/// so it holds after the chat is reopened.
+pub(crate) fn web_blocked(messages: &[crate::Message]) -> bool {
+    messages.iter().any(|message| {
+        matches!(message, crate::Message::Tool { name, .. } if name == "list_sessions" || name == "read_session")
+    })
+}
 const WEB_CHARS: usize = 12_000;
 const WORK_CHARS: usize = 8_000;
 
