@@ -68,3 +68,8 @@ test("every registered command is called, or listed in UNCALLED", () => {
   assert.deepEqual(idle.filter(n => !UNCALLED.includes(n)), [], "registered but never called");
   assert.deepEqual(UNCALLED.filter(n => !idle.includes(n)), [], "listed in UNCALLED but now called or gone");
 });
+
+test("every name in BUILT is a registered command", () => {
+  const reg = new Set(registered());
+  assert.deepEqual(BUILT.filter(n => !reg.has(n)), []);
+});
