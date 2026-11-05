@@ -2,7 +2,7 @@
 //! for its open lists, so a desktop with no token on the host still has them.
 
 use crate::desk::Desk;
-use beep_projects::git_items::{board::OpenedItems, host::Found};
+use beep_projects::git_items::{access::Repo, board::OpenedItems, host::Found};
 use beep_proto::{
     GitHost, GitHostKind, GitItem, GitItemKind, GitItems, GitReview, LabeledGitItems,
     LabeledProjectLists, ProjectIssue, ProjectPullRequest,
@@ -10,7 +10,7 @@ use beep_proto::{
 use futures::{StreamExt, stream};
 use std::{
     cmp::Reverse,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::time::timeout;
@@ -63,6 +63,50 @@ fn host_and_repo(url: &str) -> Option<(String, String)> {
     Some((host.to_owned(), repo))
 }
 
+/// What decides which of a project's open items Home lists: a repository the user can write to
+/// lists them all, any other only the user's own. The tokens' searches already give what is
+/// assigned to the user or asks for their review, so those need no row from the project.
+#[derive(Debug, Default)]
+pub(crate) struct Access {
+    /// The repositories the host says the user can write to.
+    pub(crate) writable: HashSet<Repo>,
+    /// The accounts the tokens sign in as, by host; empty when unknown.
+    pub(crate) accounts: HashMap<String, Vec<String>>,
+}
+
+impl Access {
+    /// Whether Home lists the item at `url` that `author` opened; `mine` when the machine's own
+    /// account is known to be the author.
+    fn lists(&self, url: &str, author: &str, mine: bool) -> bool {
+        let Some((host, name)) = host_and_repo(url) else {
+            return false;
+        };
+        let own = !author.is_empty()
+            && self.accounts.get(&host).is_some_and(|accounts| {
+                accounts
+                    .iter()
+                    .any(|account| account.eq_ignore_ascii_case(author))
+            });
+        mine || own || self.writable.contains(&Repo { host, name })
+    }
+}
+
+/// The repositories the projects' items are in.
+pub(crate) fn repos_of(projects: &[ProjectRead]) -> HashSet<Repo> {
+    let urls = |lists: &LabeledProjectLists| {
+        let issues = lists.lists.issues.iter().map(|issue| issue.url.clone());
+        let prs = lists.lists.pull_requests.iter().map(|pr| pr.url.clone());
+        issues.chain(prs).collect::<Vec<_>>()
+    };
+    projects
+        .iter()
+        .filter_map(|read| read.result.as_ref().ok())
+        .flat_map(urls)
+        .filter_map(|url| host_and_repo(&url))
+        .map(|(host, name)| Repo { host, name })
+        .collect()
+}
+
 /// A row with what a project list knows; the rest is false.
 fn row(url: &str, number: u64, kind: GitItemKind) -> Option<GitItem> {
     let (host, repo) = host_and_repo(url)?;
@@ -112,7 +156,11 @@ fn from_pull_request(pr: &ProjectPullRequest, labels: &[String]) -> Option<Found
 /// What the projects add to what the tokens gave. A row the tokens also gave stays the token's,
 /// which knows reviews and who waits, with the earlier opening time. A project that could not be
 /// read is a host row that says why.
-pub(crate) fn merge(tokens: OpenedItems, projects: Vec<ProjectRead>) -> OpenedItems {
+pub(crate) fn merge(
+    tokens: OpenedItems,
+    projects: Vec<ProjectRead>,
+    access: &Access,
+) -> OpenedItems {
     let OpenedItems { items, opened_at } = tokens;
     let mut hosts = items.found.hosts;
     let mut found: Vec<Found> = items
@@ -145,12 +193,18 @@ pub(crate) fn merge(tokens: OpenedItems, projects: Vec<ProjectRead>) -> OpenedIt
                 continue;
             }
         };
-        let issues = lists.lists.issues.iter().filter_map(from_issue);
+        let issues = lists
+            .lists
+            .issues
+            .iter()
+            .filter(|issue| access.lists(&issue.url, &issue.author, false))
+            .filter_map(from_issue);
         let prs = lists
             .lists
             .pull_requests
             .iter()
             .zip(&lists.pr_labels)
+            .filter(|(pr, _)| access.lists(&pr.url, &pr.author, pr.mine))
             .filter_map(|(pr, labels)| from_pull_request(pr, labels));
         for one in issues.chain(prs) {
             match at.get(&one.item.url) {
@@ -190,6 +244,17 @@ pub(crate) fn merge(tokens: OpenedItems, projects: Vec<ProjectRead>) -> OpenedIt
 mod tests {
     use super::*;
     use beep_proto::ProjectLists;
+
+    /// Every repository writable, as for the user's own projects.
+    fn open_access() -> Access {
+        Access {
+            writable: HashSet::from([Repo {
+                host: "forge.example.com".into(),
+                name: "acme/widget".into(),
+            }]),
+            accounts: HashMap::new(),
+        }
+    }
     use std::time::SystemTime;
 
     fn at(secs: u64) -> SystemTime {
@@ -277,6 +342,7 @@ mod tests {
                 vec![issue(7, 10)],
                 vec![pr(9, 20, 30, true)],
             )],
+            &open_access(),
         );
         let items = &got.items.found.items;
         assert_eq!(items.len(), 2);
@@ -296,6 +362,7 @@ mod tests {
         let got = merge(
             token_pr(),
             vec![read("acme/widget", Vec::new(), vec![pr(9, 20, 30, false)])],
+            &open_access(),
         );
         let items = &got.items.found.items;
         assert_eq!(items.len(), 1);
@@ -316,6 +383,7 @@ mod tests {
                 },
                 read("acme/widget", vec![issue(7, 10)], Vec::new()),
             ],
+            &open_access(),
         );
         assert_eq!(got.items.found.items.len(), 2);
         let hosts = &got.items.found.hosts;
@@ -339,5 +407,68 @@ mod tests {
             },
         };
         assert_eq!(unreadable(&lists).as_deref(), Some("not signed in"));
+    }
+
+    /// An upstream the user only forked: someone else's PR and issue, and the user's own PR.
+    fn upstream() -> ProjectRead {
+        read(
+            "acme/widget",
+            vec![issue(7, 10)],
+            vec![pr(4, 5, 6, false), pr(9, 20, 30, true)],
+        )
+    }
+
+    fn numbers(items: &OpenedItems) -> Vec<u64> {
+        let mut numbers: Vec<u64> = items.items.found.items.iter().map(|i| i.number).collect();
+        numbers.sort_unstable();
+        numbers
+    }
+
+    #[test]
+    fn a_repository_the_user_cannot_write_to_adds_only_their_own() {
+        let none = Access::default();
+        let got = merge(empty(), vec![upstream()], &none);
+        assert_eq!(numbers(&got), [9]);
+        assert_eq!(got.opened_at.len(), 1);
+    }
+
+    #[test]
+    fn a_writable_repository_keeps_all_its_open_items() {
+        let got = merge(empty(), vec![upstream()], &open_access());
+        assert_eq!(numbers(&got), [4, 7, 9]);
+    }
+
+    #[test]
+    fn the_token_account_marks_an_issue_as_the_users() {
+        let mut access = Access::default();
+        access
+            .accounts
+            .insert("forge.example.com".into(), vec!["Someone".into()]);
+        let got = merge(empty(), vec![upstream()], &access);
+        assert_eq!(numbers(&got), [4, 7, 9], "the fixtures are all by someone");
+        access.accounts.clear();
+        let got = merge(empty(), vec![upstream()], &access);
+        assert_eq!(
+            numbers(&got),
+            [9],
+            "no known account keeps only the machine's mine"
+        );
+    }
+
+    #[test]
+    fn what_the_tokens_gave_stays_when_the_repository_is_filtered() {
+        let got = merge(token_pr(), vec![upstream()], &Access::default());
+        assert_eq!(numbers(&got), [9]);
+        assert!(got.items.found.items[0].review_requested);
+    }
+
+    #[test]
+    fn the_repositories_to_check_are_those_of_the_items() {
+        let repos = repos_of(&[upstream()]);
+        assert_eq!(repos.len(), 1);
+        assert!(repos.contains(&Repo {
+            host: "forge.example.com".into(),
+            name: "acme/widget".into(),
+        }));
     }
 }
