@@ -8,7 +8,7 @@ use crate::{
 };
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetWorkDiff, WorkDiff,
-    node::agent::{DiffAsk, WorkPlace, Worktree},
+    node::agent::{AgentCommand, DiffAsk, WorkPlace, Worktree},
 };
 use serde::Serialize;
 
@@ -180,6 +180,20 @@ pub async fn agent_place(
     match fleet.member(&machine_id) {
         Some(machine) => agent_nodes::place(&fleet, machine, &agent, &session, external).await,
         None => Ok(None),
+    }
+}
+
+/// The slash commands and skills the running session `session` offers on
+/// `machine_id`. Empty for a machine only a server reaches.
+#[tauri::command]
+pub async fn agent_commands(
+    fleet: Machines<'_>,
+    machine_id: String,
+    session: String,
+) -> Result<Vec<AgentCommand>> {
+    match fleet.member(&machine_id) {
+        Some(machine) => agent_nodes::commands(&fleet, machine, &session).await,
+        None => Ok(Vec::new()),
     }
 }
 

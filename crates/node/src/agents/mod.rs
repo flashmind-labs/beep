@@ -50,6 +50,7 @@ mod spend;
 mod subagent;
 mod tool_diff;
 mod usage;
+mod window;
 mod work_diff;
 mod work_folder;
 mod worktrees;

@@ -25,7 +25,7 @@ mod delete;
 mod disk;
 mod flsh;
 mod git;
-mod memo;
+pub(crate) mod memo;
 mod opencode;
 
 pub(crate) use opencode::databases_at as opencode_databases;
@@ -138,7 +138,12 @@ struct Memos {
     names: Memo<Arc<HashMap<String, String>>>,
     /// Each flsh or OpenCode database's sessions.
     databases: Memo<Arc<Vec<Seen>>>,
+    /// The entries of the few Codex or pi session files read last.
+    transcripts: Memo<Arc<Vec<beep_proto::node::agent::Entry>>>,
 }
+
+/// How many sessions' parsed transcripts are kept at once.
+const TRANSCRIPTS_KEPT: usize = 4;
 
 impl Default for Memos {
     fn default() -> Self {
@@ -148,6 +153,7 @@ impl Default for Memos {
             folders: Memo::new(1_000),
             names: Memo::new(4),
             databases: Memo::new(1_000),
+            transcripts: Memo::new(TRANSCRIPTS_KEPT),
         }
     }
 }
