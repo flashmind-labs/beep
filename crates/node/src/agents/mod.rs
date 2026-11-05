@@ -38,6 +38,7 @@ mod kinds;
 mod live;
 mod media_file;
 mod models;
+mod moving;
 mod place;
 mod plans;
 mod prices;
@@ -62,6 +63,9 @@ pub(crate) use acp::{Line, LineReader};
 pub(crate) use images::{Picture, block_picture};
 pub use kinds::{AgentKind, detect};
 pub(crate) use live::cut;
+pub(crate) use moving::SESSIONS_ALPN;
+pub use moving::SessionsAlpn;
+pub(crate) use moving::follow as follow_moves;
 pub use requests::serve_sessions;
 pub(crate) use restart::OpenSession;
 pub(crate) use session::{Answered, Asking};
@@ -136,6 +140,8 @@ pub struct Agents {
     alerts: Arc<AlertHub>,
     /// What sessions spent, from the agents' own logs.
     spend: Arc<Spend>,
+    /// How the moves of sessions to this machine stand.
+    moves: moving::Moves,
     /// The models each agent offers, found lately.
     models: ModelCache,
     /// The user's settings for each agent, applied when one starts.
@@ -157,6 +163,9 @@ pub struct Agents {
     /// Set once the server sent the user's agent settings, which resumed
     /// sessions start with.
     settled: watch::Sender<bool>,
+    /// Set once the sessions open before the last stop have been resumed, or
+    /// there were none.
+    reopened: watch::Sender<bool>,
     /// The folders sessions started outside Beep worked in, from the
     /// agents' logs, with when they were read; one read at a time.
     sighted: AsyncMutex<Option<Sighted>>,
@@ -182,6 +191,7 @@ impl Agents {
             usage: Arc::default(),
             alerts: Arc::default(),
             spend: Arc::new(Spend::locate()),
+            moves: moving::Moves::default(),
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
@@ -191,6 +201,7 @@ impl Agents {
             stopping: Arc::default(),
             holding: watch::Sender::new(false),
             settled: watch::Sender::new(false),
+            reopened: watch::Sender::new(false),
             sighted: AsyncMutex::default(),
             on_disk: AsyncMutex::default(),
         }

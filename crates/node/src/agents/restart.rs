@@ -136,6 +136,7 @@ impl Agents {
     /// after `SETTINGS_WAIT`.
     pub(crate) async fn reopen(&self, sessions: Vec<OpenSession>) {
         if sessions.is_empty() {
+            self.reopened.send_replace(true);
             return;
         }
         let mut settled = self.settled.subscribe();
@@ -153,9 +154,40 @@ impl Agents {
                 log::warn!("could not resume session {id} after the restart: {e:#}");
             }
         }
+        self.reopened.send_replace(true);
     }
 
-    async fn reopen_one(&self, open: OpenSession) -> Result<()> {
+    /// Waits until the sessions that were open before the last stop run
+    /// again, so a move does not look for a session that is about to come
+    /// back.
+    pub(crate) async fn until_reopened(&self) {
+        // An error means the node is gone, which also ends the wait.
+        let _ = self.reopened.subscribe().wait_for(|done| *done).await;
+    }
+
+    /// Whether the sessions open before the last stop run again, or there
+    /// were none. Until then a session may be about to come back, so one
+    /// that does not run is not yet one that ended.
+    pub(crate) fn reopened(&self) -> bool {
+        *self.reopened.borrow()
+    }
+
+    /// What it takes to start session `id` again, as it runs now.
+    pub(crate) fn open_session(&self, id: &str) -> Option<OpenSession> {
+        let session = self.get(id)?;
+        let live = session.live.borrow();
+        Some(OpenSession {
+            agent: session.agent.clone(),
+            session: live.agent_session.clone()?,
+            cwd: PathBuf::from(&live.info.cwd),
+            held: Vec::new(),
+            mode: live.info.mode.clone(),
+            parent: live.info.parent.clone(),
+            kids: self.kids_to_keep(&Self::name_of(&session)),
+        })
+    }
+
+    pub(crate) async fn reopen_one(&self, open: OpenSession) -> Result<()> {
         let kind = self
             .kinds
             .iter()

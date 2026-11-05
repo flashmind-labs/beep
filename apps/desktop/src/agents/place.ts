@@ -3,6 +3,7 @@
 // not know yet is asked for, and the views that registered redraw once the
 // answers are in.
 
+import { moveLabel } from "./move-store.ts";
 import { type PlaceAsk, type WorkPlace, placeKey, placeSub } from "./place-state.ts";
 import { type RunningAgent, runningLine } from "./running-state.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -65,5 +66,8 @@ function changed() {
 /// linked worktree the repository, the worktree and the machine.
 export function runningLineAt(r: RunningAgent, projects: Parameters<typeof runningLine>[1]) {
   const line = runningLine(r, projects);
-  return { title: line.title, sub: placeSub(placeOf(r), r.machine_name) ?? line.sub };
+  const sub = placeSub(placeOf(r), r.machine_name) ?? line.sub;
+  // A session on its way to another machine names both.
+  const moving = moveLabel(r);
+  return { title: line.title, sub: moving ? sub.replace(r.machine_name, moving.sub) : sub };
 }

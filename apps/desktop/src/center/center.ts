@@ -139,7 +139,7 @@ pane.connect({
   },
   sessionProject(s) {
     const projects = state.home?.projects ?? [], p = projectOf(s, projects);
-    return p ? { label: repoOf(s, projects) || p.name, open: () => void openProjects(p.name) } : null;
+    return p ? { label: repoOf(s, projects) || p.name, name: p.name, open: () => void openProjects(p.name) } : null;
   },
 });
 

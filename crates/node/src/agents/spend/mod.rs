@@ -141,6 +141,44 @@ impl Spend {
             .collect()
     }
 
+    /// Notes that what the log at `path` holds now was spent elsewhere: a
+    /// session moved here with its transcript, and the machine it ran on
+    /// already counted it. Only what is appended from here on counts.
+    pub(crate) fn mark_counted(
+        &self,
+        agent: Agent,
+        session: &str,
+        path: &std::path::Path,
+    ) -> std::io::Result<()> {
+        let stamp = ledger::Stamp::of(path)?;
+        // What the header says (the folder, the provider, the model) is
+        // read from the log, so later requests are billed and filed as the
+        // log's own would be.
+        let header = scan::header_of(agent, path, &self.roots.accounts)?;
+        let mut guard = lock(&self.ledger);
+        let ledger = guard.get_or_insert_with(|| match &self.path {
+            Some(path) => Ledger::load(path),
+            None => Ledger::default(),
+        });
+        // A session that came back here keeps what it spent here before: its
+        // log is read on from its new end, not started over.
+        let log = ledger.logs.entry(path.to_owned()).or_default();
+        log.agent = Some(agent);
+        log.stamp = stamp;
+        log.read = stamp.len;
+        log.session = Some(session.to_owned());
+        log.cwd = header.cwd.or(log.cwd.take());
+        log.model = header.model.or(log.model.take());
+        log.provider = header.provider.or(log.provider.take());
+        log.total = header.total;
+        log.recent = header.recent;
+        ledger.changed = true;
+        match &self.path {
+            Some(saved) => ledger.save(saved),
+            None => Ok(()),
+        }
+    }
+
     /// Notes that the server has `spend` as it stands; it is sent again
     /// only once it changes.
     pub(crate) fn sent(&self, spend: &SessionSpend) {

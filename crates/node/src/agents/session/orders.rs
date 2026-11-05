@@ -22,6 +22,10 @@ use beep_proto::node::agent::{
     Status,
 };
 
+/// What a prompt hears while its session moves.
+const MOVING_REFUSAL: &str =
+    "This session is moving to another machine. Send the message there once it has moved.";
+
 impl Actor {
     pub(super) fn command(
         &mut self,
@@ -30,6 +34,9 @@ impl Actor {
     ) -> Result<Result<(), String>> {
         match command {
             Command::Prompt(prompt) => {
+                if self.moving {
+                    return Ok(Err(MOVING_REFUSAL.to_owned()));
+                }
                 if let Err(refused) = self.can_take(&prompt) {
                     return Ok(Err(refused));
                 }
@@ -44,6 +51,9 @@ impl Actor {
                 Ok(Ok(()))
             }
             Command::Steer(prompt) => {
+                if self.moving {
+                    return Ok(Err(MOVING_REFUSAL.to_owned()));
+                }
                 if let Err(refused) = self.can_take(&prompt) {
                     return Ok(Err(refused));
                 }
@@ -80,6 +90,33 @@ impl Actor {
                 Ok(Ok(()))
             }
             Command::Close => Ok(Ok(())),
+            Command::Moving { stop } => {
+                self.moving = true;
+                if stop {
+                    // As a stop does: what waited behind the turn goes.
+                    self.queued.clear();
+                    self.steers.clear();
+                    self.show_queued();
+                    while let Some(asked) = self.asked.pop_front() {
+                        asked.waiting.cancel()?;
+                    }
+                    if let Some(session) = &self.acp_session
+                        && self.live.borrow().status() != Status::Idle
+                    {
+                        cx.send_notification(CancelNotification::new(session.clone()))?;
+                    }
+                    self.show_question();
+                    self.stop_due();
+                }
+                Ok(Ok(()))
+            }
+            Command::NotMoving => {
+                self.moving = false;
+                if self.live.borrow().status() == Status::Idle {
+                    self.next_prompt(cx);
+                }
+                Ok(Ok(()))
+            }
             Command::Ask { question, reply } => {
                 let question = Question {
                     id: 0,

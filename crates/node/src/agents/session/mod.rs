@@ -26,6 +26,7 @@ use beep_proto::node::agent::{
 use beep_proto::{AgentAccount, ModelId};
 use futures::stream::FuturesUnordered;
 use std::{
+    borrow::Cow,
     collections::{HashSet, VecDeque},
     path::Path,
     process::Stdio,
@@ -102,6 +103,14 @@ pub(super) enum Command {
     /// Takes back the node's questions whose caller stopped waiting, so their cards go and a
     /// late answer is refused.
     Withdraw,
+    /// The session is about to move to another machine: it takes no new
+    /// prompt, runs the ones already queued and ends once they are done.
+    /// The running turn and the queue are stopped when `stop` says so.
+    Moving {
+        stop: bool,
+    },
+    /// The move is off: prompts are taken again.
+    NotMoving,
 }
 
 /// A question the node asks in a session.
@@ -170,7 +179,7 @@ pub(super) struct Start<'a> {
     pub(super) note: Option<String>,
     /// Beep's word to the agent, sent ahead of the first prompt and kept
     /// out of the transcript.
-    pub(super) brief: Option<&'static str>,
+    pub(super) brief: Option<Cow<'static, str>>,
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
@@ -254,7 +263,7 @@ impl Session {
                 Some(format!("{brief}\n\n{}", crate::agents::mcp::brief(memory)))
             }
             (None, Some(_)) => Some(crate::agents::mcp::brief(memory)),
-            (brief, None) => brief.map(str::to_owned),
+            (brief, None) => brief.map(Cow::into_owned),
         };
         // Only a new session takes a model and thinking level; a resumed
         // one keeps its own.
@@ -315,6 +324,7 @@ impl Session {
             alerts,
             node_stopping: node.stopping,
             holding: node.holding,
+            moving: false,
             session: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
