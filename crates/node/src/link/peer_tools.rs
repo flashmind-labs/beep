@@ -77,7 +77,12 @@ type Outcome = Result<String, String>;
 pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     if matches!(
         request.tool,
-        Tool::StartAgent | Tool::AgentStatus | Tool::SendToAgent | Tool::StopAgent
+        Tool::StartAgent
+            | Tool::AgentStatus
+            | Tool::SendToAgent
+            | Tool::StopAgent
+            | Tool::AgentParent
+            | Tool::AgentCount
     ) {
         return agent_call(request, &caller).await;
     }
@@ -139,6 +144,7 @@ fn parse<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
 struct RunOn {
     command: Option<String>,
     prompt: Option<String>,
+    agent: Option<String>,
     cwd: Option<String>,
     #[serde(default)]
     background: bool,
@@ -146,9 +152,13 @@ struct RunOn {
 }
 
 async fn run_on(args: RunOn, table: Table) -> Outcome {
-    let command = match (args.command, args.prompt) {
-        (Some(command), None) if !command.trim().is_empty() => command,
-        (None, Some(_)) => return Err("A node runs commands for another node, not agents.".into()),
+    // An older node sends `prompt` (and `agent`) to start an agent. That would
+    // skip the parent link and every limit `start_agent` keeps, so it is refused.
+    if args.prompt.is_some() || args.agent.is_some() {
+        return Err("run_on runs commands only. Start an agent with start_agent.".into());
+    }
+    let command = match args.command {
+        Some(command) if !command.trim().is_empty() => command,
         _ => return Err("Give `command`.".into()),
     };
     if args.background {
@@ -349,6 +359,26 @@ mod tests {
             tool: Tool::RunOn,
             args: r#"{"command":"echo ran-here"}"#.to_owned(),
             approved: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_older_nodes_run_on_with_a_prompt_starts_no_agent_here() {
+        let table = Table::Peer(iroh::SecretKey::generate().public());
+        for args in [
+            r#"{"prompt":"fix it"}"#,
+            r#"{"prompt":"fix it","agent":"codex"}"#,
+            r#"{"command":"echo ran-here","prompt":"fix it"}"#,
+        ] {
+            let request = Request {
+                args: args.to_owned(),
+                ..run_on()
+            };
+            let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
+                panic!("not done");
+            };
+            assert!(failed && text.contains("start_agent"), "{args}: {text}");
+            assert!(!text.contains("ran-here"));
         }
     }
 

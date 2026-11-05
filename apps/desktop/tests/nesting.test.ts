@@ -50,6 +50,11 @@ test("an id on a card finds the row of the machine it names", () => {
 test("an agent another agent started reads as a card that links to its session", () => {
   const sub = subagent("[steps] 1\n[agent] codex on mac-box\n[child] a3f9c1@mac-box idle k1\nBuilt it.");
   assert.deepEqual(sub, { count: 1, steps: [], result: "Built it.", agent: "codex on mac-box", child: { id: "a3f9c1@mac-box", state: "idle", key: "k1" } });
+  // What the child spent rides on its card, and an unpriced child says so.
+  const spent = subagent("[steps] 1\n[agent] codex on mac-box\n[child] a3f9c1@mac-box idle k1\n[spend] 18400 0.0412\nBuilt it.");
+  assert.deepEqual(spent?.child, { id: "a3f9c1@mac-box", state: "idle", key: "k1", tokens: 18400, cost: 0.0412 });
+  assert.equal(spent?.result, "Built it.");
+  assert.equal(subagent("[steps] 1\n[child] a@b idle k1\n[spend] 5 -\nok")?.child?.cost, null);
   // A plain subagent is as before.
   assert.deepEqual(subagent("[steps] 0\n[agent] Explore\nDone"), { count: 0, steps: [], result: "Done", agent: "Explore" });
 });

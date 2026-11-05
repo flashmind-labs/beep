@@ -135,13 +135,7 @@ impl Tool {
         };
         match self {
             Self::ListMachines => format!("{PREFIX}List machines"),
-            Self::RunOn => match (text("command"), text("prompt")) {
-                (None, Some(prompt)) => {
-                    let agent = text("agent").unwrap_or("an agent");
-                    with(on(&format!("Start {agent}")), Some(prompt))
-                }
-                (command, _) => with(on("Run"), command),
-            },
+            Self::RunOn => with(on("Run"), text("command")),
             Self::SyncProject => {
                 let project = text("project").unwrap_or("a project");
                 match machine {

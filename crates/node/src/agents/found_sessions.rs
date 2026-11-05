@@ -9,7 +9,7 @@ use crate::{
     agents::found::{self, Agent},
 };
 use anyhow::{Context, Result};
-use beep_proto::node::agent::{ExternalSession, Presence, SessionFolder, Status};
+use beep_proto::node::agent::{ExternalSession, ParentLink, Presence, SessionFolder, Status};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -18,6 +18,13 @@ use std::{
     time::SystemTime,
 };
 use tokio::{task::spawn_blocking, time::Instant};
+
+/// What a session of this node that ended was held to.
+#[derive(Default)]
+pub(super) struct Held {
+    pub(super) parent: Option<ParentLink>,
+    pub(super) mode: Option<String>,
+}
 
 impl Agents {
     /// Reads the checkouts saved in the node's folder `dir` and the agents'
@@ -252,6 +259,15 @@ impl Agents {
         {
             anyhow::bail!("session {id} runs {}", session.agent);
         }
+        // It goes on as it was: under its parent, and in the mode it was held
+        // to, so a resume is no way round the limits or the mode.
+        let before = ours.as_ref().map(|session| {
+            let info = session.info();
+            Held {
+                parent: info.parent,
+                mode: info.mode,
+            }
+        });
         let ended = ours.map(|session| session.live.borrow().agent_session.clone());
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
@@ -298,15 +314,26 @@ impl Agents {
             anyhow::bail!("{reason}");
         }
         self.prepare(kind).await?;
-        self.start(
-            kind,
-            Some(&found.cwd),
-            Begin {
-                prompt,
-                resume: Some(id.to_owned()),
-                ..Begin::default()
-            },
-        )
+        let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
+        let session = self.start(kind, Some(&found.cwd), begin)?;
+        self.watch_parent(&session);
+        Ok(session)
+    }
+
+    /// How a session of this node that ended begins again: with the link to
+    /// its parent and the mode it was in, and following the parent when that
+    /// runs here.
+    pub(super) fn resumed_begin(&self, prompt: Option<String>, id: &str, before: Held) -> Begin {
+        let Held { parent, mode } = before;
+        let follows = parent.as_ref().and_then(|link| self.parent_live_of(link));
+        Begin {
+            prompt,
+            resume: Some(id.to_owned()),
+            mode,
+            parent,
+            follows,
+            ..Begin::default()
+        }
     }
 
     /// What `found`, a session in `agent`'s logs, is doing, once a

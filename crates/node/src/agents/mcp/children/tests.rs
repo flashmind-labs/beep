@@ -4,10 +4,34 @@ use crate::{
     machine::provision::Provision,
 };
 use beep_proto::node::agent::{Question, State};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 fn endpoint() -> EndpointId {
     iroh::SecretKey::generate().public()
+}
+
+#[tokio::test]
+async fn a_stop_is_sent_again_until_the_machine_answers_and_then_gives_up() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    let sent = AtomicU32::new(0);
+    // The machine is back on the third try.
+    let up = peer::retrying(4, Duration::from_millis(1), || async {
+        if sent.fetch_add(1, Ordering::Relaxed) < 2 {
+            Err("did not answer".to_owned())
+        } else {
+            Ok(())
+        }
+    })
+    .await;
+    assert_eq!((up, sent.load(Ordering::Relaxed)), (Ok(()), 3));
+    // One that never is, is tried a bounded number of times.
+    sent.store(0, Ordering::Relaxed);
+    let down = peer::retrying(4, Duration::from_millis(1), || async {
+        sent.fetch_add(1, Ordering::Relaxed);
+        Err::<(), _>("did not answer".to_owned())
+    })
+    .await;
+    assert_eq!((down.is_err(), sent.load(Ordering::Relaxed)), (true, 4));
 }
 
 #[test]
@@ -59,8 +83,10 @@ fn what_an_agent_reads_of_a_child_says_when_it_waits_on_the_user() {
     assert_eq!(working.state, "working");
     assert_eq!(working.id, "c1@build-box");
     assert!(!working.settled());
-    // Idle before its first turn is still starting.
-    assert_eq!(view(&info(Status::Idle, 0, None)).state, "working");
+    // Starting is working; a resumed session that waits for a prompt is idle
+    // though its turn count started over.
+    assert_eq!(view(&info(Status::Starting, 0, None)).state, "working");
+    assert_eq!(view(&info(Status::Idle, 0, None)).state, "idle");
     let done = view(&info(Status::Idle, 1, None));
     assert_eq!((done.state.as_str(), done.files_changed), ("idle", 2));
     assert_eq!(done.last_message, "Done.");
@@ -134,6 +160,17 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
         child_entry(&call, &done),
         "iOS build [completed]\n[steps] 1\n[agent] codex on mac-box\n\
          [child] a3f9c1@mac-box idle k1\nBuilt and tested."
+    );
+    // What it spent shows on the card, after the link and before its answer.
+    let spent = ChildView {
+        tokens: 18_400,
+        cost_usd: Some(0.0412),
+        ..done.clone()
+    };
+    assert_eq!(
+        child_entry(&call, &spent),
+        "iOS build [completed]\n[steps] 1\n[agent] codex on mac-box\n\
+         [child] a3f9c1@mac-box idle k1\n[spend] 18400 0.0412\nBuilt and tested."
     );
     let asking = ChildView {
         state: "waiting_on_user".into(),

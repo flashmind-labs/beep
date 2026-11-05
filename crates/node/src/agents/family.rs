@@ -9,16 +9,23 @@
 //! cannot get around them.
 
 use super::{AGENT_ID_WAIT, Agents, Begin, Command, Session, known, live::Live, mcp::children};
-use crate::link::Membership;
+use crate::{AsyncMutex, link::Membership};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{ParentLink, SessionInfo, Status};
 use iroh::EndpointId;
-use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::{sync::watch, time::timeout};
+use tokio_util::task::AbortOnDropHandle;
+
+mod orphans;
+mod remote;
+
+pub(crate) use orphans::Parent;
+pub(crate) use remote::RemoteKid;
 
 /// How many starts deep a chain may go: a session started by a session
 /// started by a session started by one the user began.
@@ -26,27 +33,25 @@ pub(crate) const MAX_DEPTH: u8 = 3;
 /// The most live descendants one root session may have, and the most direct
 /// children one session may have.
 pub(crate) const MAX_CHILDREN: usize = 8;
-
-/// A child that runs on another machine, as its parent's node keeps it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct RemoteKid {
-    /// The parent's id as its children's links name it.
-    pub(crate) parent: String,
-    pub(crate) machine: EndpointId,
-    /// The machine as agents name it in `list_machines`.
-    pub(crate) name: String,
-    /// The child's id on that machine.
-    pub(crate) id: String,
-    /// It ended or was stopped: it stays readable but no longer counts.
-    #[serde(default)]
-    pub(crate) ended: bool,
-}
+/// How long the count of a root's agents on another machine may take.
+const COUNT_LIMIT: Duration = Duration::from_secs(3);
+/// What a machine says when it has no child of that name for the caller: also
+/// what stopping one that is already gone reads as success on.
+pub(crate) const NO_AGENT: &str = "You have no agent";
 
 /// What the node knows of the family trees it takes part in.
 #[derive(Default)]
 pub(super) struct Family {
-    remote: Mutex<Vec<RemoteKid>>,
-    membership: OnceLock<Membership>,
+    remote: Arc<Mutex<Vec<RemoteKid>>>,
+    membership: Arc<OnceLock<Membership>>,
+    /// Per parent with children elsewhere, the task that stops them when it
+    /// ends for good.
+    watchers: Mutex<HashMap<String, AbortOnDropHandle<()>>>,
+    /// Held from counting a root's agents until the child exists, so two
+    /// starts here cannot both take the last place.
+    starting: AsyncMutex<()>,
+    /// What transcripts show of children on other machines.
+    pub(crate) views: children::Views,
 }
 
 /// Who calls a family tool: a session of some machine.
@@ -113,14 +118,7 @@ impl Agents {
     }
 
     /// The link a child of `parent` carries, or why it may not be started.
-    /// `across` when the child runs on another machine, where this node's
-    /// own count of the root's descendants is passed on.
-    pub(super) fn link_for(
-        &self,
-        parent: &Session,
-        who: &Who,
-        across: bool,
-    ) -> Result<ParentLink, String> {
+    pub(super) fn link_for(&self, parent: &Session, who: &Who) -> Result<ParentLink, String> {
         let info = parent.info();
         let above = info.parent.as_ref();
         let depth = above.map_or(0, |link| link.depth).saturating_add(1);
@@ -134,11 +132,6 @@ impl Agents {
             Some(link) => (link.root_machine, link.root.clone()),
             None => (who.machine, who.session.clone()),
         };
-        let mut others = above.map_or(0, |link| link.others);
-        if across {
-            let here = self.live_descendants(root_machine, &root);
-            others = others.saturating_add(u8::try_from(here).unwrap_or(u8::MAX));
-        }
         Ok(ParentLink {
             machine: who.machine,
             session: who.session.clone(),
@@ -146,14 +139,34 @@ impl Agents {
             root_machine,
             root,
             depth,
-            others,
+            others: 0,
             agent: info.agent.clone(),
-            mode: held_to(&info),
+            mode: held_to(&info)?,
         })
     }
 
+    /// The live sessions on every machine that descend from the root `root`:
+    /// this node's own, and what each online machine says of its own. A
+    /// machine that does not answer in time counts none.
+    async fn live_under(&self, root_machine: Option<EndpointId>, root: &str) -> usize {
+        let here = self.live_descendants(root_machine, root);
+        let Some(mesh) = self.mesh() else {
+            return here;
+        };
+        let me = mesh.me();
+        let there = mesh
+            .devices()
+            .into_iter()
+            .filter(|status| status.online && status.device.id != me)
+            .map(|status| {
+                children::count_on(&mesh, status.device.id, root_machine, root, COUNT_LIMIT)
+            });
+        let counts = futures::future::join_all(there).await;
+        here + counts.into_iter().sum::<usize>()
+    }
+
     /// The live sessions here that descend from the root `root`.
-    fn live_descendants(&self, root_machine: Option<EndpointId>, root: &str) -> usize {
+    pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &str) -> usize {
         self.lock()
             .values()
             .filter(|session| {
@@ -189,7 +202,7 @@ impl Agents {
         let remote = self
             .remote_kids(&who.session)
             .iter()
-            .filter(|kid| !kid.ended)
+            .filter(|kid| kid.counts())
             .count();
         local + remote
     }
@@ -200,7 +213,7 @@ impl Agents {
     pub(super) fn child_of(&self, who: &Who, id: &str) -> Result<Arc<Session>, String> {
         self.get(id)
             .filter(|session| is_child_of(&session.live.borrow(), who))
-            .ok_or_else(|| format!("You have no agent {id}."))
+            .ok_or_else(|| format!("{NO_AGENT} {id}."))
     }
 
     /// Starts the child `link` describes, here. The node that starts it
@@ -212,12 +225,6 @@ impl Agents {
     ) -> Result<Arc<Session>, String> {
         if link.depth == 0 || link.depth > MAX_DEPTH {
             return Err(too_deep());
-        }
-        let here = self.live_descendants(link.root_machine, &link.root);
-        if usize::from(link.others) + here >= MAX_CHILDREN {
-            return Err(too_many(&format!(
-                "the session this chain started from has {MAX_CHILDREN} agents running"
-            )));
         }
         let kind = self
             .kinds
@@ -234,6 +241,7 @@ impl Agents {
             .clone();
         let mode = child_mode(&link, &kind.name)?;
         let follows = self.parent_live_of(&link);
+        let root = (link.root_machine, link.root.clone());
         let begin = Begin {
             prompt: Some(start.prompt),
             model: start.model,
@@ -242,10 +250,19 @@ impl Agents {
             follows,
             ..Begin::default()
         };
-        let session = self
-            .start_in(&kind, start.cwd.as_deref(), None, begin)
-            .await
-            .map_err(|e| format!("{e:#}"))?;
+        let session = {
+            // From counting to the child's place in the list, one start at a time.
+            let _starting = self.family.starting.lock().await;
+            if self.live_under(root.0, &root.1).await >= MAX_CHILDREN {
+                return Err(too_many(&format!(
+                    "the session this chain started from has {MAX_CHILDREN} agents running"
+                )));
+            }
+            self.start_in(&kind, start.cwd.as_deref(), None, begin)
+                .await
+                .map_err(|e| format!("{e:#}"))?
+        };
+        self.watch_parent(&session);
         // The child goes by the agent's own id once it has one.
         let mut live = session.live.clone();
         let named =
@@ -264,81 +281,50 @@ impl Agents {
             .map(|parent| parent.live.clone())
     }
 
-    /// Notes a child that runs on `machine`, and has it stopped with its
-    /// parent.
-    pub(super) fn adopt_remote(&self, parent: &Arc<Session>, kid: RemoteKid) {
-        {
-            let mut remote = crate::lock(&self.family.remote);
-            if remote.contains(&kid) {
-                return;
-            }
-            remote.push(kid.clone());
-        }
-        let Some(mesh) = self.mesh() else {
-            return;
-        };
-        let mut live = parent.live.clone();
-        let task = tokio::spawn(async move {
-            if parent_gone(&mut live).await {
-                let caller = kid.parent.clone();
-                if let Err(e) = children::stop_remote(&mesh, &caller, &kid, false).await {
-                    log::warn!("child {} on {} was not stopped: {e}", kid.id, kid.name);
-                }
-            }
-        });
-        parent.keep(task);
-    }
-
-    /// The children of `parent` that run on other machines.
-    pub(super) fn remote_kids(&self, parent: &str) -> Vec<RemoteKid> {
-        crate::lock(&self.family.remote)
-            .iter()
-            .filter(|kid| kid.parent == parent)
-            .cloned()
-            .collect()
-    }
-
-    /// Notes that a child ended or was stopped: it stays in the parent's
-    /// list to read, but frees its place.
-    pub(super) fn end_remote(&self, kid: &RemoteKid) {
-        for known in crate::lock(&self.family.remote).iter_mut() {
-            if known.parent == kid.parent && known.machine == kid.machine && known.id == kid.id {
-                known.ended = true;
-            }
-        }
-    }
-
     /// Stops the running turns of everything `session` started, here and on
-    /// other machines, to go with the parent's own Stop.
-    pub(super) async fn cancel_family(&self, session: &Arc<Session>) {
+    /// other machines, to go with the parent's own Stop. They stop at once,
+    /// side by side, so one machine that does not answer holds up none of
+    /// the others; what already ended is left alone.
+    pub(in crate::agents) async fn cancel_family(&self, session: &Arc<Session>) {
+        let mut local: Vec<Arc<Session>> = Vec::new();
+        let mut remote: Vec<(String, RemoteKid)> = Vec::new();
         let mut queue = vec![session.clone()];
-        let mut visited = 0;
         while let Some(next) = queue.pop() {
-            visited += 1;
             // The tree is bounded by the limits; this guards a loop in links.
-            if visited > MAX_CHILDREN * usize::from(MAX_DEPTH) + 1 {
+            if local.len() + remote.len() > MAX_CHILDREN * usize::from(MAX_DEPTH) {
                 break;
             }
             let who = self.who_of(&next);
-            queue.extend(self.children_of(&who));
-            if let Some(mesh) = self.mesh() {
-                for kid in self.remote_kids(&who.session) {
-                    if let Err(e) = children::stop_remote(&mesh, &who.session, &kid, true).await {
-                        log::warn!("child {} on {} was not stopped: {e}", kid.id, kid.name);
-                    }
+            for kid in self.children_of(&who) {
+                if kid.live.borrow().status() != Status::Ended {
+                    queue.push(kid.clone());
+                    local.push(kid);
                 }
             }
-            if !Arc::ptr_eq(&next, session) {
-                // Refused when the child has no turn running.
-                let _ = next.order(Command::Cancel).await;
+            for kid in self.remote_kids(&who.session) {
+                if kid.counts() && !kid.pending() {
+                    remote.push((who.session.clone(), kid));
+                }
             }
         }
-    }
-
-    /// The links the open sessions keep over a restart: the remote children
-    /// of the session `name`.
-    pub(super) fn kids_to_keep(&self, name: &str) -> Vec<RemoteKid> {
-        self.remote_kids(name)
+        let mesh = self.mesh();
+        let remote = remote.iter().map(|(parent, kid)| async {
+            let Some(mesh) = &mesh else {
+                return;
+            };
+            if let Err(e) = children::stop_remote(mesh, parent, kid, true).await {
+                log::warn!("child {} on {} was not stopped: {e}", kid.id, kid.name);
+            }
+        });
+        let local = local.iter().map(|kid| async {
+            // Refused when the child has no turn running.
+            let _ = kid.order(Command::Cancel).await;
+        });
+        futures::future::join(
+            futures::future::join_all(remote),
+            futures::future::join_all(local),
+        )
+        .await;
     }
 
     /// Starts children first on a restart: a parent before its children.
@@ -355,12 +341,24 @@ fn is_child_of(live: &Live, who: &Who) -> bool {
         .is_some_and(|link| link.session == who.session && link.machine == who.machine)
 }
 
-/// The mode a parent is held to: when it runs below full access, the id of
-/// the mode it is in. A harness that does not name a full access mode has
-/// none held to.
-fn held_to(info: &SessionInfo) -> Option<String> {
-    let full = known(&info.agent)?.bypass_mode?;
-    info.mode.clone().filter(|mode| mode != full)
+/// The mode a parent is held to: the id of the mode it is in when that is
+/// not its harness's full access mode. An agent that offers no modes asks
+/// nothing, so nothing is held. One that offers modes but has not said which
+/// it is in is refused: its mode is unknown, so a child could outrun it.
+fn held_to(info: &SessionInfo) -> Result<Option<String>, String> {
+    let Some(mode) = &info.mode else {
+        return if info.modes.is_empty() {
+            Ok(None)
+        } else {
+            Err(
+                "Not started: the calling agent has not said which mode it is in yet. Try again \
+                 in a moment."
+                    .to_owned(),
+            )
+        };
+    };
+    let full = known(&info.agent).and_then(|known| known.full_mode);
+    Ok(Some(mode.clone()).filter(|mode| Some(mode.as_str()) != full))
 }
 
 /// The mode a child starts in. A parent held below full access passes only

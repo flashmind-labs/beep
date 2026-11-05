@@ -1984,16 +1984,16 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
     let other = peer_node(&desktop).await;
     let seen = desktop.reach(node.id).await;
     let cwd = work.path().display().to_string();
-    let link = |depth: u8, others: u8| {
+    let link = |depth: u8| {
         json!({
             "machine": other.id(), "session": "p1",
             "root_machine": other.id(), "root": "p1",
-            "depth": depth, "others": others, "agent": "claude", "mode": null,
+            "depth": depth, "others": 0, "agent": "claude", "mode": null,
         })
     };
-    let start = |prompt: &str, depth, others| {
+    let start = |prompt: &str, depth| {
         json!({ "harness": "codex", "prompt": prompt, "cwd": cwd,
-                "model": null, "parent": link(depth, others) })
+                "model": null, "parent": link(depth) })
     };
     let child_id = |text: &str| -> String {
         serde_json::from_str::<serde_json::Value>(text).expect("JSON")["id"]
@@ -2004,7 +2004,7 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
 
     // A child starts, linked to the session that asked.
     let (failed, text) =
-        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("work", 1, 0)).await;
+        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("work", 1)).await;
     assert!(!failed, "{text}");
     let id = child_id(&text);
     follow(&seen, &id, |event| match event {
@@ -2057,33 +2057,47 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
     let (failed, _) = agent_tool(&other, node.id, "p2", Tool::StopAgent, json!({ "id": id })).await;
     assert!(failed);
     // A link that names another machine than the caller is refused.
-    let mut forged = start("work", 1, 0);
+    let mut forged = start("work", 1);
     forged["parent"]["machine"] = json!(node.id);
     let (failed, text) = agent_tool(&other, node.id, "p1", Tool::StartAgent, forged).await;
     assert!(failed && text.contains("another machine"), "{text}");
 
     // The depth the caller passes is checked on this machine.
     let (failed, text) =
-        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("deep", 4, 0)).await;
+        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("deep", 4)).await;
     assert!(failed && text.contains("3 levels deep"), "{text}");
-    // So is the count of the root's agents the caller's machines held: six
-    // there and the one running here leave room for one more.
-    let (failed, text) =
-        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("one", 1, 6)).await;
-    assert!(!failed, "{text}");
-    let (failed, text) =
-        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("two", 1, 6)).await;
+    // So is the count of the root's agents: eight run at most, the one
+    // running here among them.
+    let mut running = vec![id.clone()];
+    for at in 1..8 {
+        let (failed, text) = agent_tool(
+            &other,
+            node.id,
+            "p1",
+            Tool::StartAgent,
+            start(&format!("fill {at}"), 1),
+        )
+        .await;
+        assert!(!failed, "{text}");
+        running.push(child_id(&text));
+    }
+    let (failed, text) = agent_tool(&other, node.id, "p1", Tool::StartAgent, start("two", 1)).await;
     assert!(failed && text.contains("at most 8 agents"), "{text}");
-
-    // Stop reaches a working child's turn, then its session.
+    // One that stops leaves room.
+    let gone = running.pop().expect("a child");
     let (failed, text) = agent_tool(
         &other,
         node.id,
         "p1",
-        Tool::StartAgent,
-        start("hang on", 1, 0),
+        Tool::StopAgent,
+        json!({ "id": gone }),
     )
     .await;
+    assert!(!failed, "{text}");
+
+    // Stop reaches a working child's turn, then its session.
+    let (failed, text) =
+        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("hang on", 1)).await;
     assert!(!failed, "{text}");
     let hanging = child_id(&text);
     let working = beep_proto::node::agent::Status::Working;
@@ -2143,4 +2157,102 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
     })
     .await
     .expect("the session ended in time");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_root_may_not_have_more_than_eight_agents_over_two_machines() {
+    let desktop = desktop(None).await;
+    let work = TempDir::new().expect("a temp folder");
+    let config = || Config {
+        agent: Some((
+            "sh".to_owned(),
+            vec![
+                "-c".to_owned(),
+                TREE_ADAPTER.to_owned(),
+                "fake-adapter".to_owned(),
+            ],
+        )),
+        ..Config::default()
+    };
+    let (a, b) = (Node::start(config()).await, Node::start(config()).await);
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let other = peer_node(&desktop).await;
+    let cwd = work.path().display().to_string();
+    let start = |prompt: &str| {
+        json!({ "harness": "codex", "prompt": prompt, "cwd": cwd, "model": null,
+                "parent": {
+                    "machine": other.id(), "session": "p1",
+                    "root_machine": other.id(), "root": "p1",
+                    "depth": 1, "others": 0, "agent": "claude", "mode": null,
+                } })
+    };
+    let id_of = |text: &str| -> String {
+        serde_json::from_str::<serde_json::Value>(text).expect("JSON")["id"]
+            .as_str()
+            .expect("an id")
+            .to_owned()
+    };
+    // Four on each machine: neither is past eight alone.
+    let mut on_b = Vec::new();
+    for at in 0..4 {
+        let (failed, text) = agent_tool(
+            &other,
+            a.id,
+            "p1",
+            Tool::StartAgent,
+            start(&format!("a {at}")),
+        )
+        .await;
+        assert!(!failed, "{text}");
+        let (failed, text) = agent_tool(
+            &other,
+            b.id,
+            "p1",
+            Tool::StartAgent,
+            start(&format!("b {at}")),
+        )
+        .await;
+        assert!(!failed, "{text}");
+        on_b.push(id_of(&text));
+    }
+    // A ninth is refused, once the two machines have found each other: one
+    // that starts before then is stopped and tried again.
+    let refused = timeout(LIMIT, async {
+        loop {
+            let (failed, text) =
+                agent_tool(&other, b.id, "p1", Tool::StartAgent, start("ninth")).await;
+            if failed {
+                return text;
+            }
+            let (failed, text) = agent_tool(
+                &other,
+                b.id,
+                "p1",
+                Tool::StopAgent,
+                json!({ "id": id_of(&text) }),
+            )
+            .await;
+            assert!(!failed, "{text}");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    })
+    .await
+    .expect("the nodes counted each other in time");
+    assert!(refused.contains("at most 8 agents"), "{refused}");
+    let (failed, text) = agent_tool(&other, a.id, "p1", Tool::StartAgent, start("ninth")).await;
+    assert!(failed && text.contains("at most 8 agents"), "{text}");
+    // One that stops on b makes room on a.
+    let (failed, text) = agent_tool(
+        &other,
+        b.id,
+        "p1",
+        Tool::StopAgent,
+        json!({ "id": on_b[0] }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let (failed, text) = agent_tool(&other, a.id, "p1", Tool::StartAgent, start("fits")).await;
+    assert!(!failed, "{text}");
 }
