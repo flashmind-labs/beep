@@ -299,7 +299,9 @@ fn sync_line(status: &ProjectStatus) -> String {
 /// `Incoming` that node built after offering it.
 async fn receive_files(args: Value, caller: &Caller) -> Outcome {
     let Some(transfers) = &caller.transfers else {
-        return Err("This machine shares no folders, so it takes no files.".to_owned());
+        return Err(
+            "This machine's file transfers did not start, so it takes no files.".to_owned(),
+        );
     };
     let incoming: Incoming = parse(args)?;
     let name = incoming.name.clone();

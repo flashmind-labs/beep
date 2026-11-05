@@ -81,9 +81,10 @@ fn all() -> Value {
         {
             "name": "send_files",
             "description": "Copy files or folders from this machine to another of the user's \
-                machines, into `dest` there (default its home folder). A name already taken \
-                there gets a number, so nothing is replaced. Relative paths start in this \
-                machine's home folder; give absolute paths for files in your project.",
+                machines, into `dest` there, any folder, made if missing (default its home \
+                folder). A name already taken there gets a number, so nothing is replaced. \
+                Relative paths start in this machine's home folder; give absolute paths for \
+                files in your project.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

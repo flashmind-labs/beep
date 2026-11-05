@@ -67,6 +67,24 @@ impl Folders {
         self.roots.first().map(PathBuf::as_path)
     }
 
+    /// The whole disk, with relative paths starting in the first shared
+    /// folder, else the home folder. Only for `send_files`: its caller may
+    /// run any command on the machine anyway. `files/1` and a transfer asked
+    /// for by another machine keep to the shared folders.
+    pub(crate) fn everywhere(&self) -> Self {
+        let start = self.first().map(Path::to_path_buf).or_else(dirs::home_dir);
+        let disks: Vec<PathBuf> = if cfg!(windows) {
+            ('A'..='Z')
+                .map(|drive| PathBuf::from(format!("{drive}:\\")))
+                .filter(|disk| disk.is_dir())
+                .collect()
+        } else {
+            vec![PathBuf::from("/")]
+        };
+        let roots: Vec<PathBuf> = start.into_iter().chain(disks).collect();
+        Self::new(&roots)
+    }
+
     /// `path` with its symlinks resolved, when it lies in a shared folder.
     /// For a path that does not exist yet, its folder must. Resolving
     /// before the check keeps `..` and links from leading out of a shared

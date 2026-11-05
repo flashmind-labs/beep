@@ -180,21 +180,24 @@ pub async fn serve(
         .map(|dir| dir.to_string_lossy().into_owned());
     let mut started = None;
     let mut served = None;
-    if !folders.is_empty() {
-        // Transfers reach the same folders; without its store the node
-        // still serves the rest.
-        match Transfers::start_shared(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
-            Ok((transfers, handlers)) => {
-                served = Some(handlers);
+    // Transfers run on every node, for `send_files`; other machines reach
+    // them only with shared folders. Without its store the node still
+    // serves the rest.
+    match Transfers::start_shared(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
+        Ok((transfers, handlers)) => {
+            served = Some(handlers);
+            if !folders.is_empty() {
                 offers.extra.push(Arc::new(transfers.syncs()));
                 offers.extra.push(Arc::new(transfers.syncs().controls()));
                 offers.extra.push(Arc::new(transfers.syncs().rescans()));
                 offers.extra.push(Arc::new(transfers.clone()));
-                offers.transfers.set(transfers.clone());
-                started = Some(transfers);
             }
-            Err(e) => log::warn!("not offering transfers: {e:#}"),
+            offers.transfers.set(transfers.clone());
+            started = Some(transfers);
         }
+        Err(e) => log::warn!("not offering transfers: {e:#}"),
+    }
+    if !folders.is_empty() {
         offers.extra.push(Arc::new(folders));
     }
     // The mesh: peers reach the node over `beep-peer/2` with or without a

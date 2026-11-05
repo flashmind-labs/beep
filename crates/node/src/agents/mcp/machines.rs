@@ -179,30 +179,48 @@ pub(super) async fn mesh_only(offers: &Offers, mesh: &Mesh, request: &Request) -
     let args: Value = serde_json::from_str(&request.args).ok()?;
     let name = command_name(args.get("machine")?.as_str()?);
     let target = machines(mesh).into_iter().find(|m| m.name == name)?;
-    let listing = Request {
-        tool: Tool::ListMachines,
-        args: "{}".to_owned(),
-        ..request.clone()
-    };
-    // An answer that is not a list leaves the call to the server, which says why.
-    let Ok(Reply::Done {
-        text,
-        failed: false,
-    }) = offers.tools.call(&listing).await
-    else {
-        return None;
-    };
-    if listed(&text).contains(&name) {
-        return None;
+    // A send to a machine of the mesh always goes direct: through the server it would need
+    // shared folders.
+    if request.tool != Tool::SendFiles {
+        let listing = Request {
+            tool: Tool::ListMachines,
+            args: "{}".to_owned(),
+            ..request.clone()
+        };
+        // An answer that is not a list leaves the call to the server, which says why.
+        let Ok(Reply::Done {
+            text,
+            failed: false,
+        }) = offers.tools.call(&listing).await
+        else {
+            return None;
+        };
+        if listed(&text).contains(&name) {
+            return None;
+        }
     }
     // The server cannot show a card for a machine it lacks, so when its rule asks, the node
     // asks the user itself, and a rule that refuses still refuses. If the server cannot be
     // reached to ask, the last rule heard stands; with none, nothing runs unasked.
-    let rule = probed_rule(offers, request).await;
+    let rule = probed_rule(offers, &rule_question(request, &args)).await;
     if let Some(stopped) = permission::enforce(offers, &rule, request, &args).await {
         return Some(stopped);
     }
     Some(to_target(offers, mesh, &target, request, &args).await)
+}
+
+/// The call that asks the server its rule for `request`. A rule that lets a call run also runs
+/// it, and the server may know this machine, so a send names one it cannot have.
+fn rule_question(request: &Request, args: &Value) -> Request {
+    if request.tool != Tool::SendFiles {
+        return request.clone();
+    }
+    let mut args = args.clone();
+    args["machine"] = Value::from("no machine, only asking the rule");
+    Request {
+        args: args.to_string(),
+        ..request.clone()
+    }
 }
 
 /// The server's rule for `request`, asked by a call without approval. If the server cannot be
@@ -252,7 +270,7 @@ async fn send_files(
     }
     let Some(transfers) = offers.transfers.get() else {
         return done(
-            "This machine shares no folders, so it sends no files.",
+            "This machine's file transfers did not start, so it sends no files.",
             true,
         );
     };
@@ -870,6 +888,19 @@ mod tests {
             args: "{}".to_owned(),
             approved: Approved::No,
         }
+    }
+
+    #[test]
+    fn asking_the_rule_for_a_send_cannot_send_through_the_server() {
+        let args = json!({ "machine": "box-b", "paths": ["/srv/project/a"] });
+        let send = Request {
+            args: args.to_string(),
+            ..call_of(Tool::SendFiles)
+        };
+        let asked: Value =
+            serde_json::from_str(&rule_question(&send, &args).args).expect("the args parse");
+        assert_ne!(asked["machine"], "box-b");
+        assert_eq!(asked["paths"], args["paths"]);
     }
 
     #[tokio::test]
