@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
 
 /// `sync/<name>`: the devices that keep a project in step, and the folder
-/// the project has on each. A device not listed does not sync it.
+/// the project has on each. A device not listed does not sync it, and a
+/// record that lists none is a pinned project, which never syncs.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncSpec {
     pub folders: BTreeMap<EndpointId, String>,

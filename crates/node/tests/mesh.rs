@@ -304,6 +304,7 @@ impl Node {
             .env("XDG_CONFIG_HOME", home.path().join("config"))
             .env("XDG_STATE_HOME", home.path().join("state"))
             .env("XDG_DATA_HOME", home.path().join("data"))
+            .env("XDG_STATE_HOME", home.path().join("state"))
             .env("BEEP_NODE_NO_RELAY", "1")
             // The agents' session stores stay in the fake home.
             .env("CLAUDE_CONFIG_DIR", home.path().join(".claude"))
@@ -1368,6 +1369,282 @@ async fn a_project_syncs_between_two_nodes_with_no_server() {
     has_text(&pair.b_folder.join("from-a.txt"), "made on a").await;
     fs::write(pair.b_folder.join("from-b.txt"), "made on b").expect("a file");
     has_text(&pair.a_folder.join("from-b.txt"), "made on b").await;
+}
+
+/// Two nodes that share no folders, each with a project folder of its own,
+/// and what the desktop writes to sync them.
+struct Bare {
+    desktop: Member,
+    a: Node,
+    b: Node,
+    a_folder: PathBuf,
+    b_folder: PathBuf,
+    _roots: [TempDir; 2],
+}
+
+/// The node `a` is started by the caller, who can set its Syncthing up first.
+async fn bare_nodes(a: Node, a_root: TempDir, a_folder: PathBuf) -> Bare {
+    let desktop = desktop(None).await;
+    let b_root = TempDir::new().expect("a temp folder");
+    let b_folder = b_root.path().join("proj");
+    fs::create_dir(&b_folder).expect("a project folder");
+    let b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    Bare {
+        desktop,
+        a,
+        b,
+        a_folder,
+        b_folder,
+        _roots: [a_root, b_root],
+    }
+}
+
+async fn bare_node() -> (Node, TempDir, PathBuf) {
+    let root = TempDir::new().expect("a temp folder");
+    let folder = root.path().join("proj");
+    fs::create_dir(&folder).expect("a project folder");
+    let node = Node::start(Config {
+        name: Some("box-a"),
+        ..Config::default()
+    })
+    .await;
+    (node, root, folder)
+}
+
+impl Bare {
+    /// Writes the record, and waits for each node to take it.
+    async fn sync(&mut self) {
+        let spec = SyncSpec {
+            folders: [
+                (self.a.id, self.a_folder.display().to_string()),
+                (self.b.id, self.b_folder.display().to_string()),
+            ]
+            .into(),
+            paused: false,
+        };
+        self.desktop
+            .mesh
+            .set(
+                Key::Sync("proj".to_owned()),
+                Some(spec.to_bytes().expect("a spec encodes")),
+            )
+            .await
+            .expect("the spec is written");
+        self.a.logged("from the mesh: sync proj").await;
+        self.b.logged("from the mesh: sync proj").await;
+    }
+}
+
+/// What `conn`'s node says of the project.
+async fn proj_status(conn: &Link) -> Option<beep_proto::node::sync::ProjectStatus> {
+    let SyncReply::Status { projects } = sync_call(conn, SyncRequest::Status {}).await else {
+        panic!("not a status");
+    };
+    projects.into_iter().find(|p| p.name == "proj")
+}
+
+/// Asks `conn`'s node until `done` holds of the project. A sync status has
+/// nothing to wait on from outside; the outer limit is the only clock.
+async fn until_status(conn: &Link, done: impl Fn(&beep_proto::node::sync::ProjectStatus) -> bool) {
+    timeout(LIMIT, async {
+        while !proj_status(conn).await.as_ref().is_some_and(&done) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the status came in time");
+}
+
+#[tokio::test]
+async fn a_project_syncs_on_nodes_that_share_no_folders_and_after_a_restart() {
+    let (a, root, folder) = bare_node().await;
+    let mut pair = bare_nodes(a, root, folder).await;
+    pair.sync().await;
+    fs::write(pair.a_folder.join("from-a.txt"), "made on a").expect("a file");
+    has_text(&pair.b_folder.join("from-a.txt"), "made on a").await;
+    fs::write(pair.b_folder.join("from-b.txt"), "made on b").expect("a file");
+    has_text(&pair.a_folder.join("from-b.txt"), "made on b").await;
+
+    // The saved list keeps to `files`; the mesh names the project again.
+    pair.a = pair.a.restart().await;
+    pair.a.logged("from the mesh: sync proj").await;
+    fs::write(pair.b_folder.join("after.txt"), "after a restart").expect("a file");
+    has_text(&pair.a_folder.join("after.txt"), "after a restart").await;
+}
+
+#[tokio::test]
+async fn checkouts_at_other_commits_wait_unchanged_when_the_mesh_names_them() {
+    let (a, root, folder) = bare_node().await;
+    let mut pair = bare_nodes(a, root, folder).await;
+    for (folder, file) in [(&pair.a_folder, "a.txt"), (&pair.b_folder, "b.txt")] {
+        git_in(folder, &["init", "-q", "-b", "main"]);
+        fs::write(folder.join("same.txt"), file).expect("a file");
+        fs::write(folder.join(file), "only here").expect("a file");
+        git_in(folder, &["add", "."]);
+        git_in(folder, &["commit", "-q", "-m", file]);
+        // Not committed, as on a machine where work is under way.
+        fs::write(folder.join("same.txt"), format!("edited beside {file}")).expect("a file");
+    }
+    let head = |folder: &Path| git_in(folder, &["rev-parse", "HEAD"]);
+    let (a_head, b_head) = (head(&pair.a_folder), head(&pair.b_folder));
+    assert_ne!(a_head, b_head);
+    pair.sync().await;
+
+    let (conn_a, conn_b) = (
+        pair.desktop.reach(pair.a.id).await,
+        pair.desktop.reach(pair.b.id).await,
+    );
+    let says_why = |status: &beep_proto::node::sync::ProjectStatus| {
+        status
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("one commit"))
+    };
+    until_status(&conn_a, says_why).await;
+    until_status(&conn_b, says_why).await;
+
+    assert_eq!(head(&pair.a_folder), a_head);
+    assert_eq!(head(&pair.b_folder), b_head);
+    for (folder, mine, theirs) in [
+        (&pair.a_folder, "a.txt", "b.txt"),
+        (&pair.b_folder, "b.txt", "a.txt"),
+    ] {
+        assert_eq!(
+            fs::read_to_string(folder.join("same.txt")).expect("the file stays"),
+            format!("edited beside {mine}")
+        );
+        assert!(!folder.join(theirs).exists());
+        assert!(git_in(folder, &["for-each-ref", "refs/beep-conflicts"]).is_empty());
+    }
+}
+
+/// What a fake Syncthing says of its one folder: paused or not, and the
+/// number of its last event.
+#[derive(Clone, Copy)]
+struct FakeFolder {
+    paused: bool,
+    event: u64,
+}
+
+fn set_paused(folder: &watch::Sender<FakeFolder>, paused: bool) {
+    folder.send_modify(|folder| {
+        folder.paused = paused;
+        folder.event += 1;
+    });
+}
+
+/// A fake Syncthing GUI listing one folder at `path`, with `/rest/events` held
+/// open until the folder changes, and the `config.xml` that points `node` at it.
+async fn fake_syncthing(
+    node: &Node,
+    path: &Path,
+    folder: watch::Sender<FakeFolder>,
+) -> AbortOnDropHandle<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
+    let addr = listener.local_addr().expect("an address");
+    let config = format!(
+        r#"<configuration><gui tls="false"><address>{addr}</address><apikey>fake-key</apikey></gui></configuration>"#
+    );
+    for home in ["state/syncthing", "Library/Application Support/Syncthing"] {
+        let home = node.home.path().join(home);
+        fs::create_dir_all(&home).expect("a config folder");
+        fs::write(home.join("config.xml"), &config).expect("a config");
+    }
+    let path = json!(path).to_string();
+    let task = tokio::spawn(async move {
+        let mut answering = JoinSet::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            answering.spawn(fake_answer(stream, folder.subscribe(), path.clone()));
+        }
+    });
+    AbortOnDropHandle::new(task)
+}
+
+async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFolder>, path: String) {
+    let mut request = Vec::new();
+    let mut buf = [0; 1024];
+    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+        match stream.read(&mut buf).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => request.extend_from_slice(&buf[..n]),
+        }
+    }
+    let text = String::from_utf8_lossy(&request);
+    let line = text.lines().next().unwrap_or_default();
+    let body = if let Some((_, query)) = line.split_once("since=") {
+        let since: u64 = query
+            .split('&')
+            .next()
+            .and_then(|n| n.parse().ok())
+            .expect("a number");
+        let event = folder
+            .wait_for(|folder| folder.event > since)
+            .await
+            .expect("the test holds the folder")
+            .event;
+        format!(r#"[{{"id":{event},"type":"FolderResumed"}}]"#)
+    } else {
+        let paused = folder.borrow().paused;
+        format!(r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{paused}}}]"#)
+    };
+    let reply = format!(
+        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream
+        .write_all(reply.as_bytes())
+        .await
+        .expect("the reply is sent");
+}
+
+#[tokio::test]
+async fn a_folder_syncthing_holds_on_one_machine_syncs_only_while_syncthing_lets_go() {
+    let (a, root, a_folder) = bare_node().await;
+    let (folder, _) = watch::channel(FakeFolder {
+        paused: false,
+        event: 0,
+    });
+    let _api = fake_syncthing(&a, &a_folder, folder.clone()).await;
+    // Started again to find the config, as a node started after Syncthing.
+    let a = a.restart().await;
+    let mut pair = bare_nodes(a, root, a_folder).await;
+    pair.sync().await;
+    let (conn_a, conn_b) = (
+        pair.desktop.reach(pair.a.id).await,
+        pair.desktop.reach(pair.b.id).await,
+    );
+
+    // Held, not refused: it is on the list, and the other side's files stay out.
+    let held = |status: &beep_proto::node::sync::ProjectStatus| {
+        status.error.as_deref() == Some("Already synced by Syncthing (Game)")
+    };
+    until_status(&conn_a, held).await;
+    fs::write(pair.b_folder.join("early.txt"), "from b").expect("a file");
+    until_status(&conn_b, |status| status.files >= 1).await;
+    fs::write(pair.a_folder.join("syncthings.txt"), "stays").expect("a file");
+    assert!(!pair.a_folder.join("early.txt").exists());
+    assert!(!pair.b_folder.join("syncthings.txt").exists());
+
+    // Paused in Syncthing: Beep's sync starts by itself, both ways.
+    set_paused(&folder, true);
+    pair.a.logged("Syncthing let go of it or paused it").await;
+    has_text(&pair.a_folder.join("early.txt"), "from b").await;
+    has_text(&pair.b_folder.join("syncthings.txt"), "stays").await;
+
+    // Resumed: it stops at once, and what the other side writes stays out.
+    set_paused(&folder, false);
+    pair.a.logged("stopped syncing proj").await;
+    let before = proj_status(&conn_b).await.expect("b syncs it").files;
+    fs::write(pair.b_folder.join("late.txt"), "from b").expect("a file");
+    until_status(&conn_b, |status| status.files > before).await;
+    until_status(&conn_a, held).await;
+    assert!(!pair.a_folder.join("late.txt").exists());
 }
 
 #[tokio::test]

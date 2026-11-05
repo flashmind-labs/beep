@@ -247,7 +247,7 @@ async fn sync_project(args: Value, caller: &Caller) -> Outcome {
             None
         };
     let Some(transfers) = &caller.transfers else {
-        return Err("This machine shares no folders, so it syncs no projects.".to_owned());
+        return Err("Sync did not start on this machine, so it syncs no projects.".to_owned());
     };
     let syncs = transfers.syncs();
     let status = syncs.rescan(&project).await.map_err(|e| format!("{e:#}"))?;

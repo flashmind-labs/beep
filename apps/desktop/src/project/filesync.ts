@@ -95,6 +95,12 @@ export function timeLeft(secs: number | null | undefined) {
   return `about ${Math.round(secs / 3600)} h`;
 }
 
+/// Whether Syncthing keeps this machine's folder in step, so Beep leaves it
+/// alone until Syncthing pauses or lets go. The node says so in `error`.
+export function syncedBySyncthing(m: { error?: string | null }) {
+  return !!m.error?.startsWith("Already synced by Syncthing");
+}
+
 /// How far a machine is, 0 to 100, or null while it is not moving files.
 export function syncPct(m: Pick<MachineDetail, "status" | "progress" | "files" | "pending">) {
   if (m.status !== "syncing") return null;
@@ -106,9 +112,10 @@ export function syncPct(m: Pick<MachineDetail, "status" | "progress" | "files" |
 }
 
 /// A machine's chip: "paused", "syncing 23%", "scanning", "in sync",
-/// "offline" or "failed", and whether it asks for a look.
-export function stateChip(m: Pick<MachineDetail, "status" | "paused" | "progress" | "files" | "pending" | "conflicts">): { text: string; wait: boolean } {
+/// "offline", "Synced by Syncthing" or "failed", and whether it asks for a look.
+export function stateChip(m: Pick<MachineDetail, "status" | "paused" | "progress" | "files" | "pending" | "conflicts"> & Partial<Pick<MachineDetail, "error">>): { text: string; wait: boolean } {
   if (m.status === "offline") return { text: "offline", wait: false };
+  if (syncedBySyncthing(m)) return { text: "Synced by Syncthing", wait: false };
   if (m.paused) return { text: "paused", wait: false };
   if (m.status === "failed") return { text: "failed", wait: true };
   if (m.status === "scanning") return { text: "scanning", wait: false };
@@ -124,7 +131,8 @@ export function conflictCount(n: number) { return `${n} ${n === 1 ? "conflict" :
 
 /// The muted line under a machine: files and bytes, or how far it is with
 /// the rate and time left, or what waits.
-export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progress" | "files" | "bytes" | "pending" | "waiting">) {
+export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progress" | "files" | "bytes" | "pending" | "waiting"> & Partial<Pick<MachineDetail, "error">>) {
+  if (syncedBySyncthing(m)) return [];
   const p = m.progress;
   if (m.status === "syncing" && p && !m.paused) {
     return [
@@ -347,14 +355,14 @@ export function makeFileSync(deps: FileSyncDeps) {
     const chip = stateChip(m);
     const pct = m.paused ? null : syncPct(m);
     const head = h("div", "fs-h", h("span", `ddot${m.status === "offline" ? " off" : ""}`), h("b", "", m.machine_name),
-      h("span", `chip${chip.wait ? " wait" : ""}`, chip.text));
+      Object.assign(h("span", `chip${chip.wait ? " wait" : ""}`, chip.text), { title: syncedBySyncthing(m) ? m.error : "" }));
     const bar = pct == null ? null : h("div", "fs-bar", h("i", ""));
     if (bar) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
     const meta = h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)), m.folder ? h("code", "", m.folder) : null);
     const row = h("div", "fs-row", head, bar, meta);
     const clock = clockWarning(m.machine_id, null);
     if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
-    if (m.error) row.append(h("div", "cc-err", m.error));
+    if (m.error && !syncedBySyncthing(m)) row.append(h("div", "cc-err", m.error));
     if (m.hint) row.append(h("div", "fs-m", `Rescanned instead of watched. To watch it, run ${m.hint}`));
     return row;
   }

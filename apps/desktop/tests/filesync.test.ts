@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conflictList, conflictPrompt, conflictTotal, originalOf, waitingList } from "../src/project/filesync.ts";
+import { conflictList, conflictPrompt, conflictTotal, machineMeta, originalOf, stateChip, waitingList } from "../src/project/filesync.ts";
 import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
 
 function machine(over: Partial<MachineDetail> = {}): MachineDetail {
@@ -78,4 +78,11 @@ test("a git conflict is merged without rewriting history and the ref kept until 
   assert.match(text, /refs\/heads\/feat\/x at once.*refs\/beep-conflicts\/heads\/feat\/x-5e6f7a8b/);
   assert.match(text, /without rewriting history/);
   assert.match(text, /update-ref -d only if I ask/);
+});
+
+test("a folder Syncthing has reads as synced by it, not as failed", () => {
+  const held = machine({ status: "failed", files: 0, bytes: 0, error: "Already synced by Syncthing (Work)" });
+  assert.deepEqual(stateChip(held), { text: "Synced by Syncthing", wait: false });
+  assert.deepEqual(machineMeta(held), []);
+  assert.deepEqual(stateChip(machine({ status: "failed", error: "no room" })), { text: "failed", wait: true });
 });

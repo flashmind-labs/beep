@@ -1,4 +1,5 @@
 import { plural } from "../ui/format.ts";
+import { syncedBySyncthing } from "./filesync.ts";
 import type { AgentQuestion, RunningAgent, RunningRow } from "../agents/running-state.ts";
 // Projects as the window lists them, their groups and the overview's cards,
 // as pure functions so they can be tested without Tauri.
@@ -461,10 +462,11 @@ export function parseFolded(text: string | null): Set<string> {
 }
 
 /// What keeps project `name` in step, for its card: Beep's sync when a
-/// `project_sync` row names it, Syncthing when `where`, the machines its page
-/// last read, says so; "" for neither.
-export function syncedBy(name: string, rows: readonly { project: string }[], where: readonly { syncthing?: string | null }[] | null | undefined) {
-  return [rows.some(r => r.project === name) && "Beep sync", where?.some(m => m.syncthing) && "Syncthing"].filter(Boolean).join(" · ");
+/// `project_sync` row names it and Syncthing does not have that folder,
+/// Syncthing when `where`, the machines its page last read, says so; "" for
+/// neither.
+export function syncedBy(name: string, rows: readonly { project: string; error?: string | null }[], where: readonly { syncthing?: string | null }[] | null | undefined) {
+  return [rows.some(r => r.project === name && !syncedBySyncthing(r)) && "Beep sync", where?.some(m => m.syncthing) && "Syncthing"].filter(Boolean).join(" · ");
 }
 
 /// A row of a project's "Where it lives". `kind` is:
