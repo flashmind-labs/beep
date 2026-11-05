@@ -55,7 +55,7 @@ export async function show(view: string | null) {
   loadResearches();
   loadLiveChats();
   if (S.link === "linked" || S.local) loadModels();
-  if (S.link === "linked") loadAgentHosts();
+  if (S.link === "linked" || S.local) loadAgentHosts();
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
   // Without a subscription the bar starts agents on the mesh's machines; the chat needs one.

@@ -1,11 +1,13 @@
 //! The replies being written now: at most one per chat and a few in all. Each has a token that
-//! stops it, which the stop button, a closed window and a failing event channel all use.
+//! stops it, which the stop button, a closed window and a failing event channel all use. A reply
+//! may also wait for the user to allow an MCP tool call: the question lives here until answered.
 
 use crate::error::{DesktopError, Result};
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -14,13 +16,23 @@ const MAX_RUNS: usize = 4;
 
 struct Running {
     cancel: CancellationToken,
+    /// Fires when the reply is over, for an answer that waits for the end of it.
+    over: CancellationToken,
     /// The window that asked, whose closing stops it.
     window: String,
+}
+
+/// A tool call waiting for the user, in the chat it belongs to.
+struct Waiting {
+    chat: Uuid,
+    reply: oneshot::Sender<bool>,
 }
 
 #[derive(Default)]
 pub(crate) struct Runs {
     running: Mutex<HashMap<Uuid, Running>>,
+    /// The questions on screen, by id.
+    asking: Mutex<HashMap<String, Waiting>>,
 }
 
 impl Runs {
@@ -46,6 +58,7 @@ impl Runs {
             id,
             Running {
                 cancel: cancel.clone(),
+                over: CancellationToken::new(),
                 window: window.to_owned(),
             },
         );
@@ -53,7 +66,42 @@ impl Runs {
     }
 
     pub(crate) fn finish(&self, id: Uuid) {
-        self.lock().remove(&id);
+        let run = self.lock().remove(&id);
+        if let Some(run) = run {
+            run.over.cancel();
+        }
+        // A question of this chat is moot now: its receiver is dropped, which reads as a no.
+        self.asking_lock().retain(|_, waiting| waiting.chat != id);
+    }
+
+    fn asking_lock(&self) -> MutexGuard<'_, HashMap<String, Waiting>> {
+        self.asking.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Registers question `query_id` of chat `chat`; the receiver gets the answer.
+    pub(crate) fn ask(&self, chat: Uuid, query_id: String) -> oneshot::Receiver<bool> {
+        let (reply, answer) = oneshot::channel();
+        self.asking_lock().insert(query_id, Waiting { chat, reply });
+        answer
+    }
+
+    /// Gives the user's answer to a question of chat `chat`. False when it is not waiting.
+    pub(crate) fn answer(&self, chat: Uuid, query_id: &str, allow: bool) -> bool {
+        let mut asking = self.asking_lock();
+        match asking.remove(query_id) {
+            Some(waiting) if waiting.chat == chat => waiting.reply.send(allow).is_ok(),
+            Some(waiting) => {
+                // Not this chat's question: put it back.
+                asking.insert(query_id.to_owned(), waiting);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// A token that fires when chat `id`'s reply ends; `None` when none is running.
+    pub(crate) fn over(&self, id: Uuid) -> Option<CancellationToken> {
+        self.lock().get(&id).map(|run| run.over.clone())
     }
 
     /// The chats answering now.
