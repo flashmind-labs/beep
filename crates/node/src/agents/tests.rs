@@ -33,6 +33,7 @@ fn sh_agent(name: &str, script: &str) -> AgentKind {
         program: "sh".into(),
         args: vec!["-c".into(), script.into()],
         env: BTreeMap::new(),
+        compact: None,
     }
 }
 
@@ -203,6 +204,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
             encoded,
         ],
         env: BTreeMap::new(),
+        compact: None,
     };
     let begin = Begin {
         resume: Some(CLAUDE_ID.into()),

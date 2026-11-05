@@ -209,6 +209,7 @@ done
                 log.display().to_string(),
             ],
             env: BTreeMap::new(),
+            compact: None,
         }
     }
 

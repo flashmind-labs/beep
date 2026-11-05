@@ -165,6 +165,7 @@ impl User {
                 home: text(row.home),
                 args: row.args,
                 env,
+                compact: None,
             });
         }
         // Settings that no longer read must not hold back the harnesses'
