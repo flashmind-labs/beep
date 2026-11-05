@@ -312,6 +312,9 @@ export async function continueAgent(input: HTMLTextAreaElement, text: string, im
   try {
     const started = await invoke<Started>("agent_resume", { ...where(o), prompt: text });
     if (!isOpen(o)) return true;
+    // The same session goes on in the same field.
+    input.disabled = false;
+    input.focus();
     openAgent(started.session, { back: AG.back });
     if (images.length) { AG.att = images; drawAgentAttached(); }
     return true;
