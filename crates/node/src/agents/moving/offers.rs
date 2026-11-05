@@ -79,12 +79,17 @@ pub(super) async fn offers(agents: &Agents, projects: &[Project]) -> Vec<Offer> 
                 .iter()
                 .filter(|project| within(&one.cwd, &project.folder))
                 .max_by_key(|project| project.folder.as_os_str().len())?;
-            let path = one
-                .cwd
-                .strip_prefix(&project.folder)
-                .ok()?
-                .to_str()?
-                .to_owned();
+            let inside = one.cwd.strip_prefix(&project.folder).ok()?;
+            // A worktree folder never syncs, so no other machine could
+            // continue a session of one.
+            if inside
+                .components()
+                .next()
+                .is_some_and(|first| first.as_os_str() == ".worktrees")
+            {
+                return None;
+            }
+            let path = inside.to_str()?.to_owned();
             Some((one, project.name.clone(), path))
         })
         .collect();

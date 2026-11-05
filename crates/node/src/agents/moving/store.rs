@@ -77,16 +77,16 @@ impl StoreRoots {
 
 /// Writes `stored` at `path`, readable by this user only. A transcript
 /// already there that is not a start of it is kept beside it as
-/// `<name>.replaced`; one that is, is replaced, as the new one only adds to it.
+/// `<name>.replaced-<time>` (each replacement under a name of its own, so a
+/// second never destroys the first); one that is, is replaced, as the new
+/// one only adds to it.
 pub(super) fn write(path: &Path, stored: &Stored) -> Result<()> {
     let dir = path.parent().context("the transcript has no folder")?;
     fs::create_dir_all(dir)?;
     if let Ok(before) = fs::read(path)
         && !stored.bytes.starts_with(&before)
     {
-        let mut aside = path.as_os_str().to_owned();
-        aside.push(".replaced");
-        fs::rename(path, aside)?;
+        fs::rename(path, aside_name(path))?;
     }
     let mut partial = path.as_os_str().to_owned();
     partial.push(".partial");
@@ -98,10 +98,71 @@ pub(super) fn write(path: &Path, stored: &Stored) -> Result<()> {
     Ok(())
 }
 
+/// A name beside `path` for the transcript it replaces, not taken yet.
+fn aside_name(path: &Path) -> PathBuf {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis());
+    let mut n = 0;
+    loop {
+        let mut aside = path.as_os_str().to_owned();
+        aside.push(format!(".replaced-{now}"));
+        if n > 0 {
+            aside.push(format!("-{n}"));
+        }
+        let aside = PathBuf::from(aside);
+        if !aside.exists() {
+            return aside;
+        }
+        n += 1;
+    }
+}
+
 fn private(path: &Path) -> std::io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     options.open(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn stored(bytes: &[u8]) -> Stored {
+        Stored {
+            bytes: bytes.to_vec(),
+            path: PathBuf::from("s.jsonl"),
+        }
+    }
+
+    #[test]
+    fn every_replacement_is_kept_under_a_name_of_its_own() {
+        let dir = TempDir::new().expect("a temp folder");
+        let path = dir.path().join("s.jsonl");
+        fs::write(&path, b"first\n").expect("a transcript");
+        write(&path, &stored(b"second\n")).expect("the first replacement");
+        write(&path, &stored(b"third\n")).expect("the second replacement");
+        assert_eq!(fs::read(&path).unwrap(), b"third\n");
+        let mut aside: Vec<Vec<u8>> = fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|f| f.file_name().to_string_lossy().contains(".replaced-"))
+            .map(|f| fs::read(f.path()).unwrap())
+            .collect();
+        aside.sort();
+        assert_eq!(aside, [b"first\n".to_vec(), b"second\n".to_vec()]);
+    }
+
+    #[test]
+    fn a_transcript_the_new_one_extends_is_replaced_without_a_copy() {
+        let dir = TempDir::new().expect("a temp folder");
+        let path = dir.path().join("s.jsonl");
+        fs::write(&path, b"first\n").expect("a transcript");
+        write(&path, &stored(b"first\nmore\n")).expect("an extension");
+        assert_eq!(fs::read(&path).unwrap(), b"first\nmore\n");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 }

@@ -126,8 +126,10 @@ pub(super) async fn resume(
     Ok(())
 }
 
-/// Continues the session `id` of `agent` here from its background copy; the
-/// copy goes once the session runs. Never touches the machine that ran it.
+/// Continues the session `id` of `agent` here from its background copy (or
+/// the version that lost at `lost`); that copy goes once the session runs.
+/// Never touches the machine that ran it, and changes nothing here until
+/// every check has passed.
 pub(super) async fn continue_here(
     env: &Env,
     agent: &AgentSlug,
@@ -137,17 +139,17 @@ pub(super) async fn continue_here(
     if harness_of(agent.as_str()).is_none() {
         bail!("{agent} sessions cannot be continued yet");
     }
-    if let Some(at) = lost {
-        let (cache, slug, key) = (env.cache.clone(), agent.clone(), id.to_owned());
-        spawn_blocking(move || cache.promote_lost(&slug, &key, at))
-            .await?
-            .with_context(|| format!("session {id} has no such version set aside"))?;
-    }
+    let Some(_going) = env.agents.moves.begin_continue(id) else {
+        bail!("session {id} is being continued already");
+    };
     let (copy, meta) = {
         let (cache, slug, key) = (env.cache.clone(), agent.clone(), id.to_owned());
-        spawn_blocking(move || Some((cache.copy(&slug, &key)?, cache.meta(&slug, &key)?)))
-            .await?
-            .with_context(|| format!("this machine has no copy of session {id}"))?
+        spawn_blocking(move || match lost {
+            Some(at) => cache.lost(&slug, &key, at),
+            None => Some((cache.copy(&slug, &key)?, cache.meta(&slug, &key)?)),
+        })
+        .await?
+        .with_context(|| format!("this machine has no such copy of session {id}"))?
     };
     if env.agents.runs(id) {
         bail!("session {id} runs on this machine already");
@@ -177,6 +179,9 @@ pub(super) async fn continue_here(
     // later session of another machine that went on from there is known.
     let (cache, agent, id) = (env.cache.clone(), agent.clone(), id.to_owned());
     spawn_blocking(move || {
+        if let Some(at) = lost {
+            cache.drop_lost(&agent, &id, at);
+        }
         cache.remove(&agent, &id, false);
         cache.mark_continued(&agent, &id, meta.last_activity)
     })

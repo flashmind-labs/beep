@@ -10,7 +10,10 @@ use beep_proto::node::agent::{MovePhase, MoveProgress};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::SystemTime,
 };
 use tokio::sync::watch;
@@ -53,6 +56,23 @@ pub(crate) struct Moves {
     /// continue a copy here.
     env: Mutex<Weak<Env>>,
     hashes: Hashes,
+    /// Sessions being continued from a copy right now.
+    continuing: Mutex<HashSet<String>>,
+    /// Background copying waits for a session of this node.
+    paused: AtomicBool,
+}
+
+/// A session being continued from its copy, until this drops: a second
+/// continue of it is refused meanwhile.
+pub(super) struct Continuing<'a> {
+    moves: &'a Moves,
+    id: String,
+}
+
+impl Drop for Continuing<'_> {
+    fn drop(&mut self) {
+        lock(&self.moves.continuing).remove(&self.id);
+    }
 }
 
 /// The hash of each transcript offered, read again only when its size or
@@ -144,6 +164,21 @@ impl Moves {
 
     pub(super) fn worktree_of(&self, id: &str) -> Option<PathBuf> {
         lock(&self.worktrees).get(id).cloned()
+    }
+
+    /// Starts continuing session `id`; `None` when that is going already.
+    pub(super) fn begin_continue(&self, id: &str) -> Option<Continuing<'_>> {
+        lock(&self.continuing)
+            .insert(id.to_owned())
+            .then(|| Continuing {
+                moves: self,
+                id: id.to_owned(),
+            })
+    }
+
+    /// Notes whether background copying waits; true when that changed.
+    pub(super) fn set_paused(&self, paused: bool) -> bool {
+        self.paused.swap(paused, Ordering::Relaxed) != paused
     }
 
     pub(super) fn clone_hashes(&self) -> Hashes {
@@ -263,4 +298,28 @@ impl Moves {
 /// Changes the progress shown, keeping what `change` leaves alone.
 pub(super) fn show(tracker: &Tracker, change: impl FnOnce(&mut MoveProgress)) {
     tracker.send_modify(change);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_is_continued_by_one_request_at_a_time() {
+        let moves = Moves::default();
+        let first = moves.begin_continue("s1").expect("the first goes");
+        assert!(
+            moves.begin_continue("s1").is_none(),
+            "the second is refused"
+        );
+        assert!(
+            moves.begin_continue("s2").is_some(),
+            "another session is free"
+        );
+        drop(first);
+        assert!(
+            moves.begin_continue("s1").is_some(),
+            "free again once it ended"
+        );
+    }
 }

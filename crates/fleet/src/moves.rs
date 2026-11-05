@@ -44,6 +44,15 @@ pub struct MoveAsk<'a> {
     pub stop: bool,
 }
 
+/// A copy this Mac's node keeps, and how the machine that ran the session
+/// is: its name, and whether the mesh has it online now.
+pub struct CopyState {
+    pub view: CopyView,
+    /// `None` for a machine the mesh does not list any more.
+    pub from_name: Option<String>,
+    pub online: bool,
+}
+
 /// The linked worktree a session works in on the source.
 pub struct AskedWorktree<'a> {
     /// The worktree's folder.
@@ -193,14 +202,28 @@ impl Desk {
         Ok(())
     }
 
-    /// The copies of other machines' sessions that this Mac's node keeps.
-    /// `None` for a node from before background copies.
-    pub async fn session_copies(&self) -> Result<Option<Vec<CopyView>>> {
+    /// The copies of other machines' sessions that this Mac's node keeps,
+    /// each with the machine that ran it as the mesh says it is now. `None`
+    /// for a node from before background copies.
+    pub async fn session_copies(&self) -> Result<Option<Vec<CopyState>>> {
         let client = self.peers.client(self.local).await?;
-        Ok(match copies(&client).await? {
-            NodeCopies::Listed(listed) => Some(listed),
-            NodeCopies::NeedsUpdate => None,
-        })
+        let NodeCopies::Listed(listed) = copies(&client).await? else {
+            return Ok(None);
+        };
+        let devices = self.mesh.devices();
+        Ok(Some(
+            listed
+                .into_iter()
+                .map(|view| {
+                    let device = devices.iter().find(|status| status.device.id == view.from);
+                    CopyState {
+                        from_name: device.map(|status| status.device.name.clone()),
+                        online: device.is_some_and(|status| status.online),
+                        view,
+                    }
+                })
+                .collect(),
+        ))
     }
 
     /// Has this Mac's node run its copy of a session (or its version set

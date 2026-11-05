@@ -399,3 +399,38 @@ async fn a_background_read_of_a_session_no_project_offers_is_refused() {
     assert!(format!("{err:#}").contains("not offered"), "{err:#}");
     assert!(!copy.exists());
 }
+
+#[tokio::test]
+async fn a_worktree_read_before_the_source_registered_the_worktree_reads_as_running() {
+    let source = source(&header(""));
+    let server = serving(&source.agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let client = endpoint().await;
+    let pull_with = |copy: std::path::PathBuf, worktree: bool| {
+        let (client, addr) = (client.clone(), server.endpoint().addr());
+        async move {
+            let connection = client.connect(addr, ALPN).await.expect("connects");
+            let (send, recv) = connection.open_bi().await.expect("a stream");
+            let (tx, rx) = link(send, recv);
+            pull(
+                tx,
+                rx,
+                super::read::Ask {
+                    agent: AgentSlug::CODEX,
+                    id: ID,
+                    copy: &copy,
+                    kind: super::read::Kind::Move { worktree },
+                },
+            )
+            .await
+            .expect("a read")
+        }
+    };
+    // The worktree is not registered yet: not read as ended, or the target
+    // would get no commit and no work, and fail for good.
+    let early = pull_with(mine.path().join("a.jsonl"), true).await;
+    assert!(early.live && early.work.is_none());
+    // A read of a checkout session is not held up by that.
+    let plain = pull_with(mine.path().join("b.jsonl"), false).await;
+    assert!(!plain.live);
+}

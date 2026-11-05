@@ -23,7 +23,7 @@ pub use desk::Desk;
 pub use error::{FleetError, Result};
 pub use git_board::{GitKept, GitUpdate};
 pub use issues::{has_project, places, project_id, project_names};
-pub use moves::{AskedWorktree, MoveAsk};
+pub use moves::{AskedWorktree, CopyState, MoveAsk};
 pub use peer::Peers;
 pub use projects::ImportJob;
 pub use session::{Changed, Options, Session};

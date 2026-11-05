@@ -1,5 +1,6 @@
 import { invoke } from "../ui/tauri.ts";
 import type { AgentSession } from "./agents.ts";
+import { loadCopies } from "./copies.ts";
 import { refreshMoves, withoutCopies } from "./move-store.ts";
 
 /// Every session on the user's machines, as the last `loadSessions` read it.
@@ -11,6 +12,8 @@ let loading: Promise<AgentSession[]> | null = null;
 /// while another read is out waits for that one, so pages that ask together
 /// cost one request. A failed read rejects and leaves `sessions` as it was.
 export function loadSessions() {
+  // The copies are read with the sessions: whether a machine is off changes.
+  void loadCopies();
   loading ??= Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
     // A session that moved is on two machines for a while: it shows once.
     .then(([list]) => { sessions = withoutCopies(list); return sessions; })

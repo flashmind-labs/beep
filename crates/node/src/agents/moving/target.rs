@@ -8,7 +8,7 @@ use super::{
     progress::{Tracker, show},
     read::{self, Refused},
     resume::{Arrival, Folders as ResumeFolders, How, resume},
-    saved::{Phase, Saved},
+    saved::{MadeWorktree, Phase, Saved},
     worktree::{self, Work},
 };
 use crate::agents::found::Agent;
@@ -115,6 +115,18 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
             {
                 bail!("Syncthing is set not to sync this worktree, so it cannot move here");
             }
+            // What an earlier try made for this move goes first.
+            take_back(env, &record.id, record.at).await;
+            // Whether the branch and folder allow it is known before the
+            // source ends anything.
+            if let Some(worktree) = &record.worktree {
+                let (checkout, folder, branch) = (
+                    made.checkout.clone(),
+                    made.folder.clone(),
+                    worktree.branch.clone(),
+                );
+                spawn_blocking(move || worktree::check(&checkout, &folder, &branch)).await??;
+            }
         }
         None if !folders.new.is_dir() => bail!(
             "{} has no checkout on this machine to resume in",
@@ -153,10 +165,29 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                 worktree.branch.clone(),
                 work.clone(),
             );
-            spawn_blocking(move || worktree::attach(&checkout, &folder, &branch, &work))
-                .await?
-                .context("making the worktree")?;
-            Some(made)
+            let placed =
+                spawn_blocking(move || worktree::attach(&checkout, &folder, &branch, &work))
+                    .await?
+                    .context("making the worktree")?;
+            // Kept, so a restart or a cancel before the session runs
+            // takes the worktree back.
+            env.state
+                .save(
+                    &record.id,
+                    &Saved {
+                        at: record.at,
+                        phase: Phase::Working,
+                        reason: None,
+                        open: None,
+                        made: Some(MadeWorktree {
+                            checkout: made.checkout.clone(),
+                            folder: made.folder.clone(),
+                            placed,
+                        }),
+                    },
+                )
+                .context("keeping the worktree made for the move")?;
+            Some((made, placed))
         }
         (Some(_), ..) => bail!("the source sent no worktree state"),
         _ => None,
@@ -173,14 +204,35 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     };
     let resumed = resume(env, &arrival, &kind, &placed, copied.file_name, copy).await;
     if resumed.is_err()
-        && let Some(made) = made
+        && let Some((made, placed)) = made
     {
         let (checkout, folder) = (made.checkout.clone(), made.folder.clone());
-        if let Err(e) = spawn_blocking(move || worktree::remove(&checkout, &folder)).await {
+        if let Err(e) = spawn_blocking(move || worktree::undo(&checkout, &folder, placed)).await {
             log::warn!("the worktree made for a move stays: {e}");
         }
     }
     resumed
+}
+
+/// Takes back the worktree an earlier try of the move made, when the
+/// session does not run: a restart or a cancel came between making it and
+/// starting the session, and it still holds the patch.
+pub(super) async fn take_back(env: &Env, id: &str, at: u64) {
+    let Some(made) = env
+        .state
+        .load(id)
+        .filter(|saved| saved.at == at)
+        .and_then(|saved| saved.made)
+    else {
+        return;
+    };
+    if env.agents.runs(id) {
+        return;
+    }
+    let done = spawn_blocking(move || worktree::undo(&made.checkout, &made.folder, made.placed));
+    if let Err(e) = done.await {
+        log::warn!("the worktree of session {id} was not taken back: {e}");
+    }
 }
 
 /// The old and new folders, from the project's `sync/<name>` record.

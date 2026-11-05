@@ -6,7 +6,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
 };
-use beep_fleet::{AskedWorktree, CopyView, MoveAsk, MoveState, WorktreeMove};
+use beep_fleet::{AskedWorktree, CopyState, MoveAsk, MoveState, WorktreeMove};
 use beep_proto::{
     ApiError,
     node::{
@@ -50,8 +50,11 @@ impl From<SessionMove> for MoveView {
 pub struct CopyRow {
     pub agent: String,
     pub id: String,
-    /// The machine that ran it.
+    /// The machine that ran it, and its name and whether the mesh has it
+    /// online now.
     pub from: String,
+    pub from_name: String,
+    pub online: bool,
     pub project: String,
     pub path: String,
     /// Unix seconds.
@@ -62,12 +65,17 @@ pub struct CopyRow {
     pub lost: Option<u64>,
 }
 
-impl From<CopyView> for CopyRow {
-    fn from(copy: CopyView) -> Self {
+impl From<CopyState> for CopyRow {
+    fn from(state: CopyState) -> Self {
+        let copy = state.view;
         Self {
             agent: copy.agent,
             id: copy.id,
             from: copy.from.to_string(),
+            from_name: state
+                .from_name
+                .unwrap_or_else(|| copy.from.fmt_short().to_string()),
+            online: state.online,
             project: copy.project,
             path: copy.path,
             last_activity: copy.last_activity,

@@ -180,6 +180,7 @@ fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<
 
 async fn cancelled(env: &Env, id: &str, at: u64, target: bool) {
     if target {
+        super::target::take_back(env, id, at).await;
         env.agents.moves.begin(id, at).send_modify(|progress| {
             progress.phase = MovePhase::Cancelled;
         });

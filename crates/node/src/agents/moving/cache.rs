@@ -173,6 +173,20 @@ impl Cache {
         }
     }
 
+    /// Seconds since the copy of a session was last written, when there is
+    /// one on disk.
+    pub(super) fn idle_secs(&self, agent: &AgentSlug, id: &str) -> Option<u64> {
+        let modified = fs::metadata(self.copy(agent, id)?).ok()?.modified().ok()?;
+        modified.elapsed().ok().map(|since| since.as_secs())
+    }
+
+    /// Takes away the older copy a restarted pull kept beside the new one.
+    pub(super) fn drop_diverged(&self, agent: &AgentSlug, id: &str) {
+        if let Some(folder) = self.folder(agent, id) {
+            let _ = fs::remove_file(folder.join("copy.jsonl.diverged"));
+        }
+    }
+
     /// Takes the copy of a session away, and with `all` the versions that
     /// lost too.
     pub(super) fn remove(&self, agent: &AgentSlug, id: &str, all: bool) {
@@ -220,6 +234,10 @@ impl Cache {
             fs::copy(transcript, &kept)?;
             fs::remove_file(transcript)?;
         }
+        // Whatever mode the harness gave the file, the kept version is the
+        // user's alone.
+        #[cfg(unix)]
+        fs::set_permissions(&kept, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
         Ok(())
     }
 
@@ -229,16 +247,6 @@ impl Cache {
         let meta =
             serde_json::from_slice(&fs::read(folder.join(format!("lost-{at}.json"))).ok()?).ok()?;
         Some((folder.join(format!("lost-{at}.jsonl")), meta))
-    }
-
-    /// Makes the version that lost at `at` the copy, which a continue runs.
-    pub(super) fn promote_lost(&self, agent: &AgentSlug, id: &str, at: u64) -> Option<()> {
-        let (lost, meta) = self.lost(agent, id, at)?;
-        let folder = self.folder(agent, id)?;
-        fs::rename(lost, folder.join("copy.jsonl")).ok()?;
-        self.save_meta(agent, id, &meta).ok()?;
-        self.drop_lost(agent, id, at);
-        Some(())
     }
 
     /// Takes the version that lost at `at` away.
@@ -253,21 +261,27 @@ impl Cache {
 }
 
 /// Which copies to take away so `need` more bytes of a session last active
-/// at `activity` fit under `cap`: the oldest copies first, by last activity,
-/// and only those older than the session. A version that lost is never
-/// chosen: it is the user's to discard. `None` when `need` cannot fit then.
+/// at `activity` fit under `cap`: the oldest copies first, by last activity
+/// (a partial one, with no note, counts as the oldest), and only those older
+/// than the session, never `own`, the session's own copy, which counts in
+/// the total. A version that lost is never chosen: it is the user's to
+/// discard. `None` when `need` cannot fit then.
 pub(super) fn evictions(
     entries: &[Entry],
     cap: u64,
     need: u64,
     activity: u64,
+    own: Option<(&AgentSlug, &str)>,
 ) -> Option<Vec<(AgentSlug, String)>> {
     let mut gone = Vec::new();
     let mut total: u64 = entries
         .iter()
         .map(|entry| entry.copy_bytes + entry.lost_bytes)
         .sum();
-    let mut copies: Vec<&Entry> = entries.iter().filter(|e| e.copy.is_some()).collect();
+    let mut copies: Vec<&Entry> = entries
+        .iter()
+        .filter(|e| e.copy_bytes > 0 && own != Some((&e.agent, e.id.as_str())))
+        .collect();
     copies.sort_by_key(|entry| entry.copy.as_ref().map_or(0, |meta| meta.last_activity));
     for entry in copies {
         if total.saturating_add(need) <= cap {
@@ -276,7 +290,7 @@ pub(super) fn evictions(
         if entry
             .copy
             .as_ref()
-            .is_none_or(|meta| meta.last_activity >= activity)
+            .is_some_and(|meta| meta.last_activity >= activity)
         {
             break;
         }
@@ -324,19 +338,22 @@ mod tests {
             entry("c", 20, 400),
         ];
         assert_eq!(
-            ids(evictions(&held, 1500, 100, 40).unwrap()),
+            ids(evictions(&held, 1500, 100, 40, None).unwrap()),
             Vec::<String>::new()
         );
-        assert_eq!(ids(evictions(&held, 1500, 400, 40).unwrap()), ["b"]);
-        assert_eq!(ids(evictions(&held, 1000, 600, 40).unwrap()), ["b", "c"]);
+        assert_eq!(ids(evictions(&held, 1500, 400, 40, None).unwrap()), ["b"]);
+        assert_eq!(
+            ids(evictions(&held, 1000, 600, 40, None).unwrap()),
+            ["b", "c"]
+        );
     }
 
     #[test]
     fn a_session_older_than_what_is_held_never_pushes_it_out() {
         let held = [entry("a", 30, 400), entry("b", 20, 400)];
-        assert_eq!(evictions(&held, 900, 400, 10), None);
+        assert_eq!(evictions(&held, 900, 400, 10, None), None);
         // Nor does one that cannot fit even in an empty cache.
-        assert_eq!(evictions(&held, 300, 400, 99), None);
+        assert_eq!(evictions(&held, 300, 400, 99, None), None);
     }
 
     #[test]
@@ -347,12 +364,12 @@ mod tests {
         kept.copy_bytes = 0;
         kept.lost_bytes = 800;
         let held = [kept, entry("b", 10, 100)];
-        assert_eq!(ids(evictions(&held, 1000, 150, 50).unwrap()), ["b"]);
+        assert_eq!(ids(evictions(&held, 1000, 150, 50, None).unwrap()), ["b"]);
         assert_eq!(
-            evictions(&held, 950, 100, 50).map(ids),
+            evictions(&held, 950, 100, 50, None).map(ids),
             Some(vec!["b".to_owned()])
         );
-        assert_eq!(evictions(&held, 850, 100, 50), None);
+        assert_eq!(evictions(&held, 850, 100, 50, None), None);
     }
 
     #[test]
@@ -374,11 +391,15 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].lost, [9]);
         assert!(cache.copy(&agent, "s1").is_some());
-        cache.promote_lost(&agent, "s1", 9).expect("promoted");
+        let (path, _) = cache.lost(&agent, "s1", 9).expect("the version is kept");
+        assert_eq!(fs::read(&path).unwrap(), b"{}\n");
+        #[cfg(unix)]
         assert_eq!(
-            fs::read(cache.copy(&agent, "s1").unwrap()).unwrap(),
-            b"{}\n"
+            std::os::unix::fs::PermissionsExt::mode(&fs::metadata(&path).unwrap().permissions())
+                & 0o777,
+            0o600
         );
+        cache.drop_lost(&agent, "s1", 9);
         assert!(cache.entries()[0].lost.is_empty());
         assert!(cache.copy(&AgentSlug::from("../x"), "s1").is_none());
         assert!(cache.copy(&agent, "../s1").is_none());
