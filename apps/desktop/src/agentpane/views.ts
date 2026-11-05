@@ -4,7 +4,8 @@ import { actualView, baseName, clipTime, fitView, resolvePath, zoomAt } from "./
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import type { Animation } from "./model3d.ts";
 import { fileSize, openViewer } from "../chat/media.ts";
-import { attach, killTerm, type PaneTerm } from "./terminal.ts";
+import { attach, detachTerm, killTerm, type PaneTerm } from "./terminal.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { addMention } from "../agents/workdrop.ts";
 import { type TreeText, type MediaTab, P, closeTab, saveWorkFile } from "./media.ts";
 import { mentioned } from "./worktree-state.ts";
@@ -55,10 +56,28 @@ function textView(t: MediaTab, text: TreeText) {
 function termView(t: MediaTab, term: PaneTerm) {
   const el = h(`<div class="agpview term"><div class="agpacts"><span class="meta mono"></span><span class="sp"></span><button class="dbtn" data-tattach="1" hidden>Attach</button><button class="dbtn warn" data-tkill="1">Close</button></div></div>`);
   el.prepend(term.screen.el);
-  el.querySelector("[data-tattach]")!.addEventListener("click", () => { term.tries = 0; attach(term); });
-  el.querySelector("[data-tkill]")!.addEventListener("click", () => {
-    if (term.row.state === "running" && term.link !== "ended" && !confirm(`Stop ${t.name} on ${P.session?.machine_name ?? "the machine"}?`)) return;
-    killTerm(term).then(() => { t.term = undefined; closeTab(t.id); }).catch(e => { el.querySelector(".meta")!.textContent = readError(e); });
+  const reattach = () => { term.tries = 0; attach(term); };
+  const kill = () => killTerm(term).then(() => { t.term = undefined; closeTab(t.id); });
+  const close = () => {
+    if (term.row.state !== "running" || term.link === "ended") {
+      kill().catch(e => { el.querySelector(".meta")!.textContent = readError(e); });
+      return;
+    }
+    confirmSheet({
+      title: `Stop ${t.name}?`,
+      text: `It stops running on ${P.session?.machine_name ?? "the machine"}.`,
+      action: "Stop",
+      run: kill,
+    });
+  };
+  el.querySelector("[data-tattach]")!.addEventListener("click", reattach);
+  el.querySelector("[data-tkill]")!.addEventListener("click", close);
+  el.querySelector(".agpacts")!.addEventListener("contextmenu", e => {
+    const items: MenuItem[] = [];
+    if (term.link === "detached") items.push({ label: "Attach", on: reattach });
+    if (term.link === "attached" || term.link === "attaching") items.push({ label: "Detach", on: () => detachTerm(term) });
+    items.push({ label: term.row.state === "running" && term.link !== "ended" ? "Kill…" : "Close", warn: true, on: close });
+    openMenu(e as MouseEvent, t.name, items);
   });
   queueMicrotask(() => drawTermStatus(t));
   return el;
