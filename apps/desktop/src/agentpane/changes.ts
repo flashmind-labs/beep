@@ -10,6 +10,7 @@ import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
 import { paneRoot, refreshWorktrees, removedBranch } from "./worktree.ts";
 import { reviewIn } from "./worktree-state.ts";
+import { go } from "../center/views.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -45,6 +46,7 @@ export function changesView() {
     },
     open: { label: "Open in a tab", run: openWorkFile },
     review: { key: `${s.machine_id}\n${s.id}`, send: text => sendReview(reviewIn(text, paneRoot(), s.cwd)) },
+    agent: { machine: { id: s.machine_id, name: s.machine_name }, prefer: s.agent, open: started => go("pane", { agent: started }) },
   });
   el.append(C.note, view.el);
   drawNote();
