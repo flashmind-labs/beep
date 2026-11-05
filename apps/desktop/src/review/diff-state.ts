@@ -143,6 +143,16 @@ export function splitRows(rows: readonly DiffRow[]): SplitRow[] {
   return out;
 }
 
+/// How tall side by side rows are before they are drawn: a row wraps to its
+/// longer cell. `cols` is the characters one cell fits.
+export function splitHeight(rows: readonly SplitRow[], cols: number) {
+  const fit = Math.max(1, cols);
+  const lines = (c: SplitCell | null) => (c ? Math.max(1, Math.ceil(c.text.length / fit)) : 1);
+  let h = 0;
+  for (const r of rows) h += r.kind === "gap" ? 22 : r.kind === "hunk" ? 19 : 19 * Math.max(lines(r.left), lines(r.right));
+  return h;
+}
+
 /// How many digits the widest line number of `f` has.
 export function numberWidth(f: Pick<DiffFile, "hunks">) {
   let max = 1;

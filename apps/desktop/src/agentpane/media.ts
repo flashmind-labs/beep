@@ -320,29 +320,31 @@ function wireDivider(dock: Dock) {
     if (e.button !== 0) return;
     e.preventDefault();
     div.setPointerCapture(e.pointerId);
-    const el = shell()!, box = main()!, pane = paneOf(dock)!;
+    const el = shell()!, box = main()!;
     el.classList.add("resizing", `resizing-${dock}`);
     div.classList.add("active");
     const right = dock === "right";
     const r = (right ? el : box).getBoundingClientRect();
-    const total = right ? el.clientWidth : box.clientHeight;
-    const from = right ? pane.offsetWidth : pane.offsetHeight;
-    let size = from;
-    // Only the line moves during a drag. Laying out a side-by-side diff at each
-    // width takes longer than a frame, so the docks take the size on release.
+    // The docks follow the pointer, at most once per frame.
+    let want: number | null = null;
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      if (want != null) set(want);
+      want = null;
+    };
     const move = (ev: PointerEvent) => {
-      size = paneSize(dock, right ? r.right - ev.clientX : r.bottom - ev.clientY, total);
-      div.style.transform = `translate${right ? "X" : "Y"}(${from - size}px)`;
+      want = right ? r.right - ev.clientX : r.bottom - ev.clientY;
+      frame ||= requestAnimationFrame(apply);
     };
     const up = () => {
       div.removeEventListener("pointermove", move);
       div.removeEventListener("pointerup", up);
       div.removeEventListener("pointercancel", up);
+      cancelAnimationFrame(frame);
+      apply();
       el.classList.remove("resizing", `resizing-${dock}`);
       div.classList.remove("active");
-      div.style.transform = "";
-      if (size === from) return;
-      set(size);
       saveLayout();
     };
     div.addEventListener("pointermove", move);
