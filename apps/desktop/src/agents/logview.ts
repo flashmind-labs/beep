@@ -19,6 +19,7 @@ import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
 import { backgroundedEntry, drawTasks } from "./tasks.ts";
 import { drawQueue } from "./messages.ts";
+import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 
@@ -246,8 +247,10 @@ export function turnsOf(session: string) {
 /// there at the first draw started before this window looked.
 function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
   const now = Date.now(), first = !m.known.size;
+  // A turn older than the ones known was read from further back, not seen starting.
+  const newest = Math.max(-1, ...m.known);
   for (const t of turns) {
-    if (!m.known.has(t.key) && !first) m.starts.set(t.key, now);
+    if (!m.known.has(t.key) && !first && t.key > newest) m.starts.set(t.key, now);
     m.known.add(t.key);
   }
   if (m.running != null && m.running !== running && !m.ends.has(m.running)) m.ends.set(m.running, now);
@@ -444,7 +447,8 @@ export function drawAgentBody(keep?: string, polled = false) {
   const card = question || plan || files || queued
     ? `<div class="dcard dcoder">${question}${plan}${files}${queued}</div>` : "";
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
-  const earlier = p.earlier ? `<div class="dmuted">${p.earlier} earlier ${p.earlier === 1 ? "entry" : "entries"} not shown</div>` : "";
+  const olderText = olderNote(p, AG.older.stop, AG.older.loading);
+  const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   // The log's turns go in as chunks, so one that did not change is not parsed again.
   const chunks = child != null ? [childHtml(p, child)] : p.entries.length && AG.log ? [earlier, ...turnsHtml(p)] : null;
   const entries = chunks ? '<div class="dcoderlog"></div>'

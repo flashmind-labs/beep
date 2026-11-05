@@ -23,6 +23,8 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { loadOlder, nearTop } from "./older.ts";
+import { joinRuns, lacksPrompt } from "./older-state.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { placeSub } from "./place-state.ts";
 
@@ -35,6 +37,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
+    older: { stop: "", loading: false, gaveUp: false },
   });
   drawAgentFrame();
   pollAgent();
@@ -78,7 +81,8 @@ export async function pollAgent() {
       if (page.session.question?.id !== AG.answering) AG.answering = null;
       // A session opened with no folder (from a notice) draws again once a read gives it.
       const placed = !AG.page?.session.cwd && !!page.session.cwd;
-      AG.page = page;
+      // The older entries held stay while the newest are read again.
+      AG.page = joinRuns(AG.page, page);
       if (placed) drawAgentFrame();
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
@@ -90,6 +94,8 @@ export async function pollAgent() {
       if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
       void readUsage(o, page);
       flushQueue();
+      // The oldest turn shown has its prompt: read back until it does.
+      if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
     }
   } catch (e) {
     if (isOpen(o)) {
@@ -243,7 +249,7 @@ export function drawAgentFrame() {
   drawModelPill();
   const b = $$<ChatBody>("#agbody");
   b.stuck = true;
-  b.onscroll = () => { b.stuck = atBottom(b); syncJump(b); };
+  b.onscroll = () => { b.stuck = atBottom(b); syncJump(b); if (nearTop(b)) void loadOlder("near"); };
   drawAgentBody();
   $("#agmsg")?.focus();
   bar.onclick = agentClick;
