@@ -7,6 +7,7 @@
 
 pub(crate) mod commands;
 pub(crate) mod local;
+pub(crate) mod picker;
 mod runs;
 mod stream;
 mod work;

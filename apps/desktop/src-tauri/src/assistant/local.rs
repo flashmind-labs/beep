@@ -10,9 +10,9 @@ use crate::{
     fleet::projects::desk,
 };
 use beep_assistant::{
-    AssistantError, Chat, ChatSummary, Effort, Endpoint, FIRECRAWL_BASE, OPENROUTER_BASE, Prefs,
-    Setup, default_model, delete_chat, http_client, list_chats, list_models, load_chat, load_prefs,
-    pin_chat, rename_chat, save_prefs, search_chats, turns,
+    AssistantError, Chat, ChatSummary, Effort, Endpoint, FIRECRAWL_BASE, Feature, OPENROUTER_BASE,
+    Prefs, Setup, default_model, delete_chat, http_client, list_chats, list_models, load_chat,
+    load_prefs, pin_chat, rename_chat, save_prefs, search_chats, turns,
 };
 use beep_fleet::Session as MeshSession;
 use beep_proto::{ApiProvider, ModelChoice, Models, ReasoningLevel, Session, SessionMatch};
@@ -26,14 +26,14 @@ use std::{
 use tauri::{AppHandle, Emitter, ipc::Channel};
 use uuid::Uuid;
 
-const NO_KEY: &str = "Add an OpenRouter key in Assistant first.";
+pub(super) const NO_KEY: &str = "Add an OpenRouter key in Assistant first.";
 
-fn bad(e: AssistantError) -> DesktopError {
+pub(super) fn bad(e: AssistantError) -> DesktopError {
     DesktopError::BadRequest(e.to_string())
 }
 
 /// Where this Mac keeps the chats.
-fn chat_dir(app: &AppHandle) -> Result<PathBuf> {
+pub(super) fn chat_dir(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("assistant"))
 }
 
@@ -41,7 +41,7 @@ pub(crate) fn chat_uuid(id: &str) -> Result<Uuid> {
     Uuid::parse_str(id).map_err(|_| DesktopError::BadRequest("not a chat".into()))
 }
 
-async fn key(fleet: &Arc<MeshSession>, provider: ApiProvider) -> Option<SecretString> {
+pub(super) async fn key(fleet: &Arc<MeshSession>, provider: ApiProvider) -> Option<SecretString> {
     desk(fleet).await.ok()?.api_key(provider)
 }
 
@@ -181,7 +181,7 @@ pub(crate) async fn send(
     // Registered before the chat is read, so no other reply or delete can change it meanwhile.
     let cancel = runs.begin(id, prompt.window)?;
     let prefs = load_prefs(&dir).await;
-    let setup = Setup {
+    let mut setup = Setup {
         client: http_client(),
         openrouter: Endpoint {
             base: OPENROUTER_BASE.to_owned(),
@@ -194,10 +194,14 @@ pub(crate) async fn send(
         dir: dir.clone(),
         today: chrono::Local::now().format("%Y-%m-%d").to_string(),
         effort: prefs.effort,
+        provider: None,
         cancel,
     };
-    let chat = match prepare(&setup, id, prefs).await {
-        Ok(chat) => chat,
+    let chat = match prepare(&setup, id, prefs.clone()).await {
+        Ok(chat) => {
+            setup.provider = prefs.provider_for(&chat.model).map(str::to_owned);
+            chat
+        }
         Err(e) => {
             runs.finish(id);
             return Err(e);
@@ -227,7 +231,7 @@ async fn prepare(setup: &Setup, id: Uuid, mut prefs: Prefs) -> Result<Chat> {
     } else if !chat.model.is_empty() {
         chat.model.clone()
     } else {
-        let models = list_models(&setup.client, &setup.openrouter)
+        let models = list_models(&setup.openrouter, Some(Feature::Chat))
             .await
             .map_err(bad)?;
         let last = latest_model(&setup.dir).await;
@@ -313,12 +317,14 @@ pub(crate) async fn models(
             .await
             .ok_or_else(|| DesktopError::BadRequest(NO_KEY.into()))?,
     };
-    let listed = list_models(&http_client(), &endpoint).await.map_err(bad)?;
+    let listed = list_models(&endpoint, Some(Feature::Chat))
+        .await
+        .map_err(bad)?;
     let mut prefs = load_prefs(&dir).await;
     let before = prefs.clone();
     match change {
         Change::Nothing => {}
-        Change::Model(id) => prefs.model = id,
+        Change::Model(id) => prefs.set_model(id),
         Change::Effort(effort) => prefs.effort = effort,
     }
     if prefs != before {

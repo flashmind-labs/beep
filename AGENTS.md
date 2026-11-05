@@ -68,6 +68,8 @@ using the server's credentials and harness values as soon as the account is move
 
 With an OpenRouter key saved, chats run on this Mac (`assistant_local`). The chat commands read and write local files and call OpenRouter (`crates/assistant`, `src-tauri/src/assistant/`), and the same chat window renders them. A Firecrawl key adds web search. Web tools turn off for the rest of a chat once a session has been read in it.
 
+The model page of a local chat searches flashmind's OpenRouter catalog (`list_models` in `crates/assistant`, filtered by `Feature`) and can prefer one upstream provider per model (`provider.order`, fallbacks allowed). Both live in `prefs.json`; the picker commands are in `src-tauri/src/assistant/picker.rs`.
+
 ### Code map
 
 `crates/server/src`, one line per top-level module:

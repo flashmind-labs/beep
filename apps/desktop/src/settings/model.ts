@@ -4,6 +4,7 @@ import { cap } from "../chat/tools.ts";
 import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { localChanged, localClick, localKeys, renderLocalModel } from "./modelsearch.ts";
 
 // ---------- Model (admins) ----------
 
@@ -56,7 +57,7 @@ export async function loadModels() {
   } catch {
     return;
   }
-  if (S.view === "model") drawModel();
+  if (S.view === "model") redrawModel();
 }
 function takeAgents(agents: Agents) {
   MODELS.agents = agents.enabled;
@@ -80,8 +81,20 @@ export function renderModel() {
   const m = MODELS.info;
   if (!m?.choices.length) return;
   S.view = "model";
+  // A chat kept on this Mac has a search over every model instead of the account's short list.
+  if (S.local) return renderLocalModel(localHost);
   MODELS.sel = Math.max(0, m.choices.findIndex(c => c.id === m.selected));
   drawModel();
+}
+/// What the local page asks of this one.
+const localHost = {
+  selected: () => MODELS.info?.selected ?? "",
+  thinking: () => MODELS.info?.thinking ?? "off",
+  levels: THINKING,
+  change: (command: string, args: Record<string, unknown>) => changeModel(command, args),
+};
+function redrawModel() {
+  if (S.local) localChanged(); else drawModel();
 }
 function drawModel() {
   const m = MODELS.info!, agents = MODELS.agents;
@@ -104,22 +117,24 @@ function drawModel() {
     </div>${hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
 }
 /// Runs a change the server answers with `T`, which `take` stores; an error
-/// shows under the form.
+/// shows under the form. Whether it went through.
 async function change<T>(command: string, args: Record<string, unknown>, take: (answer: T) => void) {
   try {
     take(await invoke<T>(command, args));
   } catch (e) {
     const err = $("#modelErr");
     if (err) err.textContent = String(e);
-    return;
+    return false;
   }
-  if (S.view === "model") drawModel();
+  if (S.view === "model") redrawModel();
+  return true;
 }
 function changeModel(command: string, args: Record<string, unknown>) {
   return change<Models>(command, args, m => { MODELS.info = m; });
 }
 const pickModel = () => changeModel("set_model", { id: MODELS.info!.choices[MODELS.sel].id });
 export function modelClick(e: MouseEvent) {
+  if (S.local) return localClick(e);
   const t = e.target as HTMLElement;
   const pick = t.closest<HTMLElement>("[data-pick]");
   if (pick) { MODELS.sel = +pick.dataset.pick!; return pickModel(); }
@@ -129,6 +144,7 @@ export function modelClick(e: MouseEvent) {
   if (t.closest('[data-act="agents"]')) return change("set_agents", { enabled: !MODELS.agents }, takeAgents);
 }
 export function modelKeys(e: KeyboardEvent) {
+  if (S.local) return localKeys(e);
   const m = MODELS.info!;
   if (MODELS.agents && m.auto_available && m.auto) return;
   const n = m.choices.length;
