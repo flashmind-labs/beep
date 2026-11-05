@@ -41,17 +41,17 @@ const OPEN_LIMIT: Duration = Duration::from_secs(15);
 const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 
 /// A machine as the agent names it: lower case, one word.
-fn command_name(name: &str) -> String {
+pub(super) fn command_name(name: &str) -> String {
     name.trim().to_lowercase().replace(' ', "-")
 }
 
 /// One device of the mesh.
-struct Machine {
-    id: EndpointId,
-    name: String,
+pub(super) struct Machine {
+    pub(super) id: EndpointId,
+    pub(super) name: String,
 }
 
-fn machines(mesh: &Mesh) -> Vec<Machine> {
+pub(super) fn machines(mesh: &Mesh) -> Vec<Machine> {
     mesh.devices()
         .into_iter()
         .map(|status| Machine {
@@ -615,7 +615,11 @@ fn name_the_job(text: &str, machine: &str) -> String {
     )
 }
 
-async fn over_the_mesh(mesh: &Mesh, peer: EndpointId, request: &Request) -> Result<Reply> {
+pub(super) async fn over_the_mesh(
+    mesh: &Mesh,
+    peer: EndpointId,
+    request: &Request,
+) -> Result<Reply> {
     let (mut tx, mut rx) = handshake(mesh, peer, PROTOCOL).await?;
     tx.send(request).await?;
     timeout(CALL_LIMIT, rx.recv())

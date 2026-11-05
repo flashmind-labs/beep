@@ -891,6 +891,7 @@ pub(crate) async fn serve_open(
                     table: tasks::Table::Peer(peer),
                     may_run_on_here: !desktop_here,
                     transfers: offers.transfers.get(),
+                    agents: Some(offers.agents.clone()),
                 },
             };
             peer_tools::serve(tx, rx, caller).await

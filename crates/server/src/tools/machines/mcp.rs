@@ -3,17 +3,12 @@
 //! do not ask: they only touch the caller's own memories.
 
 use super::{
-    Machines, Need,
-    agents::{self, Asker, Order},
-    command_name, copy,
-    exec::ExecTool,
-    log::MachineLogTool,
-    process::ProcessTool,
+    Machines, Need, command_name, copy, exec::ExecTool, log::MachineLogTool, process::ProcessTool,
     transfer,
 };
 use crate::{
     apps::permissions::{self, Check, MACHINE_LOG, RUN_ON, SEND_FILES, ToolApp},
-    nodes::{DESKTOP, StartOn, agent_name, describe},
+    nodes::{DESKTOP, agent_name, describe},
     protocol::node::{
         LinkRx, LinkTx, Open, Opened, agent,
         process::{Reply as TaskReply, Request as TaskRequest},
@@ -33,7 +28,6 @@ use std::{
 };
 use tokio::time::{Instant, sleep, timeout};
 use tokio_util::sync::CancellationToken;
-use uuid::Uuid;
 
 /// How long a node has to say what a stream is for, and to send its call.
 const READ_LIMIT: Duration = Duration::from_secs(10);
@@ -190,6 +184,14 @@ impl Calls {
             Call::UpdateMemory => memory(agent_memory::update(user, session, &args).await),
             Call::Forget => memory(agent_memory::forget(user, &args).await),
             Call::StandingRules => memory(agent_memory::standing_rules(user).await),
+            // The nodes answer these between themselves; a node never sends them here.
+            Call::StartAgent
+            | Call::AgentStatus
+            | Call::SendToAgent
+            | Call::StopAgent
+            | Call::ListAgents
+            | Call::AgentParent
+            | Call::AgentCount => Err("A node answers this tool itself, not the server.".into()),
             Call::Unknown => Err("This server does not know that tool; it needs an update.".into()),
         }
     }
@@ -252,18 +254,18 @@ impl Calls {
     }
 
     async fn run_on(&self, args: RunOnArgs) -> Outcome {
-        match (&args.command, &args.prompt) {
-            (Some(command), None) if !command.trim().is_empty() => {
+        if args.prompt.is_some() || args.agent.is_some() {
+            return Err(NO_AGENT_START.into());
+        }
+        match &args.command {
+            Some(command) if !command.trim().is_empty() => {
                 if args.background {
                     self.start_task(&args, command).await
                 } else {
                     self.run_command(&args, command).await
                 }
             }
-            (None, Some(prompt)) if !prompt.trim().is_empty() => {
-                self.start_agent(&args, prompt).await
-            }
-            _ => Err("Give either `command` or `prompt`, not both.".into()),
+            _ => Err("Give `command`.".into()),
         }
     }
 
@@ -300,7 +302,7 @@ impl Calls {
         };
         match picked.online.tasks(&request).await {
             Ok(TaskReply::Started { id }) => {
-                let job = Job::Task {
+                let job = Job {
                     machine: picked.shown(),
                     id: id.0,
                 };
@@ -316,88 +318,14 @@ impl Calls {
         }
     }
 
-    async fn start_agent(&self, args: &RunOnArgs, prompt: &str) -> Outcome {
-        let need = Need::Agent(args.agent.as_deref());
-        let picked = self.machines.pick(Some(&args.machine), need).await?;
-        let offered: Vec<&str> = picked
-            .online
-            .offers
-            .iter()
-            .filter_map(|offer| agent::agent_of(offer))
-            .collect();
-        let agent = match (args.agent.as_deref(), &offered[..]) {
-            (Some(agent), _) => agent,
-            (None, [only]) => only,
-            (None, []) => return Err(format!("{} offers no coding agent.", picked.shown())),
-            (None, many) => {
-                return Err(format!(
-                    "{} has several coding agents; name one in `agent`: {}.",
-                    picked.shown(),
-                    many.join(", ")
-                ));
-            }
-        };
-        let link = picked
-            .online
-            .start_agent(
-                agent,
-                args.cwd.clone(),
-                prompt.to_owned(),
-                StartOn::default(),
-            )
-            .await
-            .map_err(|e| format!("Could not start {}: {e:#}", agent_name(agent)))?;
-        let session = link.now().info.id;
-        let job = Job::Agent {
-            machine: picked.shown(),
-            agent: agent.to_owned(),
-            session,
-        };
-        Ok(format!(
-            "Started {} on {} with the prompt. Job id: {job}. It runs on its own; check it \
-             with job_status, stop its turn with cancel. The user sees it in Beep.",
-            agent_name(agent),
-            picked.shown()
-        ))
-    }
-
     async fn job(&self, id: String, cancel: bool) -> Outcome {
-        match Job::parse(&id)? {
-            Job::Task { machine, id } => {
-                let process = ProcessTool {
-                    machines: self.machines.clone(),
-                };
-                let action = if cancel { "stop" } else { "status" };
-                let args = json!({ "action": action, "id": id, "in": machine });
-                outcome(call_tool(&process, args).await)
-            }
-            Job::Agent {
-                machine,
-                agent,
-                session,
-            } => {
-                let picked = self
-                    .machines
-                    .pick(Some(&machine), Need::Agent(Some(&agent)))
-                    .await?;
-                let order = if cancel {
-                    Order::Cancel { id: session }
-                } else {
-                    Order::Status {
-                        id: Some(session),
-                        wait: None,
-                    }
-                };
-                // Status and cancel follow nothing, so no chat is needed.
-                let asker = Asker {
-                    app: &self.machines.app,
-                    user: &self.machines.user,
-                    chat: Uuid::nil(),
-                    endpoint: &picked.endpoint,
-                };
-                agents::run(&picked.online, &picked.shown(), &agent, order, &asker).await
-            }
-        }
+        let Job { machine, id } = Job::parse(&id)?;
+        let process = ProcessTool {
+            machines: self.machines.clone(),
+        };
+        let action = if cancel { "stop" } else { "status" };
+        let args = json!({ "action": action, "id": id, "in": machine });
+        outcome(call_tool(&process, args).await)
     }
 
     async fn sync_project(&self, args: SyncArgs) -> Outcome {
@@ -566,51 +494,37 @@ impl Calls {
     }
 }
 
-/// A run `run_on` started: `task:<n>@<machine>` or `<agent>:<session>@<machine>`.
+/// What a node that still sends `prompt` or `agent` to `run_on` is told: a
+/// coding agent starts only with `start_agent`, which keeps the limits.
+const NO_AGENT_START: &str = "run_on runs commands only. Start a coding agent with start_agent, which keeps its depth, \
+     count and mode limits.";
+
+/// A command `run_on` started in the background: `task:<n>@<machine>`.
 #[derive(Debug, PartialEq)]
-enum Job {
-    Task {
-        machine: String,
-        id: u32,
-    },
-    Agent {
-        machine: String,
-        agent: String,
-        session: String,
-    },
+struct Job {
+    machine: String,
+    id: u32,
 }
 
 impl Job {
     fn parse(id: &str) -> Result<Self, String> {
         let bad = || format!("{id} is not a job id from run_on.");
         let (what, machine) = id.trim().split_once('@').ok_or_else(bad)?;
-        let (kind, rest) = what.split_once(':').ok_or_else(bad)?;
-        if machine.is_empty() || rest.is_empty() {
+        let number = what.strip_prefix("task:").ok_or_else(bad)?;
+        if machine.is_empty() {
             return Err(bad());
         }
-        let machine = machine.to_owned();
-        if kind == "task" {
-            let id = rest.parse().map_err(|_| bad())?;
-            return Ok(Self::Task { machine, id });
-        }
-        Ok(Self::Agent {
-            machine,
-            agent: kind.to_owned(),
-            session: rest.to_owned(),
+        let id = number.parse().map_err(|_| bad())?;
+        Ok(Self {
+            machine: machine.to_owned(),
+            id,
         })
     }
 }
 
 impl Display for Job {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Task { machine, id } => write!(f, "task:{id}@{machine}"),
-            Self::Agent {
-                machine,
-                agent,
-                session,
-            } => write!(f, "{agent}:{session}@{machine}"),
-        }
+        write!(f, "task:{}@{}", self.id, self.machine)
     }
 }
 
@@ -873,6 +787,35 @@ mod tests {
         );
         served.abort();
         router.shutdown().await.expect("the router stops");
+    }
+
+    #[tokio::test]
+    async fn run_on_no_longer_starts_a_coding_agent() {
+        let harness = Harness::new(Scripted::default()).await;
+        // An older node sends `prompt` and `agent`: refused before any machine
+        // is picked, so it gets no agent that skips the limits.
+        for args in [
+            json!({ "machine": "build-box", "prompt": "fix it" }),
+            json!({ "machine": "build-box", "prompt": "fix it", "agent": "codex" }),
+            json!({ "machine": "build-box", "command": "uname", "prompt": "fix it" }),
+        ] {
+            let ran = calls(&harness)
+                .answer(&request(Call::RunOn, args, Approved::No))
+                .await;
+            assert!(
+                matches!(&ran, Reply::Done { failed: true, text } if text.contains("start_agent")),
+                "{ran:?}"
+            );
+        }
+        // A job id of an agent session is no job id any more.
+        assert!(Job::parse("codex:s1@build-box").is_err());
+        assert_eq!(
+            Job::parse("task:7@build-box"),
+            Ok(Job {
+                machine: "build-box".into(),
+                id: 7
+            })
+        );
     }
 
     #[tokio::test]

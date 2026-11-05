@@ -2,6 +2,7 @@
 
 use super::{CheckoutPlan, Effort};
 use crate::{AgentContext, ModelId, Upload};
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -134,6 +135,41 @@ pub struct SessionInfo {
     /// Where it works now, as the node worked it out; `None` before the
     /// node knows or when the folder is in no git checkout.
     pub place: Option<WorkPlace>,
+    /// The session that started this one with `start_agent`, when one did.
+    /// Always the last field: readers skip what they do not know.
+    pub parent: Option<ParentLink>,
+}
+
+/// Who started a session and how deep the chain goes, as the node that
+/// started it recorded and as it passes it across machines.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParentLink {
+    /// The machine the parent runs on; `None` for a node out of a mesh.
+    #[serde(default)]
+    pub machine: Option<EndpointId>,
+    /// The parent's id: the agent's own when it has one.
+    pub session: String,
+    /// The id the parent's node listed it under when this was made, which
+    /// the agent's own id replaces once the node restarts.
+    #[serde(default)]
+    pub key: String,
+    /// The session at the top of the chain, and its machine.
+    #[serde(default)]
+    pub root_machine: Option<EndpointId>,
+    pub root: String,
+    /// How many starts deep this session is: 1 for a child of a root.
+    pub depth: u8,
+    /// Not read: the node that starts a child counts the root's agents on
+    /// every machine itself. Kept so the fields after it keep their place.
+    #[serde(default)]
+    pub others: u8,
+    /// The parent's agent, such as `claude`.
+    #[serde(default)]
+    pub agent: String,
+    /// The mode the parent was held to when it started this one, when it
+    /// was not in full access: a child may not run above it.
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 /// The git checkout a session works in, as its node works it out from what
@@ -523,6 +559,103 @@ mod tests {
                 effort: None,
                 checkout: None,
             }
+        );
+    }
+
+    #[test]
+    fn a_session_with_a_parent_reads_on_an_older_reader_and_back() {
+        #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+        #[serde(default)]
+        struct Older {
+            id: String,
+            agent: String,
+            turns: u32,
+        }
+        let newer = SessionInfo {
+            id: "c1".into(),
+            agent: "codex".into(),
+            turns: 2,
+            parent: Some(ParentLink {
+                machine: None,
+                session: "p1".into(),
+                key: "p1".into(),
+                root_machine: None,
+                root: "p1".into(),
+                depth: 1,
+                others: 0,
+                agent: "claude".into(),
+                mode: None,
+            }),
+            ..SessionInfo::default()
+        };
+        let named = rmp_serde::to_vec_named(&newer).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<Older>(&named).unwrap(),
+            Older {
+                id: "c1".into(),
+                agent: "codex".into(),
+                turns: 2
+            }
+        );
+        // A session from a node before the field has no parent.
+        let old = rmp_serde::to_vec_named(&Older::default()).unwrap();
+        let read = rmp_serde::from_slice::<SessionInfo>(&old).unwrap();
+        assert_eq!(read.parent, None);
+        assert_eq!(rmp_serde::from_slice::<SessionInfo>(&named).unwrap(), newer);
+    }
+
+    #[test]
+    fn a_session_with_a_parent_reads_compact_on_a_lenient_older_reader() {
+        // What a node from before `parent` reads: the fields up to `place`.
+        #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+        #[serde(default)]
+        struct Older {
+            id: String,
+            agent: String,
+            cwd: String,
+            title: Option<String>,
+            started_at: u64,
+            state: State,
+            question: Option<Question>,
+            last_message: String,
+            turns: u32,
+            context: Option<AgentContext>,
+            tokens: u64,
+            cost_usd: Option<f64>,
+            modes: Vec<ModeOption>,
+            mode: Option<String>,
+            plan_ready: Option<String>,
+            place: Option<WorkPlace>,
+        }
+        let newer = SessionInfo {
+            id: "c1".into(),
+            agent: "codex".into(),
+            turns: 3,
+            parent: Some(ParentLink {
+                machine: None,
+                session: "p1".into(),
+                key: "p1".into(),
+                root_machine: None,
+                root: "p1".into(),
+                depth: 2,
+                others: 1,
+                agent: "claude".into(),
+                mode: Some("plan".into()),
+            }),
+            ..SessionInfo::default()
+        };
+        let compact = rmp_serde::to_vec(&newer).unwrap();
+        let read: Older = crate::lenient::from_slice(&compact).unwrap();
+        assert_eq!((read.id.as_str(), read.turns), ("c1", 3));
+        // Plain rmp refuses the longer array, which is why readers are lenient.
+        assert!(rmp_serde::from_slice::<Older>(&compact).is_err());
+        // A node from before the field sends the short array.
+        let short = rmp_serde::to_vec(&Older::default()).unwrap();
+        let read: SessionInfo = crate::lenient::from_slice(&short).unwrap();
+        assert_eq!(read.parent, None);
+        assert_eq!(
+            crate::lenient::from_slice::<SessionInfo>(&compact).unwrap(),
+            newer
         );
     }
 

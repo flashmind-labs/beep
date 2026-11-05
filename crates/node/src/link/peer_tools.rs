@@ -4,6 +4,7 @@
 //! check, since the mesh's members are the user's own machines.
 
 use crate::{
+    agents::{Agents, mcp::children},
     files::transfer::{Incoming, Transfers},
     link::Offers,
     machine::service::logs,
@@ -18,7 +19,7 @@ use beep_proto::node::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::{fmt::Write, time::Duration};
+use std::{fmt::Write, sync::Arc, time::Duration};
 use tokio::{
     sync::Semaphore,
     task::spawn_blocking,
@@ -43,6 +44,9 @@ pub(crate) struct Caller {
     pub may_run_on_here: bool,
     /// This node's synced projects and transfers, when it shares folders.
     pub transfers: Option<Transfers>,
+    /// This node's coding agents, which another node's agents may start
+    /// agents among.
+    pub agents: Option<Arc<Agents>>,
 }
 
 impl Caller {
@@ -52,6 +56,7 @@ impl Caller {
             table: Table::Shared,
             may_run_on_here: true,
             transfers: offers.transfers.get(),
+            agents: Some(offers.agents.clone()),
         }
     }
 }
@@ -70,6 +75,17 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, caller: Caller) -> Res
 type Outcome = Result<String, String>;
 
 pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
+    if matches!(
+        request.tool,
+        Tool::StartAgent
+            | Tool::AgentStatus
+            | Tool::SendToAgent
+            | Tool::StopAgent
+            | Tool::AgentParent
+            | Tool::AgentCount
+    ) {
+        return agent_call(request, &caller).await;
+    }
     let outcome = match serde_json::from_str::<Value>(&request.args) {
         Err(e) => Err(format!("The arguments are not JSON: {e}")),
         Ok(args) => match request.tool {
@@ -104,6 +120,22 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     }
 }
 
+/// An agent tool another node's agent calls on this machine. A desktop is
+/// the user's own: another node's agent may not start agents on it.
+async fn agent_call(request: Request, caller: &Caller) -> Reply {
+    let failed = |text: &str| Reply::Done {
+        text: text.to_owned(),
+        failed: true,
+    };
+    let (Table::Peer(peer), Some(agents)) = (caller.table, &caller.agents) else {
+        return failed("Agents are started through the node's own Beep MCP server.");
+    };
+    if request.tool == Tool::StartAgent && !caller.may_run_on_here {
+        return failed("This device is a desktop: another node may not start agents on it.");
+    }
+    children::answer_peer(agents, peer, request).await
+}
+
 fn parse<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
     serde_json::from_value(args).map_err(|e| format!("The arguments do not fit: {e}"))
 }
@@ -112,6 +144,7 @@ fn parse<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
 struct RunOn {
     command: Option<String>,
     prompt: Option<String>,
+    agent: Option<String>,
     cwd: Option<String>,
     #[serde(default)]
     background: bool,
@@ -119,9 +152,13 @@ struct RunOn {
 }
 
 async fn run_on(args: RunOn, table: Table) -> Outcome {
-    let command = match (args.command, args.prompt) {
-        (Some(command), None) if !command.trim().is_empty() => command,
-        (None, Some(_)) => return Err("A node runs commands for another node, not agents.".into()),
+    // An older node sends `prompt` (and `agent`) to start an agent. That would
+    // skip the parent link and every limit `start_agent` keeps, so it is refused.
+    if args.prompt.is_some() || args.agent.is_some() {
+        return Err("run_on runs commands only. Start an agent with start_agent.".into());
+    }
+    let command = match args.command {
+        Some(command) if !command.trim().is_empty() => command,
         _ => return Err("Give `command`.".into()),
     };
     if args.background {
@@ -312,6 +349,7 @@ mod tests {
             table,
             may_run_on_here,
             transfers: None,
+            agents: None,
         }
     }
 
@@ -321,6 +359,26 @@ mod tests {
             tool: Tool::RunOn,
             args: r#"{"command":"echo ran-here"}"#.to_owned(),
             approved: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_older_nodes_run_on_with_a_prompt_starts_no_agent_here() {
+        let table = Table::Peer(iroh::SecretKey::generate().public());
+        for args in [
+            r#"{"prompt":"fix it"}"#,
+            r#"{"prompt":"fix it","agent":"codex"}"#,
+            r#"{"command":"echo ran-here","prompt":"fix it"}"#,
+        ] {
+            let request = Request {
+                args: args.to_owned(),
+                ..run_on()
+            };
+            let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
+                panic!("not done");
+            };
+            assert!(failed && text.contains("start_agent"), "{args}: {text}");
+            assert!(!text.contains("ran-here"));
         }
     }
 

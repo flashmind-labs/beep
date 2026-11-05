@@ -2,9 +2,9 @@
 //! until no turn runs (`Hold`), and the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
-use super::{Agents, Begin, Command, Prompt, session::NODE_STOPPED};
+use super::{Agents, Begin, Command, Prompt, family::RemoteKid, session::NODE_STOPPED};
 use anyhow::{Context, Result};
-use beep_proto::node::agent::Status;
+use beep_proto::node::agent::{ParentLink, Status};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tokio::{sync::watch, time::timeout};
@@ -29,6 +29,19 @@ pub(crate) struct OpenSession {
     /// The session mode it was in.
     #[serde(default)]
     mode: Option<String>,
+    /// The session that started it with `start_agent`.
+    #[serde(default)]
+    parent: Option<ParentLink>,
+    /// The children it started on other machines.
+    #[serde(default)]
+    pub(super) kids: Vec<RemoteKid>,
+}
+
+impl OpenSession {
+    /// How deep in a chain of starts the session is; 0 for a root.
+    pub(super) fn depth(&self) -> u8 {
+        self.parent.as_ref().map_or(0, |link| link.depth)
+    }
 }
 
 /// Prompts wait instead of starting turns while this lives.
@@ -112,6 +125,8 @@ impl Agents {
                     cwd: PathBuf::from(&live.info.cwd),
                     held: live.held.clone(),
                     mode: live.info.mode.clone(),
+                    parent: live.info.parent.clone(),
+                    kids: self.kids_to_keep(&Self::name_of(session)),
                 })
             })
             .collect()
@@ -130,6 +145,8 @@ impl Agents {
         {
             log::info!("resuming sessions without the agent settings: the server sent none");
         }
+        let mut sessions = sessions;
+        Self::parents_first(&mut sessions);
         for open in sessions {
             let id = open.session.clone();
             if let Err(e) = self.reopen_one(open).await {
@@ -147,16 +164,26 @@ impl Agents {
             .clone();
         self.prepare(&kind).await?;
         let cwd = open.cwd.to_string_lossy();
+        let follows = open
+            .parent
+            .as_ref()
+            .and_then(|link| self.parent_live_of(link));
         let session = self.start(
             &kind,
             Some(&cwd),
             Begin {
                 resume: Some(open.session),
                 mode: open.mode,
+                parent: open.parent,
+                follows,
                 note: Some(RESUMED.to_owned()),
                 ..Begin::default()
             },
         )?;
+        self.watch_parent(&session);
+        for kid in open.kids {
+            self.adopt_remote(&session, kid);
+        }
         for prompt in open.held {
             session
                 .order(Command::Prompt(prompt))
@@ -340,6 +367,62 @@ done
         let read = std::fs::read_to_string(&log).expect("the adapter's log");
         assert!(read.contains("session/load"), "{read}");
         assert!(read.contains(r#""text":"after""#), "{read}");
+        after.shutdown().await;
+    }
+
+    /// The note of the first session, once `ready` holds for what it keeps.
+    async fn note_with(dir: &Path, ready: impl Fn(&OpenSession) -> bool) -> OpenSession {
+        timeout(Duration::from_secs(20), async {
+            loop {
+                if let Some(open) = Reopen::read(dir).sessions.into_iter().find(&ready) {
+                    break open;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the note holds it")
+    }
+
+    #[tokio::test]
+    async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let log = dir.path().join("log");
+        let kind = adapter(&log);
+        let before = Arc::new(Agents::new(vec![kind.clone()]));
+        let keeping = {
+            let (dir, agents) = (dir.path().to_path_buf(), before.clone());
+            tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+                restart::keep(&dir, &agents).await;
+            }))
+        };
+        let session = before
+            .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        until(&mut live, |live| live.info.turns == 1).await;
+        let name = Agents::name_of(&session);
+        let mut kid = RemoteKid::expected(&name, iroh::SecretKey::generate().public(), "box");
+        kid.id = "k1".into();
+        // Adopting changes the note with no session opening or closing.
+        before.adopt_remote(&session, kid.clone());
+        let noted = note_with(dir.path(), |open| open.kids == [kid.clone()]).await;
+        // Ending it changes the note too.
+        before.end_remote(&kid);
+        let ended = note_with(dir.path(), |open| {
+            !open.kids.is_empty() && open.kids.iter().all(|kid| kid.ended)
+        })
+        .await;
+        assert_eq!(ended.kids.len(), 1);
+        // The node dies here: the note is what is left.
+        drop(keeping);
+
+        let after = Agents::new(vec![kind]);
+        after.settings_arrived();
+        after.reopen(vec![noted]).await;
+        let resumed = after.get(&name).expect("resumed under the agent's id");
+        assert_eq!(after.remote_kids(&Agents::name_of(&resumed)), vec![kid]);
+        before.shutdown().await;
         after.shutdown().await;
     }
 

@@ -87,6 +87,7 @@ pub async fn serve_session(
     loop {
         tokio::select! {
             request = rx.recv::<Request>() => {
+                let mut cascade = false;
                 let command = match request {
                     Ok(Some(Request::Prompt { text })) => Command::Prompt(text.into()),
                     Ok(Some(Request::PromptImages { text, images })) => {
@@ -111,7 +112,12 @@ pub async fn serve_session(
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
                     Ok(Some(Request::SetMode { mode })) => Command::SetMode(mode),
                     Ok(Some(Request::StopTask { task })) => Command::StopTask(task),
-                    Ok(Some(Request::Cancel {})) => Command::Cancel,
+                    Ok(Some(Request::Cancel {})) => {
+                        // Stop goes down to what the session started, on
+                        // other machines too, after its own turn stops.
+                        cascade = true;
+                        Command::Cancel
+                    }
                     Ok(Some(Request::Close {})) => Command::Close,
                     Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },
                     Ok(Some(other)) => {
@@ -128,6 +134,12 @@ pub async fn serve_session(
                     }
                 };
                 let error = session.order(command).await.err();
+                if cascade {
+                    // The session keeps the task, so it ends with it; it is
+                    // bounded by the time each machine has to answer.
+                    let (agents, family) = (agents.clone(), session.clone());
+                    session.keep(tokio::spawn(async move { agents.cancel_family(&family).await }));
+                }
                 tx.send(&Event::Ack { error }).await?;
             }
             changed = live.changed() => {

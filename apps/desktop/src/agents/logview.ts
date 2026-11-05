@@ -1,6 +1,6 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
-import { esc, linkified } from "../ui/format.ts";
+import { esc, linkified, money, tokenCount } from "../ui/format.ts";
 import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
@@ -13,6 +13,8 @@ import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
+import { parentRow } from "./nesting-state.ts";
+import { sessions } from "./sessions.ts";
 import { fillAgentPics, gonePic } from "./images.ts";
 import { filesHtml, planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
@@ -104,7 +106,8 @@ function subOf(at: number) {
   const p = AG.page!, en = p.entries[at - p.earlier];
   const { title, status, output } = AG.log!.parseTool(AG.log!.imageLines(en.text).text);
   const sub = AG.log!.subagent(output) ?? { count: 0, steps: [], result: output };
-  const working = (status === "in_progress" || status === "pending") && AGENT_ACTIVE.has(p.session.status);
+  // An agent another agent started has a session of its own, whose state the node wrote.
+  const working = sub.child ? sub.child.state === "working" : (status === "in_progress" || status === "pending") && AGENT_ACTIVE.has(p.session.status);
   // Timed from when this window saw it working, if it did.
   const key = `${AG.open?.session}\n${at}`, now = Date.now();
   let seen = subTimes.get(key);
@@ -117,10 +120,19 @@ function subOf(at: number) {
 /// One subagent as a row: its name, how it stands, how long and how many steps.
 function subRow(at: number) {
   const x = subOf(at);
-  const st = x.working ? "working" : x.failed ? "failed" : "done";
-  const meta = [st, x.ms != null ? duration(x.ms) : "", x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`].filter(Boolean).join(" · ");
+  const kid = x.sub.child;
+  const st = kid ? kidState(kid.state) : x.working ? "working" : x.failed ? "failed" : "done";
+  const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
+  const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
   const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
-  return `<button class="dsubrow" data-sub="${at}" title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span></button>`;
+  // A child opens as the session it is; a subagent opens in this one.
+  const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : `data-sub="${at}"`;
+  return `<button class="dsubrow" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span></button>`;
+}
+
+/// How an agent another agent started stands, as its card says.
+function kidState(state: string) {
+  return state === "working" ? "working" : state === "waiting_on_user" ? "needs you" : state === "ended" ? "ended" : "done";
 }
 
 /// Subagents started together as one card: "3 subagents · 2 working · 1 done".
@@ -128,7 +140,7 @@ function subCard(ats: number[]) {
   const all = ats.map(subOf), working = all.filter(x => x.working).length, failed = all.filter(x => x.failed).length;
   const done = all.length - working - failed;
   const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
-  const head = ats.length > 1 ? `<div class="h">${SUB_ICON}<b>${ats.length} subagents</b><span>${esc(counts)}</span></div>` : "";
+  const head = ats.length > 1 ? `<div class="h">${SUB_ICON}<b>${ats.length} ${all.every(x => x.sub.child) ? "agents started" : "subagents"}</b><span>${esc(counts)}</span></div>` : "";
   return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(subRow).join("")}</div>`;
 }
 
@@ -151,6 +163,14 @@ function childHtml(p: AgentPage, at: number) {
     <div class="dcoderen user"><b>${esc(x.agent || "Task")}</b><span>${esc(x.title)}</span></div>
     ${turnHeadHtml({ state: x.working ? "working" : "done", ms: x.ms, stats: "", key: null, opened: false })}
     ${earlier}${steps}${none}${result}`;
+}
+
+/// The line back to the session whose agent started this one, when one did:
+/// its parent and this session's title, and the way up.
+function upCrumb(p: AgentPage) {
+  const up = parentRow(sessions, { machine_id: p.session.machine_id, id: p.session.id });
+  if (!up) return "";
+  return `<div class="dcrumb"><button id="agup">${esc(up.title || "Session")}</button><span>›</span><b>${esc(p.session.title || "Session")}</b><span class="sp"></span><button class="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>`;
 }
 
 /// Back from a subagent to its session.
@@ -450,7 +470,7 @@ export function drawAgentBody(keep?: string, polled = false) {
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   // The log's turns go in as chunks, so one that did not change is not parsed again.
-  const chunks = child != null ? [childHtml(p, child)] : p.entries.length && AG.log ? [earlier, ...turnsHtml(p)] : null;
+  const chunks = child != null ? [childHtml(p, child)] : p.entries.length && AG.log ? [upCrumb(p), earlier, ...turnsHtml(p)] : null;
   const entries = chunks ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.

@@ -135,7 +135,7 @@ pub(crate) async fn local_sessions(fleet: &Fleet) -> Vec<MachineSession> {
         fleet,
         vec![fleet.id()],
         MACHINE_LIMIT,
-        |client, host| async move { listing::beep_sessions(&client, &host).await },
+        |client, host| async move { listed(fleet, &client, &host).await },
     )
     .await
 }
@@ -145,9 +145,16 @@ pub(crate) async fn peer_sessions(fleet: &Fleet) -> Vec<MachineSession> {
     let me = fleet.id();
     let peers = fleet.online().into_iter().filter(|m| *m != me).collect();
     each(fleet, peers, MACHINE_LIMIT, |client, host| async move {
-        listing::beep_sessions(&client, &host).await
+        listed(fleet, &client, &host).await
     })
     .await
+}
+
+/// Beep's sessions on one machine, noting which an agent started.
+async fn listed(fleet: &Fleet, client: &PeerClient, host: &Host) -> Vec<MachineSession> {
+    let linked = listing::linked_sessions(client, host).await;
+    fleet.parents.note(&host.id, &linked);
+    linked.into_iter().map(|linked| linked.session).collect()
 }
 
 /// The sessions started outside Beep that run now, on every online machine.
