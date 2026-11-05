@@ -73,7 +73,7 @@ impl Agents {
         last: usize,
     ) -> (Vec<agent::Entry>, u64) {
         let (mut entries, earlier) = self.codex_transcript(session, last).await;
-        mcp::children::show_children(self, session, &mut entries).await;
+        mcp::children::show_children(self, session, &mut entries);
         (entries, earlier)
     }
 

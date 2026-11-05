@@ -52,6 +52,12 @@ pub enum Tool {
     SendToAgent,
     StopAgent,
     ListAgents,
+    /// A node asks the node of a session that started its agent whether it still
+    /// keeps that agent, so one whose parent is gone closes. Between nodes only.
+    AgentParent,
+    /// A node asks another how many live agents run there under a root session,
+    /// to hold the limit across machines. Between nodes only.
+    AgentCount,
     /// Not a tool agents see: the node reads it for a session's first prompt.
     /// `Done` with the text, empty when there are none.
     StandingRules,
@@ -122,6 +128,8 @@ mod tests {
             (Tool::SendToAgent, "send_to_agent"),
             (Tool::StopAgent, "stop_agent"),
             (Tool::ListAgents, "list_agents"),
+            (Tool::AgentParent, "agent_parent"),
+            (Tool::AgentCount, "agent_count"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));

@@ -159,8 +159,8 @@ pub struct ParentLink {
     pub root: String,
     /// How many starts deep this session is: 1 for a child of a root.
     pub depth: u8,
-    /// How many of the root's descendants machines before this one counted
-    /// when it started.
+    /// Not read: the node that starts a child counts the root's agents on
+    /// every machine itself. Kept so the fields after it keep their place.
     #[serde(default)]
     pub others: u8,
     /// The parent's agent, such as `claude`.

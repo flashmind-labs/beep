@@ -66,8 +66,8 @@ const MACHINES_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user
     machines. list_machines says which machines there are, whether each is online, its OS, \
     what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
     machine whose OS and tools fit the work, such as a macOS machine with Xcode for iOS and \
-    Mac builds, or one with a GPU for heavy jobs. run_on runs a command there, or starts a \
-    coding agent there with a prompt; job_status and cancel follow what it started. \
+    Mac builds, or one with a GPU for heavy jobs. run_on runs a command there; job_status and \
+    cancel follow a background command. \
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. machine_log reads a machine's beep-node log. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
     for the answer. Running and sending may wait for the user to allow it.";

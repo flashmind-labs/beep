@@ -53,6 +53,9 @@ pub(super) struct Known {
     /// launch cannot set it, set once the session exists. Switching modes
     /// shows it as Full access, first.
     pub(super) bypass_mode: Option<&'static str>,
+    /// The id of the session mode that asks no permission, however the
+    /// launch reaches it: a child is never started above its parent's.
+    pub(super) full_mode: Option<&'static str>,
     /// It starts on a model given as `--model` on its command line; the
     /// others switch over ACP once the session exists.
     pub(super) model_flag: bool,
@@ -100,6 +103,7 @@ pub(super) const KNOWN: &[Known] = &[
         // default to `omitted`, which sends empty thinking blocks.
         thinking_env: &[("CLAUDE_CODE_THINKING_DISPLAY", "summarized")],
         bypass_mode: Some("bypassPermissions"),
+        full_mode: Some("bypassPermissions"),
         model_flag: false,
         compact: Route::Percent {
             percent_var: "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
@@ -120,6 +124,7 @@ pub(super) const KNOWN: &[Known] = &[
         env: &[("INITIAL_AGENT_MODE", "agent-full-access")],
         thinking_env: &[],
         bypass_mode: None,
+        full_mode: Some("agent-full-access"),
         model_flag: false,
         compact: Route::TokenLimit {
             config_var: "CODEX_CONFIG",
@@ -137,6 +142,7 @@ pub(super) const KNOWN: &[Known] = &[
         env: &[("GEMINI_CLI_TRUST_WORKSPACE", "true")],
         thinking_env: &[],
         bypass_mode: None,
+        full_mode: Some("yolo"),
         model_flag: true,
         compact: Route::OwnTrigger,
         async_tasks: false,
@@ -153,6 +159,7 @@ pub(super) const KNOWN: &[Known] = &[
         env: &[],
         thinking_env: &[],
         bypass_mode: None,
+        full_mode: None,
         model_flag: false,
         compact: Route::Advertised,
         async_tasks: false,
@@ -166,6 +173,7 @@ pub(super) const KNOWN: &[Known] = &[
         env: &[],
         thinking_env: &[],
         bypass_mode: None,
+        full_mode: None,
         model_flag: true,
         compact: Route::OwnTrigger,
         async_tasks: false,
@@ -180,6 +188,7 @@ pub(super) const KNOWN: &[Known] = &[
         env: &[("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)],
         thinking_env: &[],
         bypass_mode: None,
+        full_mode: None,
         model_flag: false,
         compact: Route::Toggle {
             off_var: "OPENCODE_DISABLE_AUTOCOMPACT",

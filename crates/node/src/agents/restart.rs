@@ -180,6 +180,7 @@ impl Agents {
                 ..Begin::default()
             },
         )?;
+        self.watch_parent(&session);
         for kid in open.kids {
             self.adopt_remote(&session, kid);
         }
@@ -366,6 +367,62 @@ done
         let read = std::fs::read_to_string(&log).expect("the adapter's log");
         assert!(read.contains("session/load"), "{read}");
         assert!(read.contains(r#""text":"after""#), "{read}");
+        after.shutdown().await;
+    }
+
+    /// The note of the first session, once `ready` holds for what it keeps.
+    async fn note_with(dir: &Path, ready: impl Fn(&OpenSession) -> bool) -> OpenSession {
+        timeout(Duration::from_secs(20), async {
+            loop {
+                if let Some(open) = Reopen::read(dir).sessions.into_iter().find(&ready) {
+                    break open;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the note holds it")
+    }
+
+    #[tokio::test]
+    async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let log = dir.path().join("log");
+        let kind = adapter(&log);
+        let before = Arc::new(Agents::new(vec![kind.clone()]));
+        let keeping = {
+            let (dir, agents) = (dir.path().to_path_buf(), before.clone());
+            tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+                restart::keep(&dir, &agents).await;
+            }))
+        };
+        let session = before
+            .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        until(&mut live, |live| live.info.turns == 1).await;
+        let name = Agents::name_of(&session);
+        let mut kid = RemoteKid::expected(&name, iroh::SecretKey::generate().public(), "box");
+        kid.id = "k1".into();
+        // Adopting changes the note with no session opening or closing.
+        before.adopt_remote(&session, kid.clone());
+        let noted = note_with(dir.path(), |open| open.kids == [kid.clone()]).await;
+        // Ending it changes the note too.
+        before.end_remote(&kid);
+        let ended = note_with(dir.path(), |open| {
+            !open.kids.is_empty() && open.kids.iter().all(|kid| kid.ended)
+        })
+        .await;
+        assert_eq!(ended.kids.len(), 1);
+        // The node dies here: the note is what is left.
+        drop(keeping);
+
+        let after = Agents::new(vec![kind]);
+        after.settings_arrived();
+        after.reopen(vec![noted]).await;
+        let resumed = after.get(&name).expect("resumed under the agent's id");
+        assert_eq!(after.remote_kids(&Agents::name_of(&resumed)), vec![kid]);
+        before.shutdown().await;
         after.shutdown().await;
     }
 

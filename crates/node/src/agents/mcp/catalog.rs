@@ -44,17 +44,13 @@ fn all() -> Value {
             "description": "Run a shell command on one of the user's machines and return its \
                 exit code and the last 200 lines of output (stops after timeout_secs, default \
                 600, at most 1800), or with background=true start it there and return a job id \
-                at once. Or give `prompt` instead of `command` to start a coding agent there \
-                with that prompt; it returns the agent session's job id at once and runs on its \
-                own. Follow either with job_status and cancel. Commands start in the machine's \
-                home folder, or in `cwd`.",
+                at once. Follow a background command with job_status and cancel. It starts in \
+                the machine's home folder, or in `cwd`. To start a coding agent use start_agent.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "machine": machine("The machine, by its name in list_machines"),
                     "command": { "type": "string", "description": "The shell command to run" },
-                    "prompt": { "type": "string", "description": "Starts a coding agent with this prompt instead of running a command" },
-                    "agent": { "type": "string", "description": "The coding agent for `prompt` when the machine has several, such as claude or codex" },
                     "cwd": { "type": "string", "description": "The folder on that machine to run in" },
                     "timeout_secs": { "type": "integer", "minimum": 1, "maximum": 1800 },
                     "background": { "type": "boolean", "description": "Starts the command and returns a job id without waiting" }
@@ -102,8 +98,8 @@ fn all() -> Value {
         },
         {
             "name": "job_status",
-            "description": "How a job run_on started stands: a background command's state and \
-                latest output, or a coding agent's status, plan and last message.",
+            "description": "How a background command run_on started stands: its state and latest \
+                output. For a coding agent use agent_status.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "id": { "type": "string", "description": "The job id run_on gave" } },
@@ -114,8 +110,8 @@ fn all() -> Value {
         },
         {
             "name": "cancel",
-            "description": "Stop a job run_on started: a background command stops with \
-                everything it started; a coding agent stops its turn and its session stays.",
+            "description": "Stop a background command run_on started, with everything it \
+                started. For a coding agent use stop_agent.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "id": { "type": "string", "description": "The job id run_on gave" } },

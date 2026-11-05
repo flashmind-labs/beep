@@ -13,7 +13,7 @@ import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
-import { sessions } from "./sessions.ts";
+import { loadSessions, sessions } from "./sessions.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
@@ -251,6 +251,16 @@ export function drawAgentFrame() {
   bar.onclick = agentClick;
 }
 
+/// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again.
+async function openKid(id: string, key?: string) {
+  let row = childRow(sessions, id, key);
+  if (!row) {
+    try { await loadSessions(); } catch { return; }
+    row = childRow(sessions, id, key);
+  }
+  if (row) openAgent(row, { back: AG.back });
+}
+
 function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
   const target = e.target as HTMLElement;
@@ -268,7 +278,7 @@ function agentClick(e: MouseEvent) {
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
   // An agent another agent started opens as its own session.
   const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
-  if (kid) { const row = childRow(sessions, kid.dataset.kid!, kid.dataset.key); if (row) openAgent(row, { back: AG.back }); return; }
+  if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
   const up = target.closest("#agup, #agup2");
   if (up) { const row = AG.open && parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }); if (row) openAgent(row, { back: AG.back }); return; }
   if (target.closest("#agparent")) return closeChild();
