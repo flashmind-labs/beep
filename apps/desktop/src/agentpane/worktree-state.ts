@@ -147,3 +147,19 @@ export function mentioned(root: string, cwd: string, rel: string) {
 export function reviewIn(text: string, root: string, cwd: string) {
   return bare(root) === bare(cwd) ? text : `In ${root}: ${text}`;
 }
+
+/// Where Beep and Claude Code make worktrees, under a checkout.
+const MADE_UNDER = /^(?:\.worktrees|\.claude\/worktrees)\/[^/]+(?:\/|$)/;
+
+/// The main checkout's path when the session's folder `cwd` is gone: the
+/// node then lists the checkout as the one holding the folder (`own`),
+/// though `cwd` is not in its tree, or is in a folder where worktrees are
+/// made, which no listed worktree holds. Null otherwise, a live worktree
+/// included.
+export function removedCheckout(trees: readonly Tree[], cwd: string) {
+  const own = trees.find(t => t.own);
+  if (!own) return null;
+  const top = bare(own.path);
+  if (!within(bare(cwd), top)) return top;
+  return MADE_UNDER.test(bare(cwd).slice(top.length + 1)) ? top : null;
+}
