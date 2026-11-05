@@ -3201,7 +3201,7 @@ async fn when_two_machines_continued_a_session_the_later_one_wins_and_the_other_
     );
     let marker = pair.b.dir.path().join("sessions/codex/s");
     fs::create_dir_all(&marker).expect("the cache folder");
-    fs::write(marker.join("continued"), "1").expect("the note");
+    fs::write(marker.join("continued"), "1\n1").expect("the note");
     let conn_b = pair.desktop.reach(pair.b.id).await;
     until_copies(&conn_b, "b's version is kept as a copy", |c| {
         c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
@@ -3315,7 +3315,7 @@ async fn until_b_lost(pair: &Pair, conn_b: &Link) -> (PathBuf, u64) {
     );
     let marker = pair.b.dir.path().join("sessions/codex/s");
     fs::create_dir_all(&marker).expect("the cache folder");
-    fs::write(marker.join("continued"), "1").expect("the note");
+    fs::write(marker.join("continued"), "1\n1").expect("the note");
     until_copies(conn_b, "b's version is kept as a copy", |c| {
         c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
     })
@@ -3410,7 +3410,7 @@ async fn a_session_a_move_names_is_not_filed_as_lost_by_the_note_of_an_earlier_c
     );
     let marker = pair.b.dir.path().join("sessions/codex/s");
     fs::create_dir_all(&marker).expect("the cache folder");
-    fs::write(marker.join("continued"), "1").expect("the note");
+    fs::write(marker.join("continued"), "1\n1").expect("the note");
     pair.b
         .logged("session s: not settled, a move names it")
         .await;
@@ -3510,8 +3510,48 @@ async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
     .await
     .expect("the source's worktree was detached");
 
-    // And back: the folder `a` kept is reused, not refused as taken.
+    // And back. The folder `a` kept still holds what the session left: the
+    // move is refused before anything stops, naming the folder, and the
+    // session keeps running on `b`.
     ask_to_move_worktree(&pair.desktop, pair.b.id, pair.a.id, "feat", &b_worktree, 2).await;
+    until_progress(&conn_a, "refused for the folder", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains(&a_worktree.display().to_string()))
+    })
+    .await;
+    let mut list = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.state.status != Status::Ended),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+    assert_eq!(
+        fs::read_to_string(a_worktree.join("notes.txt")).expect("untouched"),
+        "not committed\n"
+    );
+
+    // Cleared by the user, with a stash of the user's own on the checkout:
+    // the folder is reused, and the stash is not touched.
+    git_in(&a_worktree, &["checkout", "-q", "--force", "--detach"]);
+    git_in(&a_worktree, &["clean", "-fdq"]);
+    fs::write(pair.a_folder.join("main.rs"), "fn main() { mine() }\n").expect("a change");
+    git_in(
+        &pair.a_folder,
+        &["stash", "push", "-q", "-m", "the user's own"],
+    );
+    let stash = git_in(&pair.a_folder, &["stash", "list"]);
+    ask_to_move_worktree(&pair.desktop, pair.b.id, pair.a.id, "feat", &b_worktree, 3).await;
     until_progress(&conn_a, "done again", |p| p.phase == MovePhase::Done).await;
     assert_eq!(
         git_in(&a_worktree, &["symbolic-ref", "--short", "HEAD"]),
@@ -3521,8 +3561,50 @@ async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
         fs::read_to_string(a_worktree.join("main.rs")).expect("the work came back"),
         "fn main() { todo!() }\n"
     );
-    // What the folder held while it was away is kept, not overwritten.
-    assert!(git_in(&pair.a_folder, &["stash", "list"]).contains("left behind"));
+    assert_eq!(git_in(&pair.a_folder, &["stash", "list"]), stash);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_that_moved_once_still_settles_a_later_two_way_continue() {
+    let pair = synced_pair_env(None, None, &copy_env(None)).await;
+    // The move of `s` from `b` to `a` ended long ago, on both sides.
+    let old: u64 = 1_793_696_400_000;
+    ask_to_move(&pair.desktop, pair.b.id, pair.a.id, false).await;
+    let moves = pair.b.dir.path().join("moves");
+    fs::create_dir_all(&moves).expect("the state folder");
+    fs::write(
+        moves.join("s.json"),
+        format!(r#"{{"at":{old},"phase":"Done"}}"#),
+    )
+    .expect("the move is over");
+    // Then `b` continued from a copy, and `a` went on too.
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), format!("1\n{now}")).expect("the note");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the later version wins", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
+    })
+    .await;
 }
 
 /// Codex's rollout for session `id` that spent a million tokens.

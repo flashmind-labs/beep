@@ -18,6 +18,17 @@ const acted = new Set<() => void>();
 /// Calls `f` after a copy was continued or thrown away, for the sessions to be read again.
 export const onCopyAction = (f: () => void) => void acted.add(f);
 
+let showing: () => boolean = () => false;
+let timer: ReturnType<typeof setInterval> | undefined;
+
+/// While `isOpen` says the list shows, the copies are read again every 10
+/// seconds, as the page's other refreshes are: a machine that goes off
+/// offers Continue without a reload. Started once, when the list first opens.
+export function keepCopiesFresh(isOpen: () => boolean) {
+  showing = isOpen;
+  timer ??= setInterval(() => { if (showing() && document.visibilityState === "visible") void loadCopies(); }, 10_000);
+}
+
 /// Reads the copies the node keeps.
 export async function loadCopies() {
   try { const rows = await invoke<CopyRow[]>("session_copies"); CP.rows = Array.isArray(rows) ? rows : []; }

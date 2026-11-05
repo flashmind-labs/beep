@@ -460,3 +460,143 @@ fn a_move_that_ended_is_remembered_by_the_record_it_answered() {
     assert!(!valid_id("../etc"));
     assert!(!valid_id(""));
 }
+
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// A worktree a move made in `s`'s folder for session `s1`, noted as the
+/// target notes it, and the checkout it belongs to.
+async fn made_for_a_move(s: &Source) -> (PathBuf, PathBuf) {
+    use super::{
+        saved::MadeWorktree,
+        worktree::{attach, detach, snapshot},
+    };
+    let main = s
+        .env
+        .state
+        .copy("x")
+        .parent()
+        .expect("a folder")
+        .join("repo");
+    fs::create_dir_all(&main).expect("a folder");
+    git(&main, &["init", "-q", "--initial-branch=main"]);
+    fs::write(main.join("a.txt"), "one\n").expect("a file");
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-q", "-m", "first"]);
+    let source = main.join("source");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feat",
+            source.to_str().expect("utf8"),
+        ],
+    );
+    fs::write(source.join("new.txt"), "n\n").expect("an untracked file");
+    let work = snapshot(&source).expect("a snapshot");
+    detach(&source).expect("detached");
+    let folder = main.join(".worktrees/feat");
+    let got = attach(&main, &folder, "feat", &work, false).expect("made");
+    s.env
+        .state
+        .save(
+            "s1",
+            &Saved {
+                at: 1,
+                phase: Phase::Working,
+                reason: None,
+                open: None,
+                made: Some(MadeWorktree {
+                    checkout: main.clone(),
+                    folder: folder.clone(),
+                    placed: got.placed,
+                    applied: got.applied,
+                }),
+            },
+        )
+        .expect("noted");
+    (main, folder)
+}
+
+#[tokio::test]
+async fn a_worktree_a_move_made_is_taken_back_once() {
+    let s = source_env().await;
+    let (_main, folder) = made_for_a_move(&s).await;
+    super::target::take_back(&s.env, "s1").await;
+    assert!(!folder.exists(), "unchanged since the patch: removed");
+    assert!(s.env.state.load("s1").expect("kept").made.is_none());
+    // The user puts a folder of their own where it was: a second call, from
+    // a second restart or a cancel, does nothing.
+    fs::create_dir_all(&folder).expect("a folder");
+    fs::write(folder.join("mine.txt"), "mine\n").expect("a file");
+    super::target::take_back(&s.env, "s1").await;
+    assert_eq!(
+        fs::read_to_string(folder.join("mine.txt")).unwrap(),
+        "mine\n"
+    );
+}
+
+#[tokio::test]
+async fn a_worktree_with_edits_since_the_patch_is_left_where_it_is() {
+    let s = source_env().await;
+    let (_main, folder) = made_for_a_move(&s).await;
+    fs::write(folder.join("a.txt"), "edited while the node was down\n").expect("an edit");
+    super::target::take_back(&s.env, "s1").await;
+    assert_eq!(
+        fs::read_to_string(folder.join("a.txt")).unwrap(),
+        "edited while the node was down\n"
+    );
+    assert!(folder.join("new.txt").exists());
+    assert!(s.env.state.load("s1").expect("kept").made.is_none());
+}
+
+#[tokio::test]
+async fn a_node_with_no_room_refuses_before_it_writes_anything() {
+    use super::resume::{Arrival, Folders, How, resume};
+    let s = source_env().await;
+    for _ in 0..8 {
+        s.env
+            .agents
+            .start(
+                &kind(),
+                Some(&s.work.to_string_lossy()),
+                Begin {
+                    prompt: Some("first".into()),
+                    ..Begin::default()
+                },
+            )
+            .expect("a session starts");
+    }
+    let copy = s.work.join("copy.jsonl");
+    fs::write(&copy, "{}\n").expect("a copy");
+    let arrival = Arrival {
+        id: "s9",
+        mode: None,
+        from: s.env.mesh.me(),
+        how: How::Continued,
+    };
+    let folders = Folders {
+        old: s.work.clone(),
+        new: s.work.clone(),
+    };
+    let failed = resume(&s.env, &arrival, &kind(), &folders, "s9.jsonl".into(), copy)
+        .await
+        .expect_err("no room");
+    assert!(format!("{failed:#}").contains("already run"), "{failed:#}");
+    assert!(!s.env.roots.codex.exists() && !s.env.roots.claude.exists());
+}

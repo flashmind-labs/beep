@@ -17,6 +17,7 @@ use super::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::Key;
+use beep_proto::node::mesh_state::{SessionMove, StateValue};
 use beep_proto::{
     AgentSlug,
     node::{
@@ -335,16 +336,28 @@ async fn make_room(env: &Env, offer: &Offer, copy: &Path) -> Result<Vec<(AgentSl
 /// of its store. A session this machine never continued stays as it is.
 async fn settle(env: &Env, peer: EndpointId, offer: &Offer, local: &Path) -> Result<()> {
     let (cache, agent, id) = (env.cache.clone(), offer.agent.clone(), offer.id.clone());
-    let base = spawn_blocking(move || cache.continued(&agent, &id)).await?;
-    if !base.is_some_and(|base| offer.last_activity > base) {
+    let note = spawn_blocking(move || cache.continued(&agent, &id)).await?;
+    let Some(note) = note.filter(|note| offer.last_activity > note.base) else {
         return Ok(());
-    }
-    // A move of the session is a deliberate owner: the record decides, not
-    // which version is later. A session that may still be coming back from
-    // a restart is not touched either.
-    if env.mesh.get(&Key::SessionMove(offer.id.clone())).is_some() {
-        log::info!("session {}: not settled, a move names it", offer.id);
-        return Ok(());
+    };
+    // A move still going, or made after the user continued the session
+    // here, names the owner: the record decides, not which version is
+    // later. One that ended before is history, and two machines that went
+    // on since still settle. A session that may be coming back from a
+    // restart is not touched either.
+    if let Some(record) = env
+        .mesh
+        .get(&Key::SessionMove(offer.id.clone()))
+        .and_then(|bytes| SessionMove::from_bytes(&bytes).ok())
+    {
+        let unfinished = env
+            .state
+            .load(&offer.id)
+            .is_none_or(|saved| !saved.is_over(record.at));
+        if unfinished || record.at / 1000 > note.at {
+            log::info!("session {}: not settled, a move names it", offer.id);
+            return Ok(());
+        }
     }
     if !env.agents.reopened() || env.agents.runs(&offer.id) || env.agents.moves.holds(&offer.id) {
         return Ok(());

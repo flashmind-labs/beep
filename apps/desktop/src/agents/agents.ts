@@ -6,7 +6,7 @@
 // file holds their shared types and state, and the Every session list.
 import { nest, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
-import { copiesClick, copiesHtml, onCopies, onCopyAction } from "./copies.ts";
+import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
 import { preloadModels } from "./agentpicker.ts";
@@ -372,6 +372,7 @@ export function stateTag(status: string) {
 export async function renderAgents() {
   S.view = "agents";
   AG.sel = 0;
+  keepCopiesFresh(() => S.view === "agents");
   drawAgents(true);
   try {
     await loadSessions();
