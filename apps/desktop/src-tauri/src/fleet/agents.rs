@@ -209,7 +209,13 @@ pub(crate) async fn session(
             view.entries = machine::entries_for(entries, true);
             view.earlier = earlier;
         }
-        Err(e) => log::warn!("transcript not read; session={} error={e:#}", get.session),
+        Err(e) => {
+            log::warn!("transcript not read; session={} error={e:#}", get.session);
+            // A session started outside Beep shows why its log is empty.
+            if view.session.external {
+                view.error = Some(format!("{e:#}"));
+            }
+        }
     }
     Ok(view)
 }
