@@ -193,7 +193,7 @@ async fn first_prompt(upstream: Upstream) -> Vec<String> {
     let log = dir.join("sent.jsonl");
     let kind = script("codex", PLAIN_ADAPTER, &log);
     let session = Session::start(Start {
-        brief: Some("Worktree first."),
+        brief: Some("Worktree first.".into()),
         rules: Some(upstream),
         ..start_on(&kind, dir, None)
     })

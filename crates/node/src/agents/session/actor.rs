@@ -153,6 +153,9 @@ pub(super) struct Actor {
     pub(super) node_stopping: Arc<AtomicBool>,
     /// While true, prompts wait instead of starting a turn.
     pub(super) holding: watch::Receiver<bool>,
+    /// A move to another machine waits for the turn: queued prompts wait
+    /// too.
+    pub(super) moving: bool,
     /// The session's id on the node.
     pub(super) session: String,
     /// The agent, such as `claude`.

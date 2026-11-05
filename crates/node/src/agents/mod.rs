@@ -36,7 +36,6 @@ mod kinds;
 mod live;
 mod media_file;
 mod models;
-#[allow(dead_code)]
 mod moving;
 mod place;
 mod plans;
@@ -63,6 +62,7 @@ pub use kinds::{AgentKind, detect};
 pub(crate) use live::cut;
 pub(crate) use moving::SESSIONS_ALPN;
 pub use moving::SessionsAlpn;
+pub(crate) use moving::follow as follow_moves;
 pub use requests::serve_sessions;
 pub(crate) use restart::OpenSession;
 pub(crate) use session::{Answered, Asking};
@@ -137,6 +137,8 @@ pub struct Agents {
     alerts: Arc<AlertHub>,
     /// What sessions spent, from the agents' own logs.
     spend: Arc<Spend>,
+    /// How the moves of sessions to this machine stand.
+    moves: moving::Moves,
     /// The models each agent offers, found lately.
     models: ModelCache,
     /// The user's settings for each agent, applied when one starts.
@@ -181,6 +183,7 @@ impl Agents {
             usage: Arc::default(),
             alerts: Arc::default(),
             spend: Arc::new(Spend::locate()),
+            moves: moving::Moves::default(),
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
