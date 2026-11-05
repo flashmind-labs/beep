@@ -8,6 +8,8 @@ import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, reason } from "../ui/format.ts";
+import { diffView } from "../review/diff.ts";
+import { compareFiles } from "./compare.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
 export interface SyncProgress {
@@ -254,6 +256,10 @@ export function makeFileSync(deps: FileSyncDeps) {
   let timer: ReturnType<typeof setInterval> | undefined;
   let polling: string | null = null;
 
+  /// The conflicts opened to compare, by project and path: the diff, or the
+  /// line saying why there is none, and null while it is read.
+  const compared = new Map<string, HTMLElement | string | null>();
+
   const kept = deps.kept ?? new PageCache(null).section<SyncDetail | null>("filesync");
 
   /// A project's sync, from the cache until it is read; the kept one is as
@@ -356,6 +362,31 @@ export function makeFileSync(deps: FileSyncDeps) {
     return fix;
   }
 
+  /// Compare on a file conflict; none on a git ref, which no read can compare.
+  function compareButton(name: string, c: Conflict, machines: readonly MachineDetail[]) {
+    if (gitConflict(c.path)) return null;
+    const key = `${name}\n${c.path}`;
+    const open = compared.has(key);
+    const b = button(open ? "Hide" : "Compare", "small", async () => {
+      if (open) {
+        compared.delete(key);
+        return redraw();
+      }
+      compared.set(key, null);
+      redraw();
+      const machine = machines.find(m => m.machine_id === c.holder);
+      const done = machine ? await compareFiles(invoke, machine, c) : "No machine that has it is online";
+      if (!compared.has(key)) return;
+      compared.set(key, typeof done === "string" ? done : diffView({
+        load: async () => done,
+        review: { key: "compare", send: async () => "Comments are not sent from here" },
+      }).el);
+      redraw();
+    });
+    b.title = `Shows what differs between ${c.original} and this copy`;
+    return b;
+  }
+
   /// `project` puts the project before what the other copy is, for lists across projects.
   function conflictRow(name: string, c: Conflict, machines: readonly MachineDetail[], project = false) {
     const s = of(name);
@@ -371,11 +402,19 @@ export function makeFileSync(deps: FileSyncDeps) {
       copy.title = `Puts this copy in place of ${c.original} on every machine`;
       orig.title = `Keeps ${c.original} and deletes this copy on every machine`;
       copy.disabled = orig.disabled = !!s.busy || !!s.detail?.paused;
-      acts = h("span", "acts", fixButton(name, c), copy, orig);
+      acts = h("span", "acts", compareButton(name, c, machines), fixButton(name, c), copy, orig);
     } else {
-      acts = h("span", "acts", fixButton(name, c), h("span", "dmuted", "Update beep-node on a machine that has it to settle it here"));
+      acts = h("span", "acts", compareButton(name, c, machines), fixButton(name, c), h("span", "dmuted", "Update beep-node on a machine that has it to settle it here"));
     }
-    return h("div", "fs-conflict", text, acts);
+    const shown = compared.get(`${name}\n${c.path}`);
+    const row = h("div", `fs-conflict${shown === undefined ? "" : " open"}`, text, acts);
+    if (shown !== undefined) {
+      const kept = h("span", "", "Kept ", h("b", "", c.original));
+      const copy = h("span", "", "Copy ", h("b", "", c.path));
+      row.append(h("div", "fs-cmp", h("div", "fs-cmph", kept, copy, h("small", "", where ? `on ${where}` : "")),
+        shown === null ? h("div", "dmuted fs-cmpn", "Reading…") : typeof shown === "string" ? h("div", "dmuted fs-cmpn", shown) : shown));
+    }
+    return row;
   }
 
   /// The full view: Pause or Resume, the machines, the conflicts and what
