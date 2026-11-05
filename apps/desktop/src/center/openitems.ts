@@ -163,7 +163,7 @@ export function gitSection(view: GitItemsView) {
     const body = rows.length ? rows : [h("div", "cc-empty", h("span", "", none))];
     return section("", title, shown.length, null, h("div", "cc-panel cc-open", listControls(key, draw, issues), chips, ...body, issues ? startBar(key, entries, draw) : null));
   };
-  const el = h("div", "cc-git", ...view.hosts.filter(x => x.error).map(x => note("bad", x.error)),
+  const el = h("div", "cc-git", state.gitError ? note("bad", state.gitError) : null, ...view.hosts.filter(x => x.error).map(x => note("bad", x.error)),
     h("div", "cc-cols", column("pull_request", "Pull requests", "No open pull requests."), column("issue", "Issues", "No open issues.")));
   el.id = "sec-git";
   return el;
@@ -193,13 +193,16 @@ export function single(load: () => Promise<void>) {
   };
 }
 
-/// Asks the server for the open items; it keeps them a few minutes, so
-/// this runs less often than Home's refresh.
+/// Reads the open items through the machines and the saved tokens; the
+/// desktop keeps them a few minutes, so this runs less often than Home's
+/// refresh. A failure shows in the tab.
 export const refreshGit = single(async () => {
   try {
     state.git = await invoke<GitItemsView | null>("git_items");
+    state.gitError = null;
   } catch (e) {
     console.warn("open PRs and issues:", e);
+    state.gitError = String(e);
   }
   if (shown === "home") draw();
 });

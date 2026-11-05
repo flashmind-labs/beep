@@ -219,7 +219,7 @@ function page(home: HomeView) {
   const projects = projectRows() || [], git = state.git;
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
     { key: "overview", label: "Overview", count: null, on: true, make: () => overview(home) },
-    { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length, make: () => [gitSection(git!)] },
+    { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError, make: () => [gitSection(git || { items: [], hosts: [] })] },
     { key: "projects", label: "Projects", count: projects.length, on: projects.length > 0, make: () => [projectsSection(projects)] },
     { key: "machines", label: "Machines", count: null, on: !!machines, make: () => machinesSection(machines!) },
   ];
