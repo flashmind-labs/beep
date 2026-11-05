@@ -3,6 +3,7 @@
 use super::{
     Agents, AlertHub, Images, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, Plans,
     SPEND_EVERY, custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder,
+    worktrees,
 };
 use crate::agents::claude::Excerpt;
 use anyhow::{Context, Result};
@@ -13,11 +14,14 @@ use beep_proto::node::{
 };
 use futures::future::BoxFuture;
 use iroh::EndpointId;
-use std::{fmt::Display, path::PathBuf, sync::Arc};
+use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     task::{JoinHandle, spawn_blocking},
-    time::{Instant, MissedTickBehavior, interval},
+    time::{Instant, MissedTickBehavior, interval, timeout},
 };
+
+/// How long a worktree list may take, the path check and git together.
+const WORKTREES_WAIT: Duration = Duration::from_secs(8);
 
 impl Agents {
     /// The answer to a transcript read: the last `last` entries of a
@@ -241,6 +245,17 @@ pub async fn serve_sessions(
                 Ok(SessionsReply::Diff { diff })
             })
             .await
+        }
+        SessionsRequest::Worktrees { folder } => {
+            let list = work_request(&agents, &folder, reach::Access::Work, move |real| {
+                let worktrees = worktrees::list(&real)?;
+                Ok(SessionsReply::Worktrees { worktrees })
+            });
+            timeout(WORKTREES_WAIT, list)
+                .await
+                .unwrap_or_else(|_| SessionsReply::Error {
+                    message: "git took too long to list the worktrees".into(),
+                })
         }
         SessionsRequest::Models { agent } => match agents.models(&agent).await {
             Some(models) => SessionsReply::Models { models },

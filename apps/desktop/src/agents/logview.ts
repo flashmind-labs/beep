@@ -5,6 +5,7 @@ import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, kep
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
+import { followAgent } from "../agentpane/worktree.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
@@ -453,6 +454,8 @@ export function drawAgentBody(keep?: string) {
   const subs = child == null ? subagentsShown(p) : [];
   b.innerHTML = `<div class="dagmain">${why}${entries}${child == null ? card : ""}${err}${note}${paused}</div>`
     + `<button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
+  // The pane follows the agent, or the subagent opened, into a worktree.
+  followAgent(p.entries, p.earlier, child != null ? subOf(child).sub.steps.map(st => st.title) : null);
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
   drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
   fillAgentPics(b);

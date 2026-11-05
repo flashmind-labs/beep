@@ -3,6 +3,7 @@
 import { fileSize } from "../chat/media.ts";
 import { dropTerm, forgetTerm, openTerm, termStatus } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab } from "./media.ts";
+import { paneRoot } from "./worktree.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
@@ -49,7 +50,7 @@ export async function loadText(t: MediaTab) {
   const s = P.session;
   if (!s || !t.rel) return;
   try {
-    t.text = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: s.cwd, path: t.rel });
+    t.text = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: t.root ?? s.cwd, path: t.rel });
     t.size = t.text.size;
   } catch (e) {
     t.error = readError(e);
@@ -69,7 +70,7 @@ export async function startTerminal(t: MediaTab) {
   const s = P.session;
   if (!s) return;
   try {
-    const term = await openTerm({ machine_id: s.machine_id, cwd: s.cwd, name: t.name }, {
+    const term = await openTerm({ machine_id: s.machine_id, cwd: paneRoot(), name: t.name }, {
       onEnd: () => {
         if (t.term) forgetTerm(t.term);
         t.term = undefined;

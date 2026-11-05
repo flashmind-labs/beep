@@ -10,7 +10,8 @@ import type { ModelView } from "./model3d.ts";
 import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
-import { closeFilesMenu, filesView } from "./files.ts";
+import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
+import { drawWorktrees, paneRoot, startWorktrees } from "./worktree.ts";
 import { dropTerm, type PaneTerm } from "./terminal.ts";
 import { drag, tabDown } from "./drag.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
@@ -62,8 +63,10 @@ export interface MediaTab {
   model?: ModelView | null;
   wire?: boolean;
   bytes?: ArrayBuffer;
-  /// A text tab's path in the session's folder, and what was read of it.
+  /// A text tab's path in the worktree it was opened from, that worktree's
+  /// folder, and what was read of it.
   rel?: string;
+  root?: string;
   text?: TreeText;
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
@@ -145,7 +148,7 @@ export const paneOf = (d: Dock) => document.getElementById(`agpane-${d}`);
 function dockFrame(d: Dock) {
   return `<div class="agdiv" id="agdiv-${d}" data-dock="${d}" role="separator" tabindex="0" title="Drag to resize, double-click to reset" hidden></div>`
     + `<aside class="agpane" id="agpane-${d}" data-dock="${d}" tabindex="-1" hidden><div class="agphead"><div class="agtabs" role="tablist"></div>`
-    + `<button class="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" data-pact="dock"></button><button class="agpbtn" data-pact="fold" title="Hide the pane"></button></div><div class="agpviews"></div></aside>`
+    + `<span class="agwtw" hidden></span><button class="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" data-pact="dock"></button><button class="agpbtn" data-pact="fold" title="Hide the pane"></button></div><div class="agpviews"></div></aside>`
     + `<button class="agpstrip" id="agpstrip-${d}" data-dock="${d}" hidden title="Show the pane"></button>`;
 }
 
@@ -162,6 +165,7 @@ export function startPane(s: PaneSession) {
   P.session = s;
   P.on = { right: FILES, bottom: FILES };
   dropChanges();
+  startWorktrees(s, root => { if (root) { pointFilesAt(); reloadChanges(); } draw(); });
   P.subs = "";
   P.subCount = 0;
   P.moved.clear();
@@ -370,6 +374,10 @@ export function draw() {
   if (drag?.ghost) return;
   const split = docked();
   for (const d of DOCKS) drawDock(d, split[d]);
+  for (const d of DOCKS) {
+    const host = paneOf(d)?.querySelector<HTMLElement>(".agwtw");
+    if (host) drawWorktrees(host, P.on[d] === FILES || P.on[d] === CHANGES);
+  }
   place();
 }
 
@@ -565,8 +573,15 @@ export function paneSession(): Readonly<PaneSession> | null {
 /// Opens `rel`, a file in the session's folder, from the Files tab: a
 /// picture, video, 3D model or PDF in its viewer, anything else as text.
 export function openWorkFile(rel: string) {
-  if (openPath(rel)) return;
-  open({ id: `text:${rel}`, kind: "text", name: baseName(rel), path: null, url: null, rel });
+  openIn(paneRoot(), rel);
+}
+
+/// Opens `rel`, a file in the worktree at `root`.
+function openIn(root: string, rel: string) {
+  if (openPath(rel.startsWith("/") ? rel : resolvePath(root, rel))) return;
+  // A file of the session's own folder keeps its tab through a switch.
+  const id = root === P.session?.cwd ? `text:${rel}` : `text:${root}\n${rel}`;
+  open({ id, kind: "text", name: baseName(rel), path: null, url: null, rel, root });
 }
 
 /// Opens the file a link in a reply points at. One outside the session's
@@ -575,16 +590,16 @@ export function openLinked(path: string) {
   if (openPath(path) || !P.session) return;
   const cwd = P.session.cwd.replace(/\/+$/, "");
   const full = resolvePath(cwd, path);
-  openWorkFile(full.startsWith(`${cwd}/`) ? full.slice(cwd.length + 1) : full);
+  openIn(P.session.cwd, full.startsWith(`${cwd}/`) ? full.slice(cwd.length + 1) : full);
 }
 
-/// Saves `rel`, a file in the session's folder, to Downloads; `note`
-/// hears how it went.
-export function saveWorkFile(rel: string, note: (text: string) => void) {
+/// Saves `rel`, a file in the worktree at `root` (the one shown when
+/// none is given), to Downloads; `note` hears how it went.
+export function saveWorkFile(rel: string, note: (text: string) => void, root = paneRoot()) {
   const s = P.session;
   if (!s) return;
   note(`Saving ${baseName(rel)}…`);
-  invoke<string>("agent_tree_save", { machineId: s.machine_id, root: s.cwd, path: rel })
+  invoke<string>("agent_tree_save", { machineId: s.machine_id, root, path: rel })
     .then(to => { note(`Saved to Downloads as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
     .catch(e => note(readError(e)));
 }
@@ -595,7 +610,7 @@ export function newTerminal(d?: Dock) {
   const s = P.session;
   if (!s) return;
   const terms = P.tabs.filter(t => t.kind === "term");
-  const name = terminalName(s.cwd, terms.map(t => t.name));
+  const name = terminalName(paneRoot(), terms.map(t => t.name));
   const id = `term:${name}`;
   // While the window is too narrow for a right dock, every tab shows at
   // the bottom and a new one keeps the dock it would have.
