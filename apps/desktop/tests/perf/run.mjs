@@ -23,25 +23,23 @@
 //
 // Playwright is not a dependency: PLAYWRIGHT_DIR is a directory that holds
 // node_modules/playwright (it is resolved from there).
-import { createRequire } from "node:module";
-import { createServer } from "node:http";
-import { readFile, writeFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeData } from "./data.mjs";
+import { playwright, serve, stubInit } from "./stub.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
-const dist = normalize(opt("dist", join(here, "../../dist")));
+const dist = opt("dist", join(here, "../../dist"));
 const browsers = opt("browser", "both") === "both" ? ["webkit", "chromium"] : [opt("browser", "both")];
 const runs = Number(opt("runs", "3"));
 const jsonOut = opt("json", "");
 const profile = args.includes("--profile");
 
-if (!process.env.PLAYWRIGHT_DIR) { console.error("Set PLAYWRIGHT_DIR to a directory that holds node_modules/playwright."); process.exit(2); }
-const { webkit, chromium } = createRequire(process.env.PLAYWRIGHT_DIR)("playwright");
+const { webkit, chromium } = playwright();
 
 // What each page is, how to open it and what to measure on it. `open` is a
 // center_pending target (the window's own handoff) or a click on a DOM
@@ -62,84 +60,8 @@ const pageNames = (opt("pages", "") || Object.keys(PAGES).join(",")).split(",").
 
 // ---------- Server ----------
 
-const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".woff": "font/woff", ".png": "image/png" };
-const server = createServer(async (req, res) => {
-  const path = normalize(join(dist, decodeURIComponent(new URL(req.url, "http://x").pathname)));
-  if (!path.startsWith(dist)) { res.writeHead(403).end(); return; }
-  try {
-    const body = await readFile(path);
-    res.writeHead(200, { "content-type": TYPES[extname(path)] || "application/octet-stream" }).end(body);
-  } catch { res.writeHead(404).end(); }
-});
-await new Promise(r => server.listen(0, "127.0.0.1", r));
-const origin = `http://127.0.0.1:${server.address().port}`;
-
-// ---------- In-page stub and probes ----------
-
+const { server, origin } = await serve(dist);
 const json = JSON.stringify(makeData());
-const stubInit = serialized => {
-  const answers = JSON.parse(serialized);
-  // One string per command, parsed on every call, so each read gives fresh
-  // objects as Tauri's JSON does.
-  const raw = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, JSON.stringify(v)]));
-  const handlers = new Map();
-  window.__pending = null;
-  window.__parseMs = 0;
-  window.__calls = {};
-  window.__emit = (name, payload) => { for (const h of handlers.get(name) || []) h({ payload }); };
-  window.__TAURI__ = {
-    core: {
-      invoke: async cmd => {
-        window.__calls[cmd] = (window.__calls[cmd] || 0) + 1;
-        if (cmd === "center_pending") { const p = window.__pending; window.__pending = null; return p; }
-        if (!(cmd in raw)) return null;
-        const t = performance.now();
-        const v = JSON.parse(raw[cmd]);
-        window.__parseMs += performance.now() - t;
-        return v;
-      },
-      Channel: class { onmessage() {} },
-    },
-    event: { listen: async (name, h) => { if (!handlers.has(name)) handlers.set(name, []); handlers.get(name).push(h); return () => {}; } },
-    window: { getCurrentWindow: () => ({ label: "center", onFocusChanged: async () => () => {}, setFocus: async () => {} }) },
-  };
-  window.__errors = [];
-  window.addEventListener("error", e => window.__errors.push(String(e.message)));
-  window.addEventListener("unhandledrejection", e => window.__errors.push("rejection: " + String(e.reason)));
-
-  // Frame deltas for `ms` milliseconds.
-  window.__frames = ms => new Promise(done => {
-    const out = []; let last = performance.now(); const end = last + ms;
-    const tick = now => { out.push(now - last); last = now; if (now < end) requestAnimationFrame(tick); else done(out); };
-    requestAnimationFrame(tick);
-  });
-  // Gaps between event loop turns for `ms`: the longest task and the time
-  // spent past 4 ms gaps, a measure of main thread blocking.
-  window.__gaps = ms => new Promise(done => {
-    const ch = new MessageChannel(); let last = performance.now(); const end = last + ms; let max = 0, sum = 0;
-    ch.port1.onmessage = () => {
-      const now = performance.now(), gap = now - last; last = now;
-      if (gap > max) max = gap;
-      if (gap > 4) sum += gap;
-      if (now < end) ch.port2.postMessage(0); else done({ max, sum });
-    };
-    ch.port2.postMessage(0);
-  });
-  // Resolves one frame after `sel` first matches, from now.
-  window.__shown = (sel, timeout = 8000) => new Promise((done, fail) => {
-    const hit = () => document.querySelector(sel);
-    const painted = () => requestAnimationFrame(() => requestAnimationFrame(() => done(performance.now())));
-    if (hit()) return painted();
-    const mo = new MutationObserver(() => { if (hit()) { mo.disconnect(); painted(); } });
-    mo.observe(document, { childList: true, subtree: true });
-    setTimeout(() => { mo.disconnect(); fail(new Error("timeout waiting for " + sel)); }, timeout);
-  });
-  window.__latency = [];
-  document.addEventListener("keydown", () => {
-    const t = performance.now();
-    requestAnimationFrame(() => setTimeout(() => window.__latency.push(performance.now() - t)));
-  }, true);
-};
 
 // ---------- Measuring ----------
 
@@ -195,9 +117,15 @@ async function profiled(context, page, label, action) {
   const cdp = await context.newCDPSession(page);
   await cdp.send("Profiler.enable");
   await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+  await cdp.send("Performance.enable");
+  const metric = async () => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map(m => [m.name, m.value * 1000]));
+  const before = await metric();
   await cdp.send("Profiler.start");
   const result = await action();
   const { profile: p } = await cdp.send("Profiler.stop");
+  const after = await metric();
+  const spent = k => (after[k] - before[k]).toFixed(1);
+  console.log(`  ${label}: script ${spent("ScriptDuration")} ms, style ${spent("RecalcStyleDuration")} ms, layout ${spent("LayoutDuration")} ms, whole tasks ${spent("TaskDuration")} ms`);
   const self = new Map();
   const byId = new Map(p.nodes.map(n => [n.id, n]));
   p.samples.forEach((id, i) => {
