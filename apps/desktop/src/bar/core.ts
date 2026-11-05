@@ -166,8 +166,8 @@ export interface WindowHooks {
   /// Draws window view `name` (such as "providers") inside `root`, a page of
   /// the Settings sheet, opened with `arg`.
   embedView?(name: ViewName, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void): () => void;
-  /// ⌘N in the pane: the window picks the chat.
-  newChat(): void;
+  /// ⌘N in the pane: the window picks where the agent starts.
+  newAgent(): void;
   /// Esc from an agent view goes back to the view that opened it.
   goBack(from: BackTo): void;
   /// What shows atop chat `session`, such as the card of the pull request or

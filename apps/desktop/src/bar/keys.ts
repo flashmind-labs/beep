@@ -3,7 +3,7 @@ import { keyHidden } from "../settings/subscription.ts";
 import { agentBack, agentKeys } from "../agents/agents.ts";
 import { A, addServer, drawApps, drawMcpTools, renderApps } from "../settings/apps.ts";
 import { attachedCount, unattach } from "../chat/attach.ts";
-import { answer, newChat, openInWindow, popQueued, renderChat, send, sendQueued, stop, toWindow } from "../chat/chat.ts";
+import { answer, openInWindow, popQueued, renderChat, send, sendQueued, stop, toWindow } from "../chat/chat.ts";
 import { chatAction, chatMode, drawChats, openRow, renderChats } from "../chat/chats.ts";
 import { $, $$, bar, G, here, PANE, queued, S, windowHooks } from "./core.ts";
 import { composeMessage } from "../chat/compose.ts";
@@ -162,8 +162,8 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "r" && S.view !== "chats" && S.link === "linked") { e.preventDefault(); return researchShortcut(); }
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
-  // The window picks the chat: the project's while one of its chats shows.
-  if (cmd && key === "n") { e.preventDefault(); return S.link === "unlinked" ? renderAgentNew("", "chat") : windowHooks ? windowHooks.newChat() : newChat(); }
+  // The window picks the agent's start: the project's while one of its sessions shows.
+  if (cmd && key === "n") { e.preventDefault(); return windowHooks ? windowHooks.newAgent() : renderAgentNew("", "chat"); }
   if (cmd && key === "e" && S.view === "routines" && R.list.length) { e.preventDefault(); return routineAction("edit"); }
   if (cmd && key === "g" && S.view === "routines") { e.preventDefault(); return renderGrants(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }

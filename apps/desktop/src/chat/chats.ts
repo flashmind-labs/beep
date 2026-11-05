@@ -76,7 +76,7 @@ export function renderChats() {
   S.chats = { list: S.cache, sel: 0, query: "", mode: "list", back, share: null };
   bar.innerHTML = `<div class="dinput"><input id="find" placeholder="Search chats and groups" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></div>
     <div class="dsec" id="sec">Recent</div><div class="dlist" id="list" role="listbox" aria-label="Chats"></div>
-    ${hints([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new chat"], ["⌘G", "new group"], ["esc", "back"]])}`;
+    ${hints([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new agent"], ["⌘G", "new group"], ["esc", "back"]])}`;
   const find = $$<HTMLInputElement>("#find");
   find.focus();
   let pending = 0;

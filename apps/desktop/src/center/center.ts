@@ -100,8 +100,8 @@ document.addEventListener("keydown", e => {
     const to = PANE_KEYS[key];
     if (to) return go("pane", to);
   }
-  // In the pane, the pane's own keys call newChatHere.
-  if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
+  // In the pane, the pane's own keys call newAgentHere.
+  if (key === "n" && shown !== "pane") { e.preventDefault(); return newAgentHere(); }
   // ⌘T in a project: a terminal filling the empty view. In a session the pane has taken it.
   if (key === "t" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.defaultPrevented) {
     const to = projectHere();
@@ -125,10 +125,10 @@ function projectHere() {
 
 /// ⌘N: in a project (its page, or one of its sessions or chats) the agent
 /// view with an empty conversation and the project's start input, focused;
-/// elsewhere a new general chat.
-function newChatHere() {
+/// elsewhere the start form.
+function newAgentHere() {
   const to = projectHere();
-  if (!to) return void go("pane", { chat: { session: null } });
+  if (!to) return void go("pane", { agentnew: { prompt: "" } });
   go("pane", { draft: { project: to.project, machine: to.machine } });
 }
 pane.connect({
@@ -146,7 +146,7 @@ pane.connect({
     if (view) go("pane", view);
   },
   embedView,
-  newChat: newChatHere,
+  newAgent: newAgentHere,
   goBack: (from: BackTo) => go(from.view, from.arg as ViewArg),
   chatTop(session) {
     const t = threadChats?.get(session);
