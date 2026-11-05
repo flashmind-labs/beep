@@ -232,7 +232,7 @@ done
         let mut ids = Vec::new();
         for follow in [&first, &second, &upstream] {
             let alert = heard(follow).await;
-            assert_eq!(alert.session, session.id);
+            assert_eq!(alert.session, session.info().id);
             let AlertKind::Asks { question } = &alert.kind else {
                 panic!("expected a question, got {alert:?}");
             };

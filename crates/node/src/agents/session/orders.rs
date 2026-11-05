@@ -423,8 +423,10 @@ impl Actor {
     /// Has `kind` wait for the server, about this session as it stands.
     pub(super) fn alert(&self, kind: AlertKind) {
         let live = self.live.borrow();
+        // The id the session is listed under now: once the agent gives its
+        // own, `list` shows that one, and a notice must name what it finds.
         let alert = Alert {
-            session: self.session.clone(),
+            session: live.info.id.clone(),
             agent: self.agent.clone(),
             title: live.info.title.clone(),
             cwd: live.info.cwd.clone(),
