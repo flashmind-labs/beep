@@ -8,20 +8,23 @@ import { loadSessions, sessions } from "./sessions.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
 import { preloadModels } from "./agentpicker.ts";
-import { harnessTile } from "./harnessicon.ts";
+import { harnessTile } from "../ui/harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, Waiting } from "./agentqueue.ts";
 import { renderChat } from "../chat/chat.ts";
-import { $, type BackTo, bar, esc, h, ICON, invoke, S, windowHooks } from "../bar/core.ts";
+import { $, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
-import { money, tokenCount } from "../center/usage.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, turnRuns } from "./session.ts";
 import { closeChild } from "./logview.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
+import { esc, money, tokenCount } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {

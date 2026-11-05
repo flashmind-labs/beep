@@ -3,11 +3,11 @@
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
-import { bar, esc, ICON, invoke, listen, S, windowHooks } from "../bar/core.ts";
+import { bar, S, windowHooks } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
-import { harnessTile } from "../agents/harnessicon.ts";
+import { harnessTile } from "../ui/harnessicon.ts";
 import { harnessName } from "./providers-state.ts";
 import { SKINS, setSkin, skinId } from "../ui/skin.ts";
 import { back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
@@ -15,6 +15,9 @@ import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKI
 import { cap } from "../chat/tools.ts";
 import { show } from "../bar/views.ts";
 import { SUBSCRIPTION_NOTE, signInWay } from "./subscription.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 
 /// What a new notice does while you are at this Mac (NoticeVoice).
 type NoticeVoice = "ask" | "aloud" | "off";

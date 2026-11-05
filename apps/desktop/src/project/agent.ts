@@ -1,12 +1,12 @@
 // A project's agent on its page: the Tasks list, the Workers tree and the
 // cards its chat waits on.
-import { harnessEl } from "../agents/harnessicon.ts";
-import type { ChatApproval } from "../center/home-state.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el } from "../ui/dom.ts";
 import { dbtn, emptyPanel, stateChip, svgEl, secHead } from "../ui/parts.ts";
 import { localProjectId } from "./localid.ts";
 import type { Kid } from "../ui/dom.ts";
+import type { ChatApproval } from "../agents/running-state.ts";
 
 /// A project agent with its chat (ProjectAgent).
 export interface ProjectAgent {

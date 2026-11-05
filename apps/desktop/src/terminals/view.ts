@@ -6,7 +6,7 @@ import { el as h } from "../ui/dom.ts";
 import { ALL, byMachine, makeTerminals, terminalNote, terminalWhere, terminalsCount, type TerminalRow } from "./terminals.ts";
 import { makeScreen } from "./termview.ts";
 import { state, views } from "../center/state.ts";
-import { line } from "../center/pieces.ts";
+import { line } from "../ui/pieces.ts";
 import { draw } from "../center/home.ts";
 import { shown, registerView, go, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";

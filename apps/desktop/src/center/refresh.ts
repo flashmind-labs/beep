@@ -1,9 +1,9 @@
 // Reading Home: on focus, on notices, every 10 seconds while the window
 // shows, and now and then in the background.
-import { backgroundTick } from "../project/pagecache.ts";
+import { backgroundTick } from "../ui/pagecache.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { withoutDismissed } from "./updates.ts";
-import type { HomeView, MacControl, SyncRow } from "./home-state.ts";
+import type { HomeView } from "./home-state.ts";
 import type { MachineTraffic } from "../machines/traffic-state.ts";
 import { filterProjects, type ProjectGroup } from "../project/projects-state.ts";
 import { preloadModels } from "../agents/agentpicker.ts";
@@ -21,6 +21,8 @@ import { splitOn } from "../project/split.ts";
 import { terms, liveMode, tickRepo, projectsEl } from "../project/sections.ts";
 import { loadProjectAgent } from "../project/loads.ts";
 import { drawProjects } from "../project/page.ts";
+import type { MacControl } from "../machines/machine-state.ts";
+import type { SyncRow } from "../project/filesync.ts";
 
 /// The server answered for Home in this window; until then Home may be
 /// the one the app kept from before.

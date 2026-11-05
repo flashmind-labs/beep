@@ -1,10 +1,11 @@
 // The rows of a chat log, drawn the same in a Beep chat and a coding agent's
 // session: the prompt, a turn's heading, a thought, a tool call, the answer,
 // a failure, a queued message and the Stop button.
-import { clock, duration, heading, thoughtLabel, type ToolKind, type TurnState } from "../agents/agentturns.ts";
+import { clock, duration, heading, thoughtLabel, type ToolKind, type TurnState } from "./agentturns.ts";
 import { copy } from "../ui/parts.ts";
-import { esc, ICON } from "../bar/core.ts";
-import { endedHtml, liveHtml } from "../agents/thoughtlive.ts";
+import { endedHtml, liveHtml } from "./thoughtlive.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
 
 /// `word`, its letters lit one after another in a loop.
 const sweptLabel = (word: string) => `<span class="lb">${[...word].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;

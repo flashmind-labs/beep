@@ -1,6 +1,9 @@
-import { $, bar, esc, ICON, invoke, S } from "../bar/core.ts";
+import { $, bar, S } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { cap } from "../chat/tools.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Model (admins) ----------
 

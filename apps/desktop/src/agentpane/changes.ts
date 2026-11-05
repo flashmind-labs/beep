@@ -5,8 +5,9 @@
 
 import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, diffView } from "../review/diff.ts";
-import { h, invoke } from "../bar/core.ts";
 import { openWorkFile, paneSession } from "./media.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
 
 const C = {
   /// The session's machine and folder the view is of.

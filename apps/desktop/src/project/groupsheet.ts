@@ -2,9 +2,9 @@
 import { invoke } from "../ui/tauri.ts";
 import { focusBack, sheetShell } from "../ui/parts.ts";
 import { addGroupFolder, groupPath } from "./projects-state.ts";
-import { button, el } from "../ui/dom.ts";
-import { present, reason } from "../addproject/importproject-state.ts";
+import { button, el, present } from "../ui/dom.ts";
 import type { ProjectGroup } from "./projects-state.ts";
+import { reason } from "../ui/format.ts";
 
 export interface GroupSheetOptions {
   /// The group to change; a new one without it.

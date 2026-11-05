@@ -7,10 +7,10 @@ import { type Chart, chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
 import { coderCard } from "./codercard.ts";
 import { composeField } from "./compose.ts";
-import { $, $$, bar, changed, Channel, entry, esc, h, here, ICON, invoke, live, newId, queued, S, stopping } from "../bar/core.ts";
+import { $, $$, bar, changed, entry, here, live, newId, queued, S, stopping } from "../bar/core.ts";
 import { AnsweredIds } from "./approvals.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";
-import type { ChatBody, LiveEntry, PendingApproval, Step, Turn } from "../bar/core.ts";
+import type { LiveEntry, PendingApproval } from "../bar/core.ts";
 import { chatHints, drawStop, refreshHints } from "../bar/hints.ts";
 import { loadTurnAgent, sourceRow } from "./history.ts";
 import type { WebSource } from "./history.ts";
@@ -22,10 +22,14 @@ import { replyActs, stoppedRow } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive } from "../agents/thoughtlive.ts";
-import { answerHtml, errorCardHtml, queueRowHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
-import { linkified, plural } from "../ui/format.ts";
+import { answerHtml, errorCardHtml, queueRowHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
+import { esc, linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
+import { Channel, invoke } from "../ui/tauri.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import type { ChatBody, Step, Turn } from "../ui/turn.ts";
 
 // ---------- Chat ----------
 

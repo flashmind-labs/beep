@@ -1,5 +1,5 @@
 // Chats about one pull request or issue: the card at the top of the chat.
-import { plural, since } from "../ui/format.ts";
+import { plural, reason, since } from "../ui/format.ts";
 import { dbtn as button, stateChip } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane, type PaneTarget } from "../bar/pane.ts";
@@ -12,7 +12,6 @@ import { openUrl } from "./openitems.ts";
 import { shown, registerView, drawTop } from "./views.ts";
 import { reloadGroup, paneOn, drawSide, reloadChats, setPinned } from "./sidebar.ts";
 import { paneTitle, scopeTag } from "./pane.ts";
-import { reason } from "../addproject/importproject-state.ts";
 
 /// The chats about one pull request or issue, by chat id, read for each
 /// project; null until first read.

@@ -3,9 +3,9 @@
 // get a checkout. The server creates it, and each machine clones it.
 import { invoke } from "../ui/tauri.ts";
 import { focusBack, sheetShell } from "../ui/parts.ts";
-import { button, el } from "../ui/dom.ts";
+import { button, el, present } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
-import { cleanError, present } from "./importproject-state.ts";
+import { cleanError } from "./importproject-state.ts";
 import { canCreate, creatingText, goesText, landedLines, pickHost, shownName, startForm, toggleMachine } from "./newproject-state.ts";
 import type { Created, Forge, NewProjectForm } from "./newproject-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";

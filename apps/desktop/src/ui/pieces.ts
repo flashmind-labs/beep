@@ -1,25 +1,8 @@
 // Small pieces Home, the sidebar and the Projects page draw with.
-import { plural } from "../ui/format.ts";
-import { dbtn as button, svgEl as icon } from "../ui/parts.ts";
-import { pane } from "../bar/pane.ts";
-import type { MachineCard } from "./home-state.ts";
-import { el as h, type Kid } from "../ui/dom.ts";
-import { IC, PROJECT_COLORS } from "./state.ts";
-
-export function whenOf(iso: string) {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return { time: "", day: "" };
-  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
-  const day = days <= 0 ? "today" : days === 1 ? "tomorrow" : at.toLocaleDateString([], { weekday: "short" });
-  return { time, day };
-}
-/// A routine's schedule in words. The row already shows when it runs next,
-/// so a one-off is just "Once".
-export function scheduleText(s: string) {
-  if (/^\d{4}-\d\d-\d\dT/.test(s)) return "Once";
-  return pane.when(s) ?? s;
-}
+import { plural } from "./format.ts";
+import { dbtn as button, svgEl as icon } from "./parts.ts";
+import { el as h, type Kid } from "./dom.ts";
+import { IC, PROJECT_COLORS } from "./icons.ts";
 
 /// Why a call failed, cut short; a conflict means another answer won.
 export function failure(e: unknown) {
@@ -31,7 +14,7 @@ export function conflict(e: unknown) { return /^conflict/i.test(String(e)); }
 // ---------- Pieces ----------
 
 /// Green online, yellow with agents running there, grey offline.
-export function dot(m: MachineCard) {
+export function dot(m: { online: boolean; agents: number }) {
   const el = h("span", `ddot${!m.online ? " off" : m.agents ? " busy" : ""}`);
   el.title = !m.online ? "Offline" : m.agents ? `Online · ${plural(m.agents, "agent", "agents")} running` : "Online";
   return el;

@@ -3,7 +3,7 @@ import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
 import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutLabel, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
-import { $, $$, type BackTo, bar, esc, ICON, invoke, PANE, S } from "../bar/core.ts";
+import { $, $$, type BackTo, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../project/projects-state.ts";
 import type { CachedViews } from "../center/cached.ts";
@@ -11,6 +11,9 @@ import type { HomeView } from "../center/home-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { hints } from "../bar/hints.ts";
 import type { Machine } from "../machines/machines.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ----- Start form -----
 

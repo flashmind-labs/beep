@@ -9,7 +9,8 @@ import { svgEl as svg } from "../ui/parts.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";
-import { IC, state } from "./state.ts";
+import { state } from "./state.ts";
+import { IC } from "../ui/icons.ts";
 
 /// One search result. A branch's id is its project and the branch, split by
 /// a space.

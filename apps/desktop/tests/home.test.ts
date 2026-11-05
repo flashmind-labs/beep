@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { MacControl } from "../src/center/home-state.ts";
-import { byRecent, machineDisk, runningWhen, machineProjects, remotePath, runningKey, runningLine, thisMacRow } from "../src/center/home-state.ts";
+import { type MacControl, machineDisk, machineProjects, thisMacRow } from "../src/machines/machine-state.ts";
+import { byRecent, remotePath, runningKey, runningLine, runningWhen } from "../src/agents/running-state.ts";
 
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
   const row = (project: string, machine_id: string, status: string) => ({ project, machine_id, status, files: 90, pending: 10, error: null });

@@ -1,10 +1,11 @@
 // The model and thinking pill by a session's field, and switching them.
 import { closedPicker, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
-import { $, bar, esc } from "../bar/core.ts";
+import { $, bar } from "../bar/core.ts";
 import { type AgentRow, AG, agentKind } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.ts";
 import { drawAgentBody } from "./logview.ts";
 import { steerAgent } from "./messages.ts";
+import { esc } from "../ui/format.ts";
 
 /// The pill by the field: the harness, the model and thinking switched to.
 /// A harness that cannot switch in a running session shows it disabled.
