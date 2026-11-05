@@ -11,6 +11,7 @@ const GITHUB_API: &str = "https://api.github.com";
 /// The most orgs kept per GitHub account: GitHub's largest page.
 pub const MAX_ORGS: usize = 100;
 const OPENROUTER_KEY: &str = "https://openrouter.ai/api/v1/key";
+const FIRECRAWL_USAGE: &str = "https://api.firecrawl.dev/v1/team/credit-usage";
 
 /// What a host said about a token.
 #[derive(Debug, PartialEq, Eq)]
@@ -112,6 +113,36 @@ impl Checker {
             Ok(reply) => refused("OpenRouter", reply.status()),
             Err(e) => {
                 log::info!("could not check an OpenRouter key: {e}");
+                Checked::Unreachable
+            }
+        }
+    }
+
+    /// `GET https://api.firecrawl.dev/v1/team/credit-usage`, which answers for a working key. Only
+    /// a refusal of the key counts against it: any other answer leaves it saved unchecked.
+    pub async fn firecrawl(&self, key: &SecretString) -> Checked {
+        let sent = self
+            .client
+            .get(FIRECRAWL_USAGE)
+            .bearer_auth(key.expose_secret())
+            .send()
+            .await;
+        match sent {
+            Ok(reply) if reply.status().is_success() => Checked::Valid { login: None },
+            Ok(reply)
+                if matches!(
+                    reply.status(),
+                    StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+                ) =>
+            {
+                refused("Firecrawl", reply.status())
+            }
+            Ok(reply) => {
+                log::info!("Firecrawl answered a key check with {}", reply.status());
+                Checked::Unreachable
+            }
+            Err(e) => {
+                log::info!("could not check a Firecrawl key: {e}");
                 Checked::Unreachable
             }
         }

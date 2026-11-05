@@ -436,6 +436,8 @@ pub enum ApiProvider {
     Venice,
     /// 3D models.
     Meshy,
+    /// Web search and reading pages, for the assistant.
+    Firecrawl,
 }
 
 impl ApiProvider {
@@ -462,6 +464,7 @@ impl ApiProvider {
             Self::Zai => "Z.ai",
             Self::Venice => "Venice",
             Self::Meshy => "Meshy",
+            Self::Firecrawl => "Firecrawl",
         }
     }
 
@@ -478,6 +481,7 @@ impl ApiProvider {
             Self::Zai => "ZAI_API_KEY",
             Self::Venice => "VENICE_API_KEY",
             Self::Meshy => "MESHY_API_KEY",
+            Self::Firecrawl => "FIRECRAWL_API_KEY",
         }
     }
 }
