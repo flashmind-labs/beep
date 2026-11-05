@@ -8,7 +8,7 @@
 // repository…", which open the Import a project sheet, and "New project…",
 // which opens the New project sheet.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
 import type { ImportState } from "./addproject-state.ts";
 import { agentLabel, foundSessions, importPlan, lookingText } from "../project/projects-state.ts";
@@ -52,7 +52,7 @@ export interface FoundRowState {
   status?: ImportState | null;
 }
 
-let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: AddProjectOptions = {}, back: Element | null = null;
+let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: AddProjectOptions = {}, close: (() => void) | null = null;
 /// null while the machines look, then the rows they found.
 let found: FoundRow[] | null = null;
 /// null until the server lists the repositories to clone.
@@ -89,7 +89,6 @@ export async function importFound(row: FoundRow) {
 export function openAddProject(options: AddProjectOptions = {}) {
   if (root) return;
   opts = options;
-  back = document.activeElement;
   found = null;
   hosts = null;
   error = null;
@@ -99,11 +98,8 @@ export function openAddProject(options: AddProjectOptions = {}) {
   picked = new Set();
   status.clear();
   batch = false;
-  ({ root, sheet } = sheetShell("Add a project", "am-sheet ap-sheet"));
-  root.addEventListener("mousedown", e => { if (e.target === root && !busy()) closeAddProject(); });
+  ({ root, sheet, close } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
   build();
-  document.body.append(root);
-  document.addEventListener("keydown", onKey, true);
   draw();
   invoke<FoundRow[]>("found_projects")
     .then(rows => { found = rows; })
@@ -115,11 +111,11 @@ export function openAddProject(options: AddProjectOptions = {}) {
 }
 
 export function closeAddProject() {
-  if (!root) return;
-  document.removeEventListener("keydown", onKey, true);
-  root.remove();
-  root = sheet = search = bar = listBox = remoteBox = null;
-  focusBack(back);
+  close?.();
+}
+
+function closed() {
+  root = sheet = search = bar = listBox = remoteBox = close = null;
 }
 
 const busy = () => !!importing || batch;
@@ -136,8 +132,7 @@ function rowEls() {
 
 function onKey(e: KeyboardEvent) {
   const stop = () => { e.preventDefault(); e.stopPropagation(); };
-  if (e.key === "Escape") { stop(); if (!busy()) closeAddProject(); return; }
-  if (e.isComposing || !search) return;
+  if (e.key === "Escape" || e.isComposing || !search) return;
   if (e.metaKey && e.key === "Enter") { stop(); importPicked(); return; }
   const at = document.activeElement;
   const row = at instanceof HTMLElement && at.classList.contains("ap-row") ? at : null;

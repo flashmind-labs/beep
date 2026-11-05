@@ -3,7 +3,7 @@
 import { harnessEl } from "../ui/harnessicon.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el } from "../ui/dom.ts";
-import { dbtn, emptyPanel, stateChip, svgEl, secHead } from "../ui/parts.ts";
+import { dbtn, emptyPanel, stateChip, svgEl, secBlock } from "../ui/parts.ts";
 import { localProjectId } from "./localid.ts";
 import type { Kid } from "../ui/dom.ts";
 import type { ChatApproval } from "../agents/running-state.ts";
@@ -237,9 +237,8 @@ const WORKER_STATUS: Record<string, string> = { starting: "starting", running: "
 // ---------- Drawing ----------
 
 function section(id: string, title: string, sub: string, body: Node) {
-  const box = el("div");
+  const box = secBlock(title, sub, body);
   box.id = id;
-  box.append(secHead(title, sub ? el("small", "", sub) : null), body);
   return box;
 }
 

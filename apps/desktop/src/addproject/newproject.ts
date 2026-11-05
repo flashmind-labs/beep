@@ -2,8 +2,8 @@
 // a token, or Local only), its owner and visibility, and the machines that
 // get a checkout. The server creates it, and each machine clones it.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../ui/parts.ts";
-import { button, el, present } from "../ui/dom.ts";
+import { openSheet } from "../ui/parts.ts";
+import { button, el, present, press } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { cleanError } from "./importproject-state.ts";
 import { canCreate, creatingText, goesText, landedLines, pickHost, shownName, startForm, toggleMachine } from "./newproject-state.ts";
@@ -23,7 +23,7 @@ export interface NewProjectOptions {
   onClone?: (repo: string) => void;
 }
 
-let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: NewProjectOptions = {}, back: Element | null = null;
+let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: NewProjectOptions = {}, close: (() => void) | null = null;
 /// undefined while read, null from a server too old to make projects.
 let forges: Forge[] | null | undefined;
 let loadError: string | null = null;
@@ -40,17 +40,13 @@ export function openNewProject(options: NewProjectOptions = {}) {
   if (root) return;
   opening++;
   opts = options;
-  back = document.activeElement;
   forges = undefined;
   loadError = null;
   form = startForm([], online()[0]?.id);
   creating = false;
   error = null;
   created = null;
-  ({ root, sheet } = sheetShell("New project", "am-sheet ip-sheet"));
-  root.addEventListener("mousedown", e => { if (e.target === root) closeNewProject(); });
-  document.body.append(root);
-  document.addEventListener("keydown", onKey, true);
+  ({ root, sheet, close } = openSheet("New project", "am-sheet ip-sheet", { onClose: closed }));
   draw();
   invoke<Forge[] | null>("project_forges")
     .then(got => {
@@ -63,19 +59,12 @@ export function openNewProject(options: NewProjectOptions = {}) {
 /// Closes the sheet; a project made by then opens. One still being made
 /// opens once it is in.
 export function closeNewProject() {
-  if (!root) return;
-  document.removeEventListener("keydown", onKey, true);
-  root.remove();
-  root = sheet = null;
-  focusBack(back);
-  if (created?.imported[0]) opts.onDone?.(created.imported[0]);
+  close?.();
 }
 
-function onKey(e: KeyboardEvent) {
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  closeNewProject();
+function closed() {
+  root = sheet = close = null;
+  if (created?.imported[0]) opts.onDone?.(created.imported[0]);
 }
 
 async function submit() {
@@ -148,11 +137,7 @@ function fields() {
   input.value = form.name;
   input.addEventListener("input", () => { form = { ...form, name: input.value }; syncTyped(); });
   input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  const chip = (label: string, on: boolean, click: () => void) => {
-    const b = button(label, "dchip", click);
-    b.setAttribute("aria-pressed", String(on));
-    return b;
-  };
+  const chip = (label: string, on: boolean, click: () => void) => press(button(label, "dchip", click), on);
   const hosts = el("div", "dchips",
     ...list.map(f => chip(f.github ? "GitHub" : f.host, form.host === f.host, () => setForm(pickHost(form, list, f.host)))),
     chip("Local only", form.host === null, () => setForm(pickHost(form, list, null))));

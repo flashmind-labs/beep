@@ -1,6 +1,6 @@
 // The command center's Research page and its sidebar group.
 import { since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote, svgEl as icon, secHead } from "../ui/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, headedTable, svgEl as icon, secHead } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { chipClass, newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
@@ -91,7 +91,7 @@ function researchProgress(r: ResearchRow) {
 
 /// One research per row: its question, status, progress, sources and start.
 function researchTable(list: ResearchRow[]) {
-  const table = h("div", "cc-mt cc-rt", ...["Research", "Status", "Progress", "Sources", "Started"].map(t => h("span", "th", t)));
+  const table = headedTable("cc-rt", "Research", "Status", "Progress", "Sources", "Started");
   table.setAttribute("role", "table");
   for (const r of list) {
     const off = ["failed", "stopped"].includes(researchState(r.status)) ? " off" : "";

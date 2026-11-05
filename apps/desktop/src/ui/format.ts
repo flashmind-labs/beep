@@ -4,6 +4,11 @@ const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;"
 /// `s` as HTML text or an attribute value.
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ESCAPES[c]);
 
+/// A `dswitch` button as markup. `label` is already safe; `attrs` adds ids,
+/// data attributes or `disabled`.
+export const switchHtml = (on: unknown, label: string, attrs = "") =>
+  `<button class="dswitch" role="switch" aria-checked="${on}" aria-label="${label}"${attrs && " " + attrs}></button>`;
+
 /// `s` as HTML text with its web addresses as links. Punctuation right after
 /// an address belongs to the sentence.
 export function linkified(s: string) {

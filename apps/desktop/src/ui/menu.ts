@@ -1,6 +1,6 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
-import { focusBack, sheetShell } from "./parts.ts";
+import { focusBack, openSheet } from "./parts.ts";
 import { button, el, present } from "./dom.ts";
 import { reason } from "./format.ts";
 
@@ -9,6 +9,16 @@ export interface MenuItem {
   label: string;
   warn?: boolean;
   on: () => void;
+}
+
+/// Moves focus to the next or previous button in `box` for ArrowDown or ArrowUp, round the
+/// ends; false for any other key.
+export function arrowFocus(box: HTMLElement, key: string) {
+  if (key !== "ArrowDown" && key !== "ArrowUp") return false;
+  const all = [...box.querySelectorAll<HTMLElement>("button")];
+  const at = all.indexOf(document.activeElement as HTMLElement);
+  all[(at + (key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
+  return true;
 }
 
 let open: { box: HTMLElement; close: () => void } | null = null;
@@ -37,12 +47,8 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   }
   const away = (ev: MouseEvent) => { if (!box.contains(ev.target as Node)) close(); };
   const keys = (ev: KeyboardEvent) => {
-    const all = [...box.querySelectorAll<HTMLElement>("button")];
-    const at = all.indexOf(document.activeElement as HTMLElement);
     if (ev.key === "Escape") { close(); focusBack(back); }
-    else if (ev.key === "ArrowDown") all[(at + 1) % all.length]?.focus();
-    else if (ev.key === "ArrowUp") all[(at - 1 + all.length) % all.length]?.focus();
-    else return;
+    else if (!arrowFocus(box, ev.key)) return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
   };
@@ -79,17 +85,19 @@ export interface ConfirmOptions {
 /// button runs it and closes the sheet once it worked.
 export function confirmSheet(options: ConfirmOptions) {
   closeMenu();
-  const back = document.activeElement;
-  const { root, sheet } = sheetShell(options.title, "am-sheet");
+  let busy = false;
+  const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
+    canClose: () => !busy,
+    // A modal: no key reaches the page behind it.
+    onKey: e => {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+      e.stopImmediatePropagation();
+      return true;
+    },
+  });
   const error = el("div", "am-msg bad");
   error.hidden = true;
-  let busy = false;
-  const close = () => {
-    if (busy) return;
-    root.remove();
-    document.removeEventListener("keydown", keys, true);
-    focusBack(back);
-  };
+  const close = () => { if (!busy) shut(); };
   const go = async () => {
     if (busy) return;
     busy = true;
@@ -106,10 +114,6 @@ export function confirmSheet(options: ConfirmOptions) {
       error.hidden = false;
     }
   };
-  const keys = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); close(); }
-    e.stopImmediatePropagation();
-  };
   const act = button(options.action, "dbtn warn", go);
   sheet.append(...present([
     el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
@@ -118,8 +122,5 @@ export function confirmSheet(options: ConfirmOptions) {
     error,
     el("div", "gp-foot", button("Cancel", "dbtn quiet", close), act),
   ]));
-  root.addEventListener("mousedown", e => { if (e.target === root) close(); });
-  document.addEventListener("keydown", keys, true);
-  document.body.append(root);
   act.focus();
 }

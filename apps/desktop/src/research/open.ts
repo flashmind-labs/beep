@@ -4,7 +4,7 @@
 // each update patches only what changed, so spinners keep turning.
 import { copyCode } from "../agents/turnrows.ts";
 import { atBottom } from "../agents/logscroll.ts";
-import { isZoomKey, paneSize } from "../agentpane/media-state.ts";
+import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
 import type { ResearchArg } from "../center/state.ts";
@@ -16,6 +16,7 @@ import { patchHtml } from "../ui/patch.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { chatHtml, followsEnd, headHtml, paneHtml, placeholder, tabsHtml } from "./panes.ts";
 import { type Open, type ResearchView, type Turn, RUNNING, closeTab, openTab, round, shownTab } from "./research-state.ts";
+import { dragHandle } from "../ui/drag.ts";
 
 /// What streams in while the lead replies (Rust's `BarEvent`), as far as this reads it.
 type SendEvent =
@@ -125,41 +126,24 @@ const place = () => {
 
 // ⇧esc: the side pane fills the page over the chat, as in a session; only classes
 // change, so nothing in it reloads. In the capture phase so no Esc handler sees it.
-window.addEventListener("keydown", e => {
-  if (!active() || !isZoomKey(e)) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  if (!e.repeat) { zoomed = !zoomed; place(); }
-}, true);
+onZoomKey(active, () => { zoomed = !zoomed; place(); });
 
 /// The grip between the chat and the pane: drag to resize, double-click to reset.
 function wireDivider(p: Page) {
   const div = p.shell.querySelector<HTMLElement>(".agdiv")!;
   const set = (width: number | null) => { paneWidth = width == null ? null : paneSize("right", width, p.shell.clientWidth); place(); };
   const keep = () => { try { if (paneWidth) localStorage.setItem(WIDTH_KEY, String(paneWidth)); else localStorage.removeItem(WIDTH_KEY); } catch { /* kept while the window is open */ } };
-  div.addEventListener("pointerdown", e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    div.setPointerCapture(e.pointerId);
+  dragHandle(div, () => {
     p.shell.classList.add("resizing");
     div.classList.add("active");
-    // One layout per frame however many moves arrive; the last one wins.
-    let x = 0, frame = 0;
-    const flush = () => { frame = 0; set(p.shell.getBoundingClientRect().right - x); };
-    const move = (ev: PointerEvent) => {
-      x = ev.clientX;
-      if (!frame) frame = requestAnimationFrame(flush);
+    return {
+      move: ev => set(p.shell.getBoundingClientRect().right - ev.clientX),
+      end: () => {
+        p.shell.classList.remove("resizing");
+        div.classList.remove("active");
+        keep();
+      },
     };
-    const up = () => {
-      if (frame) { cancelAnimationFrame(frame); flush(); }
-      div.removeEventListener("pointermove", move);
-      div.removeEventListener("pointerup", up);
-      p.shell.classList.remove("resizing");
-      div.classList.remove("active");
-      keep();
-    };
-    div.addEventListener("pointermove", move);
-    div.addEventListener("pointerup", up);
   });
   div.addEventListener("dblclick", () => { set(null); keep(); });
 }

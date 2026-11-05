@@ -1,6 +1,8 @@
 // The command center's sidebar width: dragged on its right edge, moved with
 // the arrow keys there, reset by a double-click, and kept between launches.
 
+import { dragHandle } from "../ui/drag.ts";
+
 export const SIDE_MIN = 180;
 export const SIDE_MAX = 420;
 export const SIDE_DEFAULT = 184;
@@ -35,30 +37,13 @@ export function initSideResize(win: HTMLElement, grip: HTMLElement) {
   grip.setAttribute("aria-valuemax", String(SIDE_MAX));
   apply(width);
 
-  grip.addEventListener("pointerdown", e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    grip.setPointerCapture(e.pointerId);
+  dragHandle(grip, e => {
     const from = e.clientX, start = width;
     win.classList.add("resizing");
-    // One layout per frame however many moves arrive; the last one wins.
-    let next = width, frame = 0;
-    const flush = () => { frame = 0; apply(next); };
-    const move = (ev: PointerEvent) => {
-      next = clampWidth(start + ev.clientX - from);
-      if (!frame) frame = requestAnimationFrame(flush);
+    return {
+      move: ev => apply(clampWidth(start + ev.clientX - from)),
+      end: () => { win.classList.remove("resizing"); save(width); },
     };
-    const up = () => {
-      if (frame) { cancelAnimationFrame(frame); flush(); }
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", up);
-      grip.removeEventListener("pointercancel", up);
-      win.classList.remove("resizing");
-      save(width);
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", up);
-    grip.addEventListener("pointercancel", up);
   });
   grip.addEventListener("dblclick", () => { apply(SIDE_DEFAULT); save(width); });
   grip.addEventListener("keydown", e => {

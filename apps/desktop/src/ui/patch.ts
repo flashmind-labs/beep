@@ -54,6 +54,12 @@ export function patchChildren(container: Element, next: Element[]) {
   drawn.set(container, { nodes, sigs: patchedSigs(was.sigs, sigs, steps) });
 }
 
+/// `el` showing `html`, left alone when it does already: a spinner keeps turning, a
+/// selection or scroll stays, and a click is not lost to a button written again.
+export function showHtml(el: HTMLElement | null, html: string) {
+  if (el && el.dataset.shown !== html) { el.dataset.shown = html; el.innerHTML = html; }
+}
+
 /// Makes `target` hold `html`, changing only what differs. An element of the same kind in the same
 /// place stays the same element, with its attributes and text updated in place, so a spinner keeps
 /// turning and a scroll position or a selection stays where it is.

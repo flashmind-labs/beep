@@ -15,7 +15,7 @@ import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKI
 import { cap } from "../chat/tools.ts";
 import { show } from "../bar/views.ts";
 import { SUBSCRIPTION_NOTE, signInWay } from "./subscription.ts";
-import { esc } from "../ui/format.ts";
+import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
@@ -74,7 +74,7 @@ function thisMac(mac: MacControl) {
     : "";
   return `<div class="dsec flat top">This Mac</div>
     <div class="dtoggle"><span><b>Let Beep use this Mac</b><small>${sub}</small></span>
-      <button class="dswitch" id="usemac" role="switch" aria-checked="${mac.enabled}" aria-label="Let Beep use this Mac"></button></div>${rows}`;
+      ${switchHtml(mac.enabled, "Let Beep use this Mac", `id="usemac"`)}</div>${rows}`;
 }
 
 /// Settings: what a new notice does while you are at this Mac.
@@ -94,7 +94,7 @@ function voiceNotesRow(cur: NoticeVoice) {
 function agentNoticesRow(on: boolean) {
   const why = on ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting";
   return `<div class="dtoggle"><span><b>Coding agent notifications</b><small>${why}</small></span>
-    <button class="dswitch" id="agentNotices" role="switch" aria-checked="${on}" aria-label="Coding agent notifications"></button></div>`;
+    ${switchHtml(on, "Coding agent notifications", `id="agentNotices"`)}</div>`;
 }
 
 /// Settings, under Voice notes: what ends a spoken message in live mode.
@@ -178,7 +178,7 @@ function setModelsHtml() {
   const options = m.choices.map((c: ModelChoice) => `<option value="${esc(c.id)}"${c.id === m.selected ? " selected" : ""}>${esc(c.name)}</option>`).join("");
   const auto = m.auto_available
     ? `<div class="dtoggle"><span><b>Auto thinking</b><small>${m.auto ? "Beep picks the thinking for each prompt" : "Every prompt thinks as set below"}</small></span>
-        <button class="dswitch" id="setAuto" role="switch" aria-checked="${m.auto}" aria-label="Auto thinking"></button></div>`
+        ${switchHtml(m.auto, "Auto thinking", `id="setAuto"`)}</div>`
     : "";
   const levels = THINKING.map(l => `<button class="dchip" data-setlevel="${l}" aria-pressed="${!m.auto && l === m.thinking}"${m.auto ? " disabled" : ""}>${cap(l)}</button>`).join("");
   return `<div class="dtoggle"><span><b>Model</b><small>${chosen ? esc(modelPrice(chosen)) : "Your turns use the server's default"}</small></span>
@@ -363,7 +363,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
   const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
-        <button class="dswitch" id="autostart" role="switch" aria-checked="${set.autostart}" aria-label="Launch at login"></button></div>
+        ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>
       ${voiceNotesRow(set.notice_voice)}${sendRow(set.send_on_pause)}${agentNoticesRow(set.agent_notices)}</section>`]];
   out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];

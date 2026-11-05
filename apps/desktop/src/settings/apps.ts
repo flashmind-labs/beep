@@ -1,6 +1,6 @@
 import { bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
-import { esc, plural } from "../ui/format.ts";
+import { switchHtml, esc, plural } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -401,8 +401,8 @@ export function drawMcpTools() {
       const name = esc(mcpToolLabel(tool.name)), title = tool.description ? ` title="${esc(tool.description)}"` : "";
       if (A.asking === tool.name) return `<div class="daction"><span>${name}<small>More than ${t.limit} tools makes replies slower and tool picks worse</small></span>`
         + `<button class="dbtn quiet" data-tno>Cancel</button><button class="dbtn pri" data-tyes>Turn on</button></div>`;
-      if (!tool.usable) return `<div class="daction off"${title}><span>${name}<small>Too large for Beep to use</small></span><button class="dswitch" role="switch" aria-checked="false" aria-label="Use ${name}" disabled></button></div>`;
-      return `<div class="daction"${title}><span>${name}</span><button class="dswitch" role="switch" aria-checked="${tool.enabled}" data-ttool="${esc(tool.name)}" aria-label="Use ${name}"></button></div>`;
+      if (!tool.usable) return `<div class="daction off"${title}><span>${name}<small>Too large for Beep to use</small></span>${switchHtml(false, `Use ${name}`, "disabled")}</div>`;
+      return `<div class="daction"${title}><span>${name}</span>${switchHtml(tool.enabled, `Use ${name}`, `data-ttool="${esc(tool.name)}"`)}</div>`;
     }).join("");
     html += `<div class="dmuted dpad dblock">Beep uses up to ${t.limit} tools from a server, so turn on the ones you need. It asks before every tool on a server you add.</div>`;
   }
@@ -547,7 +547,7 @@ function drawPerms() {
     if (p.actions.length) {
       html += '<div class="dsec">Actions</div>' + p.actions.map(a => {
         const [tag, cls] = p.level === "read" ? ["Off", ""] : p.level === "allow" || a.allowed ? ["Allowed", " ok"] : ["Asks", " ask"];
-        const sw = p.level === "ask" ? `<button class="dswitch" role="switch" aria-checked="${a.allowed}" data-tool="${esc(a.tool)}" aria-label="Always allow ${esc(a.label)}"></button>` : "";
+        const sw = p.level === "ask" ? switchHtml(a.allowed, `Always allow ${esc(a.label)}`, `data-tool="${esc(a.tool)}"`) : "";
         return `<div class="daction"><span>${esc(a.label)}</span><span class="dtag${cls}">${tag}</span>${sw}</div>`;
       }).join("");
     }
