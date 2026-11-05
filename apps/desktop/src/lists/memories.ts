@@ -8,6 +8,7 @@ import { cap } from "../chat/tools.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { confirmSheet, openMenu } from "../ui/menu.ts";
 
 export const MEM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V4a3 3 0 00-3 0zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/></svg>';
 export const CLOCK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
@@ -200,6 +201,7 @@ export function renderMemories() {
   find.focus();
   find.addEventListener("input", () => { M.query = find.value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); });
   $$("#mlist").addEventListener("click", memClick);
+  $$("#mlist").addEventListener("contextmenu", memMenu);
   $$("#mchips").addEventListener("click", e => {
     const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-mf]");
     if (chip) { M.filter = chip.dataset.mf!; M.sel = 0; M.mode = "list"; drawMemories(); $("#mfind")?.focus(); }
@@ -285,6 +287,29 @@ export function drawMemories() {
   $$("#mhints").innerHTML = M.mode === "edit"
     ? hints([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
     : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ...(filters.length ? [["tab", "filter"]] : []), ["esc", "back"]]);
+}
+
+/// A memory row's right-click menu: Edit, and Forget, which asks first.
+function memMenu(e: MouseEvent) {
+  const row = (e.target as HTMLElement).closest<HTMLElement>(".dmem[data-i]");
+  if (!row || M.mode === "edit") return;
+  M.sel = Number(row.dataset.i);
+  const m = M.list[M.sel];
+  M.mode = "list";
+  drawMemories();
+  openMenu(e, "Memory", [
+    { label: "Edit", on: () => void memAction("edit") },
+    {
+      label: "Forget…",
+      warn: true,
+      on: () => confirmSheet({
+        title: "Forget this memory?",
+        text: m.content,
+        action: "Forget",
+        run: () => memAction("forget"),
+      }),
+    },
+  ]);
 }
 
 export function memClick(e: MouseEvent) {

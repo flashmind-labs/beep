@@ -4,6 +4,7 @@
 // every machine.
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { secHead, emptyPanel } from "../ui/parts.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
@@ -366,27 +367,30 @@ export function makeFileSync(deps: FileSyncDeps) {
     return fix;
   }
 
+  /// Shows what differs on a file conflict, or hides it again.
+  async function compare(name: string, c: Conflict, machines: readonly MachineDetail[]) {
+    const key = `${name}\n${c.path}`;
+    if (compared.has(key)) {
+      compared.delete(key);
+      return redraw();
+    }
+    compared.set(key, null);
+    redraw();
+    const machine = machines.find(m => m.machine_id === c.holder);
+    const done = machine ? await compareFiles(invoke, machine, c) : "No machine that has it is online";
+    if (!compared.has(key)) return;
+    compared.set(key, typeof done === "string" ? done : diffView({
+      load: async () => done,
+      review: { key: "compare", send: async () => "Comments are not sent from here" },
+    }).el);
+    redraw();
+  }
+
   /// Compare on a file conflict; none on a git ref, which no read can compare.
   function compareButton(name: string, c: Conflict, machines: readonly MachineDetail[]) {
     if (gitConflict(c.path)) return null;
-    const key = `${name}\n${c.path}`;
-    const open = compared.has(key);
-    const b = button(open ? "Hide" : "Compare", "small", async () => {
-      if (open) {
-        compared.delete(key);
-        return redraw();
-      }
-      compared.set(key, null);
-      redraw();
-      const machine = machines.find(m => m.machine_id === c.holder);
-      const done = machine ? await compareFiles(invoke, machine, c) : "No machine that has it is online";
-      if (!compared.has(key)) return;
-      compared.set(key, typeof done === "string" ? done : diffView({
-        load: async () => done,
-        review: { key: "compare", send: async () => "Comments are not sent from here" },
-      }).el);
-      redraw();
-    });
+    const open = compared.has(`${name}\n${c.path}`);
+    const b = button(open ? "Hide" : "Compare", "small", () => compare(name, c, machines));
     b.title = `Shows what differs between ${c.original} and this copy`;
     return b;
   }
@@ -412,6 +416,33 @@ export function makeFileSync(deps: FileSyncDeps) {
     }
     const shown = compared.get(`${name}\n${c.path}`);
     const row = h("div", `fs-conflict${shown === undefined ? "" : " open"}`, text, acts);
+    row.addEventListener("contextmenu", e => {
+      const items: MenuItem[] = [];
+      if (!gitConflict(c.path)) items.push({ label: shown === undefined ? "Compare" : "Hide", on: () => void compare(name, c, machines) });
+      if (deps.fix && c.holder) items.push({ label: "Fix with an agent", on: () => deps.fix!(name, c) });
+      if (c.resolver && !s.busy && !s.detail?.paused) {
+        items.push({
+          label: "Keep this copy…",
+          warn: true,
+          on: () => confirmSheet({
+            title: "Keep this copy?",
+            text: `It takes the place of ${c.original} on every machine.`,
+            action: "Keep this copy",
+            run: () => resolve(name, c, true),
+          }),
+        }, {
+          label: "Keep the original…",
+          warn: true,
+          on: () => confirmSheet({
+            title: "Keep the original?",
+            text: `${c.original} stays and this copy is deleted on every machine.`,
+            action: "Keep the original",
+            run: () => resolve(name, c, false),
+          }),
+        });
+      }
+      if (items.length) openMenu(e, c.path, items);
+    });
     if (shown !== undefined) {
       const kept = h("span", "", "Kept ", h("b", "", c.original));
       const copy = h("span", "", "Copy ", h("b", "", c.path));
