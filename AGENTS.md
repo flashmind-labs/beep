@@ -78,6 +78,8 @@ Local chats also get the machine tools of the Beep MCP server that coding agents
 
 The model page of a local chat searches flashmind's OpenRouter catalog (`list_models` in `crates/assistant`, filtered by `Feature`) and can prefer one upstream provider per model (`provider.order`, fallbacks allowed). Both live in `prefs.json`; the picker commands are in `src-tauri/src/assistant/picker.rs`.
 
+`LOCAL_ASSISTANT` (`src-tauri/src/assistant/mod.rs`, and `src/assistant/local.ts`) is false: the local assistant described above, its page, chats and dictation are off, and nothing is removed. The assistant is to come back through the server.
+
 ### Code map
 
 `crates/server/src`, one line per top-level module:

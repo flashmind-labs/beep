@@ -15,3 +15,8 @@ mod stream;
 mod work;
 
 pub(crate) use runs::Runs;
+
+/// Whether the desktop offers the local assistant: its page, chats and dictation. Off, the desktop
+/// runs machines, projects and agents only; the assistant comes back through the server. The code
+/// stays.
+pub(crate) const LOCAL_ASSISTANT: bool = false;
