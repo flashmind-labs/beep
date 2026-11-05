@@ -59,7 +59,8 @@ The server is the production server on Neon, the target of
 `BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
-Moving an account: credentials are entered again on the desktop.
+Moving an account: credentials are entered again on the desktop. A node in the mesh stops
+using the server's credentials and harness values as soon as the account is moved.
 
 ### Code map
 

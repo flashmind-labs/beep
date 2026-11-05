@@ -194,7 +194,7 @@ impl Desk {
         };
         write(&self.mesh, key, Some(&config)).await?;
         // A record goes once its variable has a value in the mesh, or was taken out. One submitted
-        // with no value stays: it is still only the server's.
+        // with no value stays, for Settings to ask again.
         for name in self.unmoved_env(agent) {
             let entered = config.env.iter().any(|var| var.name == name);
             if entered || !submitted.contains(&name) {
