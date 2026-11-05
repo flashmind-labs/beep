@@ -25,6 +25,7 @@ import { shown, shownArg, windowProject, toMain, go, goHistory, setWindowProject
 import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addProject } from "./sidebar.ts";
 import "../research/page.ts";
 import "../research/open.ts";
+import "../assistant/page.ts";
 import { escUp } from "./escup-state.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
