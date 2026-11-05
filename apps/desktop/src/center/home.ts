@@ -1,5 +1,6 @@
 // Home: its tabs, the Running now, Needs you, Coming up and Updates
 // sections, and the Connecting page before Home first loads.
+import { patchChildren } from "../ui/patch.ts";
 import { harnessEl } from "../agents/harnessicon.ts";
 import { plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "../ui/parts.ts";
@@ -328,7 +329,7 @@ export function draw() {
   drawSide();
   if (!home || problem()) return drawConnecting(view);
   const top = view.scrollTop;
-  view.replaceChildren(...page(home));
+  patchChildren(view, page(home));
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
