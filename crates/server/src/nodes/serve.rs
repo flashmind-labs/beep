@@ -8,7 +8,7 @@ use crate::{
         link::MAX_NAME,
         node::{
             CLOSE_SETUP_REFUSED, Down, LinkRx, LinkTx, MAX_FRAME, NodeHello, NodeSetup, Up,
-            agent::SESSIONS_PROTOCOL, link,
+            agent::SESSIONS_PROTOCOL, link_on,
         },
         setup::SetupToken,
     },
@@ -133,7 +133,7 @@ pub(super) async fn read_hello(
     let (send, recv) = timeout(crate::api::transport::READ_TIMEOUT, connection.accept_bi())
         .await
         .context("no control stream")??;
-    let (tx, mut rx) = link(send, recv);
+    let (tx, mut rx) = link_on(connection, send, recv);
     if !linked {
         rx.set_max_frame(MAX_UNLINKED_HELLO);
     }
@@ -339,7 +339,7 @@ pub(super) async fn serve(
                     },
                     caller: endpoint.to_string(),
                 };
-                let (tx, rx) = link(send, recv);
+                let (tx, rx) = link_on(connection, send, recv);
                 calls.spawn(mcp::serve(calls_from, tx, rx));
             }
             Some(ended) = calls.join_next() => match ended {

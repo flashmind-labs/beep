@@ -2,11 +2,11 @@
 
 use crate::PeerStream;
 use crate::devices::OpBody;
-use crate::frame;
+use crate::frame::{self, FrameReader};
 use crate::link::Frame;
 use crate::mesh::AddrNote;
 use crate::{Device, DeviceKind, DeviceOp, Entry, JOIN_ALPN, Key, Mesh, PEER_ALPN};
-use iroh::endpoint::{Connection, QuicTransportConfig, RecvStream, SendStream, VarInt, presets};
+use iroh::endpoint::{Connection, QuicTransportConfig, SendStream, VarInt, presets};
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, SecretKey};
 use std::collections::BTreeMap;
@@ -77,7 +77,7 @@ async fn member_key(from: &Dev, kind: DeviceKind) -> SecretKey {
 
 struct Raw {
     send: SendStream,
-    recv: RecvStream,
+    recv: FrameReader,
     conn: Connection,
     _endpoint: Endpoint,
 }
@@ -113,7 +113,7 @@ async fn raw_in(to: &Dev, key: &SecretKey, session: u64) -> Raw {
     frame::send(&mut send, &hello).await.expect("hello");
     Raw {
         send,
-        recv,
+        recv: FrameReader::new(recv, frame::MAX_FRAME),
         conn,
         _endpoint: endpoint,
     }
@@ -207,7 +207,9 @@ async fn a_removed_peer_that_stops_reading_is_closed() {
     // Read up to the first page of entries: the writer is then in the middle
     // of the next one, and nothing more gets read.
     loop {
-        let frame = frame::recv::<Frame>(&mut raw.recv, frame::MAX_FRAME)
+        let frame = raw
+            .recv
+            .recv::<Frame>()
             .await
             .expect("frame")
             .expect("open");
@@ -446,4 +448,42 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
     timeout(LIMIT, first.closed())
         .await
         .expect("the old connection closes");
+}
+
+/// A frame from a newer build, with a field this one lacks after the ones it
+/// has, is read like any other: the extra element is skipped.
+#[test]
+fn a_frame_with_a_field_from_a_newer_build_is_read() {
+    use serde::Serialize;
+    #[derive(Serialize)]
+    enum Newer {
+        Hello {
+            addrs: Vec<AddrNote>,
+            #[serde(with = "crate::bin::heads")]
+            heads: crate::Heads,
+            session: u64,
+            added: String,
+        },
+    }
+    let key = SecretKey::generate();
+    let sent = Newer::Hello {
+        addrs: vec![AddrNote {
+            addr: EndpointAddr::new(key.public()),
+            generation: 3,
+        }],
+        heads: BTreeMap::from([(key.public(), 7)]),
+        session: 11,
+        added: "later".to_owned(),
+    };
+    let wire = rmp_serde::to_vec(&sent).expect("encodes");
+    let Frame::Hello {
+        addrs,
+        heads,
+        session,
+    } = beep_proto::lenient::from_slice(&wire).expect("a newer hello is read")
+    else {
+        panic!("not a hello");
+    };
+    assert_eq!((addrs.len(), session), (1, 11));
+    assert_eq!(heads.get(&key.public()), Some(&7));
 }

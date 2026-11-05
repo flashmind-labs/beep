@@ -23,9 +23,10 @@ use tokio::{
 };
 
 /// `beep-sync/1` nodes leave `.git` and tracked files out and would write
-/// tracked files into a checkout git owns there, so the two do not sync with
-/// each other: a node syncs again once both run this version.
-pub(crate) const ALPN: &[u8] = b"beep-sync/2";
+/// tracked files into a checkout git owns there, and `beep-sync/2` nodes
+/// write maps where this version writes compact arrays, so none of them sync
+/// with each other: a node syncs again once both run this version.
+pub(crate) const ALPN: &[u8] = b"beep-sync/3";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;

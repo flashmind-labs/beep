@@ -203,7 +203,8 @@ async fn server() -> Server {
     let server_endpoint = endpoint(SecretKey::generate()).await;
     let handler = nodes::NodeHandler::new(app.clone(), server_endpoint.id());
     let router = Router::builder(server_endpoint)
-        .accept(nodes::NODE_ALPN, handler)
+        .accept(nodes::NODE_ALPN, handler.clone())
+        .accept(nodes::NODE_ALPN_NAMED, handler)
         .spawn();
     let addr = router.endpoint().addr();
     let user = app
@@ -234,6 +235,41 @@ async fn linked_key(server: &Server, name: &str) -> SecretKey {
         .await
         .unwrap();
     key
+}
+
+/// A node from before `beep-node/2` dials `beep-node/1`, says hello in maps
+/// and is answered in maps; the server serves it as any other.
+#[tokio::test]
+async fn a_node_from_before_beep_node_2_still_links() {
+    use beep_server::protocol::node::{Down, NODE_ALPN_NAMED, NodeHello, link_on};
+    let server = server().await;
+    let key = linked_key(&server, "old box").await;
+    let node = endpoint(key.clone()).await;
+    let connection = node
+        .connect(server.addr.clone(), NODE_ALPN_NAMED)
+        .await
+        .expect("the server takes beep-node/1");
+    let (send, recv) = connection.open_bi().await.unwrap();
+    let (mut tx, mut rx) = link_on(&connection, send, recv);
+    let hello = NodeHello {
+        version: "0.1.0".to_owned(),
+        name: "old box".to_owned(),
+        offers: Vec::new(),
+        workspace: None,
+        setup: None,
+        credentials: false,
+        checkouts: false,
+        agent_settings: false,
+        branch_checkouts: false,
+    };
+    tx.send(&hello).await.unwrap();
+    let welcome = timeout(Duration::from_secs(20), rx.recv::<Down>())
+        .await
+        .expect("welcomed in time")
+        .unwrap();
+    assert!(matches!(welcome, Some(Down::Welcome { .. })), "{welcome:?}");
+    let live = online(&server.app, &key.public().to_string()).await;
+    assert_eq!(live.name, "old box");
 }
 
 #[tokio::test]

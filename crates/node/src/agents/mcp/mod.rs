@@ -11,7 +11,7 @@ use crate::{
 use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
-    Open, Opened, link,
+    Open, Opened, link_on,
     tools::{Approved, PROTOCOL, Reply, Request, Tool},
 };
 use iroh::endpoint::Connection;
@@ -307,7 +307,7 @@ impl Upstream {
              for these tools",
         )?;
         let (send, recv) = connection.open_bi().await?;
-        let (mut tx, mut rx) = link(send, recv);
+        let (mut tx, mut rx) = link_on(&connection, send, recv);
         tx.send(&Open {
             protocol: PROTOCOL.to_owned(),
         })

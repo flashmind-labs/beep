@@ -9,7 +9,7 @@
 
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
 use beep_proto::node::{
-    Down, LinkRx, LinkTx, NODE_ALPN, NodeHello, Open, Opened,
+    Down, LinkRx, LinkTx, NODE_ALPN, NODE_ALPN_NAMED, NodeHello, Open, Opened,
     agent::{Event as AgentEvent, Request as AgentRequest},
     link,
     process::{Reply as ProcessReply, Request as ProcessRequest},
@@ -28,6 +28,7 @@ use beep_proto::{
         },
     },
 };
+use futures::{SinkExt, StreamExt};
 use iroh::{
     Endpoint, EndpointId, SecretKey,
     endpoint::{Connection, presets},
@@ -48,6 +49,7 @@ use tokio::{
     sync::mpsc,
     time::timeout,
 };
+use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 const LIMIT: Duration = Duration::from_secs(90);
 /// What the node logs once its control socket takes commands.
@@ -663,6 +665,94 @@ async fn a_node_still_links_to_a_server_when_it_has_one() {
     // And the mesh works beside it.
     desktop.reach(node.id).await;
     node.logged("connected as").await;
+}
+
+/// What a server of either age sees of a node's first message: the protocol
+/// the connection settled on, and the hello's bytes as sent. It answers the
+/// way that age does, in maps on `beep-node/1`.
+#[derive(Debug)]
+struct Raw(mpsc::UnboundedSender<(Vec<u8>, Vec<u8>)>);
+
+impl ProtocolHandler for Raw {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let mut frames = FramedRead::new(recv, LengthDelimitedCodec::new());
+        if let Some(Ok(hello)) = frames.next().await {
+            let mut out = FramedWrite::new(send, LengthDelimitedCodec::new());
+            let welcome = Down::Welcome { tools: false };
+            let body = if connection.alpn() == NODE_ALPN_NAMED {
+                rmp_serde::to_vec_named(&welcome)
+            } else {
+                rmp_serde::to_vec(&welcome)
+            };
+            out.send(body.expect("a welcome encodes").into()).await.ok();
+            self.0
+                .send((connection.alpn().to_vec(), hello.to_vec()))
+                .ok();
+        }
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+/// A desktop that serves nodes only on `alpn`, and the first message each node sends.
+async fn desktop_raw(alpn: &'static [u8]) -> (Member, mpsc::UnboundedReceiver<(Vec<u8>, Vec<u8>)>) {
+    let (links, seen) = mpsc::unbounded_channel();
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("a temp folder");
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .expect("the mesh is created");
+    let (peer, join) = mesh.protocols();
+    let router = Router::builder(endpoint)
+        .accept(PEER_ALPN, peer)
+        .accept(JOIN_ALPN, join)
+        .accept(alpn, Raw(links))
+        .spawn();
+    let member = Member {
+        mesh,
+        _router: router,
+        _dir: dir,
+    };
+    (member, seen)
+}
+
+async fn first_message_to(alpn: &'static [u8]) -> (Vec<u8>, Vec<u8>) {
+    let (desktop, mut seen) = desktop_raw(alpn).await;
+    let mut node = Node::start(Config {
+        server: Some(desktop.id()),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let first = timeout(LIMIT, seen.recv())
+        .await
+        .expect("the node linked to its server in time")
+        .expect("the server saw the node");
+    node.logged("connected as").await;
+    first
+}
+
+#[tokio::test]
+async fn a_node_talks_compact_to_a_server_that_serves_beep_node_2() {
+    let (alpn, hello) = first_message_to(NODE_ALPN).await;
+    assert_eq!(alpn, NODE_ALPN);
+    // An array of the hello's nine fields.
+    assert_eq!(hello[0], 0x99);
+    beep_proto::lenient::from_slice::<NodeHello>(&hello).expect("the hello reads");
+}
+
+#[tokio::test]
+async fn a_node_falls_back_to_maps_for_a_server_from_before_beep_node_2() {
+    let (alpn, hello) = first_message_to(NODE_ALPN_NAMED).await;
+    assert_eq!(alpn, NODE_ALPN_NAMED);
+    // A map, and readable by the plain reader the released server has.
+    assert_eq!(hello[0], 0x89);
+    let hello: NodeHello = rmp_serde::from_slice(&hello).expect("the released server reads it");
+    assert_eq!(hello.name, "box-a");
 }
 
 /// The job id a background `run_on` reports.
@@ -1546,9 +1636,9 @@ async fn a_deleted_credential_disappears_from_every_node_and_one_copy_is_kept() 
     for node in [&a, &b] {
         assert_eq!(
             files_holding(node.dir.path(), "kept-in-one-place"),
-            [PathBuf::from("mesh/state.log")]
+            [PathBuf::from("mesh2/state.log")]
         );
-        let mode = fs::metadata(node.dir.path().join("mesh/state.log"))
+        let mode = fs::metadata(node.dir.path().join("mesh2/state.log"))
             .expect("the state file exists")
             .permissions()
             .mode();

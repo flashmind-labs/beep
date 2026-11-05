@@ -204,7 +204,8 @@ async fn main() -> Result<()> {
     let node_handler = nodes::NodeHandler::new(app.clone(), endpoint.id());
     let mut router = Router::builder(endpoint)
         .accept(transport::ALPN, handler)
-        .accept(nodes::NODE_ALPN, node_handler);
+        .accept(nodes::NODE_ALPN, node_handler.clone())
+        .accept(nodes::NODE_ALPN_NAMED, node_handler);
     if app.login().is_some() {
         router = router.accept(LOGIN_ALPN, login::LoginCheck);
     }

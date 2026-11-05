@@ -1,8 +1,8 @@
 //! What a mesh's replicated state holds for nodes: the values of the keys
 //! `sync/<name>`, `credential/<id>`, `harness/<agent>` and `terminal/<id>` (and `flsh`, which
 //! is a `FlshSettings`). Desktops write them, nodes read them. Encoded as
-//! msgpack maps with named fields, like the node link, so a field may be
-//! added with `#[serde(default)]`.
+//! compact msgpack, read by position, like the node link: a field is added
+//! at the end with `#[serde(default)]`.
 
 use super::{EnvSecret, ForgejoLogin, harness::HarnessConfig};
 use iroh::EndpointId;
@@ -51,11 +51,11 @@ pub struct TerminalRecord {
 /// A value that is stored in the mesh's state as bytes.
 pub trait StateValue: Serialize + DeserializeOwned {
     fn to_bytes(&self) -> Result<Vec<u8>, rmp_serde::encode::Error> {
-        rmp_serde::to_vec_named(self)
+        rmp_serde::to_vec(self)
     }
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, rmp_serde::decode::Error> {
-        rmp_serde::from_slice(bytes)
+        crate::lenient::from_slice(bytes)
     }
 }
 
@@ -70,6 +70,29 @@ mod tests {
     use super::*;
     use crate::SecretText;
     use iroh::SecretKey;
+
+    #[test]
+    fn a_value_with_a_field_from_a_newer_build_is_read() {
+        #[derive(Serialize)]
+        struct NewerSpec {
+            folders: BTreeMap<EndpointId, String>,
+            paused: bool,
+            added_later: u8,
+        }
+        let id = SecretKey::generate().public();
+        let sent = NewerSpec {
+            folders: BTreeMap::from([(id, "/srv/project".to_owned())]),
+            paused: true,
+            added_later: 1,
+        };
+        let bytes = rmp_serde::to_vec(&sent).unwrap();
+        let spec = SyncSpec::from_bytes(&bytes).unwrap();
+        assert!(spec.paused);
+        assert_eq!(spec.folders.len(), 1);
+        // A value from an older build, which wrote maps, still reads.
+        let named = rmp_serde::to_vec_named(&sent).unwrap();
+        assert!(SyncSpec::from_bytes(&named).unwrap().paused);
+    }
 
     #[test]
     fn values_round_trip_and_hide_secrets_in_debug() {

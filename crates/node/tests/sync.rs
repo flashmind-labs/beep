@@ -1169,8 +1169,10 @@ async fn gc_on_one_side_leaves_both_sound() {
 async fn a_node_on_the_old_protocol_is_turned_away() {
     let (a, b) = synced_repo().await;
     let refs = git(&a.folder(), &["show-ref"]);
-    let old = b.running().endpoint.connect(a.addr(), b"beep-sync/1").await;
-    assert!(old.is_err(), "an old node is not served");
+    for alpn in [&b"beep-sync/1"[..], b"beep-sync/2"] {
+        let old = b.running().endpoint.connect(a.addr(), alpn).await;
+        assert!(old.is_err(), "an old node is not served");
+    }
     assert_sound(&a);
     assert_eq!(git(&a.folder(), &["show-ref"]), refs);
 }

@@ -1,16 +1,21 @@
 //! The ticket a desktop mints to bring a device in. The secret proves the
-//! holder was given the ticket; the desktop checks it on `beep-join/1`.
+//! holder was given the ticket; the desktop checks it on `beep-join/2`.
 
 use crate::DeviceKind;
+use beep_proto::lenient;
 use iroh::{EndpointAddr, EndpointId, SecretKey};
 use iroh_tickets::{ParseError, Ticket};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug, Formatter};
 use subtle::ConstantTimeEq;
+use thiserror::Error;
+
+/// The prefix of tickets from before `beep-join/2`.
+const OLD_KIND: &str = "beepjoin";
 
 /// Random bytes in a ticket. `Debug` prints none of them.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct JoinSecret([u8; 32]);
+pub struct JoinSecret(#[serde(with = "serde_bytes")] [u8; 32]);
 
 impl JoinSecret {
     pub fn generate() -> Self {
@@ -35,29 +40,53 @@ impl Debug for JoinSecret {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JoinTicket {
+    #[serde(with = "crate::bin::id")]
     pub mesh: EndpointId,
+    #[serde(with = "crate::bin::addr")]
     pub addr: EndpointAddr,
     pub kind: DeviceKind,
     pub secret: JoinSecret,
     pub expires_ms: u64,
 }
 
+/// Why ticket text could not be read. Neither case quotes the text.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum TicketError {
+    /// A ticket from before `beep-join/2`; the desktop mints a new one.
+    #[error("this ticket is from an older version; ask for a new one")]
+    Old,
+    #[error("that is not a join ticket")]
+    Unreadable,
+}
+
 impl JoinTicket {
+    /// Reads the text a desktop shows. Use this rather than `decode_string`,
+    /// which cannot tell an old ticket from a mistyped one.
+    pub fn parse(text: &str) -> Result<Self, TicketError> {
+        let text = text.trim();
+        let old = text.starts_with(OLD_KIND) && !text.starts_with(Self::KIND);
+        if old {
+            return Err(TicketError::Old);
+        }
+        Self::decode_string(text).map_err(|_| TicketError::Unreadable)
+    }
+
     pub fn expired(&self, now_ms: u64) -> bool {
         now_ms >= self.expires_ms
     }
 }
 
 impl Ticket for JoinTicket {
-    const KIND: &'static str = "beepjoin";
+    const KIND: &'static str = "beepjoin2";
 
     fn encode_bytes(&self) -> Vec<u8> {
-        // Every field is plain data that postcard always encodes, as in iroh's own tickets.
-        postcard::to_stdvec(self).expect("postcard encodes a ticket")
+        // Every field is plain data that msgpack always encodes.
+        rmp_serde::to_vec(self).expect("msgpack encodes a ticket")
     }
 
     fn decode_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
-        Ok(postcard::from_bytes(bytes)?)
+        lenient::from_slice(bytes)
+            .map_err(|_| ParseError::verification_failed("the ticket cannot be read"))
     }
 }
 
@@ -89,6 +118,25 @@ mod tests {
         assert_eq!(back.kind, t.kind);
         assert_eq!(back.expires_ms, t.expires_ms);
         assert!(back.secret.verify(&t.secret));
+    }
+
+    #[test]
+    fn an_old_ticket_says_so() {
+        // Postcard-era tickets are `beepjoin` followed by base32.
+        assert_eq!(
+            JoinTicket::parse("beepjoinabcdefghijklmnop").unwrap_err(),
+            TicketError::Old
+        );
+        assert_eq!(
+            JoinTicket::parse("beepjoin2abcdefg").unwrap_err(),
+            TicketError::Unreadable
+        );
+        assert_eq!(
+            JoinTicket::parse("hello").unwrap_err(),
+            TicketError::Unreadable
+        );
+        let text = ticket().encode_string();
+        assert!(JoinTicket::parse(&format!(" {text}\n")).is_ok());
     }
 
     #[test]

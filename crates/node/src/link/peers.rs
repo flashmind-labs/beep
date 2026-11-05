@@ -24,7 +24,6 @@ use iroh::{
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
 };
-use iroh_tickets::Ticket;
 use serde::de::IgnoredAny;
 use std::{
     collections::BTreeSet,
@@ -214,8 +213,7 @@ impl Peers {
     /// never logged or put in an error. A node whose mesh removed it has no
     /// mesh to keep and takes the new one in its place.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
-        let ticket = JoinTicket::decode_string(ticket.trim())
-            .map_err(|_| anyhow::anyhow!("that is not a join ticket"))?;
+        let ticket = JoinTicket::parse(ticket)?;
         let old = self.active().map(|active| active.mesh);
         if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
             bail!("this node already belongs to a mesh");
@@ -683,6 +681,7 @@ async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
 #[cfg(all(test, feature = "cli"))]
 mod tests {
     use super::*;
+    use iroh_tickets::Ticket;
 
     /// Answers the wait's probe, then one join, the way the node does.
     fn serve_probe_then_join(mut listener: Listener) {

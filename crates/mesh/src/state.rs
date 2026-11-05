@@ -11,14 +11,15 @@
 //! superseded entries. A receiver skips `seq <= head` and moves the head to
 //! the entry's `seq`.
 //!
-//! Kept in `<dir>/mesh/state.log`, mode 0600. Each record is a length, a
-//! CRC32 and a postcard body. Compaction at open rewrites the file as a
+//! Kept in `<dir>/mesh2/state.log`, mode 0600. Each record is a length, a
+//! CRC32 and a msgpack body. Compaction at open rewrites the file as a
 //! `Heads` record plus the newest entry per key. Two replicas' heads may
 //! differ after compaction (one may have dropped its newest entry), so
 //! callers use `since`, never a comparison of heads, to decide they are in
 //! sync. The first bad or short record at open ends the log there.
 
 use crate::{Devices, MeshError, WriteLimit};
+use beep_proto::lenient;
 use iroh::{EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,7 +31,11 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
-const SIGN_DOMAIN: &[u8] = b"beep-mesh/1 state-entry";
+const SIGN_DOMAIN: &[u8] = b"beep-mesh/2 state-entry";
+/// The folder under a device's directory that holds its mesh. The postcard
+/// meshes of earlier versions lived in `mesh`, which is never read.
+pub(crate) const MESH_DIR: &str = "mesh2";
+pub(crate) const OLD_MESH_DIR: &str = "mesh";
 /// A record larger than this is taken as damage.
 const MAX_RECORD: usize = 64 * 1024 * 1024;
 /// An entry stamped further ahead than this is refused.
@@ -141,11 +146,26 @@ impl Key {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub key: Key,
+    #[serde(with = "serde_bytes")]
     pub value: Option<Vec<u8>>,
     pub at_ms: u64,
+    #[serde(with = "crate::bin::id")]
     pub origin: EndpointId,
     pub seq: u64,
+    #[serde(with = "crate::bin::sig")]
     sig: Signature,
+}
+
+/// What an entry's signature covers, in the order of its fields.
+#[derive(Serialize)]
+struct Signed<'a> {
+    key: &'a Key,
+    #[serde(with = "serde_bytes")]
+    value: Option<&'a [u8]>,
+    at_ms: u64,
+    #[serde(with = "crate::bin::id")]
+    origin: EndpointId,
+    seq: u64,
 }
 
 impl Entry {
@@ -159,7 +179,13 @@ impl Entry {
     ) -> Result<Vec<u8>, MeshError> {
         let mut msg = SIGN_DOMAIN.to_vec();
         msg.extend_from_slice(mesh.as_bytes());
-        msg.extend(postcard::to_stdvec(&(key, value, at_ms, origin, seq))?);
+        msg.extend(rmp_serde::to_vec(&Signed {
+            key,
+            value: value.as_deref(),
+            at_ms,
+            origin,
+            seq,
+        })?);
         Ok(msg)
     }
 
@@ -212,7 +238,7 @@ pub struct Applied {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Record {
-    Heads(Heads),
+    Heads(#[serde(with = "crate::bin::heads")] Heads),
     Entry(Entry),
 }
 
@@ -276,7 +302,7 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
 fn encode(records: &[Record]) -> Result<Vec<u8>, MeshError> {
     let mut buf = Vec::new();
     for record in records {
-        let body = postcard::to_stdvec(record)?;
+        let body = rmp_serde::to_vec(record)?;
         let len = u32::try_from(body.len()).map_err(|_| MeshError::TooLarge)?;
         buf.extend(len.to_le_bytes());
         buf.extend(crc32fast::hash(&body).to_le_bytes());
@@ -301,7 +327,7 @@ fn decode(bytes: &[u8]) -> (Vec<Record>, usize) {
         if crc32fast::hash(body) != crc {
             break;
         }
-        let Ok(record) = postcard::from_bytes(body) else {
+        let Ok(record) = lenient::from_slice(body) else {
             break;
         };
         out.push(record);
@@ -319,10 +345,10 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
 }
 
 impl State {
-    /// Opens `<dir>/mesh/state.log` for the mesh `mesh`, as the device that
+    /// Opens `<dir>/mesh2/state.log` for the mesh `mesh`, as the device that
     /// holds `secret`, and creates the log if absent.
     pub fn open(dir: &Path, secret: &SecretKey, mesh: EndpointId) -> Result<State, MeshError> {
-        let mesh_dir = dir.join("mesh");
+        let mesh_dir = dir.join(MESH_DIR);
         private_dir(&mesh_dir)?;
         let path = mesh_dir.join("state.log");
         let bytes = match fs::read(&path) {
@@ -642,7 +668,7 @@ mod tests {
     }
 
     fn log_path(dir: &TempDir) -> std::path::PathBuf {
-        dir.path().join("mesh").join("state.log")
+        dir.path().join("mesh2").join("state.log")
     }
 
     fn orders<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
@@ -800,6 +826,18 @@ mod tests {
     }
 
     #[test]
+    fn an_entry_is_compact_on_the_wire() {
+        let m = mesh(1, 1);
+        let sent = entry(&m, 0, Key::Project("alpha".into()), &"x".repeat(40), 5, 1);
+        let wire = rmp_serde::to_vec(&sent).expect("encodes");
+        // The key and signature are `bin`, not an array of numbers each.
+        assert!(wire.len() < 40 + 140, "{} bytes", wire.len());
+        assert!(wire.len() < rmp_serde::to_vec_named(&sent).expect("encodes").len());
+        let back: Entry = lenient::from_slice(&wire).expect("decodes");
+        assert_eq!(back, sent);
+    }
+
+    #[test]
     fn a_key_of_an_unknown_kind_passes_through_an_older_member() {
         let m = mesh(2, 1);
         let (_da, a) = open(&m, 0);
@@ -808,8 +846,8 @@ mod tests {
         let key = Key::Other("from-the-future/x y".into());
         let sent = entry(&m, 0, key.clone(), "kept", 5, 1);
         // Over the wire, as text: the signature covers it byte for byte.
-        let wire = postcard::to_stdvec(&sent).expect("encodes");
-        let received: Entry = postcard::from_bytes(&wire).expect("an unknown kind decodes");
+        let wire = rmp_serde::to_vec(&sent).expect("encodes");
+        let received: Entry = rmp_serde::from_slice(&wire).expect("an unknown kind decodes");
         assert_eq!(received, sent);
         // A member that knows no such kind holds it and hands it on.
         let applied = node.apply(vec![received], &m.devices).expect("apply");
@@ -831,8 +869,8 @@ mod tests {
         let bad = entry(&m, 0, Key::Other("not a key".into()), "x", 5, 2);
         let later = entry(&m, 0, project("p3"), "three", 5, 3);
         // On the wire the bad key still decodes.
-        let wire = postcard::to_stdvec(&bad).expect("encodes");
-        let received: Entry = postcard::from_bytes(&wire).expect("a bad key decodes");
+        let wire = rmp_serde::to_vec(&bad).expect("encodes");
+        let received: Entry = rmp_serde::from_slice(&wire).expect("a bad key decodes");
         let applied = a
             .apply(vec![first, received, later], &m.devices)
             .expect("apply");
@@ -1021,7 +1059,7 @@ mod tests {
         let file = log_path(&dir);
         let mode = |p: &Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
         assert_eq!(mode(&file), 0o600);
-        assert_eq!(mode(&dir.path().join("mesh")) & 0o077, 0);
+        assert_eq!(mode(&dir.path().join("mesh2")) & 0o077, 0);
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("chmod");
         drop(s);
         reopen(&m, 0, &dir);
