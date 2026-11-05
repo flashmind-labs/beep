@@ -72,7 +72,8 @@ export function startWorktrees(place: Place, changed: (root: boolean) => void) {
 /// Reads where the machine says the session works, and follows it.
 function report() {
   const p = W.place;
-  if (!p) return;
+  // The empty agent view has no session to ask about yet.
+  if (!p?.id) return;
   const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external }, REPORT_MS);
   if (JSON.stringify(got) === JSON.stringify(W.placed)) return;
   W.placed = got;

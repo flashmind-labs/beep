@@ -12,12 +12,13 @@ import { harnessTile } from "../ui/harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, Waiting } from "./agentqueue.ts";
 import { renderChat } from "../chat/chat.ts";
-import { leavePane } from "../agentpane/media.ts";
+import { leavePane, newTerminal, showPaneTab } from "../agentpane/media.ts";
+import { draftEsc } from "./draft-state.ts";
 import { $, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
-import { openAgent, turnRuns } from "./session.ts";
+import { openAgent, openEditorKey, turnRuns } from "./session.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { closeChild } from "./logview.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
@@ -198,6 +199,8 @@ interface AgentState {
   busy: boolean;
   form: AgentForm;
   open: OpenAgent | null;
+  /// The project whose empty view shows (no session yet), else null.
+  draft: string | null;
   page: AgentPage | null;
   why: string;
   /// Where Esc goes: "chat", "agents", or a window view.
@@ -254,7 +257,7 @@ export const AG: AgentState = {
   readError: "",
   hosts: null, error: "", busy: false,
   form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
-  open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
+  open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", rest: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
@@ -414,12 +417,15 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
-    // ⌘T opens or folds every thought, ⌘Y every command, ⇧⌘Y the last one.
-    // They work from the field: neither key edits text.
+    // ⌘T a terminal in the pane, ⌘1 ⌘2 ⌘3 its Files, Changes and Artifacts, ⌘O the folder in
+    // the editor. ⇧⌘T opens or folds every thought, ⌘Y every command, ⇧⌘Y the last one.
+    // They work from the field and from a terminal: none edits text.
     if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
       const k = e.key.toLowerCase();
-      if (k === "t" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
+      if (k === "t") { e.preventDefault(); if (e.shiftKey) toggleThoughts(); else newTerminal(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
+      if (!e.shiftKey && (k === "1" || k === "2" || k === "3")) { e.preventDefault(); showPaneTab(Number(k) - 1); return true; }
+      if (k === "o" && !e.shiftKey) { e.preventDefault(); openEditorKey(); return true; }
     }
     if (e.key === "Tab" && e.shiftKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
@@ -449,6 +455,14 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
 /// Esc from an agent view: closes the model picker, leaves a subagent for
 /// its session, else goes back.
 export function agentBack() {
+  // The empty view: the pane hands the keys back to the input, then Esc goes to the
+  // project, unless the input holds a prompt.
+  if (S.view === "agent" && AG.draft) {
+    if (leavePane()) return;
+    const typed = document.querySelector<HTMLTextAreaElement>("#agdraft textarea")?.value ?? "";
+    if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } });
+    return;
+  }
   if (S.view === "agent" && (closeModelPicker() || closeChild())) return;
   // In the window a session's parent is its project, wherever it was opened from.
   if (S.view === "agent" && windowHooks) {

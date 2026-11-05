@@ -6,7 +6,7 @@ import { $, $$, type BackTo, bar, PANE, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
-import { openLinked, openPath, openPicture, paneFrame, showArtifact, startPane } from "../agentpane/media.ts";
+import { openLinked, openPath, openPicture, paneFrame, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { MN, resetMentions } from "./workdrop.ts";
@@ -16,7 +16,7 @@ import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jum
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
-import { editorTools } from "../project/editors.ts";
+import { editorTools, openInEditor } from "../project/editors.ts";
 import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
@@ -27,8 +27,10 @@ import { onPlaces, placeOf } from "./place.ts";
 import { placeSub } from "./place-state.ts";
 import { sameSession } from "./running-state.ts";
 
-/// Opens session `s` (a session row) and follows it while it is on screen.
-export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string; back?: string | BackTo } = {}) {
+/// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
+/// the empty view that started it becomes the session in place: its pane, terminal
+/// tabs included, stays as it is.
+export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: string | BackTo; adopt?: boolean } = {}) {
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
     if (from !== undefined) AG.back = from;
@@ -40,14 +42,16 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     return void pollAgent();
   }
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
+  const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
   S.view = "agent";
+  AG.draft = null;
   Object.assign(AG, {
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
   });
-  drawAgentFrame();
+  drawAgentFrame(inPlace);
   pollAgent();
 }
 
@@ -156,6 +160,7 @@ export const stoppingNow = () => {
 export function agentHints() {
   const s = AG.page?.session, q = s?.question;
   const slim = (items: Parameters<typeof hints>[0]) => hints(items).replace('class="dhints"', 'class="dhints slim"');
+  if (AG.draft) return slim([[ICON.ret, "start"], ["⌘T", "terminal"], ["⌘1", "files"], ["esc", "back"]]);
   const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
@@ -169,7 +174,7 @@ export function agentHints() {
   }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ...mode, ["⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
+  return slim([...paste, [ICON.ret, "send"], ...mode, ["⇧⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
@@ -215,12 +220,24 @@ async function readUsage(o: OpenAgent, page: AgentPage) {
   }
 }
 
-/// Open in an editor, in the head, when this Mac has the session's folder.
-async function drawEditors(s: AgentRow) {
-  const folder = await invoke<string | null>("session_folder_here", { machineId: s.machine_id, cwd: s.cwd })
+/// The folder on this Mac the head's Open in button opens, for ⌘O.
+let editorFolder: string | null = null;
+
+/// ⌘O: the folder in the first editor, when this Mac has it.
+export function openEditorKey() {
+  if (editorFolder) void openInEditor(editorFolder);
+}
+
+/// Open in an editor, in the head, when this Mac has the folder `cwd` of
+/// `machine`; `current` says the head still belongs to it.
+export async function drawEditors(machine: string, cwd: string, current: () => boolean) {
+  editorFolder = null;
+  const folder = await invoke<string | null>("session_folder_here", { machineId: machine, cwd })
     .catch(e => { console.warn("session folder not read", e); return null; });
   const draw = () => {
-    if (AG.page && usageKey(AG.page.session) === usageKey(s)) $("#agedit")?.replaceChildren(...editorTools(folder, draw));
+    if (!current()) return;
+    editorFolder = folder;
+    $("#agedit")?.replaceChildren(...editorTools(folder, draw));
   };
   draw();
 }
@@ -233,21 +250,30 @@ onPlaces(() => {
 });
 
 /// The parts that stay while the session updates: the head, the body and the field.
-export function drawAgentFrame() {
+/// With `inPlace` only the head and the conversation are replaced, so the pane
+/// beside them, its terminals running, is not drawn again.
+export function drawAgentFrame(inPlace = false) {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = s.external
     ? `<div class="dmuted dblock dbanner">Started outside Beep. Beep follows it here${canTakeOver(s.agent) ? "; to steer it, ask Beep in a chat to take it over once it stops" : ""}.</div>`
     : `<div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
-  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small id="aghere" title="${esc(s.cwd)}">${esc(placeSub(placeOf(s), s.machine_name) ?? s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>
-    <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
+  const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small id="aghere" title="${esc(s.cwd)}">${esc(placeSub(placeOf(s), s.machine_name) ?? s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
+  const conv = `<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`;
+  if (inPlace) {
+    bar.querySelector(":scope > .dhead")!.outerHTML = head;
+    $$("#agconv").outerHTML = conv;
+  } else {
+    bar.innerHTML = `${head}<div class="agshell" id="agshell">${paneFrame(conv)}</div>`;
+  }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
-  startPane(s);
-  void drawEditors(s);
+  const place = { ...s, project: project?.name };
+  if (inPlace) rebindPane(place); else startPane(place);
+  void drawEditors(s.machine_id, s.cwd, () => !!AG.page && usageKey(AG.page.session) === usageKey(s));
   const msg = $<HTMLTextAreaElement>("#agmsg");
   if (msg) composeField(msg, { images: agentAttach, grow: 156 });
   drawAgentAttached();

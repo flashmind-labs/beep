@@ -26,7 +26,7 @@ import "../research/open.ts";
 import { escUp } from "./escup-state.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
-import { focusBar } from "../project/composer.ts";
+import { AG } from "../agents/agents.ts";
 import { loadAgents, takePending } from "./pane.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
@@ -99,6 +99,11 @@ document.addEventListener("keydown", e => {
   }
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
+  // ⌘T in a project: a terminal in the empty view. In a session the pane has taken it.
+  if (key === "t" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.defaultPrevented) {
+    const to = projectHere();
+    if (to) { e.preventDefault(); go("pane", { draft: { project: to.project, machine: to.machine, terminal: true } }); }
+  }
 });
 
 /// The machines online in `home`, as a key that changes when one connects.
@@ -106,15 +111,22 @@ export function onlineMachines(home: HomeView | null) {
   return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
 }
 
-/// ⌘N: a new chat in the project while its page or one of its sessions
-/// shows (the page's start bar, focused), else a new general chat.
-function newChatHere() {
+/// The project on screen, its page, a session or chat of it, and the machine
+/// its start input opens on; null elsewhere.
+function projectHere() {
   const on = paneOn();
+  if (on.view === "agent" && AG.draft) return { project: AG.draft, machine: null };
   const open = shownArg && typeof shownArg === "object" && "agent" in shownArg ? shownArg.agent : null;
-  const to = newChatTarget({ shown, picked: state.picked, view: on.view, session: on.session, agent: on.view === "agent" ? open : null, mac: state.mac?.id }, state.agents, state.home?.projects);
+  return newChatTarget({ shown, picked: state.picked, view: on.view, session: on.session, agent: on.view === "agent" ? open : null, mac: state.mac?.id }, state.agents, state.home?.projects);
+}
+
+/// ⌘N: in a project (its page, or one of its sessions or chats) the agent
+/// view with an empty conversation and the project's start input, focused;
+/// elsewhere a new general chat.
+function newChatHere() {
+  const to = projectHere();
   if (!to) return void go("pane", { chat: { session: null } });
-  if (shown !== "projects" || state.picked !== to.project) openProjects(to.project);
-  if (shown === "projects") focusBar(to.project, to.machine);
+  go("pane", { draft: { project: to.project, machine: to.machine } });
 }
 pane.connect({
   openSettings,
@@ -139,7 +151,7 @@ pane.connect({
   },
   sessionProject(s) {
     const projects = state.home?.projects ?? [], p = projectOf(s, projects);
-    return p ? { label: repoOf(s, projects) || p.name, open: () => void openProjects(p.name) } : null;
+    return p ? { name: p.name, label: repoOf(s, projects) || p.name, open: () => void openProjects(p.name) } : null;
   },
 });
 

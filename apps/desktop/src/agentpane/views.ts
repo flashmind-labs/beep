@@ -18,7 +18,7 @@ import { invoke } from "../ui/tauri.ts";
 export function viewOf(t: MediaTab): HTMLElement {
   if (t.error) return h(`<div class="agpview"><div class="agpmsg derr">${esc(t.error)}</div></div>`);
   if (t.kind === "text") return t.text ? textView(t, t.text) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Reading ${esc(t.name)} from ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
-  if (t.kind === "term") return t.term ? termView(t, t.term) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Opening a terminal on ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
+  if (t.kind === "term") return t.term ? termView(t, t.term) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Opening a terminal on ${esc((t.at ?? t.existing)?.machine_name ?? "the machine")}…</div></div>`);
   if (!t.url) return h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Opening ${esc(t.name)}…<span class="agpload"><i></i></span></div></div>`);
   if (t.kind === "image") return imageView(t);
   if (t.kind === "video") return videoView(t);
@@ -65,7 +65,7 @@ function termView(t: MediaTab, term: PaneTerm) {
     }
     confirmSheet({
       title: `Stop ${t.name}?`,
-      text: `It stops running on ${P.session?.machine_name ?? "the machine"}.`,
+      text: `It stops running on ${term.row.machine_name}.`,
       action: "Stop",
       run: kill,
     });
