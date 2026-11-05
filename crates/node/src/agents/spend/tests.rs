@@ -129,6 +129,30 @@ fn a_pass_reports_every_agents_sessions_once_each() {
 }
 
 #[test]
+fn a_new_stream_hears_every_session_and_takes_none_from_an_older_one() {
+    let fixture = fixture();
+    let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let reports = spend.pass(NOW);
+    assert!(!reports.is_empty());
+    for report in &reports {
+        spend.sent(report);
+    }
+    assert!(spend.pass(NOW).is_empty(), "an older stream heard them all");
+    assert_eq!(spend.pass_all(NOW).len(), reports.len());
+
+    append(
+        &fixture.claude_main,
+        &claude_line("s1", "m3", "2026-11-03T08:30:00.000Z", 1_000),
+    );
+    assert_eq!(spend.pass_all(NOW + 1).len(), reports.len());
+    assert_eq!(
+        spend.pass(NOW + 1).len(),
+        1,
+        "the older stream still hears the change"
+    );
+}
+
+#[test]
 fn only_changed_sessions_go_again_and_a_restart_reads_nothing_twice() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());

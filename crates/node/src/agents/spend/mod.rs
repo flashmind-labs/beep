@@ -96,6 +96,17 @@ impl Spend {
     /// whole from the window's start, so one read again replaces itself on
     /// the server rather than adding to it.
     pub(crate) fn pass(&self, now: u64) -> Vec<SessionSpend> {
+        self.read(now, false)
+    }
+
+    /// As `pass`, with every session as it stands, heard of or not: what a
+    /// new stream starts from, as its reader may keep nothing. It leaves the
+    /// unsent sessions as they are, for a stream that started earlier.
+    pub(crate) fn pass_all(&self, now: u64) -> Vec<SessionSpend> {
+        self.read(now, true)
+    }
+
+    fn read(&self, now: u64, all: bool) -> Vec<SessionSpend> {
         // On an hour: the server replaces each reported hour whole, so a
         // window starting within one would shrink it to what came after.
         let since = now.saturating_sub(WINDOW_SECS) / 3600 * 3600;
@@ -114,8 +125,12 @@ impl Spend {
                 path.display()
             );
         }
-        let mut keys: Vec<(u64, &SessionKey)> = ledger
-            .unsent
+        let sessions = if all {
+            ledger.sessions()
+        } else {
+            ledger.unsent.clone()
+        };
+        let mut keys: Vec<(u64, &SessionKey)> = sessions
             .iter()
             .map(|key| (ledger.last_hour(key), key))
             .collect();

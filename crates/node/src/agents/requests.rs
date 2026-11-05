@@ -387,6 +387,9 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
     // A pass reads files; it runs on the blocking pool beside the loop.
     // Dropped with the stream, it still finishes and saves what it read.
     let mut scanning: Option<JoinHandle<Vec<SessionSpend>>> = None;
+    // The first pass gives this stream every session: a desktop keeps nothing
+    // between reads, so sessions only one earlier stream heard would go missing.
+    let mut first_pass = true;
     loop {
         tokio::select! {
             turn = agents.usage.next_turn() => {
@@ -411,7 +414,10 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
             }
             _ = every_scan.tick(), if history && scanning.is_none() => {
                 let spend = agents.spend.clone();
-                scanning = Some(spawn_blocking(move || spend.pass(unix_now())));
+                let all = first_pass;
+                scanning = Some(spawn_blocking(move || {
+                    if all { spend.pass_all(unix_now()) } else { spend.pass(unix_now()) }
+                }));
             }
             Some(read) = async { Some(scanning.as_mut()?.await) }, if scanning.is_some() => {
                 scanning = None;
@@ -419,8 +425,11 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
                     Ok(reports) => {
                         for report in reports {
                             tx.send(&SessionsReply::SessionSpend { usage: report.clone() }).await?;
-                            agents.spend.sent(&report);
+                            if !first_pass {
+                                agents.spend.sent(&report);
+                            }
                         }
+                        first_pass = false;
                     }
                     Err(e) => log::warn!("reading the agents' logs failed: {e}"),
                 }
