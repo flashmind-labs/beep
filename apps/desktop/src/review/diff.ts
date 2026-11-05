@@ -11,7 +11,9 @@ import { button, el, type Kid } from "../ui/dom.ts";
 /// Where a diff comes from and what its files can open in.
 export interface DiffSource {
   /// Reads the diff; with `only`, just those files in full.
-  load: (only: string[], lockfiles: boolean) => Promise<DiffView>;
+  load: (only: string[], lockfiles: boolean, uncommitted: boolean) => Promise<DiffView>;
+  /// Offers the Uncommitted only toggle, off to begin with.
+  uncommitted?: boolean;
   /// Opens a file of the diff, when something can show it.
   open?: { label: string; run: (path: string) => void };
   /// Where review comments are kept and go: `key` names the draft in
@@ -118,6 +120,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     /// Side by side is chosen; it shows only while the viewer is not narrow.
     split: loadSplit(),
     narrow: false,
+    /// Only the uncommitted changes, against HEAD.
+    uncommitted: false,
     /// Files being read in full.
     pending: new Set<string>(),
     /// The file j, k and x act on: the one stepped to while it shows,
@@ -145,6 +149,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
     redrawBodies();
   });
   splitBtn.setAttribute("aria-pressed", String(st.split));
+  const uncommittedBtn = btn("Uncommitted only", "", "Show uncommitted changes only, without the branch's commits", () => {
+    st.uncommitted = !st.uncommitted;
+    uncommittedBtn.setAttribute("aria-pressed", String(st.uncommitted));
+    load();
+  });
+  uncommittedBtn.setAttribute("aria-pressed", "false");
   const expand = btn("Expand all", "", "Unfold every file", () => foldAll(false));
   const collapse = btn("Collapse all", "", "Fold every file", () => foldAll(true));
   const refresh = btn(icon(SVG.refresh), "icon", "Read the changes again", () => load());
@@ -159,7 +169,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const cmts = el("span", "dv-cmts");
   const send = button("Send review", "dbtn pri small", () => sendReview());
   const lostBox = el("div", "dv-lost");
-  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, cmts, send, find, splitBtn, expand, collapse, refresh);
+  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, cmts, send, find, ...(src.uncommitted ? [uncommittedBtn] : []), splitBtn, expand, collapse, refresh);
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
   const files = el("div", "dv-files");
@@ -190,8 +200,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!v) {
       sum.append(el("b", "", st.loading ? "Reading the changes…" : "Changes"));
     } else {
-      const base = el("span", "base", "against ", el("code", "", v.base));
-      if (v.merge_base) base.append(" at ", el("code", "", v.merge_base.slice(0, 7)));
+      const base = el("span", "base", "against ", el("code", "", st.uncommitted ? "HEAD" : v.base));
+      if (v.merge_base && !st.uncommitted) base.append(" at ", el("code", "", v.merge_base.slice(0, 7)));
       if (v.working_tree) base.append(", uncommitted included");
       sum.append(el("b", "", changedLabel(v)), ...counts(v.additions, v.deletions).filter(x => x != null), base);
     }
@@ -546,7 +556,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     st.pending.add(f.path);
     redrawFile(f.path);
     try {
-      const got = await src.load([f.path], true);
+      const got = await src.load([f.path], true, st.uncommitted);
       if (st.view) st.view = withLoaded(st.view, got.files);
     } catch (e) {
       st.error = `Could not read ${f.path}: ${reasonOf(e)}`;
@@ -572,7 +582,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     drawHead();
     if (!st.view) drawFiles();
     try {
-      const view = await src.load([], false);
+      const view = await src.load([], false, st.uncommitted);
       if (seq !== st.seq) return;
       st.view = view;
     } catch (e) {

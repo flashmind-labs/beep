@@ -458,6 +458,33 @@ mod tests {
     }
 
     #[test]
+    fn base_at_gives_only_what_is_uncommitted_even_with_an_origin_head() {
+        if !has_git() {
+            return;
+        }
+        let (_dir, root) = checkout();
+        run_git(&root, &["update-ref", "refs/remotes/origin/main", "main"]);
+        run_git(
+            &root,
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main",
+            ],
+        );
+        run_git(&root, &["checkout", "-q", "-b", "work"]);
+        fs::write(root.join("keep.txt"), "one\n2\nthree\n").unwrap();
+        run_git(&root, &["commit", "-q", "-am", "change"]);
+        fs::write(root.join("gone.txt"), "still\n").unwrap();
+        fs::write(root.join("fresh.txt"), "hello\n").unwrap();
+        let diff = read(&root, &ask("@", "")).expect("the diff reads");
+        let mut paths: Vec<_> = diff.files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["fresh.txt", "gone.txt"]);
+        assert!(diff.working_tree);
+    }
+
+    #[test]
     fn a_branch_with_a_worktree_inside_gives_its_working_tree() {
         if !has_git() {
             return;
