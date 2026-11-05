@@ -66,15 +66,18 @@ test("signing out is confirmed in one line that says what stops", () => {
 });
 
 test("the bar says Signed out where it says No subscription for a Mac with no account", () => {
-  assert.deepEqual(linkChip("unlinked", true), ["off", "Signed out"]);
-  assert.deepEqual(linkChip("unlinked", false), ["off", "No subscription"]);
-  assert.deepEqual(linkChip("revoked", false), ["bad", "Removed"]);
-  assert.equal(linkChip("linked", false), null);
+  assert.deepEqual(linkChip(true, "unlinked", true), ["off", "Signed out"]);
+  assert.deepEqual(linkChip(true, "unlinked", false), ["off", "No subscription"]);
+  assert.deepEqual(linkChip(true, "revoked", false), ["bad", "Removed"]);
+  assert.equal(linkChip(true, "linked", false), null);
+  // With no server there is nothing to say.
+  for (const link of ["unlinked", "revoked", "linked"] as const) assert.equal(linkChip(false, link, true), null);
 });
 
 test("the sidebar footer leads to Sign in only while signed out", () => {
-  assert.deepEqual(signedOutFooter(true), { text: "Signed out", action: "Sign in" });
-  assert.equal(signedOutFooter(false), null);
+  assert.deepEqual(signedOutFooter(true, true), { text: "Signed out", action: "Sign in" });
+  assert.equal(signedOutFooter(true, false), null);
+  assert.equal(signedOutFooter(false, true), null);
 });
 
 test("a Mac signed out never gets the first-run window", () => {

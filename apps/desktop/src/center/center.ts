@@ -215,10 +215,11 @@ async function showCached() {
   const [cached, mac, link] = await Promise.all([
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
     invoke<MacControl>("mac_control").catch(() => null),
-    invoke<{ link: string; signed_out: boolean }>("status").catch(() => null),
+    invoke<{ link: string; signed_out: boolean; server: boolean }>("status").catch(() => null),
   ]);
   state.subscribed = link?.link === "linked";
   S.signedOut = link?.signed_out ?? false;
+  S.server = link?.server ?? false;
   $("#home-comp").style.display = state.subscribed ? "" : "none";
   const home = seed(state, cached, dismissedUpdates);
   state.mac ??= mac;
@@ -243,7 +244,7 @@ listen<string>("link-state", e => {
     // Signed out on a page that is only there with a subscription: Home.
     const on = paneOn();
     const arg = on.group ? { group: { id: on.group } } : on.session ? { chat: { session: on.session } } : on.view;
-    if (shown && viewHidden(shown, arg, false)) go("home");
+    if (shown && viewHidden(shown, arg, false, S.server)) go("home");
   }
   draw();
 });

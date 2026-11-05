@@ -32,6 +32,7 @@ export function setCredsHtml() {
   if (CRED.list === null) return `<div class="dmuted">Could not load your credentials.</div>`;
   // Which machines have gh and teacli, when the machines are known.
   const machines = Array.isArray(SET.machines) ? SET.machines : null;
+  CRED.server = S.server;
   return CRED.mod.credentialsHtml(CRED, machines, esc, when);
 }
 
@@ -188,7 +189,7 @@ export function bindCreds(el: Element) {
     if (CRED.edit?.kind === "api_key" && machines) CRED.edit.toMachines = machines.checked;
     const url = $in<HTMLInputElement>("#credUrl")?.value;
     if (CRED.edit?.kind === "forgejo" && url !== undefined) CRED.edit.url = url;
-    const d = CRED.mod.draft(CRED.edit, url, $in<HTMLInputElement>("#credSecret")?.value, machines?.checked);
+    const d = CRED.mod.draft(CRED.edit, url, $in<HTMLInputElement>("#credSecret")?.value, machines ? machines.checked : true);
     if (d.error) {
       CRED.error = d.error;
       const err = $in("#credErr");
