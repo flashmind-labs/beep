@@ -75,7 +75,12 @@ pub fn machine_files(
 
 /// Reads every agent's file on the machine, in a shell of its own.
 pub async fn read(client: &PeerClient) -> Result<Vec<ReadFile>, MeshError> {
-    let ran = exec(client, &read_script(), LIMIT).await?;
+    let script = if on_windows(client).await? {
+        read_script_windows()
+    } else {
+        read_script()
+    };
+    let ran = exec(client, &script, LIMIT).await?;
     if ran.exit_code != Some(0) {
         return Err(said("its shell could not read the agent files"));
     }
@@ -84,7 +89,14 @@ pub async fn read(client: &PeerClient) -> Result<Vec<ReadFile>, MeshError> {
 
 /// Writes `text` into every agent file that lacks it.
 pub async fn write(client: &PeerClient, files: &[ReadFile], text: &str) -> Result<(), MeshError> {
-    let script = write_script(files, text);
+    if on_windows(client).await? {
+        return run_write(client, write_script_windows(files, text)).await;
+    }
+    run_write(client, write_script(files, text)).await
+}
+
+/// Runs a write script; an empty one has nothing to do.
+async fn run_write(client: &PeerClient, script: String) -> Result<(), MeshError> {
     if script.is_empty() {
         return Ok(());
     }
@@ -96,6 +108,13 @@ pub async fn write(client: &PeerClient, files: &[ReadFile], text: &str) -> Resul
         )));
     }
     Ok(())
+}
+
+/// Whether the machine's shell is PowerShell on Windows. A POSIX shell prints
+/// `:OS` for this command, PowerShell prints the `OS` variable, `Windows_NT`.
+async fn on_windows(client: &PeerClient) -> Result<bool, MeshError> {
+    let ran = exec(client, "echo $env:OS", LIMIT).await?;
+    Ok(ran.output.trim() == "Windows_NT")
 }
 
 /// Prints `@@ <file> <state> [base64]`: 1 a file, 0 the folder without it, `-` neither.
@@ -110,6 +129,32 @@ fn read_script() -> String {
            elif [ -d \"$HOME/$(dirname \"$f\")\" ]; then printf '@@ %s 0\\n' \"$f\"; \
            else printf '@@ %s -\\n' \"$f\"; fi; \
          done"
+    )
+}
+
+/// The PowerShell form of `read_script`, printing the same lines.
+fn read_script_windows() -> String {
+    let files: Vec<String> = AGENT_FILES
+        .iter()
+        .map(|(_, rel)| format!("'{rel}'"))
+        .collect();
+    let files = files.join(",");
+    // One byte past the limit, so a longer file shows as one.
+    let limit = MAX_FILE + 1;
+    format!(
+        "$ErrorActionPreference = 'Stop'; \
+         foreach ($f in @({files})) {{ \
+           $p = Join-Path $HOME $f; \
+           if (Test-Path -LiteralPath $p -PathType Leaf) {{ \
+             $s = [IO.File]::OpenRead($p); \
+             try {{ \
+               $b = New-Object byte[] {limit}; $n = 0; \
+               while ($n -lt {limit}) {{ $r = $s.Read($b, $n, {limit} - $n); if ($r -le 0) {{ break }}; $n += $r }}; \
+               Write-Output ('@@ ' + $f + ' 1 ' + [Convert]::ToBase64String($b, 0, $n)) \
+             }} finally {{ $s.Dispose() }} \
+           }} elseif (Test-Path -LiteralPath (Split-Path -Parent $p) -PathType Container) {{ Write-Output ('@@ ' + $f + ' 0') }} \
+           else {{ Write-Output ('@@ ' + $f + ' -') }} \
+         }}"
     )
 }
 
@@ -200,6 +245,31 @@ fn write_script(files: &[ReadFile], text: &str) -> String {
         .join(" && ")
 }
 
+/// The PowerShell form of `write_script`: bytes, so no BOM and `\n` stays `\n`.
+/// Stops at the first error with a non-zero exit.
+fn write_script_windows(files: &[ReadFile], text: &str) -> String {
+    let steps: Vec<String> = files
+        .iter()
+        .filter(|file| !file.text.as_deref().is_some_and(|now| holds(now, text)))
+        .map(|file| {
+            let data = STANDARD.encode(merged(file.text.as_deref(), text));
+            let rel = file.rel;
+            format!(
+                "$p = Join-Path $HOME '{rel}'; \
+                 [IO.File]::WriteAllBytes(($p + '.beep-new'), [Convert]::FromBase64String('{data}')); \
+                 Move-Item -LiteralPath ($p + '.beep-new') -Destination $p -Force"
+            )
+        })
+        .collect();
+    if steps.is_empty() {
+        return String::new();
+    }
+    format!(
+        "$ErrorActionPreference = 'Stop'; try {{ {} }} catch {{ Write-Output $_.Exception.Message; exit 1 }}",
+        steps.join("; ")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,5 +338,54 @@ mod tests {
                 .contains("~/.claude/CLAUDE.md is over 256 KB")
         );
         assert!(read_script().contains(&format!("head -c {}", MAX_FILE + 1)));
+    }
+
+    #[test]
+    fn the_windows_read_script_lists_every_file_and_reads_past_the_limit() {
+        let script = read_script_windows();
+        for (_, rel) in AGENT_FILES {
+            assert!(script.contains(&format!("'{rel}'")));
+        }
+        assert!(script.contains(&format!("byte[] {}", MAX_FILE + 1)));
+        assert!(script.contains("Join-Path $HOME"));
+        assert!(!script.contains("&&"));
+    }
+
+    #[test]
+    fn the_windows_write_script_writes_bytes_and_skips_files_that_hold_the_text() {
+        let held = merged(None, "rules");
+        let files = [
+            ReadFile {
+                agent: "claude",
+                rel: ".claude/CLAUDE.md",
+                text: Some(held),
+            },
+            ReadFile {
+                agent: "codex",
+                rel: ".codex/AGENTS.md",
+                text: None,
+            },
+        ];
+        let script = write_script_windows(&files, "rules");
+        assert!(!script.contains(".claude/CLAUDE.md"));
+        assert!(script.contains("'.codex/AGENTS.md'"));
+        assert!(script.contains(&STANDARD.encode(merged(None, "rules"))));
+        assert!(script.contains("WriteAllBytes"));
+        assert!(script.contains("Move-Item"));
+        assert!(script.contains("exit 1"));
+        assert!(!script.contains("&&"));
+        assert!(write_script_windows(&files[..1], "rules").is_empty());
+    }
+
+    #[test]
+    fn the_windows_read_output_parses_like_the_posix_one() {
+        let output = format!(
+            "#< CLIXML\r\n@@ .claude/CLAUDE.md 1 {}\r\n@@ .codex/AGENTS.md 0\r\n@@ .gemini/GEMINI.md -\r\n",
+            STANDARD.encode("# Rules\n")
+        );
+        let files = parse_read(&output).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].text.as_deref(), Some("# Rules\n"));
+        assert_eq!(files[1].text, None);
     }
 }
