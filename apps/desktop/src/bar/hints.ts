@@ -5,6 +5,7 @@ import type { LinkState } from "./core.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
+import { shortcutSheet } from "../settings/subscription.ts";
 import { stopFace } from "../chat/turnrows.ts";
 
 // ---------- Hints ----------
@@ -85,7 +86,7 @@ export const SHORTCUTS: [string, Hint[]][] = [
 ];
 
 /// The sections of a key sheet: each title, then its keys and what they do.
-export const keyGroups = (sections: [string, Hint[]][]) =>
+export const keyGroups = (sections: readonly (readonly [string, readonly Hint[]])[]) =>
   `<div class="dkeys">${sections.map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>`;
 
 /// Opens or closes the sheet of every key, over whatever the bar shows.
@@ -95,7 +96,7 @@ export function toggleKeys() {
   $("#viewer")?.remove();
   bar.append(h(`<div class="dover" id="keys" role="dialog" aria-label="Keyboard shortcuts">
     <div class="vt"><span class="tt"><b>Keyboard shortcuts</b></span></div>
-    ${keyGroups(SHORTCUTS)}
+    ${keyGroups(shortcutSheet(SHORTCUTS, S.link === "linked"))}
     ${hints([["esc", "close"]])}</div>`));
 }
 

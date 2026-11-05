@@ -5,7 +5,7 @@ import { invoke } from "../ui/tauri.ts";
 import { filterProjects, agentLabel } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
-import { agentFor } from "./agent.ts";
+import { pageAgent } from "./agent.ts";
 import { type BarTarget, barCheckout, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
@@ -248,7 +248,7 @@ export function workOnIssue(name: string, issue: IssueRow) {
 /// Continue: reads the pull request's branch, then fills the bar to start
 /// on it. A fork's branch is not on `origin`, so it is refused.
 export async function continuePr(name: string, pr: PullRequestRow) {
-  const agent = agentFor(state.agents, name);
+  const agent = pageAgent(state.agents, name, state.subscribed);
   if (!agent) return;
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);

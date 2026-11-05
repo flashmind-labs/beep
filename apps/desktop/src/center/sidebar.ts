@@ -1,5 +1,6 @@
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
+import { patchChildren } from "../ui/patch.ts";
 import { plural } from "../ui/format.ts";
 import { svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -131,7 +132,7 @@ export function drawSide() {
     list = h("div", "cc-side-list");
     el.replaceChildren(head, list);
   }
-  list.replaceChildren(...side);
+  patchChildren(list, side);
   // A chat's title comes from the list, which may just have loaded.
   if (shown === "pane") drawTop();
 }

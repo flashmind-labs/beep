@@ -5,6 +5,7 @@ import type { ChatApproval } from "../center/home-state.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el } from "../ui/dom.ts";
 import { dbtn, emptyPanel, stateChip, svgEl, secHead } from "../ui/parts.ts";
+import { localProjectId } from "./localid.ts";
 import type { Kid } from "../ui/dom.ts";
 
 /// A project agent with its chat (ProjectAgent).
@@ -119,6 +120,13 @@ type Named = Pick<ProjectAgent, "name" | "chat_id">;
 /// The project agent for project `name`, or null.
 export function agentFor<T extends Named>(agents: readonly T[] | null | undefined, name: string | null | undefined) {
   return (agents || []).find(a => a.name === name) || null;
+}
+
+/// What a project's page draws its lists with: the project agent, or with no subscription a
+/// stand-in that only carries the project's id, from which the mesh reads its runs and pull
+/// requests. It has no chat, tasks or plan.
+export function pageAgent(agents: readonly ProjectAgent[] | null | undefined, name: string, subscribed: boolean): ProjectAgent | null {
+  return agentFor(agents, name) || (subscribed ? null : { project_id: localProjectId(name), name, chat_id: "", open_tasks: 0, open_workers: 0 });
 }
 
 /// The project agent whose chat is `session`, or null for a general chat.
