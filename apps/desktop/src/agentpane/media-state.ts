@@ -238,3 +238,14 @@ export function zoomAt(v: ImageView, factor: number, px: number, py: number): Im
 
 /// ⇧esc, which zooms a side pane over its conversation and back.
 export const isZoomKey = (e: KeyboardEvent) => e.key === "Escape" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+
+/// Runs `toggle` on ⇧esc while `allowed`, ahead of every other Esc handler
+/// (the capture phase), and keeps the key from them. Held keys do not repeat it.
+export function onZoomKey(allowed: () => boolean, toggle: () => void) {
+  window.addEventListener("keydown", e => {
+    if (!isZoomKey(e) || !allowed()) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (!e.repeat) toggle();
+  }, true);
+}

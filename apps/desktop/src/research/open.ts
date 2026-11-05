@@ -4,7 +4,7 @@
 // each update patches only what changed, so spinners keep turning.
 import { copyCode } from "../agents/turnrows.ts";
 import { atBottom } from "../agents/logscroll.ts";
-import { isZoomKey, paneSize } from "../agentpane/media-state.ts";
+import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
 import type { ResearchArg } from "../center/state.ts";
@@ -126,12 +126,7 @@ const place = () => {
 
 // ⇧esc: the side pane fills the page over the chat, as in a session; only classes
 // change, so nothing in it reloads. In the capture phase so no Esc handler sees it.
-window.addEventListener("keydown", e => {
-  if (!active() || !isZoomKey(e)) return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  if (!e.repeat) { zoomed = !zoomed; place(); }
-}, true);
+onZoomKey(active, () => { zoomed = !zoomed; place(); });
 
 /// The grip between the chat and the pane: drag to resize, double-click to reset.
 function wireDivider(p: Page) {
