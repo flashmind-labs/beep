@@ -1008,7 +1008,10 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
     let question = session.info().question.expect("a question");
     let asked = alerts.drain();
     assert_eq!(asked.len(), 1, "{asked:?}");
-    assert_eq!(asked[0].session, "c0ffee");
+    // Named by the id the node lists it under, which is the agent's own
+    // once it has given one, so a click on the notice finds the session.
+    assert_eq!(asked[0].session, session.info().id);
+    assert_eq!(asked[0].session, "s");
     assert_eq!(asked[0].agent, "pi");
     assert_eq!(
         asked[0].kind,
@@ -1036,7 +1039,7 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
     assert_eq!(
         alerts.drain(),
         [Alert {
-            session: "c0ffee".into(),
+            session: "s".into(),
             agent: "pi".into(),
             title: None,
             cwd: dir.display().to_string(),
