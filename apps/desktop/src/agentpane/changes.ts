@@ -5,12 +5,13 @@
 
 import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, diffView } from "../review/diff.ts";
+import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 
 const C = {
-  /// The session's machine and folder the view is of.
+  /// The session and folder the view is of.
   key: "",
   el: null as HTMLElement | null,
   view: null as DiffViewHandle | null,
@@ -19,7 +20,7 @@ const C = {
 /// The Changes view of the pane's session, made the first time it shows.
 export function changesView() {
   const s = paneSession();
-  const key = s ? `${s.machine_id}\n${s.cwd}` : "";
+  const key = s ? `${s.machine_id}\n${s.id}\n${s.cwd}` : "";
   if (C.el && C.key === key) return C.el;
   C.el?.remove();
   C.key = key;
@@ -34,6 +35,7 @@ export function changesView() {
       ? invoke<DiffView>("work_diff", { machineId: s.machine_id, root: s.cwd, only, lockfiles })
       : Promise.reject(new Error("No session shows.")),
     open: { label: "Open in a tab", run: openWorkFile },
+    review: { key: `${s.machine_id}\n${s.id}`, send: sendReview },
   });
   el.append(view.el);
   Object.assign(C, { el, view });
