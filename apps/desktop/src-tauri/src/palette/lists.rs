@@ -20,8 +20,7 @@ use crate::{
 use beep_fleet::Session as FleetSession;
 use beep_proto::{
     Cron, GitItem, GitItemKind, ImportedProject, ListCrons, ListGitItems, ListImportedProjects,
-    ListMemories, ListProjects, ListSessions, Machine, MachineSession, Memory, ProjectAgent,
-    Session,
+    ListMemories, ListProjects, Machine, MachineSession, Memory, ProjectAgent, Session,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -218,7 +217,7 @@ async fn follow_chats(app: &AppHandle, beep: &Arc<Beep>) {
             Ok(_) if beep.link_state() != LinkState::Linked => Some(Vec::new()),
             Ok(Some(chats)) => Some(chats),
             Ok(None) if beep.link_state() == LinkState::Linked => {
-                section("chats", beep.call(ListSessions {}).await)
+                section("chats", beep.sessions().await)
             }
             Ok(None) => None,
             Err(e) => {

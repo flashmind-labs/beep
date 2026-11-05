@@ -54,6 +54,20 @@ impl Store {
         .bind(text)
         .execute(&self.pool)
         .await?;
+        // Past the list's cap an alert would be in no list at all, so the
+        // oldest go with their chats.
+        let expired: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT a.chat_id FROM chat_alerts a JOIN chat_members m ON m.chat_id = a.chat_id
+             WHERE m.user_id = $1
+             ORDER BY a.created_at DESC, a.chat_id OFFSET $2",
+        )
+        .bind(user.as_str())
+        .bind(LISTED)
+        .fetch_all(&self.pool)
+        .await?;
+        if !expired.is_empty() {
+            self.delete_sessions(user, &expired).await?;
+        }
         Ok(())
     }
 
@@ -110,5 +124,43 @@ impl Store {
         .await?;
         self.delete_sessions(user, &alerts).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{CreateRun, RunStatus, TestDb, test_chat};
+
+    #[tokio::test]
+    async fn alerts_past_the_cap_are_deleted_with_their_chats() {
+        let db = TestDb::new().await.unwrap();
+        let store = db.store().await.unwrap();
+        let alice = UserKey::for_test("alice");
+        let mut chats = Vec::new();
+        for n in 0..=LISTED {
+            let chat = test_chat(&format!("alert-{n}"));
+            let made = store
+                .create_run(&alice, chat, &format!("req-{n}"), "wake")
+                .await
+                .unwrap();
+            let CreateRun::Created(run) = made else {
+                panic!("the run was not created");
+            };
+            store
+                .finish(&alice, &run, None, RunStatus::Completed)
+                .await
+                .unwrap();
+            store
+                .add_alert(&alice, chat, "Apps", "Hello")
+                .await
+                .unwrap();
+            chats.push(chat);
+        }
+        let listed = store.alerts(&alice).await.unwrap();
+        assert_eq!(listed.len(), LISTED as usize);
+        // The oldest is gone with its chat, so it is no stray chat in a list.
+        assert!(listed.iter().all(|a| a.chat != chats[0]));
+        assert!(!store.in_chat(&alice, chats[0]).await.unwrap());
     }
 }

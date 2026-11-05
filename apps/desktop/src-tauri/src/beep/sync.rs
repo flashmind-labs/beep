@@ -57,6 +57,10 @@ struct Synced {
 struct Index {
     last: i64,
     chats: Vec<ChatInfo>,
+    /// The alerts the lists leave out, kept so a start with no server
+    /// does not show them as chats.
+    #[serde(default)]
+    alerts: Vec<Uuid>,
 }
 
 /// The chats a page changed, for the bar to reload.
@@ -77,6 +81,7 @@ impl Chats {
         if let Some(index) = index {
             synced.ready = true;
             synced.last = index.last;
+            synced.alerts = index.alerts.into_iter().collect();
             for chat in index.chats {
                 let messages: Vec<ChatMessage> = fs::read(chat_file(&dir, chat.id))
                     .ok()
@@ -191,6 +196,7 @@ impl Chats {
         let index = Index {
             last: synced.last,
             chats: synced.chats.values().cloned().collect(),
+            alerts: synced.alerts.iter().copied().collect(),
         };
         write(&self.dir.join("index.json"), &serde_json::to_vec(&index)?)?;
         Ok(())
@@ -217,6 +223,12 @@ impl Chats {
         let mut synced = self.synced();
         let changed = synced.alerts != alerts;
         synced.alerts = alerts;
+        if changed
+            && synced.ready
+            && let Err(e) = self.save(&synced, &HashSet::new(), &HashSet::new())
+        {
+            log::warn!("keeping the alerts: {e}");
+        }
         changed
     }
 

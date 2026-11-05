@@ -84,7 +84,8 @@ fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice) 
     if notice.changed {
         // The assistant started or ended an alert if the session is empty.
         if notice.session_id.is_empty() {
-            tauri::async_runtime::spawn(alerts::refresh(app.clone()));
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move { alerts::refresh(&app).await });
         }
         let _ = app.emit("sessions-changed", notice.session_id);
         tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
@@ -113,12 +114,19 @@ fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice) 
         ));
         return;
     }
-    chat_notice(app, beep, voice, notice);
+    chat_notice(app, beep, voice, notice, false);
 }
 
 /// A notice for a chat: nothing while it is on screen, else the macOS
-/// notification, or the offer of a voice note.
-pub(super) fn chat_notice(app: &AppHandle, beep: &Beep, voice: &Arc<Voice>, notice: Notice) {
+/// notification, or the offer of a voice note. An `alert` opens in the
+/// notifications pane when clicked.
+pub(super) fn chat_notice(
+    app: &AppHandle,
+    beep: &Beep,
+    voice: &Arc<Voice>,
+    notice: Notice,
+    alert: bool,
+) {
     let showing = focused_center(app);
     if center::on_screen(
         &seen(app, beep.session(), showing.session),
@@ -135,6 +143,7 @@ pub(super) fn chat_notice(app: &AppHandle, beep: &Beep, voice: &Arc<Voice>, noti
             tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
         }
         NoticeVoice::Ask => voice.offer(notice),
+        NoticeVoice::Off if alert => notify::alert(app, &notice),
         NoticeVoice::Off => notify::notice(app, &notice),
     }
 }
