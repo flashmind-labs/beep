@@ -208,6 +208,15 @@ pub enum SessionsRequest {
     MoveProgress {
         session: String,
     },
+    /// Whether this node can take a session that works in a worktree of
+    /// `project`, on `branch`: it makes the worktree itself, and says if
+    /// its Syncthing is set not to sync that folder. Answered with
+    /// `MoveChecked`; a node from before it closes the stream, and takes
+    /// checkout sessions only.
+    MoveCheck {
+        project: String,
+        branch: String,
+    },
 }
 
 impl SessionsRequest {
@@ -233,6 +242,7 @@ impl SessionsRequest {
             | Self::Worktrees { .. }
             | Self::Commands { .. }
             | Self::MoveProgress { .. }
+            | Self::MoveCheck { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -375,6 +385,12 @@ pub enum SessionsReply {
     /// to this node is known.
     Moving {
         progress: Option<MoveProgress>,
+    },
+    /// The answer to `MoveCheck`.
+    MoveChecked {
+        /// The worktree's folder is one Syncthing keeps in step here, and
+        /// its `.stignore` leaves it out: the session cannot move.
+        ignored: bool,
     },
 }
 

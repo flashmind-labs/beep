@@ -16,6 +16,7 @@ mod saved;
 mod source;
 mod store;
 mod target;
+mod worktree;
 
 #[cfg(all(test, unix))]
 mod move_tests;

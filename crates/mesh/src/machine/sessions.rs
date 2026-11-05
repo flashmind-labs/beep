@@ -409,6 +409,40 @@ pub async fn move_progress<S: Sessions + ?Sized>(
     }
 }
 
+/// Whether a node can take a session working in a worktree on `branch` of
+/// `project`.
+pub enum WorktreeMove {
+    Takes,
+    /// Its Syncthing is set not to sync the worktree's folder.
+    Ignored,
+    /// The node is from before worktree moves.
+    NeedsUpdate,
+}
+
+/// Asks the node whether it can take a worktree session of `project`.
+pub async fn worktree_move<S: Sessions + ?Sized>(
+    node: &S,
+    project: &str,
+    branch: &str,
+) -> Result<WorktreeMove, MeshError> {
+    let request = SessionsRequest::MoveCheck {
+        project: project.to_owned(),
+        branch: branch.to_owned(),
+    };
+    match node.sessions(request, READ_TIMEOUT).await {
+        Ok(SessionsReply::MoveChecked { ignored: false }) => Ok(WorktreeMove::Takes),
+        Ok(SessionsReply::MoveChecked { ignored: true }) => Ok(WorktreeMove::Ignored),
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        // A node from before it closes the stream.
+        Err(MeshError::Link(e)) => {
+            tracing::debug!("node did not answer a move check; error={e:#}");
+            Ok(WorktreeMove::NeedsUpdate)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// The worktrees of the repository holding `folder` on the node; none when
 /// it is not in one.
 pub async fn worktrees<S: Sessions + ?Sized>(

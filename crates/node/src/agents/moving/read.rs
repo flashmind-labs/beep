@@ -7,7 +7,11 @@
 //! Sent as compact msgpack: a field is added only at the end with
 //! `#[serde(default)]`.
 
-use super::{Harness, progress::Target};
+use super::{
+    Harness,
+    progress::Target,
+    worktree::{MAX_PATCH, Work, snapshot},
+};
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -23,6 +27,7 @@ use std::{
 use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    task::spawn_blocking,
 };
 
 pub(crate) const ALPN: &[u8] = b"beep-sessions/1";
@@ -44,6 +49,10 @@ pub(crate) enum Request {
         id: String,
         from: u64,
         prefix_hash: Vec<u8>,
+        /// The session works in a worktree: after the last bytes, when the
+        /// session does not run, send its commit and uncommitted work.
+        #[serde(default)]
+        worktree: bool,
     },
     /// Asks how the move of session `id` made at `at` stands, which the
     /// machine it moves to knows. Sent by the source.
@@ -61,6 +70,15 @@ pub(crate) enum Reply {
         file_name: String,
     },
     Chunk {
+        data: Vec<u8>,
+    },
+    /// Sent before `End` of a worktree session that does not run: the commit
+    /// its worktree is at. A patch of the uncommitted work follows, in
+    /// `Patch` pieces.
+    Work {
+        head: String,
+    },
+    Patch {
         data: Vec<u8>,
     },
     /// Last: the transcript's size now, and whether the session still
@@ -137,6 +155,7 @@ pub(super) async fn serve(
             id,
             from,
             prefix_hash,
+            worktree,
         }) => {
             if !allow(Asked::Read, &id) {
                 return tx.send(&refuse("no move of that session to you")).await;
@@ -154,7 +173,11 @@ pub(super) async fn serve(
             // restart, or that the source is still finishing with, counts
             // as running.
             let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
-            match send_after(&mut tx, &found, from, &prefix_hash, live).await {
+            let work = match worktree.then(|| agents.moves.worktree_of(&id)).flatten() {
+                Some(dir) if !live => Some(dir),
+                _ => None,
+            };
+            match send_after(&mut tx, &found, from, &prefix_hash, live, work).await {
                 Ok(()) => tx.finish().await,
                 Err(e) => {
                     let message = format!("{e:#}");
@@ -216,6 +239,7 @@ async fn send_after(
     from: u64,
     prefix_hash: &[u8],
     live: bool,
+    worktree: Option<PathBuf>,
 ) -> Result<()> {
     let mut file = File::open(&found.path).await?;
     let size = file.metadata().await?.len();
@@ -248,6 +272,16 @@ async fn send_after(
             data: buf[..got].to_vec(),
         })
         .await?;
+    }
+    if let Some(dir) = worktree {
+        let work = spawn_blocking(move || snapshot(&dir)).await??;
+        tx.send(&Reply::Work { head: work.head }).await?;
+        for piece in work.patch.chunks(CHUNK) {
+            tx.send(&Reply::Patch {
+                data: piece.to_vec(),
+            })
+            .await?;
+        }
     }
     tx.send(&Reply::End { size, live }).await
 }
@@ -282,6 +316,9 @@ pub(crate) struct Pulled {
     /// The copy was not a start of the source's: it was set aside, and
     /// this is a fresh one.
     pub(crate) restarted: bool,
+    /// The worktree's commit and uncommitted work, when asked for and the
+    /// session did not run.
+    pub(crate) work: Option<Work>,
 }
 
 /// Brings the copy at `copy` up to date from the stream of a source.
@@ -292,6 +329,7 @@ pub(crate) async fn pull(
     agent: AgentSlug,
     id: &str,
     copy: &Path,
+    worktree: bool,
 ) -> Result<Pulled> {
     let (from, prefix_hash) = held(copy).await?;
     tx.send(&Request::Read {
@@ -299,6 +337,7 @@ pub(crate) async fn pull(
         id: id.to_owned(),
         from,
         prefix_hash,
+        worktree,
     })
     .await?;
     let (start, file_name) = match rx.recv::<Reply>().await? {
@@ -320,9 +359,25 @@ pub(crate) async fn pull(
     #[cfg(unix)]
     out.mode(0o600);
     let mut out = out.open(copy).await?;
+    let mut work: Option<Work> = None;
     loop {
         match rx.recv::<Reply>().await? {
             Some(Reply::Chunk { data }) => out.write_all(&data).await?,
+            Some(Reply::Work { head }) => {
+                work = Some(Work {
+                    head,
+                    patch: Vec::new(),
+                });
+            }
+            Some(Reply::Patch { data }) => {
+                let Some(work) = work.as_mut() else {
+                    bail!("the source sent a patch before its commit");
+                };
+                if work.patch.len() + data.len() > MAX_PATCH {
+                    return Err(Refused("the uncommitted changes are too large".into()).into());
+                }
+                work.patch.extend_from_slice(&data);
+            }
             Some(Reply::End { size, live }) => {
                 out.sync_all().await?;
                 let held = out.metadata().await?.len();
@@ -334,6 +389,7 @@ pub(crate) async fn pull(
                     live,
                     file_name,
                     restarted,
+                    work,
                 });
             }
             Some(Reply::Refused { message }) => return Err(Refused(message).into()),

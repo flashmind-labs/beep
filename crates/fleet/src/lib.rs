@@ -17,12 +17,12 @@ mod settings;
 mod sync;
 mod usage;
 
-pub use beep_mesh::machine::sessions::MoveState;
+pub use beep_mesh::machine::sessions::{MoveState, WorktreeMove};
 pub use desk::Desk;
 pub use error::{FleetError, Result};
 pub use git_board::{GitKept, GitUpdate};
 pub use issues::{has_project, places, project_id, project_names};
-pub use moves::MoveAsk;
+pub use moves::{AskedWorktree, MoveAsk};
 pub use peer::Peers;
 pub use projects::ImportJob;
 pub use session::{Changed, Options, Session};

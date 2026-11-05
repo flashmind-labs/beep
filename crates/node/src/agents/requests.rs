@@ -290,6 +290,9 @@ pub async fn serve_sessions(
         SessionsRequest::MoveProgress { session } => SessionsReply::Moving {
             progress: agents.moves.progress(&session),
         },
+        SessionsRequest::MoveCheck { project, branch } => SessionsReply::MoveChecked {
+            ignored: agents.moves.ignores_worktree(&project, &branch).await,
+        },
         SessionsRequest::Harnesses { refresh } => SessionsReply::Harnesses {
             report: agents.harnesses(refresh).await,
         },

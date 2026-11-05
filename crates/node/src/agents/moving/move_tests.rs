@@ -112,6 +112,7 @@ fn record(env: &Env, stop: bool) -> SessionMove {
         mode: None,
         stop,
         at: 1_793_696_400_000,
+        worktree: None,
     }
 }
 
