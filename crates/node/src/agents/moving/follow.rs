@@ -113,11 +113,11 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<String, Runn
         };
         if one.task.is_finished() {
             running.remove(&id);
-        } else if !one.committed(env, &id) {
-            if let Some(one) = running.remove(&id) {
-                drop(one.task);
-                cancelled(env, &id, one.at, one.target).await;
-            }
+        } else if !one.committed(env, &id)
+            && let Some(one) = running.remove(&id)
+        {
+            drop(one.task);
+            cancelled(env, &id, one.at, one.target).await;
         }
         // Past the resume the session runs here: nothing to take back, and
         // the task is left to finish starting it.
