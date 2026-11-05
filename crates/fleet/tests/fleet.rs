@@ -576,6 +576,75 @@ async fn home_lists_an_imported_projects_items_with_no_token() {
     );
 }
 
+/// A machine whose account `sam` opened one PR of `repo` and who also lists another author's.
+fn shared_host(
+    can_push: &'static str,
+    other_pr: &'static str,
+    own_pr: &'static str,
+) -> Arc<FakeNode> {
+    Arc::new(FakeNode {
+        prints: vec![
+            ("issue list", "[]"),
+            (
+                "pr list",
+                Box::leak(format!("[{other_pr},{own_pr}]").into_boxed_str()),
+            ),
+            ("api user", "sam\n"),
+            ("permissions.push", can_push),
+        ],
+        ..FakeNode::default()
+    })
+}
+
+fn pr_json(repo: &str, number: u64, author: &str) -> String {
+    format!(
+        r#"{{"number":{number},"title":"pr {number}","url":"https://github.com/{repo}/pull/{number}","author":"{author}","isDraft":false,"createdAt":"2026-10-02T10:00:00Z","updatedAt":"2026-10-03T10:00:00Z","headRefName":"b{number}","labels":[]}}"#
+    )
+}
+
+async fn home_numbers(repo: &'static str, can_push: &'static str) -> Vec<u64> {
+    let f = fleet().await;
+    let other = Box::leak(pr_json(repo, 4, "kim").into_boxed_str());
+    let own = Box::leak(pr_json(repo, 9, "sam").into_boxed_str());
+    let node = shared_host(can_push, other, own);
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await;
+    studio
+        .import(ImportJob {
+            repo,
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    let items = studio.git_items().await.expect("home's items read");
+    let mut numbers: Vec<u64> = items
+        .items
+        .found
+        .items
+        .iter()
+        .map(|row| row.number)
+        .collect();
+    numbers.sort_unstable();
+    numbers
+}
+
+#[tokio::test]
+async fn with_no_token_a_machine_that_can_push_lists_everyones_items() {
+    assert_eq!(home_numbers("acme/gadget", "true\n").await, [4, 9]);
+}
+
+#[tokio::test]
+async fn with_no_token_a_machine_that_cannot_push_lists_only_the_users_items() {
+    assert_eq!(home_numbers("acme/gizmo", "false\n").await, [9]);
+}
+
+#[tokio::test]
+async fn with_no_token_a_machine_that_cannot_say_lists_only_the_users_items() {
+    assert_eq!(home_numbers("acme/doohickey", "no idea\n").await, [9]);
+}
+
 #[tokio::test]
 async fn usage_sums_every_machine() {
     let f = fleet().await;

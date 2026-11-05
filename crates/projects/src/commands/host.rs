@@ -73,6 +73,8 @@ pub enum HostCommand<'a> {
     },
     /// The login of the account the CLI is signed in as.
     WhoAmI,
+    /// The repository as the CLI's account sees it, with what that account may do there.
+    CanPush,
     /// Beep's issues whose body holds `marker`, for one filed before.
     FindIssue {
         marker: &'a str,
@@ -310,6 +312,17 @@ impl HostCommand<'_> {
                 "{account}{}",
                 Parts::new(&["gh", "api", "user", "--jq", ".login"]).render()
             ),
+            Self::CanPush => format!(
+                "{account}{}",
+                Parts::new(&[
+                    "gh",
+                    "api",
+                    &format!("repos/{repo}"),
+                    "--jq",
+                    ".permissions.push"
+                ])
+                .render()
+            ),
             Self::FindIssue { marker } => {
                 // Filtered by gh itself, so only the match is printed.
                 let jq = format!(
@@ -475,6 +488,9 @@ impl HostCommand<'_> {
             ),
             Self::WhoAmI => Parts::new(&["teacli", "whoami", "--host", host])
                 .with(&["--format", "json"])
+                .render(),
+            Self::CanPush => Parts::new(&["teacli", "api", &format!("repos/{repo}")])
+                .with(&["--host", host])
                 .render(),
             Self::FindIssue { marker } => tea(
                 &["issue", "list"],

@@ -17,6 +17,22 @@ fn forgejo() -> IssueHost {
     IssueHost::Forgejo(crate::model::ForgejoHost::parse("git.example.com").expect("a host"))
 }
 
+#[test]
+fn can_push_reads_gh_and_teacli_output() {
+    assert!(parse_can_push("true\n").expect("gh says true"));
+    assert!(!parse_can_push("false").expect("gh says false"));
+    let read_only = r#"{"permissions":{"admin":false,"push":false,"pull":true}}"#;
+    assert!(!parse_can_push(read_only).expect("teacli prints the repository"));
+    let admin = r#"{"permissions":{"admin":true,"push":false,"pull":true}}"#;
+    assert!(parse_can_push(admin).expect("an admin can write"));
+    assert!(parse_can_push("null").is_err());
+    assert!(parse_can_push("HTTP 404").is_err());
+    let gh = HostCommand::CanPush.render(&github(), &repo());
+    assert!(gh.contains("gh api repos/acme/widget"), "{gh}");
+    let tea = HostCommand::CanPush.render(&forgejo(), &repo());
+    assert!(tea.contains("teacli api repos/acme/widget"), "{tea}");
+}
+
 fn setup_out(remote: &str, issues: &str, prs: &str, head: &str) -> String {
     format!(
         "== remotes\nremote.origin.url {remote}\n== config\nissues={issues}\nprs={prs}\n\
