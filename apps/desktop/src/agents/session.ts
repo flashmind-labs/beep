@@ -15,7 +15,7 @@ import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usa
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
-import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest } from "./logview.ts";
+import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
@@ -324,6 +324,8 @@ function agentClick(e: MouseEvent) {
   if (AG.modelOpen && !target.closest(".agc-pick")) closeModelPicker();
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
+  const closeRow = target.closest<HTMLElement>(".agpane [data-subclose]");
+  if (closeRow) return closeSub(Number(closeRow.dataset.subclose));
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
