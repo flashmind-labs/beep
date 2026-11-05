@@ -680,8 +680,8 @@ export function saveWorkFile(rel: string, note: (text: string) => void, root = p
 
 /// Opens a terminal tab on the pane's machine, in its folder (⌘T, ⌃`), in
 /// dock `d`, else where the newest terminal sits. With no machine to run it
-/// the tab says so.
-export function newTerminal(d?: Dock) {
+/// the tab says so. `zoom` fills the view with it, as ⇧esc does.
+export function newTerminal(d?: Dock, zoom = false) {
   const s = P.session;
   if (!s) return;
   const terms = P.tabs.filter(t => t.kind === "term");
@@ -696,4 +696,5 @@ export function newTerminal(d?: Dock) {
   if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
   const at = { machine_id: s.machine_id, machine_name: s.machine_name, cwd: root, project: s.project ?? "" };
   open({ id, kind: "term", name, path: null, url: null, at, error: s.machine_id ? "" : "No machine has a checkout of this project to open a terminal in." });
+  if (zoom) { P.zoom = dockOf(id); place(); }
 }
