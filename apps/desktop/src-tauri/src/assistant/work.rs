@@ -1,15 +1,17 @@
-//! What the local assistant may ask about the user's work. Every answer only reads: machines,
-//! projects, coding agent sessions and a session's recent log. The text goes back to the model
-//! inside `<untrusted>` tags, added by `beep_assistant`.
+//! What the local assistant may ask about the user's work: projects, coding agent sessions and a
+//! session's recent log, which only read, and the Beep MCP server's machine tools (`call_tool`),
+//! which run commands with no prompt. The text goes back to the model inside `<untrusted>` tags,
+//! added by `beep_assistant`.
 
 use crate::{
     agents::sessions::machine_sessions,
     beep::{Beep, epoch_ms},
     fleet::{Fleet, agents as direct, projects::desk},
-    machines::list::{Outside, machines},
+    machines::{list::Outside, this_mac::Machine},
 };
 use beep_assistant::WorkQuery;
 use beep_fleet::Session;
+use beep_node::agents::mcp::call_tool;
 use beep_proto::GetAgentSession;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -25,7 +27,10 @@ const ENTRY_CHARS: usize = 600;
 /// The answer to `query`, as JSON text; an error is the reason, in words.
 pub(crate) async fn answer(app: &AppHandle, query: WorkQuery) -> Result<String, String> {
     let rows = match query {
-        WorkQuery::Machines => list_machines(app),
+        WorkQuery::Tool { name, args } => {
+            let offers = app.state::<Machine>().offers();
+            return call_tool(&offers, &name, args).await;
+        }
         WorkQuery::Projects => list_projects(app).await?,
         WorkQuery::Sessions => list_sessions(app).await,
         WorkQuery::ReadSession {
@@ -39,24 +44,6 @@ pub(crate) async fn answer(app: &AppHandle, query: WorkQuery) -> Result<String, 
 
 fn short(text: &str, max: usize) -> String {
     text.chars().take(max).collect()
-}
-
-fn list_machines(app: &AppHandle) -> Value {
-    let fleet = app.state::<Arc<Fleet>>();
-    let held = app.state::<Outside>();
-    let rows: Vec<Value> = machines(app, &fleet, &held)
-        .into_iter()
-        .map(|machine| {
-            json!({
-                "id": machine.id,
-                "name": machine.name,
-                "online": machine.online,
-                "last_seen_ms": epoch_ms(machine.seen_at),
-                "version": machine.version,
-            })
-        })
-        .collect();
-    Value::Array(rows)
 }
 
 async fn list_projects(app: &AppHandle) -> Result<Value, String> {
