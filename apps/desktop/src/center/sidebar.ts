@@ -2,7 +2,7 @@
 // the sheets that add a machine or a project.
 import { patchChildren } from "../ui/patch.ts";
 import { plural, reason } from "../ui/format.ts";
-import { svgEl as icon } from "../ui/parts.ts";
+import { svgEl as icon, writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { openPalette } from "./palette.ts";
@@ -14,7 +14,12 @@ import { openAddProject, importFound } from "../addproject/addproject.ts";
 import { openNewProject } from "../addproject/newproject.ts";
 import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
 import { button, el as h, type Kid } from "../ui/dom.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
+import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.ts";
+import { openInWindow } from "../chat/chat.ts";
+import { openInEditor } from "../project/editors.ts";
+import { whereRows, openOnLabel } from "../project/projects-state.ts";
+import { openUrl } from "./openitems.ts";
+import { renderGroup, renderInvite } from "../chat/groups.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminals.ts";
 import { runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
@@ -256,11 +261,37 @@ function chatRow(c: SideChat) {
   openBtn.title = c.title;
   if (open) openBtn.setAttribute("aria-current", "true");
   const row = h("div", "cc-si cc-chat", openBtn, end);
-  if (c.kind === "chat" && !c.research) row.addEventListener("contextmenu", e => openMenu(e, c.title, [
-    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
-    { label: "Delete…", warn: true, on: () => deleteChat(c) },
-  ]));
+  row.addEventListener("contextmenu", e => (c.kind === "group" ? groupChatMenu(e, c) : c.research ? researchMenu(e, c) : chatMenu(e, c)));
   return row;
+}
+
+function chatMenu(e: MouseEvent, c: ChatItem) {
+  openMenu(e, c.title, [
+    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
+    { label: "Rename…", on: () => renameSheet({ title: "Rename chat", value: c.title, run: async title => { await invoke("rename_session", { id: c.id, title }); await reloadChats(); } }) },
+    { label: "Open in window", on: () => void openInWindow(c.id) },
+    { label: "Copy share link", on: () => void invoke<{ url: string }>("share_session", { id: c.id }).then(link => writeClipboard(link.url), err => console.warn("sharing a chat:", err)) },
+    { label: "Stop sharing", on: () => void invoke("unshare_session", { id: c.id }).catch(err => console.warn("unsharing a chat:", err)) },
+    { label: "Delete…", warn: true, on: () => deleteChat(c) },
+  ]);
+}
+
+function groupChatMenu(e: MouseEvent, c: ChatItem) {
+  openMenu(e, c.title, [
+    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
+    { label: "Invite…", on: () => { go("pane", { group: { id: c.id } }); void renderInvite(c.id, c.title); } },
+    { label: "Leave group…", warn: true, on: () => { go("pane", { group: { id: c.id } }); void renderGroup(c.id, "leave"); } },
+  ]);
+}
+
+function researchMenu(e: MouseEvent, c: ChatItem) {
+  const items: MenuItem[] = [
+    { label: "Open", on: () => openResearch(c.id) },
+    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
+    { label: "Export PDF", on: () => void invoke<string>("export_research", { session: c.id }).then(path => invoke("reveal_file", { path }), err => console.warn("exporting a research:", err)) },
+  ];
+  if (running().has(c.id)) items.push({ label: "Stop", warn: true, on: () => void invoke("stop_research", { session: c.id }).catch(err => console.warn("stopping a research:", err)) });
+  openMenu(e, c.title, items);
 }
 
 /// Asks, then deletes chat `c` as the All chats list does. The open chat
@@ -357,8 +388,14 @@ export function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string
 /// removing it once it is imported (one from running agents only is not
 /// the server's to remove).
 function openProjectMenu(e: MouseEvent, name: string) {
-  const items: MenuItem[] = [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }];
-  if (projectRows()?.some(p => p.name === name && p.imported)) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
+  const p = projectRows()?.find(x => x.name === name);
+  const on = state.top.includes(name);
+  const items: MenuItem[] = [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }, { label: on ? "Unpin" : "Pin to top", on: () => setProjectOnTop(name, !on) }];
+  const folder = p && whereRows(p, state.where.get(name) || null, state.mac?.id || null).find(r => r.mac && r.folder)?.folder;
+  if (folder) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
+  const label = p?.url ? openOnLabel(p.url) : null;
+  if (p?.url && label) items.push({ label, on: () => openUrl(p.url!) });
+  if (p?.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
   openMenu(e, name, items);
 }
 
@@ -453,13 +490,21 @@ function foldable(head: HTMLButtonElement, p: OrgHeading | GroupHeading) {
   head.prepend(h("span", `twist${p.folded ? "" : " open"}`, icon(IC.twist)));
   head.setAttribute("aria-expanded", String(!p.folded));
   if (shown === "projects" && state.picked && p.folded?.includes(state.picked)) head.setAttribute("aria-current", "true");
-  head.addEventListener("click", () => {
-    const key = foldKey(p);
-    if (!folded.delete(key)) folded.add(key);
-    try { localStorage.setItem(FOLDED_KEY, JSON.stringify([...folded])); } catch { /* kept for this launch only */ }
-    reloadGroup("projects");
-  });
+  head.addEventListener("click", () => toggleFold(p));
+  // A group's heading has a menu of its own, which takes the item.
+  if (p.group === undefined) head.addEventListener("contextmenu", e => openMenu(e, p.org ?? "", [foldItem(p)]));
   return head;
+}
+
+function toggleFold(p: OrgHeading | GroupHeading) {
+  const key = foldKey(p);
+  if (!folded.delete(key)) folded.add(key);
+  try { localStorage.setItem(FOLDED_KEY, JSON.stringify([...folded])); } catch { /* kept for this launch only */ }
+  reloadGroup("projects");
+}
+
+function foldItem(p: OrgHeading | GroupHeading): MenuItem {
+  return { label: p.folded ? "Unfold" : "Fold", on: () => toggleFold(p) };
 }
 
 /// A small + button for a group's heading or the footer.
@@ -569,7 +614,7 @@ registerSidebarGroup("projects", {
   row(p) {
     // A group's heading, under it the projects' whole names; an org's,
     // under it only the repo names.
-    if (p.group) return foldable(groupHeading(p.group), p);
+    if (p.group) return foldable(groupHeading(p.group, [foldItem(p)]), p);
     if (p.org !== undefined) return foldable(h("button", "cc-org", `${p.org}/`), p);
     const row = projectRow(p, p.repo ?? p.name, false);
     if (!p.repo) row.classList.remove("pj-repo");

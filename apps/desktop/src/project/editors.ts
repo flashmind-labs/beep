@@ -38,3 +38,13 @@ export function editorTools(folder: string | null | undefined, redraw: () => voi
   more.setAttribute("aria-label", "Other editors");
   return [main, more];
 }
+
+/// Opens `folder` in the first installed editor, as the header's Open in button does.
+export async function openInEditor(folder: string) {
+  try {
+    const [first] = await invoke<EditorRow[]>("editors");
+    if (first) await invoke("open_in_editor", { editor: first.id, path: folder });
+  } catch (err) {
+    console.warn("open in editor:", err);
+  }
+}
