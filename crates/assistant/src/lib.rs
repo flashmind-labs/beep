@@ -5,6 +5,7 @@
 
 mod error;
 mod firecrawl;
+mod mcp;
 mod message;
 mod models;
 mod openrouter;
@@ -15,10 +16,14 @@ mod tools;
 mod view;
 
 pub use error::AssistantError;
+pub use mcp::{
+    Approval, ApprovalField, EnvVar, McpError, McpHub, McpServer, McpStatus, McpTool,
+    ServerSummary, Transport, add_server, load_servers, remove_server,
+};
 pub use message::{Call, Message};
 pub use models::{ModelInfo, default_model, list_models};
 pub use prefs::{Prefs, load_prefs, save_prefs};
-pub use run::{Event, Outcome, Setup, run_turn};
+pub use run::{Event, Mcp, Outcome, Setup, run_turn};
 pub use store::{
     Chat, ChatMatch, ChatSummary, delete_chat, list_chats, load_chat, pin_chat, rename_chat,
     save_chat, search_chats,
@@ -27,6 +32,9 @@ pub use tools::{MAX_TOOL_ROUNDS, WorkQuery};
 pub use view::{Step, TurnView, turns};
 
 use secrecy::SecretString;
+
+/// The async mutex, under one name for the crate.
+pub(crate) type AsyncMutex<T> = tokio::sync::Mutex<T>;
 use serde::{Deserialize, Serialize};
 
 /// How hard the model thinks before it answers.
