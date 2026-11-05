@@ -3,10 +3,10 @@
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffView, type SplitCell, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
-  inView, matchesFilter, numberWidth, splitPath, splitRows, stepFile, withLoaded,
+  type DiffFile, type DiffView, type ReviewComment, type SplitCell, STATUS_LETTER, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
+  inView, lineKey, lineLabel, matchesFilter, numberWidth, parseDraft, placeComments, reviewText, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
-import { el, type Kid } from "../ui/dom.ts";
+import { button, el, type Kid } from "../ui/dom.ts";
 
 /// Where a diff comes from and what its files can open in.
 export interface DiffSource {
@@ -14,6 +14,9 @@ export interface DiffSource {
   load: (only: string[], lockfiles: boolean) => Promise<DiffView>;
   /// Opens a file of the diff, when something can show it.
   open?: { label: string; run: (path: string) => void };
+  /// Where review comments are kept and go: `key` names the draft in
+  /// storage, `send` delivers the review text and says why it did not ("" when it went).
+  review: { key: string; send: (text: string) => Promise<string> };
 }
 
 export interface DiffViewHandle {
@@ -35,6 +38,17 @@ function loadSplit() {
 
 function saveSplit(on: boolean) {
   try { localStorage.setItem(SPLIT_KEY, on ? "1" : "0"); } catch { /* kept for this launch only */ }
+}
+
+function loadDraft(id: string) {
+  try { return parseDraft(localStorage.getItem(`beep.diffReview.${id}`)); } catch { return []; }
+}
+
+function saveDraft(id: string, draft: readonly ReviewComment[]) {
+  try {
+    if (draft.length) localStorage.setItem(`beep.diffReview.${id}`, JSON.stringify(draft));
+    else localStorage.removeItem(`beep.diffReview.${id}`);
+  } catch { /* kept for this launch only */ }
 }
 
 const SVG = {
@@ -110,7 +124,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
     /// else the one at the top.
     cur: null as string | null,
     seq: 0,
+    /// The review comments waiting to be sent.
+    draft: loadDraft(src.review.key),
+    sending: false,
   };
+  let placedCache: ReturnType<typeof placeComments> | null = null;
+  const placed = () => placedCache ??= placeComments(st.view?.files ?? [], st.draft);
   /// Each file's section, by path, as last drawn.
   let sections = new Map<string, HTMLElement>();
   const find = el("input", "dv-find");
@@ -137,7 +156,10 @@ export function diffView(src: DiffSource): DiffViewHandle {
     clearTimeout(flashTimer);
     flashTimer = window.setTimeout(() => { flash.textContent = ""; }, 2000);
   };
-  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, find, splitBtn, expand, collapse, refresh);
+  const cmts = el("span", "dv-cmts");
+  const send = button("Send review", "dbtn pri small", () => sendReview());
+  const lostBox = el("div", "dv-lost");
+  const head = el("div", "dv-head", sum, el("span", "dv-sp"), flash, cmts, send, find, splitBtn, expand, collapse, refresh);
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
   const files = el("div", "dv-files");
@@ -155,6 +177,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (st.split) redrawBodies();
   }).observe(root);
   files.addEventListener("scroll", () => markCurrent(), { passive: true });
+  files.addEventListener("click", onGutter);
   root.addEventListener("keydown", onKey);
 
   function shown(): DiffFile[] {
@@ -184,7 +207,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     tree.replaceChildren();
     files.replaceChildren();
     sections = new Map();
+    placedCache = null;
     if (st.error) files.append(el("div", "dv-err", st.error));
+    files.append(lostBox);
     if (!v) {
       if (st.loading) files.append(el("div", "dv-empty", el("span", "dspin"), "Reading the changes…"));
       return;
@@ -192,6 +217,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!v.files.length) {
       files.append(el("div", "dv-empty", el("b", "", "Nothing changed"),
         el("span", "", v.working_tree ? `The folder matches ${v.base}, with nothing uncommitted.` : `The branch has no commits past ${v.base}.`)));
+      drawReview();
       return;
     }
     const list = shown();
@@ -210,12 +236,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
       files.append(section);
     }
     if (v.more) files.append(el("div", "dv-more", `And ${v.more.toLocaleString("en-US")} more files not shown.`));
+    drawReview();
     markCurrent();
   }
 
   function fileSection(f: DiffFile) {
     const folded = isFolded(f, st.folded);
     const section = el("section", `dv-file${folded ? " closed" : ""}`);
+    section.dataset.path = f.path;
     const path = el("span", "dv-path");
     if (f.old_path) {
       const old = el("span", "old", f.old_path);
@@ -228,13 +256,19 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const now = el("span", "", f.path);
     now.title = f.path;
     path.append(now);
-    const acts = el("span", "dv-facts", btn(icon(SVG.copy), "icon", "Copy path", () => copy(f.path)));
+    // Comments on the file itself sit outside the fold, so a folded, deleted or binary file shows them.
+    const fcs = el("div", "dv-fcs");
+    const mine = placed().files.get(f.path);
+    if (mine) fcs.append(...[...mine.file, ...mine.top].map(c => commentEl(c, lineLabel(c))));
+    const acts = el("span", "dv-facts", btn("Comment", "", "Comment on this file", () => {
+      addBox({ path: f.path, side: "new", line: null, text: "" }, "", "Comment on this file", box => fcs.append(box));
+    }), btn(icon(SVG.copy), "icon", "Copy path", () => copy(f.path)));
     if (src.open && f.status !== "deleted") {
       const open = src.open;
       acts.append(btn(icon(SVG.open), "icon", open.label, () => open.run(f.path)));
     }
     const fh = el("div", "dv-fh", el("span", "dv-chev", icon(SVG.chev)), path, el("span", `dv-chip ${f.status}`, f.status),
-      el("span", "dv-fct", ...counts(f.additions, f.deletions)), acts);
+      el("span", "dv-fct", ...counts(f.additions, f.deletions)), el("span", "dv-fcm", countLabel(f.path)), acts);
     fh.tabIndex = 0;
     fh.setAttribute("role", "button");
     fh.setAttribute("aria-expanded", String(!folded));
@@ -248,7 +282,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const inner = el("div");
     // The lines are drawn the first time the file opens.
     if (!folded) inner.append(fileBody(f));
-    section.append(fh, el("div", "dv-fold", inner));
+    section.append(fh, fcs, el("div", "dv-fold", inner));
     return section;
   }
 
@@ -269,21 +303,147 @@ export function diffView(src: DiffSource): DiffViewHandle {
     lines.style.setProperty("--nw", String(Math.max(2, numberWidth(f))));
     const frag = document.createDocumentFragment();
     const rows = diffRows(f);
+    // Only a file with line comments looks them up as it draws.
+    const lc = placed().files.get(f.path)?.lines;
+    const saved = (...keys: (string | null)[]) => keys.flatMap(k => (k && lc?.get(k)) || []).map(c => commentEl(c, ""));
     if (split) {
       for (const r of splitRows(rows)) {
         if (r.kind === "hunk") frag.append(hunkRow(r.text));
         else if (r.kind === "gap") frag.append(gapRow(r.lines));
-        else frag.append(el("div", "dv-pair", cell(r.left), cell(r.right)));
+        else {
+          frag.append(el("div", "dv-pair", cell(r.left), cell(r.right)));
+          if (lc?.size) frag.append(...saved(r.left?.k === "-" ? lineKey("old", r.left.num) : null, r.right ? lineKey("new", r.right.num) : null));
+        }
       }
     } else {
       for (const r of rows) {
         if (r.kind === "hunk") frag.append(hunkRow(r.text));
         else if (r.kind === "gap") frag.append(gapRow(r.lines));
-        else frag.append(lineRow(r.k, r.old, r.new, r.text, r.eol));
+        else {
+          frag.append(lineRow(r.k, r.old, r.new, r.text, r.eol));
+          if (lc?.size) frag.append(...saved(r.k === "-" ? lineKey("old", r.old!) : lineKey("new", r.new!)));
+        }
       }
     }
     lines.append(frag);
     return el("div", "dv-scroll", lines);
+  }
+
+  function countLabel(path: string) {
+    const n = st.draft.filter(c => c.path === path).length;
+    return n ? `${n} ${n === 1 ? "comment" : "comments"}` : "";
+  }
+
+  /// The header's count and Send button, each folded file's count and the
+  /// comments on files the diff no longer has.
+  function drawReview() {
+    const n = st.draft.length;
+    cmts.textContent = `${n} ${n === 1 ? "comment" : "comments"}`;
+    cmts.hidden = send.hidden = !n;
+    send.disabled = st.sending;
+    for (const [path, s] of sections) {
+      const t = s.querySelector(".dv-fcm");
+      if (t) t.textContent = countLabel(path);
+    }
+    const lost = st.view ? placed().lost : [];
+    lostBox.replaceChildren(...(lost.length ? [el("div", "dv-lh", "On files no longer in the changes"), ...lost.map(c => commentEl(c, `${c.path} ${lineLabel(c)}`.trim()))] : []));
+  }
+
+  /// The draft changed: keep it and show it.
+  function changed() {
+    placedCache = null;
+    saveDraft(src.review.key, st.draft);
+    drawReview();
+  }
+
+  /// A comment as saved, with Edit and remove.
+  function commentEl(c: ReviewComment, label: string) {
+    const place = c.line == null ? "Comment on this file" : "Comment on this line";
+    const row = el("div", "dv-cmt", el("div", "b", label ? el("code", "", label) : null, label ? " " : null, c.text),
+      el("div", "a", el("button", "", "Edit"), el("button", "", "×")));
+    const [edit, drop] = row.querySelectorAll("button");
+    edit.type = drop.type = "button";
+    drop.setAttribute("aria-label", "Remove the comment");
+    edit.addEventListener("click", () => {
+      const box = writeBox(c.text, place, text => { c.text = text; changed(); box.replaceWith(commentEl(c, label)); }, () => box.replaceWith(row));
+      row.replaceWith(box);
+      focusBox(box);
+    });
+    drop.addEventListener("click", () => {
+      st.draft.splice(st.draft.indexOf(c), 1);
+      row.remove();
+      changed();
+    });
+    return row;
+  }
+
+  /// The box to write in: Add (or Cmd+Enter) gives the text, Cancel and Esc drop it.
+  function writeBox(text: string, place: string, add: (text: string) => void, drop: () => void) {
+    const ta = el("textarea");
+    ta.rows = 2;
+    ta.value = text;
+    ta.placeholder = place;
+    ta.setAttribute("aria-label", place);
+    const done = () => { const t = ta.value.trim(); if (t) add(t); };
+    ta.addEventListener("keydown", e => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); drop(); root.focus({ preventScroll: true }); }
+      else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); done(); }
+    });
+    return el("div", "dv-cmt open", ta, el("div", "a", button("Add", "dbtn small pri", done), button("Cancel", "dbtn small quiet", drop)));
+  }
+
+  function focusBox(box: HTMLElement) {
+    box.querySelector("textarea")?.focus({ preventScroll: true });
+  }
+
+  /// A new comment `c`: its box goes where `put` says, and Add keeps it.
+  function addBox(c: ReviewComment, label: string, place: string, put: (box: HTMLElement) => void) {
+    const box = writeBox("", place, text => {
+      c.text = text;
+      st.draft.push(c);
+      changed();
+      box.replaceWith(commentEl(c, label));
+    }, () => box.remove());
+    put(box);
+    focusBox(box);
+  }
+
+  /// A click on a line's number opens a box under its row (under the pair, side by side).
+  function onGutter(e: MouseEvent) {
+    const g = (e.target as Element).closest<HTMLElement>(".dv-g");
+    const row = g?.parentElement;
+    const path = g?.closest<HTMLElement>(".dv-file")?.dataset.path;
+    if (!row || !path || row.matches(".hunk, .gap, .none")) return;
+    const pair = row.parentElement?.classList.contains("dv-pair") ? row.parentElement : null;
+    const del = row.classList.contains("del");
+    // On an unchanged line the right cell has the new number.
+    const nums = (!del && pair ? pair.lastElementChild! : row).firstElementChild!.children;
+    const line = Number((del ? nums[0] : nums[nums.length - 1]).textContent);
+    if (!line) return;
+    let at: Element = pair ?? row;
+    while (at.nextElementSibling?.classList.contains("dv-cmt")) at = at.nextElementSibling;
+    addBox({ path, side: del ? "old" : "new", line, text: "" }, "", "Comment on this line", box => at.after(box));
+  }
+
+  async function sendReview() {
+    if (st.sending || !st.draft.length) return;
+    const sent = st.draft.slice();
+    st.sending = true;
+    st.error = "";
+    drawReview();
+    const why = await src.review.send(reviewText(st.view?.files ?? [], sent));
+    st.sending = false;
+    if (why) {
+      st.error = why;
+    } else {
+      st.draft = st.draft.filter(c => !sent.includes(c));
+      saveDraft(src.review.key, st.draft);
+    }
+    const keep = files.scrollTop;
+    drawHead();
+    drawFiles();
+    files.scrollTop = keep;
+    root.focus({ preventScroll: true });
   }
 
   /// Draws the lines of every open file again for the current mode; folded
@@ -426,6 +586,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     files.scrollTop = keep;
   }
 
+  drawReview();
   load();
   return {
     el: root,
