@@ -10,6 +10,9 @@ pub enum AssistantError {
     Network(#[from] reqwest::Error),
     #[error("could not read or write the chat: {0}")]
     Store(#[from] std::io::Error),
+    /// A setting the user gave that cannot be used, in words.
+    #[error("{0}")]
+    Config(String),
     #[error("the chat file is not valid: {0}")]
     Format(#[from] serde_json::Error),
 }
