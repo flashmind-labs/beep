@@ -30,6 +30,7 @@ import { Channel, invoke } from "../ui/tauri.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import type { ChatBody, Step, Turn } from "../ui/turn.ts";
+import { dragHandle } from "../ui/drag.ts";
 
 // ---------- Chat ----------
 
@@ -135,25 +136,21 @@ export function grow(ask: HTMLTextAreaElement) {
 /// Dragging the grip under the prompt sets its height, kept for next time.
 export function dragGrip(ask: HTMLTextAreaElement) {
   const grip = $$("#grip");
-  grip.addEventListener("pointerdown", e => {
-    e.preventDefault();
-    grip.setPointerCapture(e.pointerId);
+  dragHandle(grip, e => {
     grip.classList.add("on");
     const startY = e.clientY, startH = ask.offsetHeight;
-    const move = (m: PointerEvent) => {
-      // A click on the grip is not a drag: it would pin the prompt to one line.
-      if (Math.abs(m.clientY - startY) < 4) return;
-      askHeight = Math.max(26, Math.min(startH + m.clientY - startY, ASK_MAX));
-      grow(ask);
+    return {
+      move: m => {
+        // A click on the grip is not a drag: it would pin the prompt to one line.
+        if (Math.abs(m.clientY - startY) < 4) return;
+        askHeight = Math.max(26, Math.min(startH + m.clientY - startY, ASK_MAX));
+        grow(ask);
+      },
+      end: () => {
+        grip.classList.remove("on");
+        try { if (askHeight) localStorage.setItem(ASK_HEIGHT, String(askHeight)); } catch {}
+      },
     };
-    const up = () => {
-      grip.classList.remove("on");
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", up);
-      try { if (askHeight) localStorage.setItem(ASK_HEIGHT, String(askHeight)); } catch {}
-    };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", up);
   });
   grip.addEventListener("dblclick", () => {
     askHeight = null;

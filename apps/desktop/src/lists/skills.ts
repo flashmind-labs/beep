@@ -1,7 +1,7 @@
 import { $$, bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { arrowKey, clampSel, confirmCard, confirmKey, confirmRow, dayDiff, emptyPage, errLine, type ListState, loadList, readDay } from "./memories.ts";
-import { esc, plural } from "../ui/format.ts";
+import { switchHtml, esc, plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -75,7 +75,7 @@ function skillRow(k: Skill, i: number) {
   if (cur && K.mode === "delete") return confirmRow(i, `Delete <b>${name}</b>?`, "data-k", "Delete");
   const tail = cur && K.mode === "actions"
     ? `<span class="acts"><button class="dbtn" data-k="view">Open<kbd>${ICON.ret}</kbd></button>${k.can_undo ? `<button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button>` : ""}<button class="dbtn warn" data-k="delete">Delete<kbd>⌘⌫</kbd></button></span>`
-    : `<button class="dswitch" role="switch" aria-checked="${k.enabled}" aria-label="Use ${name}" data-k="toggle" data-i="${i}"></button>`;
+    : switchHtml(k.enabled, `Use ${name}`, `data-k="toggle" data-i="${i}"`);
   return `<div class="drt${k.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${SKILL_ICON}</span>
         <span class="tt"><b>${name}</b><span>${esc(k.description)}</span><small>${esc(skillMeta(k))}</small></span>${tail}</div>`;
 }
@@ -126,7 +126,7 @@ export function drawSkill(): void {
   const confirm = K.mode === "vdelete" ? confirmCard("Delete this skill?", `Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.`, `<button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-k="view">Cancel</button>`, "dcardm") : "";
   const undo = k.can_undo ? `<div class="dmuted dtop dpt"><span class="dfill">${k.edited ? "You changed this last." : "Beep changed this last."}</span><button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>${esc(k.name)}</b><small>${esc(k.group_name ? `${k.group_name} · ${k.description}` : k.description)}</small></span>
-      <button class="dswitch" role="switch" aria-checked="${k.enabled}" aria-label="Use this skill" data-k="toggle"></button>
+      ${switchHtml(k.enabled, "Use this skill", `data-k="toggle"`)}
       <button class="dbtn" data-k="edit">Edit<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn warn" data-k="vdelete">Delete<kbd>⌘⌫</kbd></button></div>${err}${confirm}
     <div class="dbody pt"><div class="dmuted">${esc(skillMeta(k))}</div><div class="reply">${k.html}</div>${undo}</div>`
     + hints(K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]]);

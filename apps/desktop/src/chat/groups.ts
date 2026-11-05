@@ -7,7 +7,7 @@ import { hints } from "../bar/hints.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";
 import { fillPics, picRow } from "./media.ts";
 import { dayDiff } from "../lists/memories.ts";
-import { esc } from "../ui/format.ts";
+import { switchHtml, esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -422,7 +422,7 @@ function drawGroupInfo() {
     <div class="dtoggle"><span><b>Share my apps with Beep here</b><small>${g.apps_shared
       ? "Beep reads them to plan for the group and never shows them here. Sending anything asks you first."
       : "Only when you ask"}</small></span>
-      <button class="dswitch" id="gapps" role="switch" aria-checked="${g.apps_shared}" aria-label="Share my apps with Beep here"></button></div>
+      ${switchHtml(g.apps_shared, "Share my apps with Beep here", `id="gapps"`)}</div>
     <div class="dsec flat">Privacy</div>
     <div class="dinfo dmut"><div>Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.</div><div>Beep's thinking and tool calls are hidden in groups. Members only see its replies.</div></div>
     ${G.leave ? `<div class="dcard"><div class="dask dline wrap"><span class="dfill">Leave ${esc(g.name)}? You stop getting its messages, and need a new code to come back.</span><button class="dbtn quiet" id="gstay">Cancel</button><button class="dbtn warn" id="gleave">Leave</button></div></div>`

@@ -3,7 +3,7 @@ import { appTile, fillAppTiles } from "../chat/applogo.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { arrowKey, clampSel, CLOCK_ICON, confirmKey, confirmRow, dayDiff, dayMonth, emptyPage, errLine, type ListState, loadList, PLAY_ICON, PLUS_ICON } from "./memories.ts";
-import { esc } from "../ui/format.ts";
+import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -116,7 +116,7 @@ function routineRow(c: Cron, i: number) {
   const next = c.enabled ? (c.next_run_at && !c.run_once ? "Next: " + describeDay(new Date(c.next_run_at)) : "") : "Paused";
   const tail = cur && R.mode === "actions"
     ? `<span class="acts"><button class="dbtn" data-r="run">${PLAY_ICON}Run now</button><button class="dbtn" data-r="edit">Edit<kbd>⌘E</kbd></button><button class="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span>`
-    : `<button class="dswitch" role="switch" aria-checked="${c.enabled}" aria-label="${label} on" data-r="toggle" data-i="${i}"></button>`;
+    : switchHtml(c.enabled, `${label} on`, `data-r="toggle" data-i="${i}"`);
   return `<div class="drt${c.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${CLOCK_ICON}</span>
         <span class="tt"><b>${label}</b><span>${esc(c.prompt)}</span><small>${esc([routineWhen(c.schedule), next].filter(Boolean).join(" · "))}</small></span>${tail}</div>`;
 }

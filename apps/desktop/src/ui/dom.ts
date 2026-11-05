@@ -13,6 +13,12 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, 
   return e;
 }
 
+/// `b` marked pressed or not, for a chip or a segment of a choice.
+export function press<B extends HTMLElement>(b: B, on: boolean) {
+  b.setAttribute("aria-pressed", String(on));
+  return b;
+}
+
 /// How the window's `h` makes elements, as the views it hands it to call it.
 export type MakeEl = typeof el;
 
