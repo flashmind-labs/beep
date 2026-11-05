@@ -107,15 +107,15 @@ export function steerMessage(input: HTMLTextAreaElement) {
   sendSteer(q);
 }
 
-async function sendSteer(q: Waiting) {
+async function sendSteer(q: Waiting, back = true) {
   const o = AG.open;
-  if (!o) return;
+  if (!o) return false;
   q.state = "sending";
   drawQueue();
   redrawAgentHints();
   if (q.images.length) keepAgentPics(o, q.images);
   const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
-  if (!isOpen(o)) return;
+  if (!isOpen(o)) return ok;
   if (q.how !== "steer") {
     // Esc made it a queued message while it was on its way.
   } else if (ok) {
@@ -125,10 +125,11 @@ async function sendSteer(q: Waiting) {
     // Nothing went: it waits in the field again, under the note that says why.
     const at = AG.queue.indexOf(q);
     if (at >= 0) AG.queue.splice(at, 1);
-    backInField(q);
+    if (back) backInField(q);
   }
   drawQueue();
   redrawAgentHints();
+  return ok;
 }
 
 /// Sends what was queued once the turn stopped or ended, as few messages as its
@@ -267,11 +268,42 @@ export async function sendAgentMessage() {
   drawAgentAttached();
 }
 
+/// Sends the diff review `text` as one message: a steer while a turn runs,
+/// else a message, or what continues an ended session. "" when it went,
+/// else why not; the field keeps what was typed.
+export async function sendReview(text: string) {
+  const o = AG.open, page = AG.page;
+  if (!o || !page) return "No session is open.";
+  let ok: boolean;
+  if (page.session.status === "ended") {
+    const input = $<HTMLTextAreaElement>("#agmsg");
+    if (!input) return "This session cannot be continued from here.";
+    const typed = input.value;
+    ok = await continueAgent(input, text, []);
+    input.value = typed;
+  } else if (turnRuns()) {
+    const q: Waiting = { how: "steer", typed: text, text, paths: [], images: [], state: null, after: 0 };
+    AG.queue.push(q);
+    ok = await sendSteer(q, false);
+  } else {
+    const mine = { kind: "user", text };
+    page.entries.push(mine);
+    drawAgentBody();
+    ok = await steerAgent({ prompt: outgoing(text, []) });
+    if (!ok) {
+      const at = page.entries.indexOf(mine);
+      if (at >= 0) page.entries.splice(at, 1);
+      drawAgentBody();
+    }
+  }
+  return ok ? "" : AG.note || "Could not send the review.";
+}
+
 /// Resumes the ended session with `text`, then follows the session that
 /// goes on from it. Images go once it runs again.
 export async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[]) {
   const o = AG.open!;
-  if (images.length && !text) { AG.note = "Say something to continue the session, then send the images."; return drawAgentBody(); }
+  if (images.length && !text) { AG.note = "Say something to continue the session, then send the images."; drawAgentBody(); return false; }
   input.value = "";
   input.disabled = true;
   AG.note = "";
@@ -279,15 +311,17 @@ export async function continueAgent(input: HTMLTextAreaElement, text: string, im
   drawAgentBody();
   try {
     const started = await invoke<Started>("agent_resume", { ...where(o), prompt: text });
-    if (!isOpen(o)) return;
+    if (!isOpen(o)) return true;
     openAgent(started.session, { back: AG.back });
     if (images.length) { AG.att = images; drawAgentAttached(); }
+    return true;
   } catch (e) {
-    if (!isOpen(o)) return;
+    if (!isOpen(o)) return false;
     AG.page!.entries.pop();
     input.disabled = false;
     input.value = text;
     AG.note = String(e).replace(/^(bad request|error):\s*/i, "");
     drawAgentBody();
+    return false;
   }
 }

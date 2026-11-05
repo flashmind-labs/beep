@@ -71,6 +71,7 @@ export interface MediaTab {
 
 /// The session the pane belongs to.
 interface PaneSession {
+  id: string;
   machine_id: string;
   machine_name: string;
   cwd: string;

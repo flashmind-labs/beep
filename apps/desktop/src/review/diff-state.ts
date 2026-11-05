@@ -208,3 +208,92 @@ export function splitPath(path: string) {
   const cut = path.lastIndexOf("/");
   return { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
 }
+
+/// A comment on the diff, on a line of a file (`line` set, numbered on the
+/// old or the new side) or on the whole file (`line` null).
+export interface ReviewComment {
+  path: string;
+  side: "old" | "new";
+  line: number | null;
+  text: string;
+}
+
+/// How a row is named in [`Placed`]: the side and its line number.
+export const lineKey = (side: ReviewComment["side"], n: number) => `${side}:${n}`;
+
+/// "line 42" or "removed line 42" for a comment on a line, else "".
+export function lineLabel(c: Pick<ReviewComment, "side" | "line">) {
+  return c.line == null ? "" : c.side === "old" ? `removed line ${c.line}` : `line ${c.line}`;
+}
+
+/// Where a file shows its comments: on the whole file, on lines the diff
+/// has (by [`lineKey`]), and `top` for those whose line it no longer has.
+export interface PlacedFile {
+  file: ReviewComment[];
+  top: ReviewComment[];
+  lines: Map<string, ReviewComment[]>;
+}
+
+export interface Placed {
+  files: Map<string, PlacedFile>;
+  /// Comments on files the diff no longer has.
+  lost: ReviewComment[];
+}
+
+/// Sorts the draft by where each comment shows in `files`.
+export function placeComments(files: readonly DiffFile[], draft: readonly ReviewComment[]): Placed {
+  const by = new Map(files.map(f => [f.path, f]));
+  const have = new Map<string, Set<string>>();
+  const out: Placed = { files: new Map(), lost: [] };
+  for (const c of draft) {
+    const f = by.get(c.path);
+    if (!f) { out.lost.push(c); continue; }
+    let p = out.files.get(c.path);
+    if (!p) out.files.set(c.path, p = { file: [], top: [], lines: new Map() });
+    if (c.line == null) { p.file.push(c); continue; }
+    let keys = have.get(c.path);
+    if (!keys) {
+      keys = new Set();
+      for (const r of diffRows(f)) if (r.kind === "line") keys.add(r.k === "-" ? lineKey("old", r.old!) : lineKey("new", r.new!));
+      have.set(c.path, keys);
+    }
+    const key = lineKey(c.side, c.line);
+    if (!keys.has(key)) { p.top.push(c); continue; }
+    const at = p.lines.get(key);
+    if (at) at.push(c); else p.lines.set(key, [c]);
+  }
+  return out;
+}
+
+/// The message that sends `draft` to the agent: files in diff order, a
+/// file's own comment first, then its lines in order.
+export function reviewText(files: readonly Pick<DiffFile, "path" | "old_path" | "status">[], draft: readonly ReviewComment[]) {
+  const by = new Map(files.map(f => [f.path, f]));
+  const rank = new Map(files.map((f, i) => [f.path, i]));
+  const at = (c: ReviewComment) => rank.get(c.path) ?? files.length;
+  const sorted = draft.slice().sort((a, b) => at(a) - at(b) || a.path.localeCompare(b.path)
+    || (a.line ?? 0) - (b.line ?? 0) || Number(a.side === "new") - Number(b.side === "new"));
+  const lines = sorted.map(c => {
+    const f = by.get(c.path);
+    const notes: string[] = [];
+    if (c.line == null) notes.push("whole file");
+    else if (c.side === "old") notes.push("removed line");
+    if (c.line == null && f?.status === "deleted") notes.push("deleted");
+    if (f?.old_path) notes.push(`renamed from ${f.old_path}`);
+    const where = c.line == null ? c.path : `${c.path}:${c.line}`;
+    return `${where}${notes.length ? ` (${notes.join(", ")})` : ""}: ${c.text}`;
+  });
+  return `Review of your changes:\n\n${lines.join("\n")}`;
+}
+
+/// The draft as stored; what is not a comment is dropped.
+export function parseDraft(raw: string | null): ReviewComment[] {
+  try {
+    const got: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(got)) return [];
+    return got.filter((c): c is ReviewComment => !!c && typeof c.path === "string" && typeof c.text === "string"
+      && (c.side === "old" || c.side === "new") && (c.line === null || Number.isInteger(c.line)));
+  } catch {
+    return [];
+  }
+}
