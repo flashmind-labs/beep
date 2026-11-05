@@ -20,7 +20,7 @@ import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
 import { dismissedUpdates, draw, jump } from "./home.ts";
 import { shown, windowProject, toMain, go, goHistory, setWindowProject, openResearch } from "./views.ts";
-import { reloadGroup, paneOn, reloadChats, openProjects, addProject } from "./sidebar.ts";
+import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addProject } from "./sidebar.ts";
 import "../research/page.ts";
 import "../research/open.ts";
 import { escUp } from "./escup-state.ts";
@@ -68,6 +68,11 @@ document.addEventListener("keydown", e => {
   // ⌘W closes the focused pane's tab, else this window; Beep keeps running in the menu bar. The main
   // window only hides, keeping what it shows.
   if (key === "w" && !e.shiftKey) { e.preventDefault(); if (closeFocusedTab()) return; invoke("center_close_window").catch(() => window.close()); return; }
+  // ⌘⇧N: the project on screen in a window of its own.
+  if (key === "n" && e.shiftKey && shown === "projects" && state.picked && !windowProject) {
+    e.preventDefault();
+    return openProjectWindow(state.picked);
+  }
   // Without a subscription the assistant's pages are not there. ⌘K still searches.
   if (key !== "k" && keyHidden(key, state.subscribed)) { e.preventDefault(); return; }
   // ⌘M on the pane's start form and ⌘R in its chats list are the pane's.
