@@ -17,6 +17,7 @@ anyhow = "1"
 async-trait = "0.1"
 ammonia = "4"
 base64 = "0.22"
+chrono = "0.4"
 beep-assistant = { path = "../../../crates/assistant" }
 beep-fleet = { path = "../../../crates/fleet" }
 beep-live = { path = "../../../crates/live" }

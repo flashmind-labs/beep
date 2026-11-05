@@ -26,6 +26,7 @@ import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addP
 import "../research/page.ts";
 import "../research/open.ts";
 import "../assistant/page.ts";
+import { refreshLocal } from "../assistant/local.ts";
 import { escUp } from "./escup-state.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
@@ -221,6 +222,8 @@ async function showCached() {
   state.subscribed = link?.link === "linked";
   S.signedOut = link?.signed_out ?? false;
   S.server = link?.server ?? false;
+  // The groups loaded when their modules did, before this was known.
+  if (await refreshLocal()) for (const name of ["pinned", "chats"]) reloadGroup(name);
   $("#home-comp").style.display = state.subscribed ? "" : "none";
   const home = seed(state, cached, dismissedUpdates);
   state.mac ??= mac;
@@ -245,7 +248,7 @@ listen<string>("link-state", e => {
     // Signed out on a page that is only there with a subscription: Home.
     const on = paneOn();
     const arg = on.group ? { group: { id: on.group } } : on.session ? { chat: { session: on.session } } : on.view;
-    if (shown && viewHidden(shown, arg, false, S.server)) go("home");
+    if (shown && viewHidden(shown, arg, false, S.server, S.local)) go("home");
   }
   draw();
 });

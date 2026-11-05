@@ -1,6 +1,7 @@
 // The Cmd+K palette: one search over actions, settings, projects, pull
 // requests, coding agents, chats, memories, routines and machines. The
 // window holds the index, so a keystroke waits on nothing.
+import { chatsOn } from "../assistant/local.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { AgentRow } from "../agents/agents.ts";
@@ -105,7 +106,7 @@ export function openPalette() {
   list.id = "pal-list";
   const foot = el("div", "foot");
   // Asking Beep is the assistant's: without a subscription there is nothing to ask.
-  for (const [k, t] of [["↑↓", "move"], ["↵", "open"], ...(state.subscribed ? [["⌘↵", "ask Beep"]] : []), ["esc", "close"]]) foot.append(el("span", "", el("kbd", "", k), t));
+  for (const [k, t] of [["↑↓", "move"], ["↵", "open"], ...(chatsOn(state.subscribed) ? [["⌘↵", "ask Beep"]] : []), ["esc", "close"]]) foot.append(el("span", "", el("kbd", "", k), t));
   const box = el("div", "cc-pal", el("div", "q", svg(IC.find), input), list, foot);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", "Search");
@@ -178,7 +179,7 @@ function row(hit: Hit, i: number, q: string) {
 
 function noHits(q: string) {
   const none = el("div", "none", `Nothing matches “${q}”.`);
-  if (q && state.subscribed) {
+  if (q && chatsOn(state.subscribed)) {
     const ask = el("button", "dbtn", `Ask Beep “${q}”`, el("kbd", "", "⌘↵"));
     ask.type = "button";
     ask.addEventListener("click", () => ask_(q));
@@ -236,7 +237,7 @@ window.addEventListener("keydown", e => {
   const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
   if (e.key === "Escape") { stop(); return close(); }
   if (e.metaKey && e.key.toLowerCase() === "k") { stop(); return close(); }
-  if (e.metaKey && e.key === "Enter") { stop(); return state.subscribed ? ask_(input!.value) : undefined; }
+  if (e.metaKey && e.key === "Enter") { stop(); return chatsOn(state.subscribed) ? ask_(input!.value) : undefined; }
   if (e.isComposing) return;
   if (e.key === "Enter") { stop(); if (hits[sel]) pick(hits[sel]); return; }
   if (e.key === "Tab") { stop(); return input!.focus(); }

@@ -8,6 +8,7 @@ mod firecrawl;
 mod message;
 mod models;
 mod openrouter;
+mod prefs;
 mod run;
 mod store;
 mod tools;
@@ -16,12 +17,31 @@ mod view;
 pub use error::AssistantError;
 pub use message::{Call, Message};
 pub use models::{ModelInfo, default_model, list_models};
+pub use prefs::{Prefs, load_prefs, save_prefs};
 pub use run::{Event, Outcome, Setup, run_turn};
-pub use store::{Chat, ChatSummary, delete_chat, list_chats, load_chat, save_chat};
+pub use store::{
+    Chat, ChatMatch, ChatSummary, delete_chat, list_chats, load_chat, pin_chat, rename_chat,
+    save_chat, search_chats,
+};
 pub use tools::{MAX_TOOL_ROUNDS, WorkQuery};
 pub use view::{Step, TurnView, turns};
 
 use secrecy::SecretString;
+use serde::{Deserialize, Serialize};
+
+/// How hard the model thinks before it answers.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, strum::IntoStaticStr,
+)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum Effort {
+    #[default]
+    Off,
+    Low,
+    Medium,
+    High,
+}
 
 /// A service's address and the key for it.
 pub struct Endpoint {

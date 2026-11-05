@@ -16,6 +16,39 @@ pub struct Chat {
     pub created_ms: u64,
     pub updated_ms: u64,
     pub messages: Vec<Message>,
+    #[serde(default)]
+    pub pinned: bool,
+}
+
+impl Chat {
+    /// A chat with no messages yet.
+    pub fn new(id: Uuid, model: String, now_ms: u64) -> Self {
+        Self {
+            id,
+            title: String::new(),
+            model,
+            created_ms: now_ms,
+            updated_ms: now_ms,
+            messages: Vec::new(),
+            pinned: false,
+        }
+    }
+
+    /// Takes back the `index`th prompt and everything after it, and gives its text.
+    pub fn rewind(&mut self, index: usize) -> Option<String> {
+        let at = self
+            .messages
+            .iter()
+            .enumerate()
+            .filter(|(_, message)| matches!(message, Message::User { .. }))
+            .nth(index)?
+            .0;
+        let Message::User { text } = self.messages.remove(at) else {
+            return None;
+        };
+        self.messages.truncate(at);
+        Some(text)
+    }
 }
 
 /// A chat as the list shows it.
@@ -25,6 +58,17 @@ pub struct ChatSummary {
     pub title: String,
     pub model: String,
     pub updated_ms: u64,
+    pub pinned: bool,
+}
+
+/// A chat that has the words searched for.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChatMatch {
+    pub chat: ChatSummary,
+    /// The line with the match, cut short.
+    pub snippet: String,
+    /// The user wrote the matching message.
+    pub from_user: bool,
 }
 
 fn path(dir: &Path, id: Uuid) -> PathBuf {
@@ -99,6 +143,7 @@ pub async fn list_chats(dir: &Path) -> Result<Vec<ChatSummary>, AssistantError> 
                 title: chat.title,
                 model: chat.model,
                 updated_ms: chat.updated_ms,
+                pinned: chat.pinned,
             }),
             Err(e) => log::warn!("skipping assistant chat {id}: {e}"),
         }
@@ -107,18 +152,86 @@ pub async fn list_chats(dir: &Path) -> Result<Vec<ChatSummary>, AssistantError> 
     Ok(chats)
 }
 
+/// Sets a chat's title.
+pub async fn rename_chat(dir: &Path, id: Uuid, title: &str) -> Result<(), AssistantError> {
+    let mut chat = load_chat(dir, id).await?;
+    chat.title = title.trim().to_owned();
+    save_chat(dir, &chat).await
+}
+
+/// Pins or unpins a chat.
+pub async fn pin_chat(dir: &Path, id: Uuid, pinned: bool) -> Result<(), AssistantError> {
+    let mut chat = load_chat(dir, id).await?;
+    chat.pinned = pinned;
+    save_chat(dir, &chat).await
+}
+
+const SNIPPET_CHARS: usize = 120;
+
+/// The chats whose title or messages have every word of `query`, newest first, each with the
+/// latest line that matches.
+pub async fn search_chats(dir: &Path, query: &str) -> Result<Vec<ChatMatch>, AssistantError> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    if words.is_empty() {
+        return Ok(Vec::new());
+    }
+    let has = |text: &str| words.iter().any(|word| text.to_lowercase().contains(word));
+    let mut found = Vec::new();
+    for summary in list_chats(dir).await? {
+        let Ok(chat) = load_chat(dir, summary.id).await else {
+            continue;
+        };
+        let texts: Vec<(&str, bool)> = chat
+            .messages
+            .iter()
+            .filter_map(|message| match message {
+                Message::User { text } => Some((text.as_str(), true)),
+                Message::Assistant { text, .. } if !text.is_empty() => Some((text.as_str(), false)),
+                _ => None,
+            })
+            .collect();
+        let all = format!(
+            "{} {}",
+            chat.title,
+            texts
+                .iter()
+                .map(|(text, _)| *text)
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+        .to_lowercase();
+        if !words.iter().all(|word| all.contains(word)) {
+            continue;
+        }
+        let (snippet, from_user) = match texts.iter().rev().find(|(text, _)| has(text)) {
+            Some((text, from_user)) => {
+                let line = text.lines().find(|line| has(line)).unwrap_or(text);
+                (
+                    line.trim().chars().take(SNIPPET_CHARS).collect(),
+                    *from_user,
+                )
+            }
+            None => (String::new(), false),
+        };
+        found.push(ChatMatch {
+            chat: summary,
+            snippet,
+            from_user,
+        });
+    }
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn chat(title: &str, updated_ms: u64) -> Chat {
         Chat {
-            id: Uuid::new_v4(),
             title: title.into(),
-            model: "vendor/model".into(),
-            created_ms: 1,
             updated_ms,
             messages: vec![Message::User { text: "hi".into() }],
+            ..Chat::new(Uuid::new_v4(), "vendor/model".into(), 1)
         }
     }
 
@@ -190,5 +303,59 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(names, [format!("{}.json", one.id)]);
+    }
+
+    #[tokio::test]
+    async fn rename_pin_and_search() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut one = chat("Plans", 5);
+        one.messages.push(Message::Assistant {
+            text: "The tokio release\nhas a task dump".into(),
+            reasoning: String::new(),
+            calls: vec![],
+        });
+        save_chat(dir.path(), &one).await.unwrap();
+        save_chat(dir.path(), &chat("Other", 6)).await.unwrap();
+        rename_chat(dir.path(), one.id, "  Tokio notes ")
+            .await
+            .unwrap();
+        pin_chat(dir.path(), one.id, true).await.unwrap();
+        let loaded = load_chat(dir.path(), one.id).await.unwrap();
+        assert_eq!(
+            (loaded.title.as_str(), loaded.pinned),
+            ("Tokio notes", true)
+        );
+        let hits = search_chats(dir.path(), "TASK dump").await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "has a task dump");
+        assert!(!hits[0].from_user);
+        assert!(
+            search_chats(dir.path(), "nothing")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn rewind_takes_back_a_prompt_and_what_followed() {
+        let mut one = chat("t", 1);
+        one.messages = vec![
+            Message::User { text: "a".into() },
+            Message::Assistant {
+                text: "A".into(),
+                reasoning: String::new(),
+                calls: vec![],
+            },
+            Message::User { text: "b".into() },
+            Message::Assistant {
+                text: "B".into(),
+                reasoning: String::new(),
+                calls: vec![],
+            },
+        ];
+        assert_eq!(one.rewind(1).as_deref(), Some("b"));
+        assert_eq!(one.messages.len(), 2);
+        assert_eq!(one.rewind(5), None);
     }
 }

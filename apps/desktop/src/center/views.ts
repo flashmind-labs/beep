@@ -86,7 +86,7 @@ export function goHistory(forward: boolean) {
 /// Shows view `name`, passing `arg` to its mount.
 export function go(name: ViewName, arg?: ViewArg): boolean {
   // A link to a page only a subscription has lands on Home.
-  if (viewHidden(name, arg, state.subscribed, S.server)) return go("home");
+  if (viewHidden(name, arg, state.subscribed, S.server, S.local)) return go("home");
   if (route(windowScope(), name, arg) === "main") {
     toMain(mainTarget(name, arg));
     return false;

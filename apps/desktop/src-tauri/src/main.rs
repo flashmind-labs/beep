@@ -125,12 +125,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             agents::accounts::agent_accounts,
-            assistant::commands::assistant_chats,
-            assistant::commands::assistant_delete,
-            assistant::commands::assistant_models,
-            assistant::commands::assistant_open,
-            assistant::commands::assistant_send,
-            assistant::commands::assistant_stop,
+            assistant::commands::assistant_local,
             agents::accounts::cancel_claude_sign_in,
             agents::accounts::claude_sign_in,
             agents::accounts::codex_login_cancel,
