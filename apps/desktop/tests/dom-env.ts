@@ -228,6 +228,16 @@ g.document = {
   createElement: (tag: string) => new FakeElement(tag),
 };
 g.window = globalThis;
+// Frames wait until a test runs them.
+const frames = new Map<number, () => void>();
+let frameId = 0;
+g.requestAnimationFrame = (cb: () => void) => { frames.set(++frameId, cb); return frameId; };
+g.cancelAnimationFrame = (id: number) => { frames.delete(id); };
+export function runFrames() {
+  const due = [...frames.values()];
+  frames.clear();
+  for (const cb of due) cb();
+}
 g.addEventListener = () => {};
 g.ResizeObserver = class { observe() {} unobserve() {} };
 g.MutationObserver = class { observe() {} };

@@ -1,4 +1,4 @@
-import { answers, bar, removed } from "./dom-env.ts";
+import { answers, bar, removed, runFrames } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { body, follow, newTurn, startRun } from "../src/chat/chat.ts";
@@ -34,8 +34,10 @@ test("a reply stays the same element from its stream through the chat's redraws"
   // Until words come it thinks, as a coding agent's turn does.
   assert.ok(turn.querySelector(".tools .dthink.live"), "no Thinking row while it waits");
   send({ kind: "text", html: "<p>No rain</p>" });
+  runFrames();
   assert.equal(turn.querySelector(".tools .dthink.live"), null, "Thinking stayed once the answer came");
   send({ kind: "text", html: "<p>No rain tomorrow.</p>" });
+  runFrames();
   const reply = turn.querySelector(".dcoderen.agent")!;
   send({ kind: "finished", status: "completed" });
   assert.equal(reply.innerHTML, "<p>No rain tomorrow.</p>");
@@ -78,4 +80,22 @@ test("a chat drawn from the server keeps its elements when it is drawn again", a
   assert.deepEqual([...body()!.querySelectorAll(".turn")], [turns[0]]);
   assert.equal(turns[0].querySelector(".dcoderen.agent"), reply);
   assert.ok(!removed.has(reply));
+});
+
+test("a stream's text is drawn once a frame, and all of it when the run ends", () => {
+  S.view = "chat";
+  S.session = SESSION;
+  bar.innerHTML = '<div class="dbody" id="body"></div><div class="dhints"></div>';
+  const turn = newTurn(PROMPT);
+  startRun(SESSION, turn, null);
+  const events = follow(SESSION, turn);
+  events.onmessage({ kind: "text", html: "<p>No</p>" });
+  events.onmessage({ kind: "text", html: "<p>No rain</p>" });
+  assert.equal(turn.querySelector(".dcoderen.agent"), null, "drawn before the frame");
+  runFrames();
+  assert.equal(turn.querySelector(".dcoderen.agent")!.innerHTML, "<p>No rain</p>");
+  // The run ends between frames: nothing waits for the next one.
+  events.onmessage({ kind: "text", html: "<p>No rain tomorrow.</p>" });
+  events.onmessage({ kind: "finished", status: "completed" });
+  assert.equal(turn.querySelector(".dcoderen.agent")!.innerHTML, "<p>No rain tomorrow.</p>");
 });
