@@ -126,6 +126,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             agents::accounts::agent_accounts,
             assistant::commands::assistant_local,
+            assistant::dictation::dictation_get,
+            assistant::dictation::dictation_set,
+            assistant::dictation::dictation_models,
             assistant::mcp::local_add_mcp_server,
             assistant::mcp::local_check_mcp_server,
             assistant::mcp::local_list_mcp_servers,
