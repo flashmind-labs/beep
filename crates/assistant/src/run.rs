@@ -87,7 +87,7 @@ fn title_of(text: &str) -> String {
 /// Adds `text` as the user's message and runs the model until it answers, `setup.cancel` fires or
 /// something fails. The chat is saved after every round, and what streamed before a stop or an
 /// error stays in it. `work` answers the read-only work questions.
-pub async fn run_turn<W>(
+pub async fn run_turn<W, F>(
     setup: &Setup,
     chat: &mut Chat,
     text: String,
@@ -95,7 +95,8 @@ pub async fn run_turn<W>(
     work: W,
 ) -> Result<Outcome, AssistantError>
 where
-    W: AsyncFn(WorkQuery) -> Result<String, String>,
+    W: Fn(WorkQuery) -> F,
+    F: Future<Output = Result<String, String>>,
 {
     if chat.title.is_empty() {
         chat.title = title_of(&text);
@@ -145,7 +146,7 @@ where
 
 /// Runs a round's calls, adding each result to the chat. False when cancelled partway: the calls
 /// not run get a result saying so, since the model expects one for each.
-async fn run_calls<W>(
+async fn run_calls<W, F>(
     setup: &Setup,
     chat: &mut Chat,
     calls: &[Call],
@@ -153,7 +154,8 @@ async fn run_calls<W>(
     work: &W,
 ) -> bool
 where
-    W: AsyncFn(WorkQuery) -> Result<String, String>,
+    W: Fn(WorkQuery) -> F,
+    F: Future<Output = Result<String, String>>,
 {
     let mut stopped = false;
     for (index, call) in calls.iter().enumerate() {

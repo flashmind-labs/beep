@@ -138,9 +138,10 @@ fn untrusted(source: &str, body: &str) -> String {
 }
 
 /// Runs one call. A failure is a result the model reads, never an error of the turn.
-pub(crate) async fn run_call<W>(setup: &Setup, call: &Call, work: &W) -> ToolResult
+pub(crate) async fn run_call<W, F>(setup: &Setup, call: &Call, work: &W) -> ToolResult
 where
-    W: AsyncFn(WorkQuery) -> Result<String, String>,
+    W: Fn(WorkQuery) -> F,
+    F: Future<Output = Result<String, String>>,
 {
     let Ok(args) = serde_json::from_str::<Value>(if call.arguments.trim().is_empty() {
         "{}"
