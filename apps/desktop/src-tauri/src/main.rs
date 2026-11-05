@@ -126,6 +126,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             agents::accounts::agent_accounts,
             assistant::commands::assistant_local,
+            assistant::dictation::dictation_get,
+            assistant::dictation::dictation_set,
+            assistant::dictation::dictation_models,
             agents::accounts::cancel_claude_sign_in,
             agents::accounts::claude_sign_in,
             agents::accounts::codex_login_cancel,
