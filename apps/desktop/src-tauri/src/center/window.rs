@@ -2,7 +2,7 @@
 //! one per project, labelled by the project's name. Entry points: `open`,
 //! `open_project`, `hide_on_close`, `is_center`.
 
-use crate::{bar, error::Result, research};
+use crate::{bar, error::Result};
 use tauri::{
     ActivationPolicy, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime,
     TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
@@ -71,7 +71,7 @@ pub(crate) fn join_dock<R: Runtime>(app: &AppHandle<R>) {
 
 /// Builds command center window `label` titled `title`, moved down and
 /// right by `offset` from where the main window opens. While it is open
-/// Beep sits in the Dock, as with research windows.
+/// Beep sits in the Dock.
 fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) -> Result<()> {
     join_dock(app);
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("center.html".into()))
@@ -131,7 +131,7 @@ pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
     if let Err(e) = app.emit_to(LABEL, HIDDEN_EVENT, ()) {
         log::warn!("telling the window it hid: {e}");
     }
-    research::closed(app, LABEL);
+    closed(app, LABEL);
     true
 }
 
@@ -145,6 +145,27 @@ pub fn center_close_window(window: Window) -> Result<()> {
 #[tauri::command]
 pub fn open_center(app: AppHandle) -> Result<()> {
     open(&app)
+}
+
+/// Whether a command center window, the main one or a project's, is on
+/// screen, leaving out `closing`, which may still be listed. The main
+/// window hides when closed.
+fn center_open<R: Runtime>(app: &AppHandle<R>, closing: &str) -> bool {
+    app.webview_windows().iter().any(|(label, window)| {
+        label != closing && is_center(label) && window.is_visible().unwrap_or(true)
+    })
+}
+
+/// Command center windows are ordinary windows: while one is open Beep sits
+/// in the Dock and Cmd-Tab, and goes back to the menu bar once the last
+/// closes.
+pub(crate) fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    if is_center(label)
+        && !center_open(app, label)
+        && let Err(e) = app.set_activation_policy(ActivationPolicy::Accessory)
+    {
+        log::warn!("leaving the Dock: {e}");
+    }
 }
 
 /// Whether `label` is a command center window: the main one or a project's.

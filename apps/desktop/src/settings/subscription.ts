@@ -37,7 +37,7 @@ export function keyHidden(key: string, subscribed: boolean) {
 export function shortcutSheet(sections: [string, readonly (readonly string[])[]][], linked: boolean): [string, readonly (readonly string[])[]][] {
   if (linked) return sections;
   return sections
-    .filter(([title]) => title === "Anywhere" || title === "In a list" || title === "In a coding agent")
+    .filter(([title]) => title === "Anywhere" || title === "In a list" || title === "In an agent or research")
     .map(([title, rows]): [string, readonly (readonly string[])[]] => [title, title !== "Anywhere" ? rows : rows
       .filter(([k]) => !(k.length === 2 && k[0] === "⌘" && keyHidden(k[1].toLowerCase(), linked)))
       .map(([k, t]) => (k === "⌘N" ? [k, "New agent"] : [k, t]))]);
@@ -50,7 +50,7 @@ const ASSISTANT_PAGES = ["chats", "memories", "routines", "rnew", "grants", "ski
 /// a deep link from the tray, another window or a notification. The window shows Home instead.
 export function viewHidden(name: string, arg: unknown, subscribed: boolean) {
   if (subscribed) return false;
-  if (name === "research") return true;
+  if (name === "research" || name === "researchopen") return true;
   if (name !== "pane") return false;
   if (typeof arg === "string") return ASSISTANT_PAGES.includes(arg);
   return typeof arg === "object" && arg !== null && ("chat" in arg || "group" in arg);

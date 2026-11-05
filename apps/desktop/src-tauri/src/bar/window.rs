@@ -83,7 +83,7 @@ pub fn hide<R: Runtime>(app: &AppHandle<R>) {
 }
 
 /// Hides the bar the user is done with. It took focus when it opened, so
-/// focus goes back to the app the user was in, unless a research window is
+/// focus goes back to the app the user was in, unless another window is
 /// still up.
 fn dismiss<R: Runtime>(app: &AppHandle<R>) {
     let focused = window(app).is_some_and(|bar| bar.is_focused().unwrap_or(false));
