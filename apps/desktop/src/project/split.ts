@@ -23,7 +23,8 @@ import { customAgentsSection, whereSection, agentsSection } from "./projects.ts"
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
 import { IC } from "../ui/icons.ts";
-import { byRecent, type RunningAgent, runningKey, runningLine, runningWhen } from "../agents/running-state.ts";
+import { byRecent, type RunningAgent, runningKey, runningWhen } from "../agents/running-state.ts";
+import { runningLineAt } from "../agents/place.ts";
 
 /// The split shows for an imported project whose agent's view has loaded, and with no
 /// subscription for every imported project: it has no agent to wait for.
@@ -142,7 +143,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
   }
   const runItems: SplitItem[] = byRecent(running).map(r => ({
-    key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLine(r, state.home?.projects || []),
+    key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLineAt(r, state.home?.projects || []),
     right: r.status === "asking" ? tag("wait", "needs you") : runningWhen(r), open: () => go("pane", { agent: r }),
     menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));

@@ -23,13 +23,17 @@ use beep_proto::{
 };
 use serde_json::Value;
 use std::{
+    path::PathBuf,
     sync::Arc,
     time::{Instant, SystemTime},
 };
 
 impl Live {
     pub(crate) fn new(info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
+        let folder = PathBuf::from(&info.cwd);
         Self {
+            folder: Some(folder.clone()),
+            place_wanted: Some(folder),
             info,
             images,
             usage,

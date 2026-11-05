@@ -3,7 +3,10 @@
 //! running `claude` has open.
 
 use super::{procs::Process, transcript};
-use crate::agents::found::{Agent, Memo, Seen as Sighting};
+use crate::agents::{
+    found::{Agent, Memo, Seen as Sighting},
+    place::of_folder,
+};
 use beep_proto::node::agent::{ExternalSession, Presence};
 use serde::Deserialize;
 use std::{
@@ -363,6 +366,10 @@ fn describe(
     Ok(ExternalSession {
         id: transcript.id.clone(),
         agent: "claude".to_owned(),
+        place: summary
+            .cwd
+            .as_deref()
+            .and_then(|cwd| of_folder(Path::new(cwd))),
         cwd: summary.cwd.unwrap_or_default(),
         title: summary.title,
         started_at: summary.started_at,
@@ -559,6 +566,44 @@ mod tests {
             slug(Path::new("/srv/my_project/.worktrees/v2")),
             "-srv-my-project--worktrees-v2"
         );
+    }
+
+    #[test]
+    fn a_session_that_moved_into_a_linked_worktree_says_so() {
+        use crate::agents::checkout::tests::{has_git, run};
+        if !has_git() {
+            eprintln!("skipped: no git");
+            return;
+        }
+        let root = tempfile::tempdir().expect("a temp folder");
+        let repo = root.path().join("proj");
+        fs::create_dir_all(&repo).expect("a folder");
+        let repo = repo.canonicalize().expect("a real path");
+        run(&repo, &["init", "-q", "-b", "main"]);
+        run(&repo, &["commit", "-q", "--allow-empty", "-m", "start"]);
+        run(
+            &repo,
+            &["worktree", "add", "-q", "-b", "fix", ".worktrees/fix"],
+        );
+        let tree = repo.join(".worktrees/fix");
+        let line = |cwd: &Path, branch: &str| {
+            format!(
+                r#"{{"type":"user","cwd":"{}","gitBranch":"{branch}","timestamp":"2026-11-02T10:00:00.000Z","message":{{"role":"user","content":"hi"}}}}"#,
+                cwd.display()
+            )
+        };
+        let store_root = root.path().join("claude");
+        let project = store_root.join("projects/-srv-project");
+        fs::create_dir_all(&project).expect("folders");
+        let lines = [line(&repo, "main"), line(&tree, "fix")].join("\n");
+        fs::write(project.join(format!("{ID}.jsonl")), lines + "\n").expect("a transcript");
+        let store = Store::at(&store_root);
+        let sessions = list(&store, &Snapshot::default(), 10, None).expect("a list");
+        // Its first line said the main checkout; the last says the worktree.
+        let place = sessions[0].place.as_ref().expect("a place");
+        assert!(place.linked);
+        assert_eq!(place.branch.as_deref(), Some("fix"));
+        assert_eq!(place.main, repo.to_string_lossy());
     }
 
     #[test]
