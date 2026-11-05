@@ -33,3 +33,8 @@ test("the folder a machine reports is the worktree the pane reads", () => {
 test("a reported folder the list does not have yet is read as it is", () => {
   assert.equal(reportedRoot([], "/srv/app", "/srv/app/.worktrees/new/"), "/srv/app/.worktrees/new");
 });
+
+test("a reported worktree that was removed is not read", () => {
+  const trees: Tree[] = [{ path: "/srv/app", branch: "main", head: "abc1234", own: true }];
+  assert.equal(reportedRoot(trees, "/srv/app", "/srv/app/.worktrees/gone"), null);
+});
