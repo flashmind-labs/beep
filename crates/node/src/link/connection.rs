@@ -766,6 +766,9 @@ async fn serve_linked(
 
 /// The server's credentials, unless the mesh owns them.
 async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
+    // Checked under the turn to apply, so the mesh's credentials, applied once the account
+    // moved, are not overwritten by a push that passed the check before it.
+    let _applying = offers.mesh.applying().await;
     if offers.mesh.owns(Family::Credentials) {
         log::info!("ignored credentials from the server: this node takes them from its mesh");
         return;
@@ -1088,5 +1091,37 @@ mod tests {
         plain.mesh.set(mesh_in(plain_dir.path()).await);
         assert!(!plain.mesh.owns(Family::Credentials));
         assert!(!plain.mesh.owns(Family::Harnesses));
+    }
+
+    #[tokio::test]
+    async fn a_server_push_waiting_on_an_apply_does_not_land_after_the_move() {
+        let _env = crate::machine::provision::spawn_env::TEST_LOCK.lock().await;
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(&[], Provision::new(dir.path()), true);
+        let mesh = mesh_in(dir.path()).await;
+        offers.mesh.set(mesh.clone());
+        // The mesh's credentials are being applied when the server's push arrives.
+        let applying = offers.mesh.applying().await;
+        let push = tokio::spawn({
+            let offers = offers.clone();
+            let server = MachineCredentials {
+                env: vec![var("RACE_KEY", "from-the-server")],
+                forgejo: Vec::new(),
+            };
+            async move { take_credentials(&offers, server).await }
+        });
+        // The account moves while the push waits.
+        mesh.set(Key::Unmoved("credential/7".into()), Some(vec![1]))
+            .await
+            .expect("written");
+        drop(applying);
+        push.await.expect("the push ends");
+        let applied = crate::machine::provision::spawn_env::vars(
+            crate::machine::provision::spawn_env::Scope::Shell,
+        );
+        assert!(
+            !applied.iter().any(|(name, _)| name == "RACE_KEY"),
+            "the server's credential landed after the move"
+        );
     }
 }

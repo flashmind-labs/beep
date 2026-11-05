@@ -12,7 +12,7 @@ use super::{
     transfer,
 };
 use crate::{
-    apps::permissions::{self, Check, RUN_ON, SEND_FILES, ToolApp},
+    apps::permissions::{self, Check, MACHINE_LOG, RUN_ON, SEND_FILES, ToolApp},
     nodes::{DESKTOP, StartOn, agent_name, describe},
     protocol::node::{
         LinkRx, LinkTx, Open, Opened, agent,
@@ -99,6 +99,23 @@ impl Calls {
         done(self.run(request.tool, &request.session, args).await)
     }
 
+    /// The name of the desktop a call's `machine` names, if it is one.
+    async fn desktop_target(&self, args: &Value) -> Option<String> {
+        let machine = command_name(args.get("machine")?.as_str()?);
+        let rows = self.machines.user.nodes().await.ok()?;
+        let target = rows.iter().find(|row| command_name(&row.name) == machine)?;
+        self.offers_desktop(&target.endpoint)
+            .then(|| target.name.clone())
+    }
+
+    fn offers_desktop(&self, endpoint: &str) -> bool {
+        self.machines
+            .app
+            .nodes
+            .online(endpoint)
+            .is_some_and(|online| online.offers(DESKTOP))
+    }
+
     /// Why a node may not use a desktop through the server: the mesh lets only a desktop
     /// give a desktop orders, and this path must not get around it. A caller that offers
     /// `desktop/1` is a desktop and is not refused.
@@ -106,21 +123,11 @@ impl Calls {
         if !matches!(tool, Call::RunOn | Call::MachineLog | Call::SendFiles) {
             return None;
         }
-        let machine = command_name(args.get("machine")?.as_str()?);
-        let rows = self.machines.user.nodes().await.ok()?;
-        let target = rows.iter().find(|row| command_name(&row.name) == machine)?;
-        let offers_desktop = |endpoint: &str| {
-            self.machines
-                .app
-                .nodes
-                .online(endpoint)
-                .is_some_and(|online| online.offers(DESKTOP))
-        };
-        (offers_desktop(&target.endpoint) && !offers_desktop(&self.caller)).then(|| {
+        let desktop = self.desktop_target(args).await?;
+        (!self.offers_desktop(&self.caller)).then(|| {
             format!(
-                "{} is a desktop. Only another desktop can run commands, read logs or send \
-                 files there.",
-                target.name
+                "{desktop} is a desktop. Only another desktop can run commands, read logs or \
+                 send files there."
             )
         })
     }
@@ -129,6 +136,7 @@ impl Calls {
     async fn ask_first(&self, request: &Request, args: &Value) -> Option<Reply> {
         let slug = match request.tool {
             Call::RunOn => RUN_ON,
+            Call::MachineLog => MACHINE_LOG,
             Call::SendFiles => SEND_FILES,
             _ => return None,
         };
@@ -137,14 +145,13 @@ impl Calls {
             Ok(rules) => rules,
             Err(e) => return Some(done(Err(format!("Could not read the user's rules: {e:#}")))),
         };
-        match (
-            permissions::check(&rules, &ToolApp::Machines, slug, args),
-            request.approved,
-        ) {
+        let check = permissions::check(&rules, &ToolApp::Machines, slug, args);
+        // An agent uses another beep-node without asking; read only still refuses.
+        let to_a_node = slug != SEND_FILES && self.desktop_target(args).await.is_none();
+        match (check, request.approved) {
             (Check::Run, _) => None,
             (Check::Refuse(text), _) => Some(done(Err(text))),
-            // A command on the user's own machine does not ask, like `exec` in a chat.
-            (Check::Ask(_), _) if request.tool == Call::RunOn => None,
+            (Check::Ask(_), _) if to_a_node => None,
             (Check::Ask(approval), Approved::No) => Some(Reply::Ask {
                 app: approval.app,
                 action: approval.action,
@@ -858,7 +865,7 @@ mod tests {
 
         let args = json!({ "machine": "build-box", "lines": 10 });
         let read = calls(&harness)
-            .answer(&request(Call::MachineLog, args, Approved::No))
+            .answer(&request(Call::MachineLog, args, Approved::Once))
             .await;
         assert!(
             matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
@@ -869,17 +876,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_on_runs_without_asking() {
+    async fn run_on_and_machine_log_reach_another_node_without_asking() {
         let harness = Harness::new(Scripted::default()).await;
-        let args = json!({ "machine": "build-box", "command": "uname" });
-        let ran = calls(&harness)
-            .answer(&request(Call::RunOn, args, Approved::No))
-            .await;
-        // It ran: there is no such machine, which it says.
-        assert!(
-            matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine called build-box")),
-            "{ran:?}"
-        );
+        for (tool, args) in [
+            (
+                Call::RunOn,
+                json!({ "machine": "build-box", "command": "uname" }),
+            ),
+            (Call::MachineLog, json!({ "machine": "build-box" })),
+        ] {
+            // It runs with no card: there is no such machine, which it says.
+            let ran = calls(&harness)
+                .answer(&request(tool, args, Approved::No))
+                .await;
+            assert!(
+                matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine")),
+                "{tool:?}: {ran:?}"
+            );
+        }
     }
 
     fn memory_call(tool: Call, args: Value) -> Request {
@@ -1154,8 +1168,16 @@ mod tests {
             );
         }
         let desk = desk_key.public().to_string();
+        // A desktop still asks before using another desktop.
+        let asked = calls_from(&harness, &desk)
+            .answer(&request(Call::RunOn, run, Approved::No))
+            .await;
+        assert!(
+            matches!(&asked, Reply::Ask { app, .. } if app == "Your machines"),
+            "{asked:?}"
+        );
         let read = calls_from(&harness, &desk)
-            .answer(&request(Call::MachineLog, log_args, Approved::No))
+            .answer(&request(Call::MachineLog, log_args, Approved::Once))
             .await;
         assert!(
             matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
