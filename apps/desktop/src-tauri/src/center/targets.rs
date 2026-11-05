@@ -42,6 +42,10 @@ pub(crate) enum CenterTarget {
     OpenResearch {
         session: Uuid,
     },
+    /// The notifications pane, with alert `session` opened when there is one.
+    Notice {
+        session: Option<Uuid>,
+    },
     /// A new chat that starts with `prompt`, as a project window's ⌘K asks.
     Ask {
         prompt: String,

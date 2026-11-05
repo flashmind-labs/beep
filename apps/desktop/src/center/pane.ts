@@ -14,6 +14,7 @@ import { shown, go, drawTop, openResearch } from "./views.ts";
 import { paneOn, chatList, projectRows, openProjects } from "./sidebar.ts";
 import { loadThreadChats, threadHead, pinButton, threadChats } from "./threadcard.ts";
 import { refresh } from "./refresh.ts";
+import { showNotices } from "./notices.ts";
 
 const ROUTINES_TITLE: [string, string] = ["Routines", "What Beep does on its own"];
 const APPS_TITLE: [string, string] = ["Apps", "What Beep can use for you"];
@@ -99,6 +100,11 @@ export async function takePending(fallback: ViewName | null) {
   if (typeof target === "object" && "projects" in target) return go("projects", target.projects);
   if (typeof target === "object" && "ask" in target) return askBeep(target.ask.prompt);
   if (typeof target === "object" && "open_research" in target) return openResearch(target.open_research.session);
+  // A notification's click: the page behind stays, the pane opens over it.
+  if (typeof target === "object" && "notice" in target) {
+    if (!shown) go("home");
+    return showNotices(target.notice.session);
+  }
   go("pane", target);
   // Home is not on screen, but the sidebar counts come from it.
   refresh();
