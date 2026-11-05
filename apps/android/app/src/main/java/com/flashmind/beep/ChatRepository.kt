@@ -90,7 +90,11 @@ class BeepApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        Avatars.apply(this)
+        // Loading the pick is one prefs read; the launcher aliases are checked off the main thread.
+        Avatars.load(this)
+        scope.launch { Avatars.apply(this@BeepApplication) }
+        // The saved chats are parsed on first use, which would otherwise be the main thread during launch.
+        scope.launch { repository }
         NetworkWatch.start(this, scope)
         // The bubble stays up across process restarts until the user drops it on the X.
         if (Bubble.wanted(this)) Bubble.show(this)
@@ -130,6 +134,8 @@ data class AlarmRequest(val hour: Int, val minute: Int, val label: String, val d
 /** How long a chat's turns stay on the phone after it was last opened. */
 private const val CACHE_FOR_MS = 72 * 60 * 60 * 1000L
 /** New starters the user may ask for within the window, as the server allows. */
+/** How long streamed text may wait before it is written to disk. */
+private const val DELTA_SAVE_MS = 1000L
 private const val STARTER_REFRESHES = 3
 private const val STARTER_REFRESH_WINDOW_MS = 10 * 60 * 1000L
 /** What a chat shows while the phone has no network: an unsent message goes out once it is back. */
@@ -219,15 +225,28 @@ class ChatRepository(private val storage: LocalStorage) {
     /** The server and this phone's identity, for a user to keep when the Google backup is not available. */
     fun exportProfile(): String = Profile(settings.value, storage.identity()).toJson()
 
-    private fun update(transform: (ChatState) -> ChatState) = synchronized(lock) {
+    /** True while a streamed delta is published but not yet saved; guarded by [lock]. */
+    private var unsaved = false
+    /**
+     * Publishes the new state. A [durable] change is saved first, cursor and text together. A streamed delta
+     * is saved at most once a second: a restart then resumes from the older cursor and the server replays the rest.
+     */
+    private fun update(durable: Boolean = true, transform: (ChatState) -> ChatState) = synchronized(lock) {
         val next = transform(mutableState.value).let { s ->
             val kept = s.conversations.filter { !it.isUnused || it.id == s.selected }
             if (kept.isEmpty()) s else s.copy(conversations = kept)
         }
-        storage.saveState(next) // Cursor and text are committed atomically, before publishing either.
+        if (durable) { storage.saveState(next); unsaved = false } // Cursor and text are committed atomically, before publishing either.
+        else if (!unsaved) {
+            unsaved = true
+            scope.launch {
+                delay(DELTA_SAVE_MS)
+                synchronized(lock) { if (unsaved) { unsaved = false; storage.saveState(mutableState.value) } }
+            }
+        }
         mutableState.value = next
     }
-    private fun updateChat(id: String, transform: (Conversation) -> Conversation) = update { s ->
+    private fun updateChat(id: String, durable: Boolean = true, transform: (Conversation) -> Conversation) = update(durable) { s ->
         s.copy(conversations = s.conversations.map { if (it.id == id) transform(it) else it })
     }
     fun select(id: String) {
@@ -1594,7 +1613,8 @@ class ChatRepository(private val storage: LocalStorage) {
         val sequence = received.seq
         var finished = false
         var applied = false
-        updateChat(id) { chat ->
+        val streaming = received.event is RunEvent.TextDelta || received.event is RunEvent.ReasoningDelta
+        updateChat(id, durable = !streaming) { chat ->
             if (runId != chat.runId || sequence <= chat.cursor) return@updateChat chat
             applied = true
             finished = received.event is RunEvent.RunFinished

@@ -311,7 +311,7 @@ internal fun ChatScreen(chat: Conversation, repository: ChatRepository, modifier
             // The "Latest reply" button floats over the list, so showing it does not resize the list.
             Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(if (compact) 12.dp else 18.dp)) {
-                itemsIndexed(chat.messages, key = { _, it -> it.id }) { index, message ->
+                itemsIndexed(chat.messages, key = { _, it -> it.id }, contentType = { _, it -> it.role }) { index, message ->
                     val isUser = message.role == "user"
                     // A reply sits close under its own prompt; turns keep the full gap.
                     val gap = when {
