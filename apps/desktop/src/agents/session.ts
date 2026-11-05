@@ -71,7 +71,10 @@ export async function pollAgent() {
       const sig = JSON.stringify(page);
       if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
       if (page.session.question?.id !== AG.answering) AG.answering = null;
+      // A session opened with no folder (from a notice) draws again once a read gives it.
+      const placed = !AG.page?.session.cwd && !!page.session.cwd;
       AG.page = page;
+      if (placed) drawAgentFrame();
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
       AG.readError = "";
@@ -212,7 +215,7 @@ export function drawAgentFrame() {
     : `<div id="agplan"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
-  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd))}</b><small title="${esc(s.cwd)}">${esc(s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>
+  bar.innerHTML = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small title="${esc(s.cwd)}">${esc(s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>
     <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`)}</div>`;
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);

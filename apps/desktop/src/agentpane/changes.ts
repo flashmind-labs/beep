@@ -24,6 +24,11 @@ export function changesView() {
   C.el?.remove();
   C.key = key;
   const el = h('<div class="agpview changes"></div>');
+  // A session with no folder yet has no changes to read.
+  if (!s?.cwd) {
+    Object.assign(C, { el, view: null });
+    return el;
+  }
   const view = diffView({
     load: (only, lockfiles) => s
       ? invoke<DiffView>("work_diff", { machineId: s.machine_id, root: s.cwd, only, lockfiles })
