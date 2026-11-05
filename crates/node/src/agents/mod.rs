@@ -68,7 +68,7 @@ use acp::Prompt;
 use alerts::AlertHub;
 use compaction::Route;
 use images::Images;
-use kinds::{Adapter, KNOWN, Known, known};
+use kinds::{Adapter, KNOWN, known, route};
 use models::ModelCache;
 use running::{Begin, folder};
 use session::{Command, NodeMode, Session, Start};

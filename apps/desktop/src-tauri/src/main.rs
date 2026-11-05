@@ -144,6 +144,8 @@ fn main() {
             agents::harnesses::harness_settings_all,
             agents::harnesses::harness_settings_save,
             agents::harnesses::harness_settings_save_all,
+            agents::harnesses::harness_compact,
+            agents::harnesses::harness_compact_save,
             agents::instructions::agent_files_read,
             agents::instructions::agent_files_sync,
             agents::instructions::instructions_get,

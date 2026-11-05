@@ -11,7 +11,7 @@ use beep_proto::{
     UsageView,
     node::{
         agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
-        usage::{Billing, HourSpend, PlanUsage, SessionSpend},
+        usage::{HourSpend, PlanUsage, SessionSpend},
     },
 };
 use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone};
@@ -346,7 +346,7 @@ fn period(rows: &Rows<'_>) -> PeriodSpend {
 }
 
 fn metered(row: &Row<'_>) -> bool {
-    row.hour.billing != Billing::Subscription
+    !row.hour.billing.on_subscription(row.agent)
 }
 
 fn bill(rows: &Rows<'_>) -> SpendPeriod {
@@ -421,5 +421,51 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
         subscription_tokens: tokens(&all, true),
         projects,
         harnesses,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beep_proto::node::usage::Billing;
+
+    fn hour(billing: Billing) -> HourSpend {
+        HourSpend {
+            hour: 0,
+            model: ModelId::new("some-model"),
+            input_tokens: 1_000,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            cost_usd: 5.0,
+            unpriced_tokens: 0,
+            billing,
+        }
+    }
+
+    #[test]
+    fn a_plan_that_could_not_be_told_reports_tokens_not_dollars() {
+        let unknown = hour(Billing::Unknown);
+        let paid = hour(Billing::Metered);
+        let rows = Rows(vec![
+            Row {
+                project: "widget".to_owned(),
+                agent: &AgentSlug::CLAUDE,
+                hour: &unknown,
+            },
+            Row {
+                project: "widget".to_owned(),
+                agent: &AgentSlug::CLAUDE,
+                hour: &paid,
+            },
+        ]);
+
+        let bill = bill(&rows);
+
+        assert_eq!(bill.cost_usd, 5.0);
+        assert_eq!(bill.metered_tokens, 1_000);
+        assert_eq!(bill.subscription_tokens, 1_000);
+        let covered = bill.harnesses.iter().find(|h| h.subscription);
+        assert_eq!(covered.and_then(|h| h.cost_usd), None);
     }
 }

@@ -137,6 +137,7 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
             .insert(known.home_var.to_owned(), expand_home(home.trim()));
     }
     kind.args.extend(config.args.iter().cloned());
+    kind.compact = config.compact;
     for var in &config.env {
         kind.env
             .insert(var.name.clone(), var.value.expose().to_owned());
@@ -369,6 +370,7 @@ async fn info(found: &Found, config: Option<HarnessConfig>, npm: &install::Npm) 
         program: cli.display().to_string(),
         args: Vec::new(),
         env: Default::default(),
+        compact: None,
     });
     let kind = match &config {
         Some(config) => configure(&base, config),
@@ -464,7 +466,11 @@ pub(super) async fn update(kinds: &[AgentKind], latest: &Latest, agent: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::{SecretText, node::EnvSecret};
+    use crate::agents::compaction::Policy;
+    use beep_proto::{
+        SecretText,
+        node::{EnvSecret, harness::AutoCompact},
+    };
     use std::collections::BTreeMap;
 
     fn kind(name: &str) -> AgentKind {
@@ -473,6 +479,7 @@ mod tests {
             program: "codex-acp".into(),
             args: vec!["--acp".into()],
             env: BTreeMap::from([("INITIAL_AGENT_MODE".into(), "agent-full-access".into())]),
+            compact: None,
         }
     }
 
@@ -529,6 +536,10 @@ mod tests {
                 name: "HTTPS_PROXY".into(),
                 value: SecretText::new("http://proxy:3128"),
             }],
+            compact: Some(AutoCompact {
+                enabled: true,
+                percent: Some(65),
+            }),
             ..HarnessConfig::new("codex")
         };
         let settings = Settings::default();
@@ -542,6 +553,7 @@ mod tests {
         assert_eq!(started.env["CODEX_HOME"], "/srv/codex-home");
         assert_eq!(started.env["HTTPS_PROXY"], "http://proxy:3128");
         assert_eq!(started.env["INITIAL_AGENT_MODE"], "agent-full-access");
+        assert_eq!(Policy::from_setting(started.compact), Policy::At(65));
         // Another agent runs as found.
         assert_eq!(settings.configured(&kind("pi")).unwrap(), kind("pi"));
     }

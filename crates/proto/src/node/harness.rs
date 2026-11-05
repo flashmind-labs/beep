@@ -144,6 +144,31 @@ pub struct HarnessConfig {
     /// Set on its process, over everything else.
     #[serde(default)]
     pub env: Vec<EnvSecret>,
+    /// When the node compacts its sessions. `None` is the default: on, at
+    /// `AutoCompact::DEFAULT_PERCENT`.
+    #[serde(default)]
+    pub compact: Option<AutoCompact>,
+}
+
+/// Whether and when the node compacts a harness's sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoCompact {
+    /// Off: the node never sends `/compact`.
+    pub enabled: bool,
+    /// Compact once the conversation fills this percent of the window, 1 to
+    /// 100. `None` is `DEFAULT_PERCENT`.
+    #[serde(default)]
+    pub percent: Option<u8>,
+}
+
+impl AutoCompact {
+    /// The percent used when none is set.
+    pub const DEFAULT_PERCENT: u8 = 80;
+
+    /// Whether `percent` is one the node accepts.
+    pub fn valid_percent(percent: u8) -> bool {
+        (1..=100).contains(&percent)
+    }
 }
 
 fn on() -> bool {
@@ -160,6 +185,7 @@ impl HarnessConfig {
             home: None,
             args: Vec::new(),
             env: Vec::new(),
+            compact: None,
         }
     }
 }
