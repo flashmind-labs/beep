@@ -9,6 +9,7 @@ import { paneRoot } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
+import { arrowFocus } from "../ui/menu.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -334,12 +335,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     } else if (act === "save") saveWorkFile(path, note);
   });
   m.addEventListener("keydown", e => {
-    const all = [...m.querySelectorAll<HTMLElement>("button")];
-    const i = all.indexOf(document.activeElement as HTMLElement);
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
-    }
+    if (arrowFocus(m, e.key)) e.preventDefault();
   });
   setTimeout(() => document.addEventListener("pointerdown", function away(ev) {
     if (!m.contains(ev.target as Node)) { m.remove(); document.removeEventListener("pointerdown", away); }
