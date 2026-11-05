@@ -139,7 +139,8 @@ async function readAll() {
 /// read: as far as one read goes, and not read again on refresh.
 async function load(dir: string, deep = false) {
   const s = paneSession();
-  if (!s || F.reading.has(dir)) return;
+  // A session with no folder yet has nothing to read.
+  if (!s?.cwd || F.reading.has(dir)) return;
   const key = F.key;
   const had = F.listings.get(dir);
   F.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
@@ -176,6 +177,7 @@ function rowHtml(r: TreeRow) {
 function draw() {
   const tree = F.el?.querySelector<HTMLElement>(".agtree");
   if (!tree) return;
+  if (!paneSession()?.cwd) { tree.innerHTML = ""; return; }
   const top = F.listings.get("");
   const rows = treeRows(F.listings, F.open, F.filter);
   let html = rows.map(rowHtml).join("");

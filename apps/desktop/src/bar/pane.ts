@@ -4,6 +4,7 @@ import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
 import { type AgentRow, loadAgentHosts, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.ts";
+import { sessions } from "../agents/sessions.ts";
 import { renderApps } from "../settings/apps.ts";
 import { body, focusAsk, grow, newChat, renderChat, send } from "../chat/chat.ts";
 import { renderChats, rows, type SessionSummary } from "../chat/chats.ts";
@@ -95,7 +96,12 @@ export const pane = {
       // Groups are not a CenterTarget: only the window's sidebar opens them.
       if ("group" in target) return renderGroup(target.group.id);
       // Agent views are not a CenterTarget either: Home and the sidebar open them.
-      if ("agent" in target) return openAgent(target.agent, { back: target.from ?? "agents" });
+      // A notice names a session with no folder: the loaded list has the row, when it has one.
+      if ("agent" in target) {
+        const { machine_id, agent, id } = target.agent;
+        const row = sessions.find(s => s.machine_id === machine_id && s.agent === agent && s.id === id);
+        return openAgent(row ?? target.agent, { back: target.from ?? "agents" });
+      }
       if ("agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
     }
     if (target === "agents") return renderAgents();
