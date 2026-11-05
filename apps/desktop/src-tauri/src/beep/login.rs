@@ -3,7 +3,7 @@
 
 use crate::{
     bar::{self, app::open_url},
-    beep::{Beep, Service, identity::computer_name, state::LinkState},
+    beep::{Beep, SERVER_ENABLED, Service, identity::computer_name, state::LinkState},
     error::{DesktopError, Result},
     tray,
 };
@@ -36,6 +36,9 @@ pub async fn complete_login(app: AppHandle, beep: Service<'_>, token: String) ->
 /// Takes a `beep://login` link: the same, then the bar shows how it went and
 /// hears `login-failed` with why, if it did.
 pub fn open_link(app: &AppHandle, url: &str) {
+    if !SERVER_ENABLED {
+        return;
+    }
     let Some(token) = login_token(url) else {
         return;
     };

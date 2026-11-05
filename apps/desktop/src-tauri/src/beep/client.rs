@@ -184,8 +184,13 @@ impl Beep {
         self.file.save(&saved);
     }
 
-    /// Where the link stands. A Mac signed out reads as unlinked.
+    /// Where the link stands. A Mac signed out reads as unlinked, and so does one with no server
+    /// to talk to, whatever the saved link says: the saved link stays for the day a server is
+    /// back.
     pub fn link_state(&self) -> LinkState {
+        if self.server.is_none() {
+            return LinkState::Unlinked;
+        }
         self.saved().effective_link()
     }
 
@@ -634,6 +639,33 @@ mod tests {
         assert!(beep.signed_out());
         beep.set_link_state(LinkState::Linked);
         assert!(!beep.signed_out());
+    }
+
+    #[tokio::test]
+    async fn a_linked_saved_state_with_no_server_is_unlinked_and_calls_nothing() {
+        let dir = TempDir::new().expect("a temp dir");
+        let server = SecretKey::generate().public();
+        // What a Mac linked to a server saved, started with the server switched off.
+        fs::write(
+            dir.path().join("state.json"),
+            format!(r#"{{"link":"linked","server":"{server}"}}"#),
+        )
+        .expect("the state is written");
+        let used = crate::beep::server_to_use(false, Some(server), "").expect("a choice");
+        let beep = app(&dir, used).await;
+        assert_eq!(beep.link_state(), LinkState::Unlinked);
+        assert!(!beep.linked());
+        assert_eq!(beep.server(), None);
+        assert!(beep.push().is_none());
+        let error = beep.call(ListSessions {}).await.expect_err("no server");
+        assert!(matches!(error, DesktopError::NoServer), "{error:?}");
+        assert!(
+            beep.client.lock().await.is_none(),
+            "no connection was opened"
+        );
+        // The saved link is kept for the day the switch is on.
+        let saved = fs::read_to_string(dir.path().join("state.json")).expect("state is kept");
+        assert!(saved.contains("linked"));
     }
 
     #[tokio::test]
