@@ -1,4 +1,5 @@
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
+import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
 import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutLabel, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
@@ -104,7 +105,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   drawFrame();
   $("#agprompt")?.focus();
   loadAgentHosts();
-  invoke<AgentSession[]>("agent_sessions").then(list => { AG.sessions = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
+  loadSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
   invoke<Machine[]>("list_machines").then(list => { KNOWN = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (at?.project) loadBranches(at.project);
   loadProjects();
@@ -401,7 +402,7 @@ function folderMenu(checkout: boolean) {
   const places = [...new Set((f.places ?? []).filter(p => !machine || p.machine === machine).map(p => machine ? p.cwd : folderOn(p.cwd, null, null)))];
   const pick = f.checkout ?? DEFAULT_CHECKOUT;
   const same = (p: CheckoutPick) => JSON.stringify(p) === JSON.stringify(pick);
-  const trees = checkout ? knownWorktrees(AG.sessions, f.machine || null, f.cwd) : [];
+  const trees = checkout ? knownWorktrees(sessions, f.machine || null, f.cwd) : [];
   const workspace = host?.workspace ? tildePath(host.workspace, host.home) : "~";
   const rows = [
     ...places.map(p => `<button data-agf="${esc(p)}" class="${f.cwd.trim() === p ? "on" : ""}"><span></span><span class="mono">${esc(tildePath(p, host?.home))}</span><small>checkout</small></button>`),

@@ -194,7 +194,6 @@ export const pc = {
   machine: "auto",
   checkout: DEFAULT_CHECKOUT,
   hosts: null as AgentHost[] | null,
-  sessions: [] as AgentSession[],
   branches: new Map<string, BaseBranches | null>(),
   starting: false,
   /// The harness, model and thinking picked, and the machine and harness

@@ -4,6 +4,7 @@
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
+import { loadSessions, sessions } from "./sessions.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
 import { preloadModels } from "./agentpicker.ts";
@@ -171,7 +172,6 @@ export type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer
 interface AgentState {
   readError: string;
   hosts: AgentHost[] | null;
-  sessions: AgentSession[];
   error: string;
   busy: boolean;
   form: AgentForm;
@@ -224,7 +224,7 @@ interface AgentState {
 
 export const AG: AgentState = {
   readError: "",
-  hosts: null, sessions: [], error: "", busy: false,
+  hosts: null, error: "", busy: false,
   form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", changed: 0, paused: false, answering: null, barHidden: false,
@@ -320,7 +320,7 @@ export async function renderAgents() {
   AG.sel = 0;
   drawAgents(true);
   try {
-    AG.sessions = await invoke<AgentSession[]>("agent_sessions");
+    await loadSessions();
     AG.error = "";
   } catch (e) {
     AG.error = String(e);
@@ -338,7 +338,7 @@ function sessionRow(s: AgentSession, i: number) {
 }
 
 export function drawAgents(loading: boolean) {
-  const list = AG.sessions;
+  const list = sessions;
   const machines = new Set(list.map(s => s.machine_id)).size;
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
@@ -350,7 +350,7 @@ export function drawAgents(loading: boolean) {
     if (S.view !== "agents") return;
     const target = e.target as HTMLElement;
     const r = target.closest<HTMLElement>("[data-agi]");
-    if (r) return openAgent(AG.sessions[Number(r.dataset.agi)], { back: "agents" });
+    if (r) return openAgent(sessions[Number(r.dataset.agi)], { back: "agents" });
     if (target.closest("#agNew")) renderAgentNew("", "agents");
   };
 }
@@ -378,7 +378,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     return false;
   }
   if (S.view === "agents") {
-    const n = AG.sessions.length;
+    const n = sessions.length;
     if (!n) return false;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -386,7 +386,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       drawAgents(false);
       return true;
     }
-    if (e.key === "Enter") { e.preventDefault(); openAgent(AG.sessions[AG.sel], { back: "agents" }); return true; }
+    if (e.key === "Enter") { e.preventDefault(); openAgent(sessions[AG.sel], { back: "agents" }); return true; }
   }
   return false;
 }
