@@ -14,6 +14,7 @@ import { loadModels } from "../settings/model.ts";
 import type { Credential } from "../settings/credentials.ts";
 import { blankMcpForm, type KeyRow, KEYS_NOTE, keyRows, MCP_NOTE, type McpForm, type McpRow, mcpDetail, mcpFormReady, mcpStatus, newKey, newMcpServer } from "./assistant-state.ts";
 import { refreshLocal } from "./local.ts";
+import { dictation } from "./dictation.ts";
 import { S } from "../bar/core.ts";
 
 /// The saved credentials (null if they could not be read) and what each row is doing.
@@ -190,7 +191,8 @@ function draw() {
       page.list === null
         ? h("div", "cc-panel cc-empty", h("span", "", "Could not read your credentials."))
         : h("div", "cc-panel", ...keys.map(keyLine))),
-    mcpSection());
+    mcpSection(),
+    dictation());
   const old = el.querySelector(":scope > .cc-view");
   if (old) old.replaceWith(view); else el.append(view);
 }
