@@ -1,5 +1,6 @@
 // Home: its tabs, the Running now, Needs you, Coming up and Updates
 // sections, and the Connecting page before Home first loads.
+import { sessionMenu } from "../agents/sessionmenu.ts";
 import { patchChildren } from "../ui/patch.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
 import { plural } from "../ui/format.ts";
@@ -32,6 +33,7 @@ export function runningRow(r: RunningRow) {
     ? line(null, title, sub, right, () => openResearch(r.session))
     // The pane's agent view follows and answers it.
     : line(harnessEl(r.agent), title, sub, right, () => go("pane", { agent: r }));
+  if (r.kind === "agent") row.addEventListener("contextmenu", e => void sessionMenu(e, r, s => go("pane", { agent: s })));
   row.dataset.key = runningKey(r);
   return row;
 }

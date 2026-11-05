@@ -18,6 +18,7 @@ import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, turnRuns } from "./session.ts";
+import { sessionMenu } from "./sessionmenu.ts";
 import { closeChild } from "./logview.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { closeModelPicker } from "./modelpill.ts";
@@ -186,7 +187,7 @@ type SentImage = { name: string; mime: string; data: string };
 /// those back, stop the turn, close the session, or switch its model or
 /// thinking from the next turn.
 export type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer: { text: string; images?: SentImage[] } } | { drop_steers: null }
-  | { cancel: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } } | { stop_task: { task: string } };
+  | { cancel: null } | { close: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } } | { stop_task: { task: string } };
 
 interface AgentState {
   readError: string;
@@ -384,6 +385,10 @@ export function drawAgents(loading: boolean) {
     const r = target.closest<HTMLElement>("[data-agi]");
     if (r) return openAgent(drawn[Number(r.dataset.agi)], { back: "agents" });
     if (target.closest("#agNew")) renderAgentNew("", "agents");
+  };
+  bar.oncontextmenu = e => {
+    const r = S.view === "agents" ? (e.target as HTMLElement).closest<HTMLElement>("[data-agi]") : null;
+    if (r) void sessionMenu(e, drawn[Number(r.dataset.agi)], s => openAgent(s, { back: "agents" }));
   };
 }
 
