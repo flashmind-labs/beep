@@ -5,6 +5,7 @@
 //! waits for an OK, a card under the orb asks, and the window grows to fit
 //! it.
 
+use super::LIVE_ENABLED;
 use tauri::{
     AppHandle, LogicalSize, Manager, PhysicalPosition, Runtime, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -20,6 +21,9 @@ const MARGIN: f64 = 0.0;
 
 /// Shows the orb, making its window the first time.
 pub fn show<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    if !LIVE_ENABLED {
+        return Ok(());
+    }
     let orb = match app.get_webview_window(LABEL) {
         Some(orb) => orb,
         None => WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("orb.html".into()))

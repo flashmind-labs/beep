@@ -8,6 +8,7 @@ use crate::{
     machines::this_mac::{self, Machine},
     platform::logfile,
     tray,
+    voice::LIVE_ENABLED,
 };
 use beep_proto::node::desktop::Permission;
 use serde::Serialize;
@@ -24,6 +25,9 @@ pub struct Status {
     /// Whether the desktop talks to a server at all (`SERVER_ENABLED`). Off, the window shows
     /// nothing of one: no account, sign in, subscription or assistant.
     server: bool,
+    /// Whether live mode can start: the server and `LIVE_ENABLED` are both on. Off, no hint or
+    /// shortcut mentions live mode or the orb.
+    live: bool,
 }
 
 #[tauri::command]
@@ -33,6 +37,7 @@ pub fn status(beep: Service<'_>) -> Status {
         session: beep.session(),
         signed_out: SERVER_ENABLED && beep.signed_out(),
         server: SERVER_ENABLED,
+        live: SERVER_ENABLED && LIVE_ENABLED,
     }
 }
 

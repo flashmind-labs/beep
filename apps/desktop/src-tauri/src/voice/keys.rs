@@ -2,7 +2,7 @@
 //! and the microphone opened early as Option goes down.
 
 use super::{
-    Voice, audio,
+    LIVE_ENABLED, Voice, audio,
     hotkey::{self, Act, HOLD, HoldStep, Input as Key, TapStep, WINDOW},
     session::{Start, open_audio},
 };
@@ -34,11 +34,11 @@ impl Voice {
         if taps == TapStep::Two {
             self.on_two_taps();
         }
-        // With no server (none, or signed out), two taps still open the bar and holding Option
-        // dictates when the server is switched off: live mode needs the server.
-        let hold = if self.beep.linked() {
+        // Two taps always open the bar. Holding Option dictates when live mode is off
+        // (`LIVE_ENABLED`) or the server is switched off: live mode needs the server.
+        let hold = if LIVE_ENABLED && self.beep.linked() {
             hold
-        } else if !SERVER_ENABLED {
+        } else if !SERVER_ENABLED || !LIVE_ENABLED {
             return self.dictate_hold(hold);
         } else {
             HoldStep::Nothing
