@@ -161,6 +161,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     return {
       key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
       right: chip && stateChip(chip.cls, chip.text, chip.cls === "running"),
+      menu: e => thr.prMenu(e, agent, acts, l),
       detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
     };
   });
@@ -172,6 +173,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     lead: num(l.number), title: l.title,
     sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
     right: l.task && stateChip(l.task.state, l.task.state, l.task.state === "running"),
+    menu: l.issue ? (e => thr.issueMenu(e, agent, acts, l.issue!)) : undefined,
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
   }));
