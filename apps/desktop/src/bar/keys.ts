@@ -159,7 +159,7 @@ document.addEventListener("keydown", e => {
   if (cmd && key === "m") { e.preventDefault(); return linked ? toWindow("memories") : renderMemories(); }
   if (cmd && key === "j") { e.preventDefault(); return linked ? toWindow("routines") : renderRoutines(); }
   if (cmd && key === "l") { e.preventDefault(); return linked ? toWindow("skills") : renderSkills(); }
-  if (cmd && key === "r" && S.view !== "chats") { e.preventDefault(); return researchShortcut(); }
+  if (cmd && key === "r" && S.view !== "chats" && S.link === "linked") { e.preventDefault(); return researchShortcut(); }
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   // The window picks the chat: the project's while one of its chats shows.
@@ -181,7 +181,7 @@ document.addEventListener("keydown", e => {
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (!PANE && cmd && key === "o") { e.preventDefault(); return openInWindow(S.session); }
     const ask = t.id === "ask" ? t.value! : null;
-    if (cmd && e.shiftKey && e.key === "Enter" && ask != null) { e.preventDefault(); return research(composeMessage(ask)); }
+    if (cmd && e.shiftKey && e.key === "Enter" && ask != null && S.link === "linked") { e.preventDefault(); return research(composeMessage(ask)); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && ask != null) { e.preventDefault(); return send(composeMessage(ask)); }
     if (e.key === "ArrowUp" && ask === "" && popQueued()) { e.preventDefault(); return; }
     if (!PANE && e.key === "ArrowUp" && ask === "") { e.preventDefault(); return renderChats(); }
