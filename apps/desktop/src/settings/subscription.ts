@@ -37,7 +37,7 @@ export function keyHidden(key: string, subscribed: boolean) {
 export function shortcutSheet(sections: [string, readonly (readonly string[])[]][], linked: boolean): [string, readonly (readonly string[])[]][] {
   if (linked) return sections;
   return sections
-    .filter(([title]) => title === "Anywhere" || title === "In a list")
+    .filter(([title]) => title === "Anywhere" || title === "In a list" || title === "In a coding agent")
     .map(([title, rows]): [string, readonly (readonly string[])[]] => [title, title !== "Anywhere" ? rows : rows
       .filter(([k]) => !(k.length === 2 && k[0] === "⌘" && keyHidden(k[1].toLowerCase(), linked)))
       .map(([k, t]) => (k === "⌘N" ? [k, "New agent"] : [k, t]))]);
