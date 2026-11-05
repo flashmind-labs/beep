@@ -156,7 +156,7 @@ export function projectsSection(rows: Project[]) {
   const all = [...owners];
   // A few panels at a time; the rest draw as the page scrolls toward them.
   const panels = lazyRows("home:projects", "", all.length, (from, to) => all.slice(from, to).map(([owner, list]) =>
-    section("", owner || "Other", list.length, null, h("div", "cc-panel", ...list.map(({ p, i }) => homeProjectRow(p, i, p.name.slice(p.name.lastIndexOf("/") + 1)))))), 0, 4);
+    section("", owner || "Other", list.length, null, h("div", "cc-panel", ...list.map(({ p, i }) => homeProjectRow(p, i, p.name.slice(p.name.lastIndexOf("/") + 1)))))), 0, 2);
   const el = h("div", "cc-hgrid", ...panels);
   el.id = "sec-projects-home";
   return el;

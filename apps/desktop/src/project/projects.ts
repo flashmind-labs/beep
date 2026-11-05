@@ -52,11 +52,11 @@ export function projectTable(rows: Project[]) {
 /// workers, what changed last and where it lives.
 export function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
-  // Two orgs at a time; the rest draw as the page scrolls toward them.
+  // One org at a time; the rest draw as the page scrolls toward them.
   const out = lazyRows("projects-overview", "", groups.length, (from, to) => groups.slice(from, to).map(g => g.group ? groupSection(g.group, g)
     : h("section", "pj-org",
       h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", plural(g.cards.length, "repo", "repos"))),
-      h("div", "pj-grid", ...g.cards.map(projectCard)))), 0, 2);
+      h("div", "pj-grid", ...g.cards.map(projectCard)))), 0, 1);
   const add = h("div", "cc-panel cc-row pj-add",
     h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder or a repository to clone.")),
     button("Add", "", addProject));
