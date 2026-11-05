@@ -8,7 +8,7 @@ import { folderUnder } from "../addproject/importproject-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
-import { itemChips, projectsWithOpen, reviewStart, waitingFirst, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { itemChips, projectsWithOpen, reviewStart, newestFirst, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { arranged, listControls, pickBox, startBar } from "../project/openlist.ts";
 import type { StartEntry } from "../project/openlist-state.ts";
 import { state } from "./state.ts";
@@ -150,7 +150,7 @@ export function gitSection(view: GitItemsView) {
   const all = projectRows() || [];
   const column = (kind: GitItemRow["kind"], title: string, none: string) => {
     const key = `home:${kind}`;
-    const { items, labels: f } = labelFilter(key, view.items.filter(i => i.kind === kind).sort(waitingFirst), i => i.labels, draw);
+    const { items, labels: f } = labelFilter(key, view.items.filter(i => i.kind === kind).sort(newestFirst), i => i.labels, draw);
     const shown = arranged(key, items, i => i.opened_at);
     const repos = new Map(projectsWithOpen({ items }, all).map(p => [p.key, p]));
     const issues = kind === "issue";

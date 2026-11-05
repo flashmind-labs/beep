@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectsWithOpen, reviewStart, waitsOnYou } from "../src/center/openitems-state.ts";
+import { newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "../src/center/openitems-state.ts";
 import type { GitItemRow } from "../src/center/openitems-state.ts";
 
 const item = (over: Partial<GitItemRow> = {}): GitItemRow => ({
@@ -49,4 +49,9 @@ test("Review starts in the project's folder on an online machine, else on Auto",
   assert.match(start.prompt, /only after I approve it/);
   assert.equal(reviewStart(pr, null, machines).at, null);
   assert.match(reviewStart(item({ host: "git.example.com" }), null, []).prompt, /with teacli/);
+});
+
+test("open items sort by the latest activity, whatever waits on the user", () => {
+  const rows = [item({ updated_at: 100, review_requested: true }), item({ updated_at: 300 }), item({ updated_at: 200, review_requested: true })];
+  assert.deepEqual(rows.sort(newestFirst).map(r => r.updated_at), [300, 200, 100]);
 });
