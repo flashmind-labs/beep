@@ -29,17 +29,16 @@ pub(crate) struct ProjectRead {
 impl Desk {
     /// The open lists of each of `names`, at most `AT_ONCE` at a time, each with a time limit.
     pub(crate) async fn read_projects(&self, names: &[String]) -> Vec<ProjectRead> {
-        stream::iter(names)
+        // Owned names: a borrowed one makes this future not `Send` for every lifetime, which a
+        // Tauri command needs.
+        stream::iter(names.to_vec())
             .map(|name| async move {
-                let result = match timeout(PER_PROJECT, self.lists(name)).await {
+                let result = match timeout(PER_PROJECT, self.lists(&name)).await {
                     Ok(Ok(lists)) => unreadable(&lists).map_or(Ok(lists), Err),
                     Ok(Err(e)) => Err(e.to_string()),
                     Err(_) => Err("no answer in time".to_owned()),
                 };
-                ProjectRead {
-                    name: name.clone(),
-                    result,
-                }
+                ProjectRead { name, result }
             })
             .buffer_unordered(AT_ONCE)
             .collect()
