@@ -34,10 +34,24 @@ pub fn text(app: &AppHandle, title: &str, body: &str) {
 /// Shows `notice`, which opens its chat or group when clicked and, when it
 /// asks for approval, answers it from Allow or Deny.
 pub fn notice(app: &AppHandle, notice: &Notice) {
+    show(app, notice, click_target(notice));
+}
+
+/// Shows `notice`, an alert the assistant raised on its own, which opens it
+/// in the notifications pane when clicked.
+pub fn alert(app: &AppHandle, notice: &Notice) {
+    let session = Uuid::parse_str(&notice.session_id).ok();
+    show(app, notice, CenterTarget::Notice { session });
+}
+
+fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
     #[cfg(target_os = "macos")]
-    mac::show(app, notice);
+    mac::show(app, notice, target);
     #[cfg(not(target_os = "macos"))]
-    text(app, &notice.title, &notice.body);
+    {
+        let _ = target;
+        text(app, &notice.title, &notice.body);
+    }
 }
 
 /// What a click on `notice` opens.
@@ -190,7 +204,8 @@ fn agent_reply(allow: bool) -> &'static str {
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use super::{ALLOW, DENY, answer, ask, click_target, open, text};
+    use super::{ALLOW, DENY, answer, ask, open, text};
+    use crate::center::CenterTarget;
     use beep_proto::Notice;
     use mac_notification_sys::{
         MainButton, Notification, NotificationResponse, error::NotificationResult,
@@ -251,11 +266,10 @@ mod mac {
         }
     }
 
-    pub(super) fn show(app: &AppHandle, notice: &Notice) {
+    pub(super) fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
         let Some(slot) = Slot::take() else {
             return text(app, &notice.title, &notice.body);
         };
-        let target = click_target(notice);
         let asked = ask(notice);
         let title = notice.title.clone();
         let body = notice.body.clone();
@@ -377,6 +391,16 @@ mod tests {
         let mut notice = sample(&key.to_string(), None, false);
         notice.title = "Claude Code on build-box asks".into();
         (notice, key)
+    }
+
+    #[test]
+    fn an_alert_opens_in_the_notifications_pane() {
+        let id = Uuid::new_v4();
+        let target = CenterTarget::Notice { session: Some(id) };
+        assert_eq!(
+            serde_json::to_value(&target).expect("serializes"),
+            serde_json::json!({ "notice": { "session": id } })
+        );
     }
 
     #[test]

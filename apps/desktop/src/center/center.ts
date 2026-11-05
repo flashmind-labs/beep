@@ -13,6 +13,7 @@ import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
 import { shortName, newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
+import { mountNotices } from "./notices.ts";
 import { firstRun } from "./firstrun.ts";
 import { viewHidden, keyHidden } from "../settings/subscription.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
@@ -51,6 +52,7 @@ document.addEventListener("contextmenu", e => {
 
 initSideResize($(".cwin"), $("#side-grip"));
 mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
+mountNotices($("#bell"));
 
 initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
 

@@ -10,6 +10,7 @@ use crate::{
     chat::history::{self, Turn},
     chat::markdown,
     error::Result,
+    notices::alerts,
     palette::PaletteCache,
 };
 use beep_node::link::reconnect::Backoff;
@@ -47,6 +48,8 @@ struct Synced {
     last: i64,
     chats: HashMap<Uuid, ChatInfo>,
     messages: HashMap<Uuid, BTreeMap<i64, ChatMessage>>,
+    /// Alerts the user has not replied to: sessions the lists leave out.
+    alerts: HashSet<Uuid>,
 }
 
 /// `index.json`: the cursor and the chats, without their messages.
@@ -207,6 +210,21 @@ impl Chats {
         synced.messages.remove(&id);
     }
 
+    /// Leaves `alerts`, the sessions the assistant started on its own that
+    /// the user has not replied to, out of `sessions` and `search`. Says
+    /// whether that changed what those show.
+    pub fn hide_alerts(&self, alerts: HashSet<Uuid>) -> bool {
+        let mut synced = self.synced();
+        let changed = synced.alerts != alerts;
+        synced.alerts = alerts;
+        changed
+    }
+
+    /// Whether `id` is an alert the lists leave out.
+    pub fn hides(&self, id: Uuid) -> bool {
+        self.synced().alerts.contains(&id)
+    }
+
     /// The sessions, pinned first then newest, or `None` before the copy
     /// is worth showing.
     pub fn sessions(&self) -> Option<Vec<Session>> {
@@ -218,6 +236,7 @@ impl Chats {
             .chats
             .values()
             .filter(|chat| matches!(chat.kind, ChatKind::Session {}))
+            .filter(|chat| !synced.alerts.contains(&chat.id))
             .map(|chat| Session {
                 id: chat.id.to_string(),
                 title: chat.title.clone(),
@@ -245,6 +264,7 @@ impl Chats {
             .chats
             .values()
             .filter(|chat| matches!(chat.kind, ChatKind::Session {}))
+            .filter(|chat| !synced.alerts.contains(&chat.id))
             .filter_map(|chat| {
                 let (snippet, from_user) = synced.messages.get(&chat.id)?.values().rev().find_map(
                     |message| match &message.body {
@@ -549,6 +569,8 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
 }
 
 async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
+    // The lists must leave the alerts out from the first chat they show.
+    alerts::refresh(app).await;
     let mut newest = beep.stream(StreamUpdates {}).await?;
     while let Some(last) = newest.next().await? {
         if last != beep.chats().last() {
@@ -562,6 +584,7 @@ async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
 /// tray's Recent from it when a chat changed.
 async fn catch_up(app: &AppHandle, beep: &Beep) -> Result<()> {
     let mut sessions_changed = false;
+    let mut alert_changed = false;
     loop {
         let after = beep.chats().last();
         let page = beep.call(GetUpdates { after }).await?;
@@ -569,12 +592,17 @@ async fn catch_up(app: &AppHandle, beep: &Beep) -> Result<()> {
         let changed = beep.chats().apply(page);
         for id in changed.sessions {
             sessions_changed = true;
+            // A reply from another device makes an alert a chat.
+            alert_changed |= beep.chats().hides(id);
             let _ = app.emit("sessions-changed", id.to_string());
         }
         for id in changed.groups {
             let _ = app.emit("group-changed", id.to_string());
         }
         if !more {
+            if alert_changed {
+                alerts::refresh(app).await;
+            }
             if sessions_changed {
                 app.state::<PaletteCache>().chats_changed();
                 tauri::async_runtime::spawn(crate::tray::refresh_recent(app.clone()));
@@ -702,6 +730,51 @@ mod tests {
         assert_eq!(replies, &["Thanks"]);
         assert!(html.is_empty());
         assert_eq!(last[0].name, "cron_create");
+    }
+
+    #[test]
+    fn an_alert_is_left_out_of_the_lists_until_it_is_a_chat() {
+        let dir = dir("alerts");
+        let (alert, chat) = (Uuid::new_v4(), Uuid::new_v4());
+        let chats = Chats::load(dir);
+        let mut updates = Vec::new();
+        for (at, (id, title, text)) in [
+            (alert, "Arrived in Girona", "The hotel opens at 15:00."),
+            (chat, "Lunch", "The hotel lunch is at 13:00."),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            updates.push(Update::Chat {
+                update_id: 1 + 2 * at as i64,
+                chat: info(id, ChatKind::Session {}, title),
+            });
+            updates.push(Update::Message {
+                update_id: 2 + 2 * at as i64,
+                chat_id: id,
+                message: reply(10 + at as i64, text),
+            });
+        }
+        chats.apply(page(4, updates));
+        assert_eq!(chats.sessions().unwrap().len(), 2);
+
+        assert!(chats.hide_alerts(HashSet::from([alert])));
+        let titles: Vec<String> = chats
+            .sessions()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.title)
+            .collect();
+        assert_eq!(titles, ["Lunch"]);
+        assert_eq!(chats.search("hotel").unwrap().len(), 1);
+        // The same set again changes nothing.
+        assert!(!chats.hide_alerts(HashSet::from([alert])));
+
+        // A reply makes it a chat: the server stops listing it.
+        assert!(chats.hide_alerts(HashSet::new()));
+        assert_eq!(chats.sessions().unwrap().len(), 2);
+        assert_eq!(chats.search("hotel").unwrap().len(), 2);
+        chats.clear();
     }
 
     #[test]

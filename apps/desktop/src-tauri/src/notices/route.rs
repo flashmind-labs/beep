@@ -1,7 +1,7 @@
 //! What each notice the server pushes does to the tray, the windows and
 //! live mode, and when it shows as a macOS notification.
 
-use super::{notify, work};
+use super::{alerts, notify, work};
 use crate::{
     bar,
     beep::{
@@ -18,6 +18,7 @@ use beep_proto::{AgentNoticeKey, Notice};
 use std::{sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{select, sync::mpsc};
+use uuid::Uuid;
 
 /// Routes what the server pushes and what machines in the mesh send
 /// directly. The server pushes notices to every key on the account; the
@@ -61,7 +62,7 @@ pub(crate) async fn serve(
 }
 
 /// What `notice` does to the tray, the windows and live mode.
-fn route(app: &AppHandle, beep: &Beep, voice: &Arc<Voice>, notice: Notice) {
+fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice) {
     // What waits on the user may have changed; the tray looks again.
     if notice.approval.is_some() || (notice.changed && !notice.group) {
         app.state::<WaitingList>().poke();
@@ -81,6 +82,10 @@ fn route(app: &AppHandle, beep: &Beep, voice: &Arc<Voice>, notice: Notice) {
         return;
     }
     if notice.changed {
+        // The assistant started or ended an alert if the session is empty.
+        if notice.session_id.is_empty() {
+            tauri::async_runtime::spawn(alerts::refresh(app.clone()));
+        }
         let _ = app.emit("sessions-changed", notice.session_id);
         tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
         return;
@@ -96,6 +101,24 @@ fn route(app: &AppHandle, beep: &Beep, voice: &Arc<Voice>, notice: Notice) {
     {
         let _ = app.emit("work-question", question);
     }
+    // A chat finished on its own may be an alert, which is a notification
+    // and never a chat opening by itself: the server says. A question
+    // waiting on an approval is a chat's, and goes to every device as ever.
+    if notice.approval.is_none() && Uuid::parse_str(&notice.session_id).is_ok() {
+        tauri::async_runtime::spawn(alerts::arrived(
+            app.clone(),
+            beep.clone(),
+            voice.clone(),
+            notice,
+        ));
+        return;
+    }
+    chat_notice(app, beep, voice, notice);
+}
+
+/// A notice for a chat: nothing while it is on screen, else the macOS
+/// notification, or the offer of a voice note.
+pub(super) fn chat_notice(app: &AppHandle, beep: &Beep, voice: &Arc<Voice>, notice: Notice) {
     let showing = focused_center(app);
     if center::on_screen(
         &seen(app, beep.session(), showing.session),
