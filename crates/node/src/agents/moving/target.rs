@@ -9,13 +9,13 @@ use super::{
     read::{self, Refused},
     resume::{Arrival, Folders as ResumeFolders, How, resume},
     saved::{MadeWorktree, Phase, Saved},
-    worktree::{self, Work},
+    worktree::{self, Undone, Work},
 };
 use crate::agents::found::Agent;
 use anyhow::{Context, Result, bail};
 use beep_mesh::Key;
 use beep_proto::node::{
-    agent::MovePhase,
+    agent::{MovePhase, Status},
     link,
     mesh_state::{SessionMove, StateValue, SyncSpec},
 };
@@ -98,6 +98,9 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         bail!("{} sessions cannot move yet", record.agent);
     }
     let folders = folders(env, record)?;
+    // What an earlier try, or an earlier move, made here and left goes first.
+    take_back(env, &record.id).await;
+    env.agents.check_room()?;
     match &folders.worktree {
         Some(made) => {
             if !made.checkout.is_dir() {
@@ -115,17 +118,17 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
             {
                 bail!("Syncthing is set not to sync this worktree, so it cannot move here");
             }
-            // What an earlier try made for this move goes first.
-            take_back(env, &record.id, record.at).await;
             // Whether the branch and folder allow it is known before the
             // source ends anything.
             if let Some(worktree) = &record.worktree {
+                let running = runs_in(env, &made.folder);
                 let (checkout, folder, branch) = (
                     made.checkout.clone(),
                     made.folder.clone(),
                     worktree.branch.clone(),
                 );
-                spawn_blocking(move || worktree::check(&checkout, &folder, &branch)).await??;
+                spawn_blocking(move || worktree::check(&checkout, &folder, &branch, running))
+                    .await??;
             }
         }
         None if !folders.new.is_dir() => bail!(
@@ -159,38 +162,46 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let made = match (&folders.worktree, &record.worktree, &copied.work) {
         (Some(made), Some(worktree), Some(work)) => {
+            let running = runs_in(env, &made.folder);
             let (checkout, folder, branch, work) = (
                 made.checkout.clone(),
                 made.folder.clone(),
                 worktree.branch.clone(),
                 work.clone(),
             );
-            let placed =
-                spawn_blocking(move || worktree::attach(&checkout, &folder, &branch, &work))
-                    .await?
-                    .context("making the worktree")?;
+            let attached = spawn_blocking(move || {
+                worktree::attach(&checkout, &folder, &branch, &work, running)
+            })
+            .await?
+            .context("making the worktree")?;
+            let note = MadeWorktree {
+                checkout: made.checkout.clone(),
+                folder: made.folder.clone(),
+                placed: attached.placed,
+                applied: attached.applied,
+            };
             // Kept, so a restart or a cancel before the session runs
             // takes the worktree back.
-            env.state
-                .save(
-                    &record.id,
-                    &Saved {
-                        at: record.at,
-                        phase: Phase::Working,
-                        reason: None,
-                        open: None,
-                        made: Some(MadeWorktree {
-                            checkout: made.checkout.clone(),
-                            folder: made.folder.clone(),
-                            placed,
-                        }),
-                    },
-                )
-                .context("keeping the worktree made for the move")?;
-            Some((made, placed))
+            let kept = env.state.save(
+                &record.id,
+                &Saved {
+                    at: record.at,
+                    phase: Phase::Working,
+                    reason: None,
+                    open: None,
+                    made: Some(note.clone()),
+                },
+            );
+            if let Err(e) = kept {
+                // Nothing would remember it: back out now, while it holds
+                // only what was put there.
+                undo_logged(&record.id, note).await;
+                return Err(e).context("keeping the worktree made for the move");
+            }
+            true
         }
         (Some(_), ..) => bail!("the source sent no worktree state"),
-        _ => None,
+        _ => false,
     };
     let arrival = Arrival {
         id: &record.id,
@@ -203,35 +214,63 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         new: folders.new.clone(),
     };
     let resumed = resume(env, &arrival, &kind, &placed, copied.file_name, copy).await;
-    if resumed.is_err()
-        && let Some((made, placed)) = made
-    {
-        let (checkout, folder) = (made.checkout.clone(), made.folder.clone());
-        if let Err(e) = spawn_blocking(move || worktree::undo(&checkout, &folder, placed)).await {
-            log::warn!("the worktree made for a move stays: {e}");
-        }
+    if resumed.is_err() && made {
+        take_back(env, &record.id).await;
     }
     resumed
 }
 
-/// Takes back the worktree an earlier try of the move made, when the
-/// session does not run: a restart or a cancel came between making it and
-/// starting the session, and it still holds the patch.
-pub(super) async fn take_back(env: &Env, id: &str, at: u64) {
-    let Some(made) = env
-        .state
-        .load(id)
-        .filter(|saved| saved.at == at)
-        .and_then(|saved| saved.made)
-    else {
+/// Whether a session of this node runs in `folder` or below it.
+fn runs_in(env: &Env, folder: &Path) -> bool {
+    env.agents
+        .list()
+        .iter()
+        .any(|info| info.state.status != Status::Ended && Path::new(&info.cwd).starts_with(folder))
+}
+
+/// Takes back the worktree an earlier try of a move made, once: a restart,
+/// a cancel or a failure came between making it and running the session. It
+/// goes only when no session runs in it and it holds exactly what was put
+/// there; anything else is the user's and stays, with a line in the log.
+pub(super) async fn take_back(env: &Env, id: &str) {
+    // Sessions that run again after a restart are not running yet.
+    env.agents.until_reopened().await;
+    let Some(mut saved) = env.state.load(id) else {
         return;
     };
-    if env.agents.runs(id) {
+    let Some(made) = saved.made.take() else {
+        return;
+    };
+    // Forgotten first, so this runs once whatever happens next.
+    if let Err(e) = env.state.save(id, &saved) {
+        log::warn!("the worktree of session {id} was not taken back, it could not be noted: {e}");
         return;
     }
-    let done = spawn_blocking(move || worktree::undo(&made.checkout, &made.folder, made.placed));
-    if let Err(e) = done.await {
-        log::warn!("the worktree of session {id} was not taken back: {e}");
+    if env.agents.runs(id) || runs_in(env, &made.folder) {
+        log::info!(
+            "the worktree of session {id} stays: a session runs in {}",
+            made.folder.display()
+        );
+        return;
+    }
+    undo_logged(id, made).await;
+}
+
+async fn undo_logged(id: &str, made: MadeWorktree) {
+    let folder = made.folder.clone();
+    let done = spawn_blocking(move || {
+        worktree::undo(&made.checkout, &made.folder, &made.placed, &made.applied)
+    })
+    .await;
+    match done {
+        Ok(Undone::Removed | Undone::Reset) => {
+            log::info!(
+                "the worktree {} made for session {id} was taken back",
+                folder.display()
+            );
+        }
+        Ok(Undone::Left(why)) => log::warn!("the worktree of session {id} stays: {why}"),
+        Err(e) => log::warn!("the worktree of session {id} was not taken back: {e}"),
     }
 }
 

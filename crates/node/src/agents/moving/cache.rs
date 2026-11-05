@@ -34,6 +34,16 @@ pub(super) struct Meta {
     pub(super) fetched_at: u64,
 }
 
+/// A note that the user continued a session here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Continued {
+    /// Unix seconds: the session's last activity on its machine when the
+    /// copy was taken.
+    pub(super) base: u64,
+    /// Unix seconds: when it was continued here.
+    pub(super) at: u64,
+}
+
 /// One session in the cache.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Entry {
@@ -147,23 +157,30 @@ impl Cache {
         }
     }
 
-    /// Notes that the user continued the session here from a copy whose
-    /// session was last active on its machine at `base`.
-    pub(super) fn mark_continued(&self, agent: &AgentSlug, id: &str, base: u64) -> io::Result<()> {
+    /// Notes that the user continued the session here at `at` (unix seconds)
+    /// from a copy whose session was last active on its machine at `base`.
+    pub(super) fn mark_continued(
+        &self,
+        agent: &AgentSlug,
+        id: &str,
+        base: u64,
+        at: u64,
+    ) -> io::Result<()> {
         let folder = self
             .folder(agent, id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a session name"))?;
         fs::create_dir_all(&folder)?;
-        fs::write(folder.join("continued"), base.to_string())
+        fs::write(folder.join("continued"), format!("{base}\n{at}"))
     }
 
-    /// The `base` of `mark_continued`, when the session was continued here.
-    pub(super) fn continued(&self, agent: &AgentSlug, id: &str) -> Option<u64> {
-        fs::read_to_string(self.folder(agent, id)?.join("continued"))
-            .ok()?
-            .trim()
-            .parse()
-            .ok()
+    /// What `mark_continued` noted, when the session was continued here.
+    pub(super) fn continued(&self, agent: &AgentSlug, id: &str) -> Option<Continued> {
+        let text = fs::read_to_string(self.folder(agent, id)?.join("continued")).ok()?;
+        let mut lines = text.lines();
+        Some(Continued {
+            base: lines.next()?.trim().parse().ok()?,
+            at: lines.next()?.trim().parse().ok()?,
+        })
     }
 
     pub(super) fn clear_continued(&self, agent: &AgentSlug, id: &str) {
@@ -378,8 +395,11 @@ mod tests {
         let cache = Cache::new(dir.path());
         let agent = AgentSlug::CODEX;
         assert_eq!(cache.continued(&agent, "s1"), None);
-        cache.mark_continued(&agent, "s1", 42).expect("noted");
-        assert_eq!(cache.continued(&agent, "s1"), Some(42));
+        cache.mark_continued(&agent, "s1", 42, 50).expect("noted");
+        assert_eq!(
+            cache.continued(&agent, "s1"),
+            Some(Continued { base: 42, at: 50 })
+        );
         let transcript = dir.path().join("t.jsonl");
         fs::write(&transcript, b"{}\n").expect("a transcript");
         let meta = entry("s1", 7, 3).copy.expect("meta");

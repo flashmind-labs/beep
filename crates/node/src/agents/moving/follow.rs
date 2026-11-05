@@ -76,6 +76,14 @@ pub(crate) async fn follow(
     let _copying = AbortOnDropHandle::new(tokio::spawn(background::run(env.clone())));
     let mut updates = env.mesh.updates();
     let mut running: HashMap<String, Running> = HashMap::new();
+    // A move cancelled while the node was down left its worktree: taken back
+    // now if it is proven to be ours and unchanged, else reported.
+    let wanted = records(&env);
+    for id in env.state.with_made() {
+        if !wanted.contains_key(&id) {
+            super::target::take_back(&env, &id).await;
+        }
+    }
     loop {
         reconcile(&env, &mut running).await;
         if updates.changed().await.is_err() {
@@ -180,7 +188,7 @@ fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<
 
 async fn cancelled(env: &Env, id: &str, at: u64, target: bool) {
     if target {
-        super::target::take_back(env, id, at).await;
+        super::target::take_back(env, id).await;
         env.agents.moves.begin(id, at).send_modify(|progress| {
             progress.phase = MovePhase::Cancelled;
         });

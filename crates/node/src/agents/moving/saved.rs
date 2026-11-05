@@ -45,6 +45,9 @@ pub(super) struct MadeWorktree {
     pub(super) checkout: PathBuf,
     pub(super) folder: PathBuf,
     pub(super) placed: Placed,
+    /// What the worktree held once the move's patch was in it: the folder is
+    /// taken back only while it still holds exactly that.
+    pub(super) applied: String,
 }
 
 impl Saved {
@@ -94,6 +97,21 @@ impl Folder {
     /// Where the conversation is copied to while the move waits.
     pub(super) fn copy(&self, id: &str) -> PathBuf {
         self.dir.join(id).join("copy.jsonl")
+    }
+
+    /// The sessions with a worktree a target made for a move that did not
+    /// finish.
+    pub(super) fn with_made(&self) -> Vec<String> {
+        let Ok(files) = fs::read_dir(&self.dir) else {
+            return Vec::new();
+        };
+        files
+            .flatten()
+            .filter_map(|file| {
+                let name = file.file_name().to_str()?.strip_suffix(".json")?.to_owned();
+                self.load(&name)?.made.map(|_| name)
+            })
+            .collect()
     }
 
     pub(super) fn load(&self, id: &str) -> Option<Saved> {

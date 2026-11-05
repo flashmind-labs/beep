@@ -4,7 +4,12 @@
 //! it through its agent. A session moved by its source, or continued by the
 //! user from a background copy.
 
-use super::{Env, Harness, cache::Meta, offers::harness_of, rewrite, store};
+use super::{
+    Env, Harness,
+    cache::Meta,
+    offers::{harness_of, now_secs},
+    rewrite, store,
+};
 use crate::agents::{AgentKind, Begin, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_mesh::Key;
@@ -54,6 +59,9 @@ pub(super) async fn resume(
     file_name: String,
     copy: PathBuf,
 ) -> Result<()> {
+    // Refused before a file is written: a full node would otherwise set the
+    // session's transcript aside and then fail to start it.
+    env.agents.check_room()?;
     let agent = Agent::from_name(&kind.name);
     let harness = agent
         .and_then(Harness::of)
@@ -183,7 +191,7 @@ pub(super) async fn continue_here(
             cache.drop_lost(&agent, &id, at);
         }
         cache.remove(&agent, &id, false);
-        cache.mark_continued(&agent, &id, meta.last_activity)
+        cache.mark_continued(&agent, &id, meta.last_activity, now_secs())
     })
     .await?
     .context("noting that the session continues here")?;
