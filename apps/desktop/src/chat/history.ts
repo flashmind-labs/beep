@@ -6,6 +6,7 @@ import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
 import type { ImageRef, SentFile } from "./media.ts";
 import { replyActs } from "./rerun.ts";
 import { QUIET_TOOLS, toolLabel } from "./tools.ts";
+import { HISTORY_CHUNK, windowStart } from "./history-state.ts";
 import { keepWaitingQuestions, loadQuestions } from "../bar/work.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -76,12 +77,64 @@ export async function refreshSession(id: string) {
   if (b && !stuck) { b.scrollTop = top; b.stuck = false; drawLatest(); }
 }
 
+/// The older messages of each chat body that are not drawn yet: a long chat
+/// opens at its newest prompts, and draws earlier ones as the reader nears the top.
+const undrawn = new WeakMap<ChatBody, HistoryTurn[]>();
+const watching = new WeakSet<ChatBody>();
+/// How near the top, in pixels, the reader draws earlier turns.
+const NEAR_TOP = 1500;
+
 export function drawHistory(id: string, turns: HistoryTurn[]) {
   // Approvals answered here stay gone until the server stops listing them.
   const asking = new Set(answeredTurns.keep(id, turns.flatMap(t => t.role === "approval" ? [t.query_id] : []), q => q));
   turns = turns.filter(t => t.role !== "approval" || asking.has(t.query_id));
   const b = body()!;
-  // Built apart, then merged into what the chat already shows.
+  // From the oldest prompt already shown, else the newest few.
+  const shown = b.querySelector<Turn>(":scope > .turn[data-at]")?.dataset.at;
+  const kept = turns.findIndex(t => t.role === "user" && String(t.at) === shown);
+  const start = kept >= 0 ? kept : windowStart(turns.map(t => t.role), HISTORY_CHUNK);
+  undrawn.set(b, turns.slice(0, start));
+  if (!watching.has(b)) {
+    watching.add(b);
+    b.addEventListener("scroll", () => { if (b.scrollTop < NEAR_TOP) drawEarlier(b); }, { passive: true });
+  }
+  const { drawn, last } = buildTurns(id, turns.slice(start));
+  // Only the latest reply's follow-ups still make sense.
+  if (last) suggestions(last.turn, last.replies);
+  const merged = mergeTurns(b, drawn);
+  // An approval card drawn here belongs to the turn the chat keeps.
+  const e = live.get(id);
+  if (e) {
+    if (e.approval) e.approval.turn = merged.get(e.approval.turn) ?? e.approval.turn;
+    e.body ??= b;
+  }
+  drawChatTop();
+  scrollDown();
+  loadSides(id, b);
+  keepWaitingQuestions(id);
+}
+
+/// Draws the next older prompts above the ones shown, keeping the reader's
+/// place: nothing here anchors the scroll, so it is put back by hand.
+function drawEarlier(b: ChatBody) {
+  const old = undrawn.get(b), id = S.session;
+  if (!old?.length || !id || body() !== b) return;
+  const start = windowStart(old.map(t => t.role), HISTORY_CHUNK);
+  undrawn.set(b, old.slice(0, start));
+  const { drawn } = buildTurns(id, old.slice(start));
+  const fromBottom = b.scrollHeight - b.scrollTop;
+  const first = b.querySelector(":scope > .turn");
+  if (first) first.before(...drawn);
+  else b.append(...drawn);
+  b.scrollTop = b.scrollHeight - fromBottom;
+  loadSides(id, b);
+}
+
+const loadSides = (id: string, b: ChatBody) => { loadAskFiles(id, b); loadAgents(id, b); loadSources(id, b); };
+
+/// The turns for the server's messages `turns`, built apart from the page,
+/// and the reply whose follow-ups show.
+function buildTurns(id: string, turns: HistoryTurn[]) {
   const drawn: Turn[] = [];
   const drawTurn = (question: string, images?: ImageRef[]) => {
     const turn = makeTurn(question, images);
@@ -120,21 +173,7 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
       last = null;
     }
   }
-  // Only the latest reply's follow-ups still make sense.
-  if (last) suggestions(last.turn, last.replies);
-  const kept = mergeTurns(b, drawn);
-  // An approval card drawn here belongs to the turn the chat keeps.
-  const e = live.get(id);
-  if (e) {
-    if (e.approval) e.approval.turn = kept.get(e.approval.turn) ?? e.approval.turn;
-    e.body ??= b;
-  }
-  drawChatTop();
-  scrollDown();
-  loadAskFiles(id, b);
-  loadAgents(id, b);
-  loadSources(id, b);
-  keepWaitingQuestions(id);
+  return { drawn, last };
 }
 
 /// Puts `drawn`, the chat's turns as the server lists them, into body `b`

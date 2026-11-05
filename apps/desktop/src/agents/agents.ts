@@ -207,6 +207,8 @@ interface AgentState {
   /// Polling: what the last answer looked like, when it last changed,
   /// whether it stopped for quiet, and the question an answer is going to.
   sig: string;
+  /// The rest of what the log was last drawn from; empty to draw again.
+  rest: string;
   changed: number;
   paused: boolean;
   answering: number | null;
@@ -250,7 +252,7 @@ export const AG: AgentState = {
   hosts: null, error: "", busy: false,
   form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
   open: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
-  sig: "", changed: 0, paused: false, answering: null, barHidden: false,
+  sig: "", rest: "", changed: 0, paused: false, answering: null, barHidden: false,
   att: [], attError: "", attTimer: undefined, noImages: null,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
 };

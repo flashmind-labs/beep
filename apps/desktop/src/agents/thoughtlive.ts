@@ -8,6 +8,9 @@ import { esc } from "../ui/format.ts";
 /// scrolls them.
 const follows = new Map<string, boolean>();
 
+/// The thoughts already listening, which a redraw that kept them does not wire again.
+const wired = new WeakSet<HTMLElement>();
+
 /// The live thought `key`'s text, all it has so far in `md`.
 export function liveHtml(key: string, md: string) {
   if (!follows.has(key)) follows.set(key, true);
@@ -31,6 +34,8 @@ export function attachLive(root: HTMLElement, touched: (key: string) => void) {
     if (!follows.has(key)) continue;
     drawn.add(key);
     if (follows.get(key) ?? true) el.scrollTop = el.scrollHeight;
+    if (wired.has(el)) continue;
+    wired.add(el);
     // A wheel or a drag of the scroll bar is the reader's; scrolling back
     // to the bottom follows again.
     const byHand = () => {

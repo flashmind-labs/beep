@@ -31,7 +31,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
   Object.assign(AG, {
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
-    why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
+    why, back: from, note: "", sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
   });
   drawAgentFrame();
@@ -57,17 +57,6 @@ export function agentDelay() {
   return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
 }
 
-/// Whether the reader is selecting text in the log or has some selected. A
-/// redraw replaces the rows, which loses where a selection started, so a poll
-/// waits and draws once the selection is gone.
-function selecting() {
-  const log = $("#agbody");
-  if (!log) return false;
-  if (log.matches(":active")) return true;
-  const selection = getSelection();
-  return !!selection && !selection.isCollapsed && log.contains(selection.anchorNode);
-}
-
 /// Asks for the open session, then again after `agentDelay()` while it
 /// stays on screen. Never two calls at once for one session.
 export async function pollAgent() {
@@ -82,7 +71,8 @@ export async function pollAgent() {
       AG.modes = modes;
       AG.tasks = tasks;
       const sig = JSON.stringify(page);
-      if (sig !== AG.sig) { AG.sig = sig; AG.changed = Date.now(); }
+      const moved = sig !== AG.sig;
+      if (moved) { AG.sig = sig; AG.changed = Date.now(); }
       if (page.session.question?.id !== AG.answering) AG.answering = null;
       // A session opened with no folder (from a notice) draws again once a read gives it.
       const placed = !AG.page?.session.cwd && !!page.session.cwd;
@@ -93,7 +83,9 @@ export async function pollAgent() {
       AG.readError = "";
       if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
       markDelivered(AG.queue, page.queued, read);
-      if (!selecting()) drawAgentBody();
+      // Nothing the log shows changed: no draw.
+      const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.paused, AG.answering, AG.child, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
+      if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
       void readUsage(o, page);
       flushQueue();
     }
