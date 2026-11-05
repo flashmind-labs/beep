@@ -77,8 +77,9 @@ const CODE_AGENT: &str = "CODE_AGENT";
 const ADD_MACHINE: &str = "ADD_MACHINE";
 /// `import_project` as rules keep it: it clones with the user's tokens.
 const IMPORT_PROJECT: &str = "IMPORT_PROJECT";
-/// The Beep MCP server's `run_on` and `send_files` (`crate::tools::machines::mcp`).
+/// The Beep MCP server's `run_on`, `machine_log` and `send_files` (`crate::tools::machines::mcp`).
 pub(crate) const RUN_ON: &str = "RUN_ON";
+pub(crate) const MACHINE_LOG: &str = "MACHINE_LOG";
 pub(crate) const SEND_FILES: &str = "SEND_FILES";
 
 /// Composio tags of tools that create or destroy, which ask even when listed as reads.
@@ -187,7 +188,7 @@ pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     if tool == CODE_AGENT {
         return Some((ToolApp::Machines, Acts::WhenDirectingAgent));
     }
-    if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, SEND_FILES].contains(&tool) {
+    if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, MACHINE_LOG, SEND_FILES].contains(&tool) {
         return Some((ToolApp::Machines, Acts::Always));
     }
     if MediaKind::from_tool(tool).is_some() {

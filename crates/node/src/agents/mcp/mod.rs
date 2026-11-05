@@ -12,7 +12,7 @@ use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     Open, Opened, link,
-    tools::{Approved, PROTOCOL, Reply, Request, Tool},
+    tools::{Approved, PROTOCOL, REFUSED, Reply, Request, Tool},
 };
 use iroh::endpoint::Connection;
 use serde::Deserialize;
@@ -214,9 +214,20 @@ pub struct Upstream {
     connection: Arc<watch::Sender<Option<Connection>>>,
     /// The node has a server to link to at all.
     has_server: bool,
-    /// Whether the server's rule asked first the last time the node asked it, by tool: what the
-    /// node goes on while the link is down.
-    heard: Arc<Mutex<HashMap<Tool, bool>>>,
+    /// What the server's rule said the last time the node asked it, by tool: what the node goes
+    /// on while the link is down.
+    heard: Arc<Mutex<HashMap<Tool, Rule>>>,
+}
+
+/// What the user's rule says about a call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Rule {
+    /// It runs.
+    Run,
+    /// The user is asked first.
+    Ask,
+    /// It does not run; the text says why.
+    Refuse(String),
 }
 
 impl Default for Upstream {
@@ -239,22 +250,24 @@ impl Upstream {
         self.has_server
     }
 
-    /// Whether the server's rule for `tool` asked first, as last heard. `None` before it was asked.
-    pub(crate) fn heard_ask(&self, tool: Tool) -> Option<bool> {
-        crate::lock(&self.heard).get(&tool).copied()
+    /// The server's rule for `tool`, as last heard. `None` before it was asked.
+    pub(crate) fn heard(&self, tool: Tool) -> Option<Rule> {
+        crate::lock(&self.heard).get(&tool).cloned()
     }
 
-    /// Notes what a call without approval says of the rule for its tool: an ask, or a run.
+    /// Notes what a call without approval says of the rule for its tool: an ask, a refusal, or a
+    /// run. Any other failure says nothing of the rule.
     fn hear(&self, request: &Request, reply: &Reply) {
         if request.approved != Approved::No {
             return;
         }
-        let asks = match reply {
-            Reply::Ask { .. } => true,
-            Reply::Done { failed: false, .. } => false,
+        let rule = match reply {
+            Reply::Ask { .. } => Rule::Ask,
+            Reply::Done { failed: false, .. } => Rule::Run,
+            Reply::Done { text, .. } if text.starts_with(REFUSED) => Rule::Refuse(text.clone()),
             _ => return,
         };
-        crate::lock(&self.heard).insert(request.tool, asks);
+        crate::lock(&self.heard).insert(request.tool, rule);
     }
 
     /// Whether the link to the server is up now.

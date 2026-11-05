@@ -51,9 +51,14 @@ impl Agents {
             .order(Command::Ask { question, reply })
             .await
             .map_err(anyhow::Error::msg)?;
-        answer
+        // Dropped with the wait (a timeout, a call the agent gave up on), it takes the question
+        // back from the session.
+        let mut waiting = Withdraw(Some(session));
+        let answered = answer
             .await
-            .context("the question was dropped: the turn was cancelled or the session ended")
+            .context("the question was dropped: the turn was cancelled or the session ended");
+        waiting.0 = None;
+        answered
     }
 
     /// The last `last` entries of a session this node runs and how many
@@ -443,4 +448,19 @@ pub(super) fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
 fn new_id() -> String {
     let random = RandomState::new().hash_one(std::time::SystemTime::now());
     format!("{:06x}", random & 0xff_ffff)
+}
+
+/// Takes back the questions nobody waits for any more, once the wait that held it ends before an
+/// answer. The order is short and ends with the session, so it runs on its own.
+struct Withdraw(Option<Arc<Session>>);
+
+impl Drop for Withdraw {
+    fn drop(&mut self) {
+        if let Some(session) = self.0.take() {
+            tokio::spawn(async move {
+                // Refused when the session already ended, which took its questions with it.
+                let _ = session.order(Command::Withdraw).await;
+            });
+        }
+    }
 }
