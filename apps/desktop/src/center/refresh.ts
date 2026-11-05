@@ -15,7 +15,7 @@ import { cardKey, dismissedUpdates, problem, draw } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { refreshGit } from "./openitems.ts";
 import { shown, drawTop } from "./views.ts";
-import { reloadGroup, reloadChats, projectRows } from "./sidebar.ts";
+import { reloadGroup, reloadChats, projectRows, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
 import { splitOn } from "../project/split.ts";
 import { terms, liveMode, tickRepo, projectsEl } from "../project/sections.ts";
@@ -69,7 +69,7 @@ export async function refresh() {
   } finally {
     loading = false;
   }
-  draw();
+  if (onScreen()) draw();
   // Every terminal's state refreshes with Home, while Home or the
   // Terminals page shows, or before the first list for the sidebar.
   if (state.home?.machines && (onScreen() && (shown === "home" || shown === "terminals") || allTerms.list(ALL) === undefined)) allTerms.load(ALL);
@@ -87,10 +87,9 @@ export async function refresh() {
       loadOverview();
     }
   }
-  reloadGroup("projects");
-  reloadGroup("pinned");
-  reloadGroup("machines");
-  reloadGroup("research");
+  // The four groups load together and the sidebar draws once.
+  await Promise.all(["projects", "pinned", "machines", "research"].map(name => reloadGroup(name, false)));
+  if (onScreen()) drawSide();
   if (again) { again = false; refresh(); }
   // Until Home first loads, a failed try is made again soon, seen or not,
   // unless waiting will not fix it.
@@ -124,5 +123,5 @@ window.addEventListener("focus", () => { if (shown === "home") refreshGit(); });
 setInterval(() => { if (onScreen() && shown === "home") refreshGit(); }, 60000);
 // Signed out or removed: the kept project pages go with the account.
 listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); keepPagesFile(undefined); } });
-for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) listen(name, () => refresh());
+for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) listen(name, () => { if (onScreen()) refresh(); });
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) listen(name, () => reloadChats());
