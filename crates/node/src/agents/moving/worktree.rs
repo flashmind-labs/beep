@@ -197,37 +197,6 @@ pub(super) fn snapshot(dir: &Path) -> Result<Work> {
     Ok(Work { head, patch })
 }
 
-/// What a live read of a worktree session can refuse for good before the
-/// source stops anything: a repository of its own among the new files, or
-/// changes too large to move. Cheap: it reads sizes, builds no patch.
-pub(super) fn preflight(dir: &Path) -> Result<()> {
-    let mut total: u64 = 0;
-    let others = run(
-        dir,
-        &["ls-files", "--others", "--exclude-standard", "-z"],
-        None,
-    )
-    .context("listing new files")?;
-    let changed =
-        run(dir, &["diff", "HEAD", "--name-only", "-z"], None).context("listing changed files")?;
-    for (name, new) in others
-        .split(|byte| *byte == 0)
-        .map(|name| (name, true))
-        .chain(changed.split(|byte| *byte == 0).map(|name| (name, false)))
-        .filter(|(name, _)| !name.is_empty())
-    {
-        let name = String::from_utf8_lossy(name).into_owned();
-        if new && name.ends_with('/') {
-            bail!("{name} is a repository of its own, which cannot move in a patch");
-        }
-        total += std::fs::symlink_metadata(dir.join(&name)).map_or(0, |meta| meta.len());
-        if total > MAX_PATCH as u64 {
-            bail!("the uncommitted changes are too large to move");
-        }
-    }
-    Ok(())
-}
-
 /// The worktrees of the checkout `main` with the branch each has checked
 /// out, none for a detached one.
 fn listed(main: &Path) -> Result<Vec<(PathBuf, Option<String>)>> {
@@ -279,9 +248,15 @@ fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Sp
     }
     if !path.exists() {
         // A folder that was deleted but is still registered would make
-        // `worktree add` fail: only its registration is dropped.
+        // `worktree add` fail. Nothing in git's admin folders is touched
+        // here (a prune would drop every worktree whose folder is away at
+        // this moment): the user is told how to clear the one entry.
         if worktrees.iter().any(|(there, _)| there == path) {
-            run(main, &["worktree", "prune"], None).context("dropping a missing worktree")?;
+            bail!(
+                "{} is missing but still registered as a worktree: run `git worktree prune` in {}",
+                path.display(),
+                main.display()
+            );
         }
         return Ok(Spot::Free);
     }
@@ -450,23 +425,26 @@ pub(super) fn undo(main: &Path, path: &Path, placed: &Placed, applied: &str) -> 
         }
     }
     // Files git ignores (build output, `.env`) are not in the fingerprint:
-    // a folder that holds any stays.
-    match run(
-        path,
-        &[
-            "ls-files",
-            "--others",
-            "--ignored",
-            "--exclude-standard",
-            "-z",
-        ],
-        None,
-    ) {
-        Ok(ignored) if ignored.is_empty() => {}
-        Ok(_) => {
-            return Undone::Left(format!("{} holds files git ignores", path.display()));
+    // a folder this move made that holds any stays. A reused folder had its
+    // own before the move, and `clean` keeps them.
+    if *placed == Placed::Made {
+        match run(
+            path,
+            &[
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "-z",
+            ],
+            None,
+        ) {
+            Ok(ignored) if ignored.is_empty() => {}
+            Ok(_) => {
+                return Undone::Left(format!("{} holds files git ignores", path.display()));
+            }
+            Err(e) => return Undone::Left(format!("{e:#}")),
         }
-        Err(e) => return Undone::Left(format!("{e:#}")),
     }
     match placed {
         Placed::Made => {
@@ -839,35 +817,61 @@ mod tests {
         fs::write(nested.join("f.txt"), "x\n").expect("a file");
         let failed = snapshot(&wt).expect_err("a nested repository");
         assert!(format!("{failed:#}").contains("vendor/lib"), "{failed:#}");
-        // The cheap check on a live read says the same, without a patch.
-        let failed = preflight(&wt).expect_err("refused early");
-        assert!(format!("{failed:#}").contains("vendor/lib"), "{failed:#}");
         drop(dir);
     }
 
     #[test]
-    fn an_ordinary_worktree_passes_the_early_check() {
-        let (_dir, wt) = source();
-        preflight(&wt).expect("fine");
-    }
-
-    #[test]
-    fn a_missing_folder_that_is_still_registered_does_not_stop_the_move() {
+    fn a_missing_folder_that_is_still_registered_is_refused_and_nothing_is_pruned() {
         let (dir, wt) = source();
         let main = dir.path().join("main");
         let work = snapshot(&wt).expect("a snapshot");
         detach(&wt).expect("detached");
         let target = dir.path().join("target-wt");
         let got = attach(&main, &target, "feat", &work, false).expect("made");
-        undo(&main, &target, &got.placed, &got.applied);
-        // Made, then its folder deleted by hand: git still lists it.
-        let got = attach(&main, &target, "feat", &work, false).expect("made again");
         assert_eq!(got.placed, Placed::Made);
         git(&target, &["checkout", "-q", "--force", "--detach"]);
         fs::remove_dir_all(&target).expect("the folder is deleted");
-        assert!(git(&main, &["worktree", "list"]).contains("target-wt"));
-        check(&main, &target, "feat", false).expect("the registration is dropped");
-        attach(&main, &target, "feat", &work, false).expect("made once more");
+        // Another worktree whose folder is away at this moment.
+        let away = dir.path().join("away");
+        git(
+            &main,
+            &["worktree", "add", "-q", "--detach", away.to_str().unwrap()],
+        );
+        let moved = dir.path().join("away-elsewhere");
+        fs::rename(&away, &moved).expect("the folder is away");
+        let failed = check(&main, &target, "feat", false).expect_err("refused");
+        let text = format!("{failed:#}");
+        assert!(
+            text.contains("target-wt") && text.contains("git worktree prune"),
+            "{text}"
+        );
+        assert!(
+            git(&main, &["worktree", "list"]).contains("away"),
+            "no registration dropped"
+        );
+        fs::rename(&moved, &away).expect("it comes back");
+        assert_eq!(git(&away, &["rev-parse", "--is-inside-work-tree"]), "true");
+    }
+
+    #[test]
+    fn undo_of_a_reused_worktree_does_not_mind_the_files_it_already_ignored() {
+        let (dir, wt) = source();
+        let main = dir.path().join("main");
+        fs::write(wt.join(".gitignore"), "out/\n").expect("an ignore file");
+        git(&wt, &["add", ".gitignore"]);
+        git(&wt, &["commit", "-q", "-m", "ignore"]);
+        let work = snapshot(&wt).expect("a snapshot");
+        detach(&wt).expect("detached");
+        git(&wt, &["checkout", "-q", "--force", "--detach"]);
+        git(&wt, &["clean", "-fdq"]);
+        // Build output from before the move.
+        fs::create_dir_all(wt.join("out")).expect("a folder");
+        fs::write(wt.join("out/x.bin"), "build\n").expect("a file");
+        let got = attach(&main, &wt, "feat", &work, false).expect("reused");
+        assert!(matches!(got.placed, Placed::Reused { .. }));
+        assert_eq!(undo(&main, &wt, &got.placed, &got.applied), Undone::Reset);
+        assert!(run(&wt, &["symbolic-ref", "-q", "HEAD"], None).is_err());
+        assert!(wt.join("out/x.bin").exists(), "ignored files stay");
     }
 
     #[test]

@@ -409,6 +409,7 @@ async fn keep_as_lost(
         local,
     )
     .await
+    .map(|_| ())
 }
 
 /// What is known of a transcript kept as a version that lost: the project
@@ -429,7 +430,7 @@ pub(super) async fn keep_local(
     id: &str,
     kept: &Kept<'_>,
     local: &Path,
-) -> Result<()> {
+) -> Result<u64> {
     let hash = hash_of(local).await?;
     let file_name = local
         .file_name()
@@ -453,8 +454,7 @@ pub(super) async fn keep_local(
         local.to_owned(),
     );
     let at = now_secs();
-    spawn_blocking(move || cache.keep_lost(&agent, &id, &local, &meta, at)).await??;
-    Ok(())
+    Ok(spawn_blocking(move || cache.keep_lost(&agent, &id, &local, &meta, at)).await??)
 }
 
 pub(super) fn unix_secs(meta: &fs::Metadata) -> u64 {

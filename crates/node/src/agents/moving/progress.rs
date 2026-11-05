@@ -52,6 +52,8 @@ pub(crate) struct Moves {
     worktrees: Mutex<HashMap<String, PathBuf>>,
     /// What each of those held when it was sent.
     sent: Mutex<HashMap<String, String>>,
+    /// Worktree sessions whose snapshot a live read already tried.
+    previewed: Mutex<HashSet<String>>,
     /// The synced projects, to tell a target whether it can sync a worktree.
     syncs: Mutex<Option<Syncs>>,
     /// What the moves and copies of this node share, for requests that
@@ -157,6 +159,7 @@ impl Moves {
         lock(&self.refused).remove(id);
         lock(&self.worktrees).remove(id);
         lock(&self.sent).remove(id);
+        lock(&self.previewed).remove(id);
     }
 
     /// The worktree of session `id` is `dir`: a target asks for its commit
@@ -169,6 +172,12 @@ impl Moves {
     /// commit and work were sent.
     pub(super) fn set_sent(&self, id: &str, fingerprint: String) {
         lock(&self.sent).insert(id.to_owned(), fingerprint);
+    }
+
+    /// True the first time it is asked for session `id`: a live read of a
+    /// worktree session tries the snapshot once, not on every poll.
+    pub(super) fn first_preview(&self, id: &str) -> bool {
+        lock(&self.previewed).insert(id.to_owned())
     }
 
     pub(super) fn sent_of(&self, id: &str) -> Option<String> {
