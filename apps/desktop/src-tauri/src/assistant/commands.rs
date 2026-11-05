@@ -230,7 +230,11 @@ async fn drive(
     }
     let (tx, rx) = mpsc::channel(EVENT_QUEUE);
     let cancel = setup.cancel.clone();
-    let ask = async |query: WorkQuery| work::answer(&app, query).await;
+    // Each answer owns its handle, so the task's future stays `Send`.
+    let ask = |query: WorkQuery| {
+        let app = app.clone();
+        async move { work::answer(&app, query).await }
+    };
     let run = async {
         let outcome = run_turn(&setup, &mut chat, message, &tx, ask).await;
         // Closing the queue ends `forward`.
