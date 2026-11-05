@@ -11,6 +11,8 @@ import { branchTile } from "../review/review.ts";
 import { taskTile, machineTile, agentTile, askingSessions } from "./board.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
+import { arranged, listControls, pickBox, startBar } from "./openlist.ts";
+import type { StartEntry } from "./openlist-state.ts";
 import { state } from "../center/state.ts";
 import { tag, line, section } from "../ui/pieces.ts";
 import { homeBox } from "../center/home.ts";
@@ -51,6 +53,10 @@ interface SplitItem {
   sub: string;
   /// Labels, as chips after `sub`.
   tags?: string[];
+  /// When it opened, in milliseconds since the Unix epoch; none when unknown.
+  opened?: number | null;
+  /// What Start N agents takes of an issue.
+  start?: StartEntry;
   right?: Kid;
   open?: () => void;
   detail?: () => Node[];
@@ -60,7 +66,7 @@ interface SplitItem {
 /// what picking one does.
 export type LabelFilter = { all: string[]; on?: string; pick: (label: string) => void };
 /// A group of the list: its title, rows, and a note in place of rows.
-type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter };
+type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter; controls?: HTMLElement };
 
 /// The label each list is filtered to, by list key.
 const listLabel = new Map<string, string>();
@@ -94,13 +100,13 @@ function hostNote(list: unknown[] | null | undefined, error: string, none: strin
 }
 
 /// One row of a list, lit when its key is `lit`.
-function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter) {
+function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter, pick?: HTMLElement | null) {
   const row = h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l)))), h("span", "r", i.right));
   row.type = "button";
   row.title = i.title;
   if (i.key === lit) row.setAttribute("aria-current", "true");
   row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
-  return row;
+  return pick ? h("div", "pj-prow", pick, row) : row;
 }
 
 /// The project page: everything going on in one list at the left, the
@@ -148,25 +154,32 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const prItems: SplitItem[] = thr.prLines(agent, acts).map(l => {
     const chip = prChip(l), pr = l.pr;
     return {
-      key: `pr:${pr.number}`, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
+      key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
       right: chip && stateChip(chip.cls, chip.text, chip.cls === "running"),
       detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
     };
   });
-  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), ...labelFilter(`${p.name}:prs`, prItems, i => i.tags, redrawProjects) });
+  const prKey = `${p.name}:prs`;
+  const prFilter = labelFilter(prKey, prItems, i => i.tags, redrawProjects);
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: listControls(prKey, redrawProjects, false), labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
   const issueItems: SplitItem[] = thr.issueLines(agent, acts).map(l => ({
-    key: `issue:${l.number}`, lead: num(l.number), title: l.title,
+    key: `issue:${l.number}`, opened: l.issue?.opened_at, start: l.issue ? { key: `issue:${l.number}`, project: p.name, number: l.number, title: l.title, url: l.url } : undefined,
+    lead: num(l.number), title: l.title,
     sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
     right: l.task && stateChip(l.task.state, l.task.state, l.task.state === "running"),
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
   }));
-  const issueFilter = labelFilter(`${p.name}:issues`, issueItems, i => i.tags, redrawProjects);
+  const issueKey = `${p.name}:issues`;
+  const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, redrawProjects);
+  const issueShown = arranged(issueKey, issueFilter.items, i => i.opened);
   const issueNote = hostNote(issues, thr.issuesError(pid), "No open issues.");
   // Too many to list at the left: the row opens them at the right.
   project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [
+    listControls(issueKey, redrawProjects, true),
     h("div", "pj-labels", ...issueFilter.labels.all.map(l => labelChip(l, issueFilter.labels, "button"))),
-    h("div", "pj-rows", ...issueFilter.items.map(i => splitRow(i, null, issueFilter.labels))),
+    h("div", "pj-rows", ...issueShown.map(i => splitRow(i, null, issueFilter.labels, i.start ? pickBox(issueKey, i.key, redrawProjects) : null))),
+    startBar(issueKey, issueShown.flatMap(i => i.start ?? []), redrawProjects),
   ] });
   const overview = projectOverview(p, running, { run: runItems, prs: prItems, issues: issueItems, prNote: hostNote(prs, thr.prsError(pid), "No open pull requests."), issueNote }, machineTile(rows, sync));
   groups.unshift({ title: "", items: [{ key: "overview", title: "Overview", sub: overview.sub, detail: () => [overview.body] }] });
@@ -181,6 +194,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   for (const g of groups) {
     if (g.title) list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
     if (g.note) list.append(h("div", "note", g.note));
+    if (g.controls) list.append(g.controls);
     const f = g.labels;
     if (f?.all.length) list.append(h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))));
     for (const i of g.items) {

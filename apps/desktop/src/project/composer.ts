@@ -12,7 +12,8 @@ import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnes
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
 import { AGENT_ORDER, type AgentHost, type AgentSession, byPreference } from "../agents/agents.ts";
 import { loadSessions, sessions } from "../agents/sessions.ts";
-import { issueBranch, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
+import { issueBranch, issuePrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
+import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.ts";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state } from "../center/state.ts";
@@ -242,8 +243,45 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
 /// branch, with the issue's prompt.
 export function workOnIssue(name: string, issue: IssueRow) {
   const base = baseFor(null, pc.branches.get(name));
-  const prompt = `Work on issue #${issue.number}: ${issue.title} (${issue.url}). Read the issue and its comments first, then propose and implement a fix.`;
-  fillBar(name, prompt, { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base });
+  fillBar(name, issuePrompt(issue), { kind: "issue", number: issue.number, branch: issueBranch(issue.number, issue.title), base });
+}
+
+/// Where each picked issue starts, on the machine and harness the bar has
+/// picked (Auto and the first harness for another project); null until the
+/// machines are read.
+export function issueStartPlan(entries: readonly StartEntry[]) {
+  if (!pc.hosts) return null;
+  const projects = projectRows() || [];
+  const places = (name: string) => { const p = projects.find(x => x.name === name); return p ? projectPlaces(p) : []; };
+  return planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : "auto"), pc.picked.agent || null, AGENT_ORDER);
+}
+
+/// Reads the machines when no project's bar has.
+export async function loadStartHosts() {
+  pc.hosts ??= await invoke<AgentHost[]>("agent_hosts");
+}
+
+/// Starts one agent per row, one at a time in a new worktree each, waiting
+/// for each to be accepted; stops at the first that fails. `done` runs after
+/// each start with those started so far.
+export async function startIssues(rows: readonly StartRow[], done: (started: StartRow[]) => void) {
+  const started: StartRow[] = [];
+  for (const row of rows) {
+    if (row.skip !== null) continue;
+    const { entry, agent, machine_id, cwd } = row;
+    const same = agent === pc.picked.agent;
+    const base = baseFor(null, pc.branches.get(entry.project!));
+    const checkout = targetPlan({ kind: "issue", number: entry.number, branch: issueBranch(entry.number, entry.title), base });
+    const model = same && pc.modelFor === `${machine_id}/${agent}` ? pc.picked.model.trim() || null : null;
+    try {
+      await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), chat: null, model, effort: same ? pc.picked.effort : null, checkout });
+    } catch (e) {
+      return { started, failed: row, error: reason(e) };
+    }
+    started.push(row);
+    done(started);
+  }
+  return { started, failed: null, error: null };
 }
 
 /// Continue: reads the pull request's branch, then fills the bar to start

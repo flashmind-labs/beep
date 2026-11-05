@@ -204,6 +204,11 @@ export function issueLines(issues: readonly IssueRow[], tasks: readonly TaskLink
   ];
 }
 
+/// What Work on it puts in the bar for an issue.
+export function issuePrompt(issue: Pick<IssueRow, "number" | "title" | "url">) {
+  return `Work on issue #${issue.number}: ${issue.title} (${issue.url}). Read the issue and its comments first, then propose and implement a fix.`;
+}
+
 /// The longest slug of a title an issue's branch takes.
 const BRANCH_SLUG = 30;
 
