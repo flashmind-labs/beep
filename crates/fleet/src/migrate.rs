@@ -10,7 +10,8 @@
 //! The server never sends a secret back. A credential is copied without its value: the mesh holds
 //! a record with its last four characters (`unmoved/credential/<id>`), which Settings lists as one
 //! to enter again. A harness's env vars are the same, name only (`unmoved/harness/<agent>/<VAR>`). A node
-//! keeps the server's values of a family while any record of it remains.
+//! counts a record as the mesh holding that family: it takes only the mesh's values at once and
+//! never the server's.
 
 use crate::{
     error::Result,

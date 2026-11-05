@@ -12,7 +12,7 @@ use crate::{
     link::state::State,
     link::traffic::Traffic,
     link::{
-        from_mesh::{Family, Holds, Membership},
+        from_mesh::{Family, Membership},
         peer_tools::{self, Caller},
         peers::{self, Peers},
     },
@@ -656,11 +656,9 @@ impl Linked {
     }
 }
 
-/// What the node lets go of when its server's link ends. What the mesh owns is the mesh's, and
-/// values still only the server's stay too: a dropped link erases nothing the node has.
+/// What the node lets go of when its server's link ends. What the mesh owns is the mesh's.
 async fn forget_after_link(offers: &Offers) {
-    let has_server = offers.has_server();
-    if offers.mesh.holds(Family::Credentials, has_server) == Holds::Server {
+    if !offers.mesh.owns(Family::Credentials) {
         // Revoked or only cut off, the node keeps no token it cannot hear
         // about being removed; the server sends them again on reconnecting.
         if let Some(provision) = &offers.provision {
@@ -670,10 +668,10 @@ async fn forget_after_link(offers: &Offers) {
     // The harnesses' env vars may be secrets too; the server sends the
     // settings again on reconnecting. Each half goes unless the mesh holds it.
     let mut settings = offers.agents.settings();
-    if offers.mesh.holds(Family::Harnesses, has_server) == Holds::Server {
+    if !offers.mesh.owns(Family::Harnesses) {
         settings.harnesses.clear();
     }
-    if !offers.mesh.owns(Family::Flsh, has_server) {
+    if !offers.mesh.owns(Family::Flsh) {
         settings.flsh = None;
     }
     offers.agents.set_settings(settings);
@@ -766,18 +764,13 @@ async fn serve_linked(
 
 /// The server's credentials, unless the mesh owns them.
 async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
-    let holds = offers.mesh.holds(Family::Credentials, offers.has_server());
-    if holds == Holds::Mesh {
+    // Checked under the turn to apply, so the mesh's credentials, applied once the account
+    // moved, are not overwritten by a push that passed the check before it.
+    let _applying = offers.mesh.applying().await;
+    if offers.mesh.owns(Family::Credentials) {
         log::info!("ignored credentials from the server: this node takes them from its mesh");
         return;
     }
-    offers.mesh.server().credentials = credentials.clone();
-    // Entered again in the mesh already: those go over what the server sent.
-    let credentials = if holds == Holds::Layered {
-        offers.mesh.layered_credentials(&credentials)
-    } else {
-        credentials
-    };
     match &offers.provision {
         Some(provision) => provision.apply(credentials).await,
         None => log::debug!("credentials came to a node that does not take them"),
@@ -786,14 +779,9 @@ async fn take_credentials(offers: &Offers, credentials: MachineCredentials) {
 
 /// The server's agent settings, except the parts the mesh owns.
 fn take_settings(offers: &Offers, mut settings: AgentSettings) {
-    let held = offers.mesh.holds(Family::Harnesses, offers.has_server());
-    offers.mesh.server().harnesses = settings.harnesses.clone();
-    if held == Holds::Layered {
-        settings.harnesses = offers.mesh.layered_harnesses(&settings.harnesses);
-    }
     let (harnesses, flsh) = (
-        held == Holds::Mesh,
-        offers.mesh.owns(Family::Flsh, offers.has_server()),
+        offers.mesh.owns(Family::Harnesses),
+        offers.mesh.owns(Family::Flsh),
     );
     if harnesses || flsh {
         log::info!("ignored agent settings from the server: this node takes them from its mesh");
@@ -999,7 +987,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("a temp folder");
         let offers = Offers::local(&[], Provision::new(dir.path()), true);
         assert!(offers.mesh.get().is_none());
-        assert!(!offers.mesh.owns(Family::Harnesses, offers.has_server()));
+        assert!(!offers.mesh.owns(Family::Harnesses));
         let off = HarnessConfig {
             enabled: false,
             ..HarnessConfig::new("codex")
@@ -1047,8 +1035,9 @@ mod tests {
         }
     }
 
-    /// The mesh holds `codex` with one variable entered again; the other is still only the server's.
-    async fn layered(dir: &std::path::Path) -> (Offers, Mesh) {
+    /// The mesh has moved the account: `codex` holds one variable entered again, another is only a
+    /// record to enter again.
+    async fn moved(dir: &std::path::Path) -> (Offers, Mesh) {
         let offers = Offers::local(&[], Provision::new(dir), true);
         let mesh = mesh_in(dir).await;
         offers.mesh.set(mesh.clone());
@@ -1062,14 +1051,22 @@ mod tests {
         mesh.set(Key::Unmoved("harness/codex/A_KEY".into()), Some(vec![1]))
             .await
             .expect("written");
+        mesh.set(Key::Unmoved("credential/7".into()), Some(vec![1]))
+            .await
+            .expect("written");
         (offers, mesh)
     }
 
     #[tokio::test]
-    async fn a_partly_reentered_list_gives_the_servers_values_and_the_meshes() {
+    async fn a_moved_account_cuts_off_the_servers_credentials_at_once() {
+        // Applying and forgetting credentials touch process-wide state.
+        let _env = crate::machine::provision::spawn_env::TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().expect("a temp folder");
-        let (offers, _mesh) = layered(dir.path()).await;
-        assert_eq!(offers.mesh.holds(Family::Harnesses, true), Holds::Layered);
+        let (offers, _mesh) = moved(dir.path()).await;
+        assert!(offers.mesh.owns(Family::Credentials));
+        assert!(offers.mesh.owns(Family::Harnesses));
+        // The server's harness values do not reach the node, even with entries left to enter.
+        let before = offers.agents.settings();
         take_settings(
             &offers,
             AgentSettings {
@@ -1077,41 +1074,58 @@ mod tests {
                 flsh: None,
             },
         );
-        let got = offers.agents.settings().harnesses;
-        assert_eq!(got.len(), 1);
-        let names: Vec<(&str, &str)> = got[0]
-            .env
+        assert_eq!(offers.agents.settings().harnesses, before.harnesses);
+        // The server's credentials are not applied either.
+        let from_server = MachineCredentials {
+            env: vec![var("A", "from-the-server")],
+            forgejo: Vec::new(),
+        };
+        take_credentials(&offers, from_server.clone()).await;
+        assert!(
+            !crate::machine::provision::spawn_env::vars(
+                crate::machine::provision::spawn_env::Scope::Shell
+            )
             .iter()
-            .map(|v| (v.name.as_str(), v.value.expose()))
-            .collect();
-        assert_eq!(
-            names,
-            [("B_KEY", "from-the-mesh"), ("A_KEY", "from-the-server")]
+            .any(|(name, _)| name == "A"),
+            "the server's credential was applied"
         );
+        // A node in a mesh whose account was not moved keeps the per-family rule.
+        let plain_dir = tempfile::tempdir().expect("a temp folder");
+        let plain = Offers::local(&[], Provision::new(plain_dir.path()), true);
+        plain.mesh.set(mesh_in(plain_dir.path()).await);
+        assert!(!plain.mesh.owns(Family::Credentials));
+        assert!(!plain.mesh.owns(Family::Harnesses));
     }
 
     #[tokio::test]
-    async fn a_dropped_link_keeps_what_the_node_has() {
-        // Forgetting after the link clears the process-wide credentials.
+    async fn a_server_push_waiting_on_an_apply_does_not_land_after_the_move() {
         let _env = crate::machine::provision::spawn_env::TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().expect("a temp folder");
-        let (offers, mesh) = layered(dir.path()).await;
-        let from_server = AgentSettings {
-            harnesses: vec![codex(vec![var("A_KEY", "from-the-server")])],
-            flsh: None,
-        };
-        take_settings(&offers, from_server.clone());
-        forget_after_link(&offers).await;
-        // Still partly the server's: nothing is erased.
-        assert_eq!(offers.agents.settings().harnesses.len(), 1);
-        assert_eq!(offers.agents.settings().harnesses[0].env.len(), 2);
-        // With no key of the family in the mesh, the server's go, as before.
-        mesh.set(Key::Harness("codex".into()), None)
+        let offers = Offers::local(&[], Provision::new(dir.path()), true);
+        let mesh = mesh_in(dir.path()).await;
+        offers.mesh.set(mesh.clone());
+        // The mesh's credentials are being applied when the server's push arrives.
+        let applying = offers.mesh.applying().await;
+        let push = tokio::spawn({
+            let offers = offers.clone();
+            let server = MachineCredentials {
+                env: vec![var("RACE_KEY", "from-the-server")],
+                forgejo: Vec::new(),
+            };
+            async move { take_credentials(&offers, server).await }
+        });
+        // The account moves while the push waits.
+        mesh.set(Key::Unmoved("credential/7".into()), Some(vec![1]))
             .await
-            .expect("deleted");
-        let plain = Offers::local(&[], Provision::new(dir.path()), true);
-        take_settings(&plain, from_server);
-        forget_after_link(&plain).await;
-        assert!(plain.agents.settings().harnesses.is_empty());
+            .expect("written");
+        drop(applying);
+        push.await.expect("the push ends");
+        let applied = crate::machine::provision::spawn_env::vars(
+            crate::machine::provision::spawn_env::Scope::Shell,
+        );
+        assert!(
+            !applied.iter().any(|(name, _)| name == "RACE_KEY"),
+            "the server's credential landed after the move"
+        );
     }
 }

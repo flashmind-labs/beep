@@ -12,7 +12,7 @@ use super::{
     transfer,
 };
 use crate::{
-    apps::permissions::{self, Check, RUN_ON, SEND_FILES, ToolApp},
+    apps::permissions::{self, Check, MACHINE_LOG, RUN_ON, SEND_FILES, ToolApp},
     nodes::{DESKTOP, StartOn, agent_name, describe},
     protocol::node::{
         LinkRx, LinkTx, Open, Opened, agent,
@@ -129,6 +129,7 @@ impl Calls {
     async fn ask_first(&self, request: &Request, args: &Value) -> Option<Reply> {
         let slug = match request.tool {
             Call::RunOn => RUN_ON,
+            Call::MachineLog => MACHINE_LOG,
             Call::SendFiles => SEND_FILES,
             _ => return None,
         };
@@ -143,8 +144,6 @@ impl Calls {
         ) {
             (Check::Run, _) => None,
             (Check::Refuse(text), _) => Some(done(Err(text))),
-            // A command on the user's own machine does not ask, like `exec` in a chat.
-            (Check::Ask(_), _) if request.tool == Call::RunOn => None,
             (Check::Ask(approval), Approved::No) => Some(Reply::Ask {
                 app: approval.app,
                 action: approval.action,
@@ -858,7 +857,7 @@ mod tests {
 
         let args = json!({ "machine": "build-box", "lines": 10 });
         let read = calls(&harness)
-            .answer(&request(Call::MachineLog, args, Approved::No))
+            .answer(&request(Call::MachineLog, args, Approved::Once))
             .await;
         assert!(
             matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
@@ -869,17 +868,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_on_runs_without_asking() {
+    async fn run_on_and_machine_log_ask_first_like_send_files() {
         let harness = Harness::new(Scripted::default()).await;
-        let args = json!({ "machine": "build-box", "command": "uname" });
-        let ran = calls(&harness)
-            .answer(&request(Call::RunOn, args, Approved::No))
-            .await;
-        // It ran: there is no such machine, which it says.
-        assert!(
-            matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine called build-box")),
-            "{ran:?}"
-        );
+        for (tool, args) in [
+            (
+                Call::RunOn,
+                json!({ "machine": "build-box", "command": "uname" }),
+            ),
+            (Call::MachineLog, json!({ "machine": "build-box" })),
+        ] {
+            let asked = calls(&harness)
+                .answer(&request(tool, args.clone(), Approved::No))
+                .await;
+            assert!(
+                matches!(&asked, Reply::Ask { app, .. } if app == "Your machines"),
+                "{tool:?}: {asked:?}"
+            );
+            // Allowed once, it runs: there is no such machine, which it says.
+            let ran = calls(&harness)
+                .answer(&request(tool, args, Approved::Once))
+                .await;
+            assert!(
+                matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine called build-box")),
+                "{tool:?}: {ran:?}"
+            );
+        }
     }
 
     fn memory_call(tool: Call, args: Value) -> Request {
@@ -1155,7 +1168,7 @@ mod tests {
         }
         let desk = desk_key.public().to_string();
         let read = calls_from(&harness, &desk)
-            .answer(&request(Call::MachineLog, log_args, Approved::No))
+            .answer(&request(Call::MachineLog, log_args, Approved::Once))
             .await;
         assert!(
             matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
