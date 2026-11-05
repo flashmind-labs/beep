@@ -177,7 +177,7 @@ pub(crate) const SUPERSEDED: &str = "Not done: a routine ran in this chat before
      answered, and the question was dropped. Do not retry unless they ask.";
 
 /// How the result of a call refused under read only starts.
-pub(super) const READ_ONLY: &str = "Not done: the user set";
+pub(super) const READ_ONLY: &str = crate::protocol::node::tools::REFUSED;
 
 /// The last model turn's calls without a result: the one asking and those after it.
 pub(crate) fn open_calls(conversation: &Conversation) -> Vec<ToolCall> {

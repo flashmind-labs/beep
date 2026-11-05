@@ -4,6 +4,7 @@
 //! the node's alerts hears it (each desktop directly, the server for the phones) and the first
 //! answer settles it.
 
+use super::Rule;
 use crate::{
     agents::{Answered, Asking},
     link::Offers,
@@ -20,6 +21,24 @@ use tokio::time::timeout;
 const ASK_LIMIT: Duration = Duration::from_secs(5 * 60);
 const ALLOW: &str = "allow";
 const DENY: &str = "deny";
+
+/// Applies `rule` to `request`: `None` lets it run, otherwise the failed reply that says why it
+/// did not.
+pub(super) async fn enforce(
+    offers: &Offers,
+    rule: &Rule,
+    request: &Request,
+    args: &Value,
+) -> Option<Reply> {
+    match rule {
+        Rule::Run => None,
+        Rule::Ask => ask_first(offers, request, args).await,
+        Rule::Refuse(text) => Some(Reply::Done {
+            text: text.clone(),
+            failed: true,
+        }),
+    }
+}
 
 /// Asks the user in the calling session to allow `request`. `None` when they did; otherwise the
 /// failed reply that says why the call did not run.
@@ -297,5 +316,93 @@ done
             text,
             "Not run: nobody answered the question within 5 minutes."
         );
+        // The card is gone from the session, and so from every device.
+        gone(&session).await;
+    }
+
+    /// Waits until the session shows no question.
+    async fn gone(session: &Session) {
+        let mut live = session.live.clone();
+        timeout(
+            Duration::from_secs(20),
+            live.wait_for(|live| live.info.question.is_none()),
+        )
+        .await
+        .expect("the question is withdrawn")
+        .expect("the session is kept");
+        assert_ne!(session.info().state.status, Status::Asking);
+    }
+
+    #[tokio::test]
+    async fn a_cancel_while_the_question_is_handed_over_leaves_none_behind() {
+        let (offers, session, _dir) = idle_session().await;
+        // Polled once, it has queued the question and waits for the session to take it.
+        let mut asking = Box::pin(
+            offers
+                .agents
+                .ask(&session.id, card(Tool::SendFiles, &Value::Null)),
+        );
+        assert!(futures::poll!(&mut asking).is_pending());
+        drop(asking);
+        // The question was shown and taken back, not just never shown.
+        let mut live = session.live.clone();
+        timeout(
+            Duration::from_secs(20),
+            live.wait_for(|live| {
+                live.transcript(20)
+                    .0
+                    .iter()
+                    .any(|entry| entry.text.starts_with("Withdrawn"))
+            }),
+        )
+        .await
+        .expect("the question is withdrawn")
+        .expect("the session is kept");
+        gone(&session).await;
+    }
+
+    #[tokio::test]
+    async fn an_ask_nobody_waits_for_is_withdrawn_and_does_not_block_the_next() {
+        let (offers, session, _dir) = idle_session().await;
+        let follow = offers.agents.alerts.follow(SecretKey::generate().public());
+        let request = Request {
+            session: session.id.clone(),
+            ..send_files()
+        };
+        let args: Value = serde_json::from_str(&request.args).expect("json");
+        let call = tokio::spawn({
+            let offers = offers.clone();
+            let (request, args) = (request.clone(), args.clone());
+            async move { ask_first(&offers, &request, &args).await }
+        });
+        let stale = asked(&heard(&follow).await);
+        // The agent gives up on the call: the wait is dropped with no answer.
+        call.abort();
+        let _ = call.await;
+        gone(&session).await;
+        // A late answer is refused, not taken for a yes.
+        let late = session
+            .order(Command::Answer {
+                question: stale,
+                reply: "allow".into(),
+            })
+            .await;
+        assert!(late.is_err(), "{late:?}");
+        // The next question shows at once instead of queueing behind the dead one.
+        let again = tokio::spawn({
+            let offers = offers.clone();
+            async move { ask_first(&offers, &request, &args).await }
+        });
+        let next = asked(&heard(&follow).await);
+        assert_ne!(next, stale);
+        assert_eq!(session.info().question.map(|q| q.id), Some(next));
+        session
+            .order(Command::Answer {
+                question: next,
+                reply: "allow".into(),
+            })
+            .await
+            .expect("taken");
+        assert_eq!(again.await.expect("the call ends"), None);
     }
 }

@@ -14,7 +14,7 @@
 //! keeps what the server set and keeps taking the server's pushes for it, so a
 //! running node that joins a mesh with nothing in it loses nothing.
 
-use crate::link::Offers;
+use crate::{AsyncMutex, link::Offers};
 use beep_mesh::{Key, Mesh};
 use beep_proto::{
     FlshSettings,
@@ -30,7 +30,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-use tokio::sync::{broadcast::error::RecvError, watch};
+use tokio::sync::{MutexGuard, broadcast::error::RecvError, watch};
 
 /// A kind of state the mesh can own on the node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -84,12 +84,15 @@ impl Family {
 #[derive(Clone)]
 pub(crate) struct Membership {
     mesh: Arc<watch::Sender<Option<Mesh>>>,
+    /// Held while credentials are applied, so a server's push cannot land after the mesh's.
+    applying: Arc<AsyncMutex<()>>,
 }
 
 impl Default for Membership {
     fn default() -> Self {
         Self {
             mesh: Arc::new(watch::Sender::new(None)),
+            applying: Arc::default(),
         }
     }
 }
@@ -105,6 +108,12 @@ impl Membership {
 
     pub(crate) fn get(&self) -> Option<Mesh> {
         self.mesh.borrow().clone()
+    }
+
+    /// Waits for the turn to apply credentials: whoever holds it has the node's credentials to
+    /// themselves, and checks `owns` under it.
+    pub(crate) async fn applying(&self) -> MutexGuard<'_, ()> {
+        self.applying.lock().await
     }
 
     /// Whether the node is in a mesh that owns `family` now.
@@ -163,6 +172,7 @@ impl Applied {
         {
             let credentials = credentials(mesh);
             if self.credentials.as_ref() != Some(&credentials) {
+                let _applying = offers.mesh.applying().await;
                 provision.apply(credentials.clone()).await;
                 log::info!(
                     "from the mesh: {} credentials",
