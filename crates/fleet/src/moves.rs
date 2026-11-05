@@ -5,7 +5,7 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    records::{WRITES, read, scan},
+    records::{Place, WRITES, place_key, read, scan},
 };
 use beep_mesh::{
     Key,
@@ -74,11 +74,8 @@ impl Desk {
         if ask.from == ask.to {
             return Err(refused("the session is on that machine already".to_owned()));
         }
-        let spec: SyncSpec = read(&self.mesh, &Key::Sync(ask.project.to_owned()))
-            .ok_or_else(|| refused(format!("{} is not synced between machines", ask.project)))?;
-        let theirs = spec
-            .folders
-            .get(&ask.from)
+        let theirs = self
+            .project_folder(ask.project, ask.from)
             .ok_or_else(|| refused("the source has no checkout of the project".to_owned()))?;
         if let Some(worktree) = &ask.worktree {
             self.check_worktree_move(&ask, worktree).await?;
@@ -86,7 +83,7 @@ impl Desk {
         // A worktree session's folder is below the worktree, else below the
         // checkout.
         let base = ask.worktree.as_ref().map_or(theirs.as_str(), |w| w.folder);
-        if !spec.folders.contains_key(&ask.to) {
+        if self.project_folder(ask.project, ask.to).is_none() {
             return Err(refused(
                 "that machine has no checkout of the project: import it first".to_owned(),
             ));
@@ -125,6 +122,17 @@ impl Desk {
             )
             .await?;
         Ok(record)
+    }
+
+    /// The folder `project` has on `machine`: from its `sync/<name>` record
+    /// when that names the machine, else from the machine's place record. A
+    /// project imported on one machine at a time has only the place records.
+    fn project_folder(&self, project: &str, machine: EndpointId) -> Option<String> {
+        read::<SyncSpec>(&self.mesh, &Key::Sync(project.to_owned()))
+            .and_then(|mut spec| spec.folders.remove(&machine))
+            .or_else(|| {
+                read::<Place>(&self.mesh, &place_key(project, machine)).map(|place| place.folder)
+            })
     }
 
     /// Deletes the records of moves that are over by now, so the mesh does

@@ -60,7 +60,6 @@ pub(crate) async fn follow(
         log::warn!("not moving sessions: no home folder to find the agents' stores in");
         return;
     };
-    agents.moves.use_syncs(syncs.clone());
     let env = Arc::new(Env {
         cache: Cache::new(&dir),
         limits: background::Limits::locate(),

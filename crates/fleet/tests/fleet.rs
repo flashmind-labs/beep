@@ -1670,6 +1670,60 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
 }
 
 #[tokio::test]
+async fn a_move_takes_folders_from_place_records_when_there_is_no_sync_record() {
+    use beep_fleet::MoveAsk;
+    use beep_proto::node::mesh_state::{Place, StateValue};
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    let desk = desk(&f.studio, &[]).await;
+    let place = |folder: &str| {
+        let place = Place {
+            folder: folder.to_owned(),
+            imported_ms: 0,
+            fork: None,
+        };
+        Some(place.to_bytes().expect("a place encodes"))
+    };
+    let ask = || MoveAsk {
+        agent: "codex",
+        id: "s1",
+        from: f.build.id,
+        to: second.id,
+        project: "acme/app",
+        cwd: "/srv/build/app/crates/a",
+        worktree: None,
+        mode: None,
+        stop: false,
+    };
+    f.studio
+        .mesh
+        .set(
+            Key::Project(format!("acme/app/{}", f.build.id)),
+            place("/srv/build/app"),
+        )
+        .await
+        .expect("the place is written");
+    match desk.move_session(ask()).await {
+        Err(FleetError::Refused(why)) => assert!(why.contains("no checkout"), "{why}"),
+        other => panic!("not refused: {:?}", other.map(|_| ())),
+    }
+    f.studio
+        .mesh
+        .set(
+            Key::Project(format!("acme/app/{}", second.id)),
+            place("/Users/me/app"),
+        )
+        .await
+        .expect("the place is written");
+    let record = desk
+        .move_session(ask())
+        .await
+        .expect("the move is asked for");
+    assert_eq!(record.path, "crates/a");
+}
+
+#[tokio::test]
 async fn a_node_from_before_session_moves_is_not_offered_one() {
     let f = fleet().await;
     let second = join(&f.studio, DeviceKind::Node, "mac-box").await;

@@ -3,8 +3,7 @@
 //! that a session it ended is still served as running until its files are
 //! scanned, and that it gave a move up.
 
-use super::Env;
-use crate::files::sync::Syncs;
+use super::{Env, offers::project_folder};
 use crate::lock;
 use beep_proto::node::agent::{MovePhase, MoveProgress};
 use std::{
@@ -54,8 +53,6 @@ pub(crate) struct Moves {
     sent: Mutex<HashMap<String, String>>,
     /// Worktree sessions whose snapshot a live read already tried.
     previewed: Mutex<HashSet<String>>,
-    /// The synced projects, to tell a target whether it can sync a worktree.
-    syncs: Mutex<Option<Syncs>>,
     /// What the moves and copies of this node share, for requests that
     /// continue a copy here.
     env: Mutex<Weak<Env>>,
@@ -241,23 +238,25 @@ impl Moves {
         }
     }
 
-    /// The projects this node syncs, for `ignores_worktree`.
-    pub(super) fn use_syncs(&self, syncs: Option<Syncs>) {
-        *lock(&self.syncs) = syncs;
-    }
-
     /// Whether Syncthing keeps `project` here and its `.stignore` leaves
     /// out a worktree on `branch`.
     pub(crate) async fn ignores_worktree(&self, project: &str, branch: &str) -> bool {
-        let syncs = lock(&self.syncs).clone();
-        match syncs {
-            Some(syncs) => {
-                syncs
-                    .syncthing_ignores(project, &beep_proto::node::agent::worktree_path(branch))
-                    .await
-            }
-            None => false,
-        }
+        let env = lock(&self.env).upgrade();
+        let Some(env) = env else {
+            return false;
+        };
+        let (Some(syncs), Some(folder)) = (
+            &env.syncs,
+            project_folder(&env.mesh, project, &env.mesh.me()),
+        ) else {
+            return false;
+        };
+        syncs
+            .syncthing_ignores(
+                Path::new(&folder),
+                &beep_proto::node::agent::worktree_path(branch),
+            )
+            .await
     }
 
     /// How the move of `id` stands here, when this machine is part of one.

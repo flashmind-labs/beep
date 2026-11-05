@@ -344,6 +344,8 @@ applies too; one it cannot read refuses the folder and says why.
   checked out in a linked worktree.
 - Peers talk `beep-sync/3`. Nodes on `beep-sync/1` or `/2` do not sync with it.
 
+A session also moves on a project Syncthing keeps in step: folders come from the place records when `sync/<name>` does not name the machine, and the target trusts Syncthing, waiting up to two minutes for its folder to be complete. A project neither keeps is refused before the source stops.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds, installs and launches
