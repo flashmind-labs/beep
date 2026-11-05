@@ -481,6 +481,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-assistant"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "log",
+ "reqwest 0.12.28",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
 name = "beep-fleet"
 version = "0.1.0"
 dependencies = [
