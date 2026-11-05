@@ -175,6 +175,8 @@ fn main() {
             agents::sessions::agent_start,
             agents::sessions::agent_usage,
             agents::sessions::session_folder_here,
+            agents::local_file::local_file,
+            agents::local_file::open_local_file,
             agents::sessions::agent_modes,
             agents::sessions::agent_tasks,
             agents::sessions::agent_view,
