@@ -4,6 +4,7 @@
 //! mesh does not hold go to the server when there is one. Between a user's
 //! own machines there are no rules to check first.
 
+use super::{Rule, permission};
 use crate::{
     files::transfer::{Incoming, Transfers},
     link::{
@@ -18,7 +19,7 @@ use beep_proto::node::{
     EnvReport, LinkRx, LinkTx, Open, Opened, link,
     mesh_state::{StateValue, SyncSpec},
     status::{self, Report},
-    tools::{Approved, PROTOCOL, Reply, Request, Tool},
+    tools::{Approved, PROTOCOL, REFUSED, Reply, Request, Tool},
     transfer::Reply as TransferReply,
 };
 use iroh::EndpointId;
@@ -74,21 +75,36 @@ pub(super) enum Route {
     Direct,
     /// To the server, which holds the user's rules and asks first.
     Server,
-    /// Not at all: it needs the server's approval and cannot have it now.
-    Refuse,
 }
 
-/// The server asks the user first before a send and checks the rules before
-/// a run. With its link up those go through it. With a server configured but
-/// its link down, a send fails closed and a run or a log read goes direct (a
-/// refusing rule goes unenforced for the outage). With no server, everything
-/// is direct.
+/// The server holds the rules for a send, a run and a log read. With its link
+/// up those go through it. With the link down, or no server, they go direct,
+/// and `asks_while_down` says whether the user is asked first.
 pub(super) fn route(tool: Tool, has_server: bool, link_up: bool) -> Route {
     match tool {
         Tool::RunOn | Tool::SendFiles | Tool::MachineLog if has_server && link_up => Route::Server,
-        Tool::SendFiles if has_server => Route::Refuse,
         _ => Route::Direct,
     }
+}
+
+/// The rule for a call made while the server cannot be asked: the node has a server, its link is
+/// down, and the last rule heard for the tool decides. A tool never heard of asks only for a send.
+/// With no server ever, nothing asks.
+fn rule_while_down(offers: &Offers, tool: Tool) -> Rule {
+    if !offers.tools.has_server()
+        || offers.tools.connected()
+        || !matches!(tool, Tool::RunOn | Tool::SendFiles | Tool::MachineLog)
+    {
+        return Rule::Run;
+    }
+    offers
+        .tools
+        .heard(tool)
+        .unwrap_or(if tool == Tool::SendFiles {
+            Rule::Ask
+        } else {
+            Rule::Run
+        })
 }
 
 /// The reply for `request`, or `None` when the server answers it: a tool
@@ -114,6 +130,10 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
             else {
                 return missing(offers, mesh, &name);
             };
+            let rule = rule_while_down(offers, request.tool);
+            if let Some(stopped) = permission::enforce(offers, &rule, request, &args).await {
+                return Some(stopped);
+            }
             Some(to_target(offers, mesh, &target, request, &args).await)
         }
         Tool::SyncProject => sync_project(offers, mesh, request, &args).await,
@@ -175,33 +195,33 @@ pub(super) async fn mesh_only(offers: &Offers, mesh: &Mesh, request: &Request) -
     if listed(&text).contains(&name) {
         return None;
     }
-    // The server cannot ask about a machine it lacks, so a send its rules
-    // would ask about fails closed, as with the link down. A run or a log
-    // read goes direct.
-    if request.tool == Tool::SendFiles {
-        let probe = Request {
-            approved: Approved::No,
-            ..request.clone()
-        };
-        if let Ok(reply) = offers.tools.call(&probe).await
-            && let Some(refusal) = ask_refusal(&reply)
-        {
-            return Some(refusal);
-        }
+    // The server cannot show a card for a machine it lacks, so when its rule asks, the node
+    // asks the user itself, and a rule that refuses still refuses. If the server cannot be
+    // reached to ask, the last rule heard stands; with none, nothing runs unasked.
+    let rule = probed_rule(offers, request).await;
+    if let Some(stopped) = permission::enforce(offers, &rule, request, &args).await {
+        return Some(stopped);
     }
     Some(to_target(offers, mesh, &target, request, &args).await)
 }
 
-/// The refusal for a send the server answered with an approval card: the
-/// card cannot be shown for a machine the server does not know.
-fn ask_refusal(server: &Reply) -> Option<Reply> {
-    matches!(server, Reply::Ask { .. }).then(|| {
-        done(
-            "send_files needs the user's approval, and the server cannot ask it for a machine \
-             it does not know. Ask the user to allow Your machines in Beep, then try again.",
-            true,
-        )
-    })
+/// The server's rule for `request`, asked by a call without approval. If the server cannot be
+/// reached, the last rule heard stands; with none, nothing runs unasked.
+async fn probed_rule(offers: &Offers, request: &Request) -> Rule {
+    let probe = Request {
+        approved: Approved::No,
+        ..request.clone()
+    };
+    match offers.tools.call(&probe).await {
+        Ok(Reply::Ask { .. }) => Rule::Ask,
+        Ok(Reply::Done { text, failed: true }) if text.starts_with(REFUSED) => Rule::Refuse(text),
+        Ok(_) => Rule::Run,
+        Err(e) => offers.tools.heard(request.tool).unwrap_or_else(|| {
+            Rule::Refuse(format!(
+                "Not run: the server could not be asked whether the user allows it ({e:#})."
+            ))
+        }),
+    }
 }
 
 /// The most paths one `send_files` call takes.
@@ -694,11 +714,8 @@ mod tests {
         for tool in [Tool::RunOn, Tool::SendFiles, Tool::MachineLog] {
             assert_eq!(route(tool, true, true), Route::Server, "{tool:?}");
             assert_eq!(route(tool, false, false), Route::Direct, "{tool:?}");
+            assert_eq!(route(tool, true, false), Route::Direct, "{tool:?}");
         }
-        // Configured but down: a send fails closed, the others go direct.
-        assert_eq!(route(Tool::SendFiles, true, false), Route::Refuse);
-        assert_eq!(route(Tool::RunOn, true, false), Route::Direct);
-        assert_eq!(route(Tool::MachineLog, true, false), Route::Direct);
         // Not checked by the server: direct whatever the link.
         for tool in [Tool::JobStatus, Tool::Cancel, Tool::SyncProject] {
             assert_eq!(route(tool, true, true), Route::Direct, "{tool:?}");
@@ -706,20 +723,55 @@ mod tests {
     }
 
     #[test]
-    fn a_send_the_server_would_ask_about_fails_closed() {
+    fn with_the_link_down_the_last_rule_heard_decides() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = |has_server| {
+            Offers::local(
+                &[],
+                crate::machine::provision::Provision::new(dir.path()),
+                has_server,
+            )
+        };
+        let down = offers(true);
+        // Never heard: a send asks, a run and a log read go direct.
+        assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Ask);
+        assert_eq!(rule_while_down(&down, Tool::RunOn), Rule::Run);
+        assert_eq!(rule_while_down(&down, Tool::MachineLog), Rule::Run);
+        let said = |tool, reply: Reply| {
+            let request = Request {
+                session: "s".to_owned(),
+                tool,
+                args: "{}".to_owned(),
+                approved: Approved::No,
+            };
+            down.tools.hear(&request, &reply);
+        };
         let ask = Reply::Ask {
             app: "Your machines".to_owned(),
-            action: "send files".to_owned(),
+            action: "run".to_owned(),
             fields: Vec::new(),
         };
-        let refusal = ask_refusal(&ask).expect("refused");
-        assert!(
-            matches!(refusal, Reply::Done { failed: true, .. }),
-            "{refusal:?}"
+        // Heard: it goes on the rule the server last gave, a refusal included.
+        said(Tool::RunOn, ask);
+        said(Tool::SendFiles, done("sent", false));
+        said(
+            Tool::MachineLog,
+            done(format!("{REFUSED} Your machines to read only."), true),
         );
-        // Allowed, or refused by the server's own words: nothing to add.
-        assert!(ask_refusal(&done("No such machine.", true)).is_none());
-        assert!(ask_refusal(&done("Sent.", false)).is_none());
+        assert_eq!(rule_while_down(&down, Tool::RunOn), Rule::Ask);
+        assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Run);
+        assert!(matches!(
+            rule_while_down(&down, Tool::MachineLog),
+            Rule::Refuse(_)
+        ));
+        // A failure that is not a refusal says nothing of the rule.
+        said(Tool::SendFiles, done("No machine called x.", true));
+        assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Run);
+        // With no server ever, nothing asks.
+        let alone = offers(false);
+        for tool in [Tool::RunOn, Tool::SendFiles, Tool::MachineLog] {
+            assert_eq!(rule_while_down(&alone, tool), Rule::Run, "{tool:?}");
+        }
     }
 
     fn mesh_line(name: &str) -> Line {
@@ -763,5 +815,95 @@ mod tests {
     #[test]
     fn a_machine_is_named_in_one_word() {
         assert_eq!(command_name(" Mac Studio "), "mac-studio");
+    }
+
+    /// A server that answers every `tools/1` call with `reply`, and the connection to it.
+    async fn server_answering(reply: Reply) -> (Offers, impl Sized, tempfile::TempDir) {
+        use beep_proto::node::{Open, Opened, link};
+        const ALPN: &[u8] = b"beep-test";
+        let endpoint = || iroh::Endpoint::builder(iroh::endpoint::presets::Minimal);
+        let server = endpoint()
+            .alpns(vec![ALPN.to_vec()])
+            .bind()
+            .await
+            .expect("the server binds");
+        let client = endpoint().bind().await.expect("the node binds");
+        let addr = server.addr();
+        let serving = tokio::spawn(async move {
+            let connection = server
+                .accept()
+                .await
+                .expect("a connection comes")
+                .await
+                .expect("it connects");
+            while let Ok((send, recv)) = connection.accept_bi().await {
+                let (mut tx, mut rx) = link(send, recv);
+                let _: Open = rx.recv().await.expect("read").expect("an open");
+                tx.send(&Opened::Ready {}).await.expect("sent");
+                let _: Request = rx.recv().await.expect("read").expect("a call");
+                tx.send(&reply).await.expect("sent");
+            }
+        });
+        let connection = client.connect(addr, ALPN).await.expect("the node connects");
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(
+            &[],
+            crate::machine::provision::Provision::new(dir.path()),
+            true,
+        );
+        offers.tools.set(Some(connection));
+        (
+            offers,
+            (client, tokio_util::task::AbortOnDropHandle::new(serving)),
+            dir,
+        )
+    }
+
+    fn call_of(tool: Tool) -> Request {
+        Request {
+            session: "s".to_owned(),
+            tool,
+            args: "{}".to_owned(),
+            approved: Approved::No,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_refusing_rule_still_refuses_a_machine_the_server_lacks() {
+        let refusal = format!("{REFUSED} Your machines to read only.");
+        let (offers, _server, _dir) = server_answering(done(refusal.clone(), true)).await;
+        for tool in [Tool::RunOn, Tool::MachineLog, Tool::SendFiles] {
+            let rule = probed_rule(&offers, &call_of(tool)).await;
+            assert_eq!(rule, Rule::Refuse(refusal.clone()), "{tool:?}");
+            let stopped = permission::enforce(&offers, &rule, &call_of(tool), &Value::Null).await;
+            assert_eq!(stopped, Some(done(refusal.clone(), true)), "{tool:?}");
+        }
+        // The server's own failure for a machine it lacks is not a refusal.
+        let (offers, _server, _dir) = server_answering(done("No machine called x.", true)).await;
+        assert_eq!(probed_rule(&offers, &call_of(Tool::RunOn)).await, Rule::Run);
+    }
+
+    #[tokio::test]
+    async fn a_probe_the_server_cannot_answer_uses_the_last_rule_heard_else_refuses() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(
+            &[],
+            crate::machine::provision::Provision::new(dir.path()),
+            true,
+        );
+        // No link at all, no rule heard: nothing runs unasked.
+        for tool in [Tool::RunOn, Tool::MachineLog, Tool::SendFiles] {
+            assert!(
+                matches!(probed_rule(&offers, &call_of(tool)).await, Rule::Refuse(_)),
+                "{tool:?}"
+            );
+        }
+        let ask = Reply::Ask {
+            app: "Your machines".to_owned(),
+            action: "run".to_owned(),
+            fields: Vec::new(),
+        };
+        offers.tools.hear(&call_of(Tool::RunOn), &ask);
+        assert_eq!(probed_rule(&offers, &call_of(Tool::RunOn)).await, Rule::Ask);
     }
 }

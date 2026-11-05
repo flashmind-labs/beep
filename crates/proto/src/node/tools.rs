@@ -12,10 +12,24 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 pub const PROTOCOL: &str = "tools/1";
 
+/// How the text of a call the user's rules refuse starts, as the server and a node that stands in
+/// for it both say it.
+pub const REFUSED: &str = "Not done: the user set";
+
 /// The tools the server runs. `ask_user` is not among them: the node puts
 /// that question to the user itself.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, IntoStaticStr, EnumString,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Display,
+    IntoStaticStr,
+    EnumString,
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]

@@ -90,6 +90,22 @@ impl Actor {
                 self.put(question, Waiting::Node(reply), None);
                 Ok(Ok(()))
             }
+            Command::Withdraw => {
+                let before = self.asked.len();
+                self.asked.retain(
+                    |asked| !matches!(&asked.waiting, Waiting::Node(reply) if reply.is_closed()),
+                );
+                if self.asked.len() != before {
+                    self.live.send_modify(|live| {
+                        live.push(
+                            EntryKind::Question,
+                            "Withdrawn: nobody waits for the answer",
+                        );
+                    });
+                    self.show_question();
+                }
+                Ok(Ok(()))
+            }
             Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
             Command::SetMode(mode) => Ok(self.set_mode(cx, mode)),
         }

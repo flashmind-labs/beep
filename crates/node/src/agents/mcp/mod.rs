@@ -12,14 +12,15 @@ use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     Open, Opened, link,
-    tools::{Approved, PROTOCOL, Reply, Request, Tool},
+    tools::{Approved, PROTOCOL, REFUSED, Reply, Request, Tool},
 };
 use iroh::endpoint::Connection;
 use serde::Deserialize;
 use std::{
+    collections::HashMap,
     ffi::OsString,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
@@ -33,6 +34,7 @@ use tokio_util::task::AbortOnDropHandle;
 pub(crate) mod calls;
 mod catalog;
 mod machines;
+mod permission;
 mod server;
 mod socket;
 
@@ -212,6 +214,20 @@ pub struct Upstream {
     connection: Arc<watch::Sender<Option<Connection>>>,
     /// The node has a server to link to at all.
     has_server: bool,
+    /// What the server's rule said the last time the node asked it, by tool: what the node goes
+    /// on while the link is down.
+    heard: Arc<Mutex<HashMap<Tool, Rule>>>,
+}
+
+/// What the user's rule says about a call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Rule {
+    /// It runs.
+    Run,
+    /// The user is asked first.
+    Ask,
+    /// It does not run; the text says why.
+    Refuse(String),
 }
 
 impl Default for Upstream {
@@ -226,11 +242,32 @@ impl Upstream {
         Self {
             connection: Arc::new(watch::Sender::new(None)),
             has_server,
+            heard: Arc::default(),
         }
     }
 
     pub(crate) fn has_server(&self) -> bool {
         self.has_server
+    }
+
+    /// The server's rule for `tool`, as last heard. `None` before it was asked.
+    pub(crate) fn heard(&self, tool: Tool) -> Option<Rule> {
+        crate::lock(&self.heard).get(&tool).cloned()
+    }
+
+    /// Notes what a call without approval says of the rule for its tool: an ask, a refusal, or a
+    /// run. Any other failure says nothing of the rule.
+    fn hear(&self, request: &Request, reply: &Reply) {
+        if request.approved != Approved::No {
+            return;
+        }
+        let rule = match reply {
+            Reply::Ask { .. } => Rule::Ask,
+            Reply::Done { failed: false, .. } => Rule::Run,
+            Reply::Done { text, .. } if text.starts_with(REFUSED) => Rule::Refuse(text.clone()),
+            _ => return,
+        };
+        crate::lock(&self.heard).insert(request.tool, rule);
     }
 
     /// Whether the link to the server is up now.
@@ -272,6 +309,12 @@ impl Upstream {
 
     /// Runs `request` on the server.
     pub async fn call(&self, request: &Request) -> Result<Reply> {
+        let reply = self.exchange(request).await?;
+        self.hear(request, &reply);
+        Ok(reply)
+    }
+
+    async fn exchange(&self, request: &Request) -> Result<Reply> {
         let connection = self.connection.borrow().clone().context(
             "this machine is not connected to Beep's server now, or the server is too old \
              for these tools",
@@ -314,14 +357,6 @@ impl Backend for Node {
                 self.offers.tools.connected(),
             );
             match route {
-                machines::Route::Refuse => {
-                    return Ok(Reply::Done {
-                        text: "send_files needs the user's approval from the server, which is not \
-                               connected now. Try again when it is."
-                            .to_owned(),
-                        failed: true,
-                    });
-                }
                 machines::Route::Direct => {
                     if let Some(reply) = machines::call(&self.offers, &mesh, request).await {
                         return Ok(reply);

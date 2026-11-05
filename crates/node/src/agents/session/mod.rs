@@ -94,6 +94,9 @@ pub(super) enum Command {
         question: Asking,
         reply: oneshot::Sender<Answered>,
     },
+    /// Takes back the node's questions whose caller stopped waiting, so their cards go and a
+    /// late answer is refused.
+    Withdraw,
 }
 
 /// A question the node asks in a session.
