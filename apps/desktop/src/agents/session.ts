@@ -26,9 +26,20 @@ import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { placeSub } from "./place-state.ts";
+import { sameSession } from "./running-state.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen.
 export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string; back?: string | BackTo } = {}) {
+  // Already open: keep its log, draft, queue and scroll, and only ask for news.
+  if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
+    if (from !== undefined) AG.back = from;
+    if (S.view === "agent" && $("#agbody")) return void pollAgent();
+    if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
+    S.view = "agent";
+    Object.assign(AG, { sig: "", rest: "" });
+    drawAgentFrame();
+    return void pollAgent();
+  }
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   S.view = "agent";
   Object.assign(AG, {

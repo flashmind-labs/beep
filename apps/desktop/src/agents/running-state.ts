@@ -110,3 +110,11 @@ export function projectOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects:
   const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && (r.cwd === p.folder || r.cwd?.startsWith(p.folder + "/"));
   return projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
 }
+
+/// Whether `open` is session `s`, on the same machine and agent.
+export function sameSession(
+  open: { machine_id: string; agent: string; session: string } | null,
+  s: { machine_id: string; agent: string; id: string },
+) {
+  return !!open && open.machine_id === s.machine_id && open.agent === s.agent && open.session === s.id;
+}

@@ -6,12 +6,12 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
 import { pane } from "../bar/pane.ts";
-import type { BackTo } from "../bar/core.ts";
+import { type BackTo, S } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import type { HomeView } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
-import { agentFor, shortName, newChatProject } from "../project/agent.ts";
+import { shortName, newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { firstRun } from "./firstrun.ts";
 import { viewHidden, keyHidden } from "../settings/subscription.ts";
@@ -19,23 +19,25 @@ import { windowTakes } from "../ui/windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
 import { dismissedUpdates, draw, jump } from "./home.ts";
-import { shown, windowProject, toMain, go, goHistory, setWindowProject, openResearch } from "./views.ts";
+import { shown, shownArg, windowProject, toMain, go, goHistory, setWindowProject, openResearch } from "./views.ts";
 import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addProject } from "./sidebar.ts";
 import "../research/page.ts";
 import "../research/open.ts";
 import { escUp } from "./escup-state.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
-import { projectComp } from "../project/composer.ts";
+import { focusBar } from "../project/composer.ts";
 import { loadAgents, takePending } from "./pane.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
+import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf } from "../agents/running-state.ts";
 
 followSkin();
+guardClicks();
 
 // The web view's own menu only offers Reload, which restarts the whole UI. Items with a
 // menu of their own stop the event first; here it stays native only where text can be
@@ -104,15 +106,15 @@ export function onlineMachines(home: HomeView | null) {
   return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
 }
 
-/// ⌘N: the project's chat while a project or its chat shows, else a new general
-/// chat.
+/// ⌘N: a new chat in the project while its page or one of its sessions
+/// shows (the page's start bar, focused), else a new general chat.
 function newChatHere() {
   const on = paneOn();
-  const name = newChatProject({ shown, picked: state.picked, view: on.view, session: on.session }, state.agents);
-  const agent = name && agentFor(state.agents, name);
-  if (agent) return go("pane", { chat: { session: agent.chat_id } });
-  if (name && shown === "projects" && projectComp.form.isConnected) return projectComp.input.focus();
-  go("pane", { chat: { session: null } });
+  const open = shownArg && typeof shownArg === "object" && "agent" in shownArg ? shownArg.agent : null;
+  const to = newChatTarget({ shown, picked: state.picked, view: on.view, session: on.session, agent: on.view === "agent" ? open : null, mac: state.mac?.id }, state.agents, state.home?.projects);
+  if (!to) return void go("pane", { chat: { session: null } });
+  if (shown !== "projects" || state.picked !== to.project) openProjects(to.project);
+  if (shown === "projects") focusBar(to.project, to.machine);
 }
 pane.connect({
   openSettings,
@@ -198,9 +200,10 @@ async function showCached() {
   const [cached, mac, link] = await Promise.all([
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
     invoke<MacControl>("mac_control").catch(() => null),
-    invoke<{ link: string }>("status").catch(() => null),
+    invoke<{ link: string; signed_out: boolean }>("status").catch(() => null),
   ]);
   state.subscribed = link?.link === "linked";
+  S.signedOut = link?.signed_out ?? false;
   $("#home-comp").style.display = state.subscribed ? "" : "none";
   const home = seed(state, cached, dismissedUpdates);
   state.mac ??= mac;
@@ -231,4 +234,4 @@ listen<string>("link-state", e => {
 });
 
 // A reload starts with no chat open, as the window just opened does.
-Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {})).then(start).then(() => { if (state.subscribed) loadAgents(); });
+Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {}, S.signedOut)).then(start).then(() => { if (state.subscribed) loadAgents(); });
