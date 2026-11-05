@@ -65,7 +65,7 @@ export function skeleton(widths: number[]) {
 
 /// One row of Running now, Needs you, Updates or Coming up: a title and one
 /// muted line, opening `open` on a click, with `right` beside it.
-export function line(lead: Node | null, title: string, sub: string, right: Kid[], open: () => void) {
+export function line(lead: Node | null, title: string, sub: Kid, right: Kid[], open: () => void) {
   const t = h("button", "t", h("b", "", title), h("span", "", sub));
   t.type = "button";
   t.title = title;
