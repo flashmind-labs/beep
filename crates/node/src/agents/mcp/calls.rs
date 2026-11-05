@@ -14,6 +14,8 @@ pub(crate) const PREFIX: &str = "Beep: ";
 /// - `List machines`
 /// - `Run on <machine>: <command>`
 /// - `Start <agent> on <machine>: <prompt>` (`an agent` when none is named)
+/// - `Start <harness> agent on <machine>: <prompt>`, `Check agent <id>`,
+///   `Message agent <id>: <text>`, `Stop agent <id>`, `List agents`
 /// - `Sync <project>`, or `Sync <project> to <machine>`
 /// - `Send <n> files to <machine>`
 /// - `Check job <id>`, `Cancel job <id>`
@@ -30,6 +32,11 @@ pub(crate) enum Tool {
     JobStatus,
     Cancel,
     MachineLog,
+    StartAgent,
+    AgentStatus,
+    SendToAgent,
+    StopAgent,
+    ListAgents,
     Remember,
     Recall,
     UpdateMemory,
@@ -48,6 +55,11 @@ impl Tool {
             "job_status" => Self::JobStatus,
             "cancel" => Self::Cancel,
             "machine_log" => Self::MachineLog,
+            "start_agent" => Self::StartAgent,
+            "agent_status" => Self::AgentStatus,
+            "send_to_agent" => Self::SendToAgent,
+            "stop_agent" => Self::StopAgent,
+            "list_agents" => Self::ListAgents,
             "remember" => Self::Remember,
             "recall" => Self::Recall,
             "update_memory" => Self::UpdateMemory,
@@ -148,6 +160,21 @@ impl Tool {
             Self::JobStatus => format!("{PREFIX}Check job {}", text("id").unwrap_or("")),
             Self::Cancel => format!("{PREFIX}Cancel job {}", text("id").unwrap_or("")),
             Self::MachineLog => format!("{PREFIX}Read log of {}", machine.unwrap_or("a machine")),
+            Self::StartAgent => {
+                let harness = text("harness").unwrap_or("an");
+                let on = match machine {
+                    Some(machine) => format!("{harness} agent on {machine}"),
+                    None => format!("{harness} agent"),
+                };
+                with(format!("Start {on}"), text("prompt"))
+            }
+            Self::AgentStatus => format!("{PREFIX}Check agent {}", text("id").unwrap_or("")),
+            Self::SendToAgent => with(
+                format!("Message agent {}", text("id").unwrap_or("")),
+                text("text"),
+            ),
+            Self::StopAgent => format!("{PREFIX}Stop agent {}", text("id").unwrap_or("")),
+            Self::ListAgents => format!("{PREFIX}List agents"),
             Self::Remember => with("Remember".to_owned(), text("content")),
             Self::Recall => with("Recall".to_owned(), text("query")),
             Self::UpdateMemory => with(

@@ -111,7 +111,12 @@ pub async fn serve_session(
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
                     Ok(Some(Request::SetMode { mode })) => Command::SetMode(mode),
                     Ok(Some(Request::StopTask { task })) => Command::StopTask(task),
-                    Ok(Some(Request::Cancel {})) => Command::Cancel,
+                    Ok(Some(Request::Cancel {})) => {
+                        // Stop goes down to what the session started, on
+                        // other machines too.
+                        agents.cancel_family(&session).await;
+                        Command::Cancel
+                    }
                     Ok(Some(Request::Close {})) => Command::Close,
                     Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },
                     Ok(Some(other)) => {

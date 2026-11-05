@@ -190,6 +190,12 @@ impl Calls {
             Call::UpdateMemory => memory(agent_memory::update(user, session, &args).await),
             Call::Forget => memory(agent_memory::forget(user, &args).await),
             Call::StandingRules => memory(agent_memory::standing_rules(user).await),
+            // The nodes answer these between themselves; a node never sends them here.
+            Call::StartAgent
+            | Call::AgentStatus
+            | Call::SendToAgent
+            | Call::StopAgent
+            | Call::ListAgents => Err("A node answers this tool itself, not the server.".into()),
             Call::Unknown => Err("This server does not know that tool; it needs an update.".into()),
         }
     }

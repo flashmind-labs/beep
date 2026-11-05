@@ -141,6 +141,78 @@ fn all() -> Value {
             "annotations": { "title": "Read a machine's log", "readOnlyHint": true }
         },
         {
+            "name": "start_agent",
+            "description": "Start another coding agent, of any harness, on any of the user's \
+                machines, linked to this session: it shows under this session for the user, \
+                who answers any permission question it asks. It starts in your folder (on \
+                another machine, in the same project's checkout there) unless you give `cwd`, \
+                and never above your own permission mode. Agents may start agents at most 3 \
+                levels deep, and a session may have 8 running. Returns its id, or with \
+                `wait` its answer once its turn ends; `wait` returns after about 45 seconds \
+                at the latest with its state, so check long jobs with agent_status.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "harness": { "type": "string", "description": "The coding agent, such as claude or codex, as list_machines names it" },
+                    "prompt": { "type": "string", "description": "What the agent should do; it has no other context" },
+                    "machine": machine("The machine, by its name in list_machines; this machine when left out"),
+                    "cwd": { "type": "string", "description": "The folder to work in on that machine" },
+                    "model": { "type": "string", "description": "The model, when not the agent's own" },
+                    "wait": { "type": "boolean", "description": "Wait for its first turn to end, up to about 45 seconds" }
+                },
+                "required": ["harness", "prompt"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Start an agent", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
+            "name": "agent_status",
+            "description": "How an agent you started stands: its state (working, waiting_on_user, \
+                idle or ended), title, last message, how many files it changed and, when it \
+                waits on a question, the question. You cannot answer its questions; the user \
+                does. Only your own agents.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string", "description": "The id start_agent gave" } },
+                "required": ["id"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Agent status", "readOnlyHint": true }
+        },
+        {
+            "name": "send_to_agent",
+            "description": "Send a message to an agent you started. It reads it after its current \
+                turn. Only your own agents.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "The id start_agent gave" },
+                    "text": { "type": "string" }
+                },
+                "required": ["id", "text"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Message an agent", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
+            "name": "stop_agent",
+            "description": "Stop an agent you started: its session ends, and so do the agents it \
+                started. It stays in the user's list. Only your own agents.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string", "description": "The id start_agent gave" } },
+                "required": ["id"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Stop an agent" }
+        },
+        {
+            "name": "list_agents",
+            "description": "List the agents you started, on every machine, with their state.",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+            "annotations": { "title": "List agents", "readOnlyHint": true }
+        },
+        {
             "name": "remember",
             "description": "Save a lasting instruction or preference the user states, such as \
                 \"always use the Windows machine for Blender\", in Beep's memories. Every coding \
