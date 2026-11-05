@@ -449,10 +449,14 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-det .cc-sec > h4 + small { margin-right: auto }
 .pj-det .pj-labels { padding: 0; gap: 6px; margin-bottom: 12px }
 .pj-det .pj-labels .pj-tag { font-size: 11.5px; line-height: 18px; padding: 2px 10px; border-radius: var(--radius-sm) }
-.pj-br.pj-task { gap: 6px 12px; padding: 12px 14px }
-.pj-br .m { gap: 4px 14px }
-.pj-br .m > :last-child { flex-basis: 100% }
-.pj-br .acts { margin-top: 6px }
+.pj-br.pj-task { gap: 2px 16px; padding: 9px 14px }
+.pj-br .t { display: flex; align-items: baseline; gap: 8px; grid-column: 1 }
+.pj-br .t code { overflow: hidden; text-overflow: ellipsis }
+.pj-br .m { grid-column: 1; flex-wrap: nowrap; font-size: 12px }
+.pj-br .m > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pj-br .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-wrap: nowrap }
+.br-tag { flex: none; font-size: 11.5px; font-weight: 400; color: var(--muted) }
+.br-add { flex: none; font-size: 11.5px; font-weight: 500; color: var(--ok, #4cb782); font-variant-numeric: tabular-nums }
 .pj-ov { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start }
 .pj-ov > div { display: grid; gap: 18px; min-width: 0 }
 .pj-ov .cc-sec:not(:first-child) { margin-top: 0 }
