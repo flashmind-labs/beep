@@ -20,6 +20,8 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { openMenu, type MenuItem } from "../ui/menu.ts";
+import { writeClipboard } from "../ui/parts.ts";
 import { dragHandle } from "../ui/drag.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
@@ -181,6 +183,7 @@ export function startPane(s: PaneSession) {
     wireDivider(d);
     const pane = paneOf(d)!;
     pane.addEventListener("click", e => paneClick(e, d));
+    pane.addEventListener("contextmenu", tabMenu);
     // A viewer may keep the pointer to itself; ⌘W still needs the pane focused.
     pane.addEventListener("pointerdown", () => { if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true }); }, true);
     pane.querySelector(".agtabs")!.addEventListener("pointerdown", e => tabDown(e as PointerEvent));
@@ -446,6 +449,29 @@ function showTab(d: Dock, id: string) {
   if (id === CHANGES && P.on[d] !== CHANGES && madeChangesView()) reloadChanges();
   P.on[d] = id;
   draw();
+}
+
+/// The menu of a tab the user opened: close it, save its file, copy its path. The
+/// fixed tabs (Files, Changes, Subagents, Artifacts) have none.
+function tabMenu(e: MouseEvent) {
+  const id = (e.target as HTMLElement).closest<HTMLElement>("[data-mtab]")?.dataset.mtab;
+  const t = P.tabs.find(x => x.id === id);
+  if (!t) return;
+  const items: MenuItem[] = [];
+  const note = (text: string) => { const m = t.el?.querySelector(".agpacts .meta"); if (m) m.textContent = text; };
+  const path = t.kind === "text" ? t.rel : t.path;
+  if (path) items.push({ label: "Copy path", on: () => void writeClipboard(path) });
+  if (t.kind === "text" && t.rel) {
+    const rel = t.rel;
+    items.push({ label: "Save", on: () => saveWorkFile(rel, note, t.root) });
+  } else if (t.path && P.session) {
+    const { machine_id } = P.session, file = t.path;
+    items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file })
+      .then(to => { note(`Saved to Downloads as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
+      .catch(err => note(readError(err))) });
+  }
+  items.push({ label: "Close", on: () => closeTab(t.id) });
+  openMenu(e, t.name, items);
 }
 
 function paneClick(e: MouseEvent, d: Dock) {
