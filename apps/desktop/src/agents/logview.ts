@@ -128,7 +128,8 @@ function subRow(at: number, inPane = false) {
   const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
   // A child opens as the session it is; a subagent opens in this one.
   const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : `data-sub="${at}"`;
-  const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}" title="Close">${ICON.x}</em>` : "";
+  // A child that is done still holds its session on the machine; closing the row closes it.
+  const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}"${st === "done" && kid ? " data-endkid" : ""} title="Close">${ICON.x}</em>` : "";
   return `<button class="dsubrow" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}</button>`;
 }
 
@@ -145,7 +146,7 @@ ${at}`));
   return { html: open.map(at => subRow(at, true)).join(""), count: open.length };
 }
 
-/// Closes a finished subagent's row in the pane.
+/// Takes a finished subagent's row out of the pane.
 export function closeSub(at: number) {
   closedSubs.add(`${AG.open?.session}
 ${at}`);
