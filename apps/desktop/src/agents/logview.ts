@@ -118,7 +118,8 @@ function subOf(at: number) {
 }
 
 /// One subagent as a row: its name, how it stands, how long and how many steps.
-function subRow(at: number) {
+/// In the pane a finished one can be closed.
+function subRow(at: number, inPane = false) {
   const x = subOf(at);
   const kid = x.sub.child;
   const st = kid ? kidState(kid.state) : x.working ? "working" : x.failed ? "failed" : "done";
@@ -127,7 +128,29 @@ function subRow(at: number) {
   const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
   // A child opens as the session it is; a subagent opens in this one.
   const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : `data-sub="${at}"`;
-  return `<button class="dsubrow" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span></button>`;
+  const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}" title="Close">${ICON.x}</em>` : "";
+  return `<button class="dsubrow" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}</button>`;
+}
+
+/// Subagents closed in the pane, by session and the call's place. The log keeps them.
+const CLOSED_SUBS_KEY = "closed-subagents";
+const CLOSED_SUBS_KEPT = 500;
+const closedSubs = new Set<string>();
+try { for (const key of JSON.parse(localStorage.getItem(CLOSED_SUBS_KEY) ?? "[]")) closedSubs.add(key); } catch { /* none kept */ }
+
+/// The pane's list: the subagents shown in the log, less those closed.
+function paneSubs(p: AgentPage) {
+  const open = subagentsShown(p).filter(at => !closedSubs.has(`${AG.open?.session}
+${at}`));
+  return { html: open.map(at => subRow(at, true)).join(""), count: open.length };
+}
+
+/// Closes a finished subagent's row in the pane.
+export function closeSub(at: number) {
+  closedSubs.add(`${AG.open?.session}
+${at}`);
+  try { localStorage.setItem(CLOSED_SUBS_KEY, JSON.stringify([...closedSubs].slice(-CLOSED_SUBS_KEPT))); } catch { /* kept for this launch only */ }
+  if (AG.page) drawPane(paneSubs(AG.page));
 }
 
 /// How an agent another agent started stands, as its card says.
@@ -141,7 +164,7 @@ function subCard(ats: number[]) {
   const done = all.length - working - failed;
   const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
   const head = ats.length > 1 ? `<div class="h">${SUB_ICON}<b>${ats.length} ${all.every(x => x.sub.child) ? "agents started" : "subagents"}</b><span>${esc(counts)}</span></div>` : "";
-  return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(subRow).join("")}</div>`;
+  return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(at => subRow(at)).join("")}</div>`;
 }
 
 /// The places of the subagents' calls among the entries shown.
@@ -479,12 +502,12 @@ export function drawAgentBody(keep?: string, polled = false) {
     : AG.note && AG.note === AG.readError && AG.note.startsWith("Reconnecting") ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
-  const subs = child == null ? subagentsShown(p) : [];
+  const subs = child == null ? paneSubs(p) : { html: "", count: 0 };
   if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, chunks, polled)) { AG.rest = ""; return; }
   // The pane follows the agent, or the subagent opened, into a worktree.
   followAgent(p.entries, p.earlier, child != null ? subOf(child).sub.steps.map(st => st.title) : null);
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
-  drawPane({ html: subs.map(subRow).join(""), count: subs.length }, arts);
+  drawPane(subs, arts);
   fillAgentPics(b);
   attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
   drawModelPill();
