@@ -813,8 +813,15 @@ impl Actor {
 
     /// The session takes prompts: sends the first one waiting.
     fn idle(&mut self, cx: &ConnectionTo<Agent>) {
-        self.live
-            .send_modify(|live| live.info.state.status = Status::Idle);
+        // A prompt that goes out at once leaves no moment of Idle to read:
+        // only a session with nothing to do, or one held for an update,
+        // waits for a prompt.
+        let goes_now =
+            !(self.queued.is_empty() && self.steers.is_empty()) && !*self.holding.borrow();
+        if !goes_now {
+            self.live
+                .send_modify(|live| live.info.state.status = Status::Idle);
+        }
         self.next_prompt(cx);
     }
 }

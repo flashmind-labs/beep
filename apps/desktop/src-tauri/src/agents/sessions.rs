@@ -8,7 +8,7 @@ use crate::{
     center::AgentsShown,
     chat::markdown,
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, agents as direct, extra},
+    fleet::{Fleet, Machines, SessionParent, agents as direct, extra},
     machines::list::Outside,
     projects::{known, unknown_op},
 };
@@ -74,6 +74,8 @@ pub struct SessionRow {
     last_activity: u64,
     external: bool,
     question: Option<AgentQuestion>,
+    /// The session whose agent started this one.
+    parent: Option<SessionParent>,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -91,6 +93,7 @@ impl From<MachineSession> for SessionRow {
             doing: session.doing,
             external: session.external,
             question: session.question,
+            parent: None,
         }
     }
 }
@@ -222,7 +225,16 @@ pub async fn agent_sessions(
     held: State<'_, Outside>,
 ) -> Result<Vec<SessionRow>> {
     let sessions = machine_sessions(&app, &beep, &fleet, &held).await;
-    Ok(sessions.into_iter().map(SessionRow::from).collect())
+    Ok(sessions
+        .into_iter()
+        .map(|session| {
+            let parent = fleet.parent_of(&session.machine_id, &session.id);
+            SessionRow {
+                parent,
+                ..SessionRow::from(session)
+            }
+        })
+        .collect())
 }
 
 /// Whether two listings of a session differ in what the windows draw, which

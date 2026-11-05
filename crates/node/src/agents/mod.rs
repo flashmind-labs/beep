@@ -26,6 +26,7 @@ mod checkout;
 mod compaction;
 mod custom_agents;
 mod delete;
+mod family;
 mod flsh_config;
 mod found_sessions;
 mod harnesses;
@@ -144,6 +145,8 @@ pub struct Agents {
     /// The workspace and the folders shared in `node.toml`, which file
     /// requests may reach beside the sessions' folders.
     folders: OnceLock<Vec<PathBuf>>,
+    /// The sessions that started sessions, and the children on other machines.
+    family: family::Family,
     /// How sessions start the Beep MCP server, once the node serves it.
     mcp: OnceLock<(Arc<Launch>, Upstream)>,
     /// Set once the node is stopping.
@@ -183,6 +186,7 @@ impl Agents {
             settings: harnesses::Settings::default(),
             latest: harnesses::Latest::default(),
             folders: OnceLock::new(),
+            family: family::Family::default(),
             mcp: OnceLock::new(),
             stopping: Arc::default(),
             holding: watch::Sender::new(false),

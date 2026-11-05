@@ -4,7 +4,8 @@ import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import type { AgentRow, Started } from "./agents.ts";
-import { loadSessions } from "./sessions.ts";
+import { parentRow } from "./nesting-state.ts";
+import { loadSessions, sessions } from "./sessions.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 
 /// Opens the menu for `s` where `e` was clicked. `open` is what clicking the row does.
@@ -15,6 +16,8 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
   const build = (folder: string | null, reachable: boolean) => {
     const offers = sessionOffers(s, reachable);
     const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
+    const parent = parentRow(sessions, s);
+    if (parent) items.push({ label: "Open parent", on: () => open(parent) });
     if (offers.stop) items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
     if (offers.resume) {
       items.push({ label: "Resume", on: () => void invoke<Started>("agent_resume", at).then(started => open(started.session), err => console.warn("resume:", err)) });

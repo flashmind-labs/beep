@@ -108,9 +108,11 @@ export interface SubStep {
 
 /// A subagent's call, read from its output: the node writes `[steps] N`
 /// first, then `[step <status>] <title>` for each of the last steps, then
-/// `[agent] <name>` when it knows its type or custom agent's name, before
-/// what the subagent answered. Null for any other call.
-export function subagent(output: string): { count: number; steps: SubStep[]; result: string; agent?: string } | null {
+/// `[agent] <name>` when it knows its type or custom agent's name, then, for
+/// an agent another agent started, `[child] <id>@<machine> <state> <key>`
+/// (the session to open), before what the subagent answered. Null for any
+/// other call.
+export function subagent(output: string): { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild } | null {
   const lines = output.split("\n");
   const head = /^\[steps\] (\d+)$/.exec(lines[0] ?? "");
   if (!head) return null;
@@ -123,8 +125,30 @@ export function subagent(output: string): { count: number; steps: SubStep[]; res
   }
   const named = /^\[agent\] (.+)$/.exec(lines[i] ?? "");
   if (named) i++;
+  const kid = /^\[child\] (\S+) (\S+)(?: (\S+))?$/.exec(lines[i] ?? "");
+  if (kid) i++;
+  // What the child's own session spent: shown on the card, never added to the parent's.
+  const spend = kid ? /^\[spend\] (\d+) (\S+)$/.exec(lines[i] ?? "") : null;
+  if (spend) i++;
   const result = lines.slice(i).join("\n").trim();
-  return named ? { count: Number(head[1]), steps, result, agent: named[1].trim() } : { count: Number(head[1]), steps, result };
+  const out: { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild } = { count: Number(head[1]), steps, result };
+  if (named) out.agent = named[1].trim();
+  if (kid) out.child = { id: kid[1], state: kid[2], key: kid[3] ?? "" };
+  if (kid && spend) out.child = { ...out.child!, tokens: Number(spend[1]), cost: spend[2] === "-" ? null : Number(spend[2]) };
+  return out;
+}
+
+/// The session an agent started, as its card in the parent's log names it.
+export interface SubChild {
+  /// `<session>@<machine>`.
+  id: string;
+  /// working, waiting_on_user, idle or ended.
+  state: string;
+  /// The id its machine lists it under; empty when the node did not say.
+  key: string;
+  /// What its session spent, when the node said: tokens and US dollars (null when unpriced).
+  tokens?: number;
+  cost?: number | null;
 }
 
 /// One question Codex asked and the user's answer, as its echo of the

@@ -2,16 +2,16 @@
 
 use super::{
     AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, MAX_RUNNING, NodeMode, Session, Start,
-    checkout, harnesses, models, plans,
+    checkout, harnesses, live::Live, models, plans,
 };
 use crate::{
-    agents::mcp::{Launch, Upstream},
+    agents::mcp::{self, Launch, Upstream},
     machine::provision::spawn_env::{self, Scope},
     run::process,
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    agent::{self, CheckoutPlan, ModelList, SESSIONS_PROTOCOL, SessionInfo, Status},
+    agent::{self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionInfo, Status},
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
@@ -23,7 +23,10 @@ use std::{
     path::{Component, Path, PathBuf},
     sync::{Arc, MutexGuard, atomic::Ordering},
 };
-use tokio::{sync::oneshot, task::spawn_blocking};
+use tokio::{
+    sync::{oneshot, watch},
+    task::spawn_blocking,
+};
 
 impl Agents {
     /// Gives the sessions started from now on the Beep MCP server, as
@@ -65,6 +68,17 @@ impl Agents {
     /// came before them, each Codex subagent among them with the steps
     /// its rollout holds: codex-acp sends none of them.
     pub(super) async fn live_transcript(
+        &self,
+        session: &Session,
+        last: usize,
+        before: Option<u64>,
+    ) -> (Vec<agent::Entry>, u64) {
+        let (mut entries, earlier) = self.codex_transcript(session, last, before).await;
+        mcp::children::show_children(self, session, &mut entries);
+        (entries, earlier)
+    }
+
+    async fn codex_transcript(
         &self,
         session: &Session,
         last: usize,
@@ -325,6 +339,8 @@ impl Agents {
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
+            parent: begin.parent,
+            follows: begin.follows,
             note: begin.note,
             brief: begin.brief,
             mcp: self.mcp.get().map(|(launch, _)| launch.server(&id)),
@@ -388,6 +404,10 @@ pub(super) struct Begin {
     pub(super) note: Option<String>,
     /// Beep's word to the agent ahead of the first prompt.
     pub(super) brief: Option<&'static str>,
+    /// The session that started this one with `start_agent`.
+    pub(super) parent: Option<ParentLink>,
+    /// The parent's state when it runs here.
+    pub(super) follows: Option<watch::Receiver<Live>>,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or

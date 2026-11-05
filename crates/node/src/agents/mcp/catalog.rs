@@ -44,17 +44,13 @@ fn all() -> Value {
             "description": "Run a shell command on one of the user's machines and return its \
                 exit code and the last 200 lines of output (stops after timeout_secs, default \
                 600, at most 1800), or with background=true start it there and return a job id \
-                at once. Or give `prompt` instead of `command` to start a coding agent there \
-                with that prompt; it returns the agent session's job id at once and runs on its \
-                own. Follow either with job_status and cancel. Commands start in the machine's \
-                home folder, or in `cwd`.",
+                at once. Follow a background command with job_status and cancel. It starts in \
+                the machine's home folder, or in `cwd`. To start a coding agent use start_agent.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "machine": machine("The machine, by its name in list_machines"),
                     "command": { "type": "string", "description": "The shell command to run" },
-                    "prompt": { "type": "string", "description": "Starts a coding agent with this prompt instead of running a command" },
-                    "agent": { "type": "string", "description": "The coding agent for `prompt` when the machine has several, such as claude or codex" },
                     "cwd": { "type": "string", "description": "The folder on that machine to run in" },
                     "timeout_secs": { "type": "integer", "minimum": 1, "maximum": 1800 },
                     "background": { "type": "boolean", "description": "Starts the command and returns a job id without waiting" }
@@ -102,8 +98,8 @@ fn all() -> Value {
         },
         {
             "name": "job_status",
-            "description": "How a job run_on started stands: a background command's state and \
-                latest output, or a coding agent's status, plan and last message.",
+            "description": "How a background command run_on started stands: its state and latest \
+                output. For a coding agent use agent_status.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "id": { "type": "string", "description": "The job id run_on gave" } },
@@ -114,8 +110,8 @@ fn all() -> Value {
         },
         {
             "name": "cancel",
-            "description": "Stop a job run_on started: a background command stops with \
-                everything it started; a coding agent stops its turn and its session stays.",
+            "description": "Stop a background command run_on started, with everything it \
+                started. For a coding agent use stop_agent.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "id": { "type": "string", "description": "The job id run_on gave" } },
@@ -139,6 +135,78 @@ fn all() -> Value {
                 "additionalProperties": false
             },
             "annotations": { "title": "Read a machine's log", "readOnlyHint": true }
+        },
+        {
+            "name": "start_agent",
+            "description": "Start another coding agent, of any harness, on any of the user's \
+                machines, linked to this session: it shows under this session for the user, \
+                who answers any permission question it asks. It starts in your folder (on \
+                another machine, in the same project's checkout there) unless you give `cwd`, \
+                and never above your own permission mode. Agents may start agents at most 3 \
+                levels deep, and a session may have 8 running. Returns its id, or with \
+                `wait` its answer once its turn ends; `wait` returns after about 45 seconds \
+                at the latest with its state, so check long jobs with agent_status.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "harness": { "type": "string", "description": "The coding agent, such as claude or codex, as list_machines names it" },
+                    "prompt": { "type": "string", "description": "What the agent should do; it has no other context" },
+                    "machine": machine("The machine, by its name in list_machines; this machine when left out"),
+                    "cwd": { "type": "string", "description": "The folder to work in on that machine" },
+                    "model": { "type": "string", "description": "The model, when not the agent's own" },
+                    "wait": { "type": "boolean", "description": "Wait for its first turn to end, up to about 45 seconds" }
+                },
+                "required": ["harness", "prompt"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Start an agent", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
+            "name": "agent_status",
+            "description": "How an agent you started stands: its state (working, waiting_on_user, \
+                idle or ended), title, last message, how many files it changed and, when it \
+                waits on a question, the question. You cannot answer its questions; the user \
+                does. Only your own agents.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string", "description": "The id start_agent gave" } },
+                "required": ["id"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Agent status", "readOnlyHint": true }
+        },
+        {
+            "name": "send_to_agent",
+            "description": "Send a message to an agent you started. It reads it after its current \
+                turn. Only your own agents.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "The id start_agent gave" },
+                    "text": { "type": "string" }
+                },
+                "required": ["id", "text"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Message an agent", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
+            "name": "stop_agent",
+            "description": "Stop an agent you started: its session ends, and so do the agents it \
+                started. It stays in the user's list. Only your own agents.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string", "description": "The id start_agent gave" } },
+                "required": ["id"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Stop an agent" }
+        },
+        {
+            "name": "list_agents",
+            "description": "List the agents you started, on every machine, with their state.",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+            "annotations": { "title": "List agents", "readOnlyHint": true }
         },
         {
             "name": "remember",

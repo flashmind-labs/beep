@@ -337,12 +337,66 @@ chats|settings|memories|routines` as launch arguments
 (`xcrun simctl launch booted com.flashmind.beep -send "hi"`), so it can be
 tested without tapping.
 
+## Agents that start agents
+
+A coding agent starts another, of any harness, on any machine, with the
+`start_agent` tool of the Beep MCP server (`agent_status`, `send_to_agent`,
+`stop_agent`, `list_agents` follow it). The child is a normal session whose
+`SessionInfo::parent` names the caller. Code: `crates/node/src/agents/family.rs`
+(links, limits, cascade) and `mcp/children.rs` (the tools). A node answers
+them itself, never the server. Another machine's node takes them as `tools/1`
+requests (`Tool::StartAgent` and friends, which an older node reads as
+`Unknown`), and a desktop refuses `start_agent` from another node.
+
+- Depth at most 3 and at most 8 live agents per root, checked by the node
+  that starts the child from the `ParentLink` the caller passes (depth,
+  root, `others` counted on earlier machines). A node runs 8 sessions at
+  most, so on one machine a root has 7 children.
+- An agent reaches only its own children, by the same refusal for an id that
+  is not its own as for one that does not exist. Only the user answers a
+  child's permission questions. A child never runs above its parent's mode:
+  a parent below full access starts only children of its own harness, in its
+  mode.
+- Stop (the turn) on a parent stops its children's turns, here and on other
+  machines. A parent that ends for good closes its children. A parent that
+  ends with the node does not: both resume from `reopen.json` (`OpenSession`
+  keeps `parent` and the children on other machines). A child whose parent's
+  node crashed stays running and shows as a top-level session.
+- `wait` returns after 45 seconds at the latest with the child's state:
+  Codex gives an MCP tool call 60 seconds by default (`tool_timeout_sec`),
+  and Claude Code far longer, so a long job is polled with `agent_status`.
+- Spend is reported per session (`tokens`, `cost_usd` in the status) and never
+  added to the parent's.
+- In the desktop a child is a card in the parent's log (the subagent card,
+  with a `[child]` line) and nests under its parent in the session list.
+  `MachineSession` has no parent; the desktop reads it from the node's
+  `SessionInfo` (`fleet/parents.rs`).
+
+To make a harness's own subagent tool hand work to `start_agent`, add a
+project-level agent file. Beep does not install these. For Claude Code,
+`.claude/agents/codex-worker.md`:
+
+    ---
+    name: codex-worker
+    description: Hands a self-contained task to a Codex agent through Beep and reports its answer.
+    tools: mcp__beep__start_agent, mcp__beep__agent_status
+    ---
+    Call mcp__beep__start_agent once with harness "codex", the whole task as
+    the prompt and wait true. While its state is working, call
+    mcp__beep__agent_status with its id. Answer with its last_message.
+
+For Codex, `.codex/agents/claude_worker.toml` (lowercase letters, digits and
+underscores in the name; `description` and `developer_instructions` are
+required) says the same with `harness` set to `claude` and the tools named
+`start_agent` and `agent_status`.
+
 ## Code map: beep-node
 
 `crates/node/src`, one line per top-level module:
 
 - `agents/`: coding agents run over ACP, their sessions and spend, sessions
-  found on disk (`claude/`, `found/`) and the Beep MCP server (`mcp/`).
+  found on disk (`claude/`, `found/`), the Beep MCP server (`mcp/`) and the
+  agents that start agents (`family.rs`, `mcp/children.rs`).
 - `files/`: shared folders (`Folders`), project sync, Syncthing checks,
   node-to-node transfers and the git checkout search.
 - `link/`: the node's key and settings (`state`), linking and the control

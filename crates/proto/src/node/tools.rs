@@ -45,6 +45,19 @@ pub enum Tool {
     Recall,
     UpdateMemory,
     Forget,
+    /// Starts a coding agent linked to the calling session, on the machine
+    /// that answers. Between nodes only: the server never runs it.
+    StartAgent,
+    AgentStatus,
+    SendToAgent,
+    StopAgent,
+    ListAgents,
+    /// A node asks the node of a session that started its agent whether it still
+    /// keeps that agent, so one whose parent is gone closes. Between nodes only.
+    AgentParent,
+    /// A node asks another how many live agents run there under a root session,
+    /// to hold the limit across machines. Between nodes only.
+    AgentCount,
     /// Not a tool agents see: the node reads it for a session's first prompt.
     /// `Done` with the text, empty when there are none.
     StandingRules,
@@ -106,6 +119,33 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_agent_tools_go_by_their_names_and_an_older_server_reads_them_as_unknown() {
+        for (tool, name) in [
+            (Tool::StartAgent, "start_agent"),
+            (Tool::AgentStatus, "agent_status"),
+            (Tool::SendToAgent, "send_to_agent"),
+            (Tool::StopAgent, "stop_agent"),
+            (Tool::ListAgents, "list_agents"),
+            (Tool::AgentParent, "agent_parent"),
+            (Tool::AgentCount, "agent_count"),
+        ] {
+            assert_eq!(tool.to_string(), name);
+            assert_eq!(name.parse::<Tool>(), Ok(tool));
+            let bytes = rmp_serde::to_vec_named(&tool).expect("encodes");
+            assert_eq!(
+                rmp_serde::from_slice::<Tool>(&bytes).expect("decodes"),
+                tool
+            );
+        }
+        // What a node from before the tools sends for one it does not know.
+        let bytes = rmp_serde::to_vec_named("schedule").expect("encodes");
+        assert_eq!(
+            rmp_serde::from_slice::<Tool>(&bytes).expect("decodes"),
+            Tool::Unknown
+        );
+    }
 
     #[test]
     fn an_unknown_tool_and_a_missing_approval_still_read() {

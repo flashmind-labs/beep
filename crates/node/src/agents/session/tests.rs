@@ -729,6 +729,8 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         model: model.map(ModelId::new),
         effort: None,
         mode: None,
+        parent: None,
+        follows: None,
         note: None,
         brief: None,
         mcp: None,
