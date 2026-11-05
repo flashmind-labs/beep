@@ -2,6 +2,7 @@
 // thoughts, subagents and questions, and where it scrolls.
 import { esc, linkified } from "../ui/format.ts";
 import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
@@ -27,7 +28,7 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
   const { title, status, output } = log.parseTool(en.text);
   if (log.subagent(output)) return subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
-  const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.opened.has(at));
+  const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.steps.get(at));
   // A command in the background runs on after its turn ended.
   const live = status === "in_progress" && (AGENT_ACTIVE.has(AG.page?.session.status) || backgroundedEntry(at));
   const label = stepLabel(en.text, live, open);
@@ -53,7 +54,7 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   }
   // Opened, a command or a long title leaves the row's one line and shows whole under it.
   const wrapped = open && (parts.kind === "command" || long);
-  const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${esc(parts.target)}</pre>` : "") + toolBody(output);
+  const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
   return toolRowHtml({
     ...parts, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
@@ -250,8 +251,11 @@ function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
   m.running = running;
 }
 
+/// The places of the tool rows the reader opened.
+const openedSteps = () => new Set([...AG.steps].filter(([, open]) => open).map(([at]) => at));
+
 /// The newest step of the running turn, which starts open when it failed.
-let newestStep: number | null = null;
+export let newestStep: number | null = null;
 
 /// When each turn shown started, by its message's place, as the last draw
 /// worked it out; for the Artifacts tab.
@@ -268,7 +272,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
     return en.kind === "tool" && !!AG.log?.subagent(AG.log.parseTool(en.text).output);
   };
   const flush = () => { if (run.length) out.push(subCard(run)); run = []; };
-  for (const group of AG.log ? toolRuns(p.entries, ats, p.earlier) : ats.map(at => [at])) {
+  for (const group of AG.log ? toolRuns(p.entries, ats, p.earlier, openedSteps()) : ats.map(at => [at])) {
     if (group.length > 1) { flush(); out.push(runRow(p, group)); continue; }
     const at = group[0];
     if (isSub(at)) { run.push(at); continue; }
@@ -326,7 +330,7 @@ function turnsHtml(p: AgentPage) {
     if (newest != null) newestStep = newest;
     if (opened) work = rowsOf(p, t.steps);
     else {
-      const kept = new Set(keptSteps(p.entries, t, p.earlier));
+      const kept = new Set(keptSteps(p.entries, t, p.earlier, openedSteps()));
       if (newest != null) kept.add(newest);
       // While it runs, the thoughts since the newest step stay in view.
       if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
@@ -401,6 +405,13 @@ function restoreScroll(b: HTMLElement, a: ScrollAnchor) {
   const el = a.sel != null ? b.querySelector<HTMLElement>(a.sel) : null;
   if (el) b.scrollTop = keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top);
   else b.scrollTop = a.scroll;
+}
+
+/// The row in view at the top of the log, to pass to `drawAgentBody` as the
+/// row that stays where it is when a key opens or folds many rows at once.
+export function rowInView() {
+  const b = $<ChatBody>("#agbody");
+  return (b && scrollAnchor(b).sel) || "[data-row]";
 }
 
 /// Draws the log again. `keep` finds the row the reader just opened or

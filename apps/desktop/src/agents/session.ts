@@ -32,7 +32,7 @@ export function openAgent(s: AgentRow, { why = "", back: from }: { why?: string;
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
     why, back: from, note: "", sig: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
+    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
   });
   drawAgentFrame();
   pollAgent();
@@ -55,6 +55,17 @@ export function agentDelay() {
   const still = Date.now() - AG.changed;
   if (still >= AGENT_PAUSE_AFTER) return null;
   return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
+}
+
+/// Whether the reader is selecting text in the log or has some selected. A
+/// redraw replaces the rows, which loses where a selection started, so a poll
+/// waits and draws once the selection is gone.
+function selecting() {
+  const log = $("#agbody");
+  if (!log) return false;
+  if (log.matches(":active")) return true;
+  const selection = getSelection();
+  return !!selection && !selection.isCollapsed && log.contains(selection.anchorNode);
 }
 
 /// Asks for the open session, then again after `agentDelay()` while it
@@ -82,7 +93,7 @@ export async function pollAgent() {
       AG.readError = "";
       if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
       markDelivered(AG.queue, page.queued, read);
-      drawAgentBody();
+      if (!selecting()) drawAgentBody();
       void readUsage(o, page);
       flushQueue();
     }
@@ -149,11 +160,11 @@ export function agentHints() {
   if (turnRuns()) {
     const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
     if (stoppingNow()) return slim(keys);
-    return slim([...keys, ...mode, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["esc", "back"]]);
+    return slim([...keys, ...mode, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
   }
   // Once one is attached its chip says enough.
   const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ...mode, ["esc", "back"]]);
+  return slim([...paste, [ICON.ret, "send"], ...mode, ["⌘T", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
@@ -334,7 +345,7 @@ function agentClick(e: MouseEvent) {
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
   if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd")) {
     const at = Number(tool.dataset.at);
-    if (!AG.opened.delete(at)) AG.opened.add(at);
+    AG.steps.set(at, !tool.classList.contains("open"));
     return drawAgentBody(clickedRow(tool));
   }
   // A pasted block opens by itself; remember it so a redraw keeps it open.
