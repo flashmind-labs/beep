@@ -17,6 +17,7 @@ use beep_proto::node::{
 };
 use beep_proto::{AgentAccount, ModelId};
 use std::{
+    borrow::Cow,
     collections::{HashMap, hash_map::RandomState},
     env,
     hash::BuildHasher,
@@ -258,7 +259,7 @@ impl Agents {
         let prompt = begin.prompt.as_deref().unwrap_or_default();
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
         begin.note = place.note;
-        begin.brief = place.brief;
+        begin.brief = place.brief.map(Cow::Borrowed);
         self.start(kind, place.folder.as_deref(), begin)
     }
 
@@ -386,7 +387,7 @@ pub(super) struct Begin {
     /// A first line for the transcript, such as the branch it started on.
     pub(super) note: Option<String>,
     /// Beep's word to the agent ahead of the first prompt.
-    pub(super) brief: Option<&'static str>,
+    pub(super) brief: Option<Cow<'static, str>>,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or

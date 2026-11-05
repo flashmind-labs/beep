@@ -217,3 +217,33 @@ fn the_window_starts_on_an_hour() {
     assert_eq!(a.since % 3600, 0);
     assert!((cost(a) - 3.0).abs() < 1e-9, "{a:?}");
 }
+
+#[test]
+fn a_moved_transcript_is_not_counted_again_but_what_follows_is() {
+    let fixture = fixture();
+    let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let moved = fixture
+        .roots
+        .claude
+        .clone()
+        .expect("a claude root")
+        .join("-work-app/s9.jsonl");
+    let line = claude_line("s9", "m9", "2026-11-03T08:30:00.000Z", 1_000_000);
+    append(&moved, &line);
+    spend
+        .mark_counted(Agent::Claude, "s9", &moved)
+        .expect("marked");
+    let reports = spend.pass(NOW);
+    assert!(
+        !by_session(&reports).contains_key("s9"),
+        "the machine it came from counted that: {reports:?}"
+    );
+    // A turn run here is counted, once.
+    append(
+        &moved,
+        &claude_line("s9", "m10", "2026-11-03T08:40:00.000Z", 200_000),
+    );
+    let reports = spend.pass(NOW);
+    let sessions = by_session(&reports);
+    assert!((cost(sessions["s9"]) - 1.0).abs() < 1e-9, "{reports:?}");
+}

@@ -6,21 +6,65 @@ mod alpn;
 mod claude;
 mod codex;
 mod folder;
+mod follow;
 mod json;
 mod pi;
+mod progress;
 mod read;
+mod saved;
+mod source;
 mod store;
+mod target;
 
+#[cfg(all(test, unix))]
+mod move_tests;
 #[cfg(test)]
 mod read_tests;
 #[cfg(test)]
 mod tests;
 
 pub use alpn::SessionsAlpn;
+pub(crate) use follow::follow;
+pub(crate) use progress::Moves;
 pub(crate) use read::ALPN as SESSIONS_ALPN;
 
-use super::found::Agent;
-use std::path::{Path, PathBuf};
+use super::{Agents, found::Agent};
+use crate::files::sync::Syncs;
+use iroh::{Endpoint, EndpointId};
+use saved::Folder;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use store::StoreRoots;
+
+/// The most moves one node takes part in at once.
+const MAX_MOVES: usize = 8;
+
+/// What the moves of this node share.
+struct Env {
+    agents: Arc<Agents>,
+    mesh: beep_mesh::Mesh,
+    endpoint: Endpoint,
+    /// The synced projects, once this node shares folders.
+    syncs: Option<Syncs>,
+    state: Folder,
+    roots: StoreRoots,
+}
+
+impl Env {
+    /// What the mesh calls `device`, for a line in a session.
+    fn name_of(&self, device: &EndpointId) -> String {
+        self.mesh
+            .devices()
+            .into_iter()
+            .find(|status| status.device.id == *device)
+            .map_or_else(
+                || device.fmt_short().to_string(),
+                |status| status.device.name,
+            )
+    }
+}
 
 /// The harnesses a session can move between.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

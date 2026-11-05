@@ -239,7 +239,7 @@ impl Actor {
         };
         // Held for an update; they go when the hold ends, or after the
         // restart.
-        if *self.holding.borrow() {
+        if *self.holding.borrow() || self.moving {
             return;
         }
         if self.queued.is_empty() && self.steers.is_empty() {

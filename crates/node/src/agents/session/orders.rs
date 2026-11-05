@@ -80,6 +80,29 @@ impl Actor {
                 Ok(Ok(()))
             }
             Command::Close => Ok(Ok(())),
+            Command::Moving { stop } => {
+                self.moving = true;
+                if stop {
+                    while let Some(asked) = self.asked.pop_front() {
+                        asked.waiting.cancel()?;
+                    }
+                    if let Some(session) = &self.acp_session
+                        && self.live.borrow().status() != Status::Idle
+                    {
+                        cx.send_notification(CancelNotification::new(session.clone()))?;
+                    }
+                    self.show_question();
+                    self.stop_due();
+                }
+                Ok(Ok(()))
+            }
+            Command::NotMoving => {
+                self.moving = false;
+                if self.live.borrow().status() == Status::Idle {
+                    self.next_prompt(cx);
+                }
+                Ok(Ok(()))
+            }
             Command::Ask { question, reply } => {
                 let question = Question {
                     id: 0,

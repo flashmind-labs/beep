@@ -55,6 +55,8 @@ pub enum Key {
     InstructionVersion(String),
     /// A terminal kept running on a machine: `terminal/<id>`.
     Terminal(String),
+    /// A coding agent session moving to another machine: `session-move/<id>`.
+    SessionMove(String),
     /// A value an account move could not bring from the server, as the record of what to enter
     /// again: `unmoved/credential/<id>` or `unmoved/harness/<agent>/<VAR>`. Nodes keep the
     /// server's values of that family while any record of it remains.
@@ -76,6 +78,7 @@ impl fmt::Display for Key {
             Key::Flsh => f.write_str("flsh"),
             Key::InstructionVersion(n) => write!(f, "instructions/{n}"),
             Key::Terminal(n) => write!(f, "terminal/{n}"),
+            Key::SessionMove(n) => write!(f, "session-move/{n}"),
             Key::Unmoved(n) => write!(f, "unmoved/{n}"),
             Key::Other(text) => f.write_str(text),
         }
@@ -104,6 +107,7 @@ impl FromStr for Key {
             "harness" => Ok(Key::Harness(name)),
             "instructions" => Ok(Key::InstructionVersion(name)),
             "terminal" => Ok(Key::Terminal(name)),
+            "session-move" => Ok(Key::SessionMove(name)),
             "unmoved" => Ok(Key::Unmoved(name)),
             // Not a kind this build knows, but well formed: kept as it is.
             other if kind_is_well_formed(other) && other != "flsh" => Ok(Key::Other(s.to_owned())),
@@ -700,6 +704,7 @@ mod tests {
             Key::Flsh,
             Key::InstructionVersion("1793000000000.a".into()),
             Key::Terminal("t1".into()),
+            Key::SessionMove("0b1c2d3e".into()),
             Key::Unmoved("credential/7".into()),
             Key::Other("future-kind/x y".into()),
         ];
