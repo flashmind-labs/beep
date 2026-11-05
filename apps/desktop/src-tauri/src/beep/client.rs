@@ -7,10 +7,12 @@ use crate::{
     beep::state::{LinkState, NoticeVoice, Saved, StateFile},
     beep::sync::Chats,
     error::{DesktopError, Result},
+    projects::known,
 };
 use beep_proto::{
-    ApiError, Call, Duplex, GetFile, ListSessions, Notice, Platform, RemoveDevice, SearchSessions,
-    Session, SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe, Transcription,
+    ApiError, Call, Duplex, GetFile, ListChats, ListSessions, Notice, Platform, RemoveDevice,
+    SearchChats, SearchSessions, Session, SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe,
+    Transcription,
     client::{Client, Node, OnNotice, PushHandler, Replies, Uplink},
 };
 use iroh::{Endpoint, EndpointId};
@@ -422,7 +424,11 @@ impl Beep {
     pub async fn sessions(&self) -> Result<Vec<Session>> {
         match self.chats.sessions() {
             Some(sessions) => Ok(sessions),
-            None => self.call(ListSessions {}).await,
+            // Without the alerts; a server from before them lists all.
+            None => match known(self.call(ListChats {}).await)? {
+                Some(chats) => Ok(chats),
+                None => self.call(ListSessions {}).await,
+            },
         }
     }
 
@@ -435,7 +441,15 @@ impl Beep {
             .map_err(anyhow::Error::from)?;
         match copy {
             Some(found) => Ok(found),
-            None => self.call(SearchSessions { query }).await,
+            None => match known(
+                self.call(SearchChats {
+                    query: query.clone(),
+                })
+                .await,
+            )? {
+                Some(found) => Ok(found),
+                None => self.call(SearchSessions { query }).await,
+            },
         }
     }
 

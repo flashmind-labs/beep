@@ -57,7 +57,10 @@ impl User {
     }
 
     pub async fn read_alerts(&self, ids: &[Uuid]) -> Result<()> {
-        self.store.read_alerts(&self.key, ids).await
+        self.store.read_alerts(&self.key, ids).await?;
+        // Other devices' badges follow.
+        self.changed("");
+        Ok(())
     }
 
     pub async fn dismiss_alerts(&self, ids: &[Uuid]) -> Result<()> {

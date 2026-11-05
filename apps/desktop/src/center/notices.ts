@@ -32,7 +32,10 @@ export function mountNotices(host: HTMLElement) {
   host.classList.add("nt");
 
   const set = (next: Alerts) => {
+    // An opened alert that did not change keeps its view, and the reply typed in it.
+    const same = open && opened && JSON.stringify(find(alerts, opened)) === JSON.stringify(find(next, opened));
     alerts = next;
+    if (same) return drawBell();
     if (wanted && find(alerts, wanted)) opened = wanted;
     wanted = null;
     // An opened alert that is gone, dismissed or a chat now, shows the list.
@@ -47,9 +50,7 @@ export function mountNotices(host: HTMLElement) {
     draw();
   };
 
-  const draw = () => {
-    host.hidden = !bellShown(alerts);
-    if (!bellShown(alerts)) return host.replaceChildren();
+  const makeBell = () => {
     const count = badge(alerts);
     const bell = h("button", "nt-bell", svgEl(BELL)!, count ? h("span", "nt-n", count) : null);
     bell.type = "button";
@@ -57,6 +58,20 @@ export function mountNotices(host: HTMLElement) {
     bell.setAttribute("aria-label", bellLabel(alerts));
     bell.setAttribute("aria-expanded", String(open));
     bell.addEventListener("click", () => toggle(!open));
+    return bell;
+  };
+
+  /// Redraws the bell alone, leaving the pane as it is.
+  const drawBell = () => {
+    const first = host.firstElementChild;
+    if (first && bellShown(alerts)) first.replaceWith(makeBell());
+    else draw();
+  };
+
+  const draw = () => {
+    host.hidden = !bellShown(alerts);
+    if (!bellShown(alerts)) return host.replaceChildren();
+    const bell = makeBell();
     const shown = opened && find(alerts, opened);
     host.replaceChildren(bell, ...(open ? [shown ? openedView(shown) : listView(alerts!)] : []));
   };
