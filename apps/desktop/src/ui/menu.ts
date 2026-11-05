@@ -1,6 +1,6 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
-import { focusBack, sheetShell } from "./parts.ts";
+import { focusBack, openSheet } from "./parts.ts";
 import { button, el, present } from "./dom.ts";
 import { reason } from "./format.ts";
 
@@ -79,17 +79,19 @@ export interface ConfirmOptions {
 /// button runs it and closes the sheet once it worked.
 export function confirmSheet(options: ConfirmOptions) {
   closeMenu();
-  const back = document.activeElement;
-  const { root, sheet } = sheetShell(options.title, "am-sheet");
+  let busy = false;
+  const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
+    canClose: () => !busy,
+    // A modal: no key reaches the page behind it.
+    onKey: e => {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+      e.stopImmediatePropagation();
+      return true;
+    },
+  });
   const error = el("div", "am-msg bad");
   error.hidden = true;
-  let busy = false;
-  const close = () => {
-    if (busy) return;
-    root.remove();
-    document.removeEventListener("keydown", keys, true);
-    focusBack(back);
-  };
+  const close = () => { if (!busy) shut(); };
   const go = async () => {
     if (busy) return;
     busy = true;
@@ -106,10 +108,6 @@ export function confirmSheet(options: ConfirmOptions) {
       error.hidden = false;
     }
   };
-  const keys = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); close(); }
-    e.stopImmediatePropagation();
-  };
   const act = button(options.action, "dbtn warn", go);
   sheet.append(...present([
     el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
@@ -118,8 +116,5 @@ export function confirmSheet(options: ConfirmOptions) {
     error,
     el("div", "gp-foot", button("Cancel", "dbtn quiet", close), act),
   ]));
-  root.addEventListener("mousedown", e => { if (e.target === root) close(); });
-  document.addEventListener("keydown", keys, true);
-  document.body.append(root);
   act.focus();
 }

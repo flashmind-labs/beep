@@ -2,7 +2,7 @@
 // online machine (Auto lets the server pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.ts";
 import { START, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, folderUnder, folderNote, folderHelp } from "./importproject-state.ts";
 import { button, el, present } from "../ui/dom.ts";
 import type { ImportEvent } from "./importproject-state.ts";
@@ -60,7 +60,7 @@ export function keepLastImport(project: ProjectRow) {
 }
 
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
-let macId: string | null = null, back: Element | null = null, onDone: ((project: ProjectRow) => void) | null = null;
+let macId: string | null = null, close: (() => void) | null = null, onDone: ((project: ProjectRow) => void) | null = null;
 /// The repository's checkouts and branches with work, once read: for the repo
 /// text `previewFor`, null from a server too old to say.
 let preview: PreviewView | null | undefined = undefined, previewFor = "", previewError = "", picks: BranchPicks = {};
@@ -90,16 +90,16 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   machines = options.machines || [];
   macId = options.macId || null;
   onDone = options.onDone || null;
-  back = document.activeElement;
   // Start on this Mac when it is one of the machines: Choose… then opens the
   // macOS folder picker straight away.
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
   if (options.machine && machines.some(m => m.id === options.machine)) state = { ...state, machine: options.machine };
   if (options.repo) state = { ...state, repo: options.repo };
-  ({ root, sheet } = sheetShell("Import a project", "am-sheet ip-sheet"));
-  root.addEventListener("mousedown", e => { if (e.target === root && state.step !== "cloning") closeImportProject(); });
-  document.body.append(root);
-  document.addEventListener("keydown", onKey, true);
+  ({ root, sheet, close } = openSheet("Import a project", "am-sheet ip-sheet", {
+    canClose: () => state.step !== "cloning",
+    onKey,
+    onClose: closed,
+  }));
   preview = undefined;
   fork = undefined;
   previewFor = "";
@@ -146,10 +146,11 @@ function schedulePreview() {
 }
 
 export function closeImportProject() {
-  if (!root) return;
-  document.removeEventListener("keydown", onKey, true);
-  root.remove();
-  root = sheet = null;
+  close?.();
+}
+
+function closed() {
+  root = sheet = close = null;
   const done = state.step === "done" ? state.project : null;
   state = START;
   clearTimeout(previewTimer);
@@ -157,19 +158,19 @@ export function closeImportProject() {
   previewFor = "";
   resetFolder();
   listed.clear();
-  focusBack(back);
   const then = onDone;
   onDone = null;
   if (done && then) then(done);
 }
 
+/// Esc first closes the folder menu, then the sheet, cloning or not.
 function onKey(e: KeyboardEvent) {
   if (e.key !== "Escape") return;
   e.preventDefault();
   e.stopPropagation();
-  // Esc first closes the folder menu, then the sheet.
   if (isOpen(menu)) setMenu(NO_MENU);
   else closeImportProject();
+  return true;
 }
 
 function update(event: ImportEvent) {
