@@ -2,7 +2,7 @@
 // last read, and the page cache kept between launches.
 import { PageCache, freshness, type PageSection, type SectionStore } from "../ui/pagecache.ts";
 import { invoke } from "../ui/tauri.ts";
-import { pane, type PaneTarget } from "../bar/pane.ts";
+import type { pane, PaneTarget } from "../bar/pane.ts";
 import type { HomeView } from "./home-state.ts";
 import type { MachineTraffic } from "../machines/traffic-state.ts";
 import type { FoundRow, OverviewCard, Placed, Project, ProjectGroup, ProjectMachineRow, SessionRow } from "../project/projects-state.ts";

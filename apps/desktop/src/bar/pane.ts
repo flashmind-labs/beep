@@ -4,7 +4,6 @@ import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
 import { type AgentRow, loadAgentHosts, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.ts";
-import { openDraft } from "../agents/draft.ts";
 import { newTerminal, openTerminal } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { sessions } from "../agents/sessions.ts";
@@ -108,9 +107,12 @@ export const pane = {
         return openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
       }
       if ("draft" in target) {
-        openDraft(target.draft.project, target.draft.machine);
-        const { terminal } = target.draft;
-        if (terminal === true) newTerminal(); else if (terminal) openTerminal(terminal);
+        // Loaded when needed: it brings in the project page, which only the command center has.
+        void import("../agents/draft.ts").then(m => {
+          m.openDraft(target.draft.project, target.draft.machine);
+          const { terminal } = target.draft;
+          if (terminal === true) newTerminal(); else if (terminal) openTerminal(terminal);
+        });
         return;
       }
       if ("agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
