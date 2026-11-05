@@ -45,10 +45,40 @@ fn parse(text: &str) -> Vec<Worktree> {
     found
 }
 
+/// The checkout a worktree at `path` was made from: the part before a
+/// `.worktrees` or `.claude/worktrees` folder, where Beep and Claude Code
+/// make them. None for any other path. Reads no file system.
+pub(super) fn checkout_of(path: &Path) -> Option<PathBuf> {
+    let parts: Vec<_> = path.components().collect();
+    let is = |at: usize, name: &str| parts.get(at).is_some_and(|part| part.as_os_str() == name);
+    // The folder's own name is not enough: a worktree's name must follow.
+    let at = (0..parts.len()).find(|&at| {
+        (is(at, ".worktrees") && parts.len() > at + 1)
+            || (is(at, ".claude") && is(at + 1, "worktrees") && parts.len() > at + 2)
+    })?;
+    let checkout: PathBuf = parts[..at].iter().collect();
+    checkout.parent().is_some().then_some(checkout)
+}
+
+/// The repository a session folder that is gone was a worktree of: its
+/// [`checkout_of`] when that is a repository now.
+pub(super) fn checkout_of_gone(folder: &Path) -> Option<PathBuf> {
+    if folder.exists() {
+        return None;
+    }
+    let checkout = checkout_of(folder)?;
+    git(&checkout, &["rev-parse", "--git-dir"]).ok()?;
+    Some(checkout)
+}
+
 /// The worktrees of the repository holding `folder`, already resolved and
-/// in reach; the one holding `folder` is marked `own`. None when `folder`
-/// is not in a repository. Blocks on git and the file system.
+/// in reach; the one holding `folder` is marked `own`. When `folder` is a
+/// removed worktree, those of its main checkout, which is `own`. None when
+/// `folder` is not in a repository. Blocks on git and the file system.
 pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
+    if let Some(checkout) = checkout_of_gone(folder) {
+        return list(&checkout);
+    }
     let text = match git(folder, &["worktree", "list", "--porcelain"]) {
         Ok(text) => text,
         Err(e) if format!("{e:#}").contains("not a git repository") => return Ok(Vec::new()),
@@ -101,7 +131,7 @@ pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::agents) mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::TempDir;
@@ -176,6 +206,50 @@ mod tests {
                 .iter()
                 .any(|tree| tree.path == other.to_str().unwrap())
         );
+    }
+
+    #[test]
+    fn only_the_two_worktree_folders_name_a_checkout() {
+        let of = |path: &str| checkout_of(Path::new(path));
+        assert_eq!(of("/srv/project/.worktrees/x"), Some("/srv/project".into()));
+        assert_eq!(of("/srv/p/.worktrees/x/src"), Some("/srv/p".into()));
+        assert_eq!(of("/srv/p/.claude/worktrees/x"), Some("/srv/p".into()));
+        assert_eq!(of("/srv/p/.worktrees"), None);
+        assert_eq!(of("/srv/p/.claude/worktrees"), None);
+        assert_eq!(of("/srv/p/.claude/x"), None);
+        assert_eq!(of("/srv/p/trees/x"), None);
+        assert_eq!(of("/.worktrees/x"), None);
+    }
+
+    /// A repository whose worktree in `dir` was made and then removed.
+    pub(in crate::agents) fn repo_with_removed_worktree(dir: &str) -> (TempDir, PathBuf, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let main = fs::canonicalize(tmp.path()).unwrap().join("project");
+        fs::create_dir(&main).unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        git_in(&main, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        let gone = main.join(dir).join("x");
+        let at = gone.to_str().unwrap();
+        git_in(&main, &["worktree", "add", "-q", "-b", "side", at]);
+        git_in(&main, &["worktree", "remove", at]);
+        (tmp, main, gone)
+    }
+
+    #[test]
+    fn a_removed_worktree_lists_its_main_checkout_as_own() {
+        for dir in [".worktrees", ".claude/worktrees"] {
+            let (_tmp, main, gone) = repo_with_removed_worktree(dir);
+            let trees = list(&gone).unwrap();
+            let own: Vec<_> = trees.iter().filter(|tree| tree.own).collect();
+            assert_eq!(own.len(), 1, "{dir}");
+            assert_eq!(own[0].path, main.to_str().unwrap());
+        }
+    }
+
+    #[test]
+    fn a_removed_folder_outside_the_worktree_names_lists_nothing() {
+        let (_tmp, main, _gone) = repo_with_removed_worktree(".worktrees");
+        assert!(list(&main.join("elsewhere/x")).is_err());
     }
 
     #[test]
