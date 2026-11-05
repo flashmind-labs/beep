@@ -2,11 +2,15 @@ import type { ApprovalField } from "./chat.ts";
 import { grow } from "./chat.ts";
 import { renderChats } from "./chats.ts";
 import { copy } from "../ui/parts.ts";
-import { $, $$, bar, changed, esc, G, GROUP_VIEWS, h, ICON, invoke, S } from "../bar/core.ts";
+import { $, $$, bar, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";
 import { fillPics, picRow } from "./media.ts";
 import { dayDiff } from "../lists/memories.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Groups ----------
 

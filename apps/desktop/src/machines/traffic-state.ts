@@ -1,6 +1,6 @@
+import { bytes } from "../ui/format.ts";
 // A machine's traffic (ListMachineTraffic): lifetime bytes by key, such as
 // `alpn.beep-sync/1.tx`, read into what the Machines screens show.
-import { bytes } from "../center/home-state.ts";
 
 export interface MachineTraffic {
   id: string;

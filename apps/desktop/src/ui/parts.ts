@@ -1,7 +1,7 @@
 // Small pieces of the command center window that several views draw the
 // same way. They build on `el` and `button` from dom.ts.
 import { button, el, type Kid } from "./dom.ts";
-import type { Freshness } from "../project/pagecache.ts";
+import type { Freshness } from "./pagecache.ts";
 
 /// Fixed SVG markup as a node, never server text.
 export function svgEl(markup: string) {

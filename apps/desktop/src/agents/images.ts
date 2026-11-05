@@ -1,11 +1,15 @@
 // Images for a coding agent: attached to a message, and shown in its log.
 import type { Attached } from "./agentqueue.ts";
 import { fileBase64 } from "../chat/attach.ts";
-import { $, esc, h, ICON, invoke, S } from "../bar/core.ts";
+import { $, S } from "../bar/core.ts";
 import { GONE } from "../chat/media.ts";
 import { mentionChips, wireMentionChips } from "./workdrop.ts";
 import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
 import { noAgentImages, redrawAgentHints } from "./session.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 let pastedCount = 0;
 

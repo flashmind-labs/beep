@@ -1,7 +1,9 @@
-import { $$, bar, esc, ICON, invoke, S } from "../bar/core.ts";
+import { $$, bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { arrowKey, clampSel, confirmCard, confirmKey, confirmRow, dayDiff, emptyPage, errLine, type ListState, loadList, readDay } from "./memories.ts";
-import { plural } from "../ui/format.ts";
+import { esc, plural } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Skills ----------
 

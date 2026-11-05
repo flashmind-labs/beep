@@ -1,9 +1,10 @@
 // What the project page's list says of each kind of thing in a project: its
 // count and the few rows that matter now, as pure functions the tests check.
 import type { TaskRow, WorkerRow } from "./agent.ts";
-import { machineSync } from "../center/home-state.ts";
-import type { RunningAgent, SyncRow } from "../center/home-state.ts";
 import type { SessionRow, WhereRow } from "./projects-state.ts";
+import { machineSync } from "../machines/machine-state.ts";
+import type { RunningAgent } from "../agents/running-state.ts";
+import type { SyncRow } from "./filesync.ts";
 
 /// One row of a tile: an optional dot, its text with an optional code
 /// before it, and a chip or a muted note. A row with `url` opens it.

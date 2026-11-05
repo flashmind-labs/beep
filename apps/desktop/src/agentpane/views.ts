@@ -3,12 +3,14 @@
 import { actualView, baseName, clipTime, fitView, resolvePath, zoomAt } from "./media-state.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import type { Animation } from "./model3d.ts";
-import { esc, h, invoke } from "../bar/core.ts";
 import { fileSize, openViewer } from "../chat/media.ts";
 import { attach, killTerm, type PaneTerm } from "./terminal.ts";
 import { addMention } from "../agents/workdrop.ts";
 import { type TreeText, type MediaTab, P, closeTab, saveWorkFile } from "./media.ts";
 import { readFile, readError, drawTermStatus } from "./read.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { invoke } from "../ui/tauri.ts";
 
 export function viewOf(t: MediaTab): HTMLElement {
   if (t.error) return h(`<div class="agpview"><div class="agpmsg derr">${esc(t.error)}</div></div>`);

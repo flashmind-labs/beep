@@ -3,12 +3,12 @@
 // there.
 import { invoke } from "../ui/tauri.ts";
 import { focusBack, sheetShell } from "../ui/parts.ts";
-import { harnessEl } from "../agents/harnessicon.ts";
+import { harnessEl } from "../ui/harnessicon.ts";
 import { dbtn, emptyPanel } from "../ui/parts.ts";
 import { agentLabel } from "./projects-state.ts";
-import { el } from "../ui/dom.ts";
-import { present, reason } from "../addproject/importproject-state.ts";
+import { el, present } from "../ui/dom.ts";
 import { type AgentsPlace, type CustomAgentRow, agentColor, agentMeta } from "./customagents-state.ts";
+import { reason } from "../ui/format.ts";
 
 interface Listed {
   rows?: CustomAgentRow[];

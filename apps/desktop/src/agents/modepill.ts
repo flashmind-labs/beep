@@ -1,9 +1,11 @@
 // The session's mode: the pill by its field, Shift+Tab, and the plan waiting
 // for approval above the field.
-import { $, esc, invoke } from "../bar/core.ts";
-import { answerHtml } from "../chat/turnrows.ts";
+import { $ } from "../bar/core.ts";
+import { answerHtml } from "./turnrows.ts";
 import { type AgentModes, type OpenAgent, AG, agentKind, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
+import { esc } from "../ui/format.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// The server did not know the request, so it is not asked again.
 let oldServer = false;

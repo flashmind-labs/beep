@@ -3,10 +3,14 @@ import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { focusAsk } from "./chat.ts";
-import { $, bar, esc, h, ICON, invoke, S } from "../bar/core.ts";
+import { $, bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { VOICE_ICON } from "../bar/live.ts";
 import { fileKind, fileSize, GONE } from "./media.ts";
+import { esc } from "../ui/format.ts";
+import { h } from "../ui/dom.ts";
+import { ICON } from "../ui/icons.ts";
+import { invoke } from "../ui/tauri.ts";
 
 // ---------- Attached images and files ----------
 
