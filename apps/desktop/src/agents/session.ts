@@ -102,9 +102,12 @@ export async function pollAgent() {
       if (page.session.question?.id !== AG.answering) AG.answering = null;
       // A session opened with no folder (from a notice) draws again once a read gives it.
       const placed = !AG.page?.session.cwd && !!page.session.cwd;
+      // A session taken over from outside gets its composer in place of the banner.
+      const taken = !!AG.page?.session.external && !page.session.external;
       // The older entries held stay while the newest are read again.
       AG.page = joinRuns(AG.page, page);
       if (placed) drawAgentFrame();
+      else if (taken && $("#agconv")) drawAgentFrame(true);
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
       AG.readError = "";
@@ -339,11 +342,14 @@ async function closeRow(x: HTMLElement) {
 /// says why not while something still runs it.
 async function continueOutside() {
   const s = AG.page?.session;
-  if (!s) return;
+  const button = $<HTMLButtonElement>("#agcontinue");
+  if (!s || button?.disabled) return;
+  if (button) button.disabled = true;
   try {
     const started = await invoke<{ session: AgentRow }>("agent_resume", { machineId: s.machine_id, agent: s.agent, session: s.id });
     openAgent(started.session, { back: AG.back });
   } catch (e) {
+    if (button) button.disabled = false;
     AG.note = readError(e);
     drawAgentBody();
   }
