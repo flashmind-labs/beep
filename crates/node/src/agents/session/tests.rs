@@ -1045,7 +1045,7 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
         [Alert {
             session: "s".into(),
             agent: "pi".into(),
-            title: None,
+            title: Some("go".into()),
             cwd: dir.display().to_string(),
             kind: AlertKind::TurnEnded {
                 stop_reason: StopReason::EndTurn,

@@ -75,6 +75,10 @@ pub struct Saved {
     /// stays until the server dropped it, and is retried at launch.
     #[serde(default)]
     pub unlinks: Vec<String>,
+    /// Signed out of the Beep server from Settings: the key and `link` stay,
+    /// and this Mac makes no server calls until it signs in again.
+    #[serde(default)]
+    pub signed_out: bool,
 }
 
 fn on() -> bool {
@@ -117,6 +121,16 @@ impl Saved {
         self.unlinks.retain(|owed| owed != machine);
     }
 
+    /// Where the link stands as the rest of the app sees it: a Mac signed
+    /// out of the server is unlinked until it signs in, with its key kept.
+    pub fn effective_link(&self) -> LinkState {
+        if self.signed_out {
+            LinkState::Unlinked
+        } else {
+            self.link
+        }
+    }
+
     pub fn set_notice_voice(&mut self, choice: NoticeVoice) {
         self.notice_voice = Some(choice);
         self.voice_notes = choice != NoticeVoice::Off;
@@ -138,6 +152,7 @@ impl Default for Saved {
             live_chats: Vec::new(),
             agent_notices: true,
             unlinks: Vec::new(),
+            signed_out: false,
         }
     }
 }
@@ -259,6 +274,25 @@ mod tests {
         let json = serde_json::to_string(&saved).expect("the state serializes");
         assert!(!parse(&json).uses_mac());
         assert!(!parse(&json).use_mac);
+    }
+
+    #[test]
+    fn a_signed_out_mac_is_unlinked_and_stays_so_across_launches() {
+        assert!(!parse("{}").signed_out);
+        assert_eq!(
+            parse(r#"{"link":"linked"}"#).effective_link(),
+            LinkState::Linked
+        );
+        let file = state_file("signed-out");
+        let mut saved = file.load();
+        saved.link = LinkState::Linked;
+        saved.signed_out = true;
+        file.save(&saved);
+        // The launch after: still signed out, and the link kept for signing in.
+        let again = file.load();
+        assert!(again.signed_out);
+        assert_eq!(again.link, LinkState::Linked);
+        assert_eq!(again.effective_link(), LinkState::Unlinked);
     }
 
     #[test]

@@ -620,3 +620,20 @@ fn a_session_looks_up_its_place_when_a_call_changes_the_folder() {
         Some(std::path::Path::new("/srv/project/src"))
     );
 }
+
+#[test]
+fn a_session_the_agent_has_not_named_takes_its_first_prompt_line() {
+    let mut live = live();
+    assert_eq!(live.info.title, None, "no prompt yet");
+    live.prompted("\n  Fix the flaky test  \nit fails on CI");
+    assert_eq!(live.info.title.as_deref(), Some("Fix the flaky test"));
+    live.prompted("something else");
+    assert_eq!(live.info.title.as_deref(), Some("Fix the flaky test"));
+    live.apply_at(
+        &update(json!({"sessionUpdate": "session_info_update", "title": "Flaky CI"})),
+        Instant::now(),
+    );
+    assert_eq!(live.info.title.as_deref(), Some("Flaky CI"));
+    live.prompted("and more");
+    assert_eq!(live.info.title.as_deref(), Some("Flaky CI"));
+}

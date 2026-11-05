@@ -47,6 +47,10 @@ pub(crate) async fn serve(
             },
             else => return,
         };
+        // Signed out, the server's notices are not heard; only machines' are.
+        if matches!(via, Via::Server) && beep.signed_out() {
+            continue;
+        }
         if matches!(via, Via::Server) && beep.link_state() == LinkState::Unlinked {
             beep.set_link_state(LinkState::Linked);
             tray::became_linked(&app);
