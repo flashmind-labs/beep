@@ -3,7 +3,7 @@ import { invoke } from "../ui/tauri.ts";
 import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen } from "./addmachine-state.ts";
 import { button, el, present } from "../ui/dom.ts";
-import { copyButton, focusBack, sheetShell } from "../ui/parts.ts";
+import { copyButton, openSheet } from "../ui/parts.ts";
 import { openJoinTicket } from "./jointicket.ts";
 import type { MacControl, MachineView } from "./machine-state.ts";
 
@@ -23,7 +23,7 @@ const TICK_MS = 1000;
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START;
 /// What the ticket is for: a node, or another Mac.
 let kind: "node" | "desktop" = "node";
-let ticker: Timer, poller: Timer, back: Element | null = null, onClose: (() => void) | null = null;
+let ticker: Timer, poller: Timer, close: (() => void) | null = null, onClose: (() => void) | null = null;
 /// `onClose` of the sheet that opened, for the join sheet it hands over to.
 let onCloseAgain: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
@@ -42,10 +42,7 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   onClose = options.onClose || null;
   onCloseAgain = onClose;
   kind = "node";
-  back = document.activeElement;
-  ({ root, sheet } = sheetShell("Add a machine", "am-sheet"));
-  document.body.append(root);
-  document.addEventListener("keydown", onKey, true);
+  ({ root, sheet, close } = openSheet("Add a machine", "am-sheet", { onClose: closed }));
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
   mac = null;
   macAsked = false;
@@ -73,26 +70,19 @@ function commandLine() {
 
 /// Closes the sheet.
 export function closeAddMachine() {
-  if (!root) return;
+  close?.();
+}
+
+function closed() {
   clearInterval(ticker);
   clearInterval(poller);
   clearInterval(macPoller);
   ticker = poller = macPoller = undefined;
-  document.removeEventListener("keydown", onKey, true);
-  root.remove();
-  root = sheet = null;
+  root = sheet = close = null;
   state = START;
-  focusBack(back);
   const done = onClose;
   onClose = null;
   if (done) done();
-}
-
-function onKey(e: KeyboardEvent) {
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  closeAddMachine();
 }
 
 /// Asks for a token.

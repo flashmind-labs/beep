@@ -118,3 +118,39 @@ export function sheetShell(label: string, cls: string) {
 export function focusBack(was: Element | null) {
   (was as HTMLElement | null)?.focus?.();
 }
+
+type SheetOptions = {
+  /// False while the sheet must stay: a click on the scrim and the default Esc do nothing.
+  canClose?: () => boolean;
+  /// Sees every key first, ahead of the page; true when it took the key (Esc included).
+  onKey?: (e: KeyboardEvent) => boolean | void;
+  /// Runs once the sheet is gone.
+  onClose?: () => void;
+};
+
+/// A sheet on the page: a click on the scrim or Esc closes it, and focus goes
+/// back to what had it. `close` always closes, so a caller guards its own buttons.
+export function openSheet(label: string, cls: string, options: SheetOptions = {}) {
+  const back = document.activeElement;
+  const { root, sheet } = sheetShell(label, cls);
+  let open = true;
+  const close = () => {
+    if (!open) return;
+    open = false;
+    document.removeEventListener("keydown", keys, true);
+    root.remove();
+    focusBack(back);
+    options.onClose?.();
+  };
+  const allowed = () => !options.canClose || options.canClose();
+  const keys = (e: KeyboardEvent) => {
+    if (options.onKey?.(e) || e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (allowed()) close();
+  };
+  root.addEventListener("mousedown", e => { if (e.target === root && allowed()) close(); });
+  document.addEventListener("keydown", keys, true);
+  document.body.append(root);
+  return { root, sheet, close };
+}

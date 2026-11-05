@@ -2,9 +2,8 @@
 // harnesses define in the project's folder on one machine, and the user's own
 // there.
 import { invoke } from "../ui/tauri.ts";
-import { focusBack, sheetShell } from "../ui/parts.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
-import { dbtn, emptyPanel } from "../ui/parts.ts";
+import { dbtn, emptyPanel, openSheet } from "../ui/parts.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el, present } from "../ui/dom.ts";
 import { type AgentsPlace, type CustomAgentRow, agentColor, agentMeta } from "./customagents-state.ts";
@@ -92,16 +91,15 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {
-    const back = document.activeElement;
-    const { root, sheet } = sheetShell(`Custom agent ${a.name}`, "am-sheet ca-sheet");
-    const close = () => {
-      root.remove();
-      document.removeEventListener("keydown", keys, true);
-      focusBack(back);
-    };
-    const keys = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close(); }
-    };
+    const { sheet, close } = openSheet(`Custom agent ${a.name}`, "am-sheet ca-sheet", {
+      onKey: e => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        close();
+        return true;
+      },
+    });
     const head = el("b", "", harnessEl(a.harness, "cc-ag ca-ic"), a.name);
     const sub = [agentLabel(a.harness), ...agentMeta(a), a.path].join(" · ");
     const prompt = el("pre", "ca-prompt", a.prompt || "No prompt.");
@@ -115,9 +113,6 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
       a.prompt_cut ? el("div", "am-sub", "The prompt goes on; open the file to read the rest.") : null,
       el("div", "gp-foot", dbtn("Close", "quiet", close), dbtn("Start", "pri", () => { close(); deps.start(a, place); })),
     ]));
-    root.addEventListener("mousedown", e => { if (e.target === root) close(); });
-    document.addEventListener("keydown", keys, true);
-    document.body.append(root);
     prompt.tabIndex = 0;
     prompt.focus();
   }
