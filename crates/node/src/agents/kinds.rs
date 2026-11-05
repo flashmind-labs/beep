@@ -121,7 +121,10 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[],
         bypass_mode: None,
         model_flag: false,
-        compact: Route::Advertised,
+        compact: Route::TokenLimit {
+            config_var: "CODEX_CONFIG",
+            key: "model_auto_compact_token_limit",
+        },
         async_tasks: false,
     },
     // YOLO approves every tool. Gemini CLI drops back to `default` in a

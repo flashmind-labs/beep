@@ -374,8 +374,8 @@ export function registerProviders(deps: ProvidersDeps) {
     if (withCompact) {
       const row = h("span", "fl-row",
         compactSwitch(draft.compactOn, `Auto-compact for ${name}`, () => { setDraft({ compactOn: !draft.compactOn }); draw(); }),
-        ...(compactKind(hv.agent) === "percent" ? [input(draft.compactPercent, "80%", v => setDraft({ compactPercent: v }), "Auto-compact threshold")] : []));
-      box.append(field("Auto-compact", compactKind(hv.agent) === "percent" ? "Compact once the conversation fills this much of the window." : "Compact when the conversation fills the window.", row));
+        ...(compactKind(hv.agent) === "percent" ? [input(draft.compactPercent, "80% or 350000", v => setDraft({ compactPercent: v }), "Auto-compact threshold")] : []));
+      box.append(field("Auto-compact", compactKind(hv.agent) === "percent" ? "Compact at this share of the window, or this many tokens." : "Compact when the conversation fills the window.", row));
     }
 
     const envBox = h("div", "hv-envs");

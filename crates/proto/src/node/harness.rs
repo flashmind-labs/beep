@@ -159,6 +159,11 @@ pub struct AutoCompact {
     /// 100. `None` is `DEFAULT_PERCENT`.
     #[serde(default)]
     pub percent: Option<u8>,
+    /// Compact once the conversation reaches this many tokens. When set it
+    /// wins over `percent`. Added last: a node that predates it reads
+    /// `percent` alone.
+    #[serde(default)]
+    pub tokens: Option<u64>,
 }
 
 impl AutoCompact {

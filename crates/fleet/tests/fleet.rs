@@ -630,6 +630,7 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     let compact = AutoCompact {
         enabled: false,
         percent: Some(60),
+        tokens: None,
     };
     studio
         .save_harness_compact("codex", Some(compact))
@@ -641,7 +642,8 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
                 "codex",
                 Some(AutoCompact {
                     enabled: true,
-                    percent: Some(101)
+                    percent: Some(101),
+                    tokens: None,
                 })
             )
             .await

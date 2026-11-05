@@ -539,6 +539,7 @@ mod tests {
             compact: Some(AutoCompact {
                 enabled: true,
                 percent: Some(65),
+                tokens: None,
             }),
             ..HarnessConfig::new("codex")
         };
