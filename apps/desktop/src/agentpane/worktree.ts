@@ -76,6 +76,7 @@ function report() {
   const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external }, REPORT_MS);
   if (JSON.stringify(got) === JSON.stringify(W.placed)) return;
   W.placed = got;
+  if (got && !W.trees.some(t => bare(t.path) === bare(got.folder))) ask([got.folder]);
   apply(true);
   W.changed(false);
 }
