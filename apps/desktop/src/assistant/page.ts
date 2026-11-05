@@ -24,7 +24,7 @@ const page = { list: undefined as Credential[] | null | undefined, busy: new Set
 const mcp = { rows: undefined as McpRow[] | null | undefined, form: null as McpForm | null, saving: false, busy: new Set<string>(), errors: new Map<string, string>(), formError: "" };
 
 async function loadMcp() {
-  mcp.rows = await invoke<McpRow[]>("list_mcp_servers").catch(e => { console.warn("listing MCP servers:", e); return null; });
+  mcp.rows = await invoke<McpRow[]>("local_list_mcp_servers").catch(e => { console.warn("listing MCP servers:", e); return null; });
   draw();
 }
 
@@ -113,7 +113,7 @@ function mcpLine(row: McpRow) {
   const detail = h("span", "", mcpDetail(row));
   detail.style.fontFamily = MONO;
   const state = h("span", status.failed ? "derr" : "", mcp.busy.has(name) ? "Working…" : status.text);
-  const line = h("div", "cc-row cc-line bare", h("span", "t", h("b", "", name), detail), h("span", "r", state, act("Check", "check_mcp_server"), act("Remove", "remove_mcp_server")));
+  const line = h("div", "cc-row cc-line bare", h("span", "t", h("b", "", name), detail), h("span", "r", state, act("Check", "local_check_mcp_server"), act("Remove", "local_remove_mcp_server")));
   return err ? h("div", "", line, h("div", "derr", err)) : line;
 }
 
@@ -140,7 +140,7 @@ function mcpForm(form: McpForm) {
     mcp.formError = "";
     draw();
     try {
-      await invoke("add_mcp_server", { server: newMcpServer(form) });
+      await invoke("local_add_mcp_server", { server: newMcpServer(form) });
       mcp.form = null;
     } catch (e) {
       mcp.formError = String(e);
