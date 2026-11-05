@@ -20,6 +20,7 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { dragHandle } from "../ui/drag.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {
@@ -316,40 +317,20 @@ function wireDivider(dock: Dock) {
     P.layout[dock] = size == null ? null : paneSize(dock, size, dock === "right" ? el.clientWidth : box.clientHeight);
     place();
   };
-  div.addEventListener("pointerdown", e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    div.setPointerCapture(e.pointerId);
+  dragHandle(div, () => {
     const el = shell()!, box = main()!;
     el.classList.add("resizing", `resizing-${dock}`);
     div.classList.add("active");
     const right = dock === "right";
     const r = (right ? el : box).getBoundingClientRect();
-    // The docks follow the pointer, at most once per frame.
-    let want: number | null = null;
-    let frame = 0;
-    const apply = () => {
-      frame = 0;
-      if (want != null) set(want);
-      want = null;
+    return {
+      move: ev => set(right ? r.right - ev.clientX : r.bottom - ev.clientY),
+      end: () => {
+        el.classList.remove("resizing", `resizing-${dock}`);
+        div.classList.remove("active");
+        saveLayout();
+      },
     };
-    const move = (ev: PointerEvent) => {
-      want = right ? r.right - ev.clientX : r.bottom - ev.clientY;
-      frame ||= requestAnimationFrame(apply);
-    };
-    const up = () => {
-      div.removeEventListener("pointermove", move);
-      div.removeEventListener("pointerup", up);
-      div.removeEventListener("pointercancel", up);
-      cancelAnimationFrame(frame);
-      apply();
-      el.classList.remove("resizing", `resizing-${dock}`);
-      div.classList.remove("active");
-      saveLayout();
-    };
-    div.addEventListener("pointermove", move);
-    div.addEventListener("pointerup", up);
-    div.addEventListener("pointercancel", up);
   });
   div.addEventListener("dblclick", () => { set(null); saveLayout(); });
   div.addEventListener("keydown", e => {

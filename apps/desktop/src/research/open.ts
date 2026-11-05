@@ -16,6 +16,7 @@ import { patchHtml } from "../ui/patch.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { chatHtml, followsEnd, headHtml, paneHtml, placeholder, tabsHtml } from "./panes.ts";
 import { type Open, type ResearchView, type Turn, RUNNING, closeTab, openTab, round, shownTab } from "./research-state.ts";
+import { dragHandle } from "../ui/drag.ts";
 
 /// What streams in while the lead replies (Rust's `BarEvent`), as far as this reads it.
 type SendEvent =
@@ -137,29 +138,17 @@ function wireDivider(p: Page) {
   const div = p.shell.querySelector<HTMLElement>(".agdiv")!;
   const set = (width: number | null) => { paneWidth = width == null ? null : paneSize("right", width, p.shell.clientWidth); place(); };
   const keep = () => { try { if (paneWidth) localStorage.setItem(WIDTH_KEY, String(paneWidth)); else localStorage.removeItem(WIDTH_KEY); } catch { /* kept while the window is open */ } };
-  div.addEventListener("pointerdown", e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    div.setPointerCapture(e.pointerId);
+  dragHandle(div, () => {
     p.shell.classList.add("resizing");
     div.classList.add("active");
-    // One layout per frame however many moves arrive; the last one wins.
-    let x = 0, frame = 0;
-    const flush = () => { frame = 0; set(p.shell.getBoundingClientRect().right - x); };
-    const move = (ev: PointerEvent) => {
-      x = ev.clientX;
-      if (!frame) frame = requestAnimationFrame(flush);
+    return {
+      move: ev => set(p.shell.getBoundingClientRect().right - ev.clientX),
+      end: () => {
+        p.shell.classList.remove("resizing");
+        div.classList.remove("active");
+        keep();
+      },
     };
-    const up = () => {
-      if (frame) { cancelAnimationFrame(frame); flush(); }
-      div.removeEventListener("pointermove", move);
-      div.removeEventListener("pointerup", up);
-      p.shell.classList.remove("resizing");
-      div.classList.remove("active");
-      keep();
-    };
-    div.addEventListener("pointermove", move);
-    div.addEventListener("pointerup", up);
   });
   div.addEventListener("dblclick", () => { set(null); keep(); });
 }
