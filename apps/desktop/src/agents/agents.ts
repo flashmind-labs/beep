@@ -454,7 +454,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     // They work from the field and from a terminal: none edits text.
     if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
       const k = e.key.toLowerCase();
-      if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(); return true; }
+      if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(undefined, !!AG.draft); return true; }
       if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
       if (!e.shiftKey && (k === "1" || k === "2" || k === "3")) { e.preventDefault(); showPaneTab(Number(k) - 1); return true; }

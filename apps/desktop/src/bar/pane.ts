@@ -115,7 +115,7 @@ export const pane = {
         void import("../agents/draft.ts").then(m => {
           m.openDraft(target.draft.project, target.draft.machine);
           const { terminal } = target.draft;
-          if (terminal === true) newTerminal(); else if (terminal) openTerminal(terminal);
+          if (terminal === true) newTerminal(undefined, true); else if (terminal) openTerminal(terminal);
         });
         return;
       }

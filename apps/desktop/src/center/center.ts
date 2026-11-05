@@ -104,7 +104,7 @@ document.addEventListener("keydown", e => {
   }
   // In the pane, the pane's own keys call newChatHere.
   if (key === "n" && shown !== "pane") { e.preventDefault(); return newChatHere(); }
-  // ⌘T in a project: a terminal in the empty view. In a session the pane has taken it.
+  // ⌘T in a project: a terminal filling the empty view. In a session the pane has taken it.
   if (key === "t" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.defaultPrevented) {
     const to = projectHere();
     if (to) { e.preventDefault(); go("pane", { draft: { project: to.project, machine: to.machine, terminal: true } }); }
