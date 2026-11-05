@@ -4,24 +4,23 @@
 use crate::{
     desk::Desk,
     error::Result,
-    open_items::{Access, merge, repos_of},
+    open_items::merge,
     projects::{DeskMachines, DeskProject},
     records::{now_ms, time},
 };
 use beep_projects::{
     credentials::{Slot, last4},
-    git_items::{
-        access::writable,
-        board::{Login, OpenedItems, read},
-        github,
+    git_items::board::{Login, OpenedItems, read},
+    issues::{
+        MachineView, issue_view, list_open, list_open_prs, machine_view, pull_request_head,
+        pull_request_view,
     },
-    issues::{issue_view, list_open, list_open_prs, pull_request_head, pull_request_view},
 };
 use beep_proto::{
     LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest, PullRequestHead,
 };
 use secrecy::ExposeSecret;
-use std::{collections::HashMap, future::Future};
+use std::future::Future;
 use std::{
     sync::{Mutex, PoisonError},
     time::{Duration, Instant},
@@ -156,6 +155,20 @@ impl Desk {
         })
     }
 
+    /// What the machine that holds `project` says about its account and the repository, asking
+    /// this Mac alone when the project is checked out here, and the others only if that failed.
+    pub(crate) async fn machine_view(&self, project: &str) -> Option<MachineView> {
+        let (store, machines) = self.host_reads(project, true).await.ok()?;
+        let here = store.is_on(self.local);
+        match machine_view(&store, &machines).await {
+            None if here => {
+                let (store, machines) = self.host_reads(project, false).await.ok()?;
+                machine_view(&store, &machines).await
+            }
+            view => view,
+        }
+    }
+
     /// The open pull requests and issues of every imported project, read through the machines,
     /// with the user's own on every git host they have a token for.
     pub async fn git_items(&self) -> Result<OpenedItems> {
@@ -185,9 +198,8 @@ impl Desk {
         }
         let (tokens, projects) =
             tokio::join!(read(&self.hosts, &logins), self.read_projects(&names));
-        let writable = writable(&self.hosts, &logins, repos_of(&projects)).await;
-        let accounts = accounts_of(&logins);
-        let items = merge(tokens?, projects, &Access { writable, accounts });
+        let access = self.access(&logins, &projects).await;
+        let items = merge(tokens?, projects, &access);
         *BOARD.lock().unwrap_or_else(PoisonError::into_inner) = Some(Kept {
             key,
             at: Instant::now(),
@@ -195,16 +207,6 @@ impl Desk {
         });
         Ok(items)
     }
-}
-
-/// The GitHub accounts the tokens sign in as, by host.
-fn accounts_of(logins: &[Login<'_>]) -> HashMap<String, Vec<String>> {
-    let github = logins
-        .iter()
-        .filter(|login| matches!(login.slot, Slot::GitHub))
-        .filter_map(|login| login.account.map(ToOwned::to_owned))
-        .collect();
-    HashMap::from([(github::HOST.to_owned(), github)])
 }
 
 /// How long the list is kept when every host answered.

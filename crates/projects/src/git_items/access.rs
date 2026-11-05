@@ -14,8 +14,6 @@ use std::{
 
 /// How long an answer from the host is kept.
 const KEEP: Duration = Duration::from_secs(3600);
-/// How long a failed check is kept, so a host that is down is asked again soon.
-const KEEP_FAILED: Duration = Duration::from_secs(60);
 
 /// A repository by host and `org/repo`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -49,19 +47,20 @@ impl RepoReply {
 
 struct Answer {
     at: Instant,
-    ttl: Duration,
     writable: bool,
 }
 
 static KNOWN: Mutex<Option<HashMap<Repo, Answer>>> = Mutex::new(None);
 
-fn known(repo: &Repo) -> Option<bool> {
+/// The kept answer for `repo`, while it is fresh.
+pub fn known(repo: &Repo) -> Option<bool> {
     let known = KNOWN.lock().unwrap_or_else(PoisonError::into_inner);
     let answer = known.as_ref()?.get(repo)?;
-    (answer.at.elapsed() < answer.ttl).then_some(answer.writable)
+    (answer.at.elapsed() < KEEP).then_some(answer.writable)
 }
 
-fn remember(repo: Repo, writable: bool, ttl: Duration) {
+/// Keeps what the host said about `repo`.
+fn remember(repo: Repo, writable: bool) {
     KNOWN
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -70,7 +69,6 @@ fn remember(repo: Repo, writable: bool, ttl: Duration) {
             repo,
             Answer {
                 at: Instant::now(),
-                ttl,
                 writable,
             },
         );
@@ -91,16 +89,13 @@ fn repo_url(login: &Login<'_>, repo: &Repo) -> Option<String> {
     }
 }
 
-/// Whether any of the user's tokens may push to `repo`. A repository no token could be asked
-/// about counts as not writable, so an upstream's list never floods Home.
-async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> bool {
+/// Whether the user's tokens say they may push to `repo`; `None` when none could say.
+async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> Option<bool> {
     if let Some(writable) = known(repo) {
-        return writable;
+        return Some(writable);
     }
-    let Ok(client) = hosts.client() else {
-        return false;
-    };
-    let mut failed = false;
+    let client = hosts.client().ok()?;
+    let mut answered = false;
     for login in logins {
         let Some(url) = repo_url(login, repo) else {
             continue;
@@ -108,7 +103,6 @@ async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> bool {
         if let Slot::Forgejo(base) = login.slot
             && !hosts.is_public(base).await
         {
-            failed = true;
             continue;
         }
         let caller = Caller {
@@ -119,31 +113,31 @@ async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> bool {
         };
         match caller.get::<RepoReply>(&url).await {
             Ok(reply) if reply.writable() => {
-                remember(repo.clone(), true, KEEP);
-                return true;
+                remember(repo.clone(), true);
+                return Some(true);
             }
-            Ok(_) => {}
+            Ok(_) => answered = true,
             // A 404 is a private repository this token cannot see: not writable.
-            Err(HostError::Status { status: 404, .. }) => {}
-            Err(e) => {
-                log::info!("write access to {} on {}: {e}", repo.name, repo.host);
-                failed = true;
-            }
+            Err(HostError::Status { status: 404, .. }) => answered = true,
+            Err(e) => log::info!("write access to {} on {}: {e}", repo.name, repo.host),
         }
     }
-    remember(repo.clone(), false, if failed { KEEP_FAILED } else { KEEP });
-    false
+    if answered {
+        remember(repo.clone(), false);
+    }
+    answered.then_some(false)
 }
 
-/// The repositories of `repos` the user can write to.
-pub async fn writable(
+/// What the tokens say about each of `repos`. A repository none could say anything about is left
+/// out, for a machine to answer.
+pub async fn token_answers(
     hosts: &dyn Hosts,
     logins: &[Login<'_>],
-    repos: HashSet<Repo>,
-) -> HashSet<Repo> {
-    join_all(repos.into_iter().map(|repo| async move {
-        let can = check(hosts, logins, &repo).await;
-        can.then_some(repo)
+    repos: &HashSet<Repo>,
+) -> HashMap<Repo, bool> {
+    join_all(repos.iter().map(|repo| async move {
+        let answer = check(hosts, logins, repo).await;
+        answer.map(|writable| (repo.clone(), writable))
     }))
     .await
     .into_iter()

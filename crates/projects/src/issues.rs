@@ -4,8 +4,8 @@
 use crate::{
     Shell,
     commands::{
-        HostCommand, OpenIssue, OpenPr, PrHead, parse_login, parse_open_issues, parse_open_prs,
-        parse_pr_head,
+        HostCommand, OpenIssue, OpenPr, PrHead, parse_can_push, parse_login, parse_open_issues,
+        parse_open_prs, parse_pr_head,
     },
     model::{IssueHost, RepoName},
 };
@@ -500,6 +500,48 @@ pub async fn list_open_prs(
             pr,
         })
         .collect())
+}
+
+/// What the machine holding a project says about the user and the project's repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineView {
+    /// The host's name as the items' web addresses spell it.
+    pub host: String,
+    /// The account the machine's CLI is signed in as.
+    pub login: String,
+    /// Whether that account may push; `None` when the machine could not say.
+    pub can_push: Option<bool>,
+}
+
+/// Asks the machine that answers for the project, through the shell its lists come from. `None`
+/// without a host or an online machine that knows its account.
+pub async fn machine_view(
+    store: &dyn ProjectStore,
+    machines: &dyn Machines,
+) -> Option<MachineView> {
+    let sources = issue_sources(store, machines).await.ok()??;
+    let (source, login) = read_sources(&sources, store.name(), HostCommand::WhoAmI, parse_login)
+        .await
+        .ok()?;
+    let can_push = run_host(
+        source.shell.as_ref(),
+        &source.host,
+        store.name(),
+        HostCommand::CanPush,
+    )
+    .await
+    .and_then(|out| parse_can_push(&out))
+    .map_err(|error| log::info!("projects: the machine could not say if it can push: {error:#}"))
+    .ok();
+    let host = match &source.host {
+        IssueHost::Github => "github.com".to_owned(),
+        IssueHost::Forgejo(host) => host.as_str().to_owned(),
+    };
+    Some(MachineView {
+        host,
+        login,
+        can_push,
+    })
 }
 
 /// An open issue as the apps list it.

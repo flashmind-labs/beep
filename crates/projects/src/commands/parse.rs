@@ -378,6 +378,24 @@ pub fn parse_login(out: &str) -> Result<String> {
     Ok(login)
 }
 
+/// Parses [`HostCommand::CanPush`]: a bare `true` or `false` from gh, the repository's JSON from
+/// teacli.
+pub fn parse_can_push(out: &str) -> Result<bool> {
+    let out = out.trim();
+    match serde_json::from_str::<Value>(out) {
+        Ok(Value::Bool(push)) => Ok(push),
+        Ok(repo @ Value::Object(_)) => {
+            let can = repo.get("permissions");
+            let flag = |key| can.and_then(|can| can.get(key)).and_then(Value::as_bool);
+            match (flag("push"), flag("admin")) {
+                (None, None) => bail!("the host did not print permissions"),
+                (push, admin) => Ok(push.unwrap_or(false) || admin.unwrap_or(false)),
+            }
+        }
+        _ => bail!("the host did not print a permission"),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ChecksState {

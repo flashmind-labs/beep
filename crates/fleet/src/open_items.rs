@@ -2,7 +2,16 @@
 //! for its open lists, so a desktop with no token on the host still has them.
 
 use crate::desk::Desk;
-use beep_projects::git_items::{access::Repo, board::OpenedItems, host::Found};
+use beep_projects::{
+    credentials::Slot,
+    git_items::{
+        access::{Repo, token_answers},
+        board::{Login, OpenedItems},
+        github,
+        host::Found,
+    },
+    issues::MachineView,
+};
 use beep_proto::{
     GitHost, GitHostKind, GitItem, GitItemKind, GitItems, GitReview, LabeledGitItems,
     LabeledProjectLists, ProjectIssue, ProjectPullRequest,
@@ -11,7 +20,8 @@ use futures::{StreamExt, stream};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    time::{Duration, UNIX_EPOCH},
+    sync::{Mutex, PoisonError},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 use tokio::time::timeout;
 
@@ -27,6 +37,62 @@ pub(crate) struct ProjectRead {
 }
 
 impl Desk {
+    /// Which repositories of `projects` the user can write to, and who they are on each host.
+    /// The tokens answer first; for a repository they could not speak for, the machine that
+    /// holds the project says what its own account may do. A repository nobody answered for
+    /// counts as not writable.
+    pub(crate) async fn access(&self, logins: &[Login<'_>], projects: &[ProjectRead]) -> Access {
+        let mut access = Access {
+            accounts: accounts_of(logins),
+            ..Access::default()
+        };
+        let answers = token_answers(&self.hosts, logins, &repos_of(projects)).await;
+        access.writable.extend(
+            answers
+                .iter()
+                .filter(|(_, can)| **can)
+                .map(|(repo, _)| repo.clone()),
+        );
+        let open: Vec<(String, Vec<Repo>)> = projects
+            .iter()
+            .map(|read| {
+                let repos = repos_of(std::slice::from_ref(read));
+                let asked = repos.into_iter().filter(|repo| !answers.contains_key(repo));
+                (read.name.clone(), asked.collect::<Vec<_>>())
+            })
+            .filter(|(_, asked)| !asked.is_empty())
+            .collect();
+        let views: Vec<_> = stream::iter(open)
+            .map(|(name, asked): (String, Vec<Repo>)| async move {
+                let view = match kept_view(&name) {
+                    Some(view) => view,
+                    None => {
+                        let asked = timeout(PER_PROJECT, self.machine_view(&name)).await;
+                        let view = asked.ok().flatten()?;
+                        keep_view(&name, &view);
+                        view
+                    }
+                };
+                Some((view, asked))
+            })
+            .buffer_unordered(AT_ONCE)
+            .collect()
+            .await;
+        for (view, asked) in views.into_iter().flatten() {
+            access
+                .accounts
+                .entry(view.host.clone())
+                .or_default()
+                .push(view.login);
+            for repo in asked.into_iter().filter(|repo| repo.host == view.host) {
+                if view.can_push == Some(true) {
+                    access.writable.insert(repo);
+                }
+            }
+        }
+        access
+    }
+
     /// The open lists of each of `names`, at most `AT_ONCE` at a time, each with a time limit.
     pub(crate) async fn read_projects(&self, names: &[String]) -> Vec<ProjectRead> {
         // Owned names: a borrowed one makes this future not `Send` for every lifetime, which a
@@ -89,6 +155,39 @@ impl Access {
             });
         mine || own || self.writable.contains(&Repo { host, name })
     }
+}
+
+/// How long a machine's answer about a project is kept.
+const KEEP_VIEW: Duration = Duration::from_secs(3600);
+
+/// What machines said, by project. Only answers that included whether the account can push.
+static VIEWS: Mutex<Option<HashMap<String, (Instant, MachineView)>>> = Mutex::new(None);
+
+fn kept_view(project: &str) -> Option<MachineView> {
+    let views = VIEWS.lock().unwrap_or_else(PoisonError::into_inner);
+    let (at, view) = views.as_ref()?.get(project)?;
+    (at.elapsed() < KEEP_VIEW).then(|| view.clone())
+}
+
+fn keep_view(project: &str, view: &MachineView) {
+    if view.can_push.is_none() {
+        return;
+    }
+    VIEWS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(HashMap::new)
+        .insert(project.to_owned(), (Instant::now(), view.clone()));
+}
+
+/// The GitHub accounts the tokens sign in as, by host.
+fn accounts_of(logins: &[Login<'_>]) -> HashMap<String, Vec<String>> {
+    let github = logins
+        .iter()
+        .filter(|login| matches!(login.slot, Slot::GitHub))
+        .filter_map(|login| login.account.map(ToOwned::to_owned))
+        .collect();
+    HashMap::from([(github::HOST.to_owned(), github)])
 }
 
 /// The repositories the projects' items are in.

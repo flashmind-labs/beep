@@ -6,9 +6,9 @@ mod parse;
 pub use host::{HostCommand, InlineComment, LABEL_BLOCKED, LABEL_REVIEW, LABEL_RUNNING};
 pub use parse::{
     ChecksState, OpenIssue, OpenPr, OwnedIssue, PrHead, PrState, ViewedIssue, checks_of, json,
-    parse_created_issue, parse_found_issue, parse_login, parse_open_issues, parse_open_prs,
-    parse_owned_issues, parse_pr, parse_pr_head, parse_viewed_issue, parse_visibility,
-    pr_fingerprint, text,
+    parse_can_push, parse_created_issue, parse_found_issue, parse_login, parse_open_issues,
+    parse_open_prs, parse_owned_issues, parse_pr, parse_pr_head, parse_viewed_issue,
+    parse_visibility, pr_fingerprint, text,
 };
 
 use crate::model::{IssueHost, MachinePath, RepoName, Roles, TaskSlug, remote_parts};
