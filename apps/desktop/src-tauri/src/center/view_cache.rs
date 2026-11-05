@@ -49,6 +49,9 @@ pub enum View {
     Pages,
     /// The lists Cmd+K searches, which this side reads and ranks from.
     Palette,
+    /// What Home's pull requests and issues were last made of, which `git_items` starts from:
+    /// no token, and a key that is a hash of the tokens and projects they were read with.
+    GitItems,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -231,6 +234,7 @@ pub fn center_cached(
     // This side's own head starts, not the page's.
     views.remove(&View::AgentSessions);
     views.remove(&View::Palette);
+    views.remove(&View::GitItems);
     Some(views)
 }
 

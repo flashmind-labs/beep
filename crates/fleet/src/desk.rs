@@ -2,7 +2,7 @@
 //! online, and the git hosts.
 
 use crate::{
-    error::Result,
+    error::{FleetError, Result},
     peer::{PeerFound, PeerShell, Peers, probe},
 };
 use async_trait::async_trait;
@@ -17,11 +17,14 @@ use futures::future::join_all;
 use iroh::EndpointId;
 use reqwest::{Client, redirect::Policy};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::Semaphore;
+use tokio::{sync::Semaphore, time::timeout};
 
 /// Calls to git hosts in flight at once.
 const MAX_CALLS: usize = 8;
 const HOST_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long a machine the mesh says is online may take to say what it is: its link and its report,
+/// so one that does not answer holds nothing up for longer.
+const LOOK: Duration = Duration::from_secs(6);
 
 /// The desktop's view of the mesh for one call.
 pub struct Desk {
@@ -79,6 +82,21 @@ impl Desk {
         join_all(self.mesh.devices().into_iter().map(|d| self.look(d))).await
     }
 
+    /// Only the machines among `ids`: a read of one project has no use for the others, and one
+    /// that is slow to answer is not waited on.
+    pub(crate) async fn machines_among(&self, ids: &[EndpointId]) -> Vec<Machine> {
+        let wanted = self
+            .mesh
+            .devices()
+            .into_iter()
+            .filter(|status| ids.contains(&status.device.id));
+        join_all(wanted.map(|status| self.look(status)))
+            .await
+            .into_iter()
+            .map(|seen| seen.machine)
+            .collect()
+    }
+
     /// Only this Mac's own machine, without asking the others anything.
     pub(crate) async fn local_machine(&self) -> Option<Machine> {
         let status = self
@@ -104,10 +122,13 @@ impl Desk {
         if !status.online {
             return Seen { machine, env: None };
         }
-        let said = match self.peers.client(id).await {
-            Ok(client) => probe(&client).await.map(|said| (client, said)),
-            Err(e) => Err(e),
+        let ask = async {
+            let client = self.peers.client(id).await?;
+            probe(&client).await.map(|said| (client, said))
         };
+        let said = timeout(LOOK, ask)
+            .await
+            .unwrap_or_else(|_| Err(FleetError::Refused("no answer in time".to_owned())));
         let mut env = None;
         match said {
             Ok((client, said)) => {

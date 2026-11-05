@@ -1,7 +1,7 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
 import { ago, reason } from "../ui/format.ts";
 import { dbtn as button, note, svgEl as icon } from "../ui/parts.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
 import { folderUnder } from "../addproject/importproject-state.ts";
@@ -194,16 +194,35 @@ export function single(load: () => Promise<void>) {
   };
 }
 
+/// Whether a read runs, so a list sent after it ended is not drawn over its answer.
+let receiving = false;
+let drawing: number | undefined;
+
+/// The app sends the list while it reads: first what the last read kept, then
+/// again as each token's search and each project's lists arrive. Rows are drawn
+/// in place, at most a few times a second.
+listen<GitItemsView>("git-items", e => {
+  if (!receiving) return;
+  state.git = e.payload;
+  drawing ??= window.setTimeout(() => {
+    drawing = undefined;
+    if (receiving && shown === "home") draw();
+  }, 150);
+});
+
 /// Reads the open items through the machines and the saved tokens; the
 /// desktop keeps them a few minutes, so this runs less often than Home's
 /// refresh. A failure shows in the tab.
 export const refreshGit = single(async () => {
+  receiving = true;
   try {
     state.git = await invoke<GitItemsView | null>("git_items");
     state.gitError = null;
   } catch (e) {
     console.warn("open PRs and issues:", e);
     state.gitError = String(e);
+  } finally {
+    receiving = false;
   }
   if (shown === "home") draw();
 });

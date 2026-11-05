@@ -5,7 +5,7 @@
 use super::{Caller, board::Login, github, host::HostError};
 use crate::{credentials::Slot, imports::hosts::Hosts};
 use futures::future::join_all;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Mutex, PoisonError},
@@ -16,7 +16,7 @@ use std::{
 const KEEP: Duration = Duration::from_secs(3600);
 
 /// A repository by host and `org/repo`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Repo {
     pub host: String,
     pub name: String,

@@ -30,7 +30,7 @@ pub enum HostError {
 }
 
 /// An open item a host listed, with its label names.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Found {
     pub item: GitItem,
     pub labels: Vec<String>,
