@@ -246,6 +246,11 @@ export function leavesTerminal(e: Pick<KeyboardEvent, "key" | "shiftKey" | "meta
   return e.key === "Escape" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing && buffer !== "alternate";
 }
 
+/// ⌘W: closes the focused pane's tab, else the window.
+export function isCloseKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">) {
+  return e.metaKey && !e.shiftKey && e.key.toLowerCase() === "w";
+}
+
 /// Runs `toggle` on ⇧esc while `allowed`, ahead of every other Esc handler
 /// (the capture phase), and keeps the key from them. Held keys do not repeat it.
 export function onZoomKey(allowed: () => boolean, toggle: () => void) {

@@ -549,11 +549,11 @@ export function closeTab(id: string) {
 }
 
 /// Closes the tab on screen in the focused pane (⌘W); false when no pane is
-/// focused or that tab stays, as Files does. A terminal is not closed by a key.
+/// focused or that tab stays, as Files does. A terminal keeps running on its machine.
 export function closeFocusedTab() {
   const pane = document.activeElement?.closest<HTMLElement>(".agpane");
   const tab = pane && P.tabs.find(t => t.id === P.on[pane.dataset.dock as Dock]);
-  if (!pane || !tab || tab.kind === "term") return false;
+  if (!pane || !tab) return false;
   closeTab(tab.id);
   pane.focus({ preventScroll: true });
   return true;
