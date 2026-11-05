@@ -3256,6 +3256,12 @@ async fn the_cache_stays_under_its_cap_and_keeps_the_newest_sessions() {
         rollout_for(&pair.a, &pair.a_folder, id, Duration::from_secs(age), 1000);
     }
     let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The two newest come, whatever order a pass takes them in, and the
+    // oldest is the one that does not fit.
+    until_copies(&conn_b, "the two newest are copied", |c| {
+        ["s2", "s3"].iter().all(|id| c.iter().any(|v| v.id == *id))
+    })
+    .await;
     pair.b
         .logged("not copying session s1: the cache is full")
         .await;
@@ -3366,24 +3372,41 @@ async fn a_restore_over_another_version_sets_that_one_aside_under_its_own_name()
     let conn_b = pair.desktop.reach(pair.b.id).await;
     let (b_rollout, lost) = until_b_lost(&pair, &conn_b).await;
     // The winner's transcript is in the store now, and does not run.
-    fs::write(&b_rollout, "the winner\n").expect("a transcript");
+    let winner = format!(
+        "{}\nthe winner\n",
+        json!({"timestamp":"2026-11-04T09:30:00.000Z","type":"session_meta","payload":{"id":MOVED_ID,"cwd":pair.b_folder.display().to_string()}})
+    );
+    fs::write(&b_rollout, &winner).expect("a transcript");
     match copy_request(&conn_b, false, Some(lost)).await {
         SessionsReply::CopyDone {} => {}
         other => panic!("not done: {other:?}"),
     }
+    // The transcript that was there is kept where the list shows it, as a
+    // version that lost, and nothing is set aside unlisted in the store.
     let aside: Vec<_> = files_under(b_rollout.parent().expect("a folder"))
         .into_iter()
         .filter(|f| f.to_string_lossy().contains(".replaced-"))
         .collect();
-    assert_eq!(aside.len(), 1, "{aside:?}");
-    assert_eq!(fs::read_to_string(&aside[0]).unwrap(), "the winner\n");
+    assert!(aside.is_empty(), "{aside:?}");
+    let kept = copies_on(&conn_b).await;
+    assert!(
+        kept.iter().any(|v| v.lost.is_some_and(|at| at != lost)),
+        "the winner's version is listed: {kept:?}"
+    );
+    let winner_kept = files_under(&pair.b.dir.path().join("sessions/codex/s"))
+        .into_iter()
+        .any(|f| {
+            f.to_string_lossy().ends_with(".jsonl")
+                && fs::read_to_string(&f).is_ok_and(|text| text == winner)
+        });
+    assert!(winner_kept);
     assert!(
         fs::read_to_string(&b_rollout)
             .expect("the restored version")
             .contains("session_meta")
     );
-    until_copies(&conn_b, "the version left the recoverable list", |c| {
-        c.iter().all(|v| v.lost.is_none())
+    until_copies(&conn_b, "the restored version left the list", |c| {
+        c.iter().all(|v| v.lost != Some(lost))
     })
     .await;
 }
@@ -3510,9 +3533,19 @@ async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
     .await
     .expect("the source's worktree was detached");
 
-    // And back. The folder `a` kept still holds what the session left: the
-    // move is refused before anything stops, naming the folder, and the
-    // session keeps running on `b`.
+    // What the session left in the folder went with it: the source's
+    // worktree is clean, so the session can come back to it.
+    timeout(LIMIT, async {
+        while !git_in(&a_worktree, &["status", "--porcelain"]).is_empty() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the source's worktree was cleaned once the work went");
+    // The user writes something in it meanwhile: the move back is refused
+    // before anything stops, naming the folder, and the session keeps
+    // running on `b`.
+    fs::write(a_worktree.join("scratch.txt"), "the user's\n").expect("a file");
     ask_to_move_worktree(&pair.desktop, pair.b.id, pair.a.id, "feat", &b_worktree, 2).await;
     until_progress(&conn_a, "refused for the folder", |p| {
         p.phase == MovePhase::Failed
@@ -3537,14 +3570,13 @@ async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
         other => panic!("not a list: {other:?}"),
     }
     assert_eq!(
-        fs::read_to_string(a_worktree.join("notes.txt")).expect("untouched"),
-        "not committed\n"
+        fs::read_to_string(a_worktree.join("scratch.txt")).expect("untouched"),
+        "the user's\n"
     );
 
-    // Cleared by the user, with a stash of the user's own on the checkout:
+    // Removed by the user, with a stash of the user's own on the checkout:
     // the folder is reused, and the stash is not touched.
-    git_in(&a_worktree, &["checkout", "-q", "--force", "--detach"]);
-    git_in(&a_worktree, &["clean", "-fdq"]);
+    fs::remove_file(a_worktree.join("scratch.txt")).expect("removed");
     fs::write(pair.a_folder.join("main.rs"), "fn main() { mine() }\n").expect("a change");
     git_in(
         &pair.a_folder,
@@ -3721,4 +3753,99 @@ async fn background_copies_wait_while_a_session_works_on_this_machine() {
         copies_on(&conn_b).await.is_empty(),
         "nothing is copied meanwhile"
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_nested_repository_among_the_new_files_refuses_the_move_before_the_session_stops() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
+    let nested = a_worktree.join("vendor/lib");
+    fs::create_dir_all(&nested).expect("a folder");
+    git_in(&nested, &["init", "-q"]);
+    fs::write(nested.join("f.txt"), "x\n").expect("a file");
+    timeout(LIMIT, async {
+        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the branch reached the other machine");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    run_session_in(&conn_a, &a_worktree).await;
+    rollout_on(&pair.a, &a_worktree);
+    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 0).await;
+    // Refused by name on the first read, with the session still running.
+    until_progress(&conn_b, "refused by name", |p| {
+        p.phase == MovePhase::Failed
+            && p.reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("vendor/lib"))
+    })
+    .await;
+    pair.a.logged("the move of session s did not finish").await;
+    assert!(
+        !pair
+            .a
+            .log
+            .iter()
+            .any(|line| line.contains("ended the session")),
+        "the source stopped nothing"
+    );
+    assert!(!pair.b_folder.join(".worktrees/feat").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_machine_that_is_neither_end_of_an_old_move_still_settles_a_two_way_continue() {
+    let pair = synced_pair_env(None, None, &copy_env(None)).await;
+    // The record of an old move between two other machines is in the mesh;
+    // `b` has no saved state for it.
+    let record = SessionMove {
+        agent: "codex".into(),
+        id: MOVED_ID.to_owned(),
+        from: SecretKey::generate().public(),
+        to: SecretKey::generate().public(),
+        project: "proj".to_owned(),
+        path: String::new(),
+        mode: None,
+        stop: false,
+        at: 1_793_696_400_000,
+        worktree: None,
+    };
+    pair.desktop
+        .mesh
+        .set(
+            Key::SessionMove(MOVED_ID.to_owned()),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+    rollout_for(
+        &pair.a,
+        &pair.a_folder,
+        MOVED_ID,
+        Duration::from_secs(10),
+        10,
+    );
+    rollout_for(
+        &pair.b,
+        &pair.b_folder,
+        MOVED_ID,
+        Duration::from_secs(3600),
+        10,
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let marker = pair.b.dir.path().join("sessions/codex/s");
+    fs::create_dir_all(&marker).expect("the cache folder");
+    fs::write(marker.join("continued"), format!("1\n{now}")).expect("the note");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_copies(&conn_b, "the later version wins", |c| {
+        c.iter().any(|v| v.id == MOVED_ID && v.lost.is_some())
+    })
+    .await;
 }

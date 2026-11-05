@@ -169,11 +169,48 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                 worktree.branch.clone(),
                 work.clone(),
             );
+            // Noted before anything is made, so a restart or a crash inside
+            // `attach` finds what to take back; with nothing applied yet, a
+            // folder that is clean is all it may remove.
+            let (c, f, b) = (checkout.clone(), folder.clone(), branch.clone());
+            let plan = spawn_blocking(move || worktree::check(&c, &f, &b, running)).await??;
+            env.state
+                .save(
+                    &record.id,
+                    &Saved {
+                        at: record.at,
+                        phase: Phase::Working,
+                        reason: None,
+                        open: None,
+                        made: Some(MadeWorktree {
+                            checkout: checkout.clone(),
+                            folder: folder.clone(),
+                            placed: plan,
+                            applied: String::new(),
+                        }),
+                    },
+                )
+                .context("keeping what the move is about to make")?;
             let attached = spawn_blocking(move || {
                 worktree::attach(&checkout, &folder, &branch, &work, running)
             })
             .await?
-            .context("making the worktree")?;
+            .context("making the worktree");
+            let attached = match attached {
+                Ok(attached) => attached,
+                Err(e) => {
+                    // `attach` leaves nothing changed when it fails.
+                    let mut saved = env
+                        .state
+                        .load(&record.id)
+                        .unwrap_or_else(|| Saved::over(record.at, Phase::Working, None));
+                    saved.made = None;
+                    if let Err(e) = env.state.save(&record.id, &saved) {
+                        log::warn!("the pending note of session {} stays: {e}", record.id);
+                    }
+                    return Err(e);
+                }
+            };
             let note = MadeWorktree {
                 checkout: made.checkout.clone(),
                 folder: made.folder.clone(),

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type CopyRow, ago, copyKey, copyLists, lostLine, offlineLine } from "../src/agents/copy-state.ts";
+import { type CopyRow, ago, copyKey, copyLists, discardLabel, lostLine, offlineLine } from "../src/agents/copy-state.ts";
 
 const copy = (over: Partial<CopyRow> = {}): CopyRow => ({ agent: "codex", id: "s1", from: "laptop-id", from_name: "laptop", online: false, project: "acme/app", path: "", last_activity: 100, fetched_at: 200, size: 10, lost: null, ...over });
 
@@ -39,4 +39,9 @@ test("the rows say how old the copy is, and that another machine went on", () =>
 
 test("a copy and a version of the same session have their own keys", () => {
   assert.notEqual(copyKey(copy()), copyKey(copy({ lost: 5 })));
+});
+
+test("discarding a version asks once before it throws it away", () => {
+  assert.equal(discardLabel(false), "Discard");
+  assert.notEqual(discardLabel(true), discardLabel(false));
 });

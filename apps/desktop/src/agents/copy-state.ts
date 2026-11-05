@@ -47,5 +47,9 @@ export const offlineLine = (c: CopyRow, now: number) => `${c.from_name} is offli
 /// What a version that lost says: another machine went on after it.
 export const lostLine = () => "Another machine continued this session later. This version is kept";
 
+/// What the Discard button says: the first click asks, in place, and the
+/// second throws the version away for good.
+export const discardLabel = (armed: boolean) => (armed ? "Throw away for good" : "Discard");
+
 /// The copies as keyed for a button: a version that lost has its own key.
 export const copyKey = (c: CopyRow) => `${c.agent}:${c.id}:${c.lost ?? ""}`;

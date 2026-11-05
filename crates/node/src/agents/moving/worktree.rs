@@ -23,6 +23,17 @@ pub(crate) struct Work {
     pub(crate) patch: Vec<u8>,
 }
 
+impl Work {
+    /// What the worktree held, as one hash: its commit and everything not
+    /// committed in it.
+    pub(super) fn fingerprint(&self) -> String {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(self.head.as_bytes());
+        hasher.update(&self.patch);
+        hasher.finalize().to_hex().to_string()
+    }
+}
+
 /// How the worktree for a move is got.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum Placed {
@@ -160,6 +171,9 @@ pub(super) fn snapshot(dir: &Path) -> Result<Work> {
     .context("listing new files")?;
     for name in others.split(|byte| *byte == 0).filter(|n| !n.is_empty()) {
         let name = String::from_utf8_lossy(name).into_owned();
+        if name.ends_with('/') {
+            bail!("{name} is a repository of its own, which cannot move in a patch");
+        }
         let left = MAX_PATCH.saturating_sub(patch.len());
         // A file over the budget is not read at all.
         let size = std::fs::symlink_metadata(dir.join(&name)).map_or(0, |meta| meta.len());
@@ -173,9 +187,45 @@ pub(super) fn snapshot(dir: &Path) -> Result<Work> {
         // `--no-index` exits 1 when the files differ, which is what a new
         // file does against nothing.
         let out = capped(dir, &args, left, &[1]).with_context(|| format!("reading {name}"))?;
+        // A file git could not read gives exit 1 and nothing: not an empty
+        // patch, a file that would be missing over there.
+        if out.is_empty() {
+            bail!("{name} could not be read, so it cannot move");
+        }
         patch.extend_from_slice(&out);
     }
     Ok(Work { head, patch })
+}
+
+/// What a live read of a worktree session can refuse for good before the
+/// source stops anything: a repository of its own among the new files, or
+/// changes too large to move. Cheap: it reads sizes, builds no patch.
+pub(super) fn preflight(dir: &Path) -> Result<()> {
+    let mut total: u64 = 0;
+    let others = run(
+        dir,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+        None,
+    )
+    .context("listing new files")?;
+    let changed =
+        run(dir, &["diff", "HEAD", "--name-only", "-z"], None).context("listing changed files")?;
+    for (name, new) in others
+        .split(|byte| *byte == 0)
+        .map(|name| (name, true))
+        .chain(changed.split(|byte| *byte == 0).map(|name| (name, false)))
+        .filter(|(name, _)| !name.is_empty())
+    {
+        let name = String::from_utf8_lossy(name).into_owned();
+        if new && name.ends_with('/') {
+            bail!("{name} is a repository of its own, which cannot move in a patch");
+        }
+        total += std::fs::symlink_metadata(dir.join(&name)).map_or(0, |meta| meta.len());
+        if total > MAX_PATCH as u64 {
+            bail!("the uncommitted changes are too large to move");
+        }
+    }
+    Ok(())
 }
 
 /// The worktrees of the checkout `main` with the branch each has checked
@@ -207,8 +257,11 @@ fn same_folder(a: &Path, b: &Path) -> bool {
 /// a clean detached worktree of this checkout (one a session left) at a
 /// commit the branch contains, with no session running in it
 /// (`running_here`). Done before the source ends anything.
-pub(super) fn check(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<()> {
-    spot(main, path, branch, running_here).map(|_| ())
+pub(super) fn check(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Placed> {
+    Ok(match spot(main, path, branch, running_here)? {
+        Spot::Free => Placed::Made,
+        Spot::Detached { prior } => Placed::Reused { prior },
+    })
 }
 
 fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Spot> {
@@ -225,6 +278,11 @@ fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Sp
         bail!("{branch} is checked out in {} here", there.display());
     }
     if !path.exists() {
+        // A folder that was deleted but is still registered would make
+        // `worktree add` fail: only its registration is dropped.
+        if worktrees.iter().any(|(there, _)| there == path) {
+            run(main, &["worktree", "prune"], None).context("dropping a missing worktree")?;
+        }
         return Ok(Spot::Free);
     }
     let detached = worktrees
@@ -264,11 +322,7 @@ fn contains(dir: &Path, tip: &str, ancestor: &str) -> bool {
 /// What a worktree holds, as one hash: its commit and everything not
 /// committed in it.
 pub(super) fn fingerprint(dir: &Path) -> Result<String> {
-    let work = snapshot(dir)?;
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(work.head.as_bytes());
-    hasher.update(&work.patch);
-    Ok(hasher.finalize().to_hex().to_string())
+    Ok(snapshot(dir)?.fingerprint())
 }
 
 /// Puts the session's worktree on `branch` at `path` in the checkout `main`,
@@ -368,19 +422,61 @@ pub(super) enum Undone {
     Left(String),
 }
 
-/// Takes back what `attach` did, only when the folder still holds exactly
-/// what it put there (`applied`): anything else is the user's, and stays.
+/// Takes back what `attach` did, only when the folder is proven to hold
+/// nothing but what it put there: exactly `applied` (a fingerprint), or,
+/// when `applied` is empty because `attach` did not finish, nothing at all.
+/// Anything else is the user's, and stays.
 pub(super) fn undo(main: &Path, path: &Path, placed: &Placed, applied: &str) -> Undone {
-    match fingerprint(path) {
-        Ok(now) if now == applied => {}
-        Ok(_) => return Undone::Left(format!("{} holds changes made since", path.display())),
-        Err(e) => return Undone::Left(format!("{} was not read: {e:#}", path.display())),
+    if !path.exists() {
+        // Nothing was made, or it is gone.
+        return Undone::Removed;
+    }
+    if applied.is_empty() {
+        match text(path, &["status", "--porcelain"]) {
+            Ok(status) if status.is_empty() => {}
+            Ok(_) => {
+                return Undone::Left(format!(
+                    "{} holds changes and no record of what was put there",
+                    path.display()
+                ));
+            }
+            Err(e) => return Undone::Left(format!("{} was not read: {e:#}", path.display())),
+        }
+    } else {
+        match fingerprint(path) {
+            Ok(now) if now == applied => {}
+            Ok(_) => return Undone::Left(format!("{} holds changes made since", path.display())),
+            Err(e) => return Undone::Left(format!("{} was not read: {e:#}", path.display())),
+        }
+    }
+    // Files git ignores (build output, `.env`) are not in the fingerprint:
+    // a folder that holds any stays.
+    match run(
+        path,
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+        ],
+        None,
+    ) {
+        Ok(ignored) if ignored.is_empty() => {}
+        Ok(_) => {
+            return Undone::Left(format!("{} holds files git ignores", path.display()));
+        }
+        Err(e) => return Undone::Left(format!("{e:#}")),
     }
     match placed {
-        // Proven to hold only the patch, so forcing removes nothing else.
         Placed::Made => {
+            // Proven to hold only the patch: take it out, then the plain
+            // remove, which refuses anything left.
             let made = path.to_string_lossy();
-            match run(main, &["worktree", "remove", "--force", &made], None) {
+            let gone = run(path, &["reset", "--hard", "--quiet"], None)
+                .and_then(|_| run(path, &["clean", "-fdq"], None))
+                .and_then(|_| run(main, &["worktree", "remove", &made], None));
+            match gone {
                 Ok(_) => Undone::Removed,
                 Err(e) => Undone::Left(format!("{e:#}")),
             }
@@ -413,6 +509,23 @@ fn remove(main: &Path, path: &Path) {
 /// linked worktree is not moved by sync.
 pub(super) fn detach(dir: &Path) -> Result<()> {
     run(dir, &["checkout", "--quiet", "--detach"], None).map(|_| ())
+}
+
+/// Once the session runs on the target: detaches `dir` like `detach`, and,
+/// if its fingerprint is exactly what was sent (`sent`), takes the sent
+/// changes out of it too, so a session that comes back finds a clean
+/// folder. A folder that holds anything else is left as it is.
+pub(super) fn detach_clean(dir: &Path, sent: Option<&str>) -> Result<bool> {
+    detach(dir)?;
+    let Some(sent) = sent else {
+        return Ok(false);
+    };
+    if fingerprint(dir).ok().as_deref() != Some(sent) {
+        return Ok(false);
+    }
+    run(dir, &["checkout", "--quiet", "--force", "--detach"], None)?;
+    run(dir, &["clean", "-fdq"], None)?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -715,5 +828,119 @@ mod tests {
         // A cap that fits gives all of it.
         let whole = capped(&wt, &["diff", "HEAD", "--binary"], MAX_PATCH, &[]).expect("fits");
         assert!(whole.len() > 3);
+    }
+
+    #[test]
+    fn a_repository_of_its_own_among_the_new_files_is_refused_by_name_not_dropped() {
+        let (dir, wt) = source();
+        let nested = wt.join("vendor/lib");
+        fs::create_dir_all(&nested).expect("a folder");
+        git(&nested, &["init", "-q"]);
+        fs::write(nested.join("f.txt"), "x\n").expect("a file");
+        let failed = snapshot(&wt).expect_err("a nested repository");
+        assert!(format!("{failed:#}").contains("vendor/lib"), "{failed:#}");
+        // The cheap check on a live read says the same, without a patch.
+        let failed = preflight(&wt).expect_err("refused early");
+        assert!(format!("{failed:#}").contains("vendor/lib"), "{failed:#}");
+        drop(dir);
+    }
+
+    #[test]
+    fn an_ordinary_worktree_passes_the_early_check() {
+        let (_dir, wt) = source();
+        preflight(&wt).expect("fine");
+    }
+
+    #[test]
+    fn a_missing_folder_that_is_still_registered_does_not_stop_the_move() {
+        let (dir, wt) = source();
+        let main = dir.path().join("main");
+        let work = snapshot(&wt).expect("a snapshot");
+        detach(&wt).expect("detached");
+        let target = dir.path().join("target-wt");
+        let got = attach(&main, &target, "feat", &work, false).expect("made");
+        undo(&main, &target, &got.placed, &got.applied);
+        // Made, then its folder deleted by hand: git still lists it.
+        let got = attach(&main, &target, "feat", &work, false).expect("made again");
+        assert_eq!(got.placed, Placed::Made);
+        git(&target, &["checkout", "-q", "--force", "--detach"]);
+        fs::remove_dir_all(&target).expect("the folder is deleted");
+        assert!(git(&main, &["worktree", "list"]).contains("target-wt"));
+        check(&main, &target, "feat", false).expect("the registration is dropped");
+        attach(&main, &target, "feat", &work, false).expect("made once more");
+    }
+
+    #[test]
+    fn a_worktree_with_ignored_files_is_not_taken_back() {
+        let (dir, wt) = source();
+        let main = dir.path().join("main");
+        fs::write(wt.join(".gitignore"), "out/\n").expect("an ignore file");
+        let work = snapshot(&wt).expect("a snapshot");
+        detach(&wt).expect("detached");
+        let target = dir.path().join("target-wt");
+        let got = attach(&main, &target, "feat", &work, false).expect("made");
+        // Build output the session made, which git ignores.
+        fs::create_dir_all(target.join("out")).expect("a folder");
+        fs::write(target.join("out/big.bin"), "build\n").expect("a file");
+        let left = undo(&main, &target, &got.placed, &got.applied);
+        assert!(matches!(left, Undone::Left(_)), "{left:?}");
+        assert_eq!(
+            fs::read_to_string(target.join("out/big.bin")).unwrap(),
+            "build\n"
+        );
+    }
+
+    #[test]
+    fn a_pending_worktree_is_taken_back_only_while_clean() {
+        let (dir, wt) = source();
+        let main = dir.path().join("main");
+        detach(&wt).expect("detached");
+        // A crash inside `attach`, after the worktree was made.
+        let made = dir.path().join("made");
+        git(
+            &main,
+            &["worktree", "add", "-q", made.to_str().unwrap(), "feat"],
+        );
+        assert_eq!(undo(&main, &made, &Placed::Made, ""), Undone::Removed);
+        assert!(!made.exists());
+        // The same, with edits in it: it stays.
+        git(
+            &main,
+            &["worktree", "add", "-q", made.to_str().unwrap(), "feat"],
+        );
+        fs::write(made.join("a.txt"), "edited\n").expect("an edit");
+        assert!(matches!(
+            undo(&main, &made, &Placed::Made, ""),
+            Undone::Left(_)
+        ));
+        assert!(made.exists());
+        // A folder that was never made is nothing to take back.
+        assert_eq!(
+            undo(&main, &dir.path().join("none"), &Placed::Made, ""),
+            Undone::Removed
+        );
+    }
+
+    #[test]
+    fn a_landed_worktree_is_cleaned_only_if_it_still_holds_what_was_sent() {
+        let (dir, wt) = source();
+        let _ = dir;
+        let sent = snapshot(&wt).expect("a snapshot").fingerprint();
+        assert!(detach_clean(&wt, Some(&sent)).expect("detached"));
+        assert_eq!(git(&wt, &["status", "--porcelain"]), "");
+        assert!(run(&wt, &["symbolic-ref", "-q", "HEAD"], None).is_err());
+
+        let (_dir2, wt2) = source();
+        let sent = snapshot(&wt2).expect("a snapshot").fingerprint();
+        fs::write(wt2.join("a.txt"), "edited after it was sent\n").expect("an edit");
+        assert!(!detach_clean(&wt2, Some(&sent)).expect("detached"));
+        assert_eq!(
+            fs::read_to_string(wt2.join("a.txt")).unwrap(),
+            "edited after it was sent\n"
+        );
+        // Nothing known of what was sent (a restart): detached, left as it is.
+        let (_dir3, wt3) = source();
+        assert!(!detach_clean(&wt3, None).expect("detached"));
+        assert!(wt3.join("new.txt").exists());
     }
 }
