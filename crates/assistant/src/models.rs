@@ -80,6 +80,66 @@ pub async fn list_models(
         .collect())
 }
 
+/// An upstream provider that serves a model.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Provider {
+    /// What `provider.order` takes, such as `deepinfra/turbo`.
+    pub tag: String,
+    pub name: String,
+}
+
+#[derive(Deserialize)]
+struct EndpointsReply {
+    data: EndpointsData,
+}
+
+#[derive(Deserialize)]
+struct EndpointsData {
+    #[serde(default)]
+    endpoints: Vec<RawEndpoint>,
+}
+
+#[derive(Deserialize)]
+struct RawEndpoint {
+    tag: Option<String>,
+    provider_name: Option<String>,
+    name: Option<String>,
+}
+
+fn parse_providers(body: &[u8]) -> Result<Vec<Provider>, AssistantError> {
+    let reply: EndpointsReply = serde_json::from_slice(body)?;
+    let mut providers: Vec<Provider> = Vec::new();
+    for endpoint in reply.data.endpoints {
+        let Some(tag) = endpoint.tag.filter(|tag| !tag.is_empty()) else {
+            continue;
+        };
+        if providers.iter().any(|p| p.tag == tag) {
+            continue;
+        }
+        let name = endpoint
+            .provider_name
+            .or(endpoint.name)
+            .unwrap_or_else(|| tag.clone());
+        providers.push(Provider { tag, name });
+    }
+    Ok(providers)
+}
+
+/// The upstream providers OpenRouter routes `model` (`author/slug`) to.
+pub async fn list_providers(
+    client: &Client,
+    endpoint: &Endpoint,
+    model: &str,
+) -> Result<Vec<Provider>, AssistantError> {
+    let response = client
+        .get(format!("{}/models/{model}/endpoints", endpoint.base))
+        .bearer_auth(endpoint.key.expose_secret())
+        .send()
+        .await?;
+    let body = check(response).await?.bytes().await?;
+    parse_providers(&body)
+}
+
 /// Families to prefer when nothing was used before. They are prefixes matched against the live
 /// list, so a family that is gone is skipped.
 const PREFERRED: &[&str] = &[
@@ -116,6 +176,30 @@ mod tests {
             input_per_m: None,
             output_per_m: None,
         }
+    }
+
+    #[test]
+    fn providers_parse_and_repeat_tags_collapse() {
+        let body = br#"{"data":{"id":"a/b","endpoints":[
+            {"name":"A: B","provider_name":"DeepInfra","tag":"deepinfra/turbo"},
+            {"name":"A: B","provider_name":"DeepInfra","tag":"deepinfra/turbo"},
+            {"name":"A: B","provider_name":"Other","tag":"other"},
+            {"name":"no tag","provider_name":"Skipped"}]}}"#;
+        let providers = parse_providers(body).unwrap();
+        assert_eq!(
+            providers,
+            [
+                Provider {
+                    tag: "deepinfra/turbo".into(),
+                    name: "DeepInfra".into()
+                },
+                Provider {
+                    tag: "other".into(),
+                    name: "Other".into()
+                }
+            ]
+        );
+        assert!(parse_providers(b"{}").is_err());
     }
 
     #[test]

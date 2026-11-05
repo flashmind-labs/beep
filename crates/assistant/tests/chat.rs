@@ -162,6 +162,7 @@ fn setup(dir: &std::path::Path, openrouter: &Fake, firecrawl: Option<&Fake>) -> 
         dir: dir.to_owned(),
         today: "2026-01-02".into(),
         effort: Effort::Off,
+        provider: None,
         cancel: CancellationToken::new(),
     }
 }

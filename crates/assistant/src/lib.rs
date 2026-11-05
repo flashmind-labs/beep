@@ -16,8 +16,8 @@ mod view;
 
 pub use error::AssistantError;
 pub use message::{Call, Message};
-pub use models::{ModelInfo, default_model, list_models};
-pub use prefs::{Prefs, load_prefs, save_prefs};
+pub use models::{ModelInfo, Provider, default_model, list_models, list_providers};
+pub use prefs::{Prefs, ProviderPref, load_prefs, save_prefs};
 pub use run::{Event, Outcome, Setup, run_turn};
 pub use store::{
     Chat, ChatMatch, ChatSummary, delete_chat, list_chats, load_chat, pin_chat, rename_chat,
