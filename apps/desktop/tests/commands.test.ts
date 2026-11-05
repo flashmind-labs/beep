@@ -27,7 +27,7 @@ function registered() {
 }
 
 /// Every `invoke(...)` in src with a literal command name.
-/// argument is a variable or ternary is covered by `quoted` below.
+/// A call with a variable or ternary name is covered by `quoted` below.
 function calls() {
   const found: { file: string; line: number; name: string | null }[] = [];
   for (const file of sources("src")) {
