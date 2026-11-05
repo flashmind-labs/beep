@@ -30,6 +30,9 @@ export interface GitItemRow {
   comments: number;
   /// Missing from a list kept by an older app.
   labels?: string[];
+  /// When it opened, in milliseconds since the Unix epoch. Not sent yet, so
+  /// the lists keep such rows under Any time and sort them last.
+  opened_at?: number | null;
 }
 
 /// What `git_items` gives (GitItemsView).
