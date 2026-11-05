@@ -54,6 +54,8 @@ export interface Conflict {
   original: string;
   on: string[];
   resolver: string | null;
+  /// The first online machine that has it, where an agent can work on it.
+  holder: string | null;
 }
 
 /// What the window hands `makeFileSync`.
@@ -62,6 +64,8 @@ export interface FileSyncDeps {
   h: MakeEl;
   button: MakeButton;
   redraw: () => void;
+  /// Fills the bar of `project` to have an agent settle a conflict.
+  fix?: (project: string, c: Conflict) => void;
   /// Where each project's sync is kept between windows; in memory only
   /// without it.
   kept?: SectionStore<SyncDetail | null>;
@@ -139,8 +143,37 @@ export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progre
 /// The file conflict copy `path` stands beside: `notes.txt` for
 /// `notes (conflict 1a2b3c4d).txt`; the path itself when it is not one.
 export function originalOf(path: string) {
+  const git = gitConflict(path);
+  if (git) return `.git/${git.original}`;
   const m = /^(.*) \(conflict [0-9a-f]{8}\)([^/]*)$/.exec(path);
   return m && !m[1].endsWith("/") && m[1] !== "" ? m[1] + m[2] : path;
+}
+
+/// The ref a git conflict `path` keeps the losing commit in, and the ref
+/// it stands beside: `refs/beep-conflicts/heads/main-5e6f7a8b` and
+/// `refs/heads/main`. Null for a file.
+export function gitConflict(path: string) {
+  const m = /^\.git\/refs\/beep-conflicts\/(.+)-[0-9a-f]{8}$/.exec(path);
+  return m ? { ref: path.slice(".git/".length), original: `refs/${m[1]}` } : null;
+}
+
+/// The prompt that has an agent settle conflict `c`. A file is merged but not
+/// committed; a git ref is kept until the user says to drop it.
+export function conflictPrompt(c: Pick<Conflict, "path" | "original">) {
+  const git = gitConflict(c.path);
+  if (git) {
+    return [
+      `Two machines committed to ${git.original} at once, and file sync kept the other side as ${git.ref}.`,
+      `Inspect it with git log and git diff against ${git.original} and say what differs. Merge it into the branch without rewriting history: no reset, rebase or force. Do not push.`,
+      "If the two sides contradict, ask me which to keep before merging.",
+      `Delete ${git.ref} with git update-ref -d only if I ask you to.`,
+    ].join("\n");
+  }
+  return [
+    `${c.original} was edited on two machines at once, and file sync kept the other side as ${c.path} beside it.`,
+    `Read ${c.original} and ${c.path} and say what differs. Merge them into ${c.original}, keeping both sides' intent, then delete ${c.path}. Do not commit.`,
+    "If the two contradict, ask me which to keep before changing anything.",
+  ].join("\n");
 }
 
 /// Every conflict copy once, with the machines that have it and the first
@@ -150,12 +183,18 @@ export function conflictList(d: Pick<SyncDetail, "machines"> | null | undefined)
   for (const m of d?.machines || []) {
     for (const path of m.conflicts) {
       let c = out.get(path);
-      if (!c) out.set(path, c = { path, original: originalOf(path), on: [], resolver: null });
+      if (!c) out.set(path, c = { path, original: originalOf(path), on: [], resolver: null, holder: null });
       c.on.push(m.machine_id);
+      if (!c.holder && m.status !== "offline") c.holder = m.machine_id;
       if (!c.resolver && m.can_resolve && m.status !== "offline") c.resolver = m.machine_id;
     }
   }
   return [...out.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/// Conflicts across projects, for the sidebar. Projects not read yet count none.
+export function conflictTotal(details: readonly (Pick<SyncDetail, "machines"> | null | undefined)[]) {
+  return details.reduce((n, d) => n + conflictList(d).length, 0);
 }
 
 /// The changes still waiting, each path once, with the machines it waits on.
@@ -229,6 +268,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     const s = of(name);
     if (s.loading) return;
     s.loading = true;
+    const was = JSON.stringify([s.detail, s.error]);
     try {
       s.detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
       s.error = "";
@@ -240,7 +280,8 @@ export function makeFileSync(deps: FileSyncDeps) {
       s.loading = false;
       s.read_at = Date.now();
     }
-    redraw();
+    // A read that found nothing new draws nothing.
+    if (was !== JSON.stringify([s.detail, s.error])) redraw();
   }
 
   /// Reads `name` once its detail is `every` old. The read, when one
@@ -280,6 +321,7 @@ export function makeFileSync(deps: FileSyncDeps) {
       s.busy = null;
     }
     await load(name);
+    redraw();
   }
 
   function pause(name: string, paused: boolean) {
@@ -306,10 +348,21 @@ export function makeFileSync(deps: FileSyncDeps) {
     return row;
   }
 
-  function conflictRow(name: string, c: Conflict, machines: readonly MachineDetail[]) {
+  /// Fix with an agent; none without the hook or an online machine that has it.
+  function fixButton(name: string, c: Conflict) {
+    if (!deps.fix || !c.holder) return null;
+    const fix = button("Fix with an agent", "small pri", () => deps.fix!(name, c));
+    fix.title = "Fills the bar to merge the two; you send it";
+    return fix;
+  }
+
+  /// `project` puts the project before what the other copy is, for lists across projects.
+  function conflictRow(name: string, c: Conflict, machines: readonly MachineDetail[], project = false) {
     const s = of(name);
     const where = c.on.map(id => machines.find(m => m.machine_id === id)?.machine_name || "").filter(Boolean).join(", ");
-    const text = h("span", "t", h("code", "", c.path), h("span", "", `Another copy of ${c.original}${where ? ` · on ${where}` : ""}`));
+    const git = gitConflict(c.path);
+    const what = git ? `Another commit of ${git.original.replace(/^refs\/heads\//, "")}` : `Another copy of ${c.original}`;
+    const text = h("span", "t", h("code", "", c.path), h("span", "", `${project ? `${name} · ` : ""}${what}${where ? ` · on ${where}` : ""}`));
     const busy = s.busy === c.path;
     let acts: HTMLElement;
     if (c.resolver) {
@@ -318,19 +371,21 @@ export function makeFileSync(deps: FileSyncDeps) {
       copy.title = `Puts this copy in place of ${c.original} on every machine`;
       orig.title = `Keeps ${c.original} and deletes this copy on every machine`;
       copy.disabled = orig.disabled = !!s.busy || !!s.detail?.paused;
-      acts = h("span", "acts", copy, orig);
+      acts = h("span", "acts", fixButton(name, c), copy, orig);
     } else {
-      acts = h("span", "dmuted", "Update beep-node on a machine that has it to settle it here");
+      acts = h("span", "acts", fixButton(name, c), h("span", "dmuted", "Update beep-node on a machine that has it to settle it here"));
     }
     return h("div", "fs-conflict", text, acts);
   }
 
   /// The full view: Pause or Resume, the machines, the conflicts and what
   /// still waits.
-  function panel(name: string): HTMLElement[] {
+  /// `heading` names the machines' section (the project, on the Sync page);
+  /// a panel with one reads on its page's refresh, not on a timer of its own.
+  function panel(name: string, heading?: string): HTMLElement[] {
     const s = of(name);
     if (s.detail === undefined) load(name);
-    watch(name);
+    if (!heading) watch(name);
     const d = s.detail;
     const out: HTMLElement[] = [];
     if (s.error) out.push(h("div", "cc-err", s.error));
@@ -341,7 +396,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     toggle.title = d.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are";
     const moving = d.machines.filter(m => !m.paused && m.status === "syncing").length;
     const summary = d.pinned ? "pinned" : d.paused ? "paused on every machine" : moving ? `${moving} syncing` : d.machines.length ? "in sync" : "";
-    out.push(secHead("Machines", h("span", "fs-tools", h("small", "", summary), toggle)));
+    out.push(secHead(heading ?? "Machines", h("span", "fs-tools", h("small", "", summary), toggle)));
     out.push(h("div", "cc-panel fs-list", ...(d.machines.length
       ? d.machines.map(machineRow)
       : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: never syncs." : "No machine syncs this project."))])));
@@ -366,6 +421,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     detail: (name: string) => of(name).detail,
     forTile,
     panel,
+    conflictRow,
     stop: () => watch(null),
   };
 }
