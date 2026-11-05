@@ -58,11 +58,11 @@ export async function show(view: string | null) {
   if (S.link === "linked" || S.local) loadAgentHosts();
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
-  // Without a subscription the bar starts agents on the mesh's machines; the chat needs one.
+  // Without a subscription or a local chat the bar starts agents on the mesh's machines.
   // With no server there is no link screen either.
-  if (!S.server && S.link === "unlinked") return renderAgentNew("", "chat");
-  if (view === "link") return S.link === "linked" ? renderChat() : renderLink();
-  if (S.link === "unlinked") return renderAgentNew("", "chat");
+  if (!S.server && S.link === "unlinked" && !S.local) return renderAgentNew("", "chat");
+  if (view === "link" && !S.local) return S.link === "linked" ? renderChat() : renderLink();
+  if (S.link === "unlinked" && !S.local) return renderAgentNew("", "chat");
   if (view && Object.hasOwn(NAMED, view)) return NAMED[view]();
   // Back from the browser: look again at what is connected.
   if (S.view === "apps") return loadApps();
