@@ -31,6 +31,12 @@ pub trait Peers: Send + Sync {
 
     /// A client for `machine`, which may be this Mac's own node.
     async fn client(&self, machine: EndpointId) -> Result<PeerClient>;
+
+    /// What `machine` last said about itself, kept from before: its probe is slow, and an
+    /// offline machine says nothing now. Nothing is kept by default.
+    fn last_env(&self, _machine: EndpointId) -> Option<EnvReport> {
+        None
+    }
 }
 
 /// A shell on one machine, over its `shell/1` protocol. A script may carry a token, so nothing
