@@ -39,6 +39,77 @@ pub enum Transport {
     },
 }
 
+impl Transport {
+    /// A command server from what the user typed: one line, split on spaces with single or
+    /// double quotes keeping words together, and lines of `NAME=value` for its environment.
+    pub fn command(line: &str, env: &str) -> Result<Self, AssistantError> {
+        let mut words = split_words(line)?.into_iter();
+        let command = words
+            .next()
+            .ok_or_else(|| AssistantError::Config("The command is empty.".into()))?;
+        let mut vars = Vec::new();
+        for entry in env.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let Some((name, value)) = entry.split_once('=') else {
+                return Err(AssistantError::Config(
+                    "Each environment line must look like NAME=value.".into(),
+                ));
+            };
+            vars.push(EnvVar {
+                name: name.trim().to_owned(),
+                value: SecretString::from(value.to_owned()),
+            });
+        }
+        Ok(Self::Stdio {
+            command,
+            args: words.collect(),
+            env: vars,
+        })
+    }
+
+    /// An HTTP server from its address and an optional bearer token.
+    pub fn url(address: &str, token: &str) -> Result<Self, AssistantError> {
+        let url = Url::parse(address.trim())
+            .map_err(|_| AssistantError::Config("That is not an address.".into()))?;
+        let token = Some(token.trim()).filter(|t| !t.is_empty());
+        Ok(Self::Http {
+            url,
+            token: token.map(|t| SecretString::from(t.to_owned())),
+        })
+    }
+}
+
+/// `line` split into words; quotes group words and are not part of them.
+fn split_words(line: &str) -> Result<Vec<String>, AssistantError> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut open = false;
+    let mut quote: Option<char> = None;
+    for c in line.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => word.push(c),
+            (None, '\'' | '"') => {
+                quote = Some(c);
+                open = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if open || !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                    open = false;
+                }
+            }
+            (None, c) => word.push(c),
+        }
+    }
+    if quote.is_some() {
+        return Err(AssistantError::Config("A quote is not closed.".into()));
+    }
+    if open || !word.is_empty() {
+        words.push(word);
+    }
+    Ok(words)
+}
+
 /// A server on the list. `name` is a short lowercase id, such as `files`.
 #[derive(Debug, Clone)]
 pub struct McpServer {
@@ -299,6 +370,22 @@ mod tests {
             }],
         };
         McpServer::new(name, transport).unwrap()
+    }
+
+    #[test]
+    fn a_typed_command_and_environment_become_a_transport() {
+        let Transport::Stdio { command, args, env } =
+            Transport::command("npx -y 'my server' \"a b\" \"\"", "KEY=a=b\n\n").unwrap()
+        else {
+            panic!("not a command")
+        };
+        assert_eq!(command, "npx");
+        assert_eq!(args, ["-y", "my server", "a b", ""]);
+        assert_eq!(env[0].name, "KEY");
+        assert_eq!(env[0].value.expose_secret(), "a=b");
+        assert!(Transport::command("  ", "").is_err());
+        assert!(Transport::command("tool", "no equals sign").is_err());
+        assert!(Transport::command("tool 'open", "").is_err());
     }
 
     #[test]
