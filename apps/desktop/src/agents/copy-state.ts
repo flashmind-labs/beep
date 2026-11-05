@@ -6,8 +6,10 @@
 export interface CopyRow {
   agent: string;
   id: string;
-  /// The machine that ran it.
+  /// The machine that ran it, its name, and whether the mesh has it online now.
   from: string;
+  from_name: string;
+  online: boolean;
   project: string;
   path: string;
   /// Unix seconds: its last activity, and when the copy was last brought up to date.
@@ -28,18 +30,19 @@ export function ago(seconds: number) {
 }
 
 /// The copies the list offers: a session no machine lists and whose machine
-/// is off (continue it here from the copy), and the versions that lost to
-/// another machine's (kept until thrown away). Newest first.
-export function copyLists(copies: readonly CopyRow[], liveIds: ReadonlySet<string>, onlineMachines: ReadonlySet<string>) {
+/// is off by the mesh's own word (continue it here from the copy), and the
+/// versions that lost to another machine's (kept until thrown away). Newest
+/// first.
+export function copyLists(copies: readonly CopyRow[], liveIds: ReadonlySet<string>) {
   const newest = (a: CopyRow, b: CopyRow) => b.last_activity - a.last_activity;
   return {
-    offline: copies.filter(c => c.lost === null && !liveIds.has(c.id) && !onlineMachines.has(c.from)).sort(newest),
+    offline: copies.filter(c => c.lost === null && !c.online && !liveIds.has(c.id)).sort(newest),
     lost: copies.filter(c => c.lost !== null).sort(newest),
   };
 }
 
 /// What an offline machine's row says under the title.
-export const offlineLine = (machine: string, c: CopyRow, now: number) => `${machine} is offline. Copy from ${ago(now - c.fetched_at)} ago`;
+export const offlineLine = (c: CopyRow, now: number) => `${c.from_name} is offline. Copy from ${ago(now - c.fetched_at)} ago`;
 
 /// What a version that lost says: another machine went on after it.
 export const lostLine = () => "Another machine continued this session later. This version is kept";

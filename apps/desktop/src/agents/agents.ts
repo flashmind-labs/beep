@@ -6,7 +6,7 @@
 // file holds their shared types and state, and the Every session list.
 import { nest, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
-import { copiesClick, copiesHtml, loadCopies, onCopies } from "./copies.ts";
+import { copiesClick, copiesHtml, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
 import { preloadModels } from "./agentpicker.ts";
@@ -35,7 +35,7 @@ import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onPlaces, placeOf } from "./place.ts";
-import { moveLabel, nameOf, onMoves } from "./move-store.ts";
+import { moveLabel, onMoves } from "./move-store.ts";
 import { placeSub } from "./place-state.ts";
 
 /// A question a session waits on, such as whether to run a command.
@@ -373,7 +373,6 @@ export async function renderAgents() {
   S.view = "agents";
   AG.sel = 0;
   drawAgents(true);
-  void loadCopies();
   try {
     await loadSessions();
     AG.error = "";
@@ -394,6 +393,7 @@ function sessionSub(s: AgentSession, harness: string, folder: string) {
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
 onCopies(() => { if (S.view === "agents") drawAgents(false); });
+onCopyAction(() => void loadSessions().catch(() => []));
 
 function sessionRow({ row: s, depth }: { row: AgentSession; depth: number }, i: number) {
   const k = agentKind(s.agent), folder = folderName(s.cwd);
@@ -415,7 +415,7 @@ export function drawAgents(loading: boolean) {
   const list = sessions, shown = nest(list);
   drawn = shown.map(n => n.row);
   const machines = new Set(list.map(s => s.machine_id)).size;
-  const copies = copiesHtml(new Set(list.map(s => s.id)), new Set((AG.hosts ?? []).map(h => h.machine_id)), id => AG.hosts?.find(h => h.machine_id === id)?.machine_name ?? nameOf(id));
+  const copies = copiesHtml(new Set(list.map(s => s.id)));
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
     ${AG.error ? `<div class="derr dpadx">${esc(AG.error)}</div>` : ""}

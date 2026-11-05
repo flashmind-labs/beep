@@ -16,6 +16,7 @@ use super::{
     read::{Ask, Kind, Offer, Reply, Request, pull},
 };
 use anyhow::{Context, Result, bail};
+use beep_mesh::Key;
 use beep_proto::{
     AgentSlug,
     node::{
@@ -25,9 +26,12 @@ use beep_proto::{
 };
 use iroh::EndpointId;
 use std::{
+    cmp::Ordering,
+    collections::HashMap,
     fs::{self, File},
     io::Read,
     path::Path,
+    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
@@ -41,6 +45,8 @@ const CAP: u64 = 2 * 1024 * 1024 * 1024;
 const RATE: u64 = 8 * 1024 * 1024;
 /// What the note beside a copy is allowed to take.
 const NOTE_ROOM: u64 = 1024;
+/// How long a copy with no note, which no pull went on with, is kept.
+const PARTIAL_FOR: Duration = Duration::from_secs(24 * 3600);
 /// The most copies brought up to date in one pass.
 const MAX_FETCHES: usize = 16;
 
@@ -87,8 +93,23 @@ fn busy(env: &Env) -> bool {
 
 async fn pass(env: &Env) -> Result<()> {
     let projects = projects_of(&env.mesh);
-    tidy(env).await;
-    if projects.is_empty() || busy(env) {
+    let locals = locals(env).await;
+    tidy(env, &locals).await;
+    if projects.is_empty() {
+        return Ok(());
+    }
+    let waits = busy(env);
+    if env.agents.moves.set_paused(waits) {
+        log::info!(
+            "background copies {}",
+            if waits {
+                "wait while a session works"
+            } else {
+                "go on"
+            }
+        );
+    }
+    if waits {
         return Ok(());
     }
     let me = env.mesh.me();
@@ -104,7 +125,7 @@ async fn pass(env: &Env) -> Result<()> {
         if busy(env) || fetched >= MAX_FETCHES {
             break;
         }
-        if let Err(e) = from_peer(env, &projects, peer, &mut fetched).await {
+        if let Err(e) = from_peer(env, &projects, &locals, peer, &mut fetched).await {
             log::debug!("background copies from {peer}: {e:#}");
         }
     }
@@ -113,7 +134,7 @@ async fn pass(env: &Env) -> Result<()> {
 
 /// Takes away the copies that are too old, or that this machine has a
 /// session of its own for.
-async fn tidy(env: &Env) {
+async fn tidy(env: &Env, locals: &Locals) {
     let cache = env.cache.clone();
     let Ok(entries) = spawn_blocking(move || cache.entries()).await else {
         return;
@@ -121,16 +142,20 @@ async fn tidy(env: &Env) {
     let now = now_secs();
     for entry in entries {
         let Some(copy) = &entry.copy else {
+            // A pull that stopped before it noted anything is picked up by
+            // the next one; one left for a day is not.
+            if entry.copy_bytes > 0
+                && env
+                    .cache
+                    .idle_secs(&entry.agent, &entry.id)
+                    .is_some_and(|idle| idle > PARTIAL_FOR.as_secs())
+            {
+                let cache = env.cache.clone();
+                let _ = spawn_blocking(move || cache.remove(&entry.agent, &entry.id, false)).await;
+            }
             continue;
         };
-        let held_here = match harness_of(entry.agent.as_str()) {
-            Some(harness) => env
-                .agents
-                .transcript_file(harness, &entry.id)
-                .await
-                .is_some(),
-            None => false,
-        };
+        let held_here = locals.has(&entry.id);
         if held_here || !is_recent(copy.last_activity, now) {
             let cache = env.cache.clone();
             let _ = spawn_blocking(move || cache.remove(&entry.agent, &entry.id, false)).await;
@@ -141,6 +166,7 @@ async fn tidy(env: &Env) {
 async fn from_peer(
     env: &Env,
     projects: &[Project],
+    locals: &Locals,
     peer: EndpointId,
     fetched: &mut usize,
 ) -> Result<()> {
@@ -160,16 +186,15 @@ async fn from_peer(
         if *fetched >= MAX_FETCHES || busy(env) {
             break;
         }
-        let Some(harness) = harness_of(offer.agent.as_str()) else {
+        if harness_of(offer.agent.as_str()).is_none() {
             continue;
-        };
+        }
         if !is_recent(offer.last_activity, now) || !projects.iter().any(|p| p.name == offer.project)
         {
             continue;
         }
-        let local = env.agents.transcript_file(harness, &offer.id).await;
-        let done = match local {
-            Some(local) => settle(env, peer, &offer, &local).await,
+        let done = match locals.get(&offer.id) {
+            Some(local) => settle(env, peer, &offer, local).await,
             None => fetch(env, &connection, peer, &offer, fetched).await,
         };
         if let Err(e) = done {
@@ -191,14 +216,12 @@ async fn fetch(
     let Some(copy) = env.cache.copy(&offer.agent, &offer.id) else {
         bail!("not a session name");
     };
-    if env
-        .cache
-        .meta(&offer.agent, &offer.id)
-        .is_some_and(|meta| meta.size == offer.size && meta.hash == offer.hash)
+    if let Some(meta) = env.cache.meta(&offer.agent, &offer.id)
+        && is_held(&meta, offer, peer)
     {
         return Ok(());
     }
-    make_room(env, offer, &copy).await?;
+    let evict = make_room(env, offer, &copy).await?;
     if let Some(dir) = copy.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
@@ -218,6 +241,14 @@ async fn fetch(
     )
     .await?;
     *fetched += 1;
+    // Only a pull that went through makes room: a failed one costs nothing.
+    let cache = env.cache.clone();
+    spawn_blocking(move || {
+        for (agent, id) in &evict {
+            cache.remove(agent, id, false);
+        }
+    })
+    .await?;
     let hash = hash_of(&copy).await?;
     let meta = Meta {
         from: peer,
@@ -231,27 +262,64 @@ async fn fetch(
     };
     let (cache, agent, id) = (env.cache.clone(), offer.agent.clone(), offer.id.clone());
     spawn_blocking(move || cache.save_meta(&agent, &id, &meta)).await??;
+    if pulled.restarted {
+        // The older copy kept beside the new one counts against the cap.
+        trim_after_restart(env, offer).await?;
+    }
     Ok(())
 }
 
-/// Takes away the oldest copies until the bytes `offer` adds fit; fails when
-/// they cannot.
-async fn make_room(env: &Env, offer: &Offer, copy: &Path) -> Result<()> {
+/// Whether the copy noted by `meta` is as good as `offer` from `peer`, or
+/// better: a session continued on another machine has bytes of its own
+/// (its folders are rewritten), so a machine does not flip between two
+/// holders but keeps the later one.
+fn is_held(meta: &Meta, offer: &Offer, peer: EndpointId) -> bool {
+    match offer.last_activity.cmp(&meta.last_activity) {
+        Ordering::Less => true,
+        Ordering::Equal => {
+            meta.from != peer || (meta.size == offer.size && meta.hash == offer.hash)
+        }
+        Ordering::Greater => false,
+    }
+}
+
+/// After a pull that started over: the cache holds the new copy and the old
+/// one beside it. Older copies of other sessions go to bring it under the
+/// cap, and the old one with them if that is not enough.
+async fn trim_after_restart(env: &Env, offer: &Offer) -> Result<()> {
+    let (cache, cap) = (env.cache.clone(), env.limits.cap);
+    let (agent, id, activity) = (offer.agent.clone(), offer.id.clone(), offer.last_activity);
+    spawn_blocking(move || {
+        let entries = cache.entries();
+        let own = Some((&agent, id.as_str()));
+        match evictions(&entries, cap, 0, activity, own) {
+            Some(gone) => {
+                for (other, key) in &gone {
+                    cache.remove(other, key, false);
+                }
+            }
+            None => cache.drop_diverged(&agent, &id),
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+/// The oldest copies to take away once the bytes `offer` adds are here; fails
+/// when they could not fit even then.
+async fn make_room(env: &Env, offer: &Offer, copy: &Path) -> Result<Vec<(AgentSlug, String)>> {
     let held = tokio::fs::metadata(copy).await.map_or(0, |meta| meta.len());
     // The note kept beside the copy counts too.
     let need = offer.size.saturating_sub(held) + NOTE_ROOM;
     let (cache, cap, activity) = (env.cache.clone(), env.limits.cap, offer.last_activity);
+    let (agent, id) = (offer.agent.clone(), offer.id.clone());
     let gone = spawn_blocking(move || {
         let entries: Vec<Entry> = cache.entries();
-        let gone = evictions(&entries, cap, need, activity)?;
-        for (agent, id) in &gone {
-            cache.remove(agent, id, false);
-        }
-        Some(gone.len())
+        evictions(&entries, cap, need, activity, Some((&agent, id.as_str())))
     })
     .await?;
     match gone {
-        Some(_) => Ok(()),
+        Some(gone) => Ok(gone),
         None => {
             log::info!("not copying session {}: the cache is full", offer.id);
             bail!("the cache is full")
@@ -271,7 +339,14 @@ async fn settle(env: &Env, peer: EndpointId, offer: &Offer, local: &Path) -> Res
     if !base.is_some_and(|base| offer.last_activity > base) {
         return Ok(());
     }
-    if env.agents.runs(&offer.id) || env.agents.moves.holds(&offer.id) {
+    // A move of the session is a deliberate owner: the record decides, not
+    // which version is later. A session that may still be coming back from
+    // a restart is not touched either.
+    if env.mesh.get(&Key::SessionMove(offer.id.clone())).is_some() {
+        log::info!("session {}: not settled, a move names it", offer.id);
+        return Ok(());
+    }
+    if !env.agents.reopened() || env.agents.runs(&offer.id) || env.agents.moves.holds(&offer.id) {
         return Ok(());
     }
     let (len, modified) = {
@@ -401,4 +476,28 @@ pub(crate) async fn discard(env: &Env, agent: &AgentSlug, id: &str, lost: Option
     if let Err(e) = done {
         log::warn!("a copy was not discarded: {e}");
     }
+}
+
+/// The transcripts of the sessions this machine has in its harnesses' stores,
+/// by session id: read once for a whole pass.
+struct Locals(HashMap<String, PathBuf>);
+
+impl Locals {
+    fn get(&self, id: &str) -> Option<&Path> {
+        self.0.get(id).map(PathBuf::as_path)
+    }
+
+    fn has(&self, id: &str) -> bool {
+        self.0.contains_key(id)
+    }
+}
+
+async fn locals(env: &Env) -> Locals {
+    let seen = env.agents.sightings().await.unwrap_or_default();
+    Locals(
+        seen.into_iter()
+            .filter(|one| harness_of(one.agent.as_str()).is_some())
+            .filter_map(|one| Some((one.id, one.file?)))
+            .collect(),
+    )
 }

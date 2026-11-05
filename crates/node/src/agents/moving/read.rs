@@ -207,7 +207,12 @@ pub(super) async fn serve(
             // ended. A session that may still be coming back from a
             // restart, or that the source is still finishing with, counts
             // as running.
-            let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            // A worktree asked for that the source has not registered yet
+            // (its task has not started) is not read as ended: it would
+            // come without its commit and work.
+            let unregistered = worktree && agents.moves.worktree_of(&id).is_none();
+            let live =
+                !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id) || unregistered;
             let work = match worktree.then(|| agents.moves.worktree_of(&id)).flatten() {
                 Some(dir) if !live => Some(dir),
                 _ => None,

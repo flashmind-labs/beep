@@ -429,14 +429,21 @@ fn a_transcript_is_written_private_and_a_different_one_is_kept_aside() {
     // The same session moving back: the new one only adds.
     write(&path, &stored("a\nb\n")).expect("replaced");
     assert_eq!(fs::read_to_string(&path).expect("read"), "a\nb\n");
-    assert!(!path.with_extension("jsonl.replaced").exists());
+    let kept = || -> Vec<PathBuf> {
+        fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|f| f.path())
+            .filter(|f| f.to_string_lossy().contains(".replaced-"))
+            .collect()
+    };
+    assert!(kept().is_empty());
     // Another history under that name is not thrown away.
     write(&path, &stored("x\n")).expect("replaced");
     assert_eq!(fs::read_to_string(&path).expect("read"), "x\n");
-    assert_eq!(
-        fs::read_to_string(path.with_extension("jsonl.replaced")).expect("kept"),
-        "a\nb\n"
-    );
+    let kept = kept();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(fs::read_to_string(&kept[0]).expect("kept"), "a\nb\n");
 }
 
 #[test]
