@@ -21,8 +21,8 @@ function keep() {
 
 /// Shows the first-run window over the app when it is due; `after` runs once it goes, or at once
 /// when it is not due. The choice is kept, so it shows once.
-export function firstRun(subscribed: boolean, after: () => void) {
-  if (!firstRunDue(subscribed, stored())) return after();
+export function firstRun(subscribed: boolean, after: () => void, signedOut = false) {
+  if (!firstRunDue(subscribed, stored(), signedOut)) return after();
   const root = el("div", "fr-scrim");
   const leave = () => { keep(); root.remove(); after(); };
   const alone = button("Use this Mac alone", "dbtn quiet", leave);

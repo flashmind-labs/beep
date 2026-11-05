@@ -259,6 +259,13 @@ impl Client {
         self.connection.close_reason().is_some()
     }
 
+    /// Closes the connection, ending the requests and streams open on it.
+    /// A later call needs a new `Client`.
+    pub fn close(&self) {
+        self.connection
+            .close(VarInt::from_u32(IDLE_CLOSE), b"closed by the app");
+    }
+
     /// Waits until the connection is gone.
     pub async fn closed(&self) {
         self.connection.closed().await;
