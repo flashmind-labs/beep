@@ -8,8 +8,9 @@ use beep_proto::{
     CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
     node::{
         agent::{
-            DiffAsk, Entry, ExternalSession, LiveStatus, ModelList, SESSIONS_PROTOCOL,
-            SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer, Worktree,
+            AgentCommand, DiffAsk, Entry, ExternalSession, LiveStatus, ModelList,
+            SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply, SessionsRequest, Steer,
+            Worktree,
         },
         harness::HarnessReport,
     },
@@ -382,6 +383,22 @@ pub async fn worktrees<S: Sessions + ?Sized>(
     };
     match ask(node, request).await? {
         SessionsReply::Worktrees { worktrees } => Ok(NodeWork::Done(worktrees)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The commands and skills the running session `session` offers on the
+/// node; none when it is not running or the agent reports none.
+pub async fn commands<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+) -> Result<NodeWork<Vec<AgentCommand>>, MeshError> {
+    let request = SessionsRequest::Commands {
+        session: session.to_owned(),
+    };
+    match ask(node, request).await? {
+        SessionsReply::Commands { commands } => Ok(NodeWork::Done(commands)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
     }

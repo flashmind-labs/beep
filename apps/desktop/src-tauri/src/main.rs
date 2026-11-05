@@ -134,6 +134,7 @@ fn main() {
             agents::diff::work_diff,
             agents::diff::agent_place,
             agents::diff::agent_worktrees,
+            agents::diff::agent_commands,
             agents::files::agent_tree,
             agents::files::agent_tree_save,
             agents::files::agent_tree_text,

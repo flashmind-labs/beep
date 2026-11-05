@@ -1,8 +1,8 @@
 //! Applying the agent's `session/update` notifications.
 
 use super::{
-    EDIT_KINDS, Live, MAX_COMMANDS, MAX_COMPACTIONS, MAX_ENTRY, MAX_LAST_MESSAGE, MAX_LINE,
-    MAX_PLAN, MAX_THOUGHT, OpenThought, TurnFiles,
+    EDIT_KINDS, Live, MAX_COMMANDS, MAX_COMPACTIONS, MAX_DESCRIPTION, MAX_ENTRY, MAX_LAST_MESSAGE,
+    MAX_LINE, MAX_PLAN, MAX_THOUGHT, OpenThought, TurnFiles,
     content::{cut, image_picture, push_cut, replayed, thought_line},
     tools::ToolCall,
 };
@@ -10,14 +10,14 @@ use crate::agents::{compaction::COMPACTED_ENTRY, image_files, images::Picture};
 use agent_client_protocol::schema::{
     MaybeUndefined,
     v1::{
-        CompactionStatus, CompactionUpdate, ContentBlock, PlanEntryStatus, SessionUpdate,
-        ToolCallStatus, ToolKind,
+        AvailableCommandInput, CompactionStatus, CompactionUpdate, ContentBlock, PlanEntryStatus,
+        SessionUpdate, ToolCallStatus, ToolKind,
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AgentContext,
-    node::agent::{EntryKind, PlanEntry, PlanStatus, Status},
+    node::agent::{AgentCommand, EntryKind, PlanEntry, PlanStatus, Status},
 };
 use std::{
     path::PathBuf,
@@ -118,7 +118,16 @@ impl Live {
                     .available_commands
                     .iter()
                     .take(MAX_COMMANDS)
-                    .map(|command| cut(&command.name, MAX_LINE))
+                    .map(|command| AgentCommand {
+                        name: cut(&command.name, MAX_LINE),
+                        description: cut(&command.description, MAX_DESCRIPTION),
+                        hint: match &command.input {
+                            Some(AvailableCommandInput::Unstructured(input)) => {
+                                cut(&input.hint, MAX_LINE)
+                            }
+                            _ => String::new(),
+                        },
+                    })
                     .collect();
             }
             SessionUpdate::CompactionUpdate(update) => self.compaction(update),
