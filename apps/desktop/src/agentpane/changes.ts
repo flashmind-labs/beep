@@ -55,3 +55,8 @@ export function dropChanges() {
 export function reloadChanges() {
   C.view?.reload();
 }
+
+/// Puts the keyboard in the diff.
+export function focusChanges() {
+  C.view?.focus();
+}

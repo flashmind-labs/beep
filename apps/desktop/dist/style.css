@@ -836,8 +836,10 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dcoderen.qa { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); white-space: normal }
 .dcoderen.qa .q { font-size: 12.5px; color: var(--muted) } .dcoderen.qa .a { font-size: 13.5px }
 .dcoderen img.pic:not([src]) { width: 120px; height: 80px; background: var(--surface) }
-.ag-queue { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 8px 16px 0 }
+.ag-queue { display: grid; grid-template-columns: minmax(0, 1fr) }
 .ag-queue .it { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim) }
+.ag-queue .it { padding: 7px 16px }
+.ag-queue .it:not(.steer) { border-top: 1px solid var(--border) }
 .ag-queue .lbl { font-size: 11px }
 .ag-queue .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted) }
 .ag-queue button { all: unset; cursor: pointer; display: inline-flex; font-size: 12px; color: var(--muted) } .ag-queue button:hover { color: var(--fg) }
