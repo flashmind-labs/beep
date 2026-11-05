@@ -2,6 +2,7 @@
 // thoughts, subagents and questions, and where it scrolls.
 import { esc, linkified } from "../ui/format.ts";
 import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
@@ -51,7 +52,7 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   }
   // Opened, a command or a long title leaves the row's one line and shows whole under it.
   const wrapped = open && (parts.kind === "command" || long);
-  const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${esc(parts.target)}</pre>` : "") + toolBody(output);
+  const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
   return toolRowHtml({
     ...parts, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: mark(status),
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
