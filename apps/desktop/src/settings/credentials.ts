@@ -90,6 +90,9 @@ export interface CredState {
   ghAdd?: boolean;
   /// Checks of Forgejo tokens the server could not check when saved, by id.
   checks?: Record<string, CredCheck>;
+  /// Whether there is a server. Without one a key always goes to the machines, so the choice of
+  /// keeping it only on the server is not offered.
+  server?: boolean;
 }
 
 /// A machine as far as the tools it reports.
@@ -182,7 +185,7 @@ function form(state: CredState, esc: Esc, { title, noteHtml, env, url }: FormTex
   const urlField = e.kind === "forgejo" && !e.id
     ? `<input id="credUrl" class="url" type="url" placeholder="https://git.example.com" autocomplete="off" spellcheck="false" value="${esc(e.url ?? "")}" aria-label="Server URL">`
     : "";
-  const check = e.kind === "api_key" && env
+  const check = e.kind === "api_key" && env && state.server
     ? `<label class="dline dfine"><input type="checkbox" id="credMachines"${e.toMachines !== false ? " checked" : ""}> Give it to my machines as ${esc(env)}</label>`
     : "";
   const label = e.kind === "api_key" && e.provider !== "openrouter" ? "Save" : "Check and save";

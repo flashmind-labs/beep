@@ -23,12 +23,14 @@ export interface Status {
   link: LinkState;
   session: string | null;
   signed_out: boolean;
+  server: boolean;
 }
 
 export async function refreshStatus() {
   const st = await invoke<Status>("status");
   S.link = st.link;
   S.signedOut = st.signed_out;
+  S.server = st.server;
   // The bar's chat is not the window's.
   if (S.session === null && !PANE) S.session = st.session;
   return st;
@@ -53,8 +55,10 @@ export async function show(view: string | null) {
   if (S.link === "linked") { loadModels(); loadAgentHosts(); }
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
-  if (view === "link") return S.link === "linked" ? renderChat() : renderLink();
   // Without a subscription the bar starts agents on the mesh's machines; the chat needs one.
+  // With no server there is no link screen either.
+  if (!S.server && S.link === "unlinked") return renderAgentNew("", "chat");
+  if (view === "link") return S.link === "linked" ? renderChat() : renderLink();
   if (S.link === "unlinked") return renderAgentNew("", "chat");
   if (view && Object.hasOwn(NAMED, view)) return NAMED[view]();
   // Back from the browser: look again at what is connected.

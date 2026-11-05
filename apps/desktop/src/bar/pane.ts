@@ -60,6 +60,7 @@ async function refreshPaneStatus() {
   const st = await invoke<Status>("status");
   S.link = st.link;
   S.signedOut = st.signed_out;
+  S.server = st.server;
   const researches = loadResearches();
   if (S.link === "linked") { loadModels(); loadAgentHosts(); }
   await researches;

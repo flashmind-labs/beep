@@ -8,6 +8,7 @@ import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "../u
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
+import { S } from "../bar/core.ts";
 import { needsLine, type HomeView, type NeedsYou, type UpdateRow, type CronRow } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { newestFirst } from "./openitems-state.ts";
@@ -296,7 +297,11 @@ export function overview(home: HomeView) {
 export function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
 
 /// Before Home first loads, a failure waiting will not fix, or null.
-export function problem() { return fresh ? null : connectProblem(state.error); }
+export function problem() {
+  const p = fresh ? null : connectProblem(state.error);
+  // With no server, its errors are not shown: Home reads the mesh.
+  return p && !S.server && p.kind !== "revoked" && p.kind !== "refused" ? null : p;
+}
 
 const logButton = () => button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
 
@@ -310,7 +315,7 @@ function retryButton(label: string, cls: string) {
 /// What "Still connecting" says, with how long the server has been silent.
 function waitText() {
   const secs = Math.round((Date.now() - state.since) / 1000);
-  return `No answer from the server for ${secs} seconds. Still trying.`;
+  return `No answer from ${S.server ? "the server" : "your machines"} for ${secs} seconds. Still trying.`;
 }
 
 /// What Home shows before the server first answers: pulsing dots, never a blank

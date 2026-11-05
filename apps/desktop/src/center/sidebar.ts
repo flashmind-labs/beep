@@ -135,7 +135,7 @@ export function drawSide() {
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
   const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
-  const out = signedOutFooter(S.signedOut);
+  const out = signedOutFooter(S.server, S.signedOut);
   if (out) {
     // Signed out: the state, and the way to Sign in, in place of the machine count.
     const signIn = button(out.action, "quiet", () => openSettings("devices"));
@@ -161,7 +161,7 @@ export function drawSide() {
 }
 
 function footer(machines: MachineCard[] | null | undefined): Kid[] {
-  const out = signedOutFooter(S.signedOut);
+  const out = signedOutFooter(S.server, S.signedOut);
   if (out) return [h("span", "", h("span", "ddot off"), ` ${out.text}`)];
   const p = problem();
   if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad"}`), ` ${p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused"}`)];

@@ -60,7 +60,8 @@ export const SIGN_OUT_ASK = {
 };
 
 /// The state beside the bar's hints, as a dot and a word: none while it is nothing to say.
-export function linkChip(link: "unlinked" | "linked" | "revoked", signedOut: boolean): ["off" | "bad", string] | null {
+export function linkChip(server: boolean, link: "unlinked" | "linked" | "revoked", signedOut: boolean): ["off" | "bad", string] | null {
+  if (!server) return null;
   if (link === "revoked") return ["bad", "Removed"];
   if (link !== "unlinked") return null;
   return ["off", signedOut ? "Signed out" : "No subscription"];
@@ -68,6 +69,6 @@ export function linkChip(link: "unlinked" | "linked" | "revoked", signedOut: boo
 
 /// The window sidebar's footer while signed out: the state and the button that leads to Sign in.
 /// Null when signed in or without an account, which keep the machine count.
-export function signedOutFooter(signedOut: boolean): { text: string; action: string } | null {
-  return signedOut ? { text: "Signed out", action: "Sign in" } : null;
+export function signedOutFooter(server: boolean, signedOut: boolean): { text: string; action: string } | null {
+  return server && signedOut ? { text: "Signed out", action: "Sign in" } : null;
 }
