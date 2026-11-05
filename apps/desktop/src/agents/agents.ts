@@ -339,7 +339,6 @@ export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agen
 
 /// The machines that can run an agent; none for an account that may not use machines.
 export async function loadAgentHosts() {
-  if (S.link !== "linked") return;
   try {
     AG.hosts = await invoke<AgentHost[]>("agent_hosts");
     preloadModels(AG.hosts);
@@ -512,6 +511,6 @@ export function agentBack() {
   }
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
-  if (S.link === "unlinked" && !windowHooks) return void invoke("hide_bar");
+  if (S.link === "unlinked" && !S.local && !windowHooks) return void invoke("hide_bar");
   return S.session ? openSession(S.session) : renderChat();
 }
