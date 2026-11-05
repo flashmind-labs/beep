@@ -1274,6 +1274,10 @@ requests! {
     /// page, empty for a local project. Sending it again changes nothing.
     /// `NotFound` when `machine_id` is not one of the caller's machines.
     418 MirrorImport { project: String, machine_id: String, folder: String, url: String } => Call<()>
+    /// The commands a session Beep runs has in the background, running or
+    /// ended. `NotFound` as for `GetAgentSessionUsage`; none from an agent
+    /// that reports none.
+    419 GetAgentSessionTasks { machine_id: String, agent: String, session: String } => Call<AgentSessionTasks>
 }
 
 #[cfg(test)]

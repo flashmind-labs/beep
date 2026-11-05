@@ -86,6 +86,9 @@ pub(super) enum Command {
     },
     /// Switches the session mode, at once.
     SetMode(String),
+    /// Stops one of the agent's background tasks, by the agent's id, without
+    /// ending the turn.
+    StopTask(String),
     /// Puts a question of the node's own to the user, as the agent's are:
     /// `ask_user` or an approval for the Beep MCP server. The answer goes
     /// to `reply`; it is dropped when the session ends or the turn is

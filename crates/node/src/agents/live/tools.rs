@@ -39,6 +39,9 @@ pub(super) struct ToolCall {
     pub(super) subagent: Option<Subagent>,
     /// A call to the node's own `beep` server, titled from its arguments.
     pub(super) beep: Option<BeepCall>,
+    /// Its command went to the background and still runs, though the call
+    /// itself completed.
+    pub(super) backgrounded: bool,
 }
 
 /// A `beep` server call and its arguments as far as they have come.
@@ -89,6 +92,7 @@ impl Live {
                     input: call.raw_input.clone(),
                 },
             ),
+            backgrounded: false,
         };
         if let Some(subagent) = &mut subagent {
             if let Some(title) = subagent.title.take() {
@@ -146,7 +150,7 @@ impl Live {
 
     /// Writes tool `id`'s entry again: its own text, and the steps of the
     /// subagent it started.
-    fn write_tool(&mut self, id: &ToolCallId) {
+    pub(super) fn write_tool(&mut self, id: &ToolCallId) {
         let Some(tool) = self.tools.get(id) else {
             return;
         };
@@ -195,6 +199,7 @@ impl Live {
         if let Some(status) = fields.status {
             call.status = status;
         }
+        self.mark_backgrounded(&mut call, &update.tool_call_id, update.meta.as_ref());
         let more = paths(
             fields.locations.as_deref().unwrap_or_default(),
             fields.raw_input.as_ref(),
@@ -260,6 +265,9 @@ impl ToolCall {
     /// How the call stands as its entry shows it: a Codex subagent works
     /// until it says it ended, or its rollout says it finished.
     fn shown_status(&self, run: Option<&Run>) -> ToolCallStatus {
+        if self.backgrounded && self.status == ToolCallStatus::Completed {
+            return ToolCallStatus::InProgress;
+        }
         let codex = self.subagent.as_ref().filter(|sub| sub.codex);
         if self.status == ToolCallStatus::Failed || codex.is_none() {
             return self.status;

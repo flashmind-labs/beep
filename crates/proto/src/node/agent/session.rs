@@ -66,6 +66,9 @@ pub enum Request {
     DropSteers {},
     /// Switches the running session to `mode`, one of `SessionInfo::modes`.
     SetMode { mode: String },
+    /// Stops the background task `task` (one of `State::tasks`) without
+    /// ending the turn. Refused when it is not running or cannot be stopped.
+    StopTask { task: String },
 }
 
 /// What the node sends on an agent stream.
@@ -152,6 +155,74 @@ pub struct State {
     pub queued: u32,
     /// Why the agent failed or the last turn went wrong.
     pub error: Option<String>,
+    /// The commands the agent runs in the background, oldest first. Only
+    /// an agent that reports them has any; a task stays after it ended.
+    pub tasks: Vec<Task>,
+}
+
+/// A command the agent left running in the background.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Task {
+    /// The agent's own id for it.
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub state: TaskState,
+    /// The agent can stop it.
+    pub can_stop: bool,
+    /// The file its output goes to, on the node.
+    pub output_file: Option<String>,
+    /// The tool call that started it, by the agent's id for the call.
+    pub tool_call: Option<String>,
+    /// How it ended, when the agent says.
+    pub summary: Option<String>,
+    /// The transcript entry of the tool call that started it, counted from
+    /// the start of the session, once the call is known.
+    pub entry: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TaskState {
+    #[default]
+    Running,
+    Paused,
+    Completed,
+    Failed,
+    Stopped,
+    /// A state from a newer node.
+    #[serde(other)]
+    Unknown,
+}
+
+impl TaskState {
+    /// The state ACP names `name`, such as `running`.
+    pub fn from_acp(name: &str) -> Self {
+        match name {
+            "running" => Self::Running,
+            "paused" => Self::Paused,
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            "stopped" => Self::Stopped,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Paused => "paused",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Stopped => "stopped",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn ended(self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Stopped)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

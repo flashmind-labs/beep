@@ -15,9 +15,10 @@ use crate::{
 use beep_mesh::Key;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
-    AgentSessionModes, AgentSessionUsage, AgentSessionView, GetAgentSession, GetAgentSessionModes,
-    GetAgentSessionUsage, ListAgentHosts, ListAgentModels, ListAgentSessions, MachinePick,
-    MachineSession, PreviewAgentMachine, ResumeAgentSession, StartAgentSession,
+    AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask, GetAgentSession,
+    GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage, ListAgentHosts,
+    ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
+    ResumeAgentSession, StartAgentSession,
     node::{
         agent::{CheckoutPlan, Effort},
         harness::HarnessConfig,
@@ -576,6 +577,60 @@ pub async fn agent_modes(
         None => beep.call(request).await,
     })?;
     Ok(modes.map(Into::into))
+}
+
+/// A background command of a session for the page.
+#[derive(Debug, Serialize)]
+pub struct TaskRow {
+    id: String,
+    name: String,
+    description: String,
+    /// `running`, `paused`, `completed`, `failed` or `stopped`.
+    state: String,
+    can_stop: bool,
+    output_file: Option<String>,
+    summary: Option<String>,
+    /// The log entry of the call that started it.
+    entry: Option<u64>,
+}
+
+impl From<AgentTask> for TaskRow {
+    fn from(task: AgentTask) -> Self {
+        Self {
+            id: task.id,
+            name: task.name,
+            description: task.description,
+            state: task.state,
+            can_stop: task.can_stop,
+            output_file: task.output_file,
+            summary: task.summary,
+            entry: task.entry,
+        }
+    }
+}
+
+/// The commands a Beep session's agent has in the background, oldest
+/// first; none from a server or node too old to say.
+#[tauri::command]
+pub async fn agent_tasks(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+) -> Result<Vec<TaskRow>> {
+    let request = GetAgentSessionTasks {
+        machine_id,
+        agent,
+        session,
+    };
+    let tasks = known(match fleet.member(&request.machine_id) {
+        Some(machine) => direct::tasks(&fleet, machine, &request).await,
+        None => beep.call(request).await,
+    })?;
+    Ok(tasks
+        .map(|tasks| tasks.tasks.into_iter().map(TaskRow::from).collect())
+        .unwrap_or_default())
 }
 
 #[cfg(test)]

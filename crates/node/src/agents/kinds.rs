@@ -54,6 +54,10 @@ pub(super) struct Known {
     pub(super) model_flag: bool,
     /// How it is asked to compact.
     pub(super) compact: Route,
+    /// It reports the commands it runs in the background when the client
+    /// says it takes them (Claude Code's `asyncTasks`), and stops one on
+    /// request. Saying so also makes its adapter treat the client as AIR.
+    pub(super) async_tasks: bool,
 }
 
 /// What the node knows of the agent `name`, when it is a known one.
@@ -88,6 +92,7 @@ pub(super) const KNOWN: &[Known] = &[
         bypass_mode: Some("bypassPermissions"),
         model_flag: false,
         compact: Route::Advertised,
+        async_tasks: true,
     },
     // Full access: approval policy `never` and sandbox `danger-full-access`,
     // for new and resumed sessions alike.
@@ -104,6 +109,7 @@ pub(super) const KNOWN: &[Known] = &[
         bypass_mode: None,
         model_flag: false,
         compact: Route::Advertised,
+        async_tasks: false,
     },
     // YOLO approves every tool. Gemini CLI drops back to `default` in a
     // folder it does not trust, so the folder is trusted too.
@@ -117,6 +123,7 @@ pub(super) const KNOWN: &[Known] = &[
         bypass_mode: None,
         model_flag: true,
         compact: Route::OwnTrigger,
+        async_tasks: false,
     },
     // pi has no permission prompts; only its extensions ask.
     Known {
@@ -132,6 +139,7 @@ pub(super) const KNOWN: &[Known] = &[
         bypass_mode: None,
         model_flag: false,
         compact: Route::Advertised,
+        async_tasks: false,
     },
     // flsh never asks permission.
     Known {
@@ -144,6 +152,7 @@ pub(super) const KNOWN: &[Known] = &[
         bypass_mode: None,
         model_flag: true,
         compact: Route::OwnTrigger,
+        async_tasks: false,
     },
     // Merged over its config as the last rule, which wins over the defaults
     // that ask (`doom_loop`, `external_directory`, reading `.env` files).
@@ -157,6 +166,7 @@ pub(super) const KNOWN: &[Known] = &[
         bypass_mode: None,
         model_flag: false,
         compact: Route::Always,
+        async_tasks: false,
     },
 ];
 

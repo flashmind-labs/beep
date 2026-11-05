@@ -7,7 +7,9 @@ mod view;
 use auto::auto;
 pub(super) use pictures::{get_agent_image, get_agent_thumb};
 pub(super) use steer::steer_agent_session;
-pub(super) use view::{get_agent_session, get_agent_session_modes, get_agent_session_usage};
+pub(super) use view::{
+    get_agent_session, get_agent_session_modes, get_agent_session_tasks, get_agent_session_usage,
+};
 
 use super::{
     Reply,

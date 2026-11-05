@@ -15,6 +15,7 @@ import { fillAgentPics, gonePic } from "./images.ts";
 import { filesHtml, planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
+import { backgroundedEntry, drawTasks } from "./tasks.ts";
 import { drawQueue } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
@@ -28,7 +29,8 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const { title, status, output } = log.parseTool(en.text);
   if (log.subagent(output)) return subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
   const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.steps.get(at));
-  const live = status === "in_progress" && AGENT_ACTIVE.has(AG.page?.session.status);
+  // A command in the background runs on after its turn ended.
+  const live = status === "in_progress" && (AGENT_ACTIVE.has(AG.page?.session.status) || backgroundedEntry(at));
   const label = stepLabel(en.text, live, open);
   const exit = failed ? log.exitCode(output) : null;
   const beep = beepCall(title);
@@ -47,14 +49,14 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
   if (beep) {
     return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-      + `<span class="mk">${mark(status)}</span>${beepHead(beep, title, state, live, open)}`
+      + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open)}`
       + mediaButtons(title) + body + pics + "</div>";
   }
   // Opened, a command or a long title leaves the row's one line and shows whole under it.
   const wrapped = open && (parts.kind === "command" || long);
   const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
   return toolRowHtml({
-    ...parts, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: mark(status),
+    ...parts, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
     attrs: ` data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}`,
     after: mediaButtons(title) + rowBody + pics,
@@ -456,6 +458,7 @@ export function drawAgentBody(keep?: string) {
   attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
   drawModelPill();
   drawModes();
+  drawTasks();
   drawQueue();
   tickTurns();
   redrawAgentHints();

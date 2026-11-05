@@ -178,6 +178,7 @@ pub fn router() -> Router {
         .call(agent_control::get_agent_session)
         .call(agent_control::get_agent_session_usage)
         .call(agent_control::get_agent_session_modes)
+        .call(agent_control::get_agent_session_tasks)
         .call(agent_control::steer_agent_session)
         .call(work::list_pending_approvals)
         .call(projects::get_project_agent)
