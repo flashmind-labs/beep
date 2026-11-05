@@ -2,14 +2,16 @@
 //! command center or a notification, and following the run it resumes.
 
 use crate::{
-    beep::{BarEvent, Beep, Decision, RunNews},
+    assistant::{Runs, local},
+    beep::{BarEvent, Beep, Decision, RunNews, Service},
     error::Result,
+    fleet::projects::FleetState,
     tray::waiting::WaitingList,
     voice::{Answered, Voice},
 };
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, ipc::Channel};
+use tauri::{AppHandle, Emitter, Manager, State, ipc::Channel};
 
 /// An approval card that was answered, for every webview to drop.
 #[derive(Debug, Clone, Serialize)]
@@ -29,11 +31,18 @@ pub(crate) struct ChatAnswer {
 #[tauri::command]
 pub async fn answer_approval(
     app: AppHandle,
+    beep: Service<'_>,
+    fleet: FleetState<'_>,
+    runs: State<'_, Runs>,
     session: String,
     query_id: String,
     decision: Decision,
     on_event: Channel<BarEvent>,
 ) -> Result<()> {
+    // A chat on this Mac waits in its own reply for the answer; no server is asked.
+    if local::on(&beep, &fleet).await {
+        return local::answer(&runs, &session, &query_id, decision, on_event).await;
+    }
     let answer = ChatAnswer {
         session,
         query_id,

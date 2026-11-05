@@ -68,6 +68,8 @@ using the server's credentials and harness values as soon as the account is move
 
 With an OpenRouter key saved, chats run on this Mac (`assistant_local`). The chat commands read and write local files and call OpenRouter (`crates/assistant`, `src-tauri/src/assistant/`), and the same chat window renders them. A Firecrawl key adds web search. Web tools turn off for the rest of a chat once a session has been read in it.
 
+The Assistant page lists MCP servers (`crates/assistant/src/mcp`, `src-tauri/src/assistant/mcp.rs`): a command run on this Mac or an HTTP address with an optional bearer token, no OAuth. The list is `assistant/mcp.json` in the app data, mode 0600; env values and tokens never reach the web view. Their tools are offered in local chats as `mcp_<server>_<tool>`. A tool with `readOnlyHint: true` runs at once; any other asks first with the chat's approval card (Allow once or Deny; Stop denies it). Results are untrusted and private: web tools turn off for the rest of that chat. A server starts the first time a chat needs it and ends when the app quits; one that fails shows its error on its row. This shares nothing with the server's app connections or the hidden Apps and MCP pages.
+
 ### Code map
 
 `crates/server/src`, one line per top-level module:

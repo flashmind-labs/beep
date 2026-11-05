@@ -1,10 +1,13 @@
 //! A reply on its way to the window: runs the prompt and draws what the model and the tools
 //! produce as the `BarEvent`s the chat already draws.
 
-use super::work;
-use crate::{beep::BarEvent, chat::markdown};
-use beep_assistant::{Chat, Event, Outcome, Setup, WorkQuery, run_turn};
-use tauri::{AppHandle, ipc::Channel};
+use super::{Runs, work};
+use crate::{
+    beep::{BarEvent, Field},
+    chat::markdown,
+};
+use beep_assistant::{Approval, Chat, Event, Outcome, Setup, WorkQuery, run_turn};
+use tauri::{AppHandle, Manager, ipc::Channel};
 use tokio::sync::mpsc::{self, Receiver};
 use tokio_util::sync::CancellationToken;
 
@@ -34,8 +37,15 @@ pub(super) async fn drive(
         let app = app.clone();
         async move { work::answer(&app, query).await }
     };
+    // The question is registered when the model asks it, before the window can answer.
+    let chat_id = chat.id;
+    let approve = |query_id: String| {
+        let answer = app.state::<Runs>().ask(chat_id, query_id);
+        // A dropped sender, which is what the end of the reply does, is a no.
+        async move { answer.await.unwrap_or(false) }
+    };
     let run = async {
-        let outcome = run_turn(&setup, &mut chat, message, &tx, ask).await;
+        let outcome = run_turn(&setup, &mut chat, message, &tx, ask, approve).await;
         // Closing the queue ends `forward`.
         drop(tx);
         outcome
@@ -105,6 +115,9 @@ async fn forward(mut rx: Receiver<Event>, channel: &Channel<BarEvent>, cancel: &
                 Event::ToolResult { call_id, name, ok } => {
                     delivered &= channel.send(tool_result(call_id, name, ok)).is_ok();
                 }
+                Event::Approval(approval) => {
+                    delivered &= channel.send(approval_card(approval)).is_ok();
+                }
             }
         }
         if dirty {
@@ -113,6 +126,23 @@ async fn forward(mut rx: Receiver<Event>, channel: &Channel<BarEvent>, cancel: &
         if !delivered {
             cancel.cancel();
         }
+    }
+}
+
+/// The card the chat draws for an MCP tool that asks first.
+fn approval_card(approval: Approval) -> BarEvent {
+    BarEvent::Approval {
+        query_id: approval.query_id,
+        app: approval.server,
+        action: format!("Run {}", approval.tool),
+        fields: approval
+            .fields
+            .into_iter()
+            .map(|field| Field {
+                label: field.label,
+                value: field.value,
+            })
+            .collect(),
     }
 }
 
