@@ -2,9 +2,9 @@
 //! until no turn runs (`Hold`), and the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
-use super::{Agents, Begin, Command, Prompt, session::NODE_STOPPED};
+use super::{Agents, Begin, Command, Prompt, family::RemoteKid, session::NODE_STOPPED};
 use anyhow::{Context, Result};
-use beep_proto::node::agent::Status;
+use beep_proto::node::agent::{ParentLink, Status};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tokio::{sync::watch, time::timeout};
@@ -29,6 +29,19 @@ pub(crate) struct OpenSession {
     /// The session mode it was in.
     #[serde(default)]
     mode: Option<String>,
+    /// The session that started it with `start_agent`.
+    #[serde(default)]
+    parent: Option<ParentLink>,
+    /// The children it started on other machines.
+    #[serde(default)]
+    pub(super) kids: Vec<RemoteKid>,
+}
+
+impl OpenSession {
+    /// How deep in a chain of starts the session is; 0 for a root.
+    pub(super) fn depth(&self) -> u8 {
+        self.parent.as_ref().map_or(0, |link| link.depth)
+    }
 }
 
 /// Prompts wait instead of starting turns while this lives.
@@ -112,6 +125,8 @@ impl Agents {
                     cwd: PathBuf::from(&live.info.cwd),
                     held: live.held.clone(),
                     mode: live.info.mode.clone(),
+                    parent: live.info.parent.clone(),
+                    kids: self.kids_to_keep(&Self::name_of(session)),
                 })
             })
             .collect()
@@ -130,6 +145,8 @@ impl Agents {
         {
             log::info!("resuming sessions without the agent settings: the server sent none");
         }
+        let mut sessions = sessions;
+        Self::parents_first(&mut sessions);
         for open in sessions {
             let id = open.session.clone();
             if let Err(e) = self.reopen_one(open).await {
@@ -147,16 +164,25 @@ impl Agents {
             .clone();
         self.prepare(&kind).await?;
         let cwd = open.cwd.to_string_lossy();
+        let follows = open
+            .parent
+            .as_ref()
+            .and_then(|link| self.parent_live_of(link));
         let session = self.start(
             &kind,
             Some(&cwd),
             Begin {
                 resume: Some(open.session),
                 mode: open.mode,
+                parent: open.parent,
+                follows,
                 note: Some(RESUMED.to_owned()),
                 ..Begin::default()
             },
         )?;
+        for kid in open.kids {
+            self.adopt_remote(&session, kid);
+        }
         for prompt in open.held {
             session
                 .order(Command::Prompt(prompt))

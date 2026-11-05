@@ -33,6 +33,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 pub(crate) mod calls;
 mod catalog;
+pub(crate) mod children;
 mod machines;
 mod permission;
 mod server;
@@ -68,7 +69,7 @@ const MACHINES_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user
     Mac builds, or one with a GPU for heavy jobs. run_on runs a command there, or starts a \
     coding agent there with a prompt; job_status and cancel follow what it started. \
     sync_project syncs a project's files to the user's other machines before work there, and \
-    send_files copies files to another machine. machine_log reads a machine's beep-node log. ask_user asks the user a question and waits \
+    send_files copies files to another machine. machine_log reads a machine's beep-node log. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
     for the answer. Running and sending may wait for the user to allow it.";
 
 /// The memory tools, which only the server holds.
@@ -348,6 +349,9 @@ struct Node {
 
 impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
+        if children::handles(request.tool) {
+            return Ok(children::call(&self.offers, request).await);
+        }
         // In a mesh the machines answer for themselves; the server still
         // takes what is not between machines, and machines the mesh lacks.
         if let Some(mesh) = self.offers.mesh.get() {
@@ -407,6 +411,7 @@ pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
     offers
         .agents
         .serve_mcp(launch.clone(), offers.tools.clone());
+    offers.agents.serve_mesh(offers.mesh.clone());
     let node = Arc::new(Node { offers });
     let mut connections = JoinSet::new();
     loop {

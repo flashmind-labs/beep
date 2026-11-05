@@ -1871,3 +1871,276 @@ async fn a_sync_spec_that_stops_reading_keeps_its_last_good_value() {
     let conn = pair.desktop.reach(pair.a.id).await;
     assert_eq!(sync_names(&conn).await, ["proj"]);
 }
+
+/// An adapter that takes any number of sessions, one per process: each
+/// prompt ends its turn at once, except one that starts with `hang`, which
+/// ends when the turn is cancelled.
+const TREE_ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+while read -r line; do
+  case "$line" in
+    *'"initialize"'*) reply '{"protocolVersion":1,"agentCapabilities":{}}' ;;
+    *'"session/new"'*) reply '{"sessionId":"s-'$$'"}' ;;
+    *'"text":"hang'*) prompt=$(id) ;;
+    *'"session/cancel"'*) [ -n "$prompt" ] && printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt" ;;
+    *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;
+    *'"id"'*) reply '{}' ;;
+  esac
+done
+"#;
+
+/// An agent tool call from the session `session` of the machine on the
+/// other end of `conn`'s peer: the text it got, and whether it failed.
+async fn agent_tool(
+    from: &Member,
+    node: EndpointId,
+    session: &str,
+    tool: Tool,
+    args: serde_json::Value,
+) -> (bool, String) {
+    let conn = from.reach(node).await;
+    let (send, recv) = conn.mesh.open_bi(conn.id).await.expect("a stream opens");
+    let (mut tx, mut rx) = link(send, recv);
+    tx.send(&Open {
+        protocol: TOOLS.to_owned(),
+    })
+    .await
+    .expect("the open is sent");
+    match timeout(LIMIT, rx.recv::<Opened>())
+        .await
+        .expect("the node answered in time")
+        .expect("the answer reads")
+    {
+        Some(Opened::Ready {}) => {}
+        other => panic!("{TOOLS} was not opened: {other:?}"),
+    }
+    tx.send(&ToolRequest {
+        session: session.to_owned(),
+        tool,
+        args: args.to_string(),
+        approved: Default::default(),
+    })
+    .await
+    .expect("the call is sent");
+    match timeout(LIMIT, rx.recv::<Reply>())
+        .await
+        .expect("the call answered in time")
+        .expect("a reply reads")
+    {
+        Some(Reply::Done { text, failed }) => (failed, text),
+        other => panic!("not done: {other:?}"),
+    }
+}
+
+/// Follows `session` on the node as the desktop does, until `done` says an
+/// event ends the wait.
+async fn follow(conn: &Link, session: &str, done: impl Fn(&AgentEvent) -> bool) -> Stream {
+    let mut stream = ready(conn, "codex/1").await;
+    stream
+        .tx
+        .send(&AgentRequest::Attach {
+            session: session.to_owned(),
+        })
+        .await
+        .expect("the attach is sent");
+    timeout(LIMIT, async {
+        loop {
+            match stream
+                .rx
+                .recv::<AgentEvent>()
+                .await
+                .expect("an event reads")
+            {
+                Some(event) if done(&event) => return,
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("the session got there in time");
+    stream
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_own() {
+    let desktop = desktop(None).await;
+    let work = TempDir::new().expect("a temp folder");
+    let node = Node::start(Config {
+        agent: Some((
+            "sh".to_owned(),
+            vec![
+                "-c".to_owned(),
+                TREE_ADAPTER.to_owned(),
+                "fake-adapter".to_owned(),
+            ],
+        )),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let other = peer_node(&desktop).await;
+    let seen = desktop.reach(node.id).await;
+    let cwd = work.path().display().to_string();
+    let link = |depth: u8, others: u8| {
+        json!({
+            "machine": other.id(), "session": "p1",
+            "root_machine": other.id(), "root": "p1",
+            "depth": depth, "others": others, "agent": "claude", "mode": null,
+        })
+    };
+    let start = |prompt: &str, depth, others| {
+        json!({ "harness": "codex", "prompt": prompt, "cwd": cwd,
+                "model": null, "parent": link(depth, others) })
+    };
+    let child_id = |text: &str| -> String {
+        serde_json::from_str::<serde_json::Value>(text).expect("JSON")["id"]
+            .as_str()
+            .expect("an id")
+            .to_owned()
+    };
+
+    // A child starts, linked to the session that asked.
+    let (failed, text) =
+        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("work", 1, 0)).await;
+    assert!(!failed, "{text}");
+    let id = child_id(&text);
+    follow(&seen, &id, |event| match event {
+        AgentEvent::TurnDone { .. } => true,
+        AgentEvent::Attached { session } => session.turns >= 1,
+        _ => false,
+    })
+    .await;
+    let mut attach = ready(&seen, "codex/1").await;
+    attach
+        .tx
+        .send(&AgentRequest::Attach {
+            session: id.clone(),
+        })
+        .await
+        .expect("the attach is sent");
+    match timeout(LIMIT, attach.rx.recv::<AgentEvent>())
+        .await
+        .expect("the attach answered in time")
+        .expect("an event reads")
+    {
+        Some(AgentEvent::Attached { session }) => {
+            let parent = session.parent.expect("the child names its parent");
+            assert_eq!((parent.session.as_str(), parent.depth), ("p1", 1));
+            assert_eq!(parent.machine, Some(other.id()));
+        }
+        other => panic!("not attached: {other:?}"),
+    }
+
+    // Its parent reads it; another session of the same machine does not.
+    let (failed, text) = agent_tool(
+        &other,
+        node.id,
+        "p1",
+        Tool::AgentStatus,
+        json!({ "id": id }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    assert!(text.contains(r#""state":"idle""#), "{text}");
+    let (failed, text) = agent_tool(
+        &other,
+        node.id,
+        "p2",
+        Tool::AgentStatus,
+        json!({ "id": id }),
+    )
+    .await;
+    assert!(failed && text.starts_with("You have no agent"), "{text}");
+    let (failed, _) = agent_tool(&other, node.id, "p2", Tool::StopAgent, json!({ "id": id })).await;
+    assert!(failed);
+    // A link that names another machine than the caller is refused.
+    let mut forged = start("work", 1, 0);
+    forged["parent"]["machine"] = json!(node.id);
+    let (failed, text) = agent_tool(&other, node.id, "p1", Tool::StartAgent, forged).await;
+    assert!(failed && text.contains("another machine"), "{text}");
+
+    // The depth the caller passes is checked on this machine.
+    let (failed, text) =
+        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("deep", 4, 0)).await;
+    assert!(failed && text.contains("3 levels deep"), "{text}");
+    // So is the count of the root's agents the caller's machines held: six
+    // there and the one running here leave room for one more.
+    let (failed, text) =
+        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("one", 1, 6)).await;
+    assert!(!failed, "{text}");
+    let (failed, text) =
+        agent_tool(&other, node.id, "p1", Tool::StartAgent, start("two", 1, 6)).await;
+    assert!(failed && text.contains("at most 8 agents"), "{text}");
+
+    // Stop reaches a working child's turn, then its session.
+    let (failed, text) = agent_tool(
+        &other,
+        node.id,
+        "p1",
+        Tool::StartAgent,
+        start("hang on", 1, 0),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let hanging = child_id(&text);
+    let working = beep_proto::node::agent::Status::Working;
+    let mut stream = follow(&seen, &hanging, |event| match event {
+        AgentEvent::State { state } => state.status == working,
+        AgentEvent::Attached { session } => session.state.status == working,
+        _ => false,
+    })
+    .await;
+    let (failed, text) = agent_tool(
+        &other,
+        node.id,
+        "p1",
+        Tool::StopAgent,
+        json!({ "id": hanging, "turn_only": true }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    timeout(LIMIT, async {
+        loop {
+            match stream
+                .rx
+                .recv::<AgentEvent>()
+                .await
+                .expect("an event reads")
+            {
+                Some(AgentEvent::TurnDone { .. }) => return,
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("the turn stopped in time");
+    let (failed, text) = agent_tool(
+        &other,
+        node.id,
+        "p1",
+        Tool::StopAgent,
+        json!({ "id": hanging }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    timeout(LIMIT, async {
+        loop {
+            match stream
+                .rx
+                .recv::<AgentEvent>()
+                .await
+                .expect("an event reads")
+            {
+                Some(AgentEvent::Ended { .. }) => return,
+                Some(_) => {}
+                None => return,
+            }
+        }
+    })
+    .await
+    .expect("the session ended in time");
+}

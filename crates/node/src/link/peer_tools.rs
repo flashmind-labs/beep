@@ -4,6 +4,7 @@
 //! check, since the mesh's members are the user's own machines.
 
 use crate::{
+    agents::{Agents, mcp::children},
     files::transfer::{Incoming, Transfers},
     link::Offers,
     machine::service::logs,
@@ -18,7 +19,7 @@ use beep_proto::node::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::{fmt::Write, time::Duration};
+use std::{fmt::Write, sync::Arc, time::Duration};
 use tokio::{
     sync::Semaphore,
     task::spawn_blocking,
@@ -43,6 +44,9 @@ pub(crate) struct Caller {
     pub may_run_on_here: bool,
     /// This node's synced projects and transfers, when it shares folders.
     pub transfers: Option<Transfers>,
+    /// This node's coding agents, which another node's agents may start
+    /// agents among.
+    pub agents: Option<Arc<Agents>>,
 }
 
 impl Caller {
@@ -52,6 +56,7 @@ impl Caller {
             table: Table::Shared,
             may_run_on_here: true,
             transfers: offers.transfers.get(),
+            agents: Some(offers.agents.clone()),
         }
     }
 }
@@ -70,6 +75,12 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, caller: Caller) -> Res
 type Outcome = Result<String, String>;
 
 pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
+    if matches!(
+        request.tool,
+        Tool::StartAgent | Tool::AgentStatus | Tool::SendToAgent | Tool::StopAgent
+    ) {
+        return agent_call(request, &caller).await;
+    }
     let outcome = match serde_json::from_str::<Value>(&request.args) {
         Err(e) => Err(format!("The arguments are not JSON: {e}")),
         Ok(args) => match request.tool {
@@ -102,6 +113,22 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         },
         Err(text) => Reply::Done { text, failed: true },
     }
+}
+
+/// An agent tool another node's agent calls on this machine. A desktop is
+/// the user's own: another node's agent may not start agents on it.
+async fn agent_call(request: Request, caller: &Caller) -> Reply {
+    let failed = |text: &str| Reply::Done {
+        text: text.to_owned(),
+        failed: true,
+    };
+    let (Table::Peer(peer), Some(agents)) = (caller.table, &caller.agents) else {
+        return failed("Agents are started through the node's own Beep MCP server.");
+    };
+    if request.tool == Tool::StartAgent && !caller.may_run_on_here {
+        return failed("This device is a desktop: another node may not start agents on it.");
+    }
+    children::answer_peer(agents, peer, request).await
 }
 
 fn parse<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
@@ -312,6 +339,7 @@ mod tests {
             table,
             may_run_on_here,
             transfers: None,
+            agents: None,
         }
     }
 

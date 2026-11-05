@@ -20,7 +20,7 @@ use crate::{
 };
 use agent_client_protocol::schema::v1::McpServer;
 use anyhow::{Context, Result};
-use beep_proto::node::agent::{AnswerOption, Effort, EntryKind, SessionInfo, Status};
+use beep_proto::node::agent::{AnswerOption, Effort, EntryKind, ParentLink, SessionInfo, Status};
 use beep_proto::{AgentAccount, ModelId};
 use futures::stream::FuturesUnordered;
 use std::{
@@ -28,7 +28,7 @@ use std::{
     path::Path,
     process::Stdio,
     str::FromStr,
-    sync::{Arc, atomic::AtomicBool},
+    sync::{Arc, Mutex, atomic::AtomicBool},
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot, watch};
@@ -131,6 +131,17 @@ pub(super) struct Session {
     pub(super) live: watch::Receiver<Live>,
     /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
+    /// What watches over its children, which stops with it.
+    guards: Mutex<Vec<AbortOnDropHandle<()>>>,
+}
+
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("id", &self.id)
+            .field("agent", &self.agent)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a new session starts with.
@@ -148,6 +159,11 @@ pub(super) struct Start<'a> {
     /// The session mode it was in before the node restarted, rather than
     /// the one that asks no permission.
     pub(super) mode: Option<String>,
+    /// The session that started it with `start_agent`.
+    pub(super) parent: Option<ParentLink>,
+    /// The parent's state when it runs on this node: the session ends when
+    /// the parent does.
+    pub(super) follows: Option<watch::Receiver<Live>>,
     /// A first line for its transcript, such as the branch it started on.
     pub(super) note: Option<String>,
     /// Beep's word to the agent, sent ahead of the first prompt and kept
@@ -166,6 +182,20 @@ pub(super) struct Start<'a> {
     pub(super) alerts: Arc<AlertHub>,
     /// What the node as a whole asks of its sessions.
     pub(super) node: NodeMode,
+}
+
+/// Closes a child session once its parent ends for good.
+async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<Order>) {
+    if super::family::parent_gone(&mut parent).await {
+        let (done, _) = oneshot::channel();
+        // Refused when the child ended first.
+        let _ = orders
+            .send(Order {
+                command: Command::Close,
+                done,
+            })
+            .await;
+    }
 }
 
 /// What the node as a whole asks of its sessions.
@@ -205,6 +235,8 @@ impl Session {
             model,
             effort,
             mode,
+            parent,
+            follows,
             note,
             brief,
             mcp,
@@ -265,6 +297,7 @@ impl Session {
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
             started_at: unix_now(),
+            parent,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);
@@ -310,6 +343,9 @@ impl Session {
             stderr: VecDeque::new(),
             replies: FuturesUnordered::new(),
         };
+        let guard = follows.map(|parent| {
+            AbortOnDropHandle::new(tokio::spawn(follow_parent(parent, orders.clone())))
+        });
         let task = tokio::spawn(actor.run(child, orders_rx));
         Ok(Self {
             id,
@@ -317,7 +353,14 @@ impl Session {
             orders,
             live,
             _task: AbortOnDropHandle::new(task),
+            guards: Mutex::new(guard.into_iter().collect()),
         })
+    }
+
+    /// Keeps `task`, which watches over a child, for as long as the session
+    /// lives.
+    pub(super) fn keep(&self, task: tokio::task::JoinHandle<()>) {
+        crate::lock(&self.guards).push(AbortOnDropHandle::new(task));
     }
 
     pub(super) fn info(&self) -> SessionInfo {

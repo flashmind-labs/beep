@@ -4,7 +4,7 @@ use super::{
     Host, beep_session, external_session, past_session, runs_now,
     sessions::{self, Sessions},
 };
-use beep_proto::MachineSession;
+use beep_proto::{MachineSession, node::agent::ParentLink};
 use futures::future::join_all;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::time::timeout;
@@ -30,10 +30,31 @@ pub async fn node_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<M
 
 /// The sessions Beep runs on one node: none when its list fails.
 pub async fn beep_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
+    linked_sessions(node, host)
+        .await
+        .into_iter()
+        .map(|linked| linked.session)
+        .collect()
+}
+
+/// A session Beep runs, and the session that started it when an agent did.
+#[derive(Debug, Clone)]
+pub struct Linked {
+    pub session: MachineSession,
+    pub parent: Option<ParentLink>,
+}
+
+/// `beep_sessions`, with who started each: what an app needs to nest a
+/// child under its parent. `MachineSession` stays as it is for the server's
+/// apps.
+pub async fn linked_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<Linked> {
     match timeout(NODE_LIMIT, sessions::list(node)).await {
         Ok(Ok(listed)) => listed
             .into_iter()
-            .map(|info| beep_session(host, info))
+            .map(|info| Linked {
+                parent: info.parent.clone(),
+                session: beep_session(host, info),
+            })
             .collect(),
         Ok(Err(e)) => {
             tracing::warn!("agent sessions not listed; node={} error={e:#}", host.id);
