@@ -18,7 +18,7 @@ use beep_proto::node::sync::{Keep, ProjectStatus};
 use iroh::{EndpointAddr, EndpointId};
 use iroh_blobs::Hash;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
     time::Duration,
@@ -26,7 +26,7 @@ use std::{
 use tokio::{
     sync::{Notify, watch},
     task::spawn_blocking,
-    time::timeout,
+    time::{Instant, timeout},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -62,6 +62,14 @@ pub(in crate::files::sync) struct Shared {
     /// The peers yet to send what they had, or to prove out of reach. Until
     /// they have, this node cannot say it is in sync.
     unheard: Mutex<HashSet<EndpointId>>,
+    /// When each peer last sent all it had, from a pull that went through.
+    /// Unlike `unheard`, a pull that failed does not set it.
+    caught: Mutex<HashMap<EndpointId, Instant>>,
+    /// When the last round that brought the folder in line with the list
+    /// began. It saw every merge made before that.
+    applied: Mutex<Instant>,
+    /// Raised to end the pulls, so each starts again from the peer's list.
+    pull_again: watch::Sender<u64>,
 }
 
 /// What is needed to start a project.
@@ -107,6 +115,9 @@ impl Shared {
             stop: CancellationToken::new(),
             holds: Mutex::default(),
             unheard: Mutex::new(unheard),
+            caught: Mutex::default(),
+            applied: Mutex::new(Instant::now()),
+            pull_again: watch::Sender::new(0),
         }))
     }
 
@@ -141,6 +152,10 @@ impl Shared {
 
     pub(in crate::files::sync) fn status(&self) -> ProjectStatus {
         self.status.borrow().clone()
+    }
+
+    pub(in crate::files::sync) fn watch_status(&self) -> watch::Receiver<ProjectStatus> {
+        self.status.subscribe()
     }
 
     pub(in crate::files::sync) fn has_peer(&self, peer: &EndpointId) -> bool {
@@ -184,6 +199,42 @@ impl Shared {
             // Publishes the status again.
             self.merged.notify_one();
         }
+    }
+
+    /// `peer` sent all it had, and a pull that went through brought it.
+    pub(in crate::files::sync) fn caught_up(&self, peer: &EndpointId) {
+        crate::lock(&self.caught).insert(*peer, Instant::now());
+        // Publishes the status again, for whoever waits on it.
+        self.merged.notify_one();
+    }
+
+    /// A round that began at `began` is done.
+    pub(super) fn applied_from(&self, began: Instant) {
+        *crate::lock(&self.applied) = began;
+        // Whoever waits for a round after a pull looks again.
+        self.status.send_modify(|_| {});
+    }
+
+    /// Whether a pull that went through brought all `peer` had after
+    /// `since`, and a round of bringing the folder in line has come after
+    /// it. A peer that is out of reach never does. What the round could
+    /// not do yet is in the status.
+    pub(in crate::files::sync) fn caught_up_since(
+        &self,
+        peer: &EndpointId,
+        since: Instant,
+    ) -> bool {
+        let caught = crate::lock(&self.caught).get(peer).copied();
+        caught.is_some_and(|at| at >= since && *crate::lock(&self.applied) >= at)
+    }
+
+    /// Ends the pulls; each starts again and says what its peer has.
+    pub(in crate::files::sync) fn pull_again(&self) {
+        self.pull_again.send_modify(|count| *count += 1);
+    }
+
+    pub(in crate::files::sync) fn watch_pull_again(&self) -> watch::Receiver<u64> {
+        self.pull_again.subscribe()
     }
 
     pub(super) fn heard_all(&self) -> bool {

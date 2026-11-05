@@ -310,6 +310,29 @@ async fn a_project_is_not_in_sync_before_its_peers_are_heard() {
 }
 
 #[tokio::test]
+async fn catching_up_needs_a_pull_that_went_through_and_a_round_after_it() {
+    let mut project = Project::new(&["a.txt"]).await;
+    let shared = project.task.shared.clone();
+    let peer = SecretKey::from_bytes(&[9; 32]).public();
+    shared.set_peers(vec![EndpointAddr::new(peer)]);
+    let since = tokio::time::Instant::now();
+    // A failed pull marks the peer heard, as the progress display wants...
+    shared.heard(&peer);
+    assert!(!shared.caught_up_since(&peer, since));
+    // ...a pull that went through says it has all the peer had, once a
+    // round has brought the folder in line with what it merged.
+    shared.caught_up(&peer);
+    assert!(!shared.caught_up_since(&peer, since));
+    project.task.apply().await;
+    assert!(shared.caught_up_since(&peer, since));
+    // Not for a time after it, and not for another peer.
+    assert!(!shared.caught_up_since(&peer, tokio::time::Instant::now()));
+    let other = SecretKey::from_bytes(&[8; 32]).public();
+    assert!(!shared.caught_up_since(&other, since));
+    project.stop().await;
+}
+
+#[tokio::test]
 async fn a_paused_project_says_so_and_settles_nothing() {
     let project = Project::new(&["a.txt", COPY]).await;
     project.task.shared.set_paused(true);

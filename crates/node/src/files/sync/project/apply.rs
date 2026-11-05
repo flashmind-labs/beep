@@ -115,6 +115,12 @@ fn now_ms() -> i64 {
 impl Task {
     /// Brings the folder in line with the list.
     pub(super) async fn apply(&mut self) {
+        let began = Instant::now();
+        self.apply_round().await;
+        self.shared.applied_from(began);
+    }
+
+    async fn apply_round(&mut self) {
         // A merge may set this off long after the last scan; the folder
         // may have been swapped or unmounted since.
         let checked = match self.check_root().await {
