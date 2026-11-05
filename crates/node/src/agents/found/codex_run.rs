@@ -102,19 +102,8 @@ impl Reader {
     fn line(&mut self, value: &Value) {
         let payload = &value["payload"];
         match (value["type"].as_str(), payload["type"].as_str()) {
-            (Some("response_item"), Some("function_call")) => {
-                let detail = payload["arguments"]
-                    .as_str()
-                    .and_then(|args| serde_json::from_str::<Value>(args).ok())
-                    .and_then(|args| detail(&args));
-                self.call(payload, detail);
-            }
-            (Some("response_item"), Some("custom_tool_call")) => {
-                let detail = payload["input"]
-                    .as_str()
-                    .and_then(|input| input.lines().map(str::trim).find(|l| !l.is_empty()))
-                    .map(str::to_owned);
-                self.call(payload, detail);
+            (Some("response_item"), Some("function_call" | "custom_tool_call")) => {
+                self.call(payload);
             }
             (Some("response_item"), Some("function_call_output" | "custom_tool_call_output")) => {
                 let id = payload["call_id"].as_str().unwrap_or_default();
@@ -154,17 +143,12 @@ impl Reader {
         }
     }
 
-    fn call(&mut self, payload: &Value, detail: Option<String>) {
-        let name = payload["name"].as_str().unwrap_or("tool");
-        let title = match detail {
-            Some(detail) if !detail.is_empty() => format!("{name}: {detail}"),
-            _ => name.to_owned(),
-        };
+    fn call(&mut self, payload: &Value) {
         if let Some(id) = payload["call_id"].as_str() {
             self.calls.insert(id.to_owned(), self.run.steps.len());
         }
         self.run.steps.push(RunStep {
-            title: cut(&title, MAX_STEP),
+            title: call_title(payload).unwrap_or_default(),
             done: false,
         });
     }
@@ -177,8 +161,30 @@ impl Reader {
     }
 }
 
+/// The title of the call a `function_call` or `custom_tool_call` payload
+/// makes: the tool's name and the first line of what it was given.
+pub(super) fn call_title(payload: &Value) -> Option<String> {
+    let detail = match payload["type"].as_str()? {
+        "function_call" => payload["arguments"]
+            .as_str()
+            .and_then(|args| serde_json::from_str::<Value>(args).ok())
+            .and_then(|args| detail(&args)),
+        "custom_tool_call" => payload["input"]
+            .as_str()
+            .and_then(|input| input.lines().map(str::trim).find(|l| !l.is_empty()))
+            .map(str::to_owned),
+        _ => return None,
+    };
+    let name = payload["name"].as_str().unwrap_or("tool");
+    let title = match detail {
+        Some(detail) if !detail.is_empty() => format!("{name}: {detail}"),
+        _ => name.to_owned(),
+    };
+    Some(cut(&title, MAX_STEP))
+}
+
 /// The first line of the first argument a call's title names.
-fn detail(args: &Value) -> Option<String> {
+pub(super) fn detail(args: &Value) -> Option<String> {
     DETAILS.iter().find_map(|key| match &args[key] {
         Value::String(text) => text.lines().next().map(|line| line.trim().to_owned()),
         Value::Array(words) => {

@@ -4,6 +4,7 @@ use super::{
     Agents, AlertHub, Images, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, Plans,
     SPEND_EVERY, custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder,
 };
+use crate::agents::claude::Excerpt;
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -31,17 +32,20 @@ impl Agents {
         let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
         let read = match self.get(session) {
             Some(found) => Ok(Some(self.live_transcript(&found, last).await)),
-            // A Claude Code session started outside Beep.
+            // A session started outside Beep: Claude Code's, else another
+            // agent's from its own store.
             None => match self.external.transcript(session, last).await {
-                Ok(Some(read)) => {
+                Ok(None) => self.stores_transcript(session, last).await,
+                other => other,
+            }
+            .map(|read| {
+                read.map(|read| {
                     for picture in read.pictures {
                         self.images.keep(session, picture);
                     }
-                    Ok(Some((read.entries, read.earlier)))
-                }
-                Ok(None) => Ok(None),
-                Err(e) => Err(e),
-            },
+                    (read.entries, read.earlier)
+                })
+            }),
         };
         match read {
             Ok(Some((entries, earlier))) => SessionsReply::Transcript {
@@ -55,6 +59,16 @@ impl Agents {
                 message: format!("could not read session {session}: {e:#}"),
             },
         }
+    }
+}
+
+impl Agents {
+    /// The transcript of a session in Codex's or pi's files, or why another
+    /// agent's cannot be read.
+    async fn stores_transcript(&self, session: &str, last: usize) -> Result<Option<Excerpt>> {
+        let stores = self.stores.clone();
+        let id = session.to_owned();
+        spawn_blocking(move || stores.transcript(&id, last)).await?
     }
 }
 
@@ -98,8 +112,13 @@ pub async fn serve_sessions(
                 Err(e) => failed(e),
             }
         }
-        SessionsRequest::External { agent, .. } => SessionsReply::Error {
-            message: format!("this node lists no {agent} sessions started outside Beep"),
+        SessionsRequest::External {
+            agent,
+            limit,
+            session,
+        } => match agents.stores_external(&agent, limit, session).await {
+            Ok(sessions) => SessionsReply::External { sessions },
+            Err(e) => failed(e),
         },
         SessionsRequest::Folders { limit } => match agents.found_folders(limit).await {
             Ok(folders) => SessionsReply::Folders { folders },
@@ -402,5 +421,164 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
                 _ => return Ok(()),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::{claude::External, found::Stores};
+    use beep_proto::node::agent::EntryKind;
+    use serde_json::json;
+    use std::{fs, path::Path};
+
+    const CODEX_ID: &str = "01a199e3-03f2-7820-a29e-067ae8c4ec85";
+    const PI_ID: &str = "pi-session-1";
+
+    fn lines(values: &[serde_json::Value]) -> String {
+        values.iter().map(|line| format!("{line}\n")).collect()
+    }
+
+    /// A fabricated Codex rollout: a prompt, reasoning, a call and its
+    /// output, an answer, then a second prompt and answer.
+    fn codex_rollout() -> String {
+        let user = |text: &str| json!({"type": "event_msg", "payload": {"type": "user_message", "message": text}});
+        let said = |text: &str| {
+            json!({"type": "response_item", "payload": {"type": "message",
+            "role": "assistant", "content": [{"type": "output_text", "text": text}]}})
+        };
+        lines(&[
+            json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": "/srv/project",
+                "timestamp": "2026-11-02T01:32:34.000Z", "source": "cli"}}),
+            json!({"type": "response_item", "payload": {"type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": "<environment_context>"}]}}),
+            user("fix the retry flag"),
+            json!({"type": "response_item", "payload": {"type": "reasoning",
+                "summary": [{"type": "summary_text", "text": "Looking at the flag"}]}}),
+            json!({"type": "response_item", "payload": {"type": "function_call", "name": "exec_command",
+                "arguments": "{\"cmd\":\"cargo test\"}", "call_id": "c1"}}),
+            json!({"type": "response_item", "payload": {"type": "function_call_output", "call_id": "c1", "output": "ok"}}),
+            said("The flag is fixed."),
+            user("now the docs"),
+            said("Docs updated."),
+        ])
+    }
+
+    fn pi_session() -> String {
+        lines(&[
+            json!({"type": "session", "id": PI_ID, "cwd": "/srv/project", "timestamp": "2026-11-02T01:32:34.000Z"}),
+            json!({"type": "message", "message": {"role": "user", "content": [{"type": "text", "text": "list the files"}]}}),
+            json!({"type": "message", "message": {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "I will run ls"},
+                {"type": "toolCall", "id": "t1", "name": "bash", "arguments": {"command": "ls"}},
+                {"type": "text", "text": "Here they are."}]}}),
+            json!({"type": "message", "message": {"role": "toolResult", "toolCallId": "t1", "isError": true,
+                "content": [{"type": "text", "text": "boom"}]}}),
+        ])
+    }
+
+    fn agents(codex: &Path, pi: &Path) -> Agents {
+        let nothing = tempfile::tempdir().expect("a temp folder");
+        Agents {
+            external: External::at(nothing.path()),
+            stores: Stores::at(Some(codex), Some(pi), None),
+            ..Agents::default()
+        }
+    }
+
+    async fn read(agents: &Agents, id: &str, last: u32) -> SessionsReply {
+        agents.transcript_reply(id, last, true).await
+    }
+
+    #[tokio::test]
+    async fn a_codex_session_started_outside_beep_lists_then_reads() {
+        let codex = tempfile::tempdir().expect("a temp folder");
+        let pi = tempfile::tempdir().expect("a temp folder");
+        let dir = codex.path().join("sessions/2026/11/02");
+        fs::create_dir_all(&dir).expect("folders");
+        fs::write(
+            dir.join(format!("rollout-2026-11-02T02-32-34-{CODEX_ID}.jsonl")),
+            codex_rollout(),
+        )
+        .expect("a rollout");
+        let agents = agents(codex.path(), pi.path());
+
+        let listed = agents
+            .stores_external("codex", 10, Some(CODEX_ID.into()))
+            .await
+            .expect("the listing");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, CODEX_ID);
+        assert_eq!(listed[0].agent, "codex");
+
+        let SessionsReply::Transcript { entries, earlier } = read(&agents, CODEX_ID, 50).await
+        else {
+            panic!("a transcript");
+        };
+        let shown: Vec<(EntryKind, &str)> = entries
+            .iter()
+            .map(|entry| (entry.kind, entry.text.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (EntryKind::User, "fix the retry flag"),
+                (EntryKind::Thought, "Looking at the flag"),
+                (EntryKind::Tool, "exec_command: cargo test"),
+                (EntryKind::Agent, "The flag is fixed."),
+                (EntryKind::User, "now the docs"),
+                (EntryKind::Agent, "Docs updated."),
+            ]
+        );
+        assert_eq!(earlier, 0);
+
+        let SessionsReply::Transcript { entries, earlier } = read(&agents, CODEX_ID, 2).await
+        else {
+            panic!("a transcript");
+        };
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].text, "Docs updated.");
+        assert_eq!(earlier, 4);
+    }
+
+    #[tokio::test]
+    async fn a_pi_session_reads_and_marks_a_failed_call() {
+        let codex = tempfile::tempdir().expect("a temp folder");
+        let pi = tempfile::tempdir().expect("a temp folder");
+        let dir = pi.path().join("--srv-project--");
+        fs::create_dir_all(&dir).expect("folders");
+        fs::write(
+            dir.join(format!("2026-11-02T01-32-34-000Z_{PI_ID}.jsonl")),
+            pi_session(),
+        )
+        .expect("a session");
+        let agents = agents(codex.path(), pi.path());
+        let SessionsReply::Transcript { entries, .. } = read(&agents, PI_ID, 50).await else {
+            panic!("a transcript");
+        };
+        let shown: Vec<(EntryKind, &str)> = entries
+            .iter()
+            .map(|entry| (entry.kind, entry.text.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (EntryKind::User, "list the files"),
+                (EntryKind::Thought, "I will run ls"),
+                (EntryKind::Tool, "bash: ls (failed)"),
+                (EntryKind::Agent, "Here they are."),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_session_is_no_session() {
+        let codex = tempfile::tempdir().expect("a temp folder");
+        let pi = tempfile::tempdir().expect("a temp folder");
+        let agents = agents(codex.path(), pi.path());
+        let SessionsReply::Error { message } = read(&agents, "nothing", 5).await else {
+            panic!("an error");
+        };
+        assert_eq!(message, "there is no session nothing");
     }
 }
