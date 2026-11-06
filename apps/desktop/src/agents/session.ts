@@ -31,7 +31,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
-import { joinRuns, lacksPrompt } from "./older-state.ts";
+import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
 import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { drawMove } from "./move.ts";
@@ -112,7 +112,7 @@ export async function pollAgent() {
   AG.inflight = o;
   const read = ++AG.polls;
   try {
-    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }), readModes(o), readTasks(o), readRunning()]);
+    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }), readModes(o), readTasks(o), readRunning()]);
     if (isOpen(o)) {
       AG.modes = modes;
       AG.tasks = tasks;
