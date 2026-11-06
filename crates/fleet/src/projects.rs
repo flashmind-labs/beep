@@ -5,6 +5,7 @@
 use crate::{
     desk::{Desk, Seen},
     error::{FleetError, Result},
+    nearest_first,
     records::{
         GroupRecord, PinRecord, Place, ProjectRecord, Stored, WRITES, at, find_project, now_ms,
         place_key, project_key, projects, read, scan, sync_checkouts, write,
@@ -223,7 +224,8 @@ impl ImportStore for MeshStore {
     }
 }
 
-/// One project, for reading its issues host.
+/// One project, for reading its issues host: its checkouts nearest first, the order they are
+/// asked in.
 pub(crate) struct DeskProject {
     name: RepoName,
     places: Vec<ImportedPlace>,
@@ -233,12 +235,13 @@ impl DeskProject {
     pub(crate) fn of(mesh: &Mesh, name: &str) -> Result<Self> {
         let name = RepoName::parse(name).map_err(|e| FleetError::refused(e.to_string()))?;
         let stored = find_project(mesh, &name.to_string()).ok_or(FleetError::NotFound)?;
-        let places = stored
-            .places
-            .keys()
+        let mut machines: Vec<EndpointId> = stored.places.keys().copied().collect();
+        nearest_first(mesh, &mut machines, |machine| *machine);
+        let places = machines
+            .into_iter()
             .map(|machine| ImportedPlace {
                 url: stored.record.url.clone(),
-                machine: Some(*machine),
+                machine: Some(machine),
             })
             .collect();
         Ok(Self { name, places })
