@@ -2,8 +2,9 @@
 
 A personal assistant with a Rust server and phone and desktop clients. The
 server owns model credentials, prompts, tools, conversations and memory, and
-runs agents with Flashmind. Clients connect over iroh (QUIC with NAT
-traversal), so there are no certificates or port forwarding.
+runs agents with Flashmind. Apps reach it over HTTP. Desktops and
+`beep-node`s form a mesh over iroh with no server; the server never reaches
+a node.
 
 ```text
 crates/proto/           Wire types, framing and the iroh client
@@ -58,8 +59,6 @@ Ports:
 - HTTP for the apps on `http_listen`, default `127.0.0.1:47122`. Compose
   publishes it on the host's loopback only. How it reaches the internet (a
   tunnel, or a reverse proxy with TLS) is your choice.
-- iroh on UDP 47121 (`port` in the config), for nodes. Allow it through the
-  firewall.
 
 ## beep-node in Docker
 
@@ -74,8 +73,8 @@ docker run -d --restart unless-stopped --hostname build-box \
 ```
 
 The ticket is used once, on the first start; later starts reuse `/data`. The
-host name is the machine's name in the mesh. `BEEP_NODE_WORKSPACE` sets the
-folder `exec` and agents run in. Allow UDP 47120 through the firewall, or add
+host name is the machine's name in the mesh. `BEEP_NODE_WORKSPACE` shares a
+folder with the other devices of the mesh. Allow UDP 47120 through the firewall, or add
 `-p 47120:47120/udp`. Upgrade by pulling a newer tag; `beep-node update` does
 not work in the container. No coding agents are installed: derive an image
 `FROM` this one and add the harnesses you use.
@@ -129,5 +128,5 @@ just test     # starts Postgres, runs the server tests
 just eval     # prompt evals against the real model (costs money)
 ```
 
-The integration tests open real loopback iroh connections with a
+The integration tests talk to the server over loopback with a
 deterministic model provider.
