@@ -3,7 +3,7 @@
 #
 # The host runner cross-builds the static Linux binaries (x86_64 and aarch64
 # musl) in Docker with zig and x86_64-pc-windows-msvc with cargo-xwin, the Mac
-# runner builds aarch64-apple-darwin, the Linux job pushes the beep-node-slim
+# runner builds aarch64-apple-darwin, the Linux job pushes the beep-node
 # image (amd64 and arm64) to the registry the build workflow uses, and a
 # last job attaches the archives and SHA256SUMS to the tag's Forgejo release
 # and uploads them to the R2 bucket under beep/node/<version>/, served at
@@ -69,7 +69,7 @@ jobs:
       - name: Build and push the image
         run: |
           set -euo pipefail
-          IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-node-slim'
+          IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-node'
           for arch in amd64 arm64; do
             docker build --platform "linux/$arch" --target node-image \
               --build-context "node-dist=$RUNNER_TEMP/node-bin" \

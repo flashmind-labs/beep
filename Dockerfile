@@ -125,7 +125,8 @@ ENTRYPOINT ["beep-node-entrypoint"]
 # server (deploy/onprem) or run on any other machine, linked over iroh. The
 # agent runs code and keeps the user's files in /home/user, a volume, as the
 # user `user` with passwordless sudo, so it can apt install what it needs.
-# Build it with `--target node`. The coding agents come from npm; set AGENTS
+# Build it with `--target node`; deploy/onprem/compose.yml builds it locally
+# and CI no longer publishes it (the published image is `node-image`). The coding agents come from npm; set AGENTS
 # to "" to leave them out.
 FROM ubuntu:stonking-20261023.1 AS node
 ARG AGENTS="@anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp @openai/codex @agentclientprotocol/codex-acp"
