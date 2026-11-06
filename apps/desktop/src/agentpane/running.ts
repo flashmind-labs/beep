@@ -16,6 +16,8 @@ let el: HTMLElement | null = null;
 let drawn = "";
 let error = "";
 const stopping = new Set<number>();
+/// Rows whose whole command shows, by pid.
+const whole = new Set<number>();
 
 function syncSession() {
   const s = paneSession();
@@ -67,6 +69,13 @@ export function runningView() {
         invoke("open_url", { url: link.href }).catch(e => { error = readError(e); render(); });
         return;
       }
+      const cmd = target.closest<HTMLElement>("[data-whole]");
+      // A click shows the whole command; selecting text in it does not fold it.
+      if (cmd && !getSelection()?.toString()) {
+        const pid = +cmd.dataset.whole!;
+        if (!whole.delete(pid)) whole.add(pid);
+        return render();
+      }
       const button = target.closest<HTMLButtonElement>("button[data-pid], button[data-stop-all]");
       if (button && !button.disabled) void stop(button.hasAttribute("data-stop-all") ? list.map(p => p.pid) : [+button.dataset.pid!]);
     });
@@ -77,14 +86,14 @@ export function runningView() {
 
 function render() {
   if (!el) return;
-  const sig = JSON.stringify([list, local, [...stopping]]);
+  const sig = JSON.stringify([list, local, [...stopping], [...whole]]);
   if (sig !== drawn) {
     drawn = sig;
     el.querySelector(".agrunninglist")!.innerHTML = list.map(p => {
       const row = runningRow(p, local);
       const ports = row.ports.map(port => port.url
         ? `<a data-port href="${port.url}">${port.label}</a>` : `<span>${port.label}</span>`).join("");
-      return `<div class="agart agrunningrow"><span class="t"><b title="${esc(row.command)}">${esc(row.command)}</b><small>${esc(row.detail)}</small></span><span class="r">${ports}<button class="dbtn" data-pid="${p.pid}"${stopping.has(p.pid) ? " disabled" : ""}>${stopping.has(p.pid) ? "Stopping…" : "Stop"}</button></span></div>`;
+      return `<div class="agart agrunningrow${whole.has(p.pid) ? " whole" : ""}"><span class="t" data-whole="${p.pid}" title="${whole.has(p.pid) ? "Click to fold" : "Click to show the whole command"}"><b>${esc(row.command)}</b><small>${esc(row.detail)}</small></span><span class="r">${ports}<button class="dbtn" data-pid="${p.pid}"${stopping.has(p.pid) ? " disabled" : ""}>${stopping.has(p.pid) ? "Stopping…" : "Stop"}</button></span></div>`;
     }).join("");
   }
   el.querySelector(".meta")!.textContent = `${paneSession()?.machine_name ?? "The machine"} · closing the session stops these`;
