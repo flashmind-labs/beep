@@ -1,6 +1,7 @@
-# Checks every push and pull request, then builds the server and node images
-# on pushes to main and puts them in the private registry, tagged with the
-# commit and `latest`. The private ops repo deploys it.
+# Checks every push and pull request, then builds the server image on pushes
+# to main and puts it in the private registry, tagged with the commit and
+# `latest`. The private ops repo deploys it. The node workflow pushes the
+# beep-node image.
 #
 # The registry host and account are repository variables and the token a
 # repository secret, so nothing about the box is written down here. `runs-on:
@@ -13,12 +14,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      server_only:
-        description: Build only the server image
-        type: choice
-        options: ['false', 'true']
-        default: 'false'
 
 jobs:
   check:
@@ -67,16 +62,6 @@ jobs:
           set -euo pipefail
           IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-server'
           docker build -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
-          docker push "${IMAGE}:${{ github.sha }}"
-          docker push "${IMAGE}:latest"
-
-      # The node bundled with deploy/onprem.
-      - name: Build and push the node
-        if: github.event_name != 'workflow_dispatch' || inputs.server_only != 'true'
-        run: |
-          set -euo pipefail
-          IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-node'
-          docker build --target node -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
           docker push "${IMAGE}:${{ github.sha }}"
           docker push "${IMAGE}:latest"
 
