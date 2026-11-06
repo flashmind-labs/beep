@@ -17,6 +17,7 @@ pub mod mcp;
 pub mod skills;
 
 mod acp;
+mod adapters;
 mod alerts;
 mod checkout;
 mod compaction;
@@ -125,7 +126,10 @@ fn unix_now() -> u64 {
 /// to the daemon, so they outlive the streams and the connection.
 #[derive(Default)]
 pub struct Agents {
-    kinds: Vec<AgentKind>,
+    /// The agents it can start, replaced when detection finds others.
+    kinds: watch::Sender<Arc<Vec<AgentKind>>>,
+    /// The adapters the node installs itself.
+    adapters: adapters::Installs,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     /// Claude Code sessions started outside Beep.
     external: External,
@@ -188,7 +192,8 @@ struct Sighted {
 impl Agents {
     pub fn new(kinds: Vec<AgentKind>) -> Self {
         Self {
-            kinds,
+            kinds: watch::Sender::new(Arc::new(kinds)),
+            adapters: adapters::Installs::default(),
             sessions: Mutex::default(),
             external: External::locate(),
             stores: Stores::locate(),

@@ -140,10 +140,10 @@ impl Agents {
     /// The models the agent `name` can run on here; `None` when this node
     /// has no such agent.
     pub(super) async fn models(&self, name: &str) -> Option<ModelList> {
-        let kind = self.kinds.iter().find(|kind| kind.name == name)?;
+        let kind = self.named(name)?;
         let kind = self
             .settings
-            .configured(kind)
+            .configured(&kind)
             .unwrap_or_else(|_| kind.clone());
         Some(self.models.get(name, models::find(kind)).await)
     }
@@ -153,8 +153,8 @@ impl Agents {
     /// `None` when this node does not run it or the user turned it off.
     fn cli(&self, agent: AgentAccount, args: &[&str]) -> Option<tokio::process::Command> {
         let name = agent.slug();
-        let kind = self.kinds.iter().find(|kind| kind.name == name)?;
-        let kind = self.settings.configured(kind).ok()?;
+        let kind = self.named(name)?;
+        let kind = self.settings.configured(&kind).ok()?;
         let program = harnesses::find(name)?;
         let mut command = process::command(program);
         spawn_env::apply(&mut command, Scope::Agent(Some(agent)));
@@ -222,7 +222,7 @@ impl Agents {
 
     /// What this node finds of each agent harness it knows.
     pub(super) async fn harnesses(&self, refresh: bool) -> HarnessReport {
-        harnesses::report(&self.kinds, &self.settings, &self.latest, refresh).await
+        harnesses::report(&self.kinds(), &self.settings, &self.latest, refresh).await
     }
 
     /// Closes every running session and waits until their agents have
@@ -252,7 +252,7 @@ impl Agents {
     /// sessions found on disk list even when no agent's program was found.
     pub fn offers(&self) -> Vec<String> {
         let mut offers: Vec<String> = self
-            .kinds
+            .kinds()
             .iter()
             .map(|kind| agent::protocol(&kind.name))
             .collect();
@@ -261,9 +261,39 @@ impl Agents {
     }
 
     /// The agent `protocol` names, when this node has it.
-    pub fn kind(&self, protocol: &str) -> Option<&AgentKind> {
+    pub fn kind(&self, protocol: &str) -> Option<AgentKind> {
         let name = agent::agent_of(protocol)?;
-        self.kinds.iter().find(|kind| kind.name == name)
+        self.named(name)
+    }
+
+    /// The agent called `name`, when this node has it.
+    pub(super) fn named(&self, name: &str) -> Option<AgentKind> {
+        self.kinds().iter().find(|kind| kind.name == name).cloned()
+    }
+
+    /// The agents this node can start now.
+    pub(super) fn kinds(&self) -> Arc<Vec<AgentKind>> {
+        self.kinds.borrow().clone()
+    }
+
+    /// Takes the agents a new detection found, when they differ.
+    pub(super) fn set_kinds(&self, kinds: Vec<AgentKind>) {
+        let changed = self.kinds.send_if_modified(|current| {
+            if **current == kinds {
+                return false;
+            }
+            *current = Arc::new(kinds);
+            true
+        });
+        if changed {
+            let names: Vec<String> = self.kinds().iter().map(|kind| kind.name.clone()).collect();
+            log::info!("coding agents now: {}", names.join(", "));
+        }
+    }
+
+    /// Changes each time the agents this node can start change.
+    pub(crate) fn kinds_changed(&self) -> watch::Receiver<Arc<Vec<AgentKind>>> {
+        self.kinds.subscribe()
     }
 
     /// The session `id` names: by the id it started under or by the

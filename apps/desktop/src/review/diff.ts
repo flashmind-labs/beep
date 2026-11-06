@@ -28,7 +28,7 @@ export interface DiffSource {
   /// Where review comments are kept and go: `key` names the draft in
   /// storage, `send` delivers the review text and says why it did not ("" when it went).
   review: { key: string; send: (text: string) => Promise<string> };
-  /// The machine the diff's checkout is on, for Feedback from an agent; a diff
+  /// The machine the diff's checkout is on, for Review with agent; a diff
   /// without one has the button disabled. `prefer` is the harness offered first.
   agent?: { machine: { id: string; name: string }; prefer?: string; open: (session: AgentSession) => void };
 }
