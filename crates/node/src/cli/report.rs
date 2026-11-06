@@ -4,12 +4,15 @@
 use anyhow::{Context, Result, bail};
 use beep_mesh::DeviceKind;
 use beep_node::{
-    link::{peers, state::State},
+    link::{
+        peers::{self, ReportError},
+        state::State,
+    },
     machine::{env::os_version, service::logs::Logs},
 };
 use beep_proto::node::report::MAX_BYTES;
 use beep_report::{
-    Answer, Draft, Period, SendError, Sender, Share, draft, find_gh, gh_signed_in, issue,
+    Answer, Draft, Issue, Period, SendError, Sender, Share, draft, find_gh, gh_signed_in, issue,
     open_issue, send, server_url, zip,
 };
 use chrono::Local;
@@ -45,10 +48,14 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
                 .and_then(|status| status.mesh);
             (shares, mesh)
         }
-        Ok(None) => (vec![own_share(id, &state.name, since, NO_NODE).await], None),
+        Ok(None) => {
+            let share = own_share(id, &state.name, since, Answer::Answered, NO_NODE).await;
+            (vec![share], None)
+        }
         Err(e) => {
             let why = format!("{e:#}");
-            (vec![own_share(id, &state.name, since, &why).await], None)
+            let share = own_share(id, &state.name, since, fallback_answer(&e), &why).await;
+            (vec![share], None)
         }
     };
     let sender = Sender {
@@ -57,13 +64,19 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
         app: "node",
         app_version: VERSION.to_owned(),
     };
-    let draft = draft(&text, period, since, sender, shares)?;
+    // Redaction runs regexes over every share's log: off the async workers.
+    let draft = spawn_blocking(move || draft(&text, period, since, sender, shares)).await??;
     print!("{}", listing(&draft));
     if !yes && !confirm(&mut input, "Send this to Beep? [y/N]").await? {
         println!("Nothing was sent.");
         return Ok(());
     }
-    let body = zip(&draft)?;
+    let (draft, body) = spawn_blocking(move || {
+        let body = zip(&draft);
+        (draft, body)
+    })
+    .await?;
+    let body = body?;
     let receipt = match send(&server_url()?, body, &state.key).await {
         Ok(receipt) => receipt,
         Err(SendError::Refused(words)) => bail!("{words}"),
@@ -77,26 +90,47 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
     let Some(gh) = find_gh() else {
         return Ok(());
     };
-    if !gh_signed_in(&gh).await || !confirm(&mut input, "Report it on GitHub too? [y/N]").await? {
+    if !gh_signed_in(&gh).await {
         return Ok(());
     }
     // The report reached Beep: a failed issue is said, not a failed command.
-    match open(&gh, &draft, &receipt.reference).await {
+    let issue = match issue(&draft.manifest, &receipt.reference) {
+        Ok(issue) => issue,
+        Err(e) => {
+            eprintln!("the report was sent, but the GitHub issue could not be written: {e}");
+            return Ok(());
+        }
+    };
+    print!("{}", issue_text(&issue));
+    if !confirm(&mut input, "Report it on GitHub too? [y/N]").await? {
+        return Ok(());
+    }
+    match open_issue(&gh, &issue).await {
         Ok(url) => println!("{url}"),
-        Err(e) => eprintln!("the report was sent, but the GitHub issue did not open: {e:#}"),
+        Err(e) => eprintln!("the report was sent, but the GitHub issue did not open: {e}"),
     }
     Ok(())
 }
 
-/// Opens the public issue for the sent report and returns its URL.
-async fn open(gh: &Path, draft: &Draft, reference: &str) -> Result<String> {
-    let issue = issue(&draft.manifest, reference)?;
-    Ok(open_issue(gh, &issue).await?)
+/// The public issue as it would open, shown before asking.
+fn issue_text(issue: &Issue) -> String {
+    format!("\n{}\n\n{}\n", issue.title, issue.body.trim_end())
+}
+
+/// How this machine's share answers when the running node gave none.
+fn fallback_answer(e: &anyhow::Error) -> Answer {
+    match e.downcast_ref::<ReportError>() {
+        Some(ReportError::Silent(_)) => Answer::Silent,
+        Some(ReportError::Older) => Answer::OlderNode,
+        None => Answer::Failed {
+            reason: format!("{e:#}"),
+        },
+    }
 }
 
 /// This machine's share read here, for when the running node gives none;
 /// `status` says why.
-async fn own_share(id: EndpointId, name: &str, since: i64, status: &str) -> Share {
+async fn own_share(id: EndpointId, name: &str, since: i64, answer: Answer, status: &str) -> Share {
     // A log that cannot be read still leaves the rest worth sending.
     let max = usize::try_from(MAX_BYTES).unwrap_or(usize::MAX);
     let log = spawn_blocking(move || Logs::service().window(since, max))
@@ -108,7 +142,7 @@ async fn own_share(id: EndpointId, name: &str, since: i64, status: &str) -> Shar
         id,
         name: name.to_owned(),
         kind: DeviceKind::Node,
-        answer: Answer::Answered,
+        answer,
         log,
         status: status.to_owned(),
         version: VERSION.to_owned(),
@@ -158,17 +192,17 @@ async fn confirm(input: &mut Lines<BufReader<Stdin>>, question: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_node::link::peers::ReportError;
     use iroh::SecretKey;
 
     #[tokio::test]
-    async fn a_silent_node_gives_this_machines_share_with_why() {
+    async fn a_silent_node_gives_this_machines_share_marked_silent() {
         let silent = anyhow::Error::from(ReportError::Silent(30));
         let now = Local::now().timestamp();
         let share = own_share(
             SecretKey::generate().public(),
             "build-box",
             now,
+            fallback_answer(&silent),
             &format!("{silent:#}"),
         )
         .await;
@@ -176,7 +210,33 @@ mod tests {
             share.status,
             "the running node did not answer in 30 seconds"
         );
-        assert_eq!(share.answer, Answer::Answered);
+        assert_eq!(share.answer, Answer::Silent);
+        assert_eq!(share.answer.label(), "did not answer");
         assert_eq!(share.version, VERSION);
+    }
+
+    #[test]
+    fn other_collect_failures_read_as_failed_with_why() {
+        let older = anyhow::Error::from(ReportError::Older);
+        assert_eq!(fallback_answer(&older), Answer::OlderNode);
+        let broken = anyhow::anyhow!("reading the node's report");
+        assert_eq!(
+            fallback_answer(&broken),
+            Answer::Failed {
+                reason: "reading the node's report".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn the_issue_shows_its_title_and_body() {
+        let issue = Issue {
+            title: "Problem report R-1".to_owned(),
+            body: "> it broke\n\nReference: R-1\n".to_owned(),
+        };
+        assert_eq!(
+            issue_text(&issue),
+            "\nProblem report R-1\n\n> it broke\n\nReference: R-1\n"
+        );
     }
 }
