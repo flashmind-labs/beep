@@ -104,6 +104,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-pjc .pill[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .cc-pjc .note { padding: 0 4px; font-size: 11.5px; color: var(--muted) }
 .cc-pjc .cc-err:empty { display: none }
+.cc-pjc .ag-att { padding: 0 }
+.cc-pjc .ag-att[hidden] { display: none }
+.cc-pjc .box.dropping { border-color: var(--accent) }
 .cc-pjc input.branch { height: 28px; width: 30ch; max-width: 100%; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace }
 .cc-pjc input.branch:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }

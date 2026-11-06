@@ -29,12 +29,18 @@ import type { MachineFolder } from "./projects-state.ts";
 import { defaultParent } from "../addproject/importproject-state.ts";
 import { lastImport } from "../addproject/importproject.ts";
 import { refresh } from "../center/refresh.ts";
+import type { Attached } from "../agents/agentqueue.ts";
+import { attachedChips, attachImages } from "../agents/images.ts";
+import { agentPics } from "../chat/attach.ts";
 
 /// The tallest the bar's field grows before it scrolls, in pixels.
 const BAR_FIELD_MAX = 200;
 
 /// How often the bar reads the sync while a project is added to a machine.
 const POLL_MS = 1000;
+
+/// Images pasted or dropped on the bar, sent with the first prompt.
+const barImages: Attached[] = [];
 
 export const projectComp = (() => {
   // A field that wraps and grows with what is typed, like a chat's:
@@ -73,7 +79,18 @@ export const projectComp = (() => {
   const err = h("span", "cc-err");
   err.setAttribute("role", "status");
   const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, send);
-  const form = h("form", "cc-pjc", h("div", "box", input, row, pick), err);
+  // The images waiting, as a session's field shows them.
+  const att = h("div", "ag-att");
+  att.hidden = true;
+  att.addEventListener("click", e => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-pjatt]");
+    if (!b) return;
+    barImages.splice(Number(b.dataset.pjatt), 1);
+    drawBarImages();
+    input.focus();
+  });
+  const box = h("div", "box", att, input, row, pick);
+  const form = h("form", "cc-pjc", box, err);
   // The split's right column leaves room for the floating bar.
   new ResizeObserver(() => form.parentElement?.style.setProperty("--pjc-h", `${form.offsetHeight}px`)).observe(form);
 
@@ -84,6 +101,28 @@ export const projectComp = (() => {
     form.requestSubmit();
   });
   input.addEventListener("input", () => growBarField(input));
+  input.addEventListener("paste", e => {
+    const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
+    if (!files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void attachToBar(files);
+  });
+  form.addEventListener("dragover", e => {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    box.classList.add("dropping");
+  });
+  form.addEventListener("dragleave", e => { if (!form.contains(e.relatedTarget as Node | null)) box.classList.remove("dropping"); });
+  form.addEventListener("drop", e => {
+    box.classList.remove("dropping");
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void attachToBar(e.dataTransfer.files).then(() => input.focus());
+  });
   machine.addEventListener("click", e => {
     const p = barProject(), hosts = pc.hosts ?? [];
     if (!p || pc.adding) return;
@@ -124,8 +163,27 @@ export const projectComp = (() => {
   addEventListener("mousedown", e => {
     if (pc.open && !pick.contains(e.target as Node) && !harness.contains(e.target as Node)) closeBarPicker();
   }, true);
-  return { form, input, machine, folder, branch, clear, harness, send, err, pick };
+  return { form, input, machine, folder, branch, clear, harness, send, err, pick, att };
 })();
+
+/// Attaches the pictures among `files` to the bar's first prompt; anything
+/// else is refused, as there is no session folder to upload it to yet.
+async function attachToBar(files: Iterable<File>) {
+  const err = projectComp.err;
+  err.textContent = "";
+  const { pics, rest } = await agentPics(files);
+  const said = (text: string) => { err.textContent = text; };
+  if (rest.length) said(`${rest[0].name || "That file"} is not an image`);
+  await attachImages(barImages, pics, said);
+  drawBarImages();
+}
+
+/// The chips of the bar's images, hidden with none.
+function drawBarImages() {
+  const att = projectComp.att;
+  att.innerHTML = attachedChips(barImages, "pjatt");
+  att.hidden = !barImages.length;
+}
 
 function closeBarPicker() {
   pc.open = false;
@@ -408,8 +466,11 @@ async function startFromBar() {
   pc.open = false;
   redrawProjects();
   try {
-    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt: text, chat: null, model, effort, checkout });
+    const images = barImages.map(({ name, mime, data }) => ({ name, mime, data }));
+    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt: text, chat: null, model, effort, checkout, images });
     c.input.value = "";
+    barImages.length = 0;
+    drawBarImages();
     pc.target = null;
     keepMachine(p.name, place.machine_id);
     go("pane", { agent: started.session, adopt: true });

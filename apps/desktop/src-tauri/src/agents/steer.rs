@@ -93,7 +93,7 @@ impl TryFrom<Steer> for AgentSteer {
 }
 
 /// The pasted images as uploads, checked against the limits.
-fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
+pub(crate) fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
     let images = images
         .into_iter()
         .map(|image| -> Result<Upload> {
