@@ -369,6 +369,26 @@ applies too; one it cannot read refuses the folder and says why.
 
 A session also moves on a project Syncthing keeps in step: folders come from the place records when `sync/<name>` does not name the machine, and the target trusts Syncthing, waiting up to two minutes for its folder to be complete. A project neither keeps is refused before the source stops.
 
+## Agent skills across the mesh
+
+Each node (the Mac app's too) lists the user's skills on `skills/1`
+(`crates/node/src/agents/skills/`): every `<name>/SKILL.md` folder under
+`~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills`, `~/.pi/agent/skills`,
+`~/.gemini/skills` and `~/.config/opencode/skills`, hashed over its files.
+Beep's own (the "Installed by Beep" marker) are left out. Every two minutes,
+when a machine comes or goes, and when a peer says its skills changed
+(`Changed`), a node reads the others' lists.
+
+`skills-seen` in the node folder records each name held and the copy last
+synced (hash and version, the version counting edits). A listed copy carries
+that version and whether it was edited since. A skill never held is copied
+into `~/.claude/skills` and `~/.agents/skills`. An edit spreads: a copy still
+as last synced is replaced by the newer one (staged beside it, then swapped).
+Two copies edited apart, or an edit made to an older version, are a conflict:
+nothing changes, the node logs a warning and the desktop shows a bell row. Two
+local folders follow the same rule. Deletes never spread, and a name in
+`skills-seen` that is gone here is never copied back.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds, installs and launches

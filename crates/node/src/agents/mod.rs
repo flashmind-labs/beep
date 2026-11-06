@@ -19,6 +19,7 @@ use tokio::{sync::watch, time::Instant};
 pub mod claude;
 pub(crate) mod found;
 pub mod mcp;
+pub mod skills;
 
 mod acp;
 mod alerts;
