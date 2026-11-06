@@ -645,14 +645,25 @@ mod tests {
         assert!(matches!(report, Some(Report::Offers(_))), "{report:?}");
     }
 
+    /// Issue #390: a node runs commands on this Mac while Let Beep use this
+    /// Mac is on, and is told so plainly, not "offline", while it is off.
     #[tokio::test]
-    async fn a_node_may_not_run_commands_on_this_mac() {
-        let mac = start("Studio").await;
-        let host = mac.fleet.mesh().expect("the mesh is open");
-        let (mesh, _router, endpoint) = join(&mac.fleet, DeviceKind::Node, "Server").await;
-        until(&host, |mesh| online(mesh, endpoint.id())).await;
-        until(&mesh, |mesh| online(mesh, mac.fleet.id())).await;
-        let client = with_deadline(mac.fleet.id(), &mesh)
+    async fn a_node_runs_commands_on_this_mac_only_while_it_is_lent() {
+        let dir = TempDir::new().expect("a temp dir");
+        let endpoint = bind(&SecretKey::generate()).await;
+        let mac_offers = offers(&dir);
+        let fleet = Arc::new(Fleet::new(
+            endpoint.clone(),
+            dir.path(),
+            "Studio",
+            mac_offers.clone(),
+        ));
+        fleet.run().await;
+        let host = fleet.mesh().expect("the mesh is open");
+        let (mesh, _router, node) = join(&fleet, DeviceKind::Node, "Server").await;
+        until(&host, |mesh| online(mesh, node.id())).await;
+        until(&mesh, |mesh| online(mesh, fleet.id())).await;
+        let client = with_deadline(fleet.id(), &mesh)
             .await
             .expect("the node reaches this Mac");
         let request = Request {
@@ -668,8 +679,20 @@ mod tests {
         else {
             panic!("the call was not answered");
         };
-        assert!(failed && text.contains("desktop"), "{text}");
-        assert!(!text.contains("ran-here"));
+        assert!(!failed && text.contains("ran-here"), "{text}");
+        mac_offers.lend_to_peers(false);
+        let Reply::Done { text, failed } = client
+            .call(tools::PROTOCOL, &request)
+            .await
+            .expect("the node answers")
+        else {
+            panic!("the call was not answered");
+        };
+        assert!(failed, "{text}");
+        assert_eq!(
+            text,
+            "Studio doesn't run commands: Let Beep use this Mac is off in its Settings."
+        );
     }
 
     async fn ticket(mac: &Mac) -> JoinTicket {
