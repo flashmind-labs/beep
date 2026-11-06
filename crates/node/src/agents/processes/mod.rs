@@ -34,6 +34,15 @@ struct Process {
     command: String,
 }
 
+/// The coding agents' own programs, never a command they ran.
+const HARNESSES: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
+/// The npm packages an agent's CLI runs from, as Node starts it.
+const HARNESS_PACKAGES: [&str; 3] = [
+    "@openai/codex",
+    "@anthropic-ai/claude-code",
+    "@google/gemini-cli",
+];
+
 impl Process {
     fn helper(&self) -> bool {
         let mut words = self.command.split_whitespace();
@@ -42,18 +51,14 @@ impl Process {
         };
         let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
         let name = name.strip_suffix(".exe").unwrap_or(name);
-        if matches!(
-            name,
-            "claude"
-                | "codex"
-                | "gemini"
-                | "opencode"
-                | "pi"
-                | "flsh"
-                | "chrome_crashpad_handler"
-                | "bwrap"
-                | "sandbox-exec"
-        ) || name.ends_with("-acp")
+        // `codex-code-mode-host` and the like are an agent's own helpers.
+        let harness = HARNESSES.iter().any(|h| {
+            name.strip_prefix(h)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('-'))
+        });
+        if harness
+            || matches!(name, "chrome_crashpad_handler" | "bwrap" | "sandbox-exec")
+            || name.ends_with("-acp")
         {
             return true;
         }
@@ -61,12 +66,17 @@ impl Process {
         if args.windows(2).any(|pair| pair == ["mcp", "--session"]) {
             return true;
         }
-        // npm may put a shell or Node between the adapter and its CLI.
+        // npm may put a shell or Node between the adapter and its CLI, and
+        // Node runs the CLI itself from its package.
         matches!(name, "node" | "sh" | "bash" | "npm" | "npx")
             && args.iter().any(|arg| {
+                let arg = arg.replace('\\', "/");
                 ["claude-agent-acp", "codex-acp", "pi-acp"]
                     .iter()
-                    .any(|adapter| arg.split(['/', '\\']).any(|part| part == *adapter))
+                    .any(|adapter| arg.split('/').any(|part| part == *adapter))
+                    || HARNESS_PACKAGES
+                        .iter()
+                        .any(|package| arg.contains(&format!("{package}/")))
             })
     }
 }
@@ -269,6 +279,8 @@ mod tests {
             "sh -c codex-acp",
             "beep-node --dir /srv/node mcp --session s1",
             "bwrap --unshare-pid",
+            "/usr/bin/node /srv/npx/node_modules/@openai/codex/bin/codex.js app-server",
+            "/srv/npx/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host",
         ] {
             assert!(process(command).helper(), "{command}");
         }
@@ -278,6 +290,8 @@ mod tests {
             "tsc --watch",
             "echo codex",
             "sh -c 'echo codex'",
+            "pip install x",
+            "node /srv/app/codex-report.js",
         ] {
             assert!(!process(command).helper(), "{command}");
         }
