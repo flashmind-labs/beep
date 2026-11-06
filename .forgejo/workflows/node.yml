@@ -76,8 +76,14 @@ jobs:
               -t "$IMAGE:$VERSION-$arch" .
             docker push "$IMAGE:$VERSION-$arch"
           done
-          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" \
-            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          # The registry is plain HTTP: buildx's resolver refuses it, the
+          # docker manifest commands take --insecure.
+          for tag in "$VERSION" latest; do
+            docker manifest rm "$IMAGE:$tag" 2>/dev/null || true
+            docker manifest create --insecure "$IMAGE:$tag" \
+              "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+            docker manifest push --insecure --purge "$IMAGE:$tag"
+          done
           docker image rm "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
 
       - name: Log out
