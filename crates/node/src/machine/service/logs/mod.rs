@@ -1,5 +1,6 @@
 //! `beep-node logs`: the service's log, read from wherever `setup` put it
-//! (the journal on Linux, a file on macOS and Windows), without the
+//! (the journal under systemd, a file under OpenRC, SysV init, macOS and
+//! Windows), without the
 //! networking crates' chatter unless asked.
 
 use anyhow::{Context, Result};
@@ -13,7 +14,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod file;
 #[cfg(target_os = "linux")]
 mod journal;
@@ -141,7 +142,13 @@ fn read_file(path: &Path, printer: &mut Printer<impl Write>) -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> Result<()> {
-    journal::read(options, printer)
+    use super::{Manager, systemd::Scope};
+    match super::present()? {
+        Some(Manager::Systemd) => journal::read(options, printer, Scope::User),
+        Some(Manager::SystemdSystem) => journal::read(options, printer, Scope::System),
+        Some(_) => file::read(options, printer),
+        None => anyhow::bail!("the node's service is not installed here"),
+    }
 }
 
 #[cfg(any(target_os = "macos", windows))]
