@@ -227,6 +227,10 @@ fn main() {
             notices::alerts::alerts_dismiss,
             notices::alerts::alerts_list,
             notices::alerts::alerts_read,
+            notices::history::notes_answer,
+            notices::history::notes_dismiss,
+            notices::history::notes_list,
+            notices::history::notes_read,
             center::home::center_answer_agent,
             center::home::center_dismiss_updates,
             center::home::center_home,
@@ -540,6 +544,9 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(center::AgentsShown::default());
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
+    app.manage(Arc::new(notices::history::Notes::load(
+        dir.join("notes.json"),
+    )));
     app.manage(machines::terminals::Attached::default());
     tauri::async_runtime::spawn(machines::list::retry_unlinks(beep.clone()));
     app.state::<machines::this_mac::Machine>().start();
@@ -560,6 +567,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     tauri::async_runtime::spawn(palette::lists::follow(handle.clone(), beep.clone()));
     tauri::async_runtime::spawn(platform::update::follow(handle.clone()));
     tauri::async_runtime::spawn(tray::waiting::follow(handle.clone(), beep.clone()));
+    let desks = app.state::<Arc<beep_fleet::Session>>().inner().clone();
+    tauri::async_runtime::spawn(notices::follow(handle.clone(), fleet.clone(), desks));
     voice::hotkey::start(move |input| voice.on_input(input));
 
     // Sign-ins come back as beep:// links, while running or as the reason
