@@ -14,6 +14,7 @@
 //! end with `#[serde(default)]`, or a variant, and a reader built with
 //! `lenient::from_slice` skips what it does not know. Never insert, reorder
 //! or remove a field.
+mod admin;
 mod control;
 mod env;
 mod stream;
@@ -22,24 +23,17 @@ pub mod agent;
 pub mod desktop;
 pub mod files;
 pub mod harness;
-pub mod logs;
 pub mod mesh_state;
 pub mod process;
-pub mod search;
-pub mod shell;
 pub mod skills;
-pub mod status;
 pub mod sync;
 pub mod terminal;
-pub mod tool_update;
 pub mod tools;
-pub mod traffic;
 pub mod transfer;
-pub mod update;
 pub mod usage;
-pub mod version;
 pub mod webhook;
 
+pub use admin::{logs, search, shell, status, tool_update, traffic, update, version};
 pub use control::*;
 pub use env::*;
 pub use stream::*;

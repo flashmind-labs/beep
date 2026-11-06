@@ -7,32 +7,28 @@ pub mod agent;
 pub mod agent_files;
 pub mod auto;
 pub mod codex_login;
-mod convert;
 pub mod listing;
 mod node;
 pub mod releases;
 pub mod sessions;
-mod steer;
 pub mod terminals;
 pub mod thumb;
 
-pub use agent::{Opened, StartOn, open_agent, order};
-pub use convert::{
+pub use agent::{
+    Makes, Opened, StartOn, checkout_for, node_request, open_agent, order, pick_agent,
+    picked_effort, picked_model, queued_instead,
+};
+pub use listing::{
     Host, agent_models, beep_session, beep_view, entries_for, external_session, machine_capability,
-    past_session, runs_now, session_tasks,
+    past_session, session_tasks,
 };
 pub use node::{
-    Exec, Tasks, Updated, exec, files, install_tool, log, search, set_search, task_request,
-    update_node,
+    Exec, Tasks, Updated, exec, files, install_tool, log, search, set_search, update_node,
 };
 pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
-pub use steer::{
-    Makes, checkout_for, node_request, pick_agent, picked_effort, picked_model, queued_instead,
-};
 
 use crate::MeshError;
 use anyhow::anyhow;
-pub use beep_proto::agent_name;
 
 /// What the node said in place of an answer, as the error a caller shows.
 pub(crate) fn said(message: impl Into<String>) -> MeshError {
