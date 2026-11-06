@@ -6,6 +6,7 @@ use crate::{
     agents::{Agents, OpenSession},
     link::local_socket::{Listener, Stream},
     link::note,
+    link::watchdog::{self, Step},
     run::terminal::{self, OpenTerminal},
 };
 use anyhow::{Context, Result};
@@ -70,7 +71,10 @@ pub(crate) fn changed() {
 /// change. Changes that come while it writes make one more write.
 pub(crate) async fn keep(dir: &Path, agents: &Agents) {
     loop {
-        if let Err(e) = Reopen::now(agents).save(dir) {
+        let noting = watchdog::enter(Step::OpenNote);
+        let saved = Reopen::now(agents).save(dir);
+        drop(noting);
+        if let Err(e) = saved {
             log::warn!("what is open would not open again after a crash: {e:#}");
         }
         CHANGED.notified().await;
