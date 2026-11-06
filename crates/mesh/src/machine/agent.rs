@@ -83,6 +83,23 @@ pub async fn order(
         .map_err(|_| said("the node did not answer"))?
 }
 
+/// Waits on an attached stream until the node says the session ended, as it
+/// does once a `Close` it acknowledged has stopped the agent. A stream the
+/// node ends also means the session is over.
+pub async fn ended(opened: &mut Opened, limit: Duration) -> Result<(), MeshError> {
+    let wait = async {
+        loop {
+            match opened.rx.recv::<Event>().await.map_err(MeshError::Link)? {
+                Some(Event::Ended { .. }) | None => return Ok(()),
+                Some(_) => {}
+            }
+        }
+    };
+    timeout(limit, wait)
+        .await
+        .map_err(|_| said("the session did not end in time"))?
+}
+
 /// The prompt a node from before `Request::Steer` gets for one, sent after the running turn.
 pub fn queued_instead(request: &Request) -> Option<Request> {
     let Request::Steer { text, images } = request else {

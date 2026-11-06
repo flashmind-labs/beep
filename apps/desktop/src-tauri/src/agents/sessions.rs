@@ -5,7 +5,7 @@
 use crate::{
     agents::work_copy,
     beep::{Beep, Service, epoch_ms},
-    center::AgentsShown,
+    center::{AgentsShown, home_sessions::AgentSessions},
     chat::markdown,
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, SessionParent, agents as direct, extra},
@@ -15,10 +15,10 @@ use crate::{
 use beep_mesh::Key;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
-    AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask, GetAgentSession,
-    GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage, ListAgentHosts,
-    ListAgentModels, ListAgentSessions, MachinePick, MachineSession, PreviewAgentMachine,
-    ResumeAgentSession, StartAgentSession,
+    AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask,
+    GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage,
+    ListAgentHosts, ListAgentModels, ListAgentSessions, MachinePick, MachineSession,
+    PreviewAgentMachine, ResumeAgentSession, StartAgentSession,
     node::{
         agent::{CheckoutPlan, Effort},
         harness::HarnessConfig,
@@ -27,7 +27,7 @@ use beep_proto::{
 };
 use serde::Serialize;
 use std::{sync::Arc, time::Instant};
-use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use uuid::Uuid;
 
 /// A machine that can run a coding agent.
@@ -235,6 +235,27 @@ pub async fn agent_sessions(
             }
         })
         .collect())
+}
+
+/// Shows a session its machine said ended as ended in the lists held here, so
+/// Home and the session lists drop it from Running at once rather than on a
+/// later read, and has the windows read them again.
+pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &str) {
+    let end = |list: &mut [MachineSession]| {
+        for listed in list
+            .iter_mut()
+            .filter(|listed| listed.machine_id == machine_id && listed.id == session)
+        {
+            listed.status = AgentStatus::Ended {};
+            listed.doing = None;
+            listed.question = None;
+        }
+    };
+    app.state::<Outside>().sessions.edit(end);
+    app.state::<Arc<AgentSessions>>().edit(end);
+    if let Err(e) = app.emit("sessions-changed", session) {
+        log::warn!("could not tell the windows a session closed: {e}");
+    }
 }
 
 /// Whether two listings of a session differ in what the windows draw, which

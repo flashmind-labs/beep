@@ -52,6 +52,7 @@ impl Searches {
                 blocking(move || state::saved_search(&dir)).await
             }
             Request::Set { folder } => self.set(Search::parse(&folder)).await,
+            Request::Rescan {} => self.rescan().await,
             _ => return failed("Update beep-node on this machine first.".into()),
         };
         match done {
@@ -89,6 +90,17 @@ impl Searches {
                 Err(e) => log::warn!("not looking for checkouts again: {e:#}"),
             }
         })));
+        Ok(search)
+    }
+}
+
+impl Searches {
+    /// Walks the search folder again, quickly, for checkouts made since.
+    async fn rescan(&self) -> Result<Search> {
+        let dir = self.0.dir.clone();
+        let search = blocking(move || state::saved_search(&dir)).await?;
+        let root = search.existing_root()?;
+        self.0.agents.rescan(root, self.0.dir.clone()).await?;
         Ok(search)
     }
 }

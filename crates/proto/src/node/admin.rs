@@ -156,6 +156,9 @@ pub mod search {
         Set {
             folder: String,
         },
+        /// Walks the folder again, quickly and not deep, so checkouts made
+        /// since count; answers once done. Older nodes close the stream.
+        Rescan {},
     }
 
     /// What the node answers.

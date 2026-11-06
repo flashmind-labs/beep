@@ -15,6 +15,7 @@ import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usa
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
+import { closeSession } from "./closing.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
@@ -342,7 +343,7 @@ async function closeRow(x: HTMLElement) {
     const row = await kidSession(kid.dataset.kid!, kid.dataset.key);
     if (row) {
       try {
-        await invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: "close" });
+        await closeSession(row);
       } catch (e) {
         AG.note = readError(e);
         return drawAgentBody();

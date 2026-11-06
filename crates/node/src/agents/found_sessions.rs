@@ -14,7 +14,7 @@ use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
     time::SystemTime,
 };
 use tokio::{task::spawn_blocking, time::Instant};
@@ -67,6 +67,26 @@ impl Agents {
             None if walk.whole => *self.on_disk.lock().await = Some(Arc::new(walk.found)),
             None => log::info!("the walk for checkouts was cut short; kept the saved list"),
         }
+    }
+
+    /// Walks `root` again, quickly and not deep, so a checkout made since the last walk
+    /// counts, and saves the list in `dir`. Nothing while the first walk runs or another
+    /// rescan does: what that one finds serves this one too.
+    pub async fn rescan(&self, root: PathBuf, dir: PathBuf) -> Result<()> {
+        if self.rescanning.swap(true, Ordering::Relaxed) {
+            return Ok(());
+        }
+        let walked = async {
+            let known = self.disk_checkouts()?;
+            let all = spawn_blocking(move || found::rescan(&root, &dir, &known))
+                .await
+                .context("walking for checkouts again")?;
+            *self.on_disk.lock().await = Some(Arc::new(all));
+            Ok(())
+        }
+        .await;
+        self.rescanning.store(false, Ordering::Relaxed);
+        walked
     }
 
     async fn read_logs_ahead(&self) {

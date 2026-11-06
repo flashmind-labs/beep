@@ -271,7 +271,7 @@ in `build.mjs`.
 - `bar/`: the bar's page (entry `app.ts`), its views, keys and live voice.
 - `center/`: the command center window (entry `center.ts`): sidebar, Home, the bell and its notifications pane (`notices.ts`).
 - `project/`: the Projects page and one project's page.
-- `addproject/`: the Add a project, Import a project and New project sheets.
+- `addproject/`: the Add a project, Add a folder, Import a project and New project sheets.
 - `review/`: branches, reviews and the diff viewer.
 - `agents/`: coding agents: start form, picker, a session's log, the list (`sessions.ts` is the one shared session list), and the empty view of ⌘N (`draft.ts`: a session's layout with the project's start input, which becomes the session in place).
 - `agentpane/`: a session's side pane: media, files, changes, artifacts.

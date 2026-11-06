@@ -12,6 +12,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
+#[derive(Clone)]
 pub struct MachineFound {
     pub machine_id: String,
     pub machine_name: String,

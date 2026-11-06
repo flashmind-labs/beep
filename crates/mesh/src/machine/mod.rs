@@ -15,7 +15,7 @@ pub mod terminals;
 pub mod thumb;
 
 pub use agent::{
-    Makes, Opened, StartOn, checkout_for, node_request, open_agent, order, pick_agent,
+    Makes, Opened, StartOn, checkout_for, ended, node_request, open_agent, order, pick_agent,
     picked_effort, picked_model, queued_instead,
 };
 pub use listing::{
@@ -23,7 +23,8 @@ pub use listing::{
     past_session, session_tasks,
 };
 pub use node::{
-    Exec, Tasks, Updated, exec, files, install_tool, log, search, set_search, update_node,
+    Exec, Tasks, Updated, exec, files, install_tool, log, rescan_search, search, set_search,
+    update_node,
 };
 pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
 

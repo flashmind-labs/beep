@@ -178,6 +178,8 @@ pub struct Agents {
     /// The checkouts found on disk under home, once `warm` read them;
     /// held while it does.
     on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
+    /// A quick walk for checkouts runs; one at a time.
+    rescanning: AtomicBool,
 }
 
 /// The folders found in the agents' logs, and when.
@@ -212,6 +214,7 @@ impl Agents {
             reopened: watch::Sender::new(false),
             sighted: AsyncMutex::default(),
             on_disk: AsyncMutex::default(),
+            rescanning: AtomicBool::new(false),
         }
     }
 }

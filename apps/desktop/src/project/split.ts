@@ -19,6 +19,7 @@ import { homeBox } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
+import { closingNote } from "../agents/closing.ts";
 import { customAgentsSection, whereSection, agentsSection } from "./projects.ts";
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
@@ -148,7 +149,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   }
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLineAt(r, state.home?.projects || []),
-    right: r.status === "asking" ? tag("wait", "needs you") : runningWhen(r), open: () => go("pane", { agent: r }),
+    right: closingNote(r) ?? (r.status === "asking" ? tag("wait", "needs you") : runningWhen(r)), open: () => go("pane", { agent: r }),
     menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));
   if (runItems.length) groups.push({ title: "Running", items: runItems });
