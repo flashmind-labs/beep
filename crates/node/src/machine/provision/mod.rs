@@ -8,6 +8,7 @@ mod teacli;
 mod tools;
 
 pub(crate) use skills::installed_by_beep;
+pub(crate) use tools::{curl, listed_sha256, remove_dir, verify};
 
 use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result};
@@ -55,6 +56,11 @@ impl Provision {
         };
         spawn_env::set_path(vec![provision.bin()]);
         Arc::new(provision)
+    }
+
+    /// The node's own folder.
+    pub(crate) fn dir(&self) -> &Path {
+        &self.dir
     }
 
     fn bin(&self) -> PathBuf {
