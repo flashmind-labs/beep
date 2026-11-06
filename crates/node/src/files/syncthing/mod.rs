@@ -6,6 +6,7 @@
 use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::SyncthingFolder;
+use futures::{StreamExt, stream::FuturesUnordered};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::{
@@ -109,6 +110,25 @@ impl Syncthing {
     pub async fn check(&self, folder: &Path) -> Option<Managed> {
         let listed = self.api_folders().await;
         self.decide(folder, listed).await
+    }
+
+    /// `check` for many folders at once: Syncthing is asked once and every
+    /// folder is decided at the same time. The answers are in `folders`' order.
+    pub async fn check_all(&self, folders: &[PathBuf]) -> Vec<Option<Managed>> {
+        let listed = self.api_folders().await;
+        let mut deciding: FuturesUnordered<_> = folders
+            .iter()
+            .enumerate()
+            .map(|(at, folder)| {
+                let listed = listed.clone();
+                async move { (at, self.decide(folder, listed).await) }
+            })
+            .collect();
+        let mut decided = vec![None; folders.len()];
+        while let Some((at, managed)) = deciding.next().await {
+            decided[at] = managed;
+        }
+        decided
     }
 
     /// How the Syncthing folder `id` stands now.

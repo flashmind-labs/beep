@@ -398,7 +398,9 @@ impl Syncs {
             lock(&self.inner.held).retain(|name, _| names.contains(&name.as_str()));
             lock(&self.inner.stopped).clear();
         }
-        for mut project in projects {
+        let folders: Vec<PathBuf> = projects.iter().map(|p| PathBuf::from(&p.folder)).collect();
+        let managed = self.inner.syncthing.check_all(&folders).await;
+        for (mut project, managed) in projects.into_iter().zip(managed) {
             project.peers.retain(|peer| peer.id != me);
             let same = {
                 let mut running = lock(&self.inner.projects);
@@ -433,7 +435,7 @@ impl Syncs {
             let was_held = lock(&self.inner.held)
                 .remove(&project.name)
                 .is_some_and(|held| held.project.folder == project.folder);
-            if let Some(managed) = self.inner.syncthing.check(Path::new(&project.folder)).await {
+            if let Some(managed) = managed {
                 if was_held || from != Source::Server {
                     log::info!("not syncing {}: {}", project.name, managed.reason());
                     lock(&self.inner.held).insert(
@@ -605,8 +607,13 @@ impl Syncs {
             .values()
             .map(|running| (running.project.clone(), running.from))
             .collect();
-        for (project, from) in running {
-            let Some(managed) = self.inner.syncthing.check(Path::new(&project.folder)).await else {
+        let folders: Vec<PathBuf> = running
+            .iter()
+            .map(|(p, _)| PathBuf::from(&p.folder))
+            .collect();
+        let managed = self.inner.syncthing.check_all(&folders).await;
+        for ((project, from), managed) in running.into_iter().zip(managed) {
+            let Some(managed) = managed else {
                 continue;
             };
             log::info!("stopped syncing {}: {}", project.name, managed.reason());
@@ -627,14 +634,10 @@ impl Syncs {
             .values()
             .map(|held| (held.project.clone(), held.from))
             .collect();
-        for (project, from) in held {
-            if self
-                .inner
-                .syncthing
-                .check(Path::new(&project.folder))
-                .await
-                .is_some()
-            {
+        let folders: Vec<PathBuf> = held.iter().map(|(p, _)| PathBuf::from(&p.folder)).collect();
+        let managed = self.inner.syncthing.check_all(&folders).await;
+        for ((project, from), managed) in held.into_iter().zip(managed) {
+            if managed.is_some() {
                 continue;
             }
             match self.run(&project, from).await {

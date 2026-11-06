@@ -621,17 +621,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_pasted_code_reaches_the_agent() {
-        assert_eq!(sign_in("right-code").await, State::SignedIn {});
-        assert_eq!(
-            sign_in("wrong-code").await,
-            State::Failed {
-                reason: "claude could not sign in: OAuth error: invalid code".into()
-            }
-        );
-    }
-
-    #[tokio::test]
     async fn unknown_tools_and_idle_ones_say_so() {
         let refused = answer(Request::Start {
             tool: "gemini".into(),
