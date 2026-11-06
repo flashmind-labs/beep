@@ -81,16 +81,16 @@ pub async fn probe() -> EnvReport {
     };
     let mut logins = Vec::new();
     if let Some(program) = at("claude") {
-        logins.push(
-            login(
-                "claude",
-                &program,
-                &["auth", "status"],
-                claude_logged_in,
-                claude_account,
-            )
-            .await,
-        );
+        let mut claude = login(
+            "claude",
+            &program,
+            &["auth", "status"],
+            claude_logged_in,
+            claude_account,
+        )
+        .await;
+        claude.signed_in = claude.signed_in || claude_in_keychain().await;
+        logins.push(claude);
     }
     if let Some(program) = at("codex") {
         logins.push(login("codex", &program, &["login", "status"], |_| None, |_| None).await);
@@ -106,6 +106,18 @@ pub async fn probe() -> EnvReport {
             )
             .await,
         );
+    }
+    // Signed in when their sign-in files are there; never read.
+    if at("gemini").is_some() {
+        let key = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+            .iter()
+            .any(|name| env::var_os(name).is_some() || spawn_env::secret(name).is_some());
+        let file = has_file(home.as_deref(), ".gemini/oauth_creds.json").await;
+        logins.push(stored("gemini", key || file));
+    }
+    if at("pi").is_some() {
+        let file = has_file(home.as_deref(), ".pi/agent/auth.json").await;
+        logins.push(stored("pi", file));
     }
     if let Some(program) = at("gh") {
         logins.push(login("gh", &program, &["auth", "status"], |_| None, gh_account).await);
@@ -158,7 +170,7 @@ async fn ran(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<(boo
 
 /// `program`'s folder first on the `PATH` of `command`, when it was found
 /// outside `PATH`, so what it starts (`node` for an npm install) is found.
-fn beside(command: &mut tokio::process::Command, program: &Path) {
+pub(crate) fn beside(command: &mut tokio::process::Command, program: &Path) {
     let Some(dir) = program.parent().filter(|_| program.is_absolute()) else {
         return;
     };
@@ -223,6 +235,46 @@ async fn login(
         signed_in,
         account: signed_in.then(|| account(&text)).flatten(),
     }
+}
+
+/// A sign-in known only by whether it is there.
+fn stored(tool: &str, signed_in: bool) -> Login {
+    Login {
+        tool: tool.into(),
+        signed_in,
+        account: None,
+    }
+}
+
+/// Whether `path` under `home` is a file with more than an empty JSON
+/// object in it, by its size: what it holds is a secret.
+async fn has_file(home: Option<&Path>, path: &str) -> bool {
+    let Some(home) = home else {
+        return false;
+    };
+    tokio::fs::metadata(home.join(path))
+        .await
+        .is_ok_and(|meta| meta.is_file() && meta.len() > 2)
+}
+
+/// The macOS Keychain item Claude Code keeps its sign-in in.
+const CLAUDE_KEYCHAIN: &str = "Claude Code-credentials";
+
+/// Whether Claude Code's Keychain item is there, on a Mac where `claude
+/// auth status` cannot see it. Asks for the item's attributes, not its
+/// secret, so the Keychain never prompts.
+pub(crate) async fn claude_in_keychain() -> bool {
+    if env::consts::OS != "macos" {
+        return false;
+    }
+    let found = crate::run::process::command("/usr/bin/security")
+        .args(["find-generic-password", "-s", CLAUDE_KEYCHAIN])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .status();
+    matches!(timeout(PROBE_TIMEOUT, found).await, Ok(Ok(status)) if status.success())
 }
 
 /// `loggedIn` in `claude auth status`, which prints JSON; `None` for any

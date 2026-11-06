@@ -24,7 +24,7 @@ pub use listing::{
 };
 pub use node::{
     Exec, Tasks, Updated, exec, files, install_tool, log, rescan_search, search, set_search,
-    update_node,
+    sign_in, update_node,
 };
 pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
 

@@ -601,6 +601,9 @@ where
     // An agent whose adapter the node installed later is offered then.
     let mut kinds = offers.agents.kinds_changed();
     kinds.mark_unchanged();
+    // A sign-in from a desktop is reported at once.
+    let mut signed_in = crate::machine::sign_in::signed_in();
+    signed_in.mark_unchanged();
     tx.send(&Report::Offers(offers.names())).await?;
     let mut reprobe = interval(REPROBE);
     reprobe.tick().await;
@@ -621,6 +624,9 @@ where
                 tx.send(&Report::Offers(offers.names())).await?;
             }
             _ = reprobe.tick(), if probing.is_none() => {
+                probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
+            }
+            Ok(()) = signed_in.changed(), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
             }
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
