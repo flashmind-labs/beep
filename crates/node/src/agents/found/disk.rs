@@ -25,6 +25,10 @@ const MAX_CHECKOUTS: usize = 400;
 /// How long the walk, with its remote lookups, may take. It runs in the
 /// background, and a large home takes minutes to walk.
 const WALK_FOR: Duration = Duration::from_secs(5 * 60);
+/// How deep a quick look again goes: `~/org/repo` is 2.
+const QUICK_DEPTH: usize = 3;
+/// How long a quick look again may take: the Add a project sheet waits for it.
+const QUICK_FOR: Duration = Duration::from_secs(8);
 /// Folders never worth walking into.
 const PRUNED: &[&str] = &["node_modules", "target", "Library"];
 /// The checkouts the last whole walk found, in the node's folder.
@@ -69,13 +73,33 @@ pub(crate) fn saved_checkouts(dir: &Path) -> Option<Vec<Checkout>> {
 
 /// Walks `root` for checkouts and saves them in `dir` when the walk was whole.
 pub(crate) fn walk(root: &Path, dir: &Path) -> Walk {
-    let walk = checkouts(root);
+    let walk = checkouts(root, MAX_DEPTH, WALK_FOR);
     if walk.whole
         && let Err(e) = save(dir, &walk.found)
     {
         log::warn!("the checkouts found were not saved: {e:#}");
     }
     walk
+}
+
+/// `known` with what a quick, shallow walk of `root` finds added, and those no longer checkouts
+/// dropped; saved in `dir`. Checkouts deeper than it goes stay as the last whole walk left them.
+pub(crate) fn rescan(root: &Path, dir: &Path, known: &[Checkout]) -> Vec<Checkout> {
+    let walk = checkouts(root, QUICK_DEPTH, QUICK_FOR);
+    let mut all: Vec<Checkout> = known
+        .iter()
+        .filter(|one| one.root.join(".git").is_dir())
+        .cloned()
+        .collect();
+    for one in walk.found {
+        if !all.iter().any(|known| known.root == one.root) {
+            all.push(one);
+        }
+    }
+    if let Err(e) = save(dir, &all) {
+        log::warn!("the checkouts found were not saved: {e:#}");
+    }
+    all
 }
 
 /// Writes `found` down in `dir`, whole or not at all.
@@ -86,12 +110,12 @@ fn save(dir: &Path, found: &[Checkout]) -> Result<()> {
 /// The main checkouts under `home`, with their `origin` remotes, walked
 /// on several threads: a large home takes minutes on one. A worktree
 /// outside its checkout, whose `.git` is a file, is left out.
-fn checkouts(home: &Path) -> Walk {
-    let deadline = Instant::now() + WALK_FOR;
+fn checkouts(home: &Path, depth: usize, time: Duration) -> Walk {
+    let deadline = Instant::now() + time;
     let found = Mutex::new(Vec::new());
     let cut = AtomicBool::new(false);
     WalkBuilder::new(home)
-        .max_depth(Some(MAX_DEPTH))
+        .max_depth(Some(depth))
         .parents(false)
         .filter_entry(walked)
         .build_parallel()
@@ -149,7 +173,7 @@ fn walked(entry: &DirEntry) -> bool {
 mod tests {
     use super::*;
     use crate::agents::found::git::tests::{has_git, run};
-    use std::fs;
+    use std::{fs, path::PathBuf};
 
     #[test]
     fn main_checkouts_are_found_and_the_rest_left_out() {
@@ -183,7 +207,7 @@ mod tests {
         repo(".config/plugin");
         repo("a/b/c/d/too-deep");
 
-        let mut found = checkouts(&home).found;
+        let mut found = checkouts(&home, MAX_DEPTH, WALK_FOR).found;
         found.sort_by(|a, b| a.root.cmp(&b.root));
         let roots: Vec<&Path> = found.iter().map(|one| one.root.as_path()).collect();
         assert_eq!(roots, [nasty.as_path(), notes.as_path()]);
@@ -206,5 +230,28 @@ mod tests {
         assert_eq!(first.found[0].root, repo);
         fs::remove_dir_all(&home).expect("home gone");
         assert_eq!(saved_checkouts(&dir), Some(first.found));
+    }
+
+    #[test]
+    fn a_rescan_adds_new_checkouts_and_drops_gone_ones() {
+        let temp = tempfile::tempdir().expect("a temp folder");
+        let (home, dir) = (temp.path().join("home"), temp.path().join("node"));
+        let (kept, gone, new) = (home.join("code/app"), home.join("old"), home.join("ops"));
+        for repo in [&kept, &gone] {
+            fs::create_dir_all(repo.join(".git")).expect("a checkout");
+        }
+        fs::create_dir_all(&dir).expect("the node's folder");
+        let known = walk(&home, &dir).found;
+        assert_eq!(known.len(), 2);
+
+        fs::remove_dir_all(&gone).expect("a checkout removed");
+        fs::create_dir_all(new.join(".git")).expect("a checkout made");
+        let mut roots: Vec<PathBuf> = rescan(&home, &dir, &known)
+            .into_iter()
+            .map(|one| one.root)
+            .collect();
+        roots.sort();
+        assert_eq!(roots, [kept, new]);
+        assert_eq!(saved_checkouts(&dir).map(|saved| saved.len()), Some(2));
     }
 }

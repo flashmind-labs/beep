@@ -63,3 +63,21 @@ export async function eachLimited<T>(items: readonly T[], limit: number, run: (i
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
 }
+
+/// The machines still looking for checkouts again, as one line; null when none.
+export function lookingOn(names: readonly string[]) {
+  return names.length ? `Looking on ${names.join(", ")}…` : null;
+}
+
+/// A machine that could not say what it has, named in the sheet.
+export function unreadText(machine: string, why: string) {
+  return `Not read on ${machine}: ${why.trim().replace(/\.$/, "")}.`;
+}
+
+/// What the found list says with no rows: nothing while machines still look,
+/// the machines that could not say, else the error or "No other folders yet."
+export function emptyText(looking: readonly string[], unread: readonly string[], error: string | null) {
+  if (looking.length) return null;
+  if (unread.length) return unread.join(" ");
+  return error || "No other folders yet.";
+}
