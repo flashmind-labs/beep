@@ -50,7 +50,7 @@ mod session;
 mod session_stream;
 mod spend;
 mod subagent;
-pub(crate) mod tags;
+pub mod tags;
 mod tool_diff;
 mod usage;
 mod window;

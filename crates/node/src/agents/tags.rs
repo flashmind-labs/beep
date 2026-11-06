@@ -121,6 +121,19 @@ pub(crate) fn said(text: &str) -> String {
     said.join("\n")
 }
 
+/// The user's own words in a user entry's text, without what Beep or
+/// another session put in it, as the apps draw them in the user's row.
+pub fn own_words(text: &str) -> String {
+    let own: Vec<&str> = parts(text)
+        .into_iter()
+        .filter_map(|part| match part {
+            Part::User(text) => Some(text),
+            _ => None,
+        })
+        .collect();
+    own.join("\n")
+}
+
 /// One text block of a prompt, its whole text tagged as context when it is a
 /// bare brief: before the tags the brief went as a block of its own.
 pub(crate) fn bare_block(text: &str) -> String {
@@ -222,6 +235,16 @@ mod tests {
         );
         let again = join(&parts(&text));
         assert_eq!(parts(&again), parts(&text));
+    }
+
+    #[test]
+    fn own_words_leave_out_the_context_and_other_sessions() {
+        let text = format!(
+            "# Review\n\n{}\n### a.rs:3\n\nfix{}",
+            context("Beep: the tools."),
+            from_session("a1", "Build", "Run it."),
+        );
+        assert_eq!(own_words(&text), "# Review\n### a.rs:3\n\nfix");
     }
 
     #[test]

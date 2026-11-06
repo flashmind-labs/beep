@@ -252,7 +252,7 @@ fn host(url: &str) -> &str {
     host.strip_prefix("www.").unwrap_or(host)
 }
 
-fn escape(text: &str) -> String {
+pub(super) fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
