@@ -32,7 +32,8 @@ use tokio::{
 
 impl Agents {
     /// Gives the sessions started from now on the Beep MCP server, as
-    /// `launch` starts it, and the user's standing rules from `upstream`.
+    /// `launch` starts it, and the user's standing rules from `upstream` when
+    /// agents get memories (`MEMORY_TOOLS`).
     /// Only the first call counts.
     pub fn serve_mcp(&self, launch: Arc<Launch>, upstream: Upstream) {
         // A second launch would give the same server.
@@ -377,7 +378,12 @@ impl Agents {
             note: begin.note,
             brief: begin.brief,
             mcp: self.mcp.get().map(|(launch, _)| launch.server(&id)),
-            rules: self.mcp.get().map(|(_, upstream)| upstream.clone()),
+            // Standing rules come from memories, which agents do not get yet.
+            rules: self
+                .mcp
+                .get()
+                .filter(|_| crate::agents::mcp::MEMORY_TOOLS)
+                .map(|(_, upstream)| upstream.clone()),
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),

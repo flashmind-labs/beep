@@ -65,7 +65,7 @@ using the server's credentials and harness values as soon as the account is move
 
 ### The desktop runs without the server for now
 
-`SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back. `MEMORY_TOOLS` (`crates/node/src/agents/mcp/mod.rs`) likewise keeps the memory tools from coding agents.
+`SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back. `MEMORY_TOOLS` (`crates/node/src/agents/mcp/mod.rs`) likewise keeps memories from coding agents: no memory tools, and no standing rules in the first prompt.
 
 `LIVE_ENABLED` (`apps/desktop/src-tauri/src/voice/mod.rs`) is false: the orb window never opens, Option never starts live mode or opens the microphone (two taps still open the bar), and live hints and shortcuts are hidden.
 
