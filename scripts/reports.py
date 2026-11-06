@@ -41,10 +41,10 @@ def client(config_path):
 
 
 def report_id(text):
-    id = text.strip().lower().removeprefix("r-")
-    if not ID.fullmatch(id):
+    rid = text.strip().lower().removeprefix("r-")
+    if not ID.fullmatch(rid):
         sys.exit(f"Not a report reference: {text}")
-    return id
+    return rid
 
 
 def objects(s3, bucket):
@@ -52,15 +52,15 @@ def objects(s3, bucket):
         yield from page.get("Contents", [])
 
 
-def keys(s3, bucket, id):
+def keys(s3, bucket, rid):
     """The zip and json keys of a report, found by id under any mesh."""
     found = [
         o["Key"]
         for o in objects(s3, bucket)
-        if o["Key"].endswith((f"/{id}.zip", f"/{id}.json"))
+        if o["Key"].endswith((f"/{rid}.zip", f"/{rid}.json"))
     ]
     if not found:
-        sys.exit(f"No report {id}")
+        sys.exit(f"No report {rid}")
     return found
 
 
@@ -68,16 +68,22 @@ def list_reports(s3, bucket):
     rows = []
     for obj in objects(s3, bucket):
         if obj["Key"].endswith(".json"):
-            body = s3.get_object(Bucket=bucket, Key=obj["Key"])["Body"].read()
-            rows.append((json.loads(body), obj["Key"]))
+            try:
+                body = s3.get_object(Bucket=bucket, Key=obj["Key"])["Body"].read()
+                m = json.loads(body)
+                m["made_at"], m["text"], m["machines"]
+            except (ValueError, KeyError, TypeError) as e:
+                print(f"Skipping {obj['Key']}: {e!r}", file=sys.stderr)
+                continue
+            rows.append((m, obj["Key"]))
     for m, key in sorted(rows, key=lambda r: r[0]["made_at"], reverse=True):
         mesh = key.split("/")[1][:8]
         ref = "R-" + key.rsplit("/", 1)[1].removesuffix(".json").upper()
         day = datetime.fromtimestamp(m["made_at"], timezone.utc).strftime("%Y-%m-%d")
         text = " ".join(m["text"].split())[:60]
         machines = m["machines"]
-        answered = sum(1 for x in machines if x["answer"] == "Answered")
-        print(f"{mesh}  {ref}  {day}  {answered}/{len(machines)}  {text}")
+        answered = sum(1 for x in machines if x["answer"] in ("Answered", "OlderNode"))
+        print(f"{mesh}  {ref}  {day}  {text}  {answered}/{len(machines)}")
 
 
 def unsafe(name):
@@ -85,13 +91,15 @@ def unsafe(name):
     return name.startswith(("/", "\\")) or ":" in name.split("/")[0] or path.is_absolute() or ".." in path.parts or ".." in name.split("\\")
 
 
-def get(s3, bucket, id):
-    key = next(k for k in keys(s3, bucket, id) if k.endswith(".zip"))
+def get(s3, bucket, rid):
+    key = next((k for k in keys(s3, bucket, rid) if k.endswith(".zip")), None)
+    if key is None:
+        sys.exit(f"No zip for {rid}")
     out = Path("target/reports")
     out.mkdir(parents=True, exist_ok=True)
-    zip_path = out / f"{id}.zip"
+    zip_path = out / f"{rid}.zip"
     s3.download_file(bucket, key, str(zip_path))
-    dest = out / id
+    dest = out / rid
     dest.mkdir(exist_ok=True)
     with zipfile.ZipFile(zip_path) as z:
         for name in z.namelist():
@@ -102,10 +110,17 @@ def get(s3, bucket, id):
     print(dest)
 
 
-def solved(s3, bucket, id):
-    found = keys(s3, bucket, id)
-    s3.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": k} for k in found]})
-    print(f"Deleted {len(found)} objects of {id}")
+def solved(s3, bucket, rid):
+    found = keys(s3, bucket, rid)
+    failed = []
+    for key in found:
+        try:
+            s3.delete_object(Bucket=bucket, Key=key)
+        except Exception as e:
+            failed.append(f"{key}: {e}")
+    if failed:
+        sys.exit("Delete failed:\n" + "\n".join(failed))
+    print(f"Deleted {len(found)} objects of {rid}")
 
 
 def main():
