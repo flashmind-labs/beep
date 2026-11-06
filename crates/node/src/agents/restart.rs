@@ -15,7 +15,7 @@ use tokio::{sync::watch, time::timeout};
 
 /// How long resumed sessions wait for the user's agent settings before
 /// starting without them.
-const SETTINGS_WAIT: Duration = Duration::from_secs(60);
+pub(super) const SETTINGS_WAIT: Duration = Duration::from_secs(60);
 
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";

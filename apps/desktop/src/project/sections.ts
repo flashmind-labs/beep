@@ -41,7 +41,7 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 /// What the agent sections are doing: `busy` and `errors` by task or worker
 /// id, `outcomes` of answered cards by query id. `tile` is the row of the
 /// project's list picked, null for the first.
-export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
+export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
 
 export const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
 export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });

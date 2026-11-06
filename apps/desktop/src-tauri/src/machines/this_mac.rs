@@ -5,7 +5,7 @@
 
 use crate::{beep::Beep, machines::desktop, platform::logfile};
 use beep_node::{
-    agents::mcp,
+    agents::{mcp, skills::Skills},
     link::{self, Offers, reconnect::Backoff},
     machine::{provision::Provision, service::logs::Logs},
 };
@@ -97,6 +97,10 @@ impl Machine {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone(), has_server);
         offers.extra.push(Arc::new(desktop::Desktop));
+        // The user's coding agent skills reach the mesh's other machines.
+        if let Some(home) = std::env::var_os("HOME") {
+            offers.skills = Skills::under(home.into());
+        }
         // The embedded node logs to the app's own file.
         if let Some(log) = logfile::current() {
             offers.extra.push(Arc::new(Logs::file(log)));

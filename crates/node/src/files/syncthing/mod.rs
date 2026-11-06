@@ -3,6 +3,7 @@
 //! two tools syncing one folder fight over every change. A folder paused in
 //! Syncthing is not kept in step, so Beep syncs it until Syncthing resumes it.
 
+use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::SyncthingFolder;
 use secrecy::{ExposeSecret, SecretString};
@@ -385,7 +386,7 @@ fn resolve(raw: Vec<RawFolder>, home: Option<&Path>) -> Vec<SyncthingFolder> {
 /// yet is kept as written.
 fn real(path: &Path) -> PathBuf {
     for there in path.ancestors() {
-        if let Ok(resolved) = fs::canonicalize(there) {
+        if let Ok(resolved) = paths::canonicalize(there) {
             return match path.strip_prefix(there) {
                 Ok(rest) if !rest.as_os_str().is_empty() => resolved.join(rest),
                 _ => resolved,

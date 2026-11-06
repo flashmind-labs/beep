@@ -20,14 +20,10 @@ use std::{
 /// each other's change.
 pub(crate) static WRITES: AsyncMutex<()> = AsyncMutex::const_new(());
 
-/// `project/<org/repo>`: that a project exists, and its repository's web page. Where it is
-/// checked out is one key per machine, `project/<org/repo>/<machine>`, so two desktops that
-/// import it on different machines never overwrite each other.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProjectRecord {
-    /// The repository's web page.
-    pub url: String,
-}
+/// `project/<org/repo>`. Where it is checked out is one key per machine,
+/// `project/<org/repo>/<machine>`, so two desktops that import it on different machines never
+/// overwrite each other.
+pub use beep_proto::node::mesh_state::ProjectRecord;
 
 /// `group/<id>`: folders the sidebar lists projects under.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,7 +48,6 @@ pub struct SavedVersion {
     pub saved_ms: u64,
 }
 
-impl StateValue for ProjectRecord {}
 impl StateValue for GroupRecord {}
 impl StateValue for PinRecord {}
 impl StateValue for SavedVersion {}

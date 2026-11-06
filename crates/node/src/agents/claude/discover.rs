@@ -458,6 +458,7 @@ fn unix(at: SystemTime) -> u64 {
 mod tests {
     use super::*;
     use crate::agents::claude::transcript::tests::FIXTURE;
+    use crate::files::paths;
 
     const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
     const OTHER: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
@@ -578,7 +579,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a temp folder");
         let repo = root.path().join("proj");
         fs::create_dir_all(&repo).expect("a folder");
-        let repo = repo.canonicalize().expect("a real path");
+        let repo = paths::canonicalize(repo).expect("a real path");
         run(&repo, &["init", "-q", "-b", "main"]);
         run(&repo, &["commit", "-q", "--allow-empty", "-m", "start"]);
         run(

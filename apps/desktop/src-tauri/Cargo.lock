@@ -546,20 +546,21 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.2.15"
+version = "0.2.16"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
  "bao-tree",
  "base64 0.22.1",
  "beep-mesh",
+ "beep-projects",
  "beep-proto",
  "blake3",
  "dirs 7.0.0",
+ "dunce",
  "fastrand",
  "futures",
  "hex",
- "hmac",
  "ignore",
  "iroh",
  "iroh-blobs",
@@ -1519,7 +1520,6 @@ dependencies = [
  "block-buffer 0.12.1",
  "const-oid",
  "crypto-common 0.2.2",
- "ctutils",
 ]
 
 [[package]]
@@ -2585,15 +2585,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "hmac"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
-dependencies = [
- "digest 0.11.3",
-]
 
 [[package]]
 name = "html5ever"

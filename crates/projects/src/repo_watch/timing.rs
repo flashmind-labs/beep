@@ -14,8 +14,6 @@ pub const FORCE_EVERY: Duration = Duration::from_secs(30);
 pub const OPEN_FOR: Duration = Duration::from_secs(30);
 /// The shortest time between two reads of a running run's jobs.
 pub const POLL_EVERY: Duration = Duration::from_secs(10);
-/// The shortest gap between webhook-driven reads, so a burst of events reads once or twice.
-pub const HOOK_GAP: Duration = Duration::from_secs(5);
 /// A project nobody asked about for this long is dropped from memory.
 pub const FORGET_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 
@@ -36,8 +34,6 @@ pub struct Timing {
     viewed: Option<Instant>,
     synced: Option<Instant>,
     failed: bool,
-    /// A webhook said the host changed since the last read.
-    poked: bool,
     forced: Option<Instant>,
     polled: Option<Instant>,
 }
@@ -57,19 +53,10 @@ impl Timing {
     pub fn synced(&mut self, now: Instant, ok: bool) {
         self.synced = Some(now);
         self.failed = !ok;
-        self.poked = false;
-    }
-
-    /// A webhook said the host changed: reread once the copy is `HOOK_GAP` old.
-    pub fn poke(&mut self) {
-        self.poked = true;
     }
 
     /// Whether the copy is missing or old enough to read again.
     pub fn stale(&self, now: Instant) -> bool {
-        if self.poked && !recent(self.synced, now, HOOK_GAP) {
-            return true;
-        }
         let ttl = if self.failed {
             FRESH_AFTER_ERROR
         } else {
@@ -163,17 +150,5 @@ mod tests {
             AskRead::Copy,
             "tried a moment ago"
         );
-    }
-
-    #[test]
-    fn a_webhook_reads_again_within_seconds_but_not_more_than_every_five() {
-        let start = Instant::now();
-        let mut t = Timing::default();
-        t.synced(start, true);
-        t.poke();
-        assert!(!t.stale(start + secs(4)), "read a moment ago");
-        assert!(t.stale(start + secs(5)));
-        t.synced(start + secs(5), true);
-        assert!(!t.stale(start + secs(60)), "the read took the poke");
     }
 }

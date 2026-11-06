@@ -7,7 +7,6 @@ use iroh::{EndpointId, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt, fs,
-    net::SocketAddr,
     path::{Path, PathBuf},
 };
 
@@ -30,12 +29,6 @@ struct Settings {
     /// sets needs none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     files: Vec<PathBuf>,
-    /// Where Forgejo and Gitea servers on the private network deliver
-    /// webhooks for live project updates: this machine's address on that
-    /// network and a port, such as `webhook_listen = "[fd00::12]:7480"`.
-    /// Unset, only GitHub repositories get live updates.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    webhook_listen: Option<SocketAddr>,
     /// The UDP port the node's iroh endpoint binds, for a firewall rule;
     /// `NODE_PORT` unset, random at 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,9 +49,6 @@ pub struct State {
     pub agents: Vec<AgentKind>,
     /// The folders shared through `files/1`.
     pub files: Vec<PathBuf>,
-    /// Where webhooks for live project updates come to from Forgejo and
-    /// Gitea servers (`webhook_listen` in `node.toml`).
-    pub webhook_listen: Option<SocketAddr>,
     /// The UDP port to bind (`port` in `node.toml`).
     pub port: u16,
     /// Where to look for git checkouts (`search` in `node.toml`).
@@ -168,14 +158,13 @@ impl State {
             }
             None => kept,
         };
-        let old = old.map(|old| (old.agents, old.files, old.webhook_listen, old.port));
-        let (agents, files, webhook_listen, port) = old.unwrap_or_default();
+        let old = old.map(|old| (old.agents, old.files, old.port));
+        let (agents, files, port) = old.unwrap_or_default();
         let settings = Settings {
             server: server.map(|server| server.to_string()),
             name: name.trim().to_owned(),
             agents,
             files,
-            webhook_listen,
             port,
             search,
         };
@@ -203,7 +192,6 @@ impl State {
             name: settings.name,
             agents: settings.agents,
             files: settings.files,
-            webhook_listen: settings.webhook_listen,
             port: settings.port.unwrap_or(NODE_PORT),
             search: Search(settings.search),
         }
@@ -291,6 +279,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::paths;
 
     /// A machine that joins a mesh before it ever ran has no folder: starting
     /// its state makes the folder and key a service launch needs.
@@ -300,7 +289,7 @@ mod tests {
         let dir = temp.path().join("not").join("yet");
         assert!(!dir.exists());
         let state = State::load_or_start(&dir, "box").unwrap();
-        assert!(dir.canonicalize().is_ok());
+        assert!(paths::canonicalize(&dir).is_ok());
         assert!(state.server.is_none());
         let again = State::load_or_start(&dir, "other name").unwrap();
         assert_eq!(again.key.public(), state.key.public());
@@ -357,5 +346,25 @@ mod tests {
         fs::write(dir.join(SETTINGS_FILE), broken).unwrap();
         assert!(State::create(dir, &server, "box").is_err());
         assert_eq!(fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap(), broken);
+    }
+
+    /// `webhook_listen` was a setting before webhooks went (#339): a
+    /// node.toml that still has it loads, and saving drops it.
+    #[test]
+    fn an_old_webhook_listen_setting_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let server = SecretKey::generate().public().to_string();
+        State::create(dir, &server, "box").unwrap();
+        let path = dir.join(SETTINGS_FILE);
+        let old = fs::read_to_string(&path).unwrap() + "webhook_listen = \"[fd00::12]:7480\"\n";
+        fs::write(&path, old).unwrap();
+        assert_eq!(State::load(dir).unwrap().name, "box");
+        State::create(dir, &server, "box").unwrap();
+        assert!(
+            !fs::read_to_string(&path)
+                .unwrap()
+                .contains("webhook_listen")
+        );
     }
 }

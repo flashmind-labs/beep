@@ -22,7 +22,9 @@ export interface Started {
 
 /// What a view's mount gets: a pane target, the Projects page's pick, or a research.
 export type ViewArg = PaneTarget | ProjectsArg | ResearchArg | undefined;
-export interface ProjectsArg { project: string | null }
+/// `run` opens that run on the Actions tile.
+export interface ProjectsArg { project: string | null; run?: RunAt | null }
+export interface RunAt { id: number; host: string }
 /// The research an opened research page shows.
 export interface ResearchArg { session: string }
 

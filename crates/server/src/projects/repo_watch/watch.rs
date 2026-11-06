@@ -1,7 +1,6 @@
 //! The copies of each project's host lists, and the background sync that keeps viewed ones fresh.
 
 use super::{
-    forward::{Forwards, Refresh},
     hosts::RemotesRead,
     lists::{self, ListsCopy},
     live::{self, RunsCopy},
@@ -22,7 +21,7 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 
-/// How often the background sync looks for copies to reread; a webhook wakes it at once.
+/// How often the background sync looks for copies to reread; an ask of an old copy wakes it at once.
 const TICK: Duration = Duration::from_secs(5);
 /// Buffered copy updates for followers before the slowest misses some and rereads everything.
 const MAX_CHANGES: usize = 256;
@@ -132,10 +131,8 @@ pub(crate) struct Changed {
 pub struct RepoWatch {
     entries: Mutex<HashMap<Key, Arc<Entry>>>,
     pub(super) calls: HostCalls,
-    /// The webhooks forwarded for live updates.
-    pub(crate) forwards: Forwards,
     changes: broadcast::Sender<Changed>,
-    /// Wakes the background sync when a webhook marked a copy stale.
+    /// Wakes the background sync when an ask found a copy old.
     wake: Arc<Notify>,
 }
 
@@ -144,7 +141,6 @@ impl Default for RepoWatch {
         Self {
             entries: Mutex::default(),
             calls: HostCalls::default(),
-            forwards: Forwards::default(),
             changes: broadcast::channel(MAX_CHANGES).0,
             wake: Arc::new(Notify::new()),
         }
@@ -155,21 +151,6 @@ impl RepoWatch {
     /// The reads from now on.
     pub(crate) fn changes(&self) -> broadcast::Receiver<Changed> {
         self.changes.subscribe()
-    }
-
-    /// A webhook says `project`'s host changed: reread what `refresh` names within seconds.
-    pub(crate) fn poke(&self, user: &str, project: ProjectId, refresh: Refresh) {
-        if !refresh.lists && !refresh.runs {
-            return;
-        }
-        let entry = self.entry(user, project);
-        if refresh.lists {
-            entry.lists.timing().poke();
-        }
-        if refresh.runs {
-            entry.runs.timing().poke();
-        }
-        self.wake.notify_one();
     }
 
     /// Has the background sync look for old copies now.
@@ -273,40 +254,6 @@ pub(super) async fn run(app: Weak<App>) {
 mod tests {
     use super::*;
     use uuid::Uuid;
-
-    #[test]
-    fn an_event_reads_again_only_the_copy_it_is_about() {
-        let watch = RepoWatch::default();
-        let widget = ProjectId(Uuid::from_u128(1));
-        let gadget = ProjectId(Uuid::from_u128(2));
-        let start = Instant::now();
-        for project in [widget, gadget] {
-            let entry = watch.entry("alice", project);
-            entry.lists.ask(start, false);
-            entry.lists.timing().synced(start, true);
-            entry.runs.ask(start, false);
-            entry.runs.timing().synced(start, true);
-        }
-        let later = start + Duration::from_secs(10);
-        assert!(watch.due(later).is_empty(), "both fresh");
-
-        watch.poke("alice", widget, Refresh::of_event("pull_request"));
-        let due = watch.due(later);
-        assert_eq!(due.len(), 1);
-        assert_eq!(due[0].key.project, widget);
-        assert!(due[0].lists && !due[0].runs);
-
-        watch.poke("alice", gadget, Refresh::of_event("workflow_run"));
-        let mut due = watch.due(later);
-        due.sort_by_key(|due| due.key.project.0);
-        assert_eq!(due.len(), 2);
-        assert_eq!(due[1].key.project, gadget);
-        assert!(!due[1].lists && due[1].runs);
-
-        // Someone else's project of the same id is not touched.
-        watch.poke("bob", widget, Refresh::of_event("push"));
-        assert!(watch.due(later).iter().all(|due| due.key.user == "alice"));
-    }
 
     #[test]
     fn only_viewed_stale_copies_are_due_and_old_ones_are_dropped() {

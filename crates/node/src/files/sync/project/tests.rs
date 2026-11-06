@@ -6,6 +6,7 @@ use super::{
     state::{Saved, Seen, State},
     task::{DELETE_SETTLE, DeleteTimer, Task},
 };
+use crate::files::paths;
 use crate::files::sync::{
     Parts,
     map::{Entry, FileMeta, Map, Order, Version, is_conflict},
@@ -52,7 +53,7 @@ struct Project {
 impl Project {
     async fn new(files: &[&str]) -> Self {
         let dir = TempDir::new().unwrap();
-        let base = dir.path().canonicalize().unwrap();
+        let base = paths::canonicalize(dir.path()).unwrap();
         let folder = base.join("game");
         for file in files {
             let path = folder.join(file);
@@ -845,5 +846,19 @@ async fn a_round_that_could_not_check_its_folder_does_not_count_as_applied() {
     fs::rename(&away, &project.folder).unwrap();
     project.task.apply().await;
     assert!(project.task.shared.caught_up_since(&peer, since));
+    project.stop().await;
+}
+
+#[tokio::test]
+async fn refs_git_cannot_read_leave_the_files_to_sync() {
+    // A `.git` with a `HEAD` git refuses, as Git for Windows refuses a
+    // verbatim root: the files are still scanned and nothing is deleted.
+    let project = Project::new(&["a.txt", "src/b.rs", ".git/HEAD"]).await;
+    {
+        let state = project.task.shared.lock();
+        assert!(state.saved.seen.contains_key("a.txt"));
+        assert!(state.saved.seen.contains_key("src/b.rs"));
+    }
+    assert_eq!(project.deleted(), Vec::<String>::new());
     project.stop().await;
 }

@@ -17,7 +17,7 @@ import { setProjectOnTop, openProjectWindow, newWindowOn, removeProject, project
 import { editGroup } from "./groups.ts";
 import { importButton, projectTable, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile } from "./split.ts";
-import { liveMode, redrawProjectsPage } from "./sections.ts";
+import { liveMode, pa, redrawProjectsPage } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
@@ -110,6 +110,9 @@ registerView("projects", {
   },
   mount(el, arg) {
     state.picked = (arg as ProjectsArg | undefined)?.project || null;
+    // A build's notification opens its run on the Actions tile.
+    const run = (arg as ProjectsArg | undefined)?.run;
+    pa.run = run && state.picked ? { project: state.picked, ...run } : null;
     // What the project last showed draws at once; what is due reads again
     // behind it.
     if (state.picked) {
@@ -119,7 +122,7 @@ registerView("projects", {
       if (pages.due("gitsync", state.picked)) gitDue.add(state.picked);
       noteRecent(state.picked);
     }
-    openTile(null, false);
+    openTile(pa.run ? "actions" : null, false);
     resetRows("projects-overview");
     drawProjects(el);
     if (state.picked) revalidate(state.picked);

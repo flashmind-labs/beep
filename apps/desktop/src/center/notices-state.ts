@@ -3,6 +3,7 @@
 // kept here), which are read, and what the bell shows. With no server the
 // alerts are `null` and the notes alone fill the pane.
 import type { PaneTarget } from "../bar/pane.ts";
+import type { ProjectsArg } from "./state.ts";
 
 /// What the assistant told the user, as `alerts_list` gives it.
 export interface Alert {
@@ -18,7 +19,10 @@ export interface Alert {
 /// `null` when there are no alerts to have.
 export type Alerts = Alert[] | null;
 
-export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline";
+export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run";
+
+/// A build's note opens its project on the run.
+export type NoteTarget = PaneTarget | { projects: ProjectsArg };
 
 /// What the mesh told this Mac, as `notes_list` gives it.
 export interface Note {
@@ -31,8 +35,8 @@ export interface Note {
   read: boolean;
   /// Answered, settled or back online.
   done: boolean;
-  /// The session a click opens.
-  target: PaneTarget;
+  /// The session, or a build's project, a click opens.
+  target: NoteTarget;
 }
 
 /// One row of the pane.
@@ -47,7 +51,7 @@ export interface Item {
   at: number;
   read: boolean;
   done: boolean;
-  target: PaneTarget;
+  target: NoteTarget;
 }
 
 export const fromAlert = (a: Alert): Item => ({ id: a.session_id, server: true, kind: "alert", title: a.title, text: a.text, source: a.source, at: a.at, read: a.read, done: false, target: null });
@@ -109,7 +113,7 @@ export function bySide(items: Item[], ids: string[]): { server: string[]; mesh: 
 /// machine back.
 export function doneLabel(i: Item): string {
   if (!i.done) return "";
-  return i.kind === "asks" ? "Answered" : i.kind === "conflict" ? "Settled" : i.kind === "offline" ? "Back online" : "";
+  return i.kind === "asks" ? "Answered" : i.kind === "conflict" || i.kind === "skill_conflict" ? "Settled" : i.kind === "offline" ? "Back online" : "";
 }
 
 /// Whether the row still asks, with Allow and Deny.
@@ -117,8 +121,9 @@ export const asks = (i: Item) => i.kind === "asks" && !i.done;
 
 /// What a click on a row does: an alert opens in the pane, the rest open
 /// their session, the Sync page or Machines.
-export function opens(i: Item): "alert" | "session" | "sync" | "machines" | null {
+export function opens(i: Item): "alert" | "session" | "project" | "sync" | "machines" | null {
   if (i.server) return "alert";
+  if (i.target && typeof i.target === "object" && "projects" in i.target) return "project";
   if (i.target) return "session";
   if (i.kind === "conflict") return "sync";
   if (i.kind === "offline") return "machines";

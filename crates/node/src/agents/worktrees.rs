@@ -4,12 +4,10 @@
 //! session's own folder. Read-only: nothing here changes a checkout.
 
 use super::work_diff::git;
+use crate::files::paths;
 use anyhow::Result;
 use beep_proto::node::agent::Worktree;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 /// Characters of a commit hash shown.
 const SHORT_HEAD: usize = 7;
@@ -90,7 +88,7 @@ pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
     let own = trees
         .iter()
         .enumerate()
-        .filter_map(|(at, tree)| Some((at, fs::canonicalize(&tree.path).ok()?)))
+        .filter_map(|(at, tree)| Some((at, paths::canonicalize(&tree.path).ok()?)))
         .filter(|(_, path)| folder.starts_with(path))
         .max_by_key(|(_, path)| path.as_os_str().len())
         .map(|(at, _)| at);
@@ -106,7 +104,7 @@ pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
 pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
     let mut asked: Vec<PathBuf> = Vec::new();
     for folder in folders {
-        let Ok(folder) = fs::canonicalize(folder) else {
+        let Ok(folder) = paths::canonicalize(folder) else {
             continue;
         };
         if asked.contains(&folder) {
@@ -119,7 +117,7 @@ pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
         asked.push(folder);
         let held = trees
             .iter()
-            .filter_map(|tree| fs::canonicalize(&tree.path).ok())
+            .filter_map(|tree| paths::canonicalize(&tree.path).ok())
             // A worktree at `/` would open the whole disk.
             .filter(|path| path.parent().is_some())
             .any(|path| real.starts_with(path));
@@ -133,6 +131,7 @@ pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
 #[cfg(test)]
 pub(in crate::agents) mod tests {
     use super::*;
+    use std::fs;
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -163,7 +162,7 @@ pub(in crate::agents) mod tests {
     fn a_folder_that_is_no_repository_has_no_worktrees() {
         let dir = TempDir::new().unwrap();
         assert!(
-            list(&fs::canonicalize(dir.path()).unwrap())
+            list(&paths::canonicalize(dir.path()).unwrap())
                 .unwrap()
                 .is_empty()
         );
@@ -172,7 +171,7 @@ pub(in crate::agents) mod tests {
     /// A repository with a commit and a worktree outside it.
     fn repo_with_worktree() -> (TempDir, PathBuf, PathBuf) {
         let dir = TempDir::new().unwrap();
-        let base = fs::canonicalize(dir.path()).unwrap();
+        let base = paths::canonicalize(dir.path()).unwrap();
         let main = base.join("main");
         let other = base.join("other");
         fs::create_dir(&main).unwrap();
@@ -224,7 +223,7 @@ pub(in crate::agents) mod tests {
     /// A repository whose worktree in `dir` was made and then removed.
     pub(in crate::agents) fn repo_with_removed_worktree(dir: &str) -> (TempDir, PathBuf, PathBuf) {
         let tmp = TempDir::new().unwrap();
-        let main = fs::canonicalize(tmp.path()).unwrap().join("project");
+        let main = paths::canonicalize(tmp.path()).unwrap().join("project");
         fs::create_dir(&main).unwrap();
         git_in(&main, &["init", "-q", "-b", "main"]);
         git_in(&main, &["commit", "-q", "--allow-empty", "-m", "first"]);
@@ -261,7 +260,7 @@ pub(in crate::agents) mod tests {
         assert!(listed_in(&session, &other.join("notes.txt")));
         let stranger = dir.path().join("stranger");
         fs::create_dir(&stranger).unwrap();
-        let stranger = fs::canonicalize(stranger).unwrap();
+        let stranger = paths::canonicalize(stranger).unwrap();
         assert!(!listed_in(&session, &stranger));
         assert!(!listed_in(&session, Path::new("/etc")));
         // A folder beside the worktree, not in it.

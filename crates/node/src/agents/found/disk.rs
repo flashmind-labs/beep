@@ -173,6 +173,7 @@ fn walked(entry: &DirEntry) -> bool {
 mod tests {
     use super::*;
     use crate::agents::found::git::tests::{has_git, run};
+    use crate::files::paths;
     use std::{fs, path::PathBuf};
 
     #[test]
@@ -182,7 +183,7 @@ mod tests {
             return;
         }
         let temp = tempfile::tempdir().expect("a temp folder");
-        let home = temp.path().canonicalize().expect("a real path");
+        let home = paths::canonicalize(temp.path()).expect("a real path");
         let repo = |rel: &str| {
             let dir = home.join(rel);
             fs::create_dir_all(&dir).expect("a folder");

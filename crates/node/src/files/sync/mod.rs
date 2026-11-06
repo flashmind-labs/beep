@@ -1012,6 +1012,7 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::paths;
     use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN, transport_config};
     use iroh::{SecretKey, endpoint::presets, protocol::Router};
     use tempfile::TempDir;
@@ -1066,10 +1067,7 @@ mod tests {
         let refused = syncs
             .configure(vec![Project {
                 name: "proj".to_owned(),
-                folder: shared
-                    .path()
-                    .join("proj")
-                    .canonicalize()
+                folder: paths::canonicalize(shared.path().join("proj"))
                     .expect("the folder exists")
                     .display()
                     .to_string(),
@@ -1098,7 +1096,7 @@ mod tests {
     #[test]
     fn a_missing_folder_is_made_only_where_the_folder_above_it_is() {
         let shared = TempDir::new().expect("a temp folder");
-        let base = shared.path().canonicalize().expect("it is there");
+        let base = paths::canonicalize(shared.path()).expect("it is there");
         let folders = Folders::new(std::slice::from_ref(&base));
         let here = base.join("game");
         let made = make_missing(&folders, &here.to_string_lossy()).expect("it is made");
