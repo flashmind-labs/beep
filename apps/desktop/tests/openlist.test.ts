@@ -44,7 +44,7 @@ test("each issue starts in its own project on a machine that has the checkout", 
   const hosts = [{ machine_id: "m1", machine_name: "build-box", agents: ["codex", "claude"] }, { machine_id: "m2", machine_name: "studio", agents: ["codex"] }];
   const places = (p: string) => ({ "acme/api": [{ machine: "m1", cwd: "/srv/api" }], "acme/web": [{ machine: "m2", cwd: "/srv/web" }], "acme/old": [{ machine: "m3", cwd: "/srv/old" }] }[p] ?? []);
   const e = (project: string | null, number: number) => ({ key: String(number), project, number, title: "t", url: "u" });
-  const rows = planStarts([e("acme/api", 1), e("acme/web", 2), e("acme/old", 3), e(null, 4)], places, hosts, () => "auto", "claude", ["claude", "codex"]);
+  const rows = planStarts([e("acme/api", 1), e("acme/web", 2), e("acme/old", 3), e(null, 4)], places, hosts, () => "", "claude", ["claude", "codex"]);
   assert.deepEqual(rows.map(r => (r.skip === null ? [r.machine_id, r.agent, r.cwd] : r.skip)), [
     ["m1", "claude", "/srv/api"],
     ["m2", "codex", "/srv/web"],

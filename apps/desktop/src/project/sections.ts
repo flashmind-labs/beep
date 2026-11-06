@@ -222,7 +222,11 @@ export function answerCard(agent: ProjectAgent, c: { query_id: string }, decisio
 /// by default as it is (the agent makes its own branch), and opens its session.
 export const pc = {
   project: null as string | null,
-  machine: "auto",
+  /// The machine picked; the bar starts on another while it has no checkout
+  /// and agent there.
+  machine: "",
+  /// The machine the project is being added to, until it is ready.
+  adding: null as AgentHost | null,
   checkout: DEFAULT_CHECKOUT,
   hosts: null as AgentHost[] | null,
   branches: new Map<string, BaseBranches | null>(),
