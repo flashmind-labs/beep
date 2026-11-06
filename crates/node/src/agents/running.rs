@@ -165,34 +165,44 @@ impl Agents {
         Some(command)
     }
 
-    /// How much of each agent's plan is left, read from the CLIs of the
-    /// agents this node runs. One that cannot say is left out.
-    pub(super) async fn read_plans(&self) -> Vec<PlanUsage> {
+    /// Starts reading the plans into `usage`, unless a read runs. The read
+    /// outlives the stream that asked: a desktop listens only briefly, and a
+    /// CLI that answers after it left still has its answer kept for the next
+    /// look. A read ends within `plans::READ_TIMEOUT`.
+    pub(super) fn read_plans_soon(self: &Arc<Self>) {
+        if self.reading_plans.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let agents = self.clone();
+        tokio::spawn(async move {
+            agents.read_plans().await;
+            agents.reading_plans.store(false, Ordering::Relaxed);
+        });
+    }
+
+    /// Reads how much of each agent's plan is left from the CLIs of the
+    /// agents this node runs, into `usage` as each answers: a slow CLI
+    /// does not hold back the other. One that cannot say is left out.
+    async fn read_plans(&self) {
         let claude = self.cli(AgentAccount::Claude, plans::CLAUDE_ARGS);
         let codex = self.cli(AgentAccount::Codex, plans::CODEX_ARGS);
-        let (claude, codex) = tokio::join!(
+        let keep = |agent: AgentAccount, read: Result<Option<PlanUsage>>| match read {
+            Ok(Some(plan)) => self.usage.set_plan(plan),
+            Ok(None) => {}
+            Err(e) => log::info!("{} plan usage not read: {e:#}", agent.slug()),
+        };
+        tokio::join!(
             async {
-                match claude {
-                    Some(command) => plans::read_claude(command).await,
-                    None => Ok(None),
+                if let Some(command) = claude {
+                    keep(AgentAccount::Claude, plans::read_claude(command).await);
                 }
             },
             async {
-                match codex {
-                    Some(command) => plans::read_codex(command).await,
-                    None => Ok(None),
+                if let Some(command) = codex {
+                    keep(AgentAccount::Codex, plans::read_codex(command).await);
                 }
             },
         );
-        [(AgentAccount::Claude, claude), (AgentAccount::Codex, codex)]
-            .into_iter()
-            .filter_map(|(agent, read)| {
-                read.unwrap_or_else(|e| {
-                    log::debug!("{} plan usage not read: {e:#}", agent.slug());
-                    None
-                })
-            })
-            .collect()
     }
 
     /// What this node finds of each agent harness it knows.

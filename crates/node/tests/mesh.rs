@@ -4511,3 +4511,106 @@ async fn a_machine_that_is_neither_end_of_an_old_move_still_settles_a_two_way_co
     })
     .await;
 }
+
+/// Claude Code's answer to `get_usage` on a Max plan, as 2.1.318 gives it.
+const CLAUDE_USAGE: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"beep-usage","response":{"subscription_type":"max","rate_limits_available":true,"rate_limits":{"five_hour":null,"seven_day":{"utilization":73,"resets_at":"2026-11-10T01:00:00.022993+00:00","limit_dollars":null,"used_dollars":null},"seven_day_opus":null,"seven_day_sonnet":null,"extra_usage":{"is_enabled":false}},"limits":[{"kind":"weekly_all","group":"weekly","percent":73,"resets_at":"2026-11-10T01:00:00.022993+00:00","scope":null,"is_active":true}]},"behaviors":null}}"#;
+
+/// Stand-ins for `claude` and `codex`, and their ACP adapters so the node
+/// offers them, answering a plan read as the real CLIs do. Claude Code
+/// takes `claude_secs` to answer, as it can when it starts.
+#[cfg(unix)]
+fn plan_clis(claude_secs: u32) -> TempDir {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = TempDir::new().expect("a temp folder");
+    let claude = format!(
+        "#!/bin/sh\nread line\nsleep {claude_secs}\necho '{CLAUDE_USAGE}'\ncat >/dev/null\n"
+    );
+    let codex = r#"#!/bin/sh
+read line
+echo '{"id":1,"result":{"userAgent":"codex"}}'
+read line
+read line
+echo '{"id":2,"result":{"rateLimits":{"primary":{"usedPercent":7,"windowDurationMins":10080,"resetsAt":1794272400},"secondary":null,"planType":"pro"}}}'
+cat >/dev/null
+"#;
+    for (name, text) in [
+        ("claude", claude.as_str()),
+        ("codex", codex),
+        ("claude-agent-acp", "#!/bin/sh\ncat >/dev/null\n"),
+        ("codex-acp", "#!/bin/sh\ncat >/dev/null\n"),
+    ] {
+        let path = bin.path().join(name);
+        fs::write(&path, text).expect("a script");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("executable");
+    }
+    bin
+}
+
+/// When each agent's plan came on a new `FollowUsage` stream, waiting up to
+/// `within` for both.
+async fn plans_came(conn: &Link, within: Duration) -> [Option<Duration>; 2] {
+    let mut usage = ready(conn, SESSIONS_PROTOCOL).await;
+    let start = std::time::Instant::now();
+    usage
+        .tx
+        .send(&SessionsRequest::FollowUsage { history: true })
+        .await
+        .expect("the request is sent");
+    let mut came = [None, None];
+    let _ = timeout(within, async {
+        while came.iter().any(Option::is_none) {
+            match usage.rx.recv::<SessionsReply>().await.expect("reads") {
+                Some(SessionsReply::PlanUsage { usage }) => {
+                    let slot = if usage.agent.as_str() == "claude" {
+                        0
+                    } else {
+                        1
+                    };
+                    came[slot].get_or_insert(start.elapsed());
+                }
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await;
+    came
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_slow_claude_code_neither_holds_back_codex_nor_the_next_look() {
+    // Longer than the desktop listens to a quiet machine (`SETTLE`).
+    let bin = plan_clis(4);
+    let path = format!(
+        "{}:{}",
+        bin.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let desktop = desktop(None).await;
+    let node = Node::start(Config {
+        env: vec![("PATH", path)],
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let conn = desktop.reach(node.id).await;
+    let quick = Duration::from_secs(2);
+    // A desktop's look ends before Claude Code answers.
+    let [claude, codex] = plans_came(&conn, quick).await;
+    assert!(codex.is_some(), "Codex waited for Claude Code");
+    assert!(claude.is_none(), "the stand-in answered early");
+    // The read goes on without it, and the next stream hears the answer.
+    let [claude, _] = plans_came(&conn, LIMIT).await;
+    assert!(claude.is_some(), "Claude Code's plan came");
+    // The look after that, as the desktop makes one each minute, has both at once.
+    let [claude, codex] = plans_came(&conn, quick).await;
+    assert!(
+        claude.is_some(),
+        "the Claude Code plan read before did not come at once"
+    );
+    assert!(
+        codex.is_some(),
+        "the Codex plan read before did not come at once"
+    );
+}

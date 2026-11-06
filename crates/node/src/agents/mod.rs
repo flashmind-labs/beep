@@ -81,7 +81,7 @@ use models::ModelCache;
 use running::{Begin, folder};
 use session::{Command, NodeMode, Session, Start};
 use spend::Spend;
-use usage::{Plans, UsageHub};
+use usage::UsageHub;
 
 /// The most sessions running at once.
 const MAX_RUNNING: usize = 8;
@@ -140,6 +140,8 @@ pub struct Agents {
     alerts: Arc<AlertHub>,
     /// What sessions spent, from the agents' own logs.
     spend: Arc<Spend>,
+    /// Set while the agents' plans are read.
+    reading_plans: AtomicBool,
     /// How the moves of sessions to this machine stand.
     moves: moving::Moves,
     /// The models each agent offers, found lately.
@@ -191,6 +193,7 @@ impl Agents {
             usage: Arc::default(),
             alerts: Arc::default(),
             spend: Arc::new(Spend::locate()),
+            reading_plans: AtomicBool::new(false),
             moves: moving::Moves::default(),
             models: ModelCache::default(),
             settings: harnesses::Settings::default(),
