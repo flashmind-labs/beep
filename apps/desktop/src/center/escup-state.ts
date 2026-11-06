@@ -1,5 +1,5 @@
 // Esc up the window's pages: a project's open tile, then the Projects page,
-// then Home. A session goes to its project first (agents.ts).
+// then Home, then Home's Overview tab. A session goes to its project first (agents.ts).
 
 import type { ViewName } from "./state.ts";
 
@@ -12,12 +12,15 @@ export interface EscAt {
   tile: boolean;
   /// A project's own window, which has no Projects list or Home above it.
   alone: boolean;
+  /// Home shows a tab other than Overview.
+  homeTab?: boolean;
 }
 
-export type EscUp = { to: "tile" } | { to: "projects"; project: null } | { to: "home" } | null;
+export type EscUp = { to: "overview" } | { to: "tile" } | { to: "projects"; project: null } | { to: "home" } | null;
 
 /// Where Esc goes from `at`; null for nowhere.
 export function escUp(at: EscAt): EscUp {
+  if (at.page === "home") return at.homeTab ? { to: "overview" } : null;
   if (at.page !== "projects") return null;
   if (at.tile) return { to: "tile" };
   if (at.alone) return null;

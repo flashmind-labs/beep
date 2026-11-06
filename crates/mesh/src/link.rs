@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::mem::take;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::sync::{Notify, Semaphore, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep_until, timeout};
@@ -74,6 +74,7 @@ fn unregister(inner: &Inner, conn: &Connection, peer: EndpointId) {
         .is_some_and(|l| l.conn.stable_id() == conn.stable_id())
     {
         conns.remove(&peer);
+        inner.last_seen().insert(peer, SystemTime::now());
     }
     drop(conns);
     inner.bump();
