@@ -41,18 +41,20 @@ const OFF = level("off", "Off"), MINIMAL = level("minimal", "Minimal"), LOW = le
   MEDIUM = level("medium", "Medium"), HIGH = level("high", "High"), XHIGH = level("xhigh", "Extra high"), MAX = level("max", "Max");
 
 /// The levels each harness takes, as the server's `efforts` lists them: Claude
-/// Code's `--effort`, Codex's `model_reasoning_effort` and pi's `--thinking`.
+/// Code's `--effort`, Codex's `model_reasoning_effort`, pi's `--thinking` and
+/// flsh's `thought_level` (0.2.7 and later).
 const EFFORTS: Record<string, readonly Effort[]> = {
   claude: [LOW, MEDIUM, HIGH, XHIGH, MAX],
   codex: [LOW, MEDIUM, HIGH],
   pi: [OFF, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX],
+  flsh: [OFF, LOW, MEDIUM, HIGH],
 };
 
 export const effortsOf = (agent: string | null): readonly Effort[] => (agent && EFFORTS[agent]) || [];
 
 /// What the Thinking column says for a harness without levels.
-export function effortNote(agent: string, name: string): string {
-  return agent === "flsh" ? "flsh sets thinking in its own config." : `${name} has no thinking setting Beep can pass.`;
+export function effortNote(name: string): string {
+  return `${name} has no thinking setting Beep can pass.`;
 }
 
 /// The level kept when the harness changes: the same one when the new

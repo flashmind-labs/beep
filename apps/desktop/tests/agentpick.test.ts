@@ -15,7 +15,9 @@ test("the harness stays when the machine has it, else the machine's first by pre
 test("a thinking level carries over only to a harness that takes it", () => {
   assert.equal(keepEffort("codex", "high"), "high");
   assert.equal(keepEffort("codex", "max"), null);
-  assert.equal(keepEffort("flsh", "low"), null);
+  assert.equal(keepEffort("flsh", "low"), "low");
+  assert.equal(keepEffort("flsh", "max"), null);
+  assert.equal(keepEffort("opencode", "low"), null);
   assert.equal(keepEffort("claude", null), null);
 });
 
