@@ -25,6 +25,7 @@ pub mod harness;
 pub mod logs;
 pub mod mesh_state;
 pub mod process;
+pub mod report;
 pub mod search;
 pub mod shell;
 pub mod status;
