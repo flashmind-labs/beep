@@ -2,7 +2,7 @@
 // shows, its frame, and what a click in it does.
 import { markDelivered } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
-import { $, $$, type BackTo, bar, PANE, S, windowHooks } from "../bar/core.ts";
+import { $, $$, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
@@ -27,6 +27,7 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { onShownChange, paneShown } from "../ui/active.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt } from "./older-state.ts";
@@ -73,19 +74,22 @@ const sessionKey = (s: AgentRow) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
-/// Whether the session view can be seen: the window is not hidden, and
-/// the bar, when this is the bar, is up.
-export const agentOnScreen = () => document.visibilityState === "visible" && !AG.barHidden;
+/// Whether the session view can be seen: the window shows, and in the
+/// command center the pane is mounted.
+export const agentOnScreen = paneShown;
 
 /// How long until the open session is asked again, or null to stop: an
 /// ended session, or a quiet one that has not changed for a while.
 export function agentDelay() {
   const s = AG.page?.session;
   if (!s || s.status === "ended") return null;
+  const still = Date.now() - AG.changed;
+  // A question nobody answers for a while is asked about slowly; an answer
+  // from here or a notice reads it at once.
+  if (s.status === "asking" && still >= AGENT_SLOW_AFTER) return AGENT_SLOW_MS;
   if (thinking && AGENT_ACTIVE.has(s.status)) return AGENT_THINK_POLL_MS;
   // Once stopped, the turn ending shows as soon as it does.
   if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
-  const still = Date.now() - AG.changed;
   if (still >= AGENT_PAUSE_AFTER) return null;
   return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
 }
@@ -160,12 +164,13 @@ export function resumeAgent() {
   pollAgent();
 }
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") { if (S.view === "agent") pollAgent(); } else clearTimeout(AG.timer);
-});
-if (!PANE) {
-  listen("bar-hidden", () => { AG.barHidden = true; clearTimeout(AG.timer); });
-  listen("bar-shown", () => { AG.barHidden = false; if (S.view === "agent") pollAgent(); });
+onShownChange(shown => {
+  if (!shown) clearTimeout(AG.timer);
+  else if (S.view === "agent") pollAgent();
+}, true);
+// A notice about a session that asks may mean it was answered elsewhere.
+for (const name of ["sessions-changed", "work-resolved"]) {
+  listen(name, () => { if (AG.page?.session.status === "asking" && S.view === "agent") pollAgent(); });
 }
 
 /// Whether the server turned images down for the open session.
