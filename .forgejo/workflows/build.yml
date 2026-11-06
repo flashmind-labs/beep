@@ -27,6 +27,11 @@ jobs:
       - name: Start Postgres
         run: |
           set -euo pipefail
+          # A cancelled run skips its Stop step: remove databases older than two hours.
+          old=$(date -d '2 hours ago' +%s)
+          docker ps --filter name=beep-ci-pg- --format '{{.ID}} {{.CreatedAt}}' | while read -r id day time zone _; do
+            [ "$(date -d "$day $time $zone" +%s)" -lt "$old" ] && docker rm -f "$id" > /dev/null || true
+          done
           docker run -d --rm --name "$PG" -p 127.0.0.1::5432 \
             -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep \
             --tmpfs /var/lib/postgresql/data --shm-size 1g pgvector/pgvector:pg17 \
