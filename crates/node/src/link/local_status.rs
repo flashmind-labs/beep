@@ -24,6 +24,30 @@ pub struct LocalStatus {
     /// Every device of the mesh, this one included.
     pub devices: Vec<Peer>,
     pub projects: Vec<Project>,
+    /// The coding agents found here, and the ones waiting on an adapter.
+    #[serde(default)]
+    pub agents: Vec<Agent>,
+}
+
+/// A coding agent whose CLI the node found.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Agent {
+    pub name: String,
+    pub state: AgentState,
+}
+
+/// Whether the node can start an agent, and how its adapter stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AgentState {
+    Ready,
+    /// Ready, on the ACP adapter the node installed itself.
+    OwnAdapter,
+    /// Its CLI is here but not its adapter: the node is installing it.
+    Installing,
+    /// Installing its adapter failed; the node tries again later.
+    Failed {
+        reason: String,
+    },
 }
 
 /// A device of the mesh.
@@ -124,7 +148,30 @@ pub fn render(status: &LocalStatus, now: u64) -> String {
             .collect();
         table(&mut out, &rows);
     }
+
+    out.push_str("\nAgents\n");
+    if status.agents.is_empty() {
+        out.push_str("  none found on this machine\n");
+    } else {
+        for agent in &status.agents {
+            out.push_str(&format!(
+                "  {:<9} {}\n",
+                agent.name,
+                agent_state(&agent.state)
+            ));
+        }
+    }
     out
+}
+
+/// How an agent stands, in a few words.
+fn agent_state(state: &AgentState) -> String {
+    match state {
+        AgentState::Ready => "ready".to_owned(),
+        AgentState::OwnAdapter => "ready, on the adapter beep-node installed".to_owned(),
+        AgentState::Installing => "found, installing its adapter".to_owned(),
+        AgentState::Failed { reason } => format!("not ready, {reason} (tried again hourly)"),
+    }
 }
 
 /// How a project's sync stands, in a few words.
@@ -264,8 +311,28 @@ mod tests {
                 project("old", State::Failed, false, true),
                 project("docs", State::Failed, false, false),
             ],
+            agents: vec![
+                Agent {
+                    name: "claude".to_owned(),
+                    state: AgentState::Failed {
+                        reason: "needs Node.js: curl failed".to_owned(),
+                    },
+                },
+                Agent {
+                    name: "codex".to_owned(),
+                    state: AgentState::Installing,
+                },
+            ],
         };
         let text = render(&status, 1_000 + 3_720);
+        assert!(
+            text.contains("claude    not ready, needs Node.js: curl failed"),
+            "{text}"
+        );
+        assert!(
+            text.contains("codex     found, installing its adapter"),
+            "{text}"
+        );
         assert!(text.contains("running for 1h 2m"), "{text}");
         assert!(text.contains("2 of 3 devices online"), "{text}");
         assert!(text.contains("offline, last seen 12m ago"), "{text}");

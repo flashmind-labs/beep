@@ -1,4 +1,4 @@
-// Feedback from an agent: the diff header's button, the start form's picker
+// Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick starts a coding agent in the
 // diff's checkout on its machine, held until it is in a mode that does not
 // edit; it reads the diff with git and answers with a list of findings, which
@@ -261,7 +261,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
       return;
     }
     const reasonNot = why();
-    button.append("Feedback from an agent");
+    button.append("Review with agent");
     const caret = el("span");
     caret.style.display = "grid";
     caret.innerHTML = CARET;

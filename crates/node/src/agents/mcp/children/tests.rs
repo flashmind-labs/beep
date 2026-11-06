@@ -239,7 +239,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         offers
             .agents
             .start(
-                &offers.agents.kinds[0],
+                &offers.agents.kinds()[0],
                 Some(&cwd),
                 Begin {
                     prompt: Some(format!("hello {name}")),
@@ -342,7 +342,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let parent = offers
         .agents
         .start(
-            &offers.agents.kinds[0],
+            &offers.agents.kinds()[0],
             Some(&cwd),
             Begin {
                 prompt: Some("hello".into()),

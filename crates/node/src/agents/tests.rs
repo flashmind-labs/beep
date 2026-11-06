@@ -265,7 +265,9 @@ fn every_known_agent_starts_without_permission_prompts() {
             .iter()
             .find(|known| known.name == name)
             .expect("a known agent");
-        let kind = launch(known, &|_: &str| true).expect("installed");
+        let Some(kinds::Launch::Ready(kind)) = launch(known, &|_: &str| true, None) else {
+            panic!("{name} is installed");
+        };
         let env: Vec<(String, String)> = kind.env.into_iter().collect();
         (kind.args, env)
     };

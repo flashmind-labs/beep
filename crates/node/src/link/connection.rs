@@ -144,6 +144,11 @@ pub async fn serve(
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision, state.server.is_some());
+    // The ACP adapters an agent found here lacks, installed in the node's
+    // folder; the work stops with the node.
+    let _adapters = offers
+        .agents
+        .install_adapters(state.dir.clone(), state.agents.clone());
     offers.traffic = traffic;
     if let Some(home) = dirs::home_dir() {
         offers.skills = Skills::under(home);
@@ -504,7 +509,10 @@ impl Offers {
     /// one the memory tools are left out of what agents are told and see.
     pub fn local(agents: &[AgentKind], provision: Arc<Provision>, has_server: bool) -> Self {
         Self {
-            agents: Arc::new(Agents::new(crate::agents::detect(agents))),
+            agents: Arc::new(Agents::new(crate::agents::detect(
+                agents,
+                Some(provision.dir()),
+            ))),
             extra: Vec::new(),
             log: Logs::service(),
             provision: Some(provision),
@@ -961,7 +969,7 @@ pub(crate) async fn serve_open(
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
         }
-        other => match offers.agents.kind(other).cloned() {
+        other => match offers.agents.kind(other) {
             Some(kind) => {
                 tx.send(&Opened::Ready {}).await?;
                 crate::agents::serve_session(tx, rx, offers.agents, kind).await
