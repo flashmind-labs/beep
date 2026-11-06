@@ -241,6 +241,9 @@ impl Actor {
         let line = match result {
             Ok(done) => {
                 let stop = StopReason::from_acp(&acp::wire_name(&done.stop_reason));
+                if stop == StopReason::EndTurn {
+                    self.restate();
+                }
                 (stop == StopReason::EndTurn).then_some(COMPACTED_ENTRY.to_owned())
             }
             Err(e) => {
@@ -259,6 +262,14 @@ impl Actor {
             state.summary.clear();
         });
         self.next_prompt(cx);
+    }
+
+    /// Has the next prompt carry the standing rules again, for an agent with
+    /// no system prompt whose conversation was just compacted.
+    fn restate(&mut self) {
+        if self.brief.is_none() {
+            self.brief.clone_from(&self.standing);
+        }
     }
 
     /// Sends the next waiting prompt, if any.
@@ -283,6 +294,17 @@ impl Actor {
         let Some(prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
             return;
         };
+        if self.standing.is_some() {
+            // The agent compacted on its own since the last prompt.
+            let mut compacted = false;
+            self.live.send_if_modified(|live| {
+                compacted = live.take_compacted();
+                false
+            });
+            if compacted {
+                self.restate();
+            }
+        }
         let brief = self.brief.take();
         self.send(
             cx,

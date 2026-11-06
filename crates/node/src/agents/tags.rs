@@ -9,10 +9,7 @@
 //! Prompts from before the tags hold the brief bare; `bare_block` and
 //! `untagged` find it by the strings Beep wrote then.
 
-use super::{
-    checkout::{WORKTREE_BRIEF, WORKTREE_BRIEF_BEFORE},
-    cut, mcp,
-};
+use super::{cut, mcp};
 
 const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
@@ -28,6 +25,9 @@ const BARE_STARTS: [&str; 5] = [
     "This session moved from another machine.",
     "This session continues from a copy of another machine's",
 ];
+
+/// The worktree brief as bare prompts hold it.
+const BARE_WORKTREE: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
 
 /// One part of a user entry's text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,7 +186,7 @@ pub(crate) fn untagged(text: &str) -> String {
     if !is_bare(trimmed) {
         return text.to_owned();
     }
-    for end in [mcp::BRIEF, WORKTREE_BRIEF, WORKTREE_BRIEF_BEFORE] {
+    for end in [mcp::BRIEF, BARE_WORKTREE] {
         if let Some(at) = trimmed.rfind(end) {
             let (brief, rest) = trimmed.split_at(at + end.len());
             return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
@@ -320,7 +320,7 @@ mod tests {
             parts(&untagged(&glued)),
             [Part::Context(brief), Part::User("ok, let's keep going")]
         );
-        let worktree = format!("{WORKTREE_BRIEF}\n\n{brief}fix it");
+        let worktree = format!("{BARE_WORKTREE}\n\n{brief}fix it");
         assert_eq!(said(&worktree), "fix it");
     }
 }
