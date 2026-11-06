@@ -30,6 +30,37 @@ pub enum NoticeVoice {
     Off,
 }
 
+/// The page zoom of every window, in percent, from 70 to 200.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Zoom(u16);
+
+impl Zoom {
+    const MIN: u16 = 70;
+    const MAX: u16 = 200;
+
+    /// `percent`, brought into range.
+    pub fn new(percent: u16) -> Self {
+        Self(percent.clamp(Self::MIN, Self::MAX))
+    }
+
+    /// In range even when a hand-edited file says otherwise.
+    pub fn percent(self) -> u16 {
+        self.0.clamp(Self::MIN, Self::MAX)
+    }
+
+    /// The webview's zoom factor, 1.0 at 100%.
+    pub fn factor(self) -> f64 {
+        f64::from(self.percent()) / 100.0
+    }
+}
+
+impl Default for Zoom {
+    fn default() -> Self {
+        Self(100)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Saved {
     #[serde(default)]
@@ -75,6 +106,9 @@ pub struct Saved {
     /// and this Mac makes no server calls until it signs in again.
     #[serde(default)]
     pub signed_out: bool,
+    /// Page zoom of every window, ⌘= ⌘- ⌘0.
+    #[serde(default)]
+    pub zoom: Zoom,
 }
 
 fn on() -> bool {
@@ -148,6 +182,7 @@ impl Default for Saved {
             agent_notices: true,
             unlinks: Vec::new(),
             signed_out: false,
+            zoom: Zoom::default(),
         }
     }
 }
@@ -212,6 +247,14 @@ mod tests {
             fs::remove_file(&path).expect("an earlier run's file is removed");
         }
         StateFile::new(path)
+    }
+
+    #[test]
+    fn zoom_stays_in_range() {
+        assert_eq!(parse("{}").zoom.percent(), 100);
+        assert_eq!(parse(r#"{"zoom":130}"#).zoom.percent(), 130);
+        assert_eq!(parse(r#"{"zoom":900}"#).zoom.percent(), 200);
+        assert_eq!(Zoom::new(10).percent(), 70);
     }
 
     #[test]
