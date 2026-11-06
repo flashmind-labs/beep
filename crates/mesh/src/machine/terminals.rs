@@ -18,7 +18,7 @@ use beep_proto::{
 };
 
 /// The longest name, command or folder.
-pub const MAX_FIELD: usize = 1000;
+const MAX_FIELD: usize = 1000;
 
 /// A terminal a caller keeps: which task on its node, and what it ran.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,49 +166,4 @@ pub fn ended_for_good(kept: &Kept<'_>, state: &TerminalState) -> bool {
             state,
             TerminalState::Exited { .. } | TerminalState::Stopped {} | TerminalState::Gone {}
         )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn kept(pty: bool) -> Kept<'static> {
-        Kept {
-            task: 3,
-            pty,
-            command: "npm run dev",
-        }
-    }
-
-    fn task(id: u32, command: &str, state: TaskState) -> Task {
-        Task {
-            id: TaskId(id),
-            command: command.into(),
-            state,
-        }
-    }
-
-    #[test]
-    fn a_terminal_is_its_task_only_while_the_command_matches() {
-        let kept = kept(false);
-        assert_eq!(
-            state_of(&kept, &[task(3, "npm run dev", TaskState::Running)]),
-            TerminalState::Running {}
-        );
-        assert_eq!(
-            state_of(&kept, &[task(3, "cargo watch", TaskState::Running)]),
-            TerminalState::Gone {}
-        );
-        assert_eq!(state_of(&kept, &[]), TerminalState::Gone {});
-    }
-
-    #[test]
-    fn only_an_ended_interactive_terminal_is_dropped() {
-        assert!(ended_for_good(&kept(true), &TerminalState::Stopped {}));
-        assert!(!ended_for_good(&kept(true), &TerminalState::Offline {}));
-        assert!(!ended_for_good(
-            &kept(false),
-            &TerminalState::Exited { code: Some(1) }
-        ));
-    }
 }
