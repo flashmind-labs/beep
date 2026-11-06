@@ -3,7 +3,7 @@
 //! points are `apply` and `vars`.
 
 use crate::{read_lock, write_lock};
-use beep_proto::{AgentAccount, ApiProvider, GITHUB_ENV_VAR, SecretText, node::EnvSecret};
+use beep_proto::{AgentAccount, GITHUB_ENV_VAR, SecretText, node::EnvSecret};
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -21,12 +21,8 @@ pub(crate) enum Scope {
     /// The GitHub token, and the token Beep keeps for the agent itself
     /// (Claude Code's `CLAUDE_CODE_OAUTH_TOKEN`, Codex's `CODEX_API_KEY`)
     /// when the process is that agent. teacli finds its logins through the
-    /// shim on `PATH`. API keys stay out of agent sessions such as Claude
-    /// Code and Codex, which would otherwise bill or act on them.
+    /// shim on `PATH`.
     Agent(Option<AgentAccount>),
-    /// flsh runs on the user's own provider keys: the GitHub token and the
-    /// API keys, but no other agent's token.
-    Flsh,
     /// Every credential the user gave to their machines: exec, background
     /// tasks and terminals, where the user runs their own commands.
     Shell,
@@ -35,9 +31,6 @@ pub(crate) enum Scope {
 impl Scope {
     /// What the agent called `name` gets.
     pub(crate) fn for_agent(name: &str) -> Self {
-        if name == "flsh" {
-            return Self::Flsh;
-        }
         Self::Agent(AgentAccount::from_str(name).ok())
     }
 
@@ -46,10 +39,6 @@ impl Scope {
             Self::Probe => false,
             Self::Agent(agent) => {
                 var.name == GITHUB_ENV_VAR || agent.is_some_and(|agent| var.name == agent.env_var())
-            }
-            Self::Flsh => {
-                var.name == GITHUB_ENV_VAR
-                    || ApiProvider::all().any(|provider| var.name == provider.env_var())
             }
             Self::Shell => true,
         }
@@ -225,37 +214,5 @@ mod tests {
         assert_eq!(codex, ",codex-key");
         assert_eq!(other, ",");
         assert_eq!(shell, "claude-token,codex-key");
-    }
-
-    #[tokio::test]
-    async fn flsh_gets_the_api_keys_and_no_agent_token() {
-        let _env = TEST_LOCK.lock().await;
-        let secret = |name: &str, value: &str| EnvSecret {
-            name: name.into(),
-            value: SecretText::new(value),
-        };
-        set_vars(vec![
-            secret(ApiProvider::OpenRouter.env_var(), "router-key"),
-            secret(AgentAccount::Claude.env_var(), "claude-token"),
-        ]);
-        let seen = |scope| async move {
-            let mut command = Command::new("sh");
-            command
-                .args([
-                    "-c",
-                    "printf '%s,%s' \"$OPENROUTER_API_KEY\" \"$CLAUDE_CODE_OAUTH_TOKEN\"",
-                ])
-                .env_remove("OPENROUTER_API_KEY")
-                .env_remove("CLAUDE_CODE_OAUTH_TOKEN")
-                .stdout(Stdio::piped());
-            apply(&mut command, scope);
-            let out = command.output().await.unwrap();
-            String::from_utf8_lossy(&out.stdout).into_owned()
-        };
-        let flsh = seen(Scope::for_agent("flsh")).await;
-        let codex = seen(Scope::for_agent("codex")).await;
-        set_vars(Vec::new());
-        assert_eq!(flsh, "router-key,");
-        assert_eq!(codex, ",");
     }
 }

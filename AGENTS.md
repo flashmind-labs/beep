@@ -64,6 +64,11 @@ without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 Moving an account: credentials are entered again on the desktop. A node takes credentials,
 harness settings and synced projects only from its mesh.
 
+API keys (OpenRouter, ElevenLabs and the rest) live only on `beep-server`, for the assistant.
+No desktop or node keeps one: the desktop deletes any `credential/api.*` an older desktop wrote
+to the mesh on launch, and a node never makes one an env var. Agent accounts (the Claude Code
+token, Codex's key) and forge tokens still go to every machine.
+
 ### The desktop runs without the server for now
 
 `SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back.

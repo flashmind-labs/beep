@@ -201,7 +201,6 @@ pub async fn use_cli_login(fleet: FleetState<'_>, host: Kind) -> Result<Credenti
             .find(|login| same_server(&login.url, url))
             .map(|login| login.token)
             .ok_or_else(|| refused("teacli has no token for this server"))?,
-        Kind::ApiKey { .. } => return Err(refused("API keys have no CLI sign-in")),
     };
     credentials::save(&fleet, host, token).await
 }

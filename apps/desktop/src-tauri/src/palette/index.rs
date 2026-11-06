@@ -7,7 +7,7 @@ use super::{
     projects::{project_entries, session_entries},
 };
 use crate::{agents::sessions::SessionRow, beep::Service, center::section, error::Result};
-use beep_proto::{ApiProvider, Session, SessionMatch};
+use beep_proto::{Session, SessionMatch};
 use serde::Serialize;
 use std::cmp::Reverse;
 use strum::IntoEnumIterator;
@@ -146,7 +146,6 @@ fn settings() -> impl Iterator<Item = (String, SettingsSection)> {
     fixed
         .into_iter()
         .map(|(title, section)| (title.to_owned(), section))
-        .chain(ApiProvider::all().map(|p| (format!("{} API key", p.name()), Creds)))
 }
 
 /// One thing the palette can find.
@@ -421,11 +420,11 @@ mod tests {
         let key = index
             .settings
             .iter()
-            .find(|e| e.title == "ElevenLabs API key")
-            .expect("every API provider is a setting");
+            .find(|e| e.title == "GitHub token")
+            .expect("the GitHub token is a setting");
         assert_eq!(key.id, "creds");
         assert_eq!(key.detail, "Settings · Credentials");
-        assert_eq!(key.keys, ["elevenlabs api key"]);
+        assert_eq!(key.keys, ["github token"]);
         let thinking = index
             .settings
             .iter()
