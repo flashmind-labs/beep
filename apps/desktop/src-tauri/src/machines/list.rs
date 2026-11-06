@@ -408,6 +408,13 @@ pub async fn updatable_machines(
     ))
 }
 
+/// The newest beep-node release, looked up at most hourly; `None` while the
+/// releases cannot be reached, and the page then goes by the machines alone.
+#[tauri::command]
+pub async fn node_release(fleet: Machines<'_>) -> Result<Option<String>> {
+    Ok(fleet.releases().latest_node().await)
+}
+
 /// The recent log of one of the account's machines.
 #[tauri::command]
 pub async fn machine_log(beep: Service<'_>, fleet: Machines<'_>, id: String) -> Result<String> {
