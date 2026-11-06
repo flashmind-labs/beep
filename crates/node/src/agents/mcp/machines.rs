@@ -77,12 +77,12 @@ pub(super) enum Route {
     Server,
 }
 
-/// The server holds the rules for a send, a run and a log read. With its link
+/// The server holds the rules for a send and a run. With its link
 /// up those go through it. With the link down, or no server, they go direct,
 /// and `asks_while_down` says whether the user is asked first.
 pub(super) fn route(tool: Tool, has_server: bool, link_up: bool) -> Route {
     match tool {
-        Tool::RunOn | Tool::SendFiles | Tool::MachineLog if has_server && link_up => Route::Server,
+        Tool::RunOn | Tool::SendFiles if has_server && link_up => Route::Server,
         _ => Route::Direct,
     }
 }
@@ -93,7 +93,7 @@ pub(super) fn route(tool: Tool, has_server: bool, link_up: bool) -> Route {
 fn rule_while_down(offers: &Offers, tool: Tool) -> Rule {
     if !offers.tools.has_server()
         || offers.tools.connected()
-        || !matches!(tool, Tool::RunOn | Tool::SendFiles | Tool::MachineLog)
+        || !matches!(tool, Tool::RunOn | Tool::SendFiles)
     {
         return Rule::Run;
     }
@@ -122,7 +122,7 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
             Some(merged_list(offers, mesh, request).await)
         }
         Tool::ListMachines => Some(list(mesh).await),
-        Tool::RunOn | Tool::MachineLog | Tool::SendFiles => {
+        Tool::RunOn | Tool::SendFiles => {
             let name = machine(&args)?;
             let Some(target) = machines(mesh)
                 .into_iter()
@@ -170,10 +170,7 @@ async fn to_target(
 /// has no such machine, so the call goes direct. `None` when the server
 /// knows the target, which keeps its rules, or the mesh does not hold it.
 pub(super) async fn mesh_only(offers: &Offers, mesh: &Mesh, request: &Request) -> Option<Reply> {
-    if !matches!(
-        request.tool,
-        Tool::RunOn | Tool::MachineLog | Tool::SendFiles
-    ) {
+    if !matches!(request.tool, Tool::RunOn | Tool::SendFiles) {
         return None;
     }
     let args: Value = serde_json::from_str(&request.args).ok()?;
@@ -733,7 +730,7 @@ mod tests {
     #[test]
     fn calls_route_by_the_servers_link() {
         // Link up: the server answers what it checks.
-        for tool in [Tool::RunOn, Tool::SendFiles, Tool::MachineLog] {
+        for tool in [Tool::RunOn, Tool::SendFiles] {
             assert_eq!(route(tool, true, true), Route::Server, "{tool:?}");
             assert_eq!(route(tool, false, false), Route::Direct, "{tool:?}");
             assert_eq!(route(tool, true, false), Route::Direct, "{tool:?}");
@@ -755,10 +752,9 @@ mod tests {
             )
         };
         let down = offers(true);
-        // Never heard: a send asks, a run and a log read go direct.
+        // Never heard: a send asks, a run goes direct.
         assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Ask);
         assert_eq!(rule_while_down(&down, Tool::RunOn), Rule::Run);
-        assert_eq!(rule_while_down(&down, Tool::MachineLog), Rule::Run);
         let said = |tool, reply: Reply| {
             let request = Request {
                 session: "s".to_owned(),
@@ -776,14 +772,14 @@ mod tests {
         // Heard: it goes on the rule the server last gave, a refusal included.
         said(Tool::RunOn, ask);
         said(Tool::SendFiles, done("sent", false));
-        said(
-            Tool::MachineLog,
-            done(format!("{REFUSED} Your machines to read only."), true),
-        );
         assert_eq!(rule_while_down(&down, Tool::RunOn), Rule::Ask);
         assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Run);
+        said(
+            Tool::RunOn,
+            done(format!("{REFUSED} Your machines to read only."), true),
+        );
         assert!(matches!(
-            rule_while_down(&down, Tool::MachineLog),
+            rule_while_down(&down, Tool::RunOn),
             Rule::Refuse(_)
         ));
         // A failure that is not a refusal says nothing of the rule.
@@ -791,7 +787,7 @@ mod tests {
         assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Run);
         // With no server ever, nothing asks.
         let alone = offers(false);
-        for tool in [Tool::RunOn, Tool::SendFiles, Tool::MachineLog] {
+        for tool in [Tool::RunOn, Tool::SendFiles] {
             assert_eq!(rule_while_down(&alone, tool), Rule::Run, "{tool:?}");
         }
     }
@@ -907,7 +903,7 @@ mod tests {
     async fn a_refusing_rule_still_refuses_a_machine_the_server_lacks() {
         let refusal = format!("{REFUSED} Your machines to read only.");
         let (offers, _server, _dir) = server_answering(done(refusal.clone(), true)).await;
-        for tool in [Tool::RunOn, Tool::MachineLog, Tool::SendFiles] {
+        for tool in [Tool::RunOn, Tool::SendFiles] {
             let rule = probed_rule(&offers, &call_of(tool)).await;
             assert_eq!(rule, Rule::Refuse(refusal.clone()), "{tool:?}");
             let stopped = permission::enforce(&offers, &rule, &call_of(tool), &Value::Null).await;
@@ -927,7 +923,7 @@ mod tests {
             true,
         );
         // No link at all, no rule heard: nothing runs unasked.
-        for tool in [Tool::RunOn, Tool::MachineLog, Tool::SendFiles] {
+        for tool in [Tool::RunOn, Tool::SendFiles] {
             assert!(
                 matches!(probed_rule(&offers, &call_of(tool)).await, Rule::Refuse(_)),
                 "{tool:?}"

@@ -19,7 +19,6 @@ pub(crate) const PREFIX: &str = "Beep: ";
 /// - `Sync <project>`, or `Sync <project> to <machine>`
 /// - `Send <n> files to <machine>`
 /// - `Check job <id>`, `Cancel job <id>`
-/// - `Read log of <machine>`
 /// - `Ask: <question>`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tool {
@@ -29,7 +28,6 @@ pub(crate) enum Tool {
     SendFiles,
     JobStatus,
     Cancel,
-    MachineLog,
     StartAgent,
     AgentStatus,
     SendToAgent,
@@ -48,7 +46,6 @@ impl Tool {
             "send_files" => Self::SendFiles,
             "job_status" => Self::JobStatus,
             "cancel" => Self::Cancel,
-            "machine_log" => Self::MachineLog,
             "start_agent" => Self::StartAgent,
             "agent_status" => Self::AgentStatus,
             "send_to_agent" => Self::SendToAgent,
@@ -143,7 +140,6 @@ impl Tool {
             }
             Self::JobStatus => format!("{PREFIX}Check job {}", text("id").unwrap_or("")),
             Self::Cancel => format!("{PREFIX}Cancel job {}", text("id").unwrap_or("")),
-            Self::MachineLog => format!("{PREFIX}Read log of {}", machine.unwrap_or("a machine")),
             Self::StartAgent => {
                 let harness = text("harness").unwrap_or("an");
                 let on = match machine {

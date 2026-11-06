@@ -1,12 +1,9 @@
 //! The Beep MCP server's tools (`tools/1`), called by node agents one stream per call.
 //! `send_files` acts, so under ask first it answers `Reply::Ask`.
 
-use super::{
-    Machines, Need, command_name, copy, exec::ExecTool, log::MachineLogTool, process::ProcessTool,
-    transfer,
-};
+use super::{Machines, Need, command_name, copy, exec::ExecTool, process::ProcessTool, transfer};
 use crate::{
-    apps::permissions::{self, Check, MACHINE_LOG, RUN_ON, SEND_FILES, ToolApp},
+    apps::permissions::{self, Check, RUN_ON, SEND_FILES, ToolApp},
     nodes::{DESKTOP, agent_name, describe},
     protocol::node::{
         LinkRx, LinkTx, Open, Opened, agent,
@@ -42,6 +39,8 @@ const MAX_SEND: usize = 20;
 
 /// What a coding agent hears for a memory tool: memories are the assistant's.
 const NO_MEMORIES: &str = "Coding agents have no memories.";
+/// What an older node's agent hears for `machine_log`.
+const NO_LOGS: &str = "Coding agents cannot read machine logs.";
 
 /// Serves one `tools/1` stream the node `caller` opened.
 pub(crate) async fn serve(calls: Calls, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
@@ -115,14 +114,14 @@ impl Calls {
     /// give a desktop orders, and this path must not get around it. A caller that offers
     /// `desktop/1` is a desktop and is not refused.
     async fn refuse_desktop(&self, tool: Call, args: &Value) -> Option<String> {
-        if !matches!(tool, Call::RunOn | Call::MachineLog | Call::SendFiles) {
+        if !matches!(tool, Call::RunOn | Call::SendFiles) {
             return None;
         }
         let desktop = self.desktop_target(args).await?;
         (!self.offers_desktop(&self.caller)).then(|| {
             format!(
-                "{desktop} is a desktop. Only another desktop can run commands, read logs or \
-                 send files there."
+                "{desktop} is a desktop. Only another desktop can run commands or send files \
+                 there."
             )
         })
     }
@@ -131,7 +130,6 @@ impl Calls {
     async fn ask_first(&self, request: &Request, args: &Value) -> Option<Reply> {
         let slug = match request.tool {
             Call::RunOn => RUN_ON,
-            Call::MachineLog => MACHINE_LOG,
             Call::SendFiles => SEND_FILES,
             _ => return None,
         };
@@ -177,7 +175,7 @@ impl Calls {
             Call::SendFiles => self.send_files(parse(args)?).await,
             Call::JobStatus => self.job(parse::<JobArgs>(args)?.id, false).await,
             Call::Cancel => self.job(parse::<JobArgs>(args)?.id, true).await,
-            Call::MachineLog => self.machine_log(parse(args)?).await,
+            Call::MachineLog => Err(NO_LOGS.into()),
             // An older node may still send these.
             Call::Remember
             | Call::Recall
@@ -244,14 +242,6 @@ impl Calls {
             }
         }
         Ok(out.trim_end().to_owned())
-    }
-
-    async fn machine_log(&self, args: LogArgs) -> Outcome {
-        let tool = MachineLogTool {
-            machines: self.machines.clone(),
-        };
-        let args = json!({ "in": args.machine, "lines": args.lines });
-        outcome(call_tool(&tool, args).await)
     }
 
     async fn run_on(&self, args: RunOnArgs) -> Outcome {
@@ -566,14 +556,6 @@ struct SendArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LogArgs {
-    machine: String,
-    #[serde(default)]
-    lines: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct JobArgs {
     id: String,
 }
@@ -701,18 +683,6 @@ mod tests {
         }
     }
 
-    /// A node of Alice's with `offers`, connecting over a real link.
-    async fn linked_node(
-        harness: &Harness,
-        offers: beep_node::link::Offers,
-    ) -> (
-        iroh::SecretKey,
-        iroh::protocol::Router,
-        tokio::task::JoinHandle<Result<()>>,
-    ) {
-        named_node(harness, "build-box", offers).await
-    }
-
     async fn named_node(
         harness: &Harness,
         name: &'static str,
@@ -752,38 +722,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_coding_agent_reads_a_machines_log_without_asking() {
+    async fn a_coding_agent_cannot_read_a_machines_log() {
         let harness = Harness::new(Scripted::default()).await;
-        let folder = tempfile::tempdir().expect("a temp folder");
-        let log = folder.path().join("beep.log");
-        std::fs::write(
-            &log,
-            "2099-01-01T00:00:00Z   WARN beep_node: a.rs:1 lost the link\n",
-        )
-        .expect("the log is written");
-        let offers = beep_node::link::Offers::with_protocols(vec![std::sync::Arc::new(
-            beep_node::machine::service::logs::Logs::file(log),
-        )]);
-        let (key, router, served) = linked_node(&harness, offers).await;
-        let id = key.public().to_string();
-        timeout(Duration::from_secs(20), async {
-            while harness.app.nodes.online(&id).is_none() {
-                sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("the node came online");
-
         let args = json!({ "machine": "build-box", "lines": 10 });
         let read = calls(&harness)
             .answer(&request(Call::MachineLog, args, Approved::Once))
             .await;
-        assert!(
-            matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
-            "{read:?}"
+        assert_eq!(
+            read,
+            Reply::Done {
+                text: NO_LOGS.into(),
+                failed: true
+            }
         );
-        served.abort();
-        router.shutdown().await.expect("the router stops");
     }
 
     #[tokio::test]
@@ -816,24 +767,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_on_and_machine_log_reach_another_node_without_asking() {
+    async fn run_on_reaches_another_node_without_asking() {
         let harness = Harness::new(Scripted::default()).await;
-        for (tool, args) in [
-            (
-                Call::RunOn,
-                json!({ "machine": "build-box", "command": "uname" }),
-            ),
-            (Call::MachineLog, json!({ "machine": "build-box" })),
-        ] {
-            // It runs with no card: there is no such machine, which it says.
-            let ran = calls(&harness)
-                .answer(&request(tool, args, Approved::No))
-                .await;
-            assert!(
-                matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine")),
-                "{tool:?}: {ran:?}"
-            );
-        }
+        let args = json!({ "machine": "build-box", "command": "uname" });
+        // It runs with no card: there is no such machine, which it says.
+        let ran = calls(&harness)
+            .answer(&request(Call::RunOn, args, Approved::No))
+            .await;
+        assert!(
+            matches!(&ran, Reply::Done { failed: true, text } if text.contains("No machine")),
+            "{ran:?}"
+        );
     }
 
     #[tokio::test]
@@ -896,21 +840,11 @@ mod tests {
         );
     }
 
-    /// A desktop `mac` offering `desktop/1` and a log, and a plain node `build-box`.
+    /// A desktop `mac` offering `desktop/1`, and a plain node `build-box`.
     #[tokio::test]
     async fn a_node_cannot_reach_a_desktop_through_the_server_but_a_desktop_can() {
         let harness = Harness::new(Scripted::default()).await;
-        let folder = tempfile::tempdir().expect("a temp folder");
-        let log = folder.path().join("beep.log");
-        std::fs::write(
-            &log,
-            "2099-01-01T00:00:00Z   WARN beep_node: a.rs:1 lost the link\n",
-        )
-        .expect("the log is written");
-        let mac = beep_node::link::Offers::with_protocols(vec![
-            std::sync::Arc::new(beep_node::machine::service::logs::Logs::file(log)),
-            std::sync::Arc::new(FakeDesktop),
-        ]);
+        let mac = beep_node::link::Offers::with_protocols(vec![std::sync::Arc::new(FakeDesktop)]);
         let (mac_key, mac_router, mac_served) = named_node(&harness, "mac", mac).await;
         let (node_key, node_router, node_served) =
             named_node(&harness, "build-box", beep_node::link::Offers::default()).await;
@@ -925,14 +859,9 @@ mod tests {
         }
 
         let run = json!({ "machine": "mac", "command": "uname" });
-        let log_args = json!({ "machine": "mac", "lines": 10 });
         let send = json!({ "machine": "mac", "paths": ["a.txt"] });
         let node = node_key.public().to_string();
-        for (tool, args) in [
-            (Call::RunOn, run.clone()),
-            (Call::MachineLog, log_args.clone()),
-            (Call::SendFiles, send),
-        ] {
+        for (tool, args) in [(Call::RunOn, run.clone()), (Call::SendFiles, send)] {
             let reply = calls_from(&harness, &node)
                 .answer(&request(tool, args, Approved::Once))
                 .await;
@@ -949,13 +878,6 @@ mod tests {
         assert!(
             matches!(&asked, Reply::Ask { app, .. } if app == "Your machines"),
             "{asked:?}"
-        );
-        let read = calls_from(&harness, &desk)
-            .answer(&request(Call::MachineLog, log_args, Approved::Once))
-            .await;
-        assert!(
-            matches!(&read, Reply::Done { failed: false, text } if text.contains("lost the link")),
-            "{read:?}"
         );
         for served in [mac_served, node_served, desk_served] {
             served.abort();

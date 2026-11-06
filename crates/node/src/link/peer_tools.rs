@@ -7,7 +7,6 @@ use crate::{
     agents::{Agents, mcp::children},
     files::transfer::{Incoming, Transfers},
     link::Offers,
-    machine::service::logs,
     run::tasks::{self, Table},
 };
 use anyhow::{Context, Result};
@@ -22,7 +21,6 @@ use serde_json::Value;
 use std::{fmt::Write, sync::Arc, time::Duration};
 use tokio::{
     sync::Semaphore,
-    task::spawn_blocking,
     time::{Instant, sleep, timeout},
 };
 
@@ -31,15 +29,13 @@ const READ_LIMIT: Duration = Duration::from_secs(10);
 /// The longest a command may run; the default when the call sets none.
 const MAX_RUN_SECS: u64 = 1800;
 const DEFAULT_RUN_SECS: u64 = 600;
-/// The log lines a call gets when it names no count.
-const DEFAULT_LOG_LINES: u32 = 100;
 
 /// Who calls, and what this device lets them do.
 #[derive(Clone)]
 pub(crate) struct Caller {
     /// The tasks the caller's jobs live in and can see.
     pub table: Table,
-    /// Whether a node's `RunOn`, `MachineLog` and `SendFiles` may act on this
+    /// Whether a node's `RunOn` and `SendFiles` may act on this
     /// device: not when it is a desktop.
     pub may_run_on_here: bool,
     /// This node's synced projects and transfers, when it shares folders.
@@ -102,23 +98,21 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     let outcome = match serde_json::from_str::<Value>(&request.args) {
         Err(e) => Err(format!("The arguments are not JSON: {e}")),
         Ok(args) => match request.tool {
-            Tool::RunOn | Tool::MachineLog if !caller.may_run_on_here => Err(
-                "This device is a desktop: another node may not run commands on it or read its log."
-                    .to_owned(),
-            ),
+            Tool::RunOn if !caller.may_run_on_here => {
+                Err("This device is a desktop: another node may not run commands on it.".to_owned())
+            }
             Tool::RunOn => match parse(args) {
                 Ok(args) => run_on(args, caller.table).await,
                 Err(e) => Err(e),
             },
             Tool::JobStatus => job(args, false, caller.table).await,
             Tool::Cancel => job(args, true, caller.table).await,
-            Tool::MachineLog => machine_log(args).await,
             // Writes outside a project the desktop's owner shares: a node may
             // not send files to a desktop. Syncing is confined to a project
             // this device already syncs, with the peers a desktop named.
-            Tool::SendFiles if !caller.may_run_on_here => Err(
-                "This device is a desktop: another node may not send files to it.".to_owned(),
-            ),
+            Tool::SendFiles if !caller.may_run_on_here => {
+                Err("This device is a desktop: another node may not send files to it.".to_owned())
+            }
             Tool::SyncProject => sync_project(args, &caller).await,
             Tool::SendFiles => receive_files(args, &caller).await,
             other => Err(format!("A node does not serve {other} for another node.")),
@@ -216,20 +210,6 @@ async fn job(args: Value, cancel: bool, table: Table) -> Outcome {
         TaskRequest::Status { id }
     };
     status_text(tasks::answer(table, request).await)
-}
-
-#[derive(Deserialize)]
-struct LogArgs {
-    lines: Option<u32>,
-}
-
-async fn machine_log(args: Value) -> Outcome {
-    let LogArgs { lines } = parse(args)?;
-    let lines = lines.unwrap_or(DEFAULT_LOG_LINES);
-    spawn_blocking(move || logs::recent(None, lines))
-        .await
-        .map_err(|e| format!("{e}"))?
-        .map_err(|e| format!("{e:#}"))
 }
 
 #[derive(Deserialize)]
@@ -426,9 +406,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_desktop_does_not_show_its_log_to_a_node() {
+    async fn no_node_serves_its_log_to_another() {
         let table = Table::Peer(iroh::SecretKey::generate().public());
-        let caller = caller(table, false);
+        let caller = caller(table, true);
         let request = Request {
             session: "a3f9c1".to_owned(),
             tool: Tool::MachineLog,
@@ -438,7 +418,10 @@ mod tests {
         let Reply::Done { text, failed } = answer(request, caller).await else {
             panic!("not done");
         };
-        assert!(failed && text.contains("desktop"), "{text}");
+        assert!(
+            failed && text.contains("does not serve machine_log"),
+            "{text}"
+        );
     }
 
     #[tokio::test]

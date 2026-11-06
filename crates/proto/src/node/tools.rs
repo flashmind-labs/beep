@@ -39,6 +39,8 @@ pub enum Tool {
     SendFiles,
     JobStatus,
     Cancel,
+    /// No longer sent: coding agents cannot read machine logs. Kept so the
+    /// variants after it keep their place.
     MachineLog,
     /// No longer sent: coding agents get no memories, which are the
     /// assistant's. Kept so the variants after it keep their place.

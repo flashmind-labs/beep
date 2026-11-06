@@ -68,7 +68,7 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     Mac builds, or one with a GPU for heavy jobs. run_on runs a command there; job_status and \
     cancel follow a background command. \
     sync_project syncs a project's files to the user's other machines before work there, and \
-    send_files copies files to another machine. machine_log reads a machine's beep-node log. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
+    send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
     for the answer. Running and sending may wait for the user to allow it.";
 
 /// How sessions start the server, and the key their tokens are made with.
