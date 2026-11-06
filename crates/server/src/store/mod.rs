@@ -18,6 +18,7 @@ mod actions;
 mod agent_images;
 mod agent_session_starts;
 mod alerts;
+mod app_notices;
 pub(crate) use agent_session_starts::SessionOn;
 mod agent_spend;
 mod agent_usage;
@@ -91,6 +92,7 @@ pub(crate) use agent_images::{AgentImageBytes, AgentImageOf};
 pub(crate) use agent_spend::{DayModelRow, DaySpendRow, Periods};
 pub(crate) use agent_usage::{ModelRow, PlanRow, SpendRow};
 pub use alerts::AlertRow;
+pub use app_notices::{EVENTS_CHANNEL, LoggedNotice};
 pub(crate) use apps::AppPermissionRow;
 pub use apps::{CustomMcp, McpServerRow};
 pub use blobs::{Blobs, PgBlobs};
@@ -197,7 +199,7 @@ impl Store {
         self.crons_changed.notify_one();
     }
 
-    #[cfg(test)]
+    /// The pool, for a listener to take a connection of its own.
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
     }

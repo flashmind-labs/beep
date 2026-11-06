@@ -499,7 +499,7 @@ impl Beep {
                         // still going is picked up again from the last event.
                         Ok(_) => self.reopen(&from, seq, Instant::now() + RECONNECT).await,
                         // So is one cut off, as by a server restart.
-                        Err(e) => match self.failed(e).await {
+                        Err(e) => match self.failed(e) {
                             error if passing(&error) => {
                                 log::info!("lost a run's stream, following it again: {error}");
                                 let until = *lost.get_or_insert_with(Instant::now) + RECONNECT;

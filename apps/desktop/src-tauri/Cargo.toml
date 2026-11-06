@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.4.17"
+version = "0.4.18"
 edition = "2024"
 rust-version = "1.93"
 description = "Beep for macOS: a tray app with a bar opened by double-tapping Option"
@@ -22,7 +22,7 @@ beep-live = { path = "../../../crates/live" }
 beep-mesh = { path = "../../../crates/mesh" }
 beep-node = { path = "../../../crates/node", default-features = false }
 beep-projects = { path = "../../../crates/projects" }
-beep-proto = { path = "../../../crates/proto" }
+beep-proto = { path = "../../../crates/proto", features = ["client"] }
 beep-report = { path = "../../../crates/report" }
 futures = "0.3"
 iroh = "1.3"

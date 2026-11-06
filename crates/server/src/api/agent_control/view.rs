@@ -60,7 +60,7 @@ pub(in crate::api) async fn get_agent_session(
     };
     let last = get.last.clamp(1, MAX_ENTRIES);
     let read_at = started.elapsed();
-    let thoughts = cx.supports(Feature::THOUGHTS);
+    let thoughts = true;
     match timeout(
         NODE_LIMIT,
         live.online

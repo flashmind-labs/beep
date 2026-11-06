@@ -19,7 +19,7 @@ const UPDATE_LIMIT: Duration = Duration::from_secs(11 * 60);
 #[tauri::command]
 pub async fn tool_updates(beep: Service<'_>) -> Result<Vec<ToolUpdate>> {
     // The newest releases are looked up by the server.
-    if beep.server().is_none() {
+    if !beep.has_server() {
         return Ok(Vec::new());
     }
     match beep.call_within(ListToolUpdates {}, LIST_LIMIT).await {

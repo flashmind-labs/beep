@@ -1,6 +1,6 @@
 //! A copy of the user's chats on disk, kept current from the server's
 //! update log: on connect the app asks for everything after the last update
-//! it holds, then follows `StreamUpdates` for more. Opening a chat reads
+//! it holds, then follows the newest update id on the events stream. Opening a chat reads
 //! the copy, so it shows at once.
 
 use crate::{
@@ -15,8 +15,8 @@ use crate::{
 };
 use beep_node::link::reconnect::Backoff;
 use beep_proto::{
-    ChatInfo, ChatKind, ChatMessage, GetUpdates, MessageBody, Session, SessionMatch, StreamUpdates,
-    Update, UpdatePage, search::match_snippet,
+    ChatInfo, ChatKind, ChatMessage, GetUpdates, MessageBody, Session, SessionMatch, Update,
+    UpdatePage, search::match_snippet,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -583,10 +583,14 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
 async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
     // The lists must leave the alerts out from the first chat they show.
     alerts::refresh(app).await;
-    let mut newest = beep.stream(StreamUpdates {}).await?;
-    while let Some(last) = newest.next().await? {
-        if last != beep.chats().last() {
-            catch_up(app, beep).await?;
+    let mut newest = beep.watch_updates().await?;
+    // Ends once the stream is no longer followed, as after a sign-out.
+    while newest.changed().await.is_ok() {
+        let last = *newest.borrow_and_update();
+        match last {
+            Some(last) if last != beep.chats().last() => catch_up(app, beep).await?,
+            Some(_) => {}
+            None => return Ok(()),
         }
     }
     Ok(())

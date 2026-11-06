@@ -1,9 +1,11 @@
 //! Getting messages between the apps, the server and a phone's notifications.
 
+#[cfg(feature = "client")]
 pub mod client;
+#[cfg(feature = "client")]
+pub mod follow;
+pub mod http;
 pub mod port;
 pub mod seal;
-pub mod version;
-pub mod wire;
 
-pub use version::{ClientInfo, Feature, WIRE};
+pub use http::AppEvent;

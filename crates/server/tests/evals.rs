@@ -7,14 +7,13 @@ use beep_server::{
     account::user::User,
     agent::decision::DecisionTool,
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools},
-    client::Node,
     config::Config,
     memory::memories,
     memory::starters::Generator,
-    protocol::{Chat, GetEvents, MemorySource, RunEvent},
-    push::Pusher,
+    protocol::{Chat, GetEvents, MemorySource, RunEvent, client::Client},
+    push::Pulse,
     routines::wake,
     store::{Fact, Location, TestDb, Validity},
     tools::Transitous,
@@ -26,7 +25,7 @@ use flashmind::{
     types::{AgentLlmConfig, Model},
 };
 use futures::{StreamExt, future::join_all, stream};
-use iroh::{SecretKey, endpoint::presets, protocol::Router};
+use iroh::SecretKey;
 use secrecy::SecretString;
 use serde::Deserialize;
 use std::{env, fs, path::PathBuf, sync::Arc, time::Duration};
@@ -188,7 +187,7 @@ impl Turn {
 struct Server {
     _db: TestDb,
     app: Arc<App>,
-    router: Router,
+    apps: http::Local,
 }
 
 impl Server {
@@ -233,36 +232,15 @@ impl Server {
             ..ServerTools::default()
         };
         let app = App::new(store, provider, llm, tools, models);
-        let endpoint = iroh::Endpoint::builder(presets::N0)
-            .secret_key(SecretKey::generate())
-            .bind()
+        let apps = http::Local::start(app.clone(), &SecretKey::generate(), Pulse::manual())
             .await
-            .expect("the server endpoint binds");
-        let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), None);
-        pusher.start(app.notifications.subscribe());
-        let router = Router::builder(endpoint)
-            .accept(
-                transport::ALPN,
-                transport::BeepHandler::new(app.clone(), pusher),
-            )
-            .spawn();
-        Self {
-            _db: db,
-            app,
-            router,
-        }
+            .expect("the apps' HTTP starts");
+        Self { _db: db, app, apps }
     }
 
     /// Sends `message` in a new chat and reads the turn to its end.
     async fn turn(&self, message: &str) -> Turn {
-        let node = Node::bind(
-            SecretKey::generate(),
-            self.router.endpoint().addr(),
-            Arc::new(|_| true),
-        )
-        .await
-        .expect("the phone endpoint binds");
-        let client = node.connect().await.expect("the phone connects");
+        let client = Client::new(self.apps.url(), SecretKey::generate()).expect("a phone client");
         let chat = Chat {
             session_id: Uuid::new_v4(),
             request_id: Uuid::new_v4(),

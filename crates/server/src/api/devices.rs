@@ -16,7 +16,7 @@ use tokio::time::sleep;
 
 /// How long a join code works.
 const INVITE_TTL: Duration = Duration::from_secs(10 * 60);
-/// How long joining keys keep their connections, so the reply gets there first.
+/// How long joining keys keep their events streams, so the reply gets there first.
 const REJOIN_AFTER: Duration = Duration::from_secs(1);
 
 pub(super) async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {
@@ -26,7 +26,7 @@ pub(super) async fn register_device(cx: Cx, req: RegisterDevice) -> Reply<()> {
         Some(ApnsEnvironment::Production {}) => PushService::ApnsProduction,
     };
     let device = PushDevice {
-        endpoint: cx.connection.remote_id(),
+        endpoint: cx.key,
         device_id: &req.device_id,
         token: &req.fcm_token,
         service,
@@ -41,7 +41,7 @@ pub(super) async fn unregister_device(cx: Cx, req: UnregisterDevice) -> Reply<()
 
 /// Links a computer whose offer the caller scanned.
 pub(super) async fn link_device(cx: Cx, LinkDevice { offer }: LinkDevice) -> Reply<LinkedDevice> {
-    let server = cx.pusher.server_id();
+    let server = cx.server;
     offer
         .verify(server, SystemTime::now())
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
@@ -78,7 +78,7 @@ pub(super) async fn list_devices(cx: Cx, _: ListDevices) -> Reply<Vec<LinkedDevi
 
 /// The primary key removes any linked one; a linked key only itself.
 pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> Reply<()> {
-    let caller = cx.connection.remote_id();
+    let caller = cx.key;
     if !cx.primary && id != caller.to_string() {
         return Err(ApiError::Unauthorized {});
     }
@@ -96,7 +96,9 @@ pub(super) async fn unlink(cx: &Cx, key: EndpointId) -> Reply<()> {
         .await?
         .ok_or(ApiError::NotFound {})?;
     cx.user.changed("");
-    cx.pusher.forget(key);
+    if let Err(e) = cx.app.store.end_streams(&key).await {
+        log::warn!("the streams of a removed device were not ended: {e:#}");
+    }
     cx.app.nodes.forget(&key, CLOSE_REVOKED);
     machine_removed(&cx.app, &cx.user, &removed).await;
     // The machines that synced projects with it stop pulling from it.
@@ -117,10 +119,7 @@ pub(super) async fn invite_device(
             "the device name is empty or too long",
         ));
     }
-    let invite = cx
-        .user
-        .create_invite(&cx.connection.remote_id(), name, INVITE_TTL)
-        .await?;
+    let invite = cx.user.create_invite(&cx.key, name, INVITE_TTL).await?;
     Ok(DeviceInvite {
         uri: link::join_uri(&invite.code),
         code: invite.code,
@@ -155,12 +154,12 @@ async fn inviter(cx: &Cx, code: &str) -> Result<Inviter, ApiError> {
 
 /// A website address for attaching a login to the caller's account.
 pub(super) async fn start_login(cx: Cx, StartLogin { device }: StartLogin) -> Reply<SecretText> {
-    login::start(&cx.app, &cx.connection.remote_id(), &device).await
+    login::start(&cx.app, &cx.key, &device).await
 }
 
 /// Attaches the login in `token` to the caller's account.
 pub(super) async fn complete_login(cx: Cx, CompleteLogin { token }: CompleteLogin) -> Reply<()> {
-    let key = guest::new_key(&cx.connection, &cx.client);
+    let key = guest::new_key(cx.key, cx.platform);
     login::complete(&cx.app, key, token.expose()).await
 }
 
@@ -190,11 +189,14 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
             for key in keys.iter().filter_map(|key| key.parse::<EndpointId>().ok()) {
                 cx.app.nodes.forget(&key, 0);
             }
-            let pusher = cx.pusher.clone();
+            // Its apps open their events streams again, as the account it joined.
+            let store = cx.app.store.clone();
             tokio::spawn(async move {
                 sleep(REJOIN_AFTER).await;
-                for key in keys.iter().filter_map(|key| key.parse().ok()) {
-                    pusher.reconnect(key);
+                for key in keys.iter().filter_map(|key| key.parse::<EndpointId>().ok()) {
+                    if let Err(e) = store.end_streams(&key).await {
+                        log::warn!("the streams of a moved device were not ended: {e:#}");
+                    }
                 }
             });
             Ok(())
@@ -211,7 +213,7 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
 
 fn linked_device(cx: &Cx, key: AccountKey) -> LinkedDevice {
     LinkedDevice {
-        this_device: key.endpoint_id == cx.connection.remote_id().to_string(),
+        this_device: key.endpoint_id == cx.key.to_string(),
         id: key.endpoint_id,
         name: key.name,
         kind: key.kind,

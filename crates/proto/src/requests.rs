@@ -1,14 +1,14 @@
 //! Every request the apps can send: its op, its fields and its reply.
 //!
-//! Each request is a struct declared in `requests!`. Op numbers are never
-//! reused, and a request only gains `#[serde(default)]` fields at its end.
+//! Each request is a struct declared in `requests!`, sent to `http::path`.
+//! Op numbers are never reused, and a request only gains fields that
+//! default (`#[serde(default)]`, or an `Option`).
 
-use crate::{link::LinkOffer, wire, *};
+use crate::{link::LinkOffer, *};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::fmt;
 use uuid::Uuid;
 
-/// A request type. Its frame starts with `OP`; the body is the struct's fields.
+/// A request type, sent to the path its `OP` names.
 pub trait Rpc: Serialize + DeserializeOwned + Send + 'static {
     const OP: Op;
 }
@@ -18,23 +18,18 @@ pub trait Call: Rpc {
     type Reply: Serialize + DeserializeOwned + Send + Sync + 'static;
 }
 
-/// A request answered by any number of replies, ended by finishing the stream.
+/// A request answered by any number of replies, ended by ending the body.
 pub trait Stream: Rpc {
     type Reply: Serialize + DeserializeOwned + Send + Sync + 'static;
 }
 
 /// A `Stream` request that also sends: after its request frame, the
-/// client sends any number of `Up` frames and finishes its side when done.
+/// client sends any number of `Up` frames and ends its body when done.
 pub trait Duplex: Stream {
     type Up: Serialize + DeserializeOwned + Send + Sync + 'static;
 }
 
 requests! {
-    /// Opens every connection: the server reads it before any other stream,
-    /// and sends nothing newer than `wire` on the connection. Clients from
-    /// before it never send it and read wire 1. A `Hello` later in a
-    /// connection changes nothing.
-    0 Hello { wire: u32, platform: Option<Platform>, version: Option<String> } => Call<()>
     1 Health {} => Call<()>
     /// Starts a run and streams its events, starting with `RunStarted`. Resending
     /// the same `request_id` follows the existing run instead of starting another.
@@ -106,7 +101,6 @@ requests! {
     /// `place` is the phone's reverse-geocoded name for the fix, such as
     /// "Shinjuku, Tokyo, Japan", when it has one.
     21 UpdateLocation { latitude: f64, longitude: f64, accuracy: f64, timezone: String, place: Option<String> } => Call<()>
-    23 StreamNotifications {} => Stream<Notice>
     /// The curated apps the assistant can use, with this user's connection state.
     28 ListApps {} => Call<Vec<AppIntegration>>
     /// Starts OAuth for an app; open the returned URL in a browser.
@@ -251,9 +245,6 @@ requests! {
     /// holds, oldest first. A client starts from 0 and calls again with
     /// `UpdatePage::last` while `more` is set.
     79 GetUpdates { after: i64 } => Call<UpdatePage>
-    /// The caller's newest update id now and whenever it changes, so a
-    /// client knows when to call `GetUpdates`.
-    80 StreamUpdates {} => Stream<i64>
     /// The caller's skills and those of every group they are in, the
     /// caller's own first, each most recently used first.
     81 ListSkills {} => Call<Vec<Skill>>
@@ -1304,28 +1295,31 @@ requests! {
     /// Deletes alerts with their sessions, by `Alert::session_id`. A session
     /// that is a chat now is kept. Ids the caller does not have are skipped.
     424 DismissAlerts { ids: Vec<Uuid> } => Call<()>
+    /// Says the caller's app took `AppEvent::Notice` `id` off its events
+    /// stream. A phone that does not within a few seconds gets the notice
+    /// through FCM or APNs too. An id the caller does not have is skipped.
+    425 AckNotice { id: i64 } => Call<()>
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    impl Feature {
-        const LATER: Feature = Feature(u32::MAX);
-    }
-
-    wire_enum! {
-        #[derive(Debug, Clone, PartialEq)]
-        pub enum Shape {
-            0 Old { size: u32 }
-            1 New {} since LATER
-        }
-    }
-
     #[test]
-    fn a_gated_variant_is_left_out_of_older_samples() {
-        use compat::Sample;
-        assert_eq!(Shape::samples(1), [Shape::Old { size: 42 }]);
-        assert_eq!(Shape::samples(u32::MAX).len(), 2);
+    fn a_request_reads_without_the_fields_that_default() {
+        #[derive(Serialize)]
+        struct Old {
+            group_id: String,
+            request_id: Uuid,
+            message: String,
+        }
+        let old = Old {
+            group_id: "g1".into(),
+            request_id: Uuid::new_v4(),
+            message: "hi".into(),
+        };
+        let decoded: SendToGroup = http::decode(&http::encode(&old).unwrap()).unwrap();
+        assert_eq!(decoded.message, "hi");
+        assert!(decoded.images.is_empty());
     }
 }

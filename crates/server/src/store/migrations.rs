@@ -432,6 +432,11 @@ pub(super) const MIGRATIONS: &[(i64, &str, &str)] = &[
         "chat alerts",
         include_str!("../../migrations/0101_chat_alerts.sql"),
     ),
+    (
+        102,
+        "app notices",
+        include_str!("../../migrations/0102_app_notices.sql"),
+    ),
 ];
 
 /// The last migration before the transcript backfill runs.

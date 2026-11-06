@@ -79,6 +79,7 @@ async fn every_table_with_an_owner_is_merged() {
 
 /// Rows both accounts get (`{t}` tag, `{chat}` their chat); per-user keys match.
 const BOTH: &[&str] = &[
+    "INSERT INTO app_notices (user_id, notice, reach) VALUES ($1, decode('80', 'hex'), 'everyone')",
     "INSERT INTO actions (user_id, description) VALUES ($1, 'action {t}')",
     "INSERT INTO files (id, user_id, name, mime, data)
      VALUES ('file-{t}', $1, 'a.png', 'image/png', decode('00', 'hex'))",

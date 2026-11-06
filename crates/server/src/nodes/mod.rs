@@ -27,6 +27,9 @@ use tokio::{
     time::{Instant, timeout_at},
 };
 
+/// How long a node has to send what a stream opens with.
+pub(crate) const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
 mod agent;
 mod alerts;
 mod deliver;

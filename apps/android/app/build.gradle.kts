@@ -17,17 +17,17 @@ android {
         targetSdk = 36
         // CI passes a growing number, since Play refuses a version code it has seen before.
         versionCode = providers.gradleProperty("beepVersionCode").orNull?.toInt() ?: 5
-        versionName = "0.1.13"
+        versionName = "0.1.14"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
         // The server this build talks to, so a new install needs no setup. `just bake-profile`
-        // writes it from the server log; -PbeepNodeId overrides it.
+        // writes it; -PbeepServerUrl overrides it.
         val profile = rootProject.file("../../.dev/android-assets/testing-profile.json")
-        val nodeId = providers.gradleProperty("beepNodeId").orNull
-            ?: profile.takeIf { it.exists() }?.readText()
-                ?.let { Regex("\"node_id\"\\s*:\\s*\"([0-9a-f]{64})\"").find(it)?.groupValues?.get(1) }
+            .takeIf { it.exists() }?.readText()
+        val serverUrl = providers.gradleProperty("beepServerUrl").orNull
+            ?: profile?.let { Regex("\"server_url\"\\s*:\\s*\"([^\"]+)\"").find(it)?.groupValues?.get(1) }
             ?: ""
-        buildConfigField("String", "SERVER_NODE_ID", "\"$nodeId\"")
+        buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
     }
     androidResources { localeFilters += "en" }
     // CI writes keystore.properties from secrets. Without it a release build is signed with

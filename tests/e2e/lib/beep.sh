@@ -108,7 +108,7 @@ EOF"
 
 # probe <args...> : beep-probe on the server VM, signed in as the phone.
 probe(){
-  on server "BEEP_IDENTITY=~/beep/state/phone-key ~/beep/bin/beep-probe $SERVER_ID $*"
+  on server "BEEP_IDENTITY=~/beep/state/phone-key ~/beep/bin/beep-probe http://127.0.0.1:47122 $*"
 }
 
 # link_node <role> : make a setup token, link the role's node with it, start

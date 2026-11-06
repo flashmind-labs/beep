@@ -8,10 +8,10 @@ import com.google.android.gms.auth.blockstore.StoreBytesData
 import kotlinx.coroutines.tasks.await
 
 /** An identity found in the user's Google account, with the server it used. */
-class CloudIdentity(val identity: ByteArray, val nodeId: String)
+class CloudIdentity(val identity: ByteArray, val serverUrl: String)
 
 /**
- * Keeps the iroh identity and the server's node ID in Google Block Store,
+ * Keeps the iroh identity and the server's address in Google Block Store,
  * which encrypts them end to end with the screen lock and restores them on
  * a new phone signed into the same account. That key is the whole account,
  * so restoring it signs the user back in.
@@ -28,11 +28,11 @@ class CloudBackup(context: Context) {
     }
 
     /** Returns whether the identity is now in the backup. */
-    suspend fun save(identity: ByteArray, nodeId: String): Boolean {
+    suspend fun save(identity: ByteArray, serverUrl: String): Boolean {
         if (!available()) return false
         return try {
             store(IDENTITY, identity)
-            store(SERVER, nodeId.toByteArray())
+            store(SERVER, serverUrl.toByteArray())
             true
         } catch (failure: Exception) {
             Log.w(TAG, "Could not save the cloud backup", failure)

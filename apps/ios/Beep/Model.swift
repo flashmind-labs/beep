@@ -263,7 +263,7 @@ final class AppModel {
             while !Task.isCancelled {
                 attempt += 1
                 do {
-                    let fresh = try client ?? BeepClient(nodeId: BeepConfig.nodeId, identity: identity, appVersion: Self.appVersion)
+                    let fresh = try client ?? BeepClient(serverUrl: BeepConfig.serverUrl, identity: identity, appVersion: Self.appVersion)
                     if client == nil { fresh.setListener(listener: notifier) }
                     client = fresh
                     try await fresh.health()
@@ -1553,7 +1553,7 @@ final class AppModel {
     func importKey(_ text: String) async throws {
         guard let key = Identity.parse(text) else { throw BeepError.BadRequest(reason: "This file has no key") }
         if key == identity { return }
-        let trial = try BeepClient(nodeId: BeepConfig.nodeId, identity: key, appVersion: Self.appVersion)
+        let trial = try BeepClient(serverUrl: BeepConfig.serverUrl, identity: key, appVersion: Self.appVersion)
         trial.setListener(listener: notifier)
         try await trial.health()
         Identity.save(key)

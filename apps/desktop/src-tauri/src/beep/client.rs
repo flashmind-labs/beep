@@ -1,5 +1,6 @@
-//! `Beep`: one iroh node for the app's life, a connection to the server
-//! opened on demand, and the state saved between launches.
+//! `Beep`: the server's client, made once and reached over HTTPS when a call
+//! needs it, its events stream while linked, and the state saved between
+//! launches.
 
 use crate::{
     agents::work_copy::Copies,
@@ -10,10 +11,12 @@ use crate::{
     projects::known,
 };
 use beep_proto::{
-    ApiError, Call, Duplex, GetFile, ListChats, ListSessions, Notice, Platform, RemoveDevice,
+    AppEvent, Call, Duplex, GetFile, ListChats, ListSessions, Notice, Platform, RemoveDevice,
     SearchChats, SearchSessions, Session, SessionMatch, Stream, TRANSCRIBE_RATE, Transcribe,
     Transcription,
-    client::{Client, Node, OnNotice, PushHandler, Replies, Uplink},
+    client::{Client, Replies, Uplink, refusal},
+    follow::{Follow, OnEvent},
+    http::Refusal,
 };
 use iroh::{Endpoint, EndpointId, SecretKey};
 use serde_bytes::ByteBuf;
@@ -24,30 +27,44 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
-use tokio::{sync::mpsc, time::timeout};
+use tokio::{
+    sync::{mpsc, watch},
+    time::timeout,
+};
 use uuid::Uuid;
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
-/// The notices the server pushes, for the app to show.
+/// The notices the server sends, for the app to show.
 pub type Notices = mpsc::UnboundedReceiver<Notice>;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
-/// How long opening a connection may take, all of it: the dial and the
-/// first stream. Without a limit an unreachable server held the client
-/// lock, and every call behind it, for good.
+/// How long reaching a server may take. Without a limit an unreachable
+/// server held every call behind it for good.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Chats remembered as live ones, for the mic in the chat list.
 const MAX_LIVE_CHATS: usize = 200;
 
+/// Where the server answers: `BEEP_SERVER_URL` at build time, else a
+/// server on this Mac.
+fn server_url() -> &'static str {
+    option_env!("BEEP_SERVER_URL").unwrap_or("http://127.0.0.1:47122")
+}
+
 pub struct Beep {
-    /// The one iroh endpoint of the app, which the mesh, the node link and
-    /// a server's notices share.
+    /// The one iroh endpoint of the app, which the mesh and the node link
+    /// share.
     endpoint: Endpoint,
-    /// The link to the server, if this app has one.
-    server: Option<Server>,
+    /// The server's client, if this app has a server.
+    server: Option<Arc<Client>>,
     pub(super) identity: Identity,
-    client: AsyncMutex<Option<Arc<Client>>>,
+    /// The events stream, followed from the first call while linked until
+    /// a sign-out.
+    follow: Mutex<Option<Follow>>,
+    notices: mpsc::UnboundedSender<Notice>,
+    /// The newest update id the events stream named, None while none is
+    /// followed.
+    updates: watch::Sender<Option<i64>>,
     saved: Mutex<Saved>,
     file: StateFile,
     /// The group the bar shows, so its messages do not also notify.
@@ -56,41 +73,35 @@ pub struct Beep {
     copies: Copies,
 }
 
-/// A server this app talks to.
-struct Server {
-    node: Node,
-    id: EndpointId,
-    /// What takes its notices on the endpoint.
-    push: PushHandler,
-}
-
 impl Beep {
-    /// The app on `endpoint`, with a server or none. Binds nothing and
-    /// reaches nothing: a connection opens when a call needs one.
+    /// The app on `endpoint`, with the server at its address or none.
+    /// Reaches nothing: a call reaches the server when it needs it.
     pub fn start(
         endpoint: Endpoint,
         identity: Identity,
-        server: Option<EndpointId>,
+        server: bool,
         file: StateFile,
         chats: Chats,
     ) -> (Arc<Self>, Notices) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let on_notice: OnNotice = Arc::new(move |notice| tx.send(notice).is_ok());
-        let server = server.map(|id| {
-            let (node, push) = Node::on_endpoint(endpoint.clone(), id, on_notice);
-            Server {
-                node: node.with_app(Platform::Macos {}, env!("CARGO_PKG_VERSION")),
-                id,
-                push,
-            }
-        });
+        let server = server
+            .then(|| new_client(&identity))
+            .and_then(|made| match made {
+                Ok(client) => Some(Arc::new(client)),
+                Err(e) => {
+                    log::warn!("the server's address is not valid: {e:#}");
+                    None
+                }
+            });
         let saved = file.load();
         (
             Arc::new(Self {
                 endpoint,
                 server,
                 identity,
-                client: AsyncMutex::new(None),
+                follow: Mutex::new(None),
+                notices: tx,
+                updates: watch::Sender::new(None),
                 saved: Mutex::new(saved),
                 file,
                 group: Mutex::new(None),
@@ -120,17 +131,20 @@ impl Beep {
         &self.endpoint
     }
 
-    /// The server this app talks to now, if it has one. None while signed
-    /// out, so what mirrors changes to the server leaves it alone.
-    pub fn server(&self) -> Option<EndpointId> {
-        self.server
-            .as_ref()
-            .filter(|_| !self.signed_out())
-            .map(|server| server.id)
+    /// Whether this app talks to a server now. Not while signed out, so
+    /// what mirrors changes to the server leaves it alone.
+    pub fn has_server(&self) -> bool {
+        self.server.is_some() && !self.signed_out()
     }
 
-    /// Whether this app is linked to a server: one is set and the link code
-    /// was used. The built-in server id alone is not a link.
+    /// The server's key, as the server at this app's address says.
+    pub(crate) async fn server_id(&self) -> Result<EndpointId> {
+        let client = self.reach()?;
+        connect_in_time(client.server_id(), CONNECT_TIMEOUT).await
+    }
+
+    /// Whether this app is linked to a server: it has one and the link code
+    /// was used. A server alone is not a link.
     pub fn linked(&self) -> bool {
         self.server.is_some() && self.link_state() == LinkState::Linked
     }
@@ -150,20 +164,15 @@ impl Beep {
         self.saved().unlinks.clone()
     }
 
-    /// What takes the server's notices on the endpoint, for the router.
-    pub fn push(&self) -> Option<PushHandler> {
-        self.server.as_ref().map(|server| server.push.clone())
-    }
-
-    /// The server's side of the app, or `NoServer`. A Mac signed out gets
+    /// The server's client, or `NoServer`. A Mac signed out gets
     /// `Unlinked`, the answer of one with no account, so every path that
     /// works without a server works the same.
-    fn node(&self) -> Result<&Node> {
-        let server = self.server.as_ref().ok_or(DesktopError::NoServer)?;
+    fn reach(&self) -> Result<Arc<Client>> {
+        let client = self.server.as_ref().ok_or(DesktopError::NoServer)?;
         if self.signed_out() {
             return Err(DesktopError::Unlinked);
         }
-        Ok(&server.node)
+        Ok(client.clone())
     }
 
     pub fn use_mac(&self) -> bool {
@@ -217,14 +226,12 @@ impl Beep {
         self.update_saved(|s| s.signed_out = signed_out);
     }
 
-    /// Signs out: no call is made from now on, and the connection open
-    /// closes, ending the streams on it. The key and the link are kept, so
-    /// signing in returns to the same account.
+    /// Signs out: no call is made from now on, and the events stream ends.
+    /// The key and the link are kept, so signing in returns to the same
+    /// account.
     pub(super) async fn sign_out(&self) {
         self.set_signed_out(true);
-        if let Some(client) = self.client.lock().await.take() {
-            client.close();
-        }
+        self.stop_events();
     }
 
     pub fn session(&self) -> Option<String> {
@@ -319,94 +326,111 @@ impl Beep {
         *self.group.lock().unwrap_or_else(PoisonError::into_inner) = group;
     }
 
-    /// The open connection, or a new one. Never connects while unlinked, so
-    /// the server does not make this key an account of its own.
+    /// The server's client, following its events. Never calls while
+    /// unlinked, so the server does not make this key an account of its own.
     async fn client(&self) -> Result<Arc<Client>> {
-        self.node()?;
+        let client = self.reach()?;
         match self.link_state() {
             LinkState::Unlinked => return Err(DesktopError::Unlinked),
             LinkState::Revoked => return Err(DesktopError::Revoked),
             LinkState::Linked => {}
         }
-        self.connection().await
+        self.follow_events(&client);
+        Ok(client)
     }
 
-    /// The open connection, or a new one, whatever the link state.
-    async fn connection(&self) -> Result<Arc<Client>> {
-        let node = self.node()?;
-        let mut cached = self.client.lock().await;
-        if let Some(client) = cached.as_ref() {
-            if client.is_revoked() {
-                self.set_link_state(LinkState::Revoked);
-                return Err(DesktopError::Revoked);
-            }
-            if !client.is_closed() {
-                return Ok(client.clone());
-            }
+    /// Opens the events stream if none is followed.
+    fn follow_events(&self, client: &Arc<Client>) {
+        let mut follow = self.follow.lock().unwrap_or_else(PoisonError::into_inner);
+        if follow.is_some() {
+            return;
         }
-        // A closed or revoked client is not kept while a new one is made,
-        // so a connect that fails leaves nothing behind.
-        *cached = None;
-        let client = Arc::new(connect_in_time(node.connect(), CONNECT_TIMEOUT).await?);
-        *cached = Some(client.clone());
-        Ok(client)
+        let notices = self.notices.clone();
+        let updates = self.updates.clone();
+        let on_event: OnEvent = Arc::new(move |event| match event {
+            AppEvent::Notice { notice, .. } => notices.send(*notice).is_ok(),
+            AppEvent::Updated { last } => {
+                updates.send_replace(Some(last));
+                false
+            }
+            AppEvent::Heartbeat {} | AppEvent::Resume { .. } => false,
+        });
+        *follow = Some(Follow::start(client.clone(), on_event));
+    }
+
+    /// Ends the events stream; the next call opens it again.
+    fn stop_events(&self) {
+        let stopped = self
+            .follow
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        drop(stopped);
+        self.updates.send_replace(None);
+    }
+
+    /// Whether the events stream is followed.
+    #[cfg(test)]
+    fn following(&self) -> bool {
+        self.follow
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    }
+
+    /// The newest update id, each time the events stream names one. It
+    /// reads None once the stream is no longer followed.
+    pub(super) async fn watch_updates(&self) -> Result<watch::Receiver<Option<i64>>> {
+        self.client().await?;
+        let mut updates = self.updates.subscribe();
+        updates.mark_changed();
+        Ok(updates)
     }
 
     /// Whether the server has hosted sign-in. Makes no account on one without.
     pub(super) async fn has_login(&self) -> bool {
-        match self.node() {
-            Ok(node) => node.has_login().await,
+        match self.reach() {
+            Ok(client) => client.has_login().await,
             Err(_) => false,
         }
     }
 
     /// `call` for a key that may have no account yet, which only a server
-    /// that took it as a guest answers. A connection that went away is
-    /// replaced once, with the same key.
+    /// that took it as a guest answers.
     pub(super) async fn guest_call<R: Call>(&self, request: R) -> Result<R::Reply> {
-        let mut client = self.connection().await?;
-        let mut reply = timeout(CALL_TIMEOUT, client.call(&request)).await;
-        if matches!(&reply, Ok(Err(e)) if e.downcast_ref::<ApiError>().is_none()) {
-            self.forget_connection().await;
-            client = self.connection().await?;
-            reply = timeout(CALL_TIMEOUT, client.call(&request)).await;
-        }
-        match reply {
+        let client = self.reach()?;
+        match timeout(CALL_TIMEOUT, client.call(&request)).await {
             Ok(Ok(reply)) => Ok(reply),
-            Ok(Err(e)) => Err(self.failed(e).await),
+            Ok(Err(e)) => Err(self.failed(e)),
             Err(_) => Err(DesktopError::BadRequest("the server took too long".into())),
         }
     }
 
-    /// Drops the connection, so the next call opens a new one.
-    pub(super) async fn forget_connection(&self) {
-        *self.client.lock().await = None;
+    /// Opens the events stream again on the next call, as the account the
+    /// key is on now.
+    pub(super) fn restart_events(&self) {
+        self.stop_events();
     }
 
-    /// Connects to another server, to try it before choosing it.
+    /// A client for another server, to try it before choosing it. Only the
+    /// server at this app's address can be chosen: a link code names a
+    /// server, not where it answers.
     pub(super) async fn connect_to(&self, server: EndpointId) -> Result<Client> {
-        connect_in_time(self.node()?.connect_to(server), CONNECT_TIMEOUT).await
-    }
-
-    /// Makes `server` the one this app connects to from the next launch.
-    pub(super) fn choose_server(&self, server: EndpointId, link: LinkState) {
-        self.update_saved(|s| {
-            s.server = Some(server);
-            s.link = link;
-            s.signed_out = false;
-        });
+        let client = new_client(&self.identity)?;
+        let id = connect_in_time(client.server_id(), CONNECT_TIMEOUT).await?;
+        if id != server {
+            return Err(DesktopError::BadRequest(
+                "this Mac does not know where that server answers".into(),
+            ));
+        }
+        Ok(client)
     }
 
     /// Maps a failed request, marking the key revoked when the server said so.
-    pub(super) async fn failed(&self, e: anyhow::Error) -> DesktopError {
-        let revoked = self
-            .client
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|c| c.is_revoked());
-        if revoked {
+    pub(super) fn failed(&self, e: anyhow::Error) -> DesktopError {
+        if refusal(&e) == Some(Refusal::Revoked) {
             self.set_link_state(LinkState::Revoked);
+            self.stop_events();
             return DesktopError::Revoked;
         }
         e.into()
@@ -421,7 +445,7 @@ impl Beep {
         let client = self.client().await?;
         match timeout(limit, client.call(&request)).await {
             Ok(Ok(reply)) => Ok(reply),
-            Ok(Err(e)) => Err(self.failed(e).await),
+            Ok(Err(e)) => Err(self.failed(e)),
             Err(_) => Err(DesktopError::BadRequest("the server took too long".into())),
         }
     }
@@ -430,7 +454,7 @@ impl Beep {
         let client = self.client().await?;
         match client.stream(&request).await {
             Ok(replies) => Ok(replies),
-            Err(e) => Err(self.failed(e).await),
+            Err(e) => Err(self.failed(e)),
         }
     }
 
@@ -443,7 +467,7 @@ impl Beep {
         let client = self.client().await?;
         match client.duplex(&request).await {
             Ok(opened) => Ok(opened),
-            Err(e) => Err(self.failed(e).await),
+            Err(e) => Err(self.failed(e)),
         }
     }
 
@@ -461,6 +485,7 @@ impl Beep {
         let id = self.id().to_string();
         self.call(RemoveDevice { id }).await?;
         self.set_link_state(LinkState::Revoked);
+        self.stop_events();
         Ok(())
     }
 
@@ -539,6 +564,12 @@ impl Beep {
     }
 }
 
+/// The server's client, signing as `identity`.
+fn new_client(identity: &Identity) -> Result<Client> {
+    Ok(Client::new(server_url(), secret_key(identity))?
+        .with_app(Platform::Macos {}, env!("CARGO_PKG_VERSION")))
+}
+
 /// What `connect` makes, or an error once `limit` passes without it.
 async fn connect_in_time<T>(
     connect: impl Future<Output = anyhow::Result<T>>,
@@ -566,10 +597,10 @@ mod tests {
     /// The app on a loopback endpoint with no relay, so nothing reaches a
     /// network, and no server.
     async fn without_server(dir: &TempDir) -> Arc<Beep> {
-        app(dir, None).await
+        app(dir, false).await
     }
 
-    async fn app(dir: &TempDir, server: Option<EndpointId>) -> Arc<Beep> {
+    async fn app(dir: &TempDir, server: bool) -> Arc<Beep> {
         let identity = load_or_create(&dir.path().join("identity.key")).expect("a key is made");
         let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
@@ -592,8 +623,7 @@ mod tests {
     async fn a_request_only_a_server_answers_says_there_is_none() {
         let dir = TempDir::new().expect("a temp dir");
         let beep = without_server(&dir).await;
-        assert_eq!(beep.server(), None);
-        assert!(beep.push().is_none());
+        assert!(!beep.has_server());
         // Linked or not, there is nothing to connect to.
         for link in [LinkState::Unlinked, LinkState::Linked, LinkState::Revoked] {
             beep.set_link_state(link);
@@ -601,7 +631,7 @@ mod tests {
             assert!(matches!(error, DesktopError::NoServer), "{error:?}");
         }
         assert!(matches!(
-            beep.link_offer("Studio"),
+            beep.link_offer("Studio").await,
             Err(DesktopError::NoServer)
         ));
         assert!(!beep.has_login().await);
@@ -610,18 +640,17 @@ mod tests {
     #[tokio::test]
     async fn a_signed_out_mac_connects_to_nothing_and_signs_back_in_with_its_key() {
         let dir = TempDir::new().expect("a temp dir");
-        let server = SecretKey::generate().public();
         // A file as an earlier run left it: linked, then signed out.
         fs::write(
             dir.path().join("state.json"),
             r#"{"link":"linked","signed_out":true}"#,
         )
         .expect("the state is written");
-        let beep = app(&dir, Some(server)).await;
+        let beep = app(&dir, true).await;
         assert!(beep.signed_out());
         assert_eq!(beep.link_state(), LinkState::Unlinked);
         assert!(!beep.linked());
-        assert_eq!(beep.server(), None);
+        assert!(!beep.has_server());
         let error = beep.call(ListSessions {}).await.expect_err("signed out");
         assert!(matches!(error, DesktopError::Unlinked), "{error:?}");
         let error = beep
@@ -630,15 +659,12 @@ mod tests {
             .expect_err("signed out");
         assert!(matches!(error, DesktopError::Unlinked), "{error:?}");
         assert!(!beep.has_login().await);
-        assert!(
-            beep.client.lock().await.is_none(),
-            "no connection was opened"
-        );
+        assert!(!beep.following(), "no events stream was opened");
         // Signing in again is the one change: the same link, the same key.
         beep.set_signed_out(false);
         assert!(!beep.signed_out());
         assert!(beep.linked());
-        assert_eq!(beep.server(), Some(server));
+        assert!(beep.has_server());
         // The link set while signed out ends the sign-out.
         beep.sign_out().await;
         assert!(beep.signed_out());
@@ -656,33 +682,27 @@ mod tests {
             format!(r#"{{"link":"linked","server":"{server}"}}"#),
         )
         .expect("the state is written");
-        let used = crate::beep::server_to_use(false, Some(server), "").expect("a choice");
-        let beep = app(&dir, used).await;
+        let beep = app(&dir, false).await;
         assert_eq!(beep.link_state(), LinkState::Unlinked);
         assert!(!beep.linked());
-        assert_eq!(beep.server(), None);
-        assert!(beep.push().is_none());
+        assert!(!beep.has_server());
         let error = beep.call(ListSessions {}).await.expect_err("no server");
         assert!(matches!(error, DesktopError::NoServer), "{error:?}");
-        assert!(
-            beep.client.lock().await.is_none(),
-            "no connection was opened"
-        );
+        assert!(!beep.following(), "no events stream was opened");
         // The saved link is kept for the day the switch is on.
         let saved = fs::read_to_string(dir.path().join("state.json")).expect("state is kept");
         assert!(saved.contains("linked"));
     }
 
     #[tokio::test]
-    async fn a_server_id_is_a_link_only_once_the_app_is_linked() {
+    async fn a_server_is_a_link_only_once_the_app_is_linked() {
         let dir = TempDir::new().expect("a temp dir");
         let none = without_server(&dir).await;
         none.set_link_state(LinkState::Linked);
         assert!(!none.linked(), "a link with no server is no link");
         let dir = TempDir::new().expect("a temp dir");
-        let built_in = SecretKey::generate().public();
-        let beep = app(&dir, Some(built_in)).await;
-        assert!(!beep.linked(), "a built-in id alone is no link");
+        let beep = app(&dir, true).await;
+        assert!(!beep.linked(), "a server alone is no link");
         beep.set_link_state(LinkState::Linked);
         assert!(beep.linked());
         beep.set_link_state(LinkState::Revoked);

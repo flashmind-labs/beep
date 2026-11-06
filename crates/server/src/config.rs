@@ -5,7 +5,7 @@ use std::{
     env,
     fs::{self, OpenOptions},
     io::{self, Write},
-    net::IpAddr,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     os::unix::fs::OpenOptionsExt,
     path::Path,
     path::PathBuf,
@@ -31,6 +31,9 @@ pub struct Config {
     /// The UDP port iroh binds, for a firewall rule: `SERVER_PORT` unset,
     /// random at 0.
     pub port: Option<u16>,
+    /// Where the apps' plain HTTP listens, for Cloudflare or another proxy in
+    /// front that holds TLS: `127.0.0.1:SERVER_HTTP_PORT` unset.
+    pub http_listen: Option<SocketAddr>,
     /// Postgres connection string. Falls back to `DATABASE_URL`.
     pub database_url: Option<SecretString>,
     pub model: String,
@@ -77,9 +80,9 @@ pub struct Config {
     pub log_dir: Option<PathBuf>,
     /// Unused, kept so old configs load.
     pub sandbox_dir: Option<PathBuf>,
-    /// Firebase service account key file, for phones iroh cannot reach.
+    /// Firebase service account key file, for phones not on their events stream.
     pub fcm_credentials: Option<PathBuf>,
-    /// APNs key, for iPhones iroh cannot reach.
+    /// APNs key, for iPhones not on their events stream.
     pub apns: Option<ApnsConfig>,
     /// Speech and transcription models for voice notes.
     #[serde(default)]
@@ -177,6 +180,14 @@ impl Config {
     }
 
     /// The Postgres connection string from the config or `DATABASE_URL`.
+    /// Where the apps' HTTP listens.
+    pub fn http_listen(&self) -> SocketAddr {
+        self.http_listen.unwrap_or(SocketAddr::from((
+            Ipv4Addr::LOCALHOST,
+            beep_proto::port::SERVER_HTTP_PORT,
+        )))
+    }
+
     pub fn database_url(&self) -> Result<SecretString> {
         if let Some(url) = &self.database_url {
             return Ok(url.clone());

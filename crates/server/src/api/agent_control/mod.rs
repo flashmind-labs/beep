@@ -239,7 +239,7 @@ async fn started_here(cx: &Cx, live: &Live, agent: &str, session: &str) {
         agent,
         session,
     };
-    let device = cx.connection.remote_id();
+    let device = cx.key;
     if let Err(e) = cx.user.record_agent_start(on, &device).await {
         log::warn!("agent start not saved; session={session} error={e:#}");
     }

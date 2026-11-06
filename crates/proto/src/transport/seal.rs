@@ -44,7 +44,7 @@ pub fn seal(to: &EndpointId, notice: &Notice) -> Result<String> {
     OsRng.fill_bytes(&mut secret);
     let one_off = MontgomeryPoint::mul_base_clamped(secret);
     let cipher = cipher(to.mul_clamped(secret), &one_off, &to)?;
-    let plain = rmp_serde::to_vec(notice)?;
+    let plain = crate::http::encode(notice)?;
     let sealed = cipher
         .encrypt(&Nonce::default(), plain.as_slice())
         .map_err(|_| anyhow::anyhow!("sealing a notice failed"))?;

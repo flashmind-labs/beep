@@ -45,7 +45,6 @@ use crate::api::router::Router;
 
 pub fn router() -> Router {
     Router::default()
-        .call(hello)
         .call(health)
         .stream(chat)
         .call(get_run)
@@ -59,6 +58,7 @@ pub fn router() -> Router {
         .call(alerts::list_alerts)
         .call(alerts::read_alerts)
         .call(alerts::dismiss_alerts)
+        .call(ack_notice)
         .call(get_session)
         .call(rename_session)
         .call(delete_session)
@@ -78,7 +78,6 @@ pub fn router() -> Router {
         .call(unregister_device)
         .call(update_location)
         .call(set_timezone)
-        .stream(stream_notifications)
         .call(list_apps)
         .call(connect_app)
         .call(disconnect_app)
@@ -152,7 +151,6 @@ pub fn router() -> Router {
         .call(update_skill)
         .call(delete_skill)
         .call(undo_skill)
-        .stream(stream_updates)
         .call(stock_chart)
         .call(get_research)
         .call(stop_research)

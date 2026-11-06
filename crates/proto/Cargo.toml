@@ -7,6 +7,8 @@ publish = false
 
 [features]
 uniffi = ["dep:uniffi"]
+# The apps' HTTP client of the server.
+client = ["dep:reqwest", "tokio-util/io"]
 # Logging setup for the node and server binaries.
 logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber"]
 
@@ -22,6 +24,7 @@ flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }
 futures = "0.3"
 iroh = "1.3"
 log = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "stream"], optional = true }
 rmp-serde = "1"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
@@ -34,3 +37,6 @@ tracing-log = { version = "0.2", default-features = false, features = ["std", "l
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std", "tracing-log"], optional = true }
 uniffi = { version = "0.32", optional = true }
 uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time", "test-util"] }

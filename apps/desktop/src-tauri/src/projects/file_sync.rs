@@ -81,7 +81,7 @@ pub async fn project_sync(
                 None => Vec::new(),
             };
             // The projects only the server syncs, until they are moved into the mesh.
-            if beep.server().is_some() {
+            if beep.has_server() {
                 match known(beep.call(ListProjectSync {}).await) {
                     Ok(theirs) => {
                         let theirs: Vec<ProjectSync> = theirs
@@ -203,7 +203,7 @@ pub async fn project_sync_detail(
     match desk.sync_detail(&project).await {
         Ok(detail) => Ok(Some(detail.into())),
         // Synced by the server alone, until the project is moved into the mesh.
-        Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
+        Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
             Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
         }
         Err(beep_fleet::FleetError::NotFound) => Ok(Some(SyncDetailView {
@@ -230,7 +230,7 @@ pub async fn project_sync_pause(
     };
     match desk.pause_sync(&project, paused).await {
         Ok(detail) => Ok(detail.into()),
-        Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
+        Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
             let detail = beep.call(PauseProjectSync { project, paused }).await?;
             Ok(detail.into())
         }

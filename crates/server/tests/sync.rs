@@ -16,16 +16,16 @@ use beep_projects::imports::records::{NewImport, SyncRow};
 use beep_server::{
     account::user::User,
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools},
-    client::{Client, Node},
     nodes::{self, Online},
     protocol::{
         ApiError, ConflictKeep, CopyProject, DeviceKind, GetProjectSyncDetail, GetSyncSkipped,
         ListProjectSync, PauseProjectSync, PinProject, ProjectSync, ProjectSyncDetail,
         RemoveDevice, RemoveProject, ResolveSyncConflict, SetProjectSync, SkipRule, SyncStatus,
+        client::Client,
     },
-    push::Pusher,
+    push::Pulse,
     store::{NewKey, TestDb},
 };
 use flashmind::types::{
@@ -79,7 +79,7 @@ struct Server {
     router: Router,
     user: Arc<User>,
     phone: Client,
-    _phone_node: Node,
+    _apps: http::Local,
 }
 
 async fn server() -> Server {
@@ -95,41 +95,32 @@ async fn server() -> Server {
         ServerTools::default(),
         models,
     );
-    let server_endpoint = endpoint(SecretKey::generate()).await;
-    let pusher = Pusher::with_retry_waits(
-        server_endpoint.clone(),
-        Arc::new(store),
-        None,
-        vec![Duration::from_millis(200)],
-    );
+    let server_key = SecretKey::generate();
+    let server_endpoint = endpoint(server_key.clone()).await;
     let server_id = server_endpoint.id();
     let router = Router::builder(server_endpoint)
         .accept(
             nodes::NODE_ALPN,
             nodes::NodeHandler::new(app.clone(), server_id),
         )
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
         .spawn();
+    let apps = http::Local::start(app.clone(), &server_key, Pulse::manual())
+        .await
+        .expect("the apps' HTTP starts");
     let user = app
         .sign_in(&alice.public())
         .await
         .unwrap()
         .expect("a new key is never revoked")
         .user;
-    let phone_node = Node::bind(alice, router.endpoint().addr(), Arc::new(|_| true))
-        .await
-        .expect("a phone binds");
-    let phone = phone_node.connect().await.expect("a phone connects");
+    let phone = Client::new(apps.url(), alice).expect("a phone client");
     Server {
         _db: db,
         app,
         router,
         user,
         phone,
-        _phone_node: phone_node,
+        _apps: apps,
     }
 }
 

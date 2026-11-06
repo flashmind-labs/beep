@@ -55,7 +55,9 @@ there by default, and uploads, downloads and app attachments are saved there.
 Per-user nodes are set up by hand for now.
 
 The production server is deployed from the private ops repo, not from
-here. Desktop and iOS builds pass its node id in `BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
+here. App builds pass its `https://` address in `BEEP_SERVER_URL` (a repository
+variable in CI, `-PbeepServerUrl` for Gradle); TLS vouches for the server, and its
+key comes from the server itself. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
 Moving an account: credentials are entered again on the desktop. A node in the mesh stops
@@ -63,7 +65,7 @@ using the server's credentials and harness values as soon as the account is move
 
 ### The desktop runs without the server for now
 
-`SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back. `MEMORY_TOOLS` (`crates/node/src/agents/mcp/mod.rs`) likewise keeps the memory tools from coding agents.
+`SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back. `MEMORY_TOOLS` (`crates/node/src/agents/mcp/mod.rs`) likewise keeps memories from coding agents: no memory tools, and no standing rules in the first prompt.
 
 `LIVE_ENABLED` (`apps/desktop/src-tauri/src/voice/mod.rs`) is false: the orb window never opens, Option never starts live mode or opens the microphone (two taps still open the bar), and live hints and shortcuts are hidden.
 
@@ -73,14 +75,14 @@ using the server's credentials and harness values as soon as the account is move
 
 - `account`: `User`, single-user instance mode, hosted `login`, guest keys, credentials.
 - `agent`: around a turn: models, metering, compaction, gates, titles, sub-agents.
-- `api`: request handlers, `routes`, the op `router`, the iroh `transport`.
+- `api`: request handlers, `routes`, the op `router`, the apps' `http` and session `auth`.
 - `app`: the `App` hub: admission, `submit`, the turn itself in `run/turn.rs`.
 - `apps`: app catalog, Composio, MCP, `permissions`, `grants`, mail and Slack `feeds`.
 - `config`: the TOML config.
 - `memory`: memories, skills, profile, starters, watchers, the group leak check.
 - `nodes`: node connections (`serve`), linking, per-node requests, the workspace.
 - `projects`: project agent: tasks, workers, reviews, imports, `repo_watch` (polls the forges, no webhooks), `git_items`.
-- `push`: notice delivery, FCM, APNs.
+- `push`: the notice log, events streams (`events`, `hub`), FCM, APNs.
 - `research`: research papers: planning, team tools, PDF.
 - `routines`: what wakes the agent: `cron`, `places`, `events`, `digest`, `wake`.
 - `store`: Postgres queries, one file per kind of row, `migrations`.
@@ -112,11 +114,28 @@ for two minutes.
 
 A `[login]` config section (`website`, `website_key`) makes the server hosted:
 an unknown key is a guest that may call `StartLogin` and `CompleteLogin`
-(`crates/server/src/account/login.rs`, contract in issue #196). It also accepts
-`LOGIN_ALPN`, which is how an app with no account tells a hosted server from
-one that would make its key an account on connecting. Not with `[instance]`.
+(`crates/server/src/account/login.rs`, contract in issue #196). `GET /v1/server`
+says `login: true`, which is how an app with no account tells a hosted server
+from one that would make its key an account on its first call. Not with
+`[instance]`.
 
 ## Deploying the server
+
+The apps' HTTP listens on `http_listen` (default `127.0.0.1:47122`), plain
+HTTP/1.1 and HTTP/2. Put Cloudflare in front for TLS: a Tunnel to that
+address, or a proxied DNS record to an origin port. Cloudflare's gRPC and
+WebSocket settings do not matter, nothing uses them. Cloudflare drops a
+connection idle for 100 s; the 30 s heartbeat keeps the events stream open.
+Turn off response buffering if a zone has it on. Duplex requests (terminals,
+live transcription) send and receive at once; try them through the proxy
+before counting on them. The database URL must be the
+unpooled Neon endpoint (not `-pooler`), since `LISTEN` needs a session.
+
+Scale-out: notices and update ids already cross instances through Postgres.
+What still keeps the server to one instance: runs (a run's stream lives in
+the instance that started it), node links and everything sent to a node
+(agents, terminals, files), live transcription, and the per-user caches in
+`App`. Those need routing by user before a second instance can serve.
 
 Deploys live in the private ops repo. Push to main so CI builds the image,
 then deploy from there. `deploy/compose.yaml` is the self-host example
@@ -186,28 +205,46 @@ names, only the reference.
 `just test` starts the local Postgres and runs the server tests. A plain
 `cargo test -p beep-server` fails without `BEEP_TEST_DATABASE_URL`.
 
+## The apps over HTTP
+
+Phones, desktops and `beep-probe` reach the server over HTTP
+(`crates/proto/src/transport/http.rs`, client in `client.rs`, server in
+`crates/server/src/api/http.rs`). Nodes stay on iroh (`beep-node/2`).
+
+- `GET /v1/server`: the server's id and whether it has `[login]`. No auth.
+- `POST /v1/session`: the app signs `"beep-session/1\0" || server id || key
+  || unix seconds` with its device key and gets a bearer token for an hour.
+  A 401 means get a new one; a 403 with `beep-refused: revoked` or
+  `not-invited` is final. Every request is admitted again, so a removed key
+  is refused at once.
+- `POST /v1/<Request>`: a msgpack body, a msgpack reply. Streams answer with
+  frames: a 4-byte big-endian length, a tag byte (0 ok, 1 error), msgpack.
+  Duplex requests (terminals, live transcription) send untagged frames up the
+  request body.
+- `GET /v1/events?after=<id>`: `Resume`, `Updated`, then `Notice`s and
+  `Updated`s as they happen, and a `Heartbeat` every 30 s. An app that
+  shows a notice sends `AckNotice`; a phone that has not after 5 s gets it
+  by FCM or APNs.
+
+Notices are rows in `app_notices`, so a stream resumes after its last id
+(kept 7 days), and every instance hears them by `LISTEN beep_events`.
+
 ## Wire compatibility
 
 Phones update from Play on their own schedule, so the server must keep
-answering every released app. rmp_serde encodes structs as arrays and refuses
-an element it does not expect, so:
+answering every released app. The apps' wire is named msgpack: structs are
+maps and a reader skips fields it does not know.
 
-- Requests may only gain `#[serde(default)]` fields, always added at the end.
-  Never insert, reorder, retype or remove a field: fields are read
-  by position, so everything after the change would shift. A server skips
-  trailing fields it does not know, so a newer app still works against it
-  (servers from before 196b52f refuse them: deploy the server first).
-- Replies, pushed `Notice`s and streamed enums never change shape. A new field
-  or variant goes behind a new request, or behind a `Feature` the server checks
-  with `cx.supports(...)` (mark a `wire_enum!` variant `since FEATURE`).
-- Request numbers are never reused or removed.
-- Fixtures in `crates/proto/tests/wire/` are append-only. A new request gets
-  them with `BEEP_WIRE_BLESS=1 cargo test -p beep-proto compat`; never edit or
-  delete one to make the test pass.
-
-Every connection opens with `Hello`, which carries the app's `WIRE`; apps from
-before it are wire 1. To ship a new shape, add a `Feature`, raise `WIRE` in
-`crates/proto/src/transport/version.rs`, and bless the new `tests/wire/<n>` directory.
+- New fields take `#[serde(default)]`. Never rename or retype one, and never
+  remove one an app still sends or reads.
+- Reply enums and `AppEvent` gain variants only behind a new request, since
+  a released app refuses a variant it does not know.
+- Request numbers are never reused, and the name in the path never changes.
+- `crates/proto/tests/wire/named/` holds one encoded sample per request;
+  released apps' bytes must keep decoding. A new request gets its fixture
+  with `BEEP_WIRE_BLESS=1 cargo test -p beep-proto compat`; never edit or
+  delete one. The numbered directories are the positional era, kept as
+  history.
 
 Node and mesh messages (the node link, mesh frames and files, mesh state values,
 the terminal host) are compact msgpack with no field names, so their fields are
