@@ -47,7 +47,14 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
     if (from !== undefined) AG.back = from;
-    if (S.view === "agent" && $("#agbody")) return void pollAgent();
+    // Its log may come back from a hidden page, which WebKit shows scrolled
+    // to the top: it goes back to its end, or where the reader left it,
+    // before its scroll handler takes that for the reader's move.
+    const shown = $<ChatBody>("#agbody");
+    if (S.view === "agent" && shown) {
+      shown.scrollTop = returnScroll(shown, shown.top ?? 0);
+      return void pollAgent();
+    }
     if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
