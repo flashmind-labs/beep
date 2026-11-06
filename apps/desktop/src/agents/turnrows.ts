@@ -6,6 +6,7 @@ import { copy } from "../ui/parts.ts";
 import { endedHtml, liveHtml } from "./thoughtlive.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
+import { onShownChange, pageShown } from "../ui/active.ts";
 
 /// `word`, its letters lit one after another in a loop.
 const sweptLabel = (word: string) => `<span class="lb">${[...word].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
@@ -56,15 +57,20 @@ export function turnHeadHtml(t: { state: TurnState; start?: number | null; ms: n
 
 let turnTick: ReturnType<typeof setInterval> | undefined;
 
-/// Moves the running turns' clocks on each second, until none shows.
+/// Moves the running turns' clocks on each second, until none shows or
+/// the window hides.
 export function tickTurns() {
-  if (turnTick || !document.querySelector("[data-since]")) return;
+  if (turnTick || !pageShown() || !document.querySelector("[data-since]")) return;
   turnTick = setInterval(() => {
     const els = document.querySelectorAll<HTMLElement>("[data-since]");
-    if (!els.length) { clearInterval(turnTick); turnTick = undefined; return; }
-    for (const el of els) el.textContent = duration(Date.now() - Number(el.dataset.since));
+    if (!els.length || !pageShown()) { clearInterval(turnTick); turnTick = undefined; return; }
+    for (const el of els) {
+      const text = duration(Date.now() - Number(el.dataset.since));
+      if (el.textContent !== text) el.textContent = text;
+    }
   }, 1000);
 }
+onShownChange(shown => { if (shown) tickTurns(); });
 
 /// A step's mark: done, failed, running or did not finish.
 export function stepMark(status: string, running: boolean) {

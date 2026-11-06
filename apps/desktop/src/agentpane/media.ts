@@ -7,7 +7,7 @@ import { baseName, type Dock, DOCKS, type ImageView, type MediaKind, mediaKind, 
 import { terminalName } from "./files-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
-import { artifactCount, artifactsView, checkArtifacts, pickArtifact, setArtifacts } from "./artifacts.ts";
+import { artifactCount, artifactsView, checkArtifacts, pickArtifact, setArtifacts, showFrames } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
@@ -22,6 +22,7 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { onShownChange } from "../ui/active.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { dragHandle } from "../ui/drag.ts";
@@ -458,6 +459,7 @@ function drawDock(d: Dock, ids: string[]) {
   else if (ids.includes(ARTS)) {
     if (artsEl.parentElement !== views) views.append(artsEl);
     artsEl.hidden = on !== ARTS;
+    showFrames(on === ARTS && !P.layout.hidden[d]);
     if (on === ARTS) checkArtifacts();
   }
   // Subagents redraw each time; a file's view is drawn once and kept.
@@ -474,15 +476,22 @@ function drawDock(d: Dock, ids: string[]) {
     if (!t.el) t.el = viewOf(t);
     if (t.el.parentElement !== views) views.append(t.el);
     const hide = t.id !== on || P.layout.hidden[d];
-    if (hide && !t.el.hidden) {
-      t.el.querySelector("video")?.pause();
-      t.model?.anim?.play(false);
-    }
+    if (hide && !t.el.hidden) stopPlaying(t);
     t.el.hidden = t.id !== on;
     if (!hide) t.model?.resize();
     if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); if (t.id === P.on[d]) t.term?.screen.focus(); });
   }
 }
+
+/// Pauses a tab's video and its model's animation, whose frames would
+/// otherwise keep drawing out of sight.
+function stopPlaying(t: MediaTab) {
+  t.el?.querySelector("video")?.pause();
+  t.model?.anim?.play(false);
+}
+
+// The window hid or the pane went: nothing plays on.
+onShownChange(shown => { if (!shown) for (const t of P.tabs) stopPlaying(t); }, true);
 
 function showTab(d: Dock, id: string) {
   // Shown again, the changes are read again.

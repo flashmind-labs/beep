@@ -2,6 +2,7 @@
 // shows, and now and then in the background.
 import { backgroundTick } from "../ui/pagecache.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { onShownChange, pageShown } from "../ui/active.ts";
 import { withoutDismissed } from "./updates.ts";
 import type { HomeView } from "./home-state.ts";
 import type { MachineTraffic } from "../machines/traffic-state.ts";
@@ -78,8 +79,8 @@ export async function refresh() {
   // Terminals page shows, or before the first list for the sidebar.
   if (state.home?.machines && (onScreen() && (shown === "home" || shown === "terminals") || allTerms.list(ALL) === undefined)) allTerms.load(ALL);
   // A project's agent refreshes with Home: on focus, on notices and every
-  // 10 seconds while the window shows.
-  if (shown === "projects") {
+  // 10 seconds while the window shows; hidden, it waits to show.
+  if (shown === "projects" && onScreen()) {
     drawProjects(projectsEl());
     drawTop();
     if (state.picked) {
@@ -103,14 +104,16 @@ export async function refresh() {
 // "Still connecting" takes over once the wait passes its limit.
 setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 
-/// Closing the main window only hides it (WKWebView may still call a hidden
-/// page visible, so Rust says so).
-let windowHidden = false;
+/// Closing the main window only hides it, and it reads now and then in the
+/// background.
 const BACKGROUND_MS = 4 * 60_000;
 let lastBackground = Date.now();
-export function onScreen() { return !windowHidden && document.visibilityState === "visible"; }
-listen("center-hidden", () => { windowHidden = true; lastBackground = Date.now(); liveMode.follow(null); });
-listen("center-shown", () => { windowHidden = false; refresh(); });
+export const onScreen = pageShown;
+onShownChange(shown => {
+  if (shown) return void refresh();
+  lastBackground = Date.now();
+  liveMode.follow(null);
+});
 setInterval(() => {
   const now = Date.now(), last = lastBackground;
   lastBackground = now;
@@ -119,7 +122,6 @@ setInterval(() => {
 }, BACKGROUND_MS);
 
 window.addEventListener("focus", refresh);
-document.addEventListener("visibilitychange", () => { if (onScreen()) refresh(); });
 setInterval(() => { if (onScreen()) refresh(); }, 10000);
 // Open PRs and issues: the server keeps them a few minutes, so once a minute
 // on Home is plenty.

@@ -10,7 +10,9 @@ import { switchSessionModel } from "../src/agents/modelpill.ts";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 
-(globalThis.document as { visibilityState?: string }).visibilityState = "visible";
+/// Polls follow the session only while the page shows.
+const visible = (on: boolean) => { (globalThis.document as { visibilityState?: string }).visibilityState = on ? "visible" : "hidden"; };
+visible(true);
 
 /// The bar shows only `els`, by selector.
 function show(els: Record<string, unknown>) {
@@ -24,7 +26,8 @@ function openSession(status: string, polls = false): AgentPage {
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
   const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
   S.view = "agent";
-  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, barHidden: !polls, stopping: null });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, stopping: null });
+  visible(polls);
   Object.assign(MN, { paths: [], uploads: [], ask: null });
   calls.length = 0;
   delete answers.agent_steer;
@@ -51,9 +54,9 @@ const steers = () => calls.filter(c => c.cmd === "agent_steer").map(c => (c.args
 /// Reads the session once as `page` says, without following it after.
 async function read(page: AgentPage) {
   answers.agent_view = page;
-  AG.barHidden = false;
+  visible(true);
   await pollAgent();
-  AG.barHidden = true;
+  visible(false);
   clearTimeout(AG.timer);
   await settle();
 }

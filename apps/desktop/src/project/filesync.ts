@@ -9,6 +9,7 @@ import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, reason } from "../ui/format.ts";
+import { pageShown } from "../ui/active.ts";
 import { diffView } from "../review/diff.ts";
 import { compareFiles } from "./compare.ts";
 import { clockWarning, loadClocks } from "../machines/clock.ts";
@@ -359,7 +360,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     polling = name;
     if (!name) return;
     timer = setInterval(() => {
-      if (document.visibilityState === "visible") load(name);
+      if (pageShown()) load(name);
     }, POLL_MS);
   }
 
