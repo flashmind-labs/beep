@@ -200,7 +200,7 @@ function drawParts() {
   drawWhy();
   $$("#agerr").innerHTML = AG.error && !missing ? `<div class="derr">${esc(AG.error)}</div>` : "";
   $$("#aghelp").innerHTML = !AG.hosts ? '<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>' : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
-      <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Run <code>beep-node link</code> there.</li><li>Paste the link it prints into a chat here.</li></ol>
+      <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Add a machine and run the <code>beep-node mesh join</code> command it shows there.</li></ol>
       <div><button class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
   if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") focusEnd(focused);
 }

@@ -554,7 +554,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(beep.clone());
     bar::zoom::apply_saved(&handle, &beep);
     // This Mac's node, and the mesh it is in, which opens in the background.
-    let machine = machines::this_mac::Machine::new(&dir.join("node"), beep.linked());
+    let machine = machines::this_mac::Machine::new(&dir.join("node"));
     let fleet = Arc::new(Fleet::new(
         endpoint,
         &dir.join("node"),

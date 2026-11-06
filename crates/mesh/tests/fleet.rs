@@ -78,7 +78,7 @@ async fn machine(network: bool) -> Machine {
         env: BTreeMap::new(),
         compact: None,
     };
-    let offers = Offers::local(&[agent], Provision::new(dir.path()), false);
+    let offers = Offers::local(&[agent], Provision::new(dir.path()));
     let peers = Peers::new(endpoint, dir.path().to_owned(), "build-box".into(), offers);
     Machine {
         client: PeerClient::local(peers.local_session()),

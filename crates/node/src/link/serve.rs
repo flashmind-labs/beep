@@ -1,0 +1,596 @@
+//! The node at work: its endpoint, the mesh, the agents and their MCP
+//! server, and the sessions devices of the mesh open, until it stops.
+
+use crate::{
+    agents::mcp,
+    agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn, skills::Skills},
+    files::Folders,
+    files::search::Searches,
+    files::transfer::Transfers,
+    link::restart::{self, Reopen},
+    link::state::{Search, State},
+    link::traffic::Traffic,
+    link::watchdog,
+    link::{
+        from_mesh::Membership,
+        peer_tools::{self, Caller},
+        peers::{self, Peers},
+    },
+    lock,
+    machine::provision::Provision,
+    machine::service::logs::Logs,
+    run::shell,
+    run::tasks,
+    run::terminal,
+};
+use anyhow::{Context, Result};
+use beep_mesh::{JOIN_ALPN, PEER_ALPN};
+use beep_proto::node::{
+    LinkRx, LinkTx, Open, Opened, agent, desktop, skills, status, tool_update, tools, version,
+};
+use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
+use std::{
+    future::Future,
+    path::Path,
+    pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tokio::time::timeout;
+use tokio_util::task::AbortOnDropHandle;
+
+/// Set, the node binds with no relay and no discovery service. For tests
+/// that run nodes side by side; a real node must not set it.
+const NO_RELAY: &str = "BEEP_NODE_NO_RELAY";
+/// How long a device has to name a session's protocol.
+const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a stopping node waits for its agent sessions to close. The stop
+/// steps add up to under the 10 s the command line gives a stop before it
+/// exits anyway.
+const STOP_SESSIONS: Duration = Duration::from_secs(3);
+/// How long a stopping node gives each other step.
+const STOP_STEP: Duration = Duration::from_secs(1);
+
+/// A session protocol a host serves beside the node's own, such as the Mac
+/// app's `desktop/1`.
+pub trait Protocol: Send + Sync {
+    /// The name a session opens with, which the hello offers.
+    fn name(&self) -> &str;
+    /// Serves one session stream until it ends.
+    fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session;
+}
+
+/// One session served by a `Protocol`.
+pub type Session = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+
+/// Serves the mesh until `stop` finishes, then closes the agent sessions and
+/// returns. `workspace`, when given, is shared through `files/1` before the
+/// folders in `node.toml`.
+pub async fn serve(
+    state: State,
+    workspace: Option<&Path>,
+    stop: impl Future<Output = ()>,
+) -> Result<()> {
+    let traffic = Traffic::default();
+    let relays_off = std::env::var_os(NO_RELAY).is_some();
+    if relays_off {
+        log::warn!("{NO_RELAY} is set: no relay, no discovery (for tests only)");
+    }
+    let builder = || {
+        // Tests run nodes side by side on one machine, without relays.
+        let preset = if relays_off {
+            Endpoint::builder(presets::Minimal)
+        } else {
+            Endpoint::builder(presets::N0)
+        };
+        preset
+            .secret_key(state.key.clone())
+            .transport_config(beep_mesh::transport_config())
+            .hooks(traffic.clone())
+    };
+    let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
+    traffic.measure_endpoint(endpoint.metrics().clone());
+    log::info!("node key {}", endpoint.id());
+    // Made once, so agent sessions outlive each connection.
+    // Installs gh, teacli and the agent skills beside serving; the work
+    // stops with the node.
+    let provision = Provision::new(&state.dir);
+    let _provision = provision.start();
+    let mut offers = Offers::local(&state.agents, provision);
+    // The ACP adapters an agent found here lacks, installed in the node's
+    // folder; the work stops with the node.
+    let _adapters = offers
+        .agents
+        .install_adapters(state.dir.clone(), state.agents.clone());
+    offers.traffic = traffic;
+    if let Some(home) = dirs::home_dir() {
+        offers.skills = Skills::under(home);
+    }
+    offers.extra.push(Arc::new(Logs::service()));
+    // Only the CLI updates itself; the Mac app's node updates with the app.
+    #[cfg(feature = "cli")]
+    offers
+        .extra
+        .push(Arc::new(crate::machine::update::Updates::new(
+            offers.agents.clone(),
+        )));
+    // Files only when the owner shared folders in node.toml or a workspace.
+    let shared: Vec<_> = workspace
+        .map(Path::to_path_buf)
+        .into_iter()
+        .chain(state.files.iter().cloned())
+        .collect();
+    let folders = Folders::new(&shared);
+    offers.agents.share_folders(shared.clone());
+    // The agents' logs read once ahead, so the first file request for a
+    // session started outside Beep does not wait for them.
+    offers.offer_searches(&state.dir, &state.search);
+    // The plans read ahead too: Claude Code takes a while to start, and a
+    // desktop opening its window would otherwise wait for it.
+    let agents = offers.agents.clone();
+    let _plans = AbortOnDropHandle::new(tokio::spawn(async move {
+        agents.read_plans_at_start().await;
+    }));
+    let mut started = None;
+    let mut served = None;
+    // Transfers and sync run on every node: sync for the projects the mesh
+    // names, wherever they are, and transfers for `send_files`. Other machines
+    // reach transfers only with shared folders. Without its store the node
+    // still serves the rest.
+    match Transfers::start_shared(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
+        Ok((transfers, handlers)) => {
+            served = Some(handlers);
+            offers.extra.push(Arc::new(transfers.syncs()));
+            offers.extra.push(Arc::new(transfers.syncs().controls()));
+            offers.extra.push(Arc::new(transfers.syncs().rescans()));
+            if !folders.is_empty() {
+                offers.extra.push(Arc::new(transfers.clone()));
+            }
+            offers.transfers.set(transfers.clone());
+            started = Some(transfers);
+        }
+        Err(e) => log::warn!("not offering transfers: {e:#}"),
+    }
+    if !folders.is_empty() {
+        offers.extra.push(Arc::new(folders));
+    }
+    // The mesh: peers reach the node over `beep-peer/2`. The router runs
+    // from here, so a join takes effect at once.
+    let peers = Peers::new(
+        endpoint.clone(),
+        state.dir.clone(),
+        state.name.clone(),
+        offers.clone(),
+    );
+    if let Err(e) = peers.open().await {
+        log::warn!("not serving the mesh: {e:#}");
+    }
+    if !peers.is_member() {
+        log::info!("not in a mesh: waiting for `beep-node mesh join <ticket>`");
+    }
+    let mut router = Router::builder(endpoint.clone())
+        .accept(PEER_ALPN, peers.peer_handler())
+        .accept(JOIN_ALPN, peers.join_handler())
+        .accept(
+            SESSIONS_ALPN,
+            SessionsAlpn::new(offers.agents.clone(), offers.mesh.clone()),
+        );
+    if let Some(served) = served {
+        router = served.add_to(router);
+    }
+    let router = router.spawn();
+    log::info!("offering {:?}", offers.names());
+    // Claude Code's hooks report to the node over a socket in its folder.
+    let agents = offers.agents.clone();
+    let hooks_dir = state.dir.clone();
+    let _hooks = AbortOnDropHandle::new(tokio::spawn(async move {
+        listen_hooks(&agents, &hooks_dir).await;
+    }));
+    // The agents' Beep MCP server runs this binary against a socket in the
+    // node's folder.
+    let _mcp = mcp::start(&state.dir, &offers);
+    // Logs when the async workers, or a step that hung before, stop moving.
+    let _watchdog = watchdog::start();
+    // `beep-node update` asks the node to hold still over another one.
+    let agents = offers.agents.clone();
+    let control_dir = state.dir.clone();
+    let _control = AbortOnDropHandle::new(tokio::spawn(async move {
+        if let Err(e) = restart::listen(&control_dir, agents).await {
+            log::warn!("updates cannot wait for idle sessions: {e:#}");
+        }
+    }));
+    // `beep-node mesh join` and `mesh devices` reach the node on a socket of
+    // their own.
+    let (mesh_dir, mesh_peers) = (state.dir.clone(), peers.clone());
+    let _mesh_control = AbortOnDropHandle::new(tokio::spawn(async move {
+        if let Err(e) = peers::listen(&mesh_dir, mesh_peers).await {
+            log::warn!("the mesh commands cannot reach the node: {e:#}");
+        }
+    }));
+    // What was open before a restart or crash opens again: terminals now,
+    // sessions once the mesh gave the agent settings they start with.
+    // Only then is the note kept to what is open, so a start that dies
+    // before leaves it as it was.
+    let reopen = Reopen::read(&state.dir);
+    terminal::reopen(&state.dir, reopen.terminals).await;
+    let agents = offers.agents.clone();
+    let note_dir = state.dir.clone();
+    let mut keeping = AbortOnDropHandle::new(tokio::spawn(async move {
+        agents.reopen(reopen.sessions).await;
+        restart::keep(&note_dir, &agents).await;
+    }));
+    stop.await;
+    // Agents that end from here on ended with the node, whatever their exit.
+    offers.agents.begin_stopping();
+    // Stopped, the machine keeps no token: teacli's config, its shim and
+    // the env vars go.
+    if let Some(provision) = &offers.provision {
+        stop_step("forgetting credentials", STOP_STEP, provision.forget()).await;
+    }
+    // Noted while they still run: the service manager ends them once the
+    // node exits.
+    let terminals = terminal::running();
+    stop_step(
+        "the agent sessions",
+        STOP_SESSIONS,
+        offers.agents.shutdown(),
+    )
+    .await;
+    // The last word is the shutdown's: the keeper stops first, and its
+    // write in flight lands before this one.
+    keeping.abort();
+    if let Some(Err(e)) = stop_step("the note of what is open", STOP_STEP, &mut keeping).await
+        && !e.is_cancelled()
+    {
+        log::warn!("the note of what is open was not kept: {e}");
+    }
+    let reopen = Reopen {
+        sessions: offers.agents.open_sessions(),
+        terminals,
+    };
+    if let Err(e) = reopen.save(&state.dir) {
+        log::warn!("what was open will not open again: {e:#}");
+    }
+    if let Some(Err(e)) = stop_step("the router", STOP_STEP, router.shutdown()).await {
+        log::warn!("the router did not stop cleanly: {e:#}");
+    }
+    if let Some(transfers) = started
+        && let Some(Err(e)) = stop_step("transfers", STOP_STEP, transfers.shutdown()).await
+    {
+        log::warn!("transfers did not stop cleanly: {e:#}");
+    }
+    log::info!("stopped");
+    Ok(())
+}
+
+/// Runs one step of stopping the node, logged, for at most `limit`; `None`
+/// when it took longer and was left.
+async fn stop_step<T>(name: &str, limit: Duration, step: impl Future<Output = T>) -> Option<T> {
+    log::info!("stopping: {name}");
+    let done = timeout(limit, step).await.ok();
+    if done.is_none() {
+        log::warn!(
+            "stopping: {name} took over {} s, going on without it",
+            limit.as_secs()
+        );
+    }
+    done
+}
+
+/// The node's transfers, set once its services are up and read by whoever
+/// holds a copy of the offers.
+#[derive(Clone, Default)]
+pub(crate) struct Sharing(Arc<Mutex<Option<Transfers>>>);
+
+impl Sharing {
+    pub(crate) fn get(&self) -> Option<Transfers> {
+        lock(&self.0).clone()
+    }
+
+    pub(crate) fn set(&self, transfers: Transfers) {
+        *lock(&self.0) = Some(transfers);
+    }
+}
+
+/// What a node serves beside its shell.
+#[derive(Clone, Default)]
+pub struct Offers {
+    /// The coding agents and their sessions, made once so the sessions
+    /// outlive each connection.
+    pub agents: Arc<Agents>,
+    /// Protocols the host adds, such as the Mac app's `desktop/1`.
+    pub extra: Vec<Arc<dyn Protocol>>,
+    /// The log `report/1` shares.
+    pub log: Logs,
+    /// Takes the user's credentials and installs the tools they are for.
+    /// Without it the node does not ask for credentials.
+    pub provision: Option<Arc<Provision>>,
+    /// What the node moved, as its status reports it.
+    pub traffic: Traffic,
+    /// The mesh the node belongs to, once it does.
+    pub(crate) mesh: Membership,
+    /// The node's transfers and synced projects, once they started.
+    /// Shared by every copy of the offers, so one made before the services
+    /// started sees them once they do.
+    pub(crate) transfers: Sharing,
+    /// Set while the host does not lend this machine to other devices: they
+    /// get its status, but no shell, task or screen.
+    pub(crate) withheld: Arc<AtomicBool>,
+    /// The user's coding agent skills, synced with the mesh when the host
+    /// names their home folder.
+    pub skills: Skills,
+}
+
+impl Offers {
+    /// Whether other devices of the mesh may use this machine's shell,
+    /// tasks and screen. On unless the host turned it off; what runs here for
+    /// the person at this machine is not affected.
+    pub fn lend_to_peers(&self, lent: bool) {
+        self.withheld.store(!lent, Ordering::Relaxed);
+    }
+
+    pub(crate) fn lends_to_peers(&self) -> bool {
+        !self.withheld.load(Ordering::Relaxed)
+    }
+
+    /// What every node serves, the CLI and the Mac app alike: the coding
+    /// agents found on the PATH (with `agents` from `node.toml`) and their
+    /// sessions, and `provision`. A host adds its own protocols to `extra`.
+    pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
+        Self {
+            agents: Arc::new(Agents::new(crate::agents::detect(
+                agents,
+                Some(provision.dir()),
+            ))),
+            extra: Vec::new(),
+            log: Logs::service(),
+            provision: Some(provision),
+            traffic: Traffic::default(),
+            mesh: Membership::default(),
+            transfers: Sharing::default(),
+            withheld: Arc::default(),
+            skills: Skills::default(),
+        }
+    }
+
+    /// Offers `search/1`: the checkouts saved in the node's folder `dir`,
+    /// read ahead from the agents' logs. Needs a running Tokio runtime.
+    pub fn offer_searches(&mut self, dir: &Path, search: &Search) {
+        let searches = Searches::start(dir.to_owned(), self.agents.clone(), search);
+        self.extra.push(Arc::new(searches));
+    }
+
+    /// Only `extra`, no agents or provisioning: a host that serves its own
+    /// protocols, as tests do.
+    pub fn with_protocols(extra: Vec<Arc<dyn Protocol>>) -> Self {
+        Self {
+            extra,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn names(&self) -> Vec<String> {
+        [
+            shell::PROTOCOL.to_owned(),
+            tasks::PROTOCOL.to_owned(),
+            terminal::PROTOCOL.to_owned(),
+        ]
+        .into_iter()
+        .chain(self.agents.offers())
+        .chain(
+            self.provision
+                .iter()
+                .flat_map(|_| [tool_update::PROTOCOL, tool_update::FLSH])
+                .map(str::to_owned),
+        )
+        .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
+        .collect()
+    }
+}
+
+/// Who opened a session, and so what it may use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Who {
+    /// A desktop of the mesh, by its key: every protocol the node offers. A desktop in this process has the node's own key.
+    Everything(EndpointId),
+    /// Another node of the mesh: its status and agent tools, nothing else.
+    Node {
+        peer: EndpointId,
+        /// This device is a desktop, read from the device list when the
+        /// stream opened.
+        desktop_here: bool,
+    },
+}
+
+impl Who {
+    /// The key of the caller.
+    pub(crate) fn id(self) -> EndpointId {
+        match self {
+            Self::Everything(id) | Self::Node { peer: id, .. } => id,
+        }
+    }
+}
+
+/// Reads the protocol a session stream opens with.
+pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<Open> {
+    timeout(OPEN_TIMEOUT, rx.recv())
+        .await
+        .context("the session did not say its protocol")??
+        .context("the session closed before its protocol")
+}
+
+/// Why a device of the mesh may not open `protocol` on a machine that does
+/// not lend itself to others, or `None`. Status stays open. The agents are
+/// withheld too: their sessions run on this machine's own accounts.
+pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
+    let shared = [
+        shell::PROTOCOL,
+        terminal::PROTOCOL,
+        tasks::PROTOCOL,
+        desktop::PROTOCOL,
+    ];
+    let agent = protocol == agent::SESSIONS_PROTOCOL || agent::agent_of(protocol).is_some();
+    (!lent && (shared.contains(&protocol) || agent))
+        .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
+}
+
+/// Why another node's `remote_run` may not run here, or `None`: the host
+/// lends this machine to no other device ("Let Beep use this Mac" is off).
+fn commands_off(offers: &Offers) -> Option<String> {
+    if offers.lends_to_peers() {
+        return None;
+    }
+    let name = offers
+        .mesh
+        .get()
+        .and_then(|mesh| {
+            let me = mesh.me();
+            mesh.devices()
+                .into_iter()
+                .find(|status| status.device.id == me)
+                .map(|status| status.device.name)
+        })
+        .unwrap_or_else(|| "This machine".to_owned());
+    Some(format!(
+        "{name} doesn't run commands: Let Beep use this Mac is off in its Settings."
+    ))
+}
+
+/// Serves a session stream that opened with `open`, if `who` may use it.
+pub(crate) async fn serve_open(
+    mut tx: LinkTx,
+    rx: LinkRx,
+    open: Open,
+    offers: Offers,
+    who: Who,
+) -> Result<()> {
+    if matches!(who, Who::Node { .. })
+        && !matches!(
+            open.protocol.as_str(),
+            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL
+        )
+    {
+        let reason = format!("a node may not open {}", open.protocol);
+        return tx.send(&Opened::Refused { reason }).await;
+    }
+    match open.protocol.as_str() {
+        status::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            peers::status(tx, rx, offers).await
+        }
+        version::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            tx.send(&version::Version {
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+                // A clock before 1970 is left unsaid: the desktop warns of nothing.
+                now_ms: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|since| u64::try_from(since.as_millis()).ok()),
+            })
+            .await
+        }
+        tools::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            let caller = match who {
+                Who::Everything(_) => Caller::local(&offers),
+                Who::Node { peer, desktop_here } => Caller {
+                    table: tasks::Table::Peer(peer),
+                    desktop_here,
+                    commands_off: commands_off(&offers),
+                    transfers: offers.transfers.get(),
+                    agents: Some(offers.agents.clone()),
+                },
+            };
+            peer_tools::serve(tx, rx, caller).await
+        }
+        shell::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            shell::serve(tx, rx).await
+        }
+        skills::PROTOCOL if offers.skills.home().is_some() => {
+            tx.send(&Opened::Ready {}).await?;
+            let desktop = !matches!(who, Who::Node { .. });
+            crate::agents::skills::serve(tx, rx, offers.skills, desktop).await
+        }
+        tasks::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            tasks::serve(tx, rx).await
+        }
+        terminal::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            terminal::serve(tx, rx).await
+        }
+        tool_update::PROTOCOL | tool_update::FLSH if let Some(provision) = &offers.provision => {
+            tx.send(&Opened::Ready {}).await?;
+            provision.serve_updates(tx, rx).await
+        }
+        agent::SESSIONS_PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
+        }
+        other => match offers.agents.kind(other) {
+            Some(kind) => {
+                tx.send(&Opened::Ready {}).await?;
+                crate::agents::serve_session(tx, rx, offers.agents, kind).await
+            }
+            None => {
+                if let Some(protocol) = offers.extra.iter().find(|p| p.name() == other) {
+                    tx.send(&Opened::Ready {}).await?;
+                    return protocol.serve(tx, rx).await;
+                }
+                let reason = format!("this node does not offer {other}");
+                tx.send(&Opened::Refused { reason }).await
+            }
+        },
+    }
+}
+
+/// Takes Claude Code's hook events on a socket in `dir` until the node
+/// stops, so terminal sessions have live state.
+pub async fn listen_hooks(agents: &Agents, dir: &Path) {
+    if let Err(e) = agents.external().listen_hooks(dir).await {
+        log::warn!("not taking Claude Code hooks: {e:#}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let offers = Offers::local(&[], Provision::new(dir.path()));
+        assert!(offers.lends_to_peers(), "lent until the host says not");
+        offers.lend_to_peers(false);
+        // Offers made earlier from this one share the setting.
+        let copy = offers.clone();
+        for protocol in [
+            "shell/1",
+            "terminal/1",
+            "process/1",
+            "desktop/1",
+            "agents/1",
+            "claude/1",
+            "codex/1",
+        ] {
+            assert!(
+                withheld(protocol, copy.lends_to_peers()).is_some(),
+                "{protocol}"
+            );
+        }
+        for protocol in ["status/1", "version/1", "tools/1", "files/1"] {
+            assert_eq!(
+                withheld(protocol, copy.lends_to_peers()),
+                None,
+                "{protocol}"
+            );
+        }
+        offers.lend_to_peers(true);
+        assert_eq!(withheld("shell/1", copy.lends_to_peers()), None);
+    }
+}

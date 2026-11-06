@@ -232,7 +232,7 @@ fn view(text: &str) -> ChildView {
 #[tokio::test]
 async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let mut offers = Offers::local(&[], Provision::new(dir.path()), false);
+    let mut offers = Offers::local(&[], Provision::new(dir.path()));
     offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
     let cwd = dir.path().to_string_lossy().into_owned();
     let start = |name: &str| {
@@ -335,7 +335,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
 #[tokio::test]
 async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let mut offers = Offers::local(&[], Provision::new(dir.path()), false);
+    let mut offers = Offers::local(&[], Provision::new(dir.path()));
     // The harness named `claude` has a full access mode of its own.
     offers.agents = Arc::new(Agents::new(vec![kind("claude"), kind("kid")]));
     let cwd = dir.path().to_string_lossy().into_owned();

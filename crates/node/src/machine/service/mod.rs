@@ -21,7 +21,7 @@ mod parent;
 mod systemd;
 mod windows;
 
-/// How the service starts the node: the same command `setup` would serve.
+/// How the service starts the node: the same command `run` serves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Launch {
     /// The installed binary, with symlinks resolved.
@@ -43,7 +43,7 @@ impl Launch {
             paths::canonicalize(&exe).with_context(|| format!("resolving {}", exe.display()))?;
         let dir = paths::canonicalize(dir).with_context(|| {
             format!(
-                "{} does not exist; run `beep-node setup` first",
+                "{} does not exist; run `beep-node mesh join <ticket>` first",
                 dir.display()
             )
         })?;
@@ -396,7 +396,7 @@ pub enum Restart {
     NotInstalled,
 }
 
-/// Restarts the service `setup` installed, if it runs `exe` (canonical, as
+/// Restarts the installed service, if it runs `exe` (canonical, as
 /// `Launch` keeps it), so it picks up a new binary at that path. A unit or
 /// plist an older node wrote is written again first, with the same command
 /// and `PATH`, so it gets this node's settings.

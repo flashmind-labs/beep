@@ -8,11 +8,11 @@
 
 use crate::{
     files::transfer::Transfers,
-    link::connection::{Offers, Protocol, Who, changed, read_open, serve_open, withheld},
     link::from_mesh,
     link::local_socket::{Listener, Stream},
     link::local_status::{self, LocalStatus},
     link::report::serve_report,
+    link::serve::{Offers, Protocol, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
     machine::{env, stats},
 };
@@ -618,7 +618,7 @@ where
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
                 probing = None;
                 match probed {
-                    Ok(now) if reported.as_ref().is_none_or(|before| changed(before, &now)) => {
+                    Ok(now) if reported.as_ref().is_none_or(|before| *before != now) => {
                         tx.send(&Report::Env(now.clone())).await?;
                         reported = Some(now);
                     }

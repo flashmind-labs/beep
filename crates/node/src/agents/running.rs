@@ -131,7 +131,7 @@ impl Agents {
         self.settings.current()
     }
 
-    /// The server sent the user's settings: sessions held over a restart
+    /// The mesh gave the user's settings: sessions held over a restart
     /// may start.
     pub fn settings_arrived(&self) {
         self.settled.send_replace(true);
