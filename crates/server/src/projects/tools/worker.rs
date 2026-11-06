@@ -4,24 +4,19 @@ use super::{Planned, ProjectTools, card, field, gated};
 use crate::{
     app::App,
     projects::{
-        fleet,
         gate::Asks,
-        model::{InputFile, StartRequest, WorkerAgent, WorkerState},
-        worker::{
-            self, MAX_INPUTS, Placement, Prepared, StartError, Started, copy_inputs, launch,
-            prepare,
-        },
+        model::{InputFile, StartRequest, WorkerAgent},
+        worker::{self, MAX_INPUTS, Placement, Prepared, StartError, Started, launch, prepare},
     },
     protocol::Approval,
-    store::{TaskRow, WorkerRow},
-    tools::machines::agents::{self, Asker, DEFAULT_LAST, DEFAULT_WAIT_SECS, Order},
+    store::TaskRow,
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use strum::VariantNames;
 
 pub(crate) const WORKER: &str = "project_worker";
@@ -37,11 +32,7 @@ pub(super) struct WorkerTool {
 #[serde(rename_all = "snake_case")]
 enum Action {
     Start,
-    Status,
-    Prompt,
-    Answer,
     Stop,
-    Transcript,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,8 +56,6 @@ struct WorkerArgs {
     persona: Option<String>,
     #[serde(default)]
     inputs: Vec<Input>,
-    #[serde(default)]
-    prompt: Option<String>,
 }
 
 /// The start card for `task` at `placement`. Always asks: agents run with permission prompts off.
@@ -119,16 +108,14 @@ impl Tool for WorkerTool {
          `start` places it on a machine with a checkout (or the one `in` names), with `agent` \
          and a `persona` from the project's .agents folder, and copies `inputs` into the \
          worktree's .beep/incoming/<task>/. A start that has to wait for another task or a \
-         free slot is kept and starts later. `status` shows what it is doing, `prompt` sends \
-         it more to do (copying `inputs` first), `answer` answers its question, `transcript` \
-         shows its last entries and `stop` ends it, leaving the task blocked."
+         free slot is kept and starts later. `stop` ends it, leaving the task blocked."
     }
 
     fn parameters(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["start", "status", "prompt", "answer", "stop", "transcript"]},
+                "action": {"type": "string", "enum": ["start", "stop"]},
                 "task": {"type": "string", "description": "The task's slug."},
                 "in": {"type": "string", "description": "start: the machine to run it on, when the user named one."},
                 "agent": {"type": "string", "enum": WorkerAgent::VARIANTS},
@@ -145,8 +132,7 @@ impl Tool for WorkerTool {
                         "required": ["path"],
                         "additionalProperties": false
                     }
-                },
-                "prompt": {"type": "string", "description": "prompt and answer: the text to send."}
+                }
             },
             "required": ["action", "task"],
             "additionalProperties": false
@@ -167,8 +153,7 @@ impl Tool for WorkerTool {
         match args.get("action").and_then(Value::as_str) {
             Some("start") => format!("Starting {task}"),
             Some("stop") => format!("Stopping {task}"),
-            Some("prompt" | "answer") => format!("Steering {task}"),
-            _ => format!("Checking {task}"),
+            _ => format!("Starting {task}"),
         }
     }
 }
@@ -218,95 +203,11 @@ impl WorkerTool {
                 task.slug
             )));
         };
-        if let Action::Stop = args.action {
-            worker::stop_worker_on(tools.fleet.as_ref(), &tools.user, &worker).await?;
-            return Ok(Planned::Done(format!(
-                "Stopped the worker of {}; the task is blocked until it starts again.",
-                task.slug
-            )));
-        }
-        let Some(session) = worker.session.clone() else {
-            return Ok(Planned::Refused(format!(
-                "The worker of {} is still starting.",
-                task.slug
-            )));
-        };
-        let machines = tools.fleet.machines().await?;
-        let machine = fleet::name_of(&machines, &worker.machine);
-        let wait = Duration::from_secs(DEFAULT_WAIT_SECS);
-        let text = || args.prompt.clone().unwrap_or_default();
-        let mut copied = Vec::new();
-        let order = match args.action {
-            Action::Status => Order::Status {
-                id: Some(session),
-                wait: None,
-            },
-            Action::Transcript => Order::Transcript {
-                id: session,
-                last: DEFAULT_LAST,
-            },
-            Action::Answer => Order::Answer {
-                id: session,
-                text: text(),
-                wait,
-            },
-            Action::Prompt => {
-                if args
-                    .prompt
-                    .as_deref()
-                    .is_none_or(|prompt| prompt.trim().is_empty())
-                {
-                    return Ok(Planned::Refused("Give the prompt to send.".to_owned()));
-                }
-                let incoming = task.slug.incoming(&worker.folder);
-                match copy_inputs(&self.app, &tools.user, &machine, &incoming, &inputs).await {
-                    Ok(landed) => copied = landed,
-                    Err(why) => return Ok(Planned::Refused(why)),
-                }
-                Order::Prompt {
-                    id: session,
-                    text: text(),
-                    wait,
-                }
-            }
-            Action::Start | Action::Stop => {
-                return Ok(Planned::Refused(
-                    "That action does not steer a worker.".to_owned(),
-                ));
-            }
-        };
-        let Some(online) = self.online(&worker) else {
-            return Ok(Planned::Refused(format!("{machine} is offline.")));
-        };
-        // Given more to do, it is working again, not idle.
-        if matches!(order, Order::Prompt { .. } | Order::Answer { .. }) {
-            tools
-                .user
-                .set_worker_state(worker.id, WorkerState::Running)
-                .await?;
-        }
-        let endpoint = worker.machine.to_string();
-        let asker = Asker {
-            app: &self.app,
-            user: &tools.user,
-            chat: tools.chat,
-            endpoint: &endpoint,
-        };
-        let agent: &str = worker.agent.into();
-        Ok(
-            match agents::run(&online, &machine, agent, order, &asker).await {
-                Ok(text) if copied.is_empty() => Planned::Done(text),
-                Ok(text) => Planned::Done(format!("Copied {}.\n{text}", copied.join(", "))),
-                Err(text) => Planned::Refused(text),
-            },
-        )
-    }
-
-    fn online(&self, worker: &WorkerRow) -> Option<crate::nodes::Online> {
-        self.app
-            .nodes
-            .online(&worker.machine.to_string())
-            .filter(|online| online.user == self.tools.user.id())
+        worker::stop_worker_on(tools.fleet.as_ref(), &tools.user, &worker).await?;
+        Ok(Planned::Done(format!(
+            "Stopped the worker of {}; the task is blocked until it starts again.",
+            task.slug
+        )))
     }
 
     async fn start(
@@ -332,13 +233,6 @@ impl WorkerTool {
         }
         Ok(
             match launch(&self.app, &tools.user, project, task, request, prepared).await {
-                Ok(Started::Running(worker)) => Planned::Done(format!(
-                    "Started {} with {} in {} on branch {}.",
-                    task.slug,
-                    worker.agent,
-                    worker.folder,
-                    task.slug.branch()
-                )),
                 Ok(Started::Queued(why)) => Planned::Done(format!(
                     "{} did not start yet: {why}. It is kept and starts later.",
                     task.slug
@@ -355,23 +249,18 @@ mod tests {
     use super::*;
     use crate::projects::{
         model::{ProjectId, TaskId, TaskState},
-        testing::machine_id,
         worker::ChosenPersona,
     };
-    use beep_projects::model::{MachinePath, TaskSlug};
+    use beep_projects::model::TaskSlug;
     use chrono::Utc;
     use uuid::Uuid;
 
     fn placement(agent: WorkerAgent) -> Placement {
         Placement {
-            machine: machine_id(1),
             machine_name: "build-box".to_owned(),
-            checkout: MachinePath::parse("/srv/project/widget").expect("a path"),
             agent,
             persona: Some(ChosenPersona {
                 name: "reviewer".to_owned(),
-                prompt: "Review.".to_owned(),
-                commit: None,
             }),
             base: "main".to_owned(),
         }

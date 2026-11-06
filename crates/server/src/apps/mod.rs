@@ -14,7 +14,6 @@ pub mod grants;
 pub mod permissions;
 
 pub(crate) mod custom_mcp;
-pub(crate) mod files;
 pub(crate) mod markdown;
 pub mod mcp;
 

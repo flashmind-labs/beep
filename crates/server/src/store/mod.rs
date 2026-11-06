@@ -16,12 +16,10 @@ use tokio::sync::Notify;
 
 mod actions;
 mod agent_images;
-mod agent_session_starts;
-mod alerts;
-mod app_notices;
-pub(crate) use agent_session_starts::SessionOn;
 mod agent_spend;
 mod agent_usage;
+mod alerts;
+mod app_notices;
 mod apps;
 mod backfill;
 mod blobs;
@@ -47,17 +45,15 @@ mod instructions;
 mod logins;
 pub(crate) use habits::DuplicateHabit;
 pub(crate) use instructions::{InstructionsRow, Saved};
-pub(crate) use reviews::{
-    Judged, PrRow, ReviewFindingRow, ReviewRow, ShardRow, ShardState, Verdict,
-};
-pub(crate) use terminals::TerminalRow;
+#[cfg(test)]
+pub(crate) use reviews::PrRow;
+pub(crate) use reviews::{ReviewFindingRow, ReviewRow, ShardRow, ShardState, Verdict};
 mod location;
 mod machine_removal;
 mod memories;
 mod merge;
 mod messages;
 mod node_tokens;
-mod node_traffic;
 mod nodes;
 mod places;
 mod profile;
@@ -88,7 +84,7 @@ mod users;
 mod watchers;
 
 pub use actions::ActionRow;
-pub(crate) use agent_images::{AgentImageBytes, AgentImageOf};
+pub(crate) use agent_images::AgentImageBytes;
 pub(crate) use agent_spend::{DayModelRow, DaySpendRow, Periods};
 pub(crate) use agent_usage::{ModelRow, PlanRow, SpendRow};
 pub use alerts::AlertRow;
@@ -109,7 +105,7 @@ pub use files::{NewAttachment, NewFile, NewPicture, PicturesOf};
 pub use findings::{FindingRow, NewFinding, SeenIn, Sighting};
 pub(crate) use grants::{GrantRow, NewGrant};
 pub use groups::{GroupRow, Join, JoinedGroup, MemberRow, MessageRow, NewMessage, Posted};
-pub(crate) use harness_settings::{HarnessRow, OffHarness, SaveHarness};
+pub(crate) use harness_settings::{HarnessRow, SaveHarness};
 pub use location::Location;
 pub use logins::{Login, LoginEnd};
 pub(crate) use memories::MAX_ROWS as MAX_MEMORY_ROWS;
@@ -121,10 +117,10 @@ pub use nodes::{NewNode, NodeRow};
 pub use places::{Crossed, NewPlace, NewPlaceRoutine, PlaceRoutine, SavedPlace};
 pub use profile::{ProfileNote, ProfileRead};
 pub(crate) use project_groups::SaveGroup;
-pub(crate) use project_removal::{DroppedMachine, RemovedProject};
+pub(crate) use project_removal::RemovedProject;
 pub(crate) use projects::{
-    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, OverviewRow, ProjectRow,
-    StartRefused, TaskRow, TrackedIssue, WorkerRow,
+    After, CheckoutRow, IssueAuthor, NewTask, OpenCounts, OverviewRow, ProjectRow, StartRefused,
+    TaskRow, TrackedIssue, WorkerRow,
 };
 pub use research::{EntryRow, ListedResearch, NewSource, ResearchRow, SourceRow};
 pub use runs::{CreateRun, FinishedTurn, RunStatus, SavedTurn};

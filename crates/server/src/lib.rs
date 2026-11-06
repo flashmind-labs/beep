@@ -8,7 +8,6 @@ pub mod app;
 pub mod apps;
 pub mod config;
 pub mod memory;
-pub mod nodes;
 pub mod projects;
 pub mod push;
 pub mod reports;

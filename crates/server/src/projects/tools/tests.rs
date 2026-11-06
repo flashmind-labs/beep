@@ -1,23 +1,16 @@
 use super::{
-    super::{
-        gate::{GatedExec, GatedProcess, ProjectGate},
-        issues,
-        model::TaskState,
-    },
+    super::{gate::ProjectGate, issues, model::TaskState},
     *,
 };
 use crate::{
     account::user::User,
     apps::permissions::{ApprovalPayload, Rules},
-    projects::testing::{FakeFleet, FakeShell, RecordingTool},
+    projects::testing::{FakeFleet, FakeShell},
     protocol::{Approval, PermissionLevel, node::Capability},
-    store::{
-        AppPermissionRow, CheckoutRow, IssueAuthor, NewTask, ProjectRow, TaskRow, TestDb,
-        TrackedIssue,
-    },
+    store::{AppPermissionRow, CheckoutRow, NewTask, ProjectRow, TaskRow, TestDb},
 };
 use beep_projects::model::{IssueHost, MachinePath, Visibility};
-use beep_projects::model::{IssueRef, RepoName, Roles};
+use beep_projects::model::{RepoName, Roles};
 use flashmind::{
     core::CancellationToken,
     types::tool::{Tool, ToolContext, ToolResult},
@@ -25,7 +18,6 @@ use flashmind::{
 use iroh::EndpointId;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use uuid::Uuid;
 
 const ISSUE_URL: &str = "https://github.com/acme/widget/issues/";
 
@@ -91,12 +83,7 @@ impl Harness {
             fleet: self.fleet.clone(),
             user: self.user.clone(),
             project: self.project.id,
-            chat: Uuid::new_v4(),
-            gate: Arc::new(ProjectGate::new(
-                rules,
-                approved.map(str::to_owned),
-                self.project.visibility,
-            )),
+            gate: Arc::new(ProjectGate::new(rules, approved.map(str::to_owned))),
         })
     }
 
@@ -277,129 +264,6 @@ async fn failed_issue_keeps_the_task() {
 }
 
 #[tokio::test]
-async fn merge_always_asks() {
-    let h = harness(github(), Visibility::Private).await;
-    let made = h
-        .user
-        .create_tasks(
-            h.project.id,
-            &[NewTask {
-                title: "Build".into(),
-                body: String::new(),
-                depends_on: None,
-                needs: Vec::new(),
-                start: None,
-            }],
-        )
-        .await
-        .unwrap();
-    let url = "https://github.com/acme/widget/pull/5";
-    h.user.set_task_pr(made[0].id, url).await.unwrap();
-    h.shell.answer(
-        "pr view",
-        0,
-        r#"{"number": 5, "state": "OPEN", "url": "https://github.com/acme/widget/pull/5",
-            "statusCheckRollup": [{"conclusion": "SUCCESS"}], "reviewDecision": "APPROVED"}"#,
-    );
-    let args = json!({"action": "merge", "task": "build"});
-    let result = call(
-        &h.tasks_tool(PermissionLevel::Allow {}, None),
-        "c1",
-        args.clone(),
-    )
-    .await;
-    let card = approval(&result);
-    assert_eq!(card.action, "Merge pull request");
-    let checks = card.fields.iter().find(|field| field.label == "Checks");
-    assert_eq!(checks.unwrap().value, "passing");
-    assert!(card.fields.iter().any(|field| field.value == url));
-    assert!(h.shell.ran_with("pr merge").is_empty());
-
-    let result = call(
-        &h.tasks_tool(PermissionLevel::Ask {}, Some("c1")),
-        "c1",
-        args,
-    )
-    .await;
-    assert!(result.is_success(), "{}", result.output());
-    assert_eq!(h.shell.ran_with("pr merge 5").len(), 1);
-    assert_eq!(h.rows().await[0].state, TaskState::Done);
-}
-
-/// A task tracking issue #12, which `author` opened.
-async fn tracked(h: &Harness, author: IssueAuthor) -> TaskRow {
-    let task = NewTask {
-        title: "Crash on start".into(),
-        body: "From issue #12 on the host.".into(),
-        depends_on: None,
-        needs: Vec::new(),
-        start: None,
-    };
-    let issue = IssueRef {
-        number: 12,
-        url: format!("{ISSUE_URL}12"),
-    };
-    match h
-        .user
-        .track_issue(h.project.id, &task, &IssueHost::Github, &issue, author)
-        .await
-        .unwrap()
-    {
-        TrackedIssue::Made(task) => task,
-        TrackedIssue::Already(_) => panic!("a new task"),
-    }
-}
-
-#[tokio::test]
-async fn someone_elses_issue_gets_one_approved_comment_and_nothing_else() {
-    let h = harness(github(), Visibility::Private).await;
-    tracked(&h, IssueAuthor::Other).await;
-    // Updating the task leaves the issue as it is.
-    let update = json!({"action": "update", "task": "crash-on-start", "body": "New plan."});
-    let result = call(&h.tasks_tool(PermissionLevel::Allow {}, None), "c0", update).await;
-    assert!(result.is_success(), "{}", result.output());
-    assert!(
-        result.output().contains("stays as it is"),
-        "{}",
-        result.output()
-    );
-    // A comment always asks, even under Allow.
-    let comment = json!({"action": "comment", "task": "crash-on-start", "body": "Fixed in #5."});
-    let asked = call(
-        &h.tasks_tool(PermissionLevel::Allow {}, None),
-        "c1",
-        comment.clone(),
-    )
-    .await;
-    let card = approval(&asked);
-    assert_eq!(card.action, "Comment on issue");
-    assert!(
-        card.fields
-            .iter()
-            .any(|field| field.value == "Fixed in #5.")
-    );
-    assert!(h.shell.ran().is_empty(), "{:?}", h.shell.ran());
-    let posted = call(
-        &h.tasks_tool(PermissionLevel::Ask {}, Some("c1")),
-        "c1",
-        comment.clone(),
-    )
-    .await;
-    assert!(posted.is_success(), "{}", posted.output());
-    // A second one is refused, approved or not.
-    let again = call(
-        &h.tasks_tool(PermissionLevel::Ask {}, Some("c2")),
-        "c2",
-        comment,
-    )
-    .await;
-    assert!(!again.is_success(), "{}", again.output());
-    let ran = h.shell.ran();
-    assert_eq!(ran.len(), 1, "{ran:?}");
-    assert!(ran[0].contains("gh issue comment 12 "), "{}", ran[0]);
-}
-
-#[tokio::test]
 async fn setup_rejects_unshared_checkout() {
     let h = harness(github(), Visibility::Private).await;
     let setup = SetupTool {
@@ -482,14 +346,6 @@ async fn always_is_saved_per_action() {
         saved_as("project_plan", &plan_of(&["A", "B", "C"]), project),
         None
     );
-    assert_eq!(
-        saved_as("exec", &json!({"command": "cargo test"}), project).as_deref(),
-        Some("EXEC")
-    );
-    assert_eq!(
-        saved_as("exec", &json!({"command": "gh pr merge 5"}), project),
-        None
-    );
     // Workers run without permission prompts, so every start asks.
     for agent in ["claude", "flsh"] {
         let start = json!({"action": "start", "task": "build", "agent": agent});
@@ -510,7 +366,7 @@ async fn always_is_saved_per_action() {
     }]);
     let tool = TasksTool {
         tools: Arc::new(ProjectTools {
-            gate: Arc::new(ProjectGate::new(rules, None, Visibility::Private)),
+            gate: Arc::new(ProjectGate::new(rules, None)),
             ..(*private.tools(PermissionLevel::Ask {}, None)).clone()
         }),
     };
@@ -519,94 +375,6 @@ async fn always_is_saved_per_action() {
     let dropped = call(&tool, "c2", tasks("drop")).await;
     assert!(dropped.is_success(), "{}", dropped.output());
     assert_eq!(private.rows().await[0].state, TaskState::Dropped);
-}
-
-#[tokio::test]
-async fn host_cli_through_exec_always_asks() {
-    let h = harness(github(), Visibility::Private).await;
-    let inner = Arc::new(RecordingTool::new("exec"));
-    let exec = GatedExec {
-        exec: inner.clone(),
-        tools: h.tools(PermissionLevel::Allow {}, None),
-    };
-    let ran = call(&exec, "c1", json!({"command": "cargo test"})).await;
-    assert_eq!(ran.output(), "ran");
-    for command in [
-        "gh pr merge 5 -R acme/widget --squash",
-        "cd /srv/widget && /usr/bin/tea pr merge 5",
-        "echo hi; teacli issue close 3",
-    ] {
-        let parked = call(&exec, "c2", json!({ "command": command })).await;
-        assert_eq!(approval(&parked).action, "Run a command", "{command}");
-    }
-    let leaky = json!({"command": "gh issue create -t Fix -b 'see /home/sam/notes'"});
-    let refused = call(&exec, "c3", leaky).await;
-    assert!(!refused.is_success());
-    assert!(
-        refused.output().contains("/home/sam"),
-        "{}",
-        refused.output()
-    );
-    assert_eq!(inner.calls(), 1);
-}
-
-#[tokio::test]
-async fn pushing_the_default_branch_through_exec_always_asks() {
-    let h = harness(github(), Visibility::Private).await;
-    let inner = Arc::new(RecordingTool::new("exec"));
-    let exec = GatedExec {
-        exec: inner.clone(),
-        tools: h.tools(PermissionLevel::Allow {}, None),
-    };
-    for command in [
-        "git push origin main",
-        "cd /srv/widget && git push -u origin HEAD:main",
-        "git -C /srv/widget push origin beep/x:refs/heads/main",
-        "git push --all",
-        "git push",
-        "sh -c 'git push origin main'",
-    ] {
-        let parked = call(&exec, "c1", json!({ "command": command })).await;
-        assert_eq!(approval(&parked).action, "Run a command", "{command}");
-        assert_eq!(
-            saved_as("exec", &json!({ "command": command }), &h.project),
-            None,
-            "{command}"
-        );
-    }
-    assert_eq!(inner.calls(), 0);
-    // The task's own branch follows the level.
-    let own = call(
-        &exec,
-        "c2",
-        json!({"command": "git push origin beep/fix-it"}),
-    )
-    .await;
-    assert_eq!(own.output(), "ran");
-    assert_eq!(
-        saved_as(
-            "exec",
-            &json!({"command": "git push origin beep/fix-it"}),
-            &h.project
-        )
-        .as_deref(),
-        Some("EXEC")
-    );
-}
-
-#[tokio::test]
-async fn process_stop_asks_first() {
-    let h = harness(github(), Visibility::Private).await;
-    let inner = Arc::new(RecordingTool::new("process"));
-    let process = GatedProcess {
-        process: inner.clone(),
-        gate: h.tools(PermissionLevel::Ask {}, None).gate.clone(),
-    };
-    let listed = call(&process, "c1", json!({"action": "list"})).await;
-    assert_eq!(listed.output(), "ran");
-    let stop = call(&process, "c2", json!({"action": "stop", "id": 4})).await;
-    assert_eq!(approval(&stop).action, "Stop a background command");
-    assert_eq!(inner.calls(), 1);
 }
 
 #[tokio::test]

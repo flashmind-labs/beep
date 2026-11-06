@@ -4,7 +4,7 @@ use super::watch::{Entry, OpenHead, RepoWatch};
 use crate::{
     account::user::User,
     app::App,
-    projects::{fleet::NodeFleet, stored::StoredProject},
+    projects::{fleet::RecordedFleet, stored::StoredProject},
     store::ProjectRow,
 };
 use beep_projects::issues::{HostIssues, ListedPr, SourceError, list_open_prs, read_open};
@@ -66,7 +66,7 @@ async fn read(
     entry: &Entry,
     copy: &mut ListsCopy,
 ) {
-    let fleet = NodeFleet {
+    let fleet = RecordedFleet {
         app: app.clone(),
         user: user.clone(),
     };

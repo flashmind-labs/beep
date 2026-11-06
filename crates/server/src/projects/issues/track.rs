@@ -2,10 +2,7 @@
 
 use super::{
     super::{
-        fleet::Fleet,
-        lifecycle::start_failed,
-        model::StartRequest,
-        turn::{ISSUE_LABEL, WORKER_LABEL},
+        fleet::Fleet, lifecycle::start_failed, model::StartRequest, turn::ISSUE_LABEL,
         worker::Started,
     },
     IssueError, IssueWork, MAX_ISSUE_TEXT,
@@ -178,14 +175,6 @@ pub(crate) async fn track(
     match &start {
         None => fleet.post(chat, ISSUE_LABEL, plan_request(&issue, &task)),
         Some(request) => match fleet.start_task(project, &task, request).await {
-            Ok(Started::Running(worker)) => fleet.post(
-                chat,
-                WORKER_LABEL,
-                format!(
-                    "The user started {} from issue #{number} with {} in {}.",
-                    task.slug, worker.agent, worker.folder
-                ),
-            ),
             // It starts when a slot frees, and that start is reported.
             Ok(Started::Queued(_)) => {}
             Err(error) => {

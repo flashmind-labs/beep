@@ -5,7 +5,7 @@ use super::watch::Entry;
 use crate::projects::stored::StoredProject;
 use crate::{
     account::user::User,
-    projects::fleet::{Fleet, NodeFleet},
+    projects::fleet::{Fleet, RecordedFleet},
     protocol::GitHostKind,
     store::ProjectRow,
 };
@@ -206,7 +206,7 @@ async fn read_remotes(
 }
 
 /// The project's remotes: read in the last half hour, else reread from an online checkout, else the last read.
-async fn remotes(fleet: &NodeFleet, project: &ProjectRow, entry: &Entry) -> Vec<String> {
+async fn remotes(fleet: &RecordedFleet, project: &ProjectRow, entry: &Entry) -> Vec<String> {
     let kept = entry.remotes();
     if let Some(kept) = &kept
         && kept.at.elapsed() < REMOTES_FOR
@@ -231,7 +231,7 @@ async fn remotes(fleet: &NodeFleet, project: &ProjectRow, entry: &Entry) -> Vec<
 
 /// Every host `project`'s runs are read from, or why its host is unknown.
 pub(super) async fn find(
-    fleet: &NodeFleet,
+    fleet: &RecordedFleet,
     project: &ProjectRow,
     entry: &Entry,
     tokens: &Tokens<'_>,

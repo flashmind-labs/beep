@@ -10,8 +10,6 @@ use beep_projects::imports::{
     store::ImportStore,
 };
 use beep_projects::model::RepoName;
-use chrono::{DateTime, Utc};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 impl User {
@@ -65,39 +63,6 @@ impl User {
         Ok(removed)
     }
 
-    /// Forgets `folder` on `endpoint` as a place of the project `name`.
-    pub(crate) async fn drop_project_folder(
-        &self,
-        name: &str,
-        endpoint: &str,
-        folder: &str,
-    ) -> Result<crate::store::DroppedMachine> {
-        self.store
-            .drop_project_folder(&self.key, name, endpoint, folder)
-            .await
-    }
-
-    /// Records a found checkout as the project's folder there unless it has one.
-    pub(crate) async fn link_import(&self, import: NewImport<'_>) -> Result<bool> {
-        self.store.link_import(&self.key, import).await
-    }
-
-    /// Notes when `endpoint` was looked through for checkouts.
-    pub(crate) async fn save_checkout_check(
-        &self,
-        endpoint: &str,
-        at: DateTime<Utc>,
-    ) -> Result<()> {
-        self.store
-            .save_checkout_check(&self.key, endpoint, at)
-            .await
-    }
-
-    /// When each machine was last looked through for checkouts, by key.
-    pub(crate) async fn checkout_checks(&self) -> Result<HashMap<String, DateTime<Utc>>> {
-        self.store.checkout_checks(&self.key).await
-    }
-
     /// The user's git credentials (GitHub, Forgejo servers), opened.
     pub async fn git_credentials(
         &self,
@@ -143,36 +108,6 @@ impl User {
         self.store.chat_allows(&self.key, chat).await
     }
 
-    /// `project`'s terminals, oldest first.
-    pub(crate) async fn terminals(&self, project: &str) -> Result<Vec<crate::store::TerminalRow>> {
-        self.store.terminals(&self.key, project).await
-    }
-
-    /// Every terminal, of any project or none, oldest first.
-    pub(crate) async fn all_terminals(&self) -> Result<Vec<crate::store::TerminalRow>> {
-        self.store.all_terminals(&self.key).await
-    }
-
-    pub(crate) async fn terminal(&self, id: Uuid) -> Result<Option<crate::store::TerminalRow>> {
-        self.store.terminal(&self.key, id).await
-    }
-
-    pub(crate) async fn add_terminal(&self, row: &crate::store::TerminalRow) -> Result<()> {
-        self.store.add_terminal(&self.key, row).await
-    }
-
-    pub(crate) async fn remove_terminal(&self, id: Uuid) -> Result<bool> {
-        self.store.remove_terminal(&self.key, id).await
-    }
-
-    pub(crate) async fn add_review(
-        &self,
-        review: &crate::store::ReviewRow,
-        shards: &[crate::store::ShardRow],
-    ) -> Result<()> {
-        self.store.add_review(&self.key, review, shards).await
-    }
-
     pub(crate) async fn review(&self, id: Uuid) -> Result<Option<crate::store::ReviewRow>> {
         self.store.review(&self.key, id).await
     }
@@ -199,37 +134,6 @@ impl User {
         review: &crate::store::ReviewRow,
     ) -> Result<Vec<crate::store::ReviewFindingRow>> {
         self.store.review_findings(review.id).await
-    }
-
-    pub(crate) async fn report_shard(
-        &self,
-        review: &crate::store::ReviewRow,
-        shard: u32,
-        findings: &[crate::store::ReviewFindingRow],
-        next: crate::store::ShardState,
-    ) -> Result<bool> {
-        self.store
-            .report_shard(review.id, shard, findings, next)
-            .await
-    }
-
-    pub(crate) async fn judge_shard(
-        &self,
-        review: &crate::store::ReviewRow,
-        shard: u32,
-        judged: &[crate::store::Judged],
-    ) -> Result<bool> {
-        self.store.judge_shard(review.id, shard, judged).await
-    }
-
-    pub(crate) async fn fail_shard(
-        &self,
-        review: &crate::store::ReviewRow,
-        shard: u32,
-        from: crate::store::ShardState,
-        why: &str,
-    ) -> Result<bool> {
-        self.store.fail_shard(review.id, shard, from, why).await
     }
 
     pub(crate) async fn dismiss_finding(

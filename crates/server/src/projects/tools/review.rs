@@ -4,14 +4,10 @@
 use super::{Planned, ProjectTools, card, field, gated, leaked, on_home};
 use crate::projects::stored::StoredProject;
 use crate::{
-    app::App,
     projects::{
+        fleet,
         gate::Asks,
-        review::{
-            drive::online,
-            git::{head_script, parse_head},
-            rules::{merge_blocked, open},
-        },
+        review::rules::{merge_blocked, open},
     },
     protocol::Approval,
     store::{ProjectRow, ReviewFindingRow, ReviewRow},
@@ -20,29 +16,23 @@ use anyhow::Result;
 use async_trait::async_trait;
 use beep_projects::issues::issue_host;
 use beep_projects::{
-    Shell,
-    commands::{ChecksState, HostCommand, InlineComment, parse_pr},
+    commands::{HostCommand, InlineComment},
     model::IssueHost,
 };
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub(crate) const REVIEW: &str = "branch_review";
 /// Never saved: posting a review always asks.
 const POST_SLUG: &str = "PROJECT_REVIEW_POST";
-/// Never saved: a merge always asks.
-const MERGE_SLUG: &str = "PROJECT_REVIEW_MERGE";
-/// How long reading where the branch is now may take.
-const HEAD_LIMIT: Duration = Duration::from_secs(30);
 /// The longest summary taken.
 const MAX_BODY: usize = 2000;
 
 pub(super) struct ReviewTool {
     pub(super) tools: Arc<ProjectTools>,
-    pub(super) app: Arc<App>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -198,11 +188,10 @@ impl ReviewTool {
                 .await
             }
             Action::Merge => {
-                if let Some(why) = merge_blocked(&review, &shards, &findings) {
-                    return Ok(Planned::Refused(why));
-                }
-                self.merge(id, &project, &host, &review, &pr.url, pr.number)
-                    .await
+                // The reviewed head is checked on the review's machine before a merge.
+                let why = merge_blocked(&review, &shards, &findings)
+                    .unwrap_or_else(|| fleet::UNREACHABLE.to_owned());
+                Ok(Planned::Refused(why))
             }
         }
     }
@@ -269,102 +258,5 @@ impl ReviewTool {
                 Err(why) => Planned::Refused(format!("The review was not posted: {why}")),
             },
         )
-    }
-
-    async fn merge(
-        &self,
-        id: &str,
-        project: &ProjectRow,
-        host: &IssueHost,
-        review: &ReviewRow,
-        url: &str,
-        number: u64,
-    ) -> Result<Planned> {
-        let tools = &self.tools;
-        let Some(node) = online(&self.app, &tools.user, &review.endpoint) else {
-            return Ok(Planned::Refused(
-                "The machine the review ran on is offline, so the branch cannot be checked."
-                    .to_owned(),
-            ));
-        };
-        let out = node
-            .run(
-                &head_script(&review.folder, &review.branch, &review.head),
-                HEAD_LIMIT,
-            )
-            .await?;
-        if out.exit_code != Some(0) || parse_head(&out.output, &review.head).stale {
-            return Ok(Planned::Refused(format!(
-                "{} moved since the review of {} (or could not be read): review it again first.",
-                review.branch,
-                short(&review.head)
-            )));
-        }
-        let status = match on_home(
-            tools.fleet.as_ref(),
-            &tools.user,
-            project,
-            host,
-            HostCommand::PrStatus { number },
-        )
-        .await?
-        {
-            Ok(out) => parse_pr(host, &out).ok().flatten(),
-            Err(why) => {
-                return Ok(Planned::Refused(format!(
-                    "The pull request was not read: {why}"
-                )));
-            }
-        };
-        let Some(status) = status.filter(|pr| pr.open) else {
-            return Ok(Planned::Refused(format!(
-                "Pull request #{number} is not open."
-            )));
-        };
-        if status.checks == ChecksState::Failing {
-            return Ok(Planned::Refused(
-                "Checks fail on the pull request; merge refused.".to_owned(),
-            ));
-        }
-        let make_card = || {
-            let checks: &'static str = match status.checks {
-                ChecksState::None => "none reported",
-                other => other.into(),
-            };
-            let mut fields = vec![
-                field("Pull request", url),
-                field("Branch", format!("{} into {}", review.branch, review.base)),
-                field("Reviewed", format!("{}, nothing open", short(&review.head))),
-                field("Checks", checks),
-                field("Method", "squash"),
-            ];
-            if let Some(decision) = &status.review {
-                fields.push(field("Review", decision.to_lowercase().replace('_', " ")));
-            }
-            card("Merge pull request".to_owned(), fields)
-        };
-        if let Some(stop) = gated(tools.gate.check(id, MERGE_SLUG, Asks::Always, make_card)) {
-            return Ok(stop);
-        }
-        if let Err(why) = on_home(
-            tools.fleet.as_ref(),
-            &tools.user,
-            project,
-            host,
-            HostCommand::MergePr { number },
-        )
-        .await?
-        {
-            return Ok(Planned::Refused(format!("The merge failed: {why}")));
-        }
-        // A task that opened this pull request is done with it.
-        let tasks = tools.user.project_tasks(project.id).await?;
-        if let Some(task) = tasks
-            .iter()
-            .find(|task| task.pr_url.as_deref() == Some(url) && task.state.is_open())
-        {
-            crate::projects::finish_task(tools.fleet.as_ref(), &tools.user, project, task).await?;
-        }
-        Ok(Planned::Done(format!("Merged {url}.")))
     }
 }

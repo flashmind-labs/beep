@@ -234,11 +234,6 @@ pub(crate) fn waiting_approval(
     })
 }
 
-/// Stops asking for `tool` in its app.
-pub(crate) async fn allow_always(user: &User, tool: &str) -> Result<()> {
-    allow_always_in(user, tool, false).await
-}
-
 /// [`allow_always`] in a chat that may be a project's.
 pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -> Result<()> {
     let Some((app, _)) = lookup_in(tool, is_project) else {

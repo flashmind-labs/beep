@@ -2,7 +2,6 @@
 
 mod alarm;
 pub(crate) mod args;
-mod attach;
 mod cards;
 mod charts;
 mod chat;
@@ -29,7 +28,6 @@ pub(crate) mod skills;
 pub(crate) mod stocks;
 pub(crate) mod suggest;
 
-pub(crate) use attach::AttachTool;
 pub(crate) use file::SendFileTool;
 pub(crate) use image::{NAME as SEND_IMAGE, SendImageTool};
 pub(crate) use memory::{NAME as MEMORY, recall_tool};

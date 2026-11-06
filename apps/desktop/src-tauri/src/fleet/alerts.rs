@@ -442,7 +442,7 @@ cat > /dev/null
             env: BTreeMap::new(),
             compact: None,
         };
-        let offers = Offers::local(&[agent], Provision::new(dir.path()), false);
+        let offers = Offers::local(&[agent], Provision::new(dir.path()));
         let fleet = Arc::new(Fleet::new(bind().await, dir.path(), "Studio", offers));
         fleet.run().await;
         let (following, mut heard_from) = start(fleet.clone());

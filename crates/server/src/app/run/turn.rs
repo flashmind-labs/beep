@@ -17,6 +17,7 @@ use super::{
 };
 use crate::{
     account::user::User,
+    agent::attachments::{self, Handed},
     agent::followups,
     agent::gates,
     agent::images,
@@ -29,11 +30,9 @@ use crate::{
     agent::tool_attachments,
     agent::tool_cost,
     apps::grants::{RequestGrantTool, RoutineGrants},
+    apps::markdown,
     apps::permissions::{self, ApprovalPayload, Approved, Rules},
-    apps::{files, markdown},
     memory::memories::{Exchange, Turn, clip},
-    nodes::attachments::{self, Handed},
-    nodes::workspace::Workspace,
     projects::{
         self,
         gate::ProjectGate,
@@ -245,7 +244,6 @@ impl App {
             cron::remove_changing_tools(&mut registry);
         }
         let use_machines = !untrusted;
-        let workspace = use_machines.then(|| Workspace::find(self, user)).flatten();
         // A project chat gets the project's tools in their place, below,
         // once the rules are loaded.
         let project = project.filter(|_| use_machines);
@@ -267,42 +265,14 @@ impl App {
                 user: user.clone(),
             }));
         }
-        // Sending to a machine acts, so it goes under the rules with the app tools below.
-        // In a project chat a copy to a machine lands only in a checkout.
-        let copy_into = match &project {
-            Some(project) => Some(
-                user.checkouts(project.id)
-                    .await?
-                    .into_iter()
-                    .map(|checkout| (checkout.machine, checkout.path))
-                    .collect(),
-            ),
-            None => None,
-        };
+        // Sending a file fetches with the user's accounts, so it goes under the rules with the
+        // app tools below.
         let send_file: Arc<dyn Tool> = Arc::new(tools::SendFileTool {
             user: user.clone(),
             session_id: chat,
-            workspace: workspace.clone(),
-            machines: use_machines.then(|| tools::machines::Machines {
-                app: self.clone(),
-                user: user.clone(),
-            }),
             paper: research.is_some(),
-            copy_into,
         });
-        registry.register(Arc::new(tools::AttachTool {
-            workspace: workspace.clone(),
-            machines: use_machines.then(|| tools::machines::Machines {
-                app: self.clone(),
-                user: user.clone(),
-            }),
-            describer: self.describer(user, &model, false),
-        }));
-        registry.register(Arc::new(tools::SendImageTool {
-            user: user.clone(),
-            session_id: chat,
-            workspace: workspace.clone(),
-        }));
+        registry.register(Arc::new(tools::SendImageTool));
         let notify = Arc::new(AtomicBool::new(message.always_sent));
         if background {
             registry.register(Arc::new(tools::NotifyUserTool {
@@ -381,35 +351,12 @@ impl App {
         } else {
             app_tools
         };
-        let tools = markdown::wrap(app_tools);
-        let mut tools = match &workspace {
-            Some(workspace) => files::wrap(tools, workspace),
-            None => tools,
-        };
+        let mut tools = markdown::wrap(app_tools);
         tools.push(send_file);
         // Media made with the user's own keys spends their money, so it
         // asks first, and a turn on untrusted text never gets it.
         if !untrusted {
-            tools.extend(self.media_tools(user, chat, workspace.clone()).await);
-        }
-        // A setup token grants access to the account, and an import clones
-        // with the user's tokens, so both ask first too.
-        if use_machines {
-            let machines = tools::machines::Machines {
-                app: self.clone(),
-                user: user.clone(),
-            };
-            // Starting a coding agent asks too; a project chat starts workers instead.
-            if project.is_none() {
-                tools.extend(tools::machines::code_agent_tool(&machines, chat));
-            }
-            tools.push(Arc::new(tools::machines::add::AddMachineTool {
-                machines: machines.clone(),
-            }));
-            // Cloning writes to a machine with the user's tokens.
-            tools.push(Arc::new(crate::projects::imports::ImportProjectTool {
-                machines,
-            }));
+            tools.extend(self.media_tools(user, chat).await);
         }
         // Grants are asked for where routines are set up. A routine's own
         // run and a turn on untrusted text never ask for one.
@@ -420,12 +367,8 @@ impl App {
             }));
         }
         if let Some(project) = &project {
-            let gate = Arc::new(ProjectGate::new(
-                rules.clone(),
-                approved.0.clone(),
-                project.visibility,
-            ));
-            projects::tools::register(&mut registry, self, user, project, chat, gate);
+            let gate = Arc::new(ProjectGate::new(rules.clone(), approved.0.clone()));
+            projects::tools::register(&mut registry, self, user, project, gate);
         }
         for tool in permissions::guard(
             tools,
@@ -600,7 +543,7 @@ impl App {
                     data: &file.data,
                 })
                 .collect();
-            parts.extend(attachments::parts(workspace.as_deref(), &handed).await);
+            parts.extend(attachments::parts(&handed));
         }
 
         let mut recalled = if memory_context::has_saved(&conversation) {
@@ -1307,12 +1250,7 @@ impl App {
     }
 
     /// The media tools `user`'s API keys enable; none when keys are missing or unreadable.
-    pub(super) async fn media_tools(
-        &self,
-        user: &Arc<User>,
-        chat: Uuid,
-        workspace: Option<Arc<Workspace>>,
-    ) -> Vec<Arc<dyn Tool>> {
+    pub(super) async fn media_tools(&self, user: &Arc<User>, chat: Uuid) -> Vec<Arc<dyn Tool>> {
         let keys = match user.api_keys(&self.credential_key).await {
             Ok(keys) => media::Keys::new(keys),
             Err(error) => {
@@ -1330,7 +1268,6 @@ impl App {
         media::tools(media::Media {
             user: user.clone(),
             chat,
-            workspace,
             keys,
             endpoints,
         })

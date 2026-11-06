@@ -45,17 +45,6 @@ pub(crate) struct ReviewSession {
     pub(crate) session: String,
 }
 
-/// What dropping one machine's missing folder of a project changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DroppedMachine {
-    /// An import or a sync of that folder went.
-    pub(crate) dropped: bool,
-    /// The machine synced it.
-    pub(crate) synced: bool,
-    /// Imports and syncs of the project left on any machine.
-    pub(crate) left: i64,
-}
-
 /// The body of [`Store::remove_project`], in its transaction; false when nothing of that name exists.
 pub(super) async fn remove_project_rows(
     tx: &mut PgConnection,
@@ -188,78 +177,18 @@ impl Store {
         self.blobs.delete(&gone.files).await?;
         Ok(Some(gone.removed))
     }
-
-    /// Forgets `folder` on `endpoint` for project `name` (import, sync, checkouts); says what went and what is left.
-    pub(crate) async fn drop_project_folder(
-        &self,
-        user: &UserKey,
-        name: &str,
-        endpoint: &str,
-        folder: &str,
-    ) -> Result<DroppedMachine> {
-        let mut tx = self.pool.begin().await?;
-        let imports = sqlx::query(
-            "DELETE FROM project_imports
-             WHERE user_id=$1 AND lower(project)=lower($2) AND endpoint_id=$3 AND folder=$4",
-        )
-        .bind(user.as_str())
-        .bind(name)
-        .bind(endpoint)
-        .bind(folder)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        let synced = sqlx::query(
-            "DELETE FROM project_sync
-             WHERE user_id=$1 AND lower(project)=lower($2) AND endpoint_id=$3 AND folder=$4",
-        )
-        .bind(user.as_str())
-        .bind(name)
-        .bind(endpoint)
-        .bind(folder)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        sqlx::query(
-            "DELETE FROM project_checkouts
-             WHERE machine=$3 AND path=$4 AND project_id IN
-                 (SELECT id FROM projects WHERE user_id=$1 AND lower(name)=lower($2))",
-        )
-        .bind(user.as_str())
-        .bind(name)
-        .bind(endpoint)
-        .bind(folder)
-        .execute(&mut *tx)
-        .await?;
-        let left: i64 = sqlx::query_scalar(
-            "SELECT (SELECT count(*) FROM project_imports
-                     WHERE user_id=$1 AND lower(project)=lower($2))
-                  + (SELECT count(*) FROM project_sync
-                     WHERE user_id=$1 AND lower(project)=lower($2))",
-        )
-        .bind(user.as_str())
-        .bind(name)
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(DroppedMachine {
-            dropped: imports + synced > 0,
-            synced: synced > 0,
-            left,
-        })
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        projects::{model::WorkerAgent, threads::ThreadKind},
-        store::{CheckoutRow, NewTask, NewThreadChat, NewWorker, TestDb},
+        projects::threads::ThreadKind,
+        store::{CheckoutRow, NewTask, NewThreadChat, TestDb},
     };
     use beep_projects::imports::records::{NewImport, SyncRow};
     use beep_projects::model::{IssueHost, MachinePath, RepoName};
-    use chrono::Utc;
+
     use iroh::{EndpointId, SecretKey};
 
     /// One project of a user's, with a row in every table that keeps one.
@@ -329,21 +258,18 @@ mod tests {
             .await
             .expect("a task")[0]
             .id;
-        store
-            .start_worker(
-                user,
-                &NewWorker {
-                    task,
-                    machine,
-                    agent: WorkerAgent::Claude,
-                    folder: MachinePath::parse("/srv/code/.worktrees/fix-it").expect("a path"),
-                    persona: None,
-                    persona_commit: None,
-                },
-            )
-            .await
-            .expect("stored")
-            .expect("started");
+        sqlx::query(
+            "INSERT INTO project_workers (id, task_id, project_id, user_id, machine, agent, folder)
+             VALUES ($1, $2, $3, $4, $5, 'claude', '/srv/code/.worktrees/fix-it')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(task.0)
+        .bind(project.0)
+        .bind(user.as_str())
+        .bind(&endpoint)
+        .execute(&store.pool)
+        .await
+        .expect("a worker");
         store
             .save_import(
                 user,
@@ -373,23 +299,17 @@ mod tests {
             .pin_project_to_top(user, name, true)
             .await
             .expect("on top");
-        store
-            .add_terminal(
-                user,
-                &TerminalRow {
-                    id: Uuid::new_v4(),
-                    project: name.into(),
-                    endpoint: endpoint.clone(),
-                    task: 4,
-                    pty: false,
-                    name: "dev".into(),
-                    command: "npm run dev".into(),
-                    cwd: "/srv/code".into(),
-                    started_at: Utc::now(),
-                },
-            )
-            .await
-            .expect("a terminal");
+        sqlx::query(
+            "INSERT INTO terminals (id, user_id, project, endpoint_id, task_id, name, command, cwd)
+             VALUES ($1, $2, $3, $4, 4, 'dev', 'npm run dev', '/srv/code')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(user.as_str())
+        .bind(name)
+        .bind(&endpoint)
+        .execute(&store.pool)
+        .await
+        .expect("a terminal");
         let review = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO branch_reviews (id, user_id, project, branch, base, endpoint_id, folder,
@@ -510,57 +430,5 @@ mod tests {
                 .expect("read")
                 .is_none()
         );
-    }
-
-    #[tokio::test]
-    async fn a_dropped_folder_says_what_is_left() {
-        let db = TestDb::new().await.expect("a test database");
-        let store = db.store().await.expect("a store");
-        let alice = UserKey::for_test("alice");
-        let mine = make(&store, &alice, "acme/widget").await;
-        let endpoint = mine.machine.to_string();
-        let other = SecretKey::generate().public().to_string();
-        store
-            .save_import(
-                &alice,
-                NewImport {
-                    project: "acme/widget",
-                    endpoint: &other,
-                    folder: "/home/user/widget",
-                    url: "https://github.com/acme/widget",
-                },
-            )
-            .await
-            .expect("imported");
-        // The folder moved since the look: nothing goes.
-        let moved = store
-            .drop_project_folder(&alice, "acme/widget", &endpoint, "/srv/old")
-            .await
-            .expect("dropped");
-        assert!(!moved.dropped);
-        let dropped = store
-            .drop_project_folder(&alice, "acme/widget", &endpoint, "/srv/code")
-            .await
-            .expect("dropped");
-        assert_eq!(
-            dropped,
-            DroppedMachine {
-                dropped: true,
-                synced: true,
-                left: 1,
-            }
-        );
-        assert!(
-            store
-                .checkouts(mine.project)
-                .await
-                .expect("read")
-                .is_empty()
-        );
-        let last = store
-            .drop_project_folder(&alice, "acme/widget", &other, "/home/user/widget")
-            .await
-            .expect("dropped");
-        assert_eq!(last.left, 0);
     }
 }

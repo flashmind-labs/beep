@@ -4,10 +4,8 @@ use super::{Reply, found};
 use crate::{
     account::{guest, login},
     api::router::Cx,
-    nodes::push_sync,
     projects::imports::machine_removed,
     protocol::*,
-    push::CLOSE_REVOKED,
     store::{AccountKey, Inviter, LinkKey, Merge, MergeInto, NewKey, PushDevice, PushService},
 };
 use iroh::EndpointId;
@@ -99,12 +97,7 @@ pub(super) async fn unlink(cx: &Cx, key: EndpointId) -> Reply<()> {
     if let Err(e) = cx.app.store.end_streams(&key).await {
         log::warn!("the streams of a removed device were not ended: {e:#}");
     }
-    cx.app.nodes.forget(&key, CLOSE_REVOKED);
     machine_removed(&cx.app, &cx.user, &removed).await;
-    // The machines that synced projects with it stop pulling from it.
-    if let Err(e) = push_sync(&cx.app.nodes, &cx.user, None).await {
-        log::warn!("sync lists not sent after a removed device: {e:#}");
-    }
     Ok(())
 }
 
@@ -184,10 +177,6 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
             cx.app.merged(cx.user.id(), &target).await?;
             if let Some(user) = cx.app.user(&target) {
                 user.changed("");
-            }
-            // A machine signs in again now, as the account it joined.
-            for key in keys.iter().filter_map(|key| key.parse::<EndpointId>().ok()) {
-                cx.app.nodes.forget(&key, 0);
             }
             // Its apps open their events streams again, as the account it joined.
             let store = cx.app.store.clone();

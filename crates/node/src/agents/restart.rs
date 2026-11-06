@@ -197,7 +197,7 @@ impl Agents {
             .await
             .is_err()
         {
-            log::info!("resuming sessions without the agent settings: the server sent none");
+            log::info!("resuming sessions without the agent settings: the mesh gave none");
         }
         let mut sessions = sessions;
         Self::parents_first(&mut sessions);

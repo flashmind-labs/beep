@@ -14,7 +14,7 @@ use beep_node::link::{
 };
 use beep_node::machine::provision::Provision;
 use beep_proto::node::{
-    Down, LinkRx, LinkTx, NODE_ALPN, NODE_ALPN_NAMED, NodeHello, Open, Opened,
+    LinkRx, LinkTx, Open, Opened,
     agent::{
         Event as AgentEvent, MovePhase, Request as AgentRequest, SESSIONS_PROTOCOL, SessionsReply,
         SessionsRequest, Status,
@@ -29,21 +29,13 @@ use beep_proto::node::{
 use beep_proto::{
     SecretText,
     node::{
-        EnvSecret, MachineCredentials,
-        harness::{AgentSettings, HarnessConfig},
+        EnvSecret,
         mesh_state::{Credential, Place, SessionMove, StateValue, SyncSpec},
-        sync::{
-            PROTOCOL as SYNC, Project as SyncProject, Reply as SyncReply, Request as SyncRequest,
-        },
+        sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
     },
 };
 use beep_report::Answer;
-use futures::{SinkExt, StreamExt};
-use iroh::{
-    Endpoint, EndpointId, SecretKey,
-    endpoint::{Connection, presets},
-    protocol::{AcceptError, ProtocolHandler, Router},
-};
+use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
 use iroh_tickets::Ticket;
 use serde_json::json;
 use std::{
@@ -61,7 +53,6 @@ use tokio::{
     task::JoinSet,
     time::timeout,
 };
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 use tokio_util::task::AbortOnDropHandle;
 
 const LIMIT: Duration = Duration::from_secs(90);
@@ -81,25 +72,6 @@ impl Member {
     }
 }
 
-/// What the test's "server" got from a node that dialed it.
-#[derive(Debug)]
-struct Server(mpsc::UnboundedSender<NodeHello>);
-
-impl ProtocolHandler for Server {
-    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        let Ok((send, recv)) = connection.accept_bi().await else {
-            return Ok(());
-        };
-        let (mut tx, mut rx) = link(send, recv);
-        if let Ok(Some(hello)) = rx.recv::<NodeHello>().await {
-            tx.send(&Down::Welcome { tools: false }).await.ok();
-            self.0.send(hello).ok();
-        }
-        connection.closed().await;
-        Ok(())
-    }
-}
-
 async fn bind(key: &SecretKey) -> Endpoint {
     Endpoint::builder(presets::Minimal)
         .secret_key(key.clone())
@@ -109,19 +81,15 @@ async fn bind(key: &SecretKey) -> Endpoint {
         .expect("an endpoint binds")
 }
 
-fn router(endpoint: Endpoint, mesh: &Mesh, server: Option<Server>) -> Router {
+fn router(endpoint: Endpoint, mesh: &Mesh) -> Router {
     let (peer, join) = mesh.protocols();
-    let router = Router::builder(endpoint)
+    Router::builder(endpoint)
         .accept(PEER_ALPN, peer)
-        .accept(JOIN_ALPN, join);
-    match server {
-        Some(server) => router.accept(NODE_ALPN, server),
-        None => router,
-    }
-    .spawn()
+        .accept(JOIN_ALPN, join)
+        .spawn()
 }
 
-async fn desktop(server: Option<Server>) -> Member {
+async fn desktop() -> Member {
     let key = SecretKey::generate();
     let dir = TempDir::new().expect("a temp folder");
     let endpoint = bind(&key).await;
@@ -129,7 +97,7 @@ async fn desktop(server: Option<Server>) -> Member {
         .await
         .expect("the mesh is created");
     Member {
-        _router: router(endpoint, &mesh, server),
+        _router: router(endpoint, &mesh),
         mesh,
         _dir: dir,
     }
@@ -144,7 +112,7 @@ async fn peer_node(from: &Member) -> Member {
         .await
         .expect("the node joins");
     Member {
-        _router: router(endpoint, &mesh, None),
+        _router: router(endpoint, &mesh),
         mesh,
         _dir: dir,
     }
@@ -209,7 +177,6 @@ struct Node {
 struct Config {
     /// Environment variables for the process.
     env: Vec<(&'static str, String)>,
-    server: Option<EndpointId>,
     agent: Option<(String, Vec<String>)>,
     name: Option<&'static str>,
     /// Folders the node shares for files and sync.
@@ -238,9 +205,6 @@ impl Node {
             json!({ "name": config.name.unwrap_or("box-a"), "port": config.port.unwrap_or(0) });
         if !config.files.is_empty() {
             settings["files"] = json!(config.files);
-        }
-        if let Some(server) = config.server {
-            settings["server"] = json!(server.to_string());
         }
         if let Some((program, args)) = config.agent {
             settings["agents"] = json!([{ "name": "codex", "program": program, "args": args }]);
@@ -503,12 +467,10 @@ async fn try_tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Result<Re
 
 #[tokio::test]
 async fn a_peer_runs_a_command_on_a_node_with_no_server() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config::default()).await;
     assert!(
-        node.log
-            .iter()
-            .any(|line| line.contains("no server and no mesh")),
+        node.log.iter().any(|line| line.contains("not in a mesh")),
         "{:?}",
         node.log
     );
@@ -557,7 +519,7 @@ cat > /dev/null
 #[cfg(unix)]
 #[tokio::test]
 async fn a_peer_starts_and_follows_an_agent_session() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");
     let log = work.path().join("sent.jsonl");
     let node = Node::start(Config {
@@ -620,7 +582,7 @@ async fn a_peer_starts_and_follows_an_agent_session() {
 
 #[tokio::test]
 async fn a_stranger_gets_no_shell() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config::default()).await;
     node.join(&desktop.ticket(DeviceKind::Node).await).await;
     desktop.reach(node.id).await;
@@ -648,7 +610,7 @@ async fn a_stranger_gets_no_shell() {
 
 #[tokio::test]
 async fn another_node_gets_no_shell_but_can_use_agent_tools() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config {
         agent: Some(("sh".to_owned(), vec!["-c".to_owned(), "true".to_owned()])),
         ..Config::default()
@@ -701,7 +663,7 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
 
 #[tokio::test]
 async fn another_node_is_refused_a_report() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config {
         name: Some("build-box"),
         ..Config::default()
@@ -716,7 +678,7 @@ async fn another_node_is_refused_a_report() {
 
 #[tokio::test]
 async fn a_node_in_a_mesh_reports_only_itself_for_the_cli() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let a = Node::start(Config {
         name: Some("box-a"),
         ..Config::default()
@@ -764,117 +726,6 @@ async fn a_silent_node_on_the_socket_does_not_stop_the_report() {
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
-#[tokio::test]
-async fn a_node_still_links_to_a_server_when_it_has_one() {
-    let (hellos, mut seen) = mpsc::unbounded_channel();
-    let desktop = desktop(Some(Server(hellos))).await;
-    let mut node = Node::start(Config {
-        server: Some(desktop.id()),
-        ..Config::default()
-    })
-    .await;
-    node.join(&desktop.ticket(DeviceKind::Node).await).await;
-    // The node keeps dialing its server; once the mesh link taught its
-    // endpoint where the server is, the next try gets through.
-    let hello = timeout(LIMIT, seen.recv())
-        .await
-        .expect("the node linked to its server in time")
-        .expect("the server saw the node");
-    assert_eq!(hello.name, "box-a");
-    assert!(hello.offers.iter().any(|o| o == SHELL));
-    // And the mesh works beside it.
-    desktop.reach(node.id).await;
-    node.logged("connected as").await;
-}
-
-/// What a server of either age sees of a node's first message: the protocol
-/// the connection settled on, and the hello's bytes as sent. It answers the
-/// way that age does, in maps on `beep-node/1`.
-#[derive(Debug)]
-struct Raw(mpsc::UnboundedSender<(Vec<u8>, Vec<u8>)>);
-
-impl ProtocolHandler for Raw {
-    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        let Ok((send, recv)) = connection.accept_bi().await else {
-            return Ok(());
-        };
-        let mut frames = FramedRead::new(recv, LengthDelimitedCodec::new());
-        if let Some(Ok(hello)) = frames.next().await {
-            let mut out = FramedWrite::new(send, LengthDelimitedCodec::new());
-            let welcome = Down::Welcome { tools: false };
-            let body = if connection.alpn() == NODE_ALPN_NAMED {
-                rmp_serde::to_vec_named(&welcome)
-            } else {
-                rmp_serde::to_vec(&welcome)
-            };
-            out.send(body.expect("a welcome encodes").into()).await.ok();
-            self.0
-                .send((connection.alpn().to_vec(), hello.to_vec()))
-                .ok();
-        }
-        connection.closed().await;
-        Ok(())
-    }
-}
-
-/// A desktop that serves nodes only on `alpn`, and the first message each node sends.
-async fn desktop_raw(alpn: &'static [u8]) -> (Member, mpsc::UnboundedReceiver<(Vec<u8>, Vec<u8>)>) {
-    let (links, seen) = mpsc::unbounded_channel();
-    let key = SecretKey::generate();
-    let dir = TempDir::new().expect("a temp folder");
-    let endpoint = bind(&key).await;
-    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
-        .await
-        .expect("the mesh is created");
-    let (peer, join) = mesh.protocols();
-    let router = Router::builder(endpoint)
-        .accept(PEER_ALPN, peer)
-        .accept(JOIN_ALPN, join)
-        .accept(alpn, Raw(links))
-        .spawn();
-    let member = Member {
-        mesh,
-        _router: router,
-        _dir: dir,
-    };
-    (member, seen)
-}
-
-async fn first_message_to(alpn: &'static [u8]) -> (Vec<u8>, Vec<u8>) {
-    let (desktop, mut seen) = desktop_raw(alpn).await;
-    let mut node = Node::start(Config {
-        server: Some(desktop.id()),
-        ..Config::default()
-    })
-    .await;
-    node.join(&desktop.ticket(DeviceKind::Node).await).await;
-    let first = timeout(LIMIT, seen.recv())
-        .await
-        .expect("the node linked to its server in time")
-        .expect("the server saw the node");
-    node.logged("connected as").await;
-    first
-}
-
-#[tokio::test]
-async fn a_node_talks_compact_to_a_server_that_serves_beep_node_2() {
-    let (alpn, hello) = first_message_to(NODE_ALPN).await;
-    assert_eq!(alpn, NODE_ALPN);
-    // An array of the hello's nine fields.
-    assert_eq!(hello[0], 0x99);
-    beep_proto::lenient::from_slice::<NodeHello>(&hello).expect("the hello reads");
-}
-
-#[tokio::test]
-async fn a_node_falls_back_to_maps_for_a_server_from_before_beep_node_2() {
-    let (alpn, hello) = first_message_to(NODE_ALPN_NAMED).await;
-    assert_eq!(alpn, NODE_ALPN_NAMED);
-    // A map, and readable by the plain reader the released server has.
-    assert_eq!(hello[0], 0x89);
-    let hello: NodeHello = rmp_serde::from_slice(&hello).expect("the released server reads it");
-    assert_eq!(hello.name, "box-a");
-}
-
 /// The job id a background `remote_run` reports.
 fn job_id(text: &str) -> String {
     let rest = text.split("Job id: ").nth(1).expect("a job id is named");
@@ -892,7 +743,7 @@ async fn run_background(conn: &Link, command: &str) -> Reply {
 
 #[tokio::test]
 async fn a_node_peer_cannot_fill_the_desktops_tasks_or_read_its_jobs() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config::default()).await;
     node.join(&desktop.ticket(DeviceKind::Node).await).await;
     let first = peer_node(&desktop).await;
@@ -974,7 +825,7 @@ async fn a_node_peer_cannot_fill_the_desktops_tasks_or_read_its_jobs() {
 
 #[tokio::test]
 async fn joining_with_a_search_folder_has_the_node_look_there() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config::default()).await;
     let projects = TempDir::new().expect("a temp folder");
     let search = projects.path().to_str().expect("a utf-8 path");
@@ -989,7 +840,7 @@ async fn joining_with_a_search_folder_has_the_node_look_there() {
 
 #[tokio::test]
 async fn a_search_folder_that_is_not_one_refuses_the_join() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config::default()).await;
     let ticket = desktop.ticket(DeviceKind::Node).await;
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_beep-node"))
@@ -1016,7 +867,7 @@ async fn a_search_folder_that_is_not_one_refuses_the_join() {
 #[tokio::test]
 async fn the_control_socket_is_private_and_the_ticket_stays_out_of_the_log() {
     use std::os::unix::fs::PermissionsExt;
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let mut node = Node::start(Config::default()).await;
     let ticket = desktop.ticket(DeviceKind::Node).await;
     node.join(&ticket).await;
@@ -1036,8 +887,8 @@ async fn the_control_socket_is_private_and_the_ticket_stays_out_of_the_log() {
 
 #[tokio::test]
 async fn a_node_leaves_its_mesh_and_joins_another() {
-    let first = desktop(None).await;
-    let second = desktop(None).await;
+    let first = desktop().await;
+    let second = desktop().await;
     let node = Node::start(Config::default()).await;
     node.join(&first.ticket(DeviceKind::Node).await).await;
     first.reach(node.id).await;
@@ -1048,7 +899,7 @@ async fn a_node_leaves_its_mesh_and_joins_another() {
 
 #[tokio::test]
 async fn a_desktop_removed_mid_session_loses_its_stream() {
-    let first = desktop(None).await;
+    let first = desktop().await;
     let node = Node::start(Config::default()).await;
     node.join(&first.ticket(DeviceKind::Node).await).await;
     // A second desktop joins through the first.
@@ -1059,7 +910,7 @@ async fn a_desktop_removed_mid_session_loses_its_stream() {
         .await
         .expect("the desktop joins");
     let second = Member {
-        _router: router(endpoint, &mesh, None),
+        _router: router(endpoint, &mesh),
         mesh,
         _dir: dir,
     };
@@ -1100,67 +951,6 @@ async fn a_desktop_removed_mid_session_loses_its_stream() {
     })
     .await
     .expect("the removed desktop kept its stream");
-}
-
-/// A server that pushes what the test tells it to, over the control stream
-/// and over streams it opens on the node.
-#[derive(Debug)]
-struct Pushing(mpsc::UnboundedSender<ServerLink>);
-
-struct ServerLink {
-    conn: Connection,
-    tx: LinkTx,
-}
-
-impl ProtocolHandler for Pushing {
-    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        let Ok((send, recv)) = connection.accept_bi().await else {
-            return Ok(());
-        };
-        let (mut tx, mut rx) = link(send, recv);
-        if let Ok(Some(_)) = rx.recv::<NodeHello>().await {
-            tx.send(&Down::Welcome { tools: false }).await.ok();
-            let conn = connection.clone();
-            self.0.send(ServerLink { conn, tx }).ok();
-        }
-        connection.closed().await;
-        Ok(())
-    }
-}
-
-async fn desktop_pushing() -> (Member, mpsc::UnboundedReceiver<ServerLink>) {
-    let (links, seen) = mpsc::unbounded_channel();
-    let key = SecretKey::generate();
-    let dir = TempDir::new().expect("a temp folder");
-    let endpoint = bind(&key).await;
-    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
-        .await
-        .expect("the mesh is created");
-    let (peer, join) = mesh.protocols();
-    let router = Router::builder(endpoint)
-        .accept(PEER_ALPN, peer)
-        .accept(JOIN_ALPN, join)
-        .accept(NODE_ALPN, Pushing(links))
-        .spawn();
-    let member = Member {
-        mesh,
-        _router: router,
-        _dir: dir,
-    };
-    (member, seen)
-}
-
-fn env_credentials(vars: &[(&str, &str)]) -> MachineCredentials {
-    MachineCredentials {
-        env: vars
-            .iter()
-            .map(|(name, value)| EnvSecret {
-                name: (*name).to_owned(),
-                value: SecretText::new(*value),
-            })
-            .collect(),
-        forgejo: Vec::new(),
-    }
 }
 
 async fn set_credential(from: &Member, id: &str, name: &str, value: &str) {
@@ -1251,142 +1041,6 @@ fn adapter(log: &Path) -> (String, Vec<String>) {
     adapter_of(ADAPTER, log)
 }
 
-/// What the server pushes: credentials, agent settings and a sync list, each
-/// of which a node out of a mesh would take. Returns once the node logged
-/// that it ignored all three.
-async fn push_everything(
-    server: &mut ServerLink,
-    node: &mut Node,
-    shared: &Path,
-    vars: &[(&str, &str)],
-) {
-    server
-        .tx
-        .send(&Down::Credentials(env_credentials(vars)))
-        .await
-        .expect("the credentials are sent");
-    server
-        .tx
-        .send(&Down::AgentSettings(AgentSettings {
-            harnesses: vec![HarnessConfig::new("codex")],
-            flsh: None,
-        }))
-        .await
-        .expect("the settings are sent");
-    let (send, recv) = server.conn.open_bi().await.expect("a stream opens");
-    let (mut tx, mut rx) = link(send, recv);
-    tx.send(&Open {
-        protocol: SYNC.to_owned(),
-    })
-    .await
-    .expect("the open is sent");
-    assert!(matches!(
-        rx.recv::<Opened>().await.expect("an answer reads"),
-        Some(Opened::Ready {})
-    ));
-    tx.send(&SyncRequest::Configure {
-        projects: vec![SyncProject {
-            name: "server-proj".to_owned(),
-            folder: shared.join("server-proj").display().to_string(),
-            peers: Vec::new(),
-            paused: false,
-        }],
-    })
-    .await
-    .expect("the list is sent");
-    timeout(LIMIT, rx.recv::<SyncReply>())
-        .await
-        .expect("sync answered in time")
-        .expect("the reply reads");
-    node.logged("ignored credentials from the server").await;
-    node.logged("ignored agent settings from the server").await;
-    node.logged("ignored the server's sync list").await;
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn the_servers_sync_and_credentials_do_not_overwrite_the_mesh() {
-    let (desktop, mut links) = desktop_pushing().await;
-    let shared = TempDir::new().expect("a temp folder");
-    let work = TempDir::new().expect("a temp folder");
-    let log = work.path().join("sent.jsonl");
-    let mut node = Node::start(Config {
-        server: Some(desktop.id()),
-        agent: Some(adapter(&log)),
-        files: vec![shared.path().to_owned()],
-        ..Config::default()
-    })
-    .await;
-    // The node finds its server through the mesh link, so it joins first.
-    node.join(&desktop.ticket(DeviceKind::Node).await).await;
-    let mut server = timeout(LIMIT, links.recv())
-        .await
-        .expect("the node linked to its server in time")
-        .expect("the server saw the node");
-    set_credential(&desktop, "gh", "MESH_VAR", "from-the-mesh").await;
-    let harness = HarnessConfig {
-        enabled: false,
-        ..HarnessConfig::new("codex")
-    };
-    desktop
-        .mesh
-        .set(
-            Key::Harness("codex".to_owned()),
-            Some(harness.to_bytes().expect("a harness encodes")),
-        )
-        .await
-        .expect("the setting is written");
-    let folder = shared.path().join("mesh-proj");
-    fs::create_dir(&folder).expect("the project folder");
-    let spec = SyncSpec {
-        folders: [(node.id, folder.display().to_string())].into(),
-        paused: false,
-    };
-    desktop
-        .mesh
-        .set(
-            Key::Sync("mesh-proj".to_owned()),
-            Some(spec.to_bytes().expect("a spec encodes")),
-        )
-        .await
-        .expect("the spec is written");
-    node.logged("from the mesh: 1 credentials").await;
-    node.logged("from the mesh: sync mesh-proj").await;
-    let conn = desktop.reach(node.id).await;
-    assert_eq!(
-        env_seen(&conn, ["MESH_VAR", "SRV_LATER"]).await,
-        "got[from-the-mesh][]"
-    );
-    assert_eq!(sync_names(&conn).await, ["mesh-proj"]);
-    assert!(start_refusal(&conn, work.path()).await.is_some());
-    // Whatever the server pushes now, the mesh has spoken.
-    push_everything(
-        &mut server,
-        &mut node,
-        shared.path(),
-        &[
-            ("SRV_LATER", "from-the-server"),
-            ("MESH_VAR", "server-override"),
-        ],
-    )
-    .await;
-    assert_eq!(
-        env_seen(&conn, ["MESH_VAR", "SRV_LATER"]).await,
-        "got[from-the-mesh][]"
-    );
-    assert_eq!(sync_names(&conn).await, ["mesh-proj"]);
-    // The agent is turned off by the mesh, not by anything else: when the
-    // mesh drops the setting, it starts.
-    assert!(start_refusal(&conn, work.path()).await.is_some());
-    desktop
-        .mesh
-        .set(Key::Harness("codex".to_owned()), None)
-        .await
-        .expect("the setting is deleted");
-    node.logged("from the mesh: settings for 0 agents").await;
-    assert_eq!(start_refusal(&conn, work.path()).await, None);
-}
-
 /// Two nodes of one mesh that keep the project `proj` in step, each with
 /// the folder under a root it shares.
 struct Pair {
@@ -1456,7 +1110,7 @@ struct Bare {
 
 /// The node `a` is started by the caller, who can set its Syncthing up first.
 async fn bare_nodes(a: Node, a_root: TempDir, a_folder: PathBuf) -> Bare {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let b_root = TempDir::new().expect("a temp folder");
     let b_folder = b_root.path().join("proj");
     fs::create_dir(&b_folder).expect("a project folder");
@@ -1941,7 +1595,7 @@ async fn agent_mcp(desktop: &Member, node: &Node, work: &Path, sent: &Path) -> M
 #[cfg(unix)]
 #[tokio::test]
 async fn an_agent_sends_files_between_machines_that_share_no_folders() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");
     let sent = work.path().join("sent.jsonl");
     let a = Node::start(Config {
@@ -1992,7 +1646,7 @@ async fn an_agent_sends_files_between_machines_that_share_no_folders() {
 #[cfg(unix)]
 #[tokio::test]
 async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");
     let sent = work.path().join("sent.jsonl");
     let a = Node::start(Config {
@@ -2085,7 +1739,7 @@ async fn desktop_with_node() -> (Member, Offers) {
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
         .await
         .expect("the mesh is created");
-    let offers = Offers::local(&[], Provision::new(dir.path()), false);
+    let offers = Offers::local(&[], Provision::new(dir.path()));
     let peers = Peers::new(
         endpoint.clone(),
         dir.path().to_path_buf(),
@@ -2146,7 +1800,7 @@ async fn an_agent_runs_a_command_on_a_desktop_that_lends_itself() {
 #[cfg(unix)]
 #[tokio::test]
 async fn coding_agents_get_no_memory_tools() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");
     let sent = work.path().join("sent.jsonl");
     let node = Node::start(Config {
@@ -2200,7 +1854,7 @@ fn files_holding(dir: &Path, needle: &str) -> Vec<PathBuf> {
 #[tokio::test]
 async fn a_deleted_credential_disappears_from_every_node_and_one_copy_is_kept() {
     use std::os::unix::fs::PermissionsExt;
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let mut a = Node::start(Config::default()).await;
     let mut b = Node::start(Config {
         name: Some("box-b"),
@@ -2287,7 +1941,7 @@ async fn env_after_restart(desktop: &Member, node: &Node) -> String {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_deleted_credential_stays_gone_after_a_restart() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let mut node = Node::start(Config {
         port: Some(free_port()),
         ..Config::default()
@@ -2315,7 +1969,7 @@ async fn a_deleted_credential_stays_gone_after_a_restart() {
 #[cfg(unix)]
 #[tokio::test]
 async fn credentials_come_back_after_a_restart_with_no_server() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     // The same port after the restart, so the desktop finds the node again
     // with no discovery.
     let mut node = Node::start(Config {
@@ -2396,76 +2050,6 @@ async fn an_agent_syncs_a_project_and_sends_a_file_with_no_server() {
         )
         .await;
     assert!(failed, "{text}");
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn a_mesh_takes_over_a_family_only_once_it_holds_a_key_of_it() {
-    let (desktop, mut links) = desktop_pushing().await;
-    let shared = TempDir::new().expect("a temp folder");
-    let kept = shared.path().join("kept");
-    fs::create_dir(&kept).expect("the project folder");
-    let mut node = Node::start(Config {
-        server: Some(desktop.id()),
-        files: vec![shared.path().to_owned()],
-        saved_projects: vec![kept.clone()],
-        ..Config::default()
-    })
-    .await;
-    let conn = {
-        node.join(&desktop.ticket(DeviceKind::Node).await).await;
-        desktop.reach(node.id).await
-    };
-    let mut server = timeout(LIMIT, links.recv())
-        .await
-        .expect("the node linked to its server in time")
-        .expect("the server saw the node");
-    // The mesh holds no such keys: a project the server set stays running.
-    node.logged("from the mesh: owns []").await;
-    assert_eq!(sync_names(&conn).await, ["kept"]);
-    // And the server's pushes are still taken.
-    server
-        .tx
-        .send(&Down::Credentials(env_credentials(&[("SRV_ONLY", "one")])))
-        .await
-        .expect("the credentials are sent");
-    node.logged("credentials: 1 env vars").await;
-    assert_eq!(env_seen(&conn, ["SRV_ONLY", "NOT_SET"]).await, "got[one][]");
-    // The mesh gets its first sync key: it owns sync from now on.
-    let folder = shared.path().join("proj");
-    fs::create_dir(&folder).expect("the project folder");
-    let spec = SyncSpec {
-        folders: [(node.id, folder.display().to_string())].into(),
-        paused: false,
-    };
-    desktop
-        .mesh
-        .set(
-            Key::Sync("proj".to_owned()),
-            Some(spec.to_bytes().expect("a spec encodes")),
-        )
-        .await
-        .expect("the spec is written");
-    node.logged("from the mesh: sync proj with 0 peers").await;
-    assert_eq!(sync_names(&conn).await, ["proj"]);
-    // Credentials stay the server's until the mesh holds one.
-    server
-        .tx
-        .send(&Down::Credentials(env_credentials(&[("SRV_ONLY", "two")])))
-        .await
-        .expect("the credentials are sent");
-    node.logged("credentials: 1 env vars").await;
-    assert_eq!(env_seen(&conn, ["SRV_ONLY", "NOT_SET"]).await, "got[two][]");
-    // Deleting the last credential of the mesh empties the family.
-    set_credential(&desktop, "gh", "MESH_VAR", "from-the-mesh").await;
-    node.logged("from the mesh: 1 credentials").await;
-    desktop
-        .mesh
-        .set(Key::Credential("gh".to_owned()), None)
-        .await
-        .expect("the credential is deleted");
-    node.logged("from the mesh: 0 credentials").await;
-    assert_eq!(env_seen(&conn, ["SRV_ONLY", "MESH_VAR"]).await, "got[][]");
 }
 
 #[tokio::test]
@@ -2575,7 +2159,7 @@ async fn follow(conn: &Link, session: &str, done: impl Fn(&AgentEvent) -> bool) 
 #[cfg(unix)]
 #[tokio::test]
 async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_own() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");
     let node = Node::start(Config {
         agent: Some((
@@ -2771,7 +2355,7 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
 #[cfg(unix)]
 #[tokio::test]
 async fn a_root_may_not_have_more_than_eight_agents_over_two_machines() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");
     let config = || Config {
         agent: Some((
@@ -2905,7 +2489,7 @@ async fn synced_pair_env(
     env: &[(&'static str, String)],
 ) -> Pair {
     let work = TempDir::new().expect("a temp folder");
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let roots = [
         TempDir::new().expect("a temp folder"),
         TempDir::new().expect("a temp folder"),
@@ -3606,7 +3190,7 @@ async fn a_machine_whose_syncthing_ignores_the_worktree_refuses_it_and_the_sessi
 /// imported on one machine at a time does.
 async fn placed_pair() -> Pair {
     let work = TempDir::new().expect("a temp folder");
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let roots = [
         TempDir::new().expect("a temp folder"),
         TempDir::new().expect("a temp folder"),
@@ -3911,11 +3495,12 @@ async fn a_machine_copies_the_sessions_of_the_mesh_in_the_background_and_keeps_t
             & 0o777,
         0o600
     );
-    // It waits in the cache: no harness store lists it, and nothing runs.
+    // It waits in the cache: no harness store lists it, and nothing runs. The
+    // plans read at start may run a real `codex`, which fills its own folder.
     assert!(
-        files_under(&pair.b.home.path().join(".codex")).is_empty(),
+        files_under(&pair.b.home.path().join(".codex/sessions")).is_empty(),
         "{:?}",
-        files_under(&pair.b.home.path().join(".codex"))
+        files_under(&pair.b.home.path().join(".codex/sessions"))
     );
     assert!(
         !fs::read_to_string(pair.work.path().join("sent-b.jsonl"))
@@ -4842,7 +4427,7 @@ async fn a_slow_claude_code_neither_holds_back_codex_nor_the_next_look() {
         bin.path().display(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let node = Node::start(Config {
         env: vec![("PATH", path)],
         ..Config::default()
@@ -4914,7 +4499,7 @@ fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 
 #[tokio::test]
 async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
-    let desktop = desktop(None).await;
+    let desktop = desktop().await;
     let a = Node::start(Config::default()).await;
     let mut b = Node::start(Config {
         name: Some("box-b"),

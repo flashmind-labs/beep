@@ -34,13 +34,6 @@ pub(crate) struct SaveHarness<'a> {
     pub(crate) env: &'a [EnvSecret],
 }
 
-/// A harness turned off on a machine.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OffHarness {
-    pub(crate) machine_id: String,
-    pub(crate) agent: String,
-}
-
 fn harness_from(row: &PgRow) -> Result<HarnessRow> {
     Ok(HarnessRow {
         machine_id: row.try_get("machine_id")?,
@@ -54,23 +47,6 @@ fn harness_from(row: &PgRow) -> Result<HarnessRow> {
 }
 
 impl Store {
-    /// The user's settings for the harnesses on `machine_id`, by agent.
-    pub(crate) async fn harness_settings(
-        &self,
-        user: &UserKey,
-        machine_id: &str,
-    ) -> Result<Vec<HarnessRow>> {
-        let rows = sqlx::query(
-            "SELECT machine_id, agent, enabled, program, home, args, env_names
-             FROM harness_settings WHERE user_id=$1 AND machine_id=$2 ORDER BY agent",
-        )
-        .bind(user.as_str())
-        .bind(machine_id)
-        .fetch_all(&self.pool)
-        .await?;
-        rows.iter().map(harness_from).collect()
-    }
-
     /// The user's settings for harness `agent`, by machine.
     pub(crate) async fn harness_settings_of(
         &self,
@@ -157,21 +133,6 @@ impl Store {
         .await?;
         Ok(())
     }
-
-    /// The harnesses the user turned off, on any machine.
-    pub(crate) async fn off_harnesses(&self, user: &UserKey) -> Result<Vec<OffHarness>> {
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT machine_id, agent FROM harness_settings
-             WHERE user_id=$1 AND NOT enabled ORDER BY machine_id, agent",
-        )
-        .bind(user.as_str())
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|(machine_id, agent)| OffHarness { machine_id, agent })
-            .collect())
-    }
 }
 
 /// Reseals `source`'s harness env vars for `target` before a merge; unopenable ones stay as they are.
@@ -214,116 +175,4 @@ pub(super) async fn reseal_harnesses_for(
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{protocol::SecretText, store::test_db::TestDb};
-
-    fn env_var(name: &str, value: &str) -> EnvSecret {
-        EnvSecret {
-            name: name.to_owned(),
-            value: SecretText::new(value),
-        }
-    }
-
-    #[tokio::test]
-    async fn settings_round_trip_with_their_env_sealed() {
-        let db = TestDb::new().await.unwrap();
-        let store = db.store().await.unwrap();
-        let key = CredentialKey::random();
-        let user = UserKey::for_test("alice");
-        let other = UserKey::for_test("bob");
-        let args = vec!["--profile".to_owned(), "work".to_owned()];
-        let env = vec![env_var("HTTPS_PROXY", "http://proxy:3128")];
-        store
-            .save_harness_settings(
-                &user,
-                &key,
-                SaveHarness {
-                    machine_id: "m1",
-                    agent: "codex",
-                    enabled: false,
-                    program: "/opt/codex-acp",
-                    home: "~/.codex-work",
-                    args: &args,
-                    env: &env,
-                },
-            )
-            .await
-            .unwrap();
-        let rows = store.harness_settings(&user, "m1").await.unwrap();
-        assert_eq!(
-            rows,
-            [HarnessRow {
-                machine_id: "m1".into(),
-                agent: "codex".into(),
-                enabled: false,
-                program: "/opt/codex-acp".into(),
-                home: "~/.codex-work".into(),
-                args: args.clone(),
-                env_names: vec!["HTTPS_PROXY".into()],
-            }]
-        );
-        assert_eq!(
-            store.harness_env(&user, &key, "m1", "codex").await.unwrap(),
-            env
-        );
-        // The value is not in the row as text.
-        let raw: Vec<u8> = sqlx::query_scalar("SELECT env FROM harness_settings")
-            .fetch_one(&store.pool)
-            .await
-            .unwrap();
-        assert!(!raw.windows(4).any(|w| w == b"3128"));
-        assert_eq!(
-            store.off_harnesses(&user).await.unwrap(),
-            [OffHarness {
-                machine_id: "m1".into(),
-                agent: "codex".into(),
-            }]
-        );
-        assert!(
-            store
-                .harness_settings(&other, "m1")
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            store
-                .harness_settings(&user, "m2")
-                .await
-                .unwrap()
-                .is_empty()
-        );
-
-        // Saving again replaces them, and no env vars leave none sealed.
-        store
-            .save_harness_settings(
-                &user,
-                &key,
-                SaveHarness {
-                    machine_id: "m1",
-                    agent: "codex",
-                    enabled: true,
-                    program: "",
-                    home: "",
-                    args: &[],
-                    env: &[],
-                },
-            )
-            .await
-            .unwrap();
-        let rows = store.harness_settings(&user, "m1").await.unwrap();
-        assert!(rows[0].enabled && rows[0].env_names.is_empty());
-        assert!(
-            store
-                .harness_env(&user, &key, "m1", "codex")
-                .await
-                .unwrap()
-                .is_empty()
-        );
-        assert!(store.off_harnesses(&user).await.unwrap().is_empty());
-    }
 }

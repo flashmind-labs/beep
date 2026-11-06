@@ -3,8 +3,8 @@
 mod rows;
 pub(super) use rows::worker_from;
 pub(crate) use rows::{
-    After, CheckoutRow, IssueAuthor, NewTask, NewWorker, OpenCounts, OverviewRow, ProjectRow,
-    StartRefused, TaskRow, TrackedIssue, WorkerRow,
+    After, CheckoutRow, IssueAuthor, NewTask, OpenCounts, OverviewRow, ProjectRow, StartRefused,
+    TaskRow, TrackedIssue, WorkerRow,
 };
 use rows::{checkout_from, project_from, task_from};
 
@@ -39,7 +39,7 @@ const TASK_COLUMNS: &str = "t.id, t.project_id, t.slug, t.title, t.body, t.state
 
 pub(super) const WORKER_COLUMNS: &str =
     "w.id, w.task_id, w.project_id, w.machine, w.agent, w.session,
-    w.folder, w.state, w.asking, w.last_output, w.persona, w.persona_commit, w.turns_seen,
+    w.folder, w.state, w.asking, w.last_output, w.persona, w.persona_commit,
     w.started_at, w.last_turn_at, w.ended_at";
 
 /// The live worker states, as the store keeps them.

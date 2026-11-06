@@ -5,9 +5,8 @@ mod guard;
 mod records;
 pub(crate) use actions::{actions_since, went_through};
 pub(crate) use guard::{
-    ApprovalPayload, Check, DENIED, SKIPPED, SUPERSEDED, allow_always, allow_always_in,
-    allow_in_chat, check, close_open_calls, guard, open_calls, read_tool_app, read_tools_only,
-    waiting_approval,
+    ApprovalPayload, DENIED, SKIPPED, SUPERSEDED, allow_always_in, allow_in_chat, close_open_calls,
+    guard, open_calls, read_tool_app, read_tools_only, waiting_approval,
 };
 pub(crate) use records::{describe_call, field_label, is_id, read_back, shorten};
 use records::{fields, parse_output, records};
@@ -17,7 +16,6 @@ use crate::{
         CATALOG, CatalogApp, catalog_app, custom_mcp::PREFIX as ADDED_PREFIX, mcp::FASTMAIL_TOOLS,
         read,
     },
-    nodes::agent_name,
     protocol::{AppAction, AppKind, AppPermissions, Approval, ApprovalField, PermissionLevel},
     store::{AppPermissionRow, ChatAllow},
     tools::media::{self, MediaKind},
@@ -38,10 +36,6 @@ pub(crate) enum Acts {
     Always,
     /// Only when it moves mail to another folder, which can bin it.
     WhenMoving,
-    /// Only when `to` names one of the user's machines.
-    WhenToMachine,
-    /// Only when it starts a coding agent session or gives one work.
-    WhenDirectingAgent,
 }
 
 impl Acts {
@@ -50,16 +44,6 @@ impl Acts {
             Acts::Never => false,
             Acts::Always => true,
             Acts::WhenMoving => args.get("folder").is_some_and(|folder| !folder.is_null()),
-            Acts::WhenToMachine => args
-                .get("to")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .is_some_and(|to| !to.is_empty() && !to.eq_ignore_ascii_case("user")),
-            // `answer` counts: text that is no option goes to the agent as its next prompt.
-            Acts::WhenDirectingAgent => matches!(
-                args.get("action").and_then(Value::as_str),
-                Some("start" | "takeover" | "prompt" | "answer" | "steer" | "interrupt")
-            ),
         }
     }
 
@@ -68,18 +52,6 @@ impl Acts {
         self != Acts::Never
     }
 }
-
-/// `send_file` as rules keep it.
-const SEND_FILE: &str = "SEND_FILE";
-/// `code_agent` as rules keep it: starting a session or giving one work acts.
-const CODE_AGENT: &str = "CODE_AGENT";
-/// `add_machine` as rules keep it: a setup token grants account access, so it acts.
-const ADD_MACHINE: &str = "ADD_MACHINE";
-/// `import_project` as rules keep it: it clones with the user's tokens.
-const IMPORT_PROJECT: &str = "IMPORT_PROJECT";
-/// The Beep MCP server's `remote_run` and `send_files` (`crate::tools::machines::mcp`).
-pub(crate) const RUN_ON: &str = "RUN_ON";
-pub(crate) const SEND_FILES: &str = "SEND_FILES";
 
 /// Composio tags of tools that create or destroy, which ask even when listed as reads.
 const ACTING_HINTS: &[&str] = &["createHint", "destructiveHint"];
@@ -143,14 +115,10 @@ impl ToolSlug {
 pub(crate) enum ToolApp {
     Catalog(&'static CatalogApp),
     Added(String),
-    /// Beep's own tools that act on the user's machines.
-    Machines,
     /// Beep's media tools that spend the user's own API keys.
     Media,
 }
 
-/// The rules' name for the user's machines.
-pub(crate) const MACHINES_APP: &str = "machines";
 /// The rules' name for media made with the user's keys.
 const MEDIA_APP: &str = "media";
 
@@ -159,7 +127,6 @@ impl ToolApp {
         match self {
             ToolApp::Catalog(app) => app.slug,
             ToolApp::Added(slug) => slug,
-            ToolApp::Machines => MACHINES_APP,
             ToolApp::Media => MEDIA_APP,
         }
     }
@@ -171,7 +138,6 @@ impl ToolApp {
             ToolApp::Added(slug) => {
                 capitalize(&slug.trim_start_matches(ADDED_PREFIX).replace('-', " "))
             }
-            ToolApp::Machines => "Your machines".to_owned(),
             ToolApp::Media => "Media generation".to_owned(),
         }
     }
@@ -181,15 +147,6 @@ impl ToolApp {
 pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = ToolSlug::new(tool);
     let tool = tool.as_str();
-    if tool == SEND_FILE {
-        return Some((ToolApp::Machines, Acts::WhenToMachine));
-    }
-    if tool == CODE_AGENT {
-        return Some((ToolApp::Machines, Acts::WhenDirectingAgent));
-    }
-    if [ADD_MACHINE, IMPORT_PROJECT, RUN_ON, SEND_FILES].contains(&tool) {
-        return Some((ToolApp::Machines, Acts::Always));
-    }
     if MediaKind::from_tool(tool).is_some() {
         return Some((ToolApp::Media, Acts::Always));
     }
@@ -241,7 +198,7 @@ fn project_tool(slug: &str) -> Option<(ToolApp, Acts)> {
 pub(crate) fn call_acts(tool: &str, args: &Value) -> Option<(&'static CatalogApp, bool)> {
     match lookup(tool)? {
         (ToolApp::Catalog(app), acts) => Some((app, acts.on(args))),
-        (ToolApp::Added(_) | ToolApp::Machines | ToolApp::Media, _) => None,
+        (ToolApp::Added(_) | ToolApp::Media, _) => None,
     }
 }
 
@@ -258,44 +215,8 @@ pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval 
 fn call_fields(app: &ToolApp, tool: &str, args: &Value) -> Vec<ApprovalField> {
     match (app, MediaKind::from_tool(tool)) {
         (ToolApp::Media, Some(kind)) => media::approval_fields(kind, args),
-        _ if ToolSlug::new(tool).as_str() == CODE_AGENT => code_agent_fields(args),
         _ => fields(args),
     }
-}
-
-/// A `code_agent` card; "Default" is what the call left for the server to pick when it runs.
-fn code_agent_fields(args: &Value) -> Vec<ApprovalField> {
-    const DEFAULT: &str = "Default";
-    let text = |key: &str| {
-        args.get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-    };
-    let action = text("action").unwrap_or_default();
-    let starting = action == "start";
-    [
-        ("Action", Some(capitalize(action))),
-        (
-            "Agent",
-            Some(text("agent").map_or(DEFAULT, agent_name).to_owned()),
-        ),
-        ("Machine", Some(text("in").unwrap_or(DEFAULT).to_owned())),
-        (
-            "Folder",
-            starting.then(|| text("cwd").unwrap_or(DEFAULT).to_owned()),
-        ),
-        ("Session", text("id").map(str::to_owned)),
-        ("Prompt", text("prompt").map(str::to_owned)),
-    ]
-    .into_iter()
-    .filter_map(|(label, value)| {
-        Some(ApprovalField {
-            label: label.to_owned(),
-            value: shorten(&value?, MAX_VALUE_CHARS),
-        })
-    })
-    .collect()
 }
 
 /// The tools of `app` that can act; every project tool counts.
