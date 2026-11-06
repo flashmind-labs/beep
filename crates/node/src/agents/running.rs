@@ -5,7 +5,7 @@ use super::{
     checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
 };
 use crate::{
-    agents::mcp::{self, Launch, Upstream},
+    agents::mcp::{self, Launch},
     machine::provision::spawn_env::{self, Scope},
     run::process,
 };
@@ -32,12 +32,10 @@ use tokio::{
 
 impl Agents {
     /// Gives the sessions started from now on the Beep MCP server, as
-    /// `launch` starts it, and the user's standing rules from `upstream` when
-    /// agents get memories (`MEMORY_TOOLS`).
-    /// Only the first call counts.
-    pub fn serve_mcp(&self, launch: Arc<Launch>, upstream: Upstream) {
+    /// `launch` starts it. Only the first call counts.
+    pub fn serve_mcp(&self, launch: Arc<Launch>) {
         // A second launch would give the same server.
-        let _ = self.mcp.set((launch, upstream));
+        let _ = self.mcp.set(launch);
     }
 
     /// Whether `session` is one of this node's and still runs.
@@ -377,13 +375,7 @@ impl Agents {
             follows: begin.follows,
             note: begin.note,
             brief: begin.brief,
-            mcp: self.mcp.get().map(|(launch, _)| launch.server(&id)),
-            // Standing rules come from memories, which agents do not get yet.
-            rules: self
-                .mcp
-                .get()
-                .filter(|_| crate::agents::mcp::MEMORY_TOOLS)
-                .map(|(_, upstream)| upstream.clone()),
+            mcp: self.mcp.get().map(|launch| launch.server(&id)),
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts: self.alerts.clone(),

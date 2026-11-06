@@ -2056,7 +2056,7 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn memory_tools_are_absent_with_no_server() {
+async fn coding_agents_get_no_memory_tools() {
     let desktop = desktop(None).await;
     let work = TempDir::new().expect("a temp folder");
     let sent = work.path().join("sent.jsonl");
@@ -2072,8 +2072,17 @@ async fn memory_tools_are_absent_with_no_server() {
     for memory in ["remember", "recall", "update_memory", "forget"] {
         assert!(!tools.iter().any(|tool| tool == memory), "{tools:?}");
     }
-    let (text, failed) = mcp.call("remember", json!({ "content": "x" })).await;
-    assert!(failed, "{text}");
+    for memory in [
+        "remember",
+        "recall",
+        "update_memory",
+        "forget",
+        "standing_rules",
+    ] {
+        let (text, failed) = mcp.call(memory, json!({ "content": "x" })).await;
+        assert!(failed);
+        assert_eq!(text, format!("There is no tool {memory}."));
+    }
 }
 
 /// Files under `dir` whose bytes hold `needle`.

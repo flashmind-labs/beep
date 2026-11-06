@@ -133,20 +133,14 @@ pub(crate) fn bare_block(text: &str) -> String {
 
 /// `text` with a bare brief at its start tagged as context, for a harness
 /// that keeps a prompt's blocks as one string. The brief is known by the
-/// exact text it ends with; standing rules after it cannot be told from the
-/// user's words and stay.
+/// exact text it ends with.
 pub(crate) fn untagged(text: &str) -> String {
     let trimmed = text.trim_start();
     if !is_bare(trimmed) {
         return text.to_owned();
     }
-    let ends = [
-        mcp::brief(true),
-        mcp::brief(false),
-        WORKTREE_BRIEF.to_owned(),
-    ];
-    for end in &ends {
-        if let Some(at) = trimmed.rfind(end.as_str()) {
+    for end in [mcp::BRIEF, WORKTREE_BRIEF] {
+        if let Some(at) = trimmed.rfind(end) {
             let (brief, rest) = trimmed.split_at(at + end.len());
             return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
         }
@@ -238,14 +232,14 @@ mod tests {
 
     #[test]
     fn a_bare_brief_becomes_context() {
-        let brief = mcp::brief(false);
-        assert_eq!(bare_block(&brief), context(&brief));
+        let brief = mcp::BRIEF;
+        assert_eq!(bare_block(brief), context(brief));
         assert_eq!(bare_block("ok"), "ok");
         let glued = format!("{brief}ok, let's keep going");
         assert_eq!(said(&glued), "ok, let's keep going");
         assert_eq!(
             parts(&untagged(&glued)),
-            [Part::Context(&brief), Part::User("ok, let's keep going")]
+            [Part::Context(brief), Part::User("ok, let's keep going")]
         );
         let worktree = format!("{WORKTREE_BRIEF}\n\n{brief}fix it");
         assert_eq!(said(&worktree), "fix it");

@@ -4,8 +4,7 @@
 //! when the welcome said the server takes them (`Down::Welcome::tools`).
 //! Each stream starts with `Open`, then carries one `Request` and its
 //! `Reply`. The server runs the call on the machine it names, so the
-//! user's rules for their machines apply as for Beep's own tools. The memory
-//! tools work on the memories of the node's owner.
+//! user's rules for their machines apply as for Beep's own tools.
 
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
@@ -41,6 +40,8 @@ pub enum Tool {
     JobStatus,
     Cancel,
     MachineLog,
+    /// No longer sent: coding agents get no memories, which are the
+    /// assistant's. Kept so the variants after it keep their place.
     Remember,
     Recall,
     UpdateMemory,
@@ -58,8 +59,8 @@ pub enum Tool {
     /// A node asks another how many live agents run there under a root session,
     /// to hold the limit across machines. Between nodes only.
     AgentCount,
-    /// Not a tool agents see: the node reads it for a session's first prompt.
-    /// `Done` with the text, empty when there are none.
+    /// No longer sent: a node read the user's standing rules with it for a
+    /// session's first prompt. Kept so the variants after it keep their place.
     StandingRules,
     /// Not a tool agents see: a node asks another how its calls to each code
     /// host went, to pick the machine that watches a project's CI runs.
