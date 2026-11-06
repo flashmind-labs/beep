@@ -15,6 +15,8 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 const MANIFEST: &str = "manifest.json";
+/// The files a machine's folder holds.
+const NAMES: [&str; 2] = ["log.txt", "status.txt"];
 /// Room left in `MAX_BODY` for the manifest.
 const MANIFEST_RESERVE: usize = 64 * 1024;
 
@@ -89,6 +91,8 @@ pub enum BundleError {
     NoManifest,
     #[error("the report is {bytes} bytes, over the {MAX_BODY} the server takes")]
     TooLarge { bytes: usize },
+    #[error("{0} is not a report file")]
+    BadPath(String),
 }
 
 /// The redacted draft of a report from each machine's share, cut to fit
@@ -104,7 +108,7 @@ pub fn draft(
     let mut files = Vec::new();
     for share in shares {
         let dir = folder(&share.name, share.id);
-        for (name, body) in [("log.txt", &share.log), ("status.txt", &share.status)] {
+        for (name, body) in NAMES.into_iter().zip([&share.log, &share.status]) {
             let text = redact(body)?;
             if !text.is_empty() {
                 files.push(DraftFile {
@@ -145,6 +149,9 @@ pub fn draft(
 pub fn zip(draft: &Draft) -> Result<Vec<u8>, BundleError> {
     let mut files = Vec::with_capacity(draft.files.len());
     for file in &draft.files {
+        if !is_report_file(&file.path) {
+            return Err(BundleError::BadPath(file.path.clone()));
+        }
         files.push(DraftFile {
             path: file.path.clone(),
             text: redact(&file.text)?,
@@ -183,13 +190,26 @@ pub fn read_manifest(zip: &[u8]) -> Result<Manifest, BundleError> {
     Ok(serde_json::from_slice(&json)?)
 }
 
-/// `<name>-<first 6 of id>`, with nothing in the name that would read as a
-/// folder or a drive in the zip.
+/// `<name>-<first 6 of id>`.
 fn folder(name: &str, id: EndpointId) -> String {
+    let id = id.to_string();
+    format!("{}-{}", clean(name), &id[..6])
+}
+
+/// Whether `path` is `<folder>/log.txt` or `<folder>/status.txt`, as
+/// `draft` names them.
+fn is_report_file(path: &str) -> bool {
+    path.split_once('/')
+        .is_some_and(|(dir, name)| !dir.is_empty() && clean(dir) == dir && NAMES.contains(&name))
+}
+
+/// `name` with nothing that would read as a folder, a drive or a name
+/// Windows refuses.
+fn clean(name: &str) -> String {
     let mut clean: String = name
         .chars()
         .map(|c| {
-            if matches!(c, '/' | '\\' | ':') {
+            if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
                 '-'
             } else {
                 c
@@ -201,8 +221,7 @@ fn folder(name: &str, id: EndpointId) -> String {
     }
     let dots = clean.len() - clean.trim_start_matches('.').len();
     clean.replace_range(..dots, &"-".repeat(dots));
-    let id = id.to_string();
-    format!("{clean}-{}", &id[..6])
+    clean
 }
 
 /// Cuts `files` to `budget` bytes in all, smallest first: each takes at
@@ -346,6 +365,29 @@ mod tests {
         let short = &id.to_string()[..6];
         assert_eq!(folder("../..\\c:/x", id), format!("----c--x-{short}"));
         assert_eq!(folder(".hidden", id), format!("-hidden-{short}"));
+        assert_eq!(
+            folder("a*b?c\"<d>|e\tf", id),
+            format!("a-b-c--d--e-f-{short}")
+        );
+    }
+
+    #[test]
+    fn zip_refuses_a_file_outside_a_machine_folder() {
+        for path in [
+            "../log.txt",
+            "/log.txt",
+            "build-box/../../log.txt",
+            "build-box/notes.txt",
+            "c:/log.txt",
+            "log.txt",
+        ] {
+            let mut d = draft("", Period::Today, 0, sender(), Vec::new()).expect("an empty draft");
+            d.files.push(DraftFile {
+                path: path.into(),
+                text: "x\n".into(),
+            });
+            assert!(matches!(zip(&d), Err(BundleError::BadPath(_))), "{path}");
+        }
     }
 
     #[test]
