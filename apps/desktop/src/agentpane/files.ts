@@ -40,6 +40,8 @@ const F = {
   el: null as HTMLElement | null,
   /// A path to scroll into view once its row is drawn.
   reveal: null as string | null,
+  /// The HTML the tree holds, to skip a redraw of the same rows.
+  drawn: "",
 };
 
 const MARKS: Record<GitChange, [string, string]> = {
@@ -167,11 +169,13 @@ async function load(dir: string, deep = false) {
   const had = F.listings.get(dir);
   F.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
   F.reading.add(dir);
-  draw();
+  // A folder shown stays as it is while it is read again.
+  if (!had?.entries) draw();
+  let changed = true;
   try {
     const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep });
     if (F.key !== key) return;
-    mergeTree(F.listings, got);
+    changed = mergeTree(F.listings, got);
     if (!deep) F.roots.add(dir);
     const top = got.folders[0];
     F.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
@@ -181,7 +185,7 @@ async function load(dir: string, deep = false) {
   } finally {
     if (F.key === key) F.reading.delete(dir);
   }
-  draw();
+  if (changed || !had?.entries) draw();
   if (F.key === key && F.filter.trim()) readAll();
 }
 
@@ -203,7 +207,8 @@ function draw() {
   const top = F.listings.get("");
   const rows = treeRows(F.listings, F.open, F.filter);
   let html = rows.map(rowHtml).join("");
-  if (top?.error) html = `<div class="agpmsg derr">${esc(top.error)}</div>`;
+  // A failed refresh does not blank a tree that is shown.
+  if (top?.error && !top.entries) html = `<div class="agpmsg derr">${esc(top.error)}</div>`;
   else if (!top?.entries) html = `<div class="agpmsg"><span class="dspin"></span>Reading the folder…</div>`;
   else if (!rows.length && F.walking && F.filter.trim()) html = `<div class="agpmsg"><span class="dspin"></span>Reading folders…</div>`;
   else if (!rows.length && !F.capped) html = `<div class="agpmsg">${F.filter ? "No files match." : "This folder is empty."}</div>`;
@@ -212,6 +217,9 @@ function draw() {
     if (F.walking) { if (rows.length) html += `<div class="agtr note" style="--d:0"><span class="dspin"></span>Reading folders…</div>`; }
     else if (F.capped) html += `<div class="agtr note" style="--d:0">Stopped reading at ${WALK_ENTRIES.toLocaleString()} files</div>`;
   }
+  // The same rows again: leave the DOM alone.
+  if (F.drawn === html && tree.firstChild && !F.reveal) return;
+  F.drawn = html;
   const keep = tree.scrollTop;
   tree.innerHTML = html;
   tree.scrollTop = keep;

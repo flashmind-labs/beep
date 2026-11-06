@@ -69,3 +69,15 @@ test("the harness's own default entry folds into one Default row", () => {
   assert.deepEqual(modelRows(claude, "").rows.map(r => [r.value, r.label, r.note]),
     [["", "Default", "Opus 4.6"], ["sonnet", "Sonnet", "sonnet"]]);
 });
+
+test("a model matches when every word of the query is in it, in any order", () => {
+  const list: AgentModels = { pick: "listed", current: "", models: [
+    { id: "mistral:deepseek-v4-1-flash-1017", name: "", description: null },
+    { id: "openrouter:deepseek/deepseek-chat", name: "", description: null },
+  ] };
+  const ids = (q: string) => modelRows(list, q).rows.map(r => r.value).filter(Boolean);
+  assert.deepEqual(ids("deepseek 1017"), ["mistral:deepseek-v4-1-flash-1017"]);
+  assert.deepEqual(ids("  1017   DeepSeek "), ["mistral:deepseek-v4-1-flash-1017"]);
+  assert.deepEqual(ids("deepseek"), ["mistral:deepseek-v4-1-flash-1017", "openrouter:deepseek/deepseek-chat"]);
+  assert.deepEqual(ids("deepseek 9999"), []);
+});

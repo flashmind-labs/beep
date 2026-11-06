@@ -10,7 +10,7 @@ import { collectArtifacts, madeNote, toolArtifacts } from "../agentpane/artifact
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
-import { fillLog, type Unit } from "./logwindow.ts";
+import { fillLog, pinEnd, type Unit } from "./logwindow.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
@@ -543,7 +543,7 @@ export function drawAgentBody(keep?: string, polled = false) {
       stop.innerHTML = stopFace(stopping);
     }
   }
-  if (scroll === "bottom") b.scrollTop = b.scrollHeight;
+  if (scroll === "bottom") pinEnd(b);
   else if (anchor) restoreScroll(b, anchor);
   // A row opened at the bottom pushes the bottom away: the log follows
   // new entries again once the reader scrolls back down.
