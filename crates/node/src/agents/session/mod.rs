@@ -22,7 +22,7 @@ use agent_client_protocol::schema::v1::McpServer;
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AgentCommand, AnswerOption, Effort, EntryKind, ParentLink, SessionInfo, Status,
+    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionInfo, Status,
 };
 use futures::stream::FuturesUnordered;
 use std::{
@@ -171,6 +171,8 @@ pub(super) struct Start<'a> {
     pub(super) prompt: Option<String>,
     /// The agent's id of an earlier session to resume instead of a new one.
     pub(super) resume: Option<String>,
+    /// The resumed session's transcript from before the node restarted.
+    pub(super) earlier: Vec<Entry>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -249,6 +251,7 @@ impl Session {
             cwd,
             prompt,
             resume,
+            earlier,
             model,
             effort,
             mode,
@@ -335,6 +338,7 @@ impl Session {
             brief: brief.map(Cow::into_owned),
             mcp_servers: mcp.into_iter().collect(),
             resume,
+            earlier,
             model,
             effort,
             thinking: None,

@@ -153,12 +153,26 @@ impl Live {
     }
 
     pub(super) fn push_entry(&mut self, kind: EntryKind, text: String) -> u64 {
+        self.push_whole(Entry::new(kind, text))
+    }
+
+    fn push_whole(&mut self, entry: Entry) -> u64 {
         if self.transcript.len() >= MAX_ENTRIES {
             self.transcript.pop_front();
             self.dropped += 1;
         }
-        self.transcript.push_back(Entry::new(kind, text));
+        self.transcript.push_back(entry);
         self.dropped + self.transcript.len() as u64 - 1
+    }
+
+    /// Shows again `earlier`, the transcript the session had before the
+    /// node restarted, for an agent that resumes without replaying it.
+    pub(crate) fn restore(&mut self, earlier: Vec<Entry>) {
+        self.end_thought(Instant::now());
+        self.in_message = false;
+        for entry in earlier {
+            self.push_whole(entry);
+        }
     }
 
     pub(super) fn entry_mut(&mut self, at: u64) -> Option<&mut Entry> {
