@@ -132,26 +132,9 @@ impl Forge for Cli {
     }
 
     async fn wait(&self, at: &Target, id: u64) -> Result<bool> {
-        let id = id.to_string();
         match &at.host {
-            Host::GitHub => {
-                let args: Vec<String> = vec![
-                    "run".into(),
-                    "watch".into(),
-                    id,
-                    "--repo".into(),
-                    at.repo.clone(),
-                    "--exit-status".into(),
-                    "--interval".into(),
-                    WAIT_EVERY_SECS.to_string(),
-                ];
-                let mut command = command("gh", &args);
-                command.stdout(Stdio::null()).stderr(Stdio::null());
-                let child = command.spawn().context("starting gh")?;
-                timeout(WAIT_LIMIT, exited(child))
-                    .await
-                    .context("gh waited too long")?
-            }
+            // The watch's exit says it ended, `gh run view` how.
+            Host::GitHub => super::github::wait(&at.repo, id).await,
             // teacli prints the run as one JSON line each time it changes,
             // the last one with how it ended.
             Host::Forgejo { url, .. } => {
@@ -159,7 +142,7 @@ impl Forge for Cli {
                     "action".into(),
                     "watch".into(),
                     at.repo.clone(),
-                    id,
+                    id.to_string(),
                     "--host".into(),
                     url.clone(),
                     "--format".into(),
@@ -231,7 +214,7 @@ fn ended(state: RunState) -> bool {
 
 /// `program` with `args`, the tools' folders on `PATH` and the GitHub token,
 /// killed when dropped.
-fn command(program: &str, args: &[String]) -> Command {
+pub(super) fn command(program: &str, args: &[String]) -> Command {
     let mut command = Command::new(program);
     command.args(args).stdin(Stdio::null()).kill_on_drop(true);
     spawn_env::apply(&mut command, Scope::Agent(None));
@@ -239,7 +222,7 @@ fn command(program: &str, args: &[String]) -> Command {
 }
 
 /// The end of what a CLI said, on one line.
-fn tail(text: &str) -> String {
+pub(super) fn tail(text: &str) -> String {
     let text = text.trim().replace('\n', " ");
     let start = text
         .char_indices()
