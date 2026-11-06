@@ -12,9 +12,15 @@ let opened: string | null = null, issueText: string | null = null;
 /// the sheet closed is dropped.
 let opening = 0;
 
+/// Starts a coding agent on what was typed, from the form's "Debug with an agent".
+let debug: ((text: string) => void) | null = null;
+
 /// Opens the sheet over `host`; a second call while it is open does nothing.
-export function openReport(host: HTMLElement) {
+/// With `onDebug` the form offers "Debug with an agent", which closes the
+/// sheet and hands it what was typed.
+export function openReport(host: HTMLElement, onDebug?: (text: string) => void) {
   if (sheet) return;
+  debug = onDebug ?? null;
   opening++;
   state = START;
   opened = issueText = null;
@@ -180,12 +186,18 @@ function form() {
   chips.setAttribute("aria-label", "Period");
   const go = button("Collect", "dbtn pri", collect);
   go.disabled = collecting;
+  const start = debug;
+  const agent = start ? button("Debug with an agent", "dbtn", () => { const typed = state.text; close?.(); start(typed); }) : null;
+  if (agent) {
+    agent.title = "Starts a coding agent that looks into Beep and sends a report";
+    agent.disabled = collecting;
+  }
   return present([
     el("div", "am-label", "What happened?"),
     text,
     chips,
     collecting ? el("div", "am-wait rp-wait", el("span", "dspin"), "Collecting from your machines") : null,
-    foot(cancel(), go),
+    foot(cancel(), agent, go),
   ]);
 }
 

@@ -211,6 +211,12 @@ them, `just report R-<id>` downloads and unzips one to `target/reports/`, and
 `just report-solved R-<id>` deletes it. The GitHub issue never holds logs or
 names, only the reference.
 
+Coding agents debug Beep with the Beep MCP tools `beep_status`, `beep_logs` and
+`file_report` (`crates/node/src/agents/mcp/debug.rs`): `report/1` read through
+the session's own node, redacted, every machine from a desktop and the node
+alone from a node. `file_report` asks the user before sending. The desktop's
+Report a problem form starts one with Debug with an agent.
+
 ## Server tests
 
 `just test` starts the local Postgres and runs the server tests. A plain

@@ -14,7 +14,7 @@ use crate::{
     link::{
         from_mesh::Membership,
         peer_tools::{self, Caller},
-        peers::{self, Peers},
+        peers::{self, Peers, Reach},
     },
     lock,
     machine::provision::Provision,
@@ -320,6 +320,8 @@ pub struct Offers {
     /// The user's coding agent skills, synced with the mesh when the host
     /// names their home folder.
     pub skills: Skills,
+    /// The node these offers are served by, once it is made.
+    pub(crate) reach: Reach,
 }
 
 impl Offers {
@@ -351,6 +353,7 @@ impl Offers {
             transfers: Sharing::default(),
             withheld: Arc::default(),
             skills: Skills::default(),
+            reach: Reach::default(),
         }
     }
 

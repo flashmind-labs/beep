@@ -141,3 +141,12 @@ export function sizeLabel(bytes: number) {
   const mb = bytes / (1024 * 1024);
   return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
 }
+
+/// The prompt "Debug with an agent" starts a coding agent with: what the
+/// user saw, when they said, then what to do with the Beep MCP tools.
+export function debugPrompt(text: string) {
+  const said = text.trim();
+  return `Something in Beep went wrong.${said ? ` What I saw: ${said}` : ""}
+
+Find out why with the Beep tools: beep_status for every machine, beep_logs for the logs around when it happened. Explain the cause in plain words, then send a problem report with file_report, your findings as its description, and give me its reference.`;
+}
