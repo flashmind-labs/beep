@@ -32,9 +32,23 @@ export interface Tree {
   truncated: boolean;
 }
 
-/// Puts what `tree` read into `listings`, over what they held.
+/// A folder's listing in one string, to tell a read that changed nothing.
+export function listingKey(l: Listing | undefined) {
+  if (!l) return "";
+  const rows = l.entries ? l.entries.map(e => `${e.name}\t${+e.folder}\t${e.size}\t${+e.ignored}\t${e.change ?? ""}`).join("\n") : "-";
+  return `${l.error}\n${l.more}\n${rows}`;
+}
+
+/// Puts what `tree` read into `listings`, over what they held. True when
+/// a listing differs from the one it replaces.
 export function mergeTree(listings: Map<string, Listing>, tree: Tree) {
-  for (const f of tree.folders) listings.set(f.path, { entries: f.entries, more: f.more, error: "" });
+  let changed = false;
+  for (const f of tree.folders) {
+    const next: Listing = { entries: f.entries, more: f.more, error: "" };
+    if (listingKey(listings.get(f.path)) !== listingKey(next)) changed = true;
+    listings.set(f.path, next);
+  }
+  return changed;
 }
 
 /// `dir` is not read, or a folder in it is not: opening it reads on. The

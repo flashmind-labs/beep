@@ -5,7 +5,7 @@
 
 import { reuseRows } from "./logdiff-state.ts";
 import { guess, shiftAbove, spacer, windowOf, type Resized } from "./logwindow-state.ts";
-import { keptScrollTop } from "./logscroll.ts";
+import { keptScrollTop, pinWait } from "./logscroll.ts";
 import type { ChatBody } from "../ui/turn.ts";
 
 /// One turn of the log: a key that stays while the turn does, and its
@@ -74,12 +74,14 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
 }
 
 /// Draws the turns in view and a screen's height around it, and lets the
-/// others go. With `pin` the log stays scrolled to its end; otherwise the
-/// first turn in view stays where it is on screen.
-export function fillLog(b: HTMLElement, pin: boolean) {
+/// others go. With `follow` the log stays scrolled to its end (once the
+/// wheel rests, see `pinEnd`); otherwise the first turn in view stays
+/// where it is on screen.
+export function fillLog(b: ChatBody, follow: boolean) {
   const log = b.querySelector<HTMLElement>(".dcoderlog");
   const w = log && windows.get(log);
   if (!log || !w) return false;
+  const pin = follow && pinEnd(b);
   // Turns measured at another width are guessed again.
   if (log.clientWidth !== w.width) { w.width = log.clientWidth; w.sizes.clear(); }
   let changed = false;
@@ -109,6 +111,25 @@ export function fillLog(b: HTMLElement, pin: boolean) {
     if (same) break;
   }
   return changed;
+}
+
+const pinning = new WeakSet<ChatBody>();
+
+/// Scrolls a log that follows its end to its end, true when done now. While
+/// the reader's wheel turns it waits until the wheel rests, then goes only
+/// if the log still follows: a write during a flick's glide stops it and
+/// holds back the next scroll.
+export function pinEnd(b: ChatBody) {
+  const wait = pinWait(performance.now(), b.wheel);
+  if (wait <= 0) {
+    b.scrollTop = b.scrollHeight;
+    return true;
+  }
+  if (!pinning.has(b)) {
+    pinning.add(b);
+    setTimeout(() => { pinning.delete(b); if (b.isConnected && b.stuck !== false) pinEnd(b); }, wait);
+  }
+  return false;
 }
 
 function start(log: HTMLElement): LogWindow {
@@ -145,7 +166,7 @@ function resized(log: HTMLElement, w: LogWindow) {
   const anchor = drawn.map(k => w.drawn.get(k)!.el).find(el => el.getBoundingClientRect().bottom > bTop);
   const before = anchor?.getBoundingClientRect().top;
   space(w, keys.indexOf(drawn[0]), keys.indexOf(drawn[drawn.length - 1]) + 1);
-  if (b.stuck !== false) b.scrollTop = b.scrollHeight;
+  if (b.stuck !== false) pinEnd(b);
   else if (anchor && before != null) b.scrollTop = keptScrollTop(b.scrollTop, before - shiftAbove(moved), anchor.getBoundingClientRect().top);
 }
 

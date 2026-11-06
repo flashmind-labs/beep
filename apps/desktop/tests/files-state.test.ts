@@ -94,3 +94,14 @@ test("a session folder the machine no longer has reads as empty, not as an error
   assert.equal(failedListing("bad request: build-box: permission denied").error, "build-box: permission denied");
   assert.match(failedListing("unknown op 812").error, /Update Beep/);
 });
+
+test("mergeTree reports whether a read changed anything", () => {
+  const held = new Map<string, Listing>();
+  const tree = (names: string[]) => ({
+    truncated: false,
+    folders: [{ path: "", more: 0, git: true, entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })) }],
+  });
+  assert.equal(mergeTree(held, tree(["a"])), true);
+  assert.equal(mergeTree(held, tree(["a"])), false);
+  assert.equal(mergeTree(held, tree(["a", "b"])), true);
+});
