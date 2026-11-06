@@ -29,6 +29,7 @@ mod memories;
 pub mod names;
 pub mod node;
 mod projects;
+pub mod report;
 mod requests;
 mod routines;
 pub mod secret;
