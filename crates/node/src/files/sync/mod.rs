@@ -22,6 +22,7 @@ use beep_proto::node::{
         Refused, Reply, Request, Skipped, State,
     },
 };
+use futures::future::join_all;
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 use iroh_blobs::{Hash, store::fs::FsStore};
 use lists::Lists;
@@ -706,9 +707,8 @@ impl Syncs {
         drop(checking);
         let _one = self.inner.configuring.lock().await;
         let running = std::mem::take(&mut *lock(&self.inner.projects));
-        for running in running.into_values() {
-            halt(running).await;
-        }
+        // All at once: one busy project holds up no other's save.
+        join_all(running.into_values().map(halt)).await;
     }
 
     /// How each project stands.

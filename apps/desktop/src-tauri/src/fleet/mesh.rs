@@ -5,7 +5,7 @@ use beep_mesh::{JOIN_ALPN, Mesh, MeshError, PEER_ALPN};
 use beep_node::{
     files::{
         Folders,
-        transfer::{Late, Transfers},
+        transfer::{Late, Transfers, stop_for_exit},
     },
     link::peers::Peers,
 };
@@ -144,20 +144,15 @@ impl Serving {
         self.services.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Stops the router, then the services, which save their state.
+    /// Stops the router and the services, which save their state, at once:
+    /// a peer slow to say goodbye holds up no save. For quitting, which
+    /// bounds the wait.
     pub(super) async fn stop(&self) {
-        if let Err(e) = self.router.shutdown().await {
-            log::warn!("the router did not stop cleanly: {e:#}");
-        }
         let services = mem::replace(&mut *self.services(), Services::Stopped);
         let transfers = match services {
             Services::Running(transfers) => Some(transfers),
             Services::Waiting | Services::Stopped => None,
         };
-        if let Some(transfers) = transfers
-            && let Err(e) = transfers.shutdown().await
-        {
-            log::warn!("transfers did not stop cleanly: {e:#}");
-        }
+        stop_for_exit(&self.router, transfers.as_ref()).await;
     }
 }
