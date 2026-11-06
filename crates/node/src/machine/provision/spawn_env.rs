@@ -3,7 +3,7 @@
 //! points are `apply` and `vars`.
 
 use crate::{read_lock, write_lock};
-use beep_proto::{AgentAccount, ApiProvider, GITHUB_ENV_VAR, node::EnvSecret};
+use beep_proto::{AgentAccount, ApiProvider, GITHUB_ENV_VAR, SecretText, node::EnvSecret};
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -116,6 +116,15 @@ pub(crate) fn vars(scope: Scope) -> Vec<(OsString, OsString)> {
         .collect()
 }
 
+/// The credential named `name` that processes get, if the user gave one.
+pub(crate) fn secret(name: &str) -> Option<SecretText> {
+    read_lock(&SPAWN_ENV)
+        .vars
+        .iter()
+        .find(|var| var.name == name)
+        .map(|var| var.value.clone())
+}
+
 /// The `PATH` processes get, for finding a tool as they would.
 pub(crate) fn search_path() -> Option<OsString> {
     let spawn = read_lock(&SPAWN_ENV);
@@ -140,7 +149,6 @@ fn merged_path(prefix: &[PathBuf], inherited: Option<&OsStr>) -> Option<OsString
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::SecretText;
     use std::process::Stdio;
 
     async fn seen(scope: Scope) -> String {
