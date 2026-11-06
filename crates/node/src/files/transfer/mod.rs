@@ -324,7 +324,8 @@ impl Transfers {
     }
 
     /// `start`, but the blobs and sync protocols are left to the caller's
-    /// router: add `Served` to it. Stop that router before `shutdown`.
+    /// router: add `Served` to it. Stop that router before `shutdown`, or
+    /// with it through `stop_for_exit`.
     pub async fn start_shared(
         endpoint: &Endpoint,
         dir: &Path,
@@ -497,6 +498,27 @@ impl Transfers {
         }
         Ok(())
     }
+}
+
+/// Stops `router` and the `transfers` it serves for a process about to
+/// exit, such as the Mac app: the synced projects stop and save their state
+/// while the router says goodbye to the peers, so a peer that does not
+/// answer holds up no save. The caller bounds the wait; the process exits
+/// after it, so a goodbye still going is simply cut.
+pub async fn stop_for_exit(router: &Router, transfers: Option<&Transfers>) {
+    let goodbye = async {
+        if let Err(e) = router.shutdown().await {
+            log::warn!("the router did not stop cleanly: {e:#}");
+        }
+    };
+    let saving = async {
+        if let Some(transfers) = transfers
+            && let Err(e) = transfers.shutdown().await
+        {
+            log::warn!("transfers did not stop cleanly: {e:#}");
+        }
+    };
+    tokio::join!(goodbye, saving);
 }
 
 /// A collector hook that protects nothing extra and returns once `wake`
@@ -688,3 +710,6 @@ async fn serve_fetch(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
