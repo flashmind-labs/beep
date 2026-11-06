@@ -230,7 +230,11 @@ function terminalsSection(name: string) {
 function projectOverview(p: Project, running: RunningAgent[], open: { run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: Kid; issueNote: Kid }, where: ReturnType<typeof machineTile>) {
   const { run, prs, issues } = open;
   // A copy: the list beside it takes the lead node itself.
-  const rowsOf = (items: SplitItem[]) => items.map(i => line(i.lead instanceof Node ? i.lead.cloneNode(true) : null, i.title, i.sub, [i.right, ...(i.tags || []).slice(0, 3).map(l => h("i", "pj-tag", l))], i.open || (() => openTile(i.key))));
+  const rowsOf = (items: SplitItem[]) => items.map(i => {
+    const row = line(i.lead instanceof Node ? i.lead.cloneNode(true) : null, i.title, i.sub, [i.right, ...(i.tags || []).slice(0, 3).map(l => h("i", "pj-tag", l))], i.open || (() => openTile(i.key)));
+    if (i.menu) row.addEventListener("contextmenu", i.menu);
+    return row;
+  });
   const box = (title: string, items: SplitItem[], key: string) => items.length ? homeBox("", title, items.length, () => openTile(key), rowsOf(items)) : null;
   const tile = runs.tile(pageAgent(state.agents, p.name, state.subscribed)?.project_id || "");
   const ran = tile.rows.map(r => line(null, r.text || "", r.code || "", [r.chip ? stateChip(r.chip.cls, r.chip.text, r.chip.cls === "running") : null], () => openTile("actions")));
