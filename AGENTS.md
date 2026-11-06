@@ -170,8 +170,8 @@ It reads the Composio key and database URL from `.dev/android-server.toml`.
 
 ## Problem reports
 
-A user's report sends a `report/1` request to each machine in the mesh (the
-node side is `beep-node report`). Each `beep-node` answers with its log for a period, status, version and OS.
+A desktop's report sends a `report/1` request to each machine in the mesh. Each `beep-node` answers with its log for a period, status, version and OS.
+Only a desktop reads another machine's report (a node is refused); `beep-node report` sends that node's own.
 The app that collects them redacts secrets, zips the answers and posts them, signed, to
 `POST /v1/reports` on the server, which replies with a reference `R-<id>`.
 

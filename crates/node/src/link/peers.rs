@@ -175,10 +175,14 @@ impl Inner {
             bail!("the node stopped");
         }
         let offers = self.offers().clone();
-        // Every device of the mesh, nodes too, may ask for a problem report,
-        // lent or not.
+        // Only a desktop, or this process, reads a problem report, lent or
+        // not: a node sends its own and reads no one else's.
         if open.protocol == report::PROTOCOL {
             let mut tx = tx;
+            if let Who::Node { .. } = who {
+                let reason = "only a desktop reads a problem report".to_owned();
+                return tx.send(&Opened::Refused { reason }).await;
+            }
             tx.send(&Opened::Ready {}).await?;
             return match self.local_status().await {
                 Ok(status) => serve_report(tx, rx, status, offers.log).await,
@@ -375,10 +379,11 @@ impl Peers {
 
     /// Every device's share of a problem report from Unix second `since`:
     /// this node's through its own `report/1`, the others' over their live
-    /// links. This node alone before it joined a mesh.
+    /// links. This node alone before it joined a mesh, and when it is not a
+    /// desktop: the others refuse a node.
     async fn report(&self, since: i64) -> Vec<Share> {
         let me = self.inner.endpoint.id();
-        let active = self.active();
+        let active = self.active().filter(|_| self.is_desktop());
         let own = |name: String, kind: DeviceKind| Target {
             id: me,
             name,
@@ -928,6 +933,7 @@ async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
 #[cfg(all(test, feature = "cli"))]
 mod tests {
     use super::*;
+    use iroh::EndpointId;
     use iroh_tickets::Ticket;
 
     /// Answers the wait's probe, then one join, the way the node does.
@@ -1162,9 +1168,32 @@ mod tests {
         drop(serving.await.expect("served both"));
     }
 
-    /// `report/1` stays open on a machine that is not lent.
+    /// `report/1` stays open to a desktop on a machine that is not lent.
     #[tokio::test]
-    async fn a_machine_not_lent_still_gives_its_report() {
+    async fn a_machine_not_lent_still_gives_a_desktop_its_report() {
+        let (answer, reply) = ask_report(Who::Everything).await;
+        assert!(matches!(answer, Some(Opened::Ready {})), "{answer:?}");
+        assert!(
+            matches!(&reply, Some(report::Reply::Share { log, .. }) if log == "a line\n"),
+            "{reply:?}"
+        );
+    }
+
+    /// Another node of the mesh is refused a machine's report.
+    #[tokio::test]
+    async fn a_node_is_refused_a_report() {
+        let (answer, reply) = ask_report(|peer| Who::Node {
+            peer,
+            desktop_here: false,
+        })
+        .await;
+        assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
+        assert!(reply.is_none(), "{reply:?}");
+    }
+
+    /// Opens `report/1` on a node that is not lent, from a caller `who`
+    /// makes of its key, and asks for the share when the node is ready.
+    async fn ask_report(who: fn(EndpointId) -> Who) -> (Option<Opened>, Option<report::Reply>) {
         use crate::machine::service::logs::Logs;
         use beep_proto::node::Open;
         use iroh::{SecretKey, endpoint::presets};
@@ -1204,7 +1233,7 @@ mod tests {
             .await
             .expect("it is accepted");
         let to_node = dialing.await.expect("joined").expect("connected");
-        let who = Who::Everything(desktop.id());
+        let who = who(desktop.id());
         let serving = tokio::spawn(async move {
             let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
             let (tx, rx) = link(send, recv);
@@ -1222,22 +1251,21 @@ mod tests {
             .await
             .expect("an answer came")
             .expect("it reads");
-        assert!(matches!(answer, Some(Opened::Ready {})), "{answer:?}");
-        tx.send(&report::Request {
-            since: 0,
-            max_bytes: 1024,
-        })
-        .await
-        .expect("the request is sent");
-        let reply = timeout(Duration::from_secs(30), rx.recv::<report::Reply>())
+        let mut reply = None;
+        if matches!(answer, Some(Opened::Ready {})) {
+            tx.send(&report::Request {
+                since: 0,
+                max_bytes: 1024,
+            })
             .await
-            .expect("a reply came")
-            .expect("it reads");
-        assert!(
-            matches!(&reply, Some(report::Reply::Share { log, .. }) if log == "a line\n"),
-            "{reply:?}"
-        );
+            .expect("the request is sent");
+            reply = timeout(Duration::from_secs(30), rx.recv::<report::Reply>())
+                .await
+                .expect("a reply came")
+                .expect("it reads");
+        }
         drop(serving.await.expect("served"));
+        (answer, reply)
     }
 
     #[tokio::test]
