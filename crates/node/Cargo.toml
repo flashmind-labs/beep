@@ -13,9 +13,6 @@ cli = [
     "dep:chrono",
     "dep:clap",
     "beep-proto/logging",
-    "dep:reqwest",
-    "dep:rustls",
-    "dep:webpki-roots",
     "dep:flate2",
     "dep:tar",
     "dep:thiserror",
@@ -56,13 +53,14 @@ notify = "8"
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
 portable-pty = "0.9"
 rand = "0.9"
-# `beep-node update` downloads releases with ring and webpki roots, as iroh does.
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
+# `beep-node update` downloads releases, and the CI watch asks GitHub, with
+# ring and webpki roots, as iroh does.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rmp-serde = "1"
 roxmltree = "0.20"
 # flsh keeps its sessions in SQLite; the same version flashmind uses.
 rusqlite = { version = "0.40", features = ["bundled"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
@@ -78,7 +76,7 @@ toml = "1"
 # Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
 toml_edit = "0.25"
 uuid = { version = "1", features = ["v4"] }
-webpki-roots = { version = "1", optional = true }
+webpki-roots = "1"
 which = "8"
 zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
