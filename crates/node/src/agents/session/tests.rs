@@ -739,6 +739,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         follows: None,
         note: None,
         brief: None,
+        rule: None,
         mcp: None,
         images: Arc::default(),
         usage: Arc::default(),
@@ -1019,6 +1020,69 @@ async fn a_full_window_is_compacted_before_the_next_prompt() {
         !entries.iter().any(|entry| entry.text == COMPACT_PROMPT),
         "the node's /compact is not shown as the user's"
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_without_a_system_prompt_hears_the_rule_again_after_compacting() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("pi", COMPACTING_ADAPTER, &log);
+    let session = Session::start(Start {
+        rule: Some("Worktree first."),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    session
+        .order(Command::Prompt(Prompt::from("next".to_owned())))
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns >= 2 || live.status() == Status::Ended
+    })
+    .await;
+    let rule = crate::agents::tags::context("Worktree first.");
+    let sent = sent(&log);
+    let prompts: Vec<Vec<&str>> = sent
+        .iter()
+        .filter(|line| line["method"] == "session/prompt")
+        .map(prompt_texts)
+        .collect();
+    assert_eq!(
+        prompts,
+        [
+            vec![rule.as_str(), "go"],
+            vec![COMPACT_PROMPT],
+            vec![rule.as_str(), "next"],
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_resumed_session_keeps_the_rule_in_its_system_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
+    let session = Session::start(Start {
+        resume: Some("s".into()),
+        rule: Some("Worktree first."),
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    let sent = sent(&log);
+    assert_eq!(sent[1]["method"], "session/load");
+    let system = format!("Worktree first.\n\n{}", crate::agents::mcp::BRIEF);
+    assert_eq!(
+        sent[1]["params"]["systemPrompt"]["content"][0]["text"],
+        system.as_str()
+    );
+    assert_eq!(prompt_texts(&sent[2]), ["go"]);
 }
 
 /// An adapter that puts a choice to the user on its first prompt,

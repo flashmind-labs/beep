@@ -1,8 +1,8 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, NodeMode, Prompt, Session,
-    Start, checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
+    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, NodeMode, Prompt, Session, Start,
+    checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -332,7 +332,7 @@ impl Agents {
         let prompt = begin.prompt.as_deref().unwrap_or_default();
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
         begin.note = place.note;
-        begin.brief = place.brief.map(Cow::Borrowed);
+        begin.brief = place.brief.map(Cow::Owned);
         self.start(kind, place.folder.as_deref(), begin)
     }
 
@@ -351,6 +351,8 @@ impl Agents {
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         let cwd = folder(cwd)?;
+        // A reviewer changes nothing, so it needs no git rule.
+        let rule = checkout::rule(&cwd).filter(|_| !begin.review);
         let mut sessions = self.lock();
         // Checked under the lock: two takeovers of one session must not
         // both start it.
@@ -411,6 +413,7 @@ impl Agents {
             follows: begin.follows,
             note: begin.note,
             brief: begin.brief,
+            rule,
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             images: self.images.clone(),
             usage: self.usage.clone(),

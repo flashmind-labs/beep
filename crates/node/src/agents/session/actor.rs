@@ -11,7 +11,7 @@ use crate::agents::{
     images::Picture,
     known,
     live::{Live, TurnTokens, cut},
-    made_files, mcp,
+    made_files,
     place::of_folder,
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
@@ -212,6 +212,10 @@ pub(super) struct Actor {
     /// Beep's word to the agent from whoever started the session; once
     /// `initialize` is answered, what the first prompt still carries.
     pub(super) brief: Option<String>,
+    /// What holds for the whole session: the git rule for its folder and
+    /// what the Beep tools are. In the system prompt of an agent that takes
+    /// one; for the others, said again after the agent compacts.
+    pub(super) standing: Option<String>,
     /// The MCP servers the agent's session gets.
     pub(super) mcp_servers: Vec<McpServer>,
     /// Questions waiting, the first one shown.
@@ -685,16 +689,22 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         initialized: &InitializeResponse,
     ) -> Option<End> {
-        // What the Beep tools are holds for the whole session; the caller's
-        // brief is said once, where the session starts or resumes.
-        let tools = (!self.mcp_servers.is_empty()).then_some(mcp::BRIEF);
+        // The standing rules hold for the whole session; the caller's brief
+        // is said once, where the session starts or resumes. An agent with
+        // no system prompt gets both in its first prompt and the rules again
+        // after each compaction, which can summarize them away.
         let takes_system = acp::takes_system_prompt(initialized);
+        let standing = if takes_system {
+            self.standing.take()
+        } else {
+            self.standing.clone()
+        };
         let method = acp::resume_method(initialized);
         self.live.send_modify(|live| {
             live.replays = method == Some(acp::ResumeMethod::Load);
         });
         let Some(session) = self.resume.take() else {
-            let brief = joined(self.brief.take(), tools);
+            let brief = joined(self.brief.take(), standing.as_deref());
             let system = if takes_system {
                 brief
             } else {
@@ -711,9 +721,9 @@ impl Actor {
         // says what changed at this point of the conversation, and Claude
         // Code takes a changed system prompt only at its next compaction.
         let system = if takes_system {
-            tools
+            standing
         } else {
-            self.brief = joined(self.brief.take(), tools);
+            self.brief = joined(self.brief.take(), standing.as_deref());
             None
         };
         let session = SessionId::from(session);
@@ -729,7 +739,7 @@ impl Actor {
             session.clone(),
             &self.cwd,
             self.mcp_servers.clone(),
-            system,
+            system.as_deref(),
         ) {
             Ok(request) => self.send(cx, request, |result| Reply::Resumed(session, result)),
             Err(e) => {
@@ -890,10 +900,10 @@ pub(super) fn agent_title(name: &str) -> &str {
     known(name).map_or(name, |known| known.title)
 }
 
-/// The caller's `brief`, then what the Beep `tools` are.
-fn joined(brief: Option<String>, tools: Option<&str>) -> Option<String> {
-    match (brief, tools) {
-        (Some(brief), Some(tools)) => Some(format!("{brief}\n\n{tools}")),
-        (brief, tools) => brief.or(tools.map(str::to_owned)),
+/// `first`, then `then`.
+pub(super) fn joined(first: Option<String>, then: Option<&str>) -> Option<String> {
+    match (first, then) {
+        (Some(first), Some(then)) => Some(format!("{first}\n\n{then}")),
+        (first, then) => first.or(then.map(str::to_owned)),
     }
 }
