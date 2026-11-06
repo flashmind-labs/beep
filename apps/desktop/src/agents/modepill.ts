@@ -48,10 +48,13 @@ export function cycleMode() {
   return true;
 }
 
+/// The agents' full access modes, the one Beep runs them in: no pill for it.
+const FULL_MODES = new Set(["bypassPermissions", "agent-full-access", "yolo"]);
+
 export function drawModes() {
   const m = AG.modes, s = AG.page?.session, q = s?.question;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
-  showHtml($("#agmode"), hasModes() ? `<button class="agc-pill agmode${m?.current === "plan" ? " on" : ""}" id="agmodeb" title="Switch mode (Shift+Tab)">${esc(name)}</button>` : "");
+  showHtml($("#agmode"), hasModes() && !FULL_MODES.has(m?.current ?? "") ? `<button class="agc-pill agmode${m?.current === "plan" ? " on" : ""}" id="agmodeb" title="Switch mode (Shift+Tab)">${esc(name)}</button>` : "");
   // The node puts a plan to the user as a question with these two answers.
   const plan = s && q && m?.plan != null ? `<div class="ag-plan"><div class="h"><b>Plan ready</b><small>${esc(agentKind(s.agent).name)} waits for you</small></div>
     ${m.plan ? `<div class="dcoderen agent md">${answerHtml(m.plan)}</div>` : ""}
