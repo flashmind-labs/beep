@@ -129,8 +129,10 @@ mod tests {
         collections::BTreeMap,
         fs::{self, File},
         path::{Path, PathBuf},
+        sync::Arc,
         time::{Duration, SystemTime},
     };
+    use tokio::sync::watch;
 
     const CLAUDE_ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
     const CLAUDE_OTHER: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
@@ -206,7 +208,11 @@ mod tests {
             }
             write(&root.join("outside.jsonl"), "keep me");
             let agents = Agents {
-                kinds: vec![kind("claude"), kind("codex"), kind("pi")],
+                kinds: watch::Sender::new(Arc::new(vec![
+                    kind("claude"),
+                    kind("codex"),
+                    kind("pi"),
+                ])),
                 external: External::at(&root.join("claude")),
                 stores: Stores::at(Some(&root.join("codex")), Some(&root.join("pi")), None),
                 ..Agents::default()

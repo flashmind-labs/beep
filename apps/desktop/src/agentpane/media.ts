@@ -12,7 +12,7 @@ import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
 import { drawWorktrees, paneRoot, startWorktrees } from "./worktree.ts";
-import { dropTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
+import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { newTermLike } from "../terminals/newkey-state.ts";
 import { drag, tabDown } from "./drag.ts";
@@ -80,6 +80,9 @@ export interface MediaTab {
   /// running that the tab follows.
   at?: Omit<TermPlace, "name">;
   existing?: TerminalRow;
+  /// Its tab was closed: the terminal is being stopped, or is stopped once
+  /// it started.
+  closed?: boolean;
 }
 
 /// The session the pane belongs to.
@@ -228,7 +231,7 @@ function closeAll() {
 }
 
 function dropTab(t: MediaTab) {
-  // A terminal keeps running on its machine; Home lists it.
+  // A terminal left with its session keeps running on its machine; Home lists it.
   if (t.term) dropTerm(t.term);
   t.model?.dispose();
   t.el?.querySelector("video")?.pause();
@@ -538,6 +541,27 @@ function paneClick(e: MouseEvent, d: Dock) {
 export function closeTab(id: string) {
   const i = P.tabs.findIndex(t => t.id === id);
   if (i < 0) return;
+  // Closing a terminal's tab ends the terminal on its machine; only leaving
+  // the session lets it keep running. The tab goes once it stopped, and
+  // says why when it could not.
+  const tab = P.tabs[i];
+  if (tab.term) {
+    if (tab.closed) return;
+    tab.closed = true;
+    const term = tab.term;
+    setTermNote(tab, "Closing…");
+    killTerm(term).then(() => {
+      if (tab.term !== term) return;
+      tab.term = undefined;
+      closeTab(id);
+    }, e => {
+      tab.closed = false;
+      setTermNote(tab, `Could not stop it: ${e instanceof Error ? e.message : e}`);
+    });
+    return;
+  }
+  // A shell still starting is stopped once it is there.
+  if (tab.kind === "term") tab.closed = true;
   const d = dockOf(id);
   dropTab(P.tabs[i]);
   P.tabs.splice(i, 1);
@@ -550,8 +574,13 @@ export function closeTab(id: string) {
   draw();
 }
 
+function setTermNote(t: MediaTab, text: string) {
+  const meta = t.el?.querySelector(".agpacts .meta");
+  if (meta) meta.textContent = text;
+}
+
 /// Closes the tab on screen in the focused pane (⌘W); false when no pane is
-/// focused or that tab stays, as Files does. A terminal keeps running on its machine.
+/// focused or that tab stays, as Files does. A terminal's tab ends the terminal.
 export function closeFocusedTab() {
   const pane = document.activeElement?.closest<HTMLElement>(".agpane");
   const tab = pane && P.tabs.find(t => t.id === P.on[pane.dataset.dock as Dock]);

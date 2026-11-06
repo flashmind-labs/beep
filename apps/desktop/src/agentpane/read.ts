@@ -1,7 +1,7 @@
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { fileSize } from "../chat/media.ts";
-import { dropTerm, followTerm, forgetTerm, openTerm, termStatus } from "./terminal.ts";
+import { dropTerm, followTerm, forgetTerm, killTerm, openTerm, termStatus } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab, leavePane } from "./media.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -78,7 +78,11 @@ export async function startTerminal(t: MediaTab) {
   try {
     // One that runs already is followed; a new one starts where the tab was opened.
     const term = await (t.existing ? followTerm(t.existing, hooks) : openTerm({ ...t.at!, name: t.name }, hooks));
-    if (!P.tabs.includes(t)) return dropTerm(term);
+    if (!P.tabs.includes(t)) {
+      // Its tab was closed while it started: it ends; one left with the session keeps running.
+      if (t.closed) return killTerm(term).catch(e => console.warn("stopping a terminal whose tab closed:", e));
+      return dropTerm(term);
+    }
     t.term = term;
   } catch (e) {
     if (!P.tabs.includes(t)) return;

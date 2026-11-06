@@ -321,7 +321,7 @@ pub async fn serve_sessions(
             report: agents.harnesses(refresh).await,
         },
         SessionsRequest::UpdateHarness { agent } => {
-            match harnesses::update(&agents.kinds, &agents.latest, &agent).await {
+            match harnesses::update(&agents.kinds(), &agents.latest, &agent).await {
                 Ok(()) => SessionsReply::Harnesses {
                     report: agents.harnesses(false).await,
                 },
