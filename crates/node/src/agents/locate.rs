@@ -18,7 +18,7 @@ pub(super) fn find(program: &str, home: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// `program` in the install folders under `home`, not on `PATH`.
-pub(super) fn fallback(program: &str, home: &Path) -> Option<PathBuf> {
+pub(crate) fn fallback(program: &str, home: &Path) -> Option<PathBuf> {
     let names: &[&str] = if cfg!(windows) {
         &[".exe", ".cmd"]
     } else {

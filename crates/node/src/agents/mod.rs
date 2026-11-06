@@ -32,7 +32,7 @@ mod image_index;
 mod images;
 mod kinds;
 mod live;
-mod locate;
+pub(crate) mod locate;
 mod made_files;
 mod media_file;
 mod models;
