@@ -1,9 +1,10 @@
 //! The connection to the server: the link code that joins the account, then
 //! the control stream, kept open and reopened when it drops.
 
+use crate::files::paths;
 use crate::{
     agents::mcp::{self, Upstream},
-    agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn},
+    agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn, skills::Skills},
     files::Folders,
     files::search::Searches,
     files::transfer::Transfers,
@@ -22,7 +23,6 @@ use crate::{
     machine::provision::Provision,
     machine::service::logs::Logs,
     machine::stats,
-    machine::webhook::Webhooks,
     run::shell,
     run::tasks,
     run::terminal,
@@ -35,7 +35,7 @@ use beep_proto::{
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
         NODE_ALPN_NAMED, NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
-        harness::AgentSettings, link_on, status, tool_update, tools, version,
+        harness::AgentSettings, link_on, skills, status, tool_update, tools, version,
     },
 };
 use iroh::{
@@ -73,11 +73,9 @@ const REPORT_TRAFFIC: Duration = Duration::from_secs(60);
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// The most sessions open at once; more are refused.
 const MAX_SESSIONS: usize = 32;
-/// How long a stopping node waits for the webhooks it made to be removed.
-/// The stop steps add up to 9 s, under the 10 s the command line gives a
-/// stop before it exits anyway.
-const WEBHOOK_CLEANUP: Duration = Duration::from_secs(2);
-/// How long a stopping node waits for its agent sessions to close.
+/// How long a stopping node waits for its agent sessions to close. The stop
+/// steps add up to under the 10 s the command line gives a stop before it
+/// exits anyway.
 const STOP_SESSIONS: Duration = Duration::from_secs(3);
 /// How long a stopping node gives each other step.
 const STOP_STEP: Duration = Duration::from_secs(1);
@@ -147,6 +145,9 @@ pub async fn serve(
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision, state.server.is_some());
     offers.traffic = traffic;
+    if let Some(home) = dirs::home_dir() {
+        offers.skills = Skills::under(home);
+    }
     offers.extra.push(Arc::new(Logs::service()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
@@ -155,19 +156,6 @@ pub async fn serve(
         .push(Arc::new(crate::machine::update::Updates::new(
             offers.agents.clone(),
         )));
-    // Live project updates: GitHub through `gh webhook forward`, Forgejo
-    // and Gitea on the private-network address the settings name.
-    let webhooks = match Webhooks::new(state.webhook_listen) {
-        Ok(webhooks) => {
-            webhooks.report_runs(offers.agents.ci.clone());
-            offers.extra.push(Arc::new(webhooks.clone()));
-            Some(webhooks)
-        }
-        Err(e) => {
-            log::warn!("not taking webhooks: {e:#}");
-            None
-        }
-    };
     // Files only when the owner shared folders in node.toml, or this node
     // is the user's environment.
     let shared: Vec<_> = workspace
@@ -181,9 +169,15 @@ pub async fn serve(
     // session started outside Beep does not wait for them.
     let searches = Searches::start(state.dir.clone(), offers.agents.clone(), &state.search);
     offers.extra.push(Arc::new(searches));
+    // The plans read ahead too: Claude Code takes a while to start, and a
+    // desktop opening its window would otherwise wait for it.
+    let agents = offers.agents.clone();
+    let _plans = AbortOnDropHandle::new(tokio::spawn(async move {
+        agents.read_plans_at_start().await;
+    }));
     // The workspace as the node resolved it, only once it is shared.
     let workspace = workspace
-        .and_then(|dir| dir.canonicalize().ok())
+        .and_then(|dir| paths::canonicalize(dir).ok())
         .filter(|dir| folders.first() == Some(dir.as_path()))
         .map(|dir| dir.to_string_lossy().into_owned());
     let mut started = None;
@@ -293,14 +287,6 @@ pub async fn serve(
     }
     // Agents that end from here on ended with the node, whatever their exit.
     offers.agents.begin_stopping();
-    // The webhooks of the dropped watches go while the tokens are still
-    // here; one left stays recorded on the server for the next watch.
-    if let Some(webhooks) = &webhooks {
-        stop_step("removing webhooks", WEBHOOK_CLEANUP, async {
-            webhooks.finish(WEBHOOK_CLEANUP).await;
-        })
-        .await;
-    }
     // Stopped, the machine keeps no token: teacli's config, its shim and
     // the env vars go.
     if let Some(provision) = &offers.provision {
@@ -495,6 +481,9 @@ pub struct Offers {
     /// Set while the host does not lend this machine to other devices: they
     /// get its status, but no shell, task or screen.
     pub(crate) withheld: Arc<AtomicBool>,
+    /// The user's coding agent skills, synced with the mesh when the host
+    /// names their home folder.
+    pub skills: Skills,
 }
 
 impl Offers {
@@ -524,6 +513,7 @@ impl Offers {
             mesh: Membership::default(),
             transfers: Sharing::default(),
             withheld: Arc::default(),
+            skills: Skills::default(),
         }
     }
 
@@ -901,7 +891,10 @@ pub(crate) async fn serve_open(
     who: Who,
 ) -> Result<()> {
     if matches!(who, Who::Node { .. })
-        && !matches!(open.protocol.as_str(), status::PROTOCOL | tools::PROTOCOL)
+        && !matches!(
+            open.protocol.as_str(),
+            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL
+        )
     {
         let reason = format!("a node may not open {}", open.protocol);
         return tx.send(&Opened::Refused { reason }).await;
@@ -939,6 +932,10 @@ pub(crate) async fn serve_open(
         shell::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             shell::serve(tx, rx).await
+        }
+        skills::PROTOCOL if offers.skills.home().is_some() => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::agents::skills::serve(tx, rx, offers.skills).await
         }
         tasks::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;

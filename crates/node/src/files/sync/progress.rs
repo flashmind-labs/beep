@@ -10,20 +10,24 @@ const WINDOW: Duration = Duration::from_secs(10);
 /// The shortest span a rate is told over.
 const MIN_SPAN: Duration = Duration::from_millis(500);
 
-/// One point of the round: when, and the bytes done by then.
+/// One point of the round: when, and the bytes brought by then.
 #[derive(Debug, Clone, Copy)]
 struct Sample {
     at: Instant,
     bytes: u64,
 }
 
-/// One round's counts, and the recent points the rate comes from.
+/// One round's counts, and the recent points the rate comes from. A file
+/// counts as done once it is in line or failed, its bytes with it, so the
+/// files and the bytes done tell the same part of the round.
 #[derive(Debug)]
 pub(super) struct Meter {
     files_done: u64,
     files_total: u64,
     bytes_done: u64,
     bytes_total: u64,
+    /// The bytes of the files brought in line, which the rate is told from.
+    brought: u64,
     samples: VecDeque<Sample>,
 }
 
@@ -36,6 +40,7 @@ impl Meter {
             files_total,
             bytes_done: 0,
             bytes_total,
+            brought: 0,
             samples: VecDeque::from([Sample { at: now, bytes: 0 }]),
         }
     }
@@ -44,9 +49,10 @@ impl Meter {
     pub(super) fn done(&mut self, bytes: u64, now: Instant) {
         self.files_done = self.files_done.saturating_add(1);
         self.bytes_done = self.bytes_done.saturating_add(bytes);
+        self.brought = self.brought.saturating_add(bytes);
         self.samples.push_back(Sample {
             at: now,
-            bytes: self.bytes_done,
+            bytes: self.brought,
         });
         // Keeps the last point before the window, so a slow file still
         // spans its whole time.
@@ -59,11 +65,11 @@ impl Meter {
         }
     }
 
-    /// A file of `bytes` failed; it no longer counts toward the bytes
-    /// left.
+    /// A file of `bytes` failed: it is done for this round, and its bytes
+    /// with it, but it moves no rate.
     pub(super) fn failed(&mut self, bytes: u64) {
         self.files_done = self.files_done.saturating_add(1);
-        self.bytes_total = self.bytes_total.saturating_sub(bytes);
+        self.bytes_done = self.bytes_done.saturating_add(bytes);
     }
 
     /// Bytes a second over the window; 0 before it can tell.
@@ -144,12 +150,19 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_file_leaves_the_bytes_left() {
+    fn failed_files_count_their_bytes_as_done() {
+        // Files that were already here and failed to go in place: the bytes
+        // done follow the files done, not stay at nothing.
         let start = Instant::now();
-        let mut meter = Meter::new(2, 300, start);
-        meter.failed(200);
+        let mut meter = Meter::new(4, 400, start);
+        meter.failed(100);
+        meter.failed(100);
+        meter.done(100, start + Duration::from_secs(1));
         let p = meter.progress();
-        assert_eq!((p.files_done, p.bytes_total), (1, 100));
+        assert_eq!((p.files_done, p.files_total), (3, 4));
+        assert_eq!((p.bytes_done, p.bytes_total), (300, 400));
+        assert_eq!(p.rate, 100);
+        assert_eq!(p.eta_secs, Some(1));
     }
 
     #[test]

@@ -41,6 +41,8 @@ pub enum NoteKind {
     MoveFailed,
     /// A machine went offline; `done` once it is back.
     Offline,
+    /// A skill has other files on another machine or agent; `done` once alike.
+    SkillConflict,
     /// A CI run the user started ended.
     Run,
 }
@@ -218,6 +220,13 @@ pub(crate) fn finish(app: &AppHandle, which: impl Fn(&Note) -> bool) {
 /// The note with `id`, if it is kept.
 pub(crate) fn get(app: &AppHandle, id: &str) -> Option<Note> {
     notes(app).get(id)
+}
+
+/// The notes of `kind` not done yet.
+pub(crate) fn open_of(app: &AppHandle, kind: NoteKind) -> Vec<Note> {
+    let mut list = notes(app).list();
+    list.retain(|note| note.kind == kind && !note.done);
+    list
 }
 
 /// The agent question an ask note is about.

@@ -3,22 +3,27 @@
 //! the background when it is stale, then tells the page it changed. A project checked out on this
 //! Mac is read from this Mac alone, so nothing waits on another machine.
 
+use crate::usage::{PlanFollow, freshest};
 use crate::{
     desk::{Desk, DesktopHosts},
     error::{FleetError, Result},
     peer::Peers,
 };
-use beep_proto::{HostedRuns, LabeledProjectLists, SpendReport};
+use beep_proto::{HostedRuns, LabeledProjectLists, PlanLimits, SpendReport};
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
     sync::{
         Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
-use tokio::{sync::Semaphore, task::JoinSet, time::timeout};
+use tokio::{
+    sync::{Semaphore, watch},
+    task::JoinSet,
+    time::timeout,
+};
 
 /// How long a read is fresh; a call after that reads again in the background.
 const FRESH: Duration = Duration::from_secs(60);
@@ -26,14 +31,20 @@ const FRESH: Duration = Duration::from_secs(60);
 const MESH_WAIT: Duration = Duration::from_secs(5);
 /// Background reads at once, over every project.
 const READS_AT_ONCE: usize = 4;
+/// Machines' streams kept open at once for the plans they owe.
+const PLAN_FOLLOWS: usize = 16;
 
 /// What a background read changed, for the page that shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Changed {
-    /// `org/repo`.
-    pub project: String,
-    pub lists: bool,
-    pub runs: bool,
+pub enum Changed {
+    Project {
+        /// `org/repo`.
+        project: String,
+        lists: bool,
+        runs: bool,
+    },
+    /// The plans and spending: `Session::spend` gives more than before.
+    Usage,
 }
 
 /// Something read, and when.
@@ -143,6 +154,11 @@ pub struct Session {
     lists: Cache<String, LabeledProjectLists>,
     runs: Cache<String, HostedRuns>,
     spend: Cache<(), SpendReport>,
+    /// The freshest plan of each agent any read heard, which `spend` gives: a machine's stream
+    /// that still owes a plan adds it when the node sends it.
+    plans: watch::Sender<Vec<PlanLimits>>,
+    /// The machines' streams kept for the plans they owe.
+    following: AtomicUsize,
     /// Rises when what was read may no longer be what a read would give, so a read that started
     /// before is not kept.
     epoch: AtomicU64,
@@ -169,6 +185,8 @@ impl Session {
             lists: Cache::default(),
             runs: Cache::default(),
             spend: Cache::default(),
+            plans: watch::Sender::new(Vec::new()),
+            following: AtomicUsize::new(0),
             epoch: AtomicU64::new(0),
             limit: Arc::new(Semaphore::new(READS_AT_ONCE)),
             tasks: Mutex::default(),
@@ -247,7 +265,7 @@ impl Session {
                 && kept
             {
                 this.lists.put(key.clone(), read);
-                (this.changed)(Changed {
+                (this.changed)(Changed::Project {
                     project: key,
                     lists: true,
                     runs: false,
@@ -296,7 +314,7 @@ impl Session {
                 && kept
             {
                 this.runs.put(key.clone(), read);
-                (this.changed)(Changed {
+                (this.changed)(Changed::Project {
                     project: key,
                     lists: false,
                     runs: true,
@@ -307,17 +325,24 @@ impl Session {
 
     /// What the agents cost and how much of their plans is left: the last report at once, and a
     /// new one collected behind it (it takes the machines a moment to say). `refresh`, or no
-    /// report yet, waits for one.
+    /// report yet, waits for one. A plan a machine sends after the report is added when it
+    /// comes, and `changed` hears [`Changed::Usage`].
     pub async fn spend(self: &Arc<Self>, refresh: bool) -> Result<SpendReport> {
-        if !refresh && let Some((held, stale)) = self.spend.get(&(), self.options.fresh) {
-            if stale {
-                self.read_spend_later();
+        let mut report = match self.spend.get(&(), self.options.fresh) {
+            Some((held, stale)) if !refresh => {
+                if stale {
+                    self.read_spend_later();
+                }
+                held
             }
-            return Ok(held);
-        }
-        let read = self.desk().await?.spend().await?;
-        self.spend.put((), read.clone());
-        Ok(read)
+            _ => {
+                let (read, follows) = self.desk().await?.spend_and_follow().await?;
+                self.keep_spend(read.clone(), follows);
+                read
+            }
+        };
+        report.limits = self.plans.borrow().clone();
+        Ok(report)
     }
 
     fn read_spend_later(self: &Arc<Self>) {
@@ -327,8 +352,11 @@ impl Session {
         let this = self.clone();
         self.spawn(async move {
             let _slot = this.limit.acquire().await;
-            match async { this.desk().await?.spend().await }.await {
-                Ok(read) => this.spend.put((), read),
+            match async { this.desk().await?.spend_and_follow().await }.await {
+                Ok((read, follows)) => {
+                    this.keep_spend(read, follows);
+                    (this.changed)(Changed::Usage);
+                }
                 Err(e) => {
                     log::info!("the usage did not read again: {e}");
                     this.spend.touch(&());
@@ -336,6 +364,47 @@ impl Session {
             }
             this.spend.end(&());
         });
+    }
+
+    /// Keeps `read` and its plans, and listens on for the plans `follows` owe.
+    fn keep_spend(self: &Arc<Self>, read: SpendReport, follows: Vec<PlanFollow>) {
+        self.hear(read.limits.clone());
+        self.spend.put((), read);
+        for mut follow in follows {
+            // A plan of the agent already shown is not waited for: the next read brings it.
+            let shown = self.plans.borrow().clone();
+            follow
+                .waiting
+                .retain(|agent| !shown.iter().any(|plan| plan.agent == *agent));
+            if follow.waiting.is_empty() {
+                continue;
+            }
+            if self.following.fetch_add(1, Ordering::Relaxed) >= PLAN_FOLLOWS {
+                self.following.fetch_sub(1, Ordering::Relaxed);
+                continue;
+            }
+            let this = self.clone();
+            self.spawn(async move {
+                follow
+                    .run(|plan| {
+                        if this.hear(vec![plan]) {
+                            (this.changed)(Changed::Usage);
+                        }
+                    })
+                    .await;
+                this.following.fetch_sub(1, Ordering::Relaxed);
+            });
+        }
+    }
+
+    /// Takes the freshest of `plans` and those held; true when that changed anything.
+    fn hear(&self, plans: Vec<PlanLimits>) -> bool {
+        self.plans.send_if_modified(|held| {
+            let merged = freshest(held.iter().cloned().chain(plans));
+            let changed = merged != *held;
+            *held = merged;
+            changed
+        })
     }
 
     /// Drops what was read, for a project that was removed or a credential that changed, so the

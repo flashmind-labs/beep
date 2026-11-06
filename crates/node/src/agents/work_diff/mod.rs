@@ -4,6 +4,7 @@
 
 mod parse;
 
+use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     MAX_DIFF_FILE_LINES, MAX_DIFF_FILES, MAX_DIFF_LINES, MAX_DIFF_SHOWN_LINES, WorkDiff,
@@ -217,7 +218,7 @@ fn worktree_of(root: &Path, branch: &str) -> Result<Option<PathBuf>> {
             at = Some(path);
         } else if line == want
             && let Some(path) = at
-            && let Ok(real) = fs::canonicalize(path)
+            && let Ok(real) = paths::canonicalize(path)
             && real.starts_with(root)
         {
             return Ok(Some(real));
@@ -397,7 +398,7 @@ mod tests {
     /// off it.
     fn checkout() -> (TempDir, PathBuf) {
         let dir = TempDir::new().expect("a temp folder");
-        let root = fs::canonicalize(dir.path()).expect("it resolves");
+        let root = paths::canonicalize(dir.path()).expect("it resolves");
         run_git(&root, &["init", "-q", "-b", "main"]);
         fs::write(root.join("keep.txt"), "one\ntwo\nthree\n").unwrap();
         fs::write(root.join("old.txt"), "moved\nalong\nwith\nus\n").unwrap();
@@ -540,7 +541,7 @@ mod tests {
             return;
         }
         let dir = TempDir::new().unwrap();
-        let root = fs::canonicalize(dir.path()).unwrap();
+        let root = paths::canonicalize(dir.path()).unwrap();
         run_git(&root, &["init", "-q", "-b", "main"]);
         fs::write(root.join("a.txt"), "a\n").unwrap();
         let diff = read(&root, &ask("", "")).expect("the diff reads");

@@ -33,9 +33,9 @@ use std::{
 };
 use tokio::{
     select,
-    sync::{broadcast::error::RecvError, watch},
+    sync::watch,
     task::{AbortHandle, Id, JoinError, JoinSet},
-    time::{Instant, MissedTickBehavior, interval, timeout},
+    time::{MissedTickBehavior, interval, timeout},
 };
 
 /// How often the runs are listed, and the machines asked.
@@ -48,8 +48,6 @@ const ASK_LIMIT: Duration = Duration::from_secs(10);
 pub(super) const MAX_WAITS: usize = 4;
 /// The most runs waiting for a wait; the rest are seen by the next list.
 const MAX_QUEUED: usize = 32;
-/// The least time between two lists a webhook asks for.
-const HIT_GAP: Duration = Duration::from_secs(10);
 /// The file the told runs are kept in, in the node's folder.
 const FILE: &str = "ci-runs.json";
 
@@ -123,8 +121,6 @@ pub(super) struct Watcher<F, W> {
     projects: Vec<Project>,
     /// The projects this machine watches.
     held: BTreeSet<String>,
-    /// When each held project was last listed.
-    listed: HashMap<String, Instant>,
     waits: JoinSet<Waited>,
     /// The runs waited on, and their tasks.
     waiting: HashMap<RunKey, AbortHandle>,
@@ -146,7 +142,6 @@ impl<F: Forge, W: World> Watcher<F, W> {
             peers: BTreeMap::new(),
             projects: Vec::new(),
             held: BTreeSet::new(),
-            listed: HashMap::new(),
             waits: JoinSet::new(),
             waiting: HashMap::new(),
             tasks: HashMap::new(),
@@ -158,7 +153,6 @@ impl<F: Forge, W: World> Watcher<F, W> {
     pub(super) async fn run(mut self) {
         let mut tick = interval(POLL);
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        let mut hits = self.ci.hits.subscribe();
         loop {
             select! {
                 _ = tick.tick() => {
@@ -174,11 +168,6 @@ impl<F: Forge, W: World> Watcher<F, W> {
                         self.list(&project).await;
                     }
                 }
-                hit = hits.recv() => match hit {
-                    Ok(repo) => self.hit(&repo).await,
-                    Err(RecvError::Lagged(_)) => self.list_due().await,
-                    Err(RecvError::Closed) => return,
-                },
                 Some(done) = self.waits.join_next_with_id(), if !self.waits.is_empty() => {
                     self.waited(done).await;
                 }
@@ -244,7 +233,6 @@ impl<F: Forge, W: World> Watcher<F, W> {
         for lost in lost {
             log::info!("CI watch: {lost} is watched elsewhere now");
             self.drop_waits(&lost);
-            self.listed.remove(&lost);
         }
         let gained: Vec<Project> = self
             .projects
@@ -261,14 +249,9 @@ impl<F: Forge, W: World> Watcher<F, W> {
         gained
     }
 
-    /// Lists every held project, except those whose webhooks come here.
+    /// Lists every held project.
     async fn list_due(&mut self) {
-        let due: Vec<Project> = self
-            .held_projects()
-            .filter(|project| {
-                !self.ci.is_live(&project.target.repo) || !self.listed.contains_key(&project.name)
-            })
-            .collect();
+        let due: Vec<Project> = self.held_projects().collect();
         for project in due {
             self.list(&project).await;
         }
@@ -281,26 +264,8 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .cloned()
     }
 
-    /// A webhook says a run of `repo` changed: its project is listed now,
-    /// unless it was just listed.
-    async fn hit(&mut self, repo: &str) {
-        let hit: Vec<Project> = self
-            .held_projects()
-            .filter(|project| project.target.repo.eq_ignore_ascii_case(repo))
-            .filter(|project| {
-                self.listed
-                    .get(&project.name)
-                    .is_none_or(|at| at.elapsed() >= HIT_GAP)
-            })
-            .collect();
-        for project in hit {
-            self.list(&project).await;
-        }
-    }
-
     /// One list of `project`'s runs: what ended is told, what goes is waited on.
     async fn list(&mut self, project: &Project) {
-        self.listed.insert(project.name.clone(), Instant::now());
         let host = project.target.host_name().to_owned();
         let listed = async {
             let login = match self.logins.get(&host) {

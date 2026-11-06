@@ -19,7 +19,7 @@ export interface Alert {
 /// `null` when there are no alerts to have.
 export type Alerts = Alert[] | null;
 
-export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "run";
+export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run";
 
 /// A build's note opens its project on the run.
 export type NoteTarget = PaneTarget | { projects: ProjectsArg };
@@ -113,7 +113,7 @@ export function bySide(items: Item[], ids: string[]): { server: string[]; mesh: 
 /// machine back.
 export function doneLabel(i: Item): string {
   if (!i.done) return "";
-  return i.kind === "asks" ? "Answered" : i.kind === "conflict" ? "Settled" : i.kind === "offline" ? "Back online" : "";
+  return i.kind === "asks" ? "Answered" : i.kind === "conflict" || i.kind === "skill_conflict" ? "Settled" : i.kind === "offline" ? "Back online" : "";
 }
 
 /// Whether the row still asks, with Allow and Deny.
