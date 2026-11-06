@@ -143,6 +143,9 @@ pub(super) struct Session {
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
+    /// A temporary reviewer (`agents::reviews`): never listed, never kept
+    /// over a restart, offered `submit_review`.
+    pub(super) reviewer: bool,
     /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
     /// What watches over its children, which stops with it.
@@ -352,6 +355,7 @@ impl Session {
             agent: kind.name.clone(),
             orders,
             live,
+            reviewer: false,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
         })

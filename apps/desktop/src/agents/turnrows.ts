@@ -98,7 +98,7 @@ export function toolRowHtml(r: { kind: ToolKind; verb: string; target: string; t
 }
 
 /// The user's message: "You" over its text (HTML), then what it carried.
-export const userRowHtml = (html: string, attrs = "", after = "") => `<div class="dcoderen user"${attrs}><b>You</b>${html ? `<span>${html}</span>` : ""}${after}</div>`;
+export const userRowHtml = (html: string, attrs = "", after = "", md = false) => `<div class="dcoderen user${md ? " md" : ""}"${attrs}><b>You</b>${html ? md ? `<div class="said">${html}</div>` : `<span>${html}</span>` : ""}${after}</div>`;
 
 /// An answer's HTML, each code block with a button that copies it.
 export const answerHtml = (html: string) => html.replace(/<pre(\s[^>]*)?>/g, (_m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);

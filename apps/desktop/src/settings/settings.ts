@@ -422,10 +422,11 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
   const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
   // Without a subscription these work over the mesh; the rest is the assistant's.
-  if (!linked) return [...out, creds, machines, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
+  const thisMacSec: [SettingsPage, string][] = mac ? [["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]] : [];
+  if (!linked) return [...out, ...thisMacSec, creds, machines, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
-  if (mac) out.push(["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]);
+  out.push(...thisMacSec);
   out.push(machines);
   // The Coding agents rows sit outside #set-agents, which redraws alone.
   const sub = SET.path?.sub;

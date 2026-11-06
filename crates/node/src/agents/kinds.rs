@@ -59,6 +59,9 @@ pub(super) struct Known {
     /// The id of the session mode that asks no permission, however the
     /// launch reaches it: a child is never started above its parent's.
     pub(super) full_mode: Option<&'static str>,
+    /// The id of the session mode that only reads, which a reviewer starts
+    /// in; `None` when the agent offers none.
+    pub(super) read_only_mode: Option<&'static str>,
     /// It starts on a model given as `--model` on its command line; the
     /// others switch over ACP once the session exists.
     pub(super) model_flag: bool,
@@ -118,6 +121,7 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[("CLAUDE_CODE_THINKING_DISPLAY", "summarized")],
         bypass_mode: Some("bypassPermissions"),
         full_mode: Some("bypassPermissions"),
+        read_only_mode: Some("plan"),
         model_flag: false,
         compact: Route::Percent {
             percent_var: "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
@@ -139,6 +143,7 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[],
         bypass_mode: None,
         full_mode: Some("agent-full-access"),
+        read_only_mode: Some("read-only"),
         model_flag: false,
         compact: Route::TokenLimit {
             config_var: "CODEX_CONFIG",
@@ -157,6 +162,7 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[],
         bypass_mode: None,
         full_mode: Some("yolo"),
+        read_only_mode: None,
         model_flag: true,
         compact: Route::OwnTrigger,
         async_tasks: false,
@@ -174,6 +180,7 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[],
         bypass_mode: None,
         full_mode: None,
+        read_only_mode: None,
         model_flag: false,
         compact: Route::Advertised,
         async_tasks: false,
@@ -188,6 +195,7 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[],
         bypass_mode: None,
         full_mode: None,
+        read_only_mode: None,
         model_flag: true,
         compact: Route::OwnTrigger,
         async_tasks: false,
@@ -203,6 +211,7 @@ pub(super) const KNOWN: &[Known] = &[
         thinking_env: &[],
         bypass_mode: None,
         full_mode: None,
+        read_only_mode: None,
         model_flag: false,
         compact: Route::Toggle {
             off_var: "OPENCODE_DISABLE_AUTOCOMPACT",

@@ -15,6 +15,8 @@ use crate::chat::products::{self, Product};
 // Stands in for a row of product cards until the HTML is cleaned. A
 // private-use character, removed from the reply first so it cannot fake one.
 const ROW_MARK: char = '\u{E000}';
+// Stands in for a pasted block in a user's message, as `ROW_MARK` does.
+const PASTE_MARK: char = '\u{E001}';
 
 // MathML Core elements, and the attributes pulldown-latex writes on them.
 const MATH_TAGS: &[&str] = &[
@@ -135,6 +137,81 @@ pub fn untrusted_html(markdown: &str) -> String {
         .rm_tags(["img"])
         .clean(&out)
         .to_string()
+}
+
+/// What the user wrote to a coding agent, as HTML. As in `untrusted_html`,
+/// raw HTML shows as text and images are left out, since a review's
+/// comments may come from an agent. Bare addresses become links, and each
+/// block a terminal pasted in (`<pasted_content id="..">`) folds into
+/// "Pasted text · 8 lines", numbered by `data-paste` for the page to open.
+pub fn user_html(markdown: &str) -> String {
+    let (source, pastes) = pasted_blocks(&markdown.replace(PASTE_MARK, ""));
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_GFM;
+    let events = Parser::new_ext(&source, options).map(|event| match event {
+        Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
+        other => other,
+    });
+    let mut out = String::with_capacity(source.len() * 3 / 2);
+    html::push_html(&mut out, autolink(TextMergeStream::new(events)).into_iter());
+    let out = restore_ip_hosts(out);
+    let mut clean = ammonia::Builder::default()
+        .rm_tags(["img"])
+        .clean(&out)
+        .to_string();
+    // The folds are built from escaped text, so they go in after cleaning.
+    for (i, body) in pastes.iter().enumerate() {
+        let lines = body.split('\n').count();
+        let fold = format!(
+            r#"<details class="paste" data-paste="{i}"><summary>Pasted text · {lines} {}</summary><pre>{}</pre></details>"#,
+            if lines == 1 { "line" } else { "lines" },
+            products::escape(body),
+        );
+        let mark = paste_mark(i);
+        let own_paragraph = format!("<p>{mark}</p>");
+        clean = if clean.contains(&own_paragraph) {
+            clean.replacen(&own_paragraph, &fold, 1)
+        } else {
+            clean.replacen(&mark, &fold, 1)
+        };
+    }
+    clean
+}
+
+fn paste_mark(i: usize) -> String {
+    format!("{PASTE_MARK}{i}{PASTE_MARK}")
+}
+
+/// `text` with each pasted block (`<pasted_content id="x">..</pasted_content
+/// id="x">`) put by a paragraph of its own holding its mark, and the blocks.
+fn pasted_blocks(text: &str) -> (String, Vec<String>) {
+    const OPEN: &str = "<pasted_content id=\"";
+    let mut out = String::with_capacity(text.len());
+    let mut pastes = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(OPEN) {
+        let after = &rest[at + OPEN.len()..];
+        let Some(id_end) = after.find("\">") else {
+            break;
+        };
+        let id = &after[..id_end];
+        let body = &after[id_end + 2..];
+        let close = format!("</pasted_content id=\"{id}\">");
+        let Some(end) = body.find(&close) else {
+            break;
+        };
+        let inner = &body[..end];
+        let inner = inner.strip_prefix('\n').unwrap_or(inner);
+        let inner = inner.strip_suffix('\n').unwrap_or(inner);
+        out.push_str(&rest[..at]);
+        out.push_str(&format!("\n\n{}\n\n", paste_mark(pastes.len())));
+        pastes.push(inner.to_owned());
+        rest = &body[end + close.len()..];
+    }
+    out.push_str(rest);
+    (out, pastes)
 }
 
 fn row_mark(i: usize) -> String {
@@ -551,6 +628,43 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_users_message_is_markdown_with_raw_html_as_text() {
+        let html = user_html(
+            "# Review on ~/app\n\n### src/a.rs:3\n\nUse `limit` <script>x()</script> ![t](https://example.com/t.png)\n\nSee https://example.com/1",
+        );
+        assert!(html.contains("<h1>Review on ~/app</h1>"), "{html}");
+        assert!(html.contains("<h3>src/a.rs:3</h3>"), "{html}");
+        assert!(html.contains("<code>limit</code>"), "{html}");
+        assert!(html.contains("&lt;script&gt;"), "{html}");
+        assert!(
+            !html.contains("<script") && !html.contains("<img"),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<a href="https://example.com/1""#),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn a_pasted_block_folds_and_stays_text() {
+        let html = user_html(
+            "look at this\n<pasted_content id=\"1\">\n# not a heading\n<b>x</b>\n</pasted_content id=\"1\">\nand *this*\u{E001}0\u{E001}",
+        );
+        assert!(
+            html.contains(r#"<details class="paste" data-paste="0"><summary>Pasted text · 2 lines</summary><pre># not a heading"#),
+            "{html}"
+        );
+        assert!(
+            html.contains("&lt;b&gt;x&lt;/b&gt;</pre></details>"),
+            "{html}"
+        );
+        assert!(html.contains("<em>this</em>"), "{html}");
+        assert_eq!(html.matches("<details").count(), 1, "{html}");
+        assert!(!html.contains('\u{E001}'), "{html}");
+    }
 
     #[test]
     fn renders_markdown_and_drops_scripts() {

@@ -277,15 +277,16 @@ export function placeComments(files: readonly DiffFile[], draft: readonly Review
   return out;
 }
 
-/// The message that sends `draft` to the agent: files in diff order, a
-/// file's own comment first, then its lines in order.
-export function reviewText(files: readonly Pick<DiffFile, "path" | "old_path" | "status">[], draft: readonly ReviewComment[]) {
+/// The message that sends `draft` to the agent, in Markdown under
+/// `heading`: a section per comment, files in diff order, a file's own
+/// comment first, then its lines in order.
+export function reviewText(heading: string, files: readonly Pick<DiffFile, "path" | "old_path" | "status">[], draft: readonly ReviewComment[]) {
   const by = new Map(files.map(f => [f.path, f]));
   const rank = new Map(files.map((f, i) => [f.path, i]));
   const at = (c: ReviewComment) => rank.get(c.path) ?? files.length;
   const sorted = draft.slice().sort((a, b) => at(a) - at(b) || a.path.localeCompare(b.path)
     || (a.line ?? 0) - (b.line ?? 0) || Number(a.side === "new") - Number(b.side === "new"));
-  const lines = sorted.map(c => {
+  const sections = sorted.map(c => {
     const f = by.get(c.path);
     const notes: string[] = [];
     if (c.line == null) notes.push("whole file");
@@ -293,9 +294,9 @@ export function reviewText(files: readonly Pick<DiffFile, "path" | "old_path" | 
     if (c.line == null && f?.status === "deleted") notes.push("deleted");
     if (f?.old_path) notes.push(`renamed from ${f.old_path}`);
     const where = c.line == null ? c.path : `${c.path}:${c.line}`;
-    return `${where}${notes.length ? ` (${notes.join(", ")})` : ""}: ${c.text}`;
+    return `### ${where}${notes.length ? ` (${notes.join(", ")})` : ""}\n\n${c.text}`;
   });
-  return `Review of your changes:\n\n${lines.join("\n")}`;
+  return [`# ${heading}`, ...sections].join("\n\n");
 }
 
 /// The draft as stored; what is not a comment is dropped.

@@ -89,6 +89,15 @@ export function paneRoot() {
   return !p ? "" : W.shown === bare(p.cwd) ? p.cwd : W.shown;
 }
 
+/// Whether the folder the tabs read is a linked worktree, not the main
+/// checkout: git lists the main checkout first.
+export function paneLinked() {
+  const root = paneRoot();
+  const at = W.trees.findIndex(t => rootOf(t, W.cwd) === root);
+  if (at >= 0) return at > 0;
+  return !!W.placed?.linked && bare(W.placed.folder) === bare(root);
+}
+
 /// Reads the list of worktrees again, as the Changes tab does on a refresh.
 export function refreshWorktrees() {
   readTrees();

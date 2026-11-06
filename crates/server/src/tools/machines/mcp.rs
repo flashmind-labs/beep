@@ -190,7 +190,9 @@ impl Calls {
             | Call::ListAgents
             | Call::AgentParent
             | Call::AgentCount
-            | Call::ForgeReach => Err("A node answers this tool itself, not the server.".into()),
+            | Call::ForgeReach
+            | Call::Review
+            | Call::SubmitReview => Err("A node answers this tool itself, not the server.".into()),
             Call::Unknown => Err("This server does not know that tool; it needs an update.".into()),
         }
     }

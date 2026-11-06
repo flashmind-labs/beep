@@ -330,8 +330,12 @@ function homeRelative(path: string) {
 /// which each machine reads as its own home. Auto is `machine` null.
 export function folderOn(cwd: string, machine: string | null, places: readonly { machine: string; cwd: string }[] | null | undefined) {
   const own = machine ? places?.find(p => p.machine === machine)?.cwd : null;
-  if (own) return own;
-  const p = String(cwd || "").trim();
+  return own || homeShort(cwd);
+}
+
+/// `path` written `~/...` when it is under a home folder, else as it is.
+export function homeShort(path: string) {
+  const p = String(path || "").trim();
   const rest = p ? homeRelative(p.replace(/\\/g, "/")) : null;
   if (rest == null) return p;
   return rest ? `~/${rest.replace(/\/+$/, "")}` : "~";

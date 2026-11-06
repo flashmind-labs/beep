@@ -9,8 +9,8 @@ use beep_proto::{
     node::{
         agent::{
             AgentCommand, CopyView, DiffAsk, Entry, ExternalSession, LiveStatus, ModelList,
-            MoveProgress, SESSIONS_PROTOCOL, SessionFolder, SessionInfo, SessionsReply,
-            SessionsRequest, Steer, Worktree,
+            MoveProgress, ReviewOrder, ReviewRun, SESSIONS_PROTOCOL, SessionFolder, SessionInfo,
+            SessionsReply, SessionsRequest, Steer, Worktree,
         },
         harness::HarnessReport,
     },
@@ -30,6 +30,9 @@ const DIFF_TIMEOUT: Duration = Duration::from_secs(60);
 const REPORT_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long an install or update may take on the node, and a little more.
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
+/// How long a node may take to start a reviewer: it counts the agents under
+/// the parent on every machine and waits for the agent's id.
+const REVIEW_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Sends one `agents/1` request and gives the node's reply within `limit`.
 pub trait Sessions {
@@ -572,6 +575,49 @@ pub async fn commands<S: Sessions + ?Sized>(
     match ask(node, request).await? {
         SessionsReply::Commands { commands } => Ok(NodeWork::Done(commands)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// Starts a temporary reviewer on the node as `order` says; it refuses one
+/// over the limits, or an agent it does not have.
+pub async fn start_review<S: Sessions + ?Sized>(
+    node: &S,
+    order: ReviewOrder,
+) -> Result<NodeWork<ReviewRun>, MeshError> {
+    let request = SessionsRequest::StartReview { order };
+    match hinted(node.sessions(request, REVIEW_TIMEOUT).await, "review")? {
+        SessionsReply::Review { run } => Ok(NodeWork::Done(run)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// How the review `id` on the node stands.
+pub async fn review<S: Sessions + ?Sized>(
+    node: &S,
+    id: &str,
+) -> Result<NodeWork<ReviewRun>, MeshError> {
+    let request = SessionsRequest::Review { id: id.to_owned() };
+    match ask(node, request).await? {
+        SessionsReply::Review { run } => Ok(NodeWork::Done(run)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// The reviews of the session `session`'s work on the node, oldest first;
+/// none from a node from before reviews.
+pub async fn reviews<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+) -> Result<Vec<ReviewRun>, MeshError> {
+    let request = SessionsRequest::Reviews {
+        session: session.to_owned(),
+    };
+    match ask(node, request).await? {
+        SessionsReply::Reviews { runs } => Ok(runs),
+        SessionsReply::Error { .. } => Ok(Vec::new()),
         other => Err(unexpected(&other)),
     }
 }

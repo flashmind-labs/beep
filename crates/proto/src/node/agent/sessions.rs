@@ -2,8 +2,8 @@
 //! and the names of the protocols each agent speaks.
 
 use super::{
-    Activity, Entry, ExternalSession, LiveStatus, ModelList, Question, SessionFolder, SessionInfo,
-    Steer, StopReason,
+    Activity, Entry, ExternalSession, LiveStatus, ModelList, Question, ReviewOrder, ReviewRun,
+    SessionFolder, SessionInfo, Steer, StopReason,
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -255,6 +255,24 @@ pub enum SessionsRequest {
     Present {
         paths: Vec<String>,
     },
+    /// Starts a temporary reviewer of `order.cwd`'s changes, a child of
+    /// `order.parent` when given. Answered with `Review` once it runs, or
+    /// `Error` saying why not. The reviewer never shows in `List`, and goes
+    /// once it submitted or failed; its review stays. A node from before it
+    /// answers `Error`.
+    StartReview {
+        order: ReviewOrder,
+    },
+    /// How the review `id` stands. Answered with `Review`, or `Error` when
+    /// the node has no such review.
+    Review {
+        id: String,
+    },
+    /// The reviews of the session `session`'s work, oldest first. Answered
+    /// with `Reviews`.
+    Reviews {
+        session: String,
+    },
 }
 
 /// The most paths one `Present` asks about.
@@ -287,6 +305,8 @@ impl SessionsRequest {
             | Self::MoveCheck { .. }
             | Self::Copies {}
             | Self::Present { .. }
+            | Self::Review { .. }
+            | Self::Reviews { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -299,7 +319,8 @@ impl SessionsRequest {
             | Self::ContinueCopy { .. }
             | Self::DiscardCopy { .. }
             | Self::FollowAlerts {}
-            | Self::FollowRuns {} => false,
+            | Self::FollowRuns {}
+            | Self::StartReview { .. } => false,
         }
     }
 }
@@ -452,6 +473,14 @@ pub enum SessionsReply {
     /// The answer to `Present`: one per path asked, in order.
     Present {
         present: Vec<bool>,
+    },
+    /// The answer to `StartReview` and `Review`.
+    Review {
+        run: ReviewRun,
+    },
+    /// The answer to `Reviews`.
+    Reviews {
+        runs: Vec<ReviewRun>,
     },
 }
 
