@@ -1,5 +1,29 @@
 //! Tests of `beep_proto::node` through the public API.
 
+mod skills {
+    use beep_proto::node::skills::*;
+
+    #[test]
+    fn an_older_conflict_and_listing_still_read() {
+        let older = (
+            "notes",
+            vec!["box-a ~/.claude/skills", "box-b ~/.claude/skills"],
+            vec!["box-a", "box-b"],
+            vec!["box-a ~/.claude/skills"],
+        );
+        let bytes = rmp_serde::to_vec(&older).expect("encodes");
+        let read: Conflict = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!(read.here, ["box-a ~/.claude/skills"]);
+        assert!(read.held.is_empty());
+
+        let older = ("notes", "00", vec!["~/.claude/skills"], 2u64, true);
+        let bytes = rmp_serde::to_vec(&older).expect("encodes");
+        let read: Listed = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!((read.ver, read.edited), (2, true));
+        assert_eq!((read.kept, read.changed, read.bytes), (false, 0, 0));
+    }
+}
+
 mod admin {
     mod traffic {
         use beep_proto::node::traffic::*;

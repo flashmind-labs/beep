@@ -11,6 +11,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs, io,
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 /// The skills folders the agents Beep runs read, under the home folder:
@@ -26,6 +27,9 @@ const READ: [&str; 6] = [
 ];
 /// The agents' folders that make `~/.agents/skills` worth writing to.
 const AGENTS_READERS: [&str; 5] = [".agents", ".codex", ".pi", ".gemini", ".config/opencode"];
+
+/// Marks a picked copy in the record of held names.
+const KEPT: &str = "kept";
 
 /// The most files one skill may have and still sync.
 const MAX_FILES: usize = 256;
@@ -47,8 +51,8 @@ pub(super) struct Scan {
 /// Reads every skills folder under `home`.
 pub(super) fn scan(home: &Path) -> Scan {
     let mut names = BTreeSet::new();
-    // Name and hash, to the folders holding that copy.
-    let mut copies: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    // Name and hash, to that copy.
+    let mut copies: BTreeMap<(String, String), Listed> = BTreeMap::new();
     for rel in READ {
         let root = home.join(rel);
         let Ok(entries) = fs::read_dir(&root) else {
@@ -63,27 +67,31 @@ pub(super) fn scan(home: &Path) -> Scan {
             }
             names.insert(name.clone());
             match read(&entry.path()) {
-                Ok(Some(files)) => copies
-                    .entry((name, hash(&files)))
-                    .or_default()
-                    .push(label(rel)),
+                Ok(Some(found)) => {
+                    let hash = hash(&found.files);
+                    let copy = copies
+                        .entry((name.clone(), hash.clone()))
+                        .or_insert_with(|| Listed {
+                            name,
+                            hash,
+                            folders: Vec::new(),
+                            // The follow task fills these in from what it synced.
+                            ver: 0,
+                            edited: false,
+                            kept: false,
+                            changed: 0,
+                            bytes: found.bytes,
+                        });
+                    copy.folders.push(label(rel));
+                    copy.changed = copy.changed.max(found.changed);
+                }
                 Ok(None) => {}
                 Err(e) => log::debug!("skill {name} in {} not read: {e:#}", label(rel)),
             }
         }
     }
     Scan {
-        listed: copies
-            .into_iter()
-            .map(|((name, hash), folders)| Listed {
-                name,
-                hash,
-                folders,
-                // The follow task fills these in from what it synced.
-                ver: 0,
-                edited: false,
-            })
-            .collect(),
+        listed: copies.into_values().collect(),
         names,
     }
 }
@@ -100,18 +108,28 @@ pub(super) fn files_of(home: &Path, name: &str, hash: &str) -> Vec<SkillFile> {
         return Vec::new();
     }
     for rel in READ {
-        if let Ok(Some(files)) = read(&home.join(rel).join(name))
-            && self::hash(&files) == hash
+        if let Ok(Some(found)) = read(&home.join(rel).join(name))
+            && self::hash(&found.files) == hash
         {
-            return files;
+            return found.files;
         }
     }
     Vec::new()
 }
 
-/// A skill's files, sorted by path; `None` when the folder is no skill the
-/// user made: no `SKILL.md`, Beep's own, or too big to sync.
-fn read(dir: &Path) -> Result<Option<Vec<SkillFile>>> {
+/// A skill's files as read from its folder.
+#[derive(Default)]
+struct Found {
+    /// Sorted by path.
+    files: Vec<SkillFile>,
+    bytes: u64,
+    /// When the newest file changed, in milliseconds since the Unix epoch.
+    changed: u64,
+}
+
+/// A skill's files; `None` when the folder is no skill the user made: no
+/// `SKILL.md`, Beep's own, or too big to sync.
+fn read(dir: &Path) -> Result<Option<Found>> {
     let skill = match fs::read(dir.join("SKILL.md")) {
         Ok(text) => text,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -120,25 +138,18 @@ fn read(dir: &Path) -> Result<Option<Vec<SkillFile>>> {
     if installed_by_beep(&String::from_utf8_lossy(&skill)) {
         return Ok(None);
     }
-    let mut files = Vec::new();
-    let mut bytes = 0;
-    if !walk(dir, "", 0, &mut files, &mut bytes)? {
+    let mut found = Found::default();
+    if !walk(dir, "", 0, &mut found)? {
         log::debug!("{} is too big to sync", dir.display());
         return Ok(None);
     }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(Some(files))
+    found.files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(Some(found))
 }
 
-/// Adds the files under `dir` to `files`; false once the skill is past a
+/// Adds the files under `dir` to `found`; false once the skill is past a
 /// limit. Names starting with a dot (`.git`, `.DS_Store`) are left out.
-fn walk(
-    dir: &Path,
-    prefix: &str,
-    depth: usize,
-    files: &mut Vec<SkillFile>,
-    bytes: &mut u64,
-) -> Result<bool> {
+fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Found) -> Result<bool> {
     if depth > MAX_DEPTH {
         return Ok(false);
     }
@@ -159,16 +170,25 @@ fn walk(
         // Follows links, as the agents do.
         let meta = fs::metadata(&path).with_context(|| format!("reading {}", path.display()))?;
         if meta.is_dir() {
-            if !walk(&path, &rel, depth + 1, files, bytes)? {
+            if !walk(&path, &rel, depth + 1, found)? {
                 return Ok(false);
             }
         } else if meta.is_file() {
-            *bytes += meta.len();
-            if files.len() >= MAX_FILES || *bytes > MAX_BYTES {
+            found.bytes += meta.len();
+            if found.files.len() >= MAX_FILES || found.bytes > MAX_BYTES {
                 return Ok(false);
             }
+            // A clock before 1970 reads as no time.
+            if let Some(ms) = meta
+                .modified()
+                .ok()
+                .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
+                .and_then(|since| u64::try_from(since.as_millis()).ok())
+            {
+                found.changed = found.changed.max(ms);
+            }
             let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-            files.push(SkillFile {
+            found.files.push(SkillFile {
                 path: rel,
                 data: ByteBuf::from(data),
             });
@@ -292,7 +312,7 @@ pub(super) fn replace(
     for rel in READ.iter().filter(|rel| folders.contains(&label(rel))) {
         let dir = home.join(rel);
         let place = dir.join(name);
-        if !matches!(read(&place), Ok(Some(now)) if hash(&now) == old) {
+        if !matches!(read(&place), Ok(Some(now)) if hash(&now.files) == old) {
             continue;
         }
         let partial = stage(&dir, name, files)?;
@@ -312,18 +332,34 @@ pub(super) fn replace(
     Ok(replaced)
 }
 
+/// Puts the copy of `name` that hashes to `hash` in place of each of `old`,
+/// the other copies here, as the user kept it.
+pub(super) fn keep(home: &Path, name: &str, hash: &str, old: &[Listed]) -> Result<()> {
+    let files = files_of(home, name, hash);
+    if files.is_empty() {
+        bail!("the copy kept is gone or changed");
+    }
+    for copy in old {
+        replace(home, name, &files, &copy.folders, &copy.hash)?;
+    }
+    Ok(())
+}
+
 /// The copy of a skill this machine last synced: its hash and how many
 /// edits it has been through in the mesh.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Base {
     pub hash: String,
     pub ver: u64,
+    /// The user picked it to end a conflict.
+    pub kept: bool,
 }
 
 /// The skill names this machine has held, each with the copy it last synced,
 /// in a file of the node's own: one line per name, then a tab, the hash, a
-/// tab and the version when it has one. A name in it is never fetched again,
-/// so a skill the user deleted here stays deleted.
+/// tab and the version when it has one, and a tab and `kept` when the user
+/// picked it. A name in it is never fetched again, so a skill the user
+/// deleted here stays deleted.
 #[derive(Default)]
 pub(super) struct Seen {
     file: PathBuf,
@@ -349,6 +385,7 @@ impl Seen {
                     (Some(hash), Some(Ok(ver))) => Some(Base {
                         hash: hash.to_owned(),
                         ver,
+                        kept: parts.next() == Some(KEPT),
                     }),
                     _ => None,
                 };
@@ -398,6 +435,9 @@ impl Seen {
             text.push_str(name);
             if let Some(base) = base {
                 text.push_str(&format!("\t{}\t{}", base.hash, base.ver));
+                if base.kept {
+                    text.push_str(&format!("\t{KEPT}"));
+                }
             }
             text.push('\n');
         }
@@ -478,6 +518,35 @@ mod tests {
         assert_eq!(there.listed.len(), 1);
         assert_eq!(there.listed[0].hash, notes[0].hash);
         assert!(!install(other.path(), "notes", &files).unwrap());
+    }
+
+    #[test]
+    fn a_kept_copy_replaces_the_other_folders() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        skill(home, ".claude/skills", "style", "kept\n");
+        skill(home, ".pi/agent/skills", "style", "edited apart\n");
+        skill(home, ".agents/skills", "style", "another\n");
+        let found = scan(home);
+        assert_eq!(found.listed.len(), 3);
+        let kept = found
+            .listed
+            .iter()
+            .find(|l| l.folders == ["~/.claude/skills"])
+            .unwrap();
+        assert!(kept.changed > 0 && kept.bytes == 10);
+        let old: Vec<Listed> = found
+            .listed
+            .iter()
+            .filter(|l| l.hash != kept.hash)
+            .cloned()
+            .collect();
+        keep(home, "style", &kept.hash, &old).unwrap();
+        let after = scan(home);
+        assert_eq!(after.listed.len(), 1);
+        assert_eq!(after.listed[0].hash, kept.hash);
+        assert_eq!(after.listed[0].folders.len(), 3);
+        assert!(keep(home, "style", "gone", &[]).is_err());
     }
 
     #[test]

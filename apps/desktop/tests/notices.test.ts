@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Alert, type Note, type NoteKind, asks, badge, bellLabel, bySide, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, copies, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
+import { type Alert, type Note, type NoteKind, asks, badge, bellLabel, bySide, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, copies, copyLine, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
 
 const alert = (id: string, over: Partial<Alert> = {}): Alert => ({ session_id: id, title: `Title ${id}`, source: "Apps", text: `Text ${id}`, read: false, at: 1_760_000_000_000, ...over });
 const note = (id: string, kind: NoteKind, over: Partial<Note> = {}): Note => ({ id, kind, title: `Title ${id}`, text: "", source: "build-box", at: 1_760_000_000_000, read: false, done: false, target: null, ...over });
@@ -93,4 +93,14 @@ test("a skill conflict lists its copies and which are on this Mac", () => {
   ]);
   // A note saved before `here` existed has no copy on this Mac.
   assert.ok(copies(fromNote(note("o", "skill_conflict", { text: "box-a ~/x" }))).every(c => !c.here));
+});
+
+test("a skill conflict's copies say when they changed, their size and the newest", () => {
+  const now = 10 * 3600_000;
+  const held = (label: string, changed: number) => ({ machine: `id-${label}`, label, folder: "~/.claude/skills", hash: label, changed, bytes: 2100 });
+  const i = fromNote(note("skill:notes", "skill_conflict", { here: ["box-a ~/.claude/skills"], held: [held("box-a", now - 3 * 3600_000), held("box-b", now - 120_000)] }));
+  const [a, b] = copies(i);
+  assert.ok(a.here && !a.newest && !b.here && b.newest);
+  assert.equal(copyLine(a, now), "Changed 3 h ago · 2.1 KB");
+  assert.equal(copyLine(b, now), "Changed 2 min ago · 2.1 KB · newest");
 });

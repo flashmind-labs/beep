@@ -8,10 +8,18 @@ use crate::{
     beep::epoch_ms,
     center::{AgentTarget, CenterTarget, RunAt},
     error::{DesktopError, Result},
+    fleet::Fleet,
     tray::waiting,
 };
 use anyhow::Context;
-use beep_proto::{AgentNoticeKey, ApiError, Notice, RunState, node::agent::RunNews};
+use beep_proto::{
+    AgentNoticeKey, ApiError, Notice, RunState,
+    node::{
+        agent::RunNews,
+        skills::{self, Held},
+    },
+};
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
@@ -70,6 +78,9 @@ pub struct Note {
     /// The lines of `text` that are on this Mac, for a skill conflict.
     #[serde(default)]
     pub(crate) here: Vec<String>,
+    /// Each copy of a skill conflict, to keep one.
+    #[serde(default)]
+    pub(crate) held: Vec<Held>,
 }
 
 impl Note {
@@ -86,6 +97,7 @@ impl Note {
             done: false,
             target: None,
             here: Vec::new(),
+            held: Vec::new(),
         }
     }
 }
@@ -391,6 +403,23 @@ pub fn skill_reveal(app: AppHandle, folder: String, name: String) -> Result<()> 
         .arg(&skill)
         .spawn()
         .map_err(anyhow::Error::from)?;
+    Ok(())
+}
+
+/// Keeps `machine`'s copy of skill `name` that hashes to `hash`: that node
+/// makes it the picked version, and every other copy takes it.
+#[tauri::command]
+pub async fn skill_keep(
+    fleet: State<'_, Arc<Fleet>>,
+    machine: EndpointId,
+    name: String,
+    hash: String,
+) -> Result<()> {
+    fleet
+        .client(machine)
+        .await?
+        .call::<_, skills::Reply>(skills::PROTOCOL, &skills::Request::Keep { name, hash })
+        .await?;
     Ok(())
 }
 

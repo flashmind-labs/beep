@@ -153,6 +153,11 @@ impl Passes {
         }
         let mesh = self.mesh.clone();
         self.lists.retain(|id, _| mesh.is_member(*id));
+        // A pass that kept a copy runs again, listing it as picked.
+        if self.keep(&here).await {
+            self.save().await;
+            return true;
+        }
         let names: HashMap<EndpointId, String> = mesh
             .devices()
             .into_iter()
@@ -169,6 +174,7 @@ impl Passes {
             self.lists.keys().map(|id| (*id, name_of(id))).collect();
         machines.sort_by(|a, b| a.1.cmp(&b.1));
         let mut holders = vec![Holder {
+            id: mesh.me(),
             machine: &me,
             here: true,
             listed: &here,
@@ -176,6 +182,7 @@ impl Passes {
         for (id, name) in &machines {
             if let Some(listed) = self.lists.get(id) {
                 holders.push(Holder {
+                    id: *id,
                     machine: name,
                     here: false,
                     listed,
@@ -273,6 +280,7 @@ impl Passes {
                     Base {
                         hash: listed.hash.clone(),
                         ver: 0,
+                        kept: false,
                     },
                 );
             }
@@ -281,9 +289,11 @@ impl Passes {
             .iter()
             .map(|listed| {
                 let base = self.seen.base(&listed.name);
+                let synced = base.is_some_and(|base| base.hash == listed.hash);
                 Listed {
                     ver: base.map_or(0, |base| base.ver),
-                    edited: base.is_some_and(|base| base.hash != listed.hash),
+                    edited: base.is_some() && !synced,
+                    kept: synced && base.is_some_and(|base| base.kept),
                     ..listed.clone()
                 }
             })
@@ -360,6 +370,49 @@ impl Passes {
         .context("writing the skill stopped")?
     }
 
+    /// Applies the copies the user kept here: each becomes a picked version
+    /// one past every version listed in the mesh and replaces the other
+    /// copies here; the other machines take it in their next pass. Whether
+    /// any was kept.
+    async fn keep(&mut self, here: &[Listed]) -> bool {
+        let picks = self.skills.picks.send_replace(BTreeMap::new());
+        let mut kept = false;
+        for (name, hash) in picks {
+            let ver = here
+                .iter()
+                .chain(self.lists.values().flatten())
+                .filter(|listed| listed.name == name)
+                .map(|listed| listed.ver.saturating_add(u64::from(listed.edited)))
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            let old: Vec<Listed> = here
+                .iter()
+                .filter(|listed| listed.name == name && listed.hash != hash)
+                .cloned()
+                .collect();
+            let home = self.home.clone();
+            let (key, wanted) = (name.clone(), hash.clone());
+            match spawn_blocking(move || disk::keep(&home, &key, &wanted, &old)).await {
+                Ok(Ok(())) => {
+                    log::info!("skills: kept this machine's {name}; the other copies take it");
+                    self.seen.set(
+                        &name,
+                        Base {
+                            hash,
+                            ver,
+                            kept: true,
+                        },
+                    );
+                    kept = true;
+                }
+                Ok(Err(e)) => log::warn!("skill {name} not kept: {e:#}"),
+                Err(e) => log::warn!("keeping skill {name} stopped: {e}"),
+            }
+        }
+        kept
+    }
+
     /// Writes the record of held names when it changed.
     async fn save(&mut self) {
         let Some(saved) = self.seen.unsaved() else {
@@ -421,8 +474,13 @@ impl Passes {
     }
 }
 
-/// Answers one `skills/1` request.
-pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Result<()> {
+/// Answers one `skills/1` request; `desktop` says a desktop asks.
+pub(crate) async fn serve(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    skills: Skills,
+    desktop: bool,
+) -> Result<()> {
     let request: Request = timeout(READ_LIMIT, rx.recv())
         .await
         .context("the peer sent no request")??
@@ -451,6 +509,24 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Res
                 .context("reading the skills folders stopped")?,
         },
         Request::Changed {} => {
+            skills.nudge.notify_one();
+            Reply::Skills { skills: Vec::new() }
+        }
+        Request::Keep { name, hash } => {
+            if !desktop {
+                bail!("only a desktop keeps a copy of a skill");
+            }
+            let held = skills
+                .listed
+                .borrow()
+                .as_ref()
+                .is_some_and(|listed| listed.iter().any(|l| l.name == name && l.hash == hash));
+            if !held {
+                bail!("this machine has no such copy of {name}");
+            }
+            skills.picks.send_modify(|picks| {
+                picks.insert(name, hash);
+            });
             skills.nudge.notify_one();
             Reply::Skills { skills: Vec::new() }
         }

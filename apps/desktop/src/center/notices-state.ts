@@ -4,6 +4,7 @@
 // alerts are `null` and the notes alone fill the pane.
 import type { PaneTarget } from "../bar/pane.ts";
 import type { ProjectsArg } from "./state.ts";
+import { bytes, since } from "../ui/format.ts";
 
 /// What the assistant told the user, as `alerts_list` gives it.
 export interface Alert {
@@ -39,6 +40,21 @@ export interface Note {
   target: NoteTarget;
   /// The lines of `text` that are on this Mac, for a skill conflict.
   here?: string[];
+  /// Each copy of a skill conflict, to keep one.
+  held?: Held[];
+}
+
+/// One copy of a conflicting skill as the node told it.
+export interface Held {
+  /// The machine's endpoint id.
+  machine: string;
+  /// The machine's name.
+  label: string;
+  folder: string;
+  hash: string;
+  /// When a file of it last changed, milliseconds since the epoch; 0 unknown.
+  changed: number;
+  bytes: number;
 }
 
 /// One row of the pane.
@@ -55,6 +71,7 @@ export interface Item {
   done: boolean;
   target: NoteTarget;
   here?: string[];
+  held?: Held[];
 }
 
 export const fromAlert = (a: Alert): Item => ({ id: a.session_id, server: true, kind: "alert", title: a.title, text: a.text, source: a.source, at: a.at, read: a.read, done: false, target: null });
@@ -127,14 +144,30 @@ export interface Copy {
   machine: string;
   folder: string;
   here: boolean;
+  /// What the node told of it, to keep it; none in a note from before.
+  held?: Held;
+  /// It changed last of the copies.
+  newest?: boolean;
 }
 
-/// A skill conflict's copies, one per line of its text, `machine folder`.
+/// A skill conflict's copies: as the node told them, or one per line of its
+/// text, `machine folder`, in a note from before.
 export function copies(i: Item): Copy[] {
+  if (i.held?.length) {
+    const last = Math.max(...i.held.map(c => c.changed));
+    return i.held.map(c => ({ machine: c.label, folder: c.folder, here: !!i.here?.includes(`${c.label} ${c.folder}`), held: c, newest: last > 0 && c.changed === last }));
+  }
   return i.text.split("\n").filter(Boolean).map(line => {
     const at = line.indexOf(" ~/");
     return { machine: at < 0 ? line : line.slice(0, at), folder: at < 0 ? "" : line.slice(at + 1), here: !!i.here?.includes(line) };
   });
+}
+
+/// The small line under a copy: `Changed 3 h ago · 2.1 KB · newest`.
+export function copyLine(c: Copy, now = Date.now()): string {
+  if (!c.held) return "";
+  const parts = [c.held.changed ? `Changed ${since(c.held.changed, now)}` : "", bytes(c.held.bytes), c.newest ? "newest" : ""];
+  return parts.filter(Boolean).join(" · ");
 }
 
 /// The skill's name in a conflict's title, `Skill x differs on a and b`.

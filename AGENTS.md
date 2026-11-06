@@ -463,6 +463,11 @@ nothing changes, the node logs a warning and the desktop shows a bell row. Two
 local folders follow the same rule. Deletes never spread, and a name in
 `skills-seen` that is gone here is never copied back.
 
+Keep this one on the bell row sends `Keep` to the machine holding that copy. It
+records the copy as kept, one version past every version in the mesh, and
+replaces its other folders; a kept copy replaces every copy from an older
+version on every machine, edited or not, and an edit made after it spreads as usual.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds, installs and launches
