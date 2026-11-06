@@ -159,6 +159,7 @@ impl Inner {
             mesh: mesh.map(|mesh| mesh.id()),
             devices,
             projects,
+            agents: self.offers().agents.agent_report(),
         })
     }
 
@@ -589,6 +590,9 @@ where
     P: Fn() -> F,
     F: Future<Output = EnvReport> + Send + 'static,
 {
+    // An agent whose adapter the node installed later is offered then.
+    let mut kinds = offers.agents.kinds_changed();
+    kinds.mark_unchanged();
     tx.send(&Report::Offers(offers.names())).await?;
     let mut reprobe = interval(REPROBE);
     reprobe.tick().await;
@@ -604,6 +608,9 @@ where
             gone = rx.recv::<IgnoredAny>() => {
                 gone?;
                 return Ok(());
+            }
+            Ok(()) = kinds.changed() => {
+                tx.send(&Report::Offers(offers.names())).await?;
             }
             _ = reprobe.tick(), if probing.is_none() => {
                 probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));

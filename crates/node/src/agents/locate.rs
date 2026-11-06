@@ -32,12 +32,20 @@ pub(super) fn fallback(program: &str, home: &Path) -> Option<PathBuf> {
     })
 }
 
-/// `PATH` with the folder of `program` (found under `home` rather than on
-/// `PATH`) in front, so what it starts, such as `node`, is found beside it.
-pub(super) fn path_with(program: &Path) -> Option<OsString> {
-    let dir = program.parent()?;
+/// `PATH` with the folders of `programs` (found under `home` or in the
+/// node's folder rather than on `PATH`) in front, first first, so what they
+/// start, such as `node`, is found beside them.
+pub(super) fn path_with(programs: &[&Path]) -> Option<OsString> {
     let current = env::var_os("PATH").unwrap_or_default();
-    let mut dirs = vec![dir.to_owned()];
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for dir in programs.iter().filter_map(|program| program.parent()) {
+        if !dirs.iter().any(|known| known == dir) {
+            dirs.push(dir.to_owned());
+        }
+    }
+    if dirs.is_empty() {
+        return None;
+    }
     dirs.extend(env::split_paths(&current));
     env::join_paths(dirs).ok()
 }
@@ -132,8 +140,23 @@ mod tests {
 
     #[test]
     fn a_found_folder_goes_first_on_the_path() {
-        let path = path_with(Path::new("/home/user/.bun/bin/claude")).expect("a path");
+        let path = path_with(&[Path::new("/home/user/.bun/bin/claude")]).expect("a path");
         let first = env::split_paths(&path).next().expect("a folder");
         assert_eq!(first, Path::new("/home/user/.bun/bin"));
+    }
+
+    #[test]
+    fn the_nodes_own_node_goes_before_the_cli() {
+        let node = Path::new("/srv/node/agent-adapters/node/bin/node");
+        let cli = Path::new("/home/user/.local/bin/claude");
+        let path = path_with(&[node, cli]).expect("a path");
+        let first: Vec<PathBuf> = env::split_paths(&path).take(2).collect();
+        assert_eq!(
+            first,
+            [
+                PathBuf::from("/srv/node/agent-adapters/node/bin"),
+                PathBuf::from("/home/user/.local/bin")
+            ]
+        );
     }
 }
