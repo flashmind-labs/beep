@@ -1,17 +1,17 @@
 //! The bell's history on this Mac: what the mesh told the user, kept in one
 //! file (the newest `KEEP`, none older than `MAX_AGE_MS`), so the pane lists
-//! it with no server. Coding agents' notices come from `route`; sync
-//! conflicts, failed moves and machines that went away from `watch`.
+//! it with no server. Coding agents' notices and CI runs come from `route`;
+//! sync conflicts, failed moves and machines that went away from `watch`.
 
 use super::notify;
 use crate::{
     beep::epoch_ms,
-    center::{AgentTarget, CenterTarget},
+    center::{AgentTarget, CenterTarget, RunAt},
     error::{DesktopError, Result},
     tray::waiting,
 };
 use anyhow::Context;
-use beep_proto::{AgentNoticeKey, ApiError, Notice};
+use beep_proto::{AgentNoticeKey, ApiError, Notice, RunState, node::agent::RunNews};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
@@ -41,6 +41,10 @@ pub enum NoteKind {
     MoveFailed,
     /// A machine went offline; `done` once it is back.
     Offline,
+    /// A skill has other files on another machine or agent; `done` once alike.
+    SkillConflict,
+    /// A CI run the user started ended.
+    Run,
 }
 
 /// One row of the bell's pane from the mesh.
@@ -218,6 +222,13 @@ pub(crate) fn get(app: &AppHandle, id: &str) -> Option<Note> {
     notes(app).get(id)
 }
 
+/// The notes of `kind` not done yet.
+pub(crate) fn open_of(app: &AppHandle, kind: NoteKind) -> Vec<Note> {
+    let mut list = notes(app).list();
+    list.retain(|note| note.kind == kind && !note.done);
+    list
+}
+
 /// The agent question an ask note is about.
 fn asked(note: &Note) -> Option<AgentNoticeKey> {
     if note.kind != NoteKind::Asks {
@@ -254,6 +265,56 @@ pub(crate) fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: &Notic
     };
     notes.put(note, now_ms());
     changed(app, notes);
+}
+
+/// The note for a run a machine told of: "Build failed on main" from its
+/// project. `None` for a run that was skipped, which says nothing.
+fn run_note(news: &RunNews) -> Option<Note> {
+    let run = &news.run;
+    let ended = match run.state {
+        RunState::Passed {} => "passed",
+        RunState::Failed {} => "failed",
+        RunState::Cancelled {} => "cancelled",
+        _ => return None,
+    };
+    let title = if run.branch.is_empty() {
+        format!("Build {ended}")
+    } else {
+        format!("Build {ended} on {}", run.branch)
+    };
+    let text = match run.number {
+        0 => run.workflow.clone(),
+        number => format!("{} #{number}", run.workflow),
+    };
+    Some(Note {
+        text,
+        target: Some(CenterTarget::Projects {
+            project: Some(news.project.clone()),
+            run: Some(RunAt {
+                id: run.id,
+                host: news.host.clone(),
+            }),
+        }),
+        ..Note::new(
+            NoteKind::Run,
+            format!("run:{}:{}:{}", news.project, news.host, run.id),
+            title,
+            news.project.clone(),
+        )
+    })
+}
+
+/// A run a machine told of: the note it makes, `None` when there is none to
+/// make or one was made already (another machine told it too).
+pub(crate) fn run_ended(app: &AppHandle, news: &RunNews) -> Option<Note> {
+    let note = run_note(news)?;
+    let notes = notes(app);
+    if notes.get(&note.id).is_some() {
+        return None;
+    }
+    notes.put(note.clone(), now_ms());
+    changed(app, notes);
+    Some(note)
 }
 
 /// The question `key` names was answered.
@@ -409,6 +470,54 @@ mod tests {
         // A file that does not read starts empty.
         fs::write(dir.path().join("notes.json"), "{").expect("written");
         assert!(store(&dir).list().is_empty());
+    }
+
+    #[test]
+    fn a_run_says_how_it_ended_on_its_branch_and_opens_it() {
+        let mut news = RunNews {
+            project: "acme/widget".into(),
+            host: "github.com".into(),
+            run: beep_proto::WorkflowRun {
+                id: 9001,
+                number: 351,
+                workflow: "CI".into(),
+                title: "Cut the cache warm-up".into(),
+                branch: "main".into(),
+                event: "push".into(),
+                actor: "someone".into(),
+                state: RunState::Failed {},
+                url: String::new(),
+                started_at: None,
+                finished_at: None,
+                progress: None,
+                pull_requests: Vec::new(),
+            },
+        };
+        let note = run_note(&news).expect("a failed run makes a note");
+        assert_eq!(
+            (note.title.as_str(), note.text.as_str()),
+            ("Build failed on main", "CI #351")
+        );
+        assert_eq!(note.source, "acme/widget");
+        assert_eq!(note.id, "run:acme/widget:github.com:9001");
+        assert_eq!(
+            note.target,
+            Some(CenterTarget::Projects {
+                project: Some("acme/widget".into()),
+                run: Some(RunAt {
+                    id: 9001,
+                    host: "github.com".into()
+                }),
+            })
+        );
+        news.run.state = RunState::Passed {};
+        news.run.branch.clear();
+        assert_eq!(
+            run_note(&news).map(|n| n.title),
+            Some("Build passed".into())
+        );
+        news.run.state = RunState::Skipped {};
+        assert_eq!(run_note(&news), None);
     }
 
     #[test]

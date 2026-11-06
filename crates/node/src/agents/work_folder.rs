@@ -3,6 +3,7 @@
 //! reads a synced project's copy through `local_tree` and `local_read`.
 
 use super::media_file::Chunk;
+use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, GitChange, MAX_TREE_DEPTH, MAX_TREE_ENTRIES,
@@ -36,8 +37,8 @@ impl WorkRoot {
     /// `reach`. Refused when a link appeared on the way since.
     pub(super) fn at(real: &Path) -> Result<Self> {
         let shown = real.display();
-        let root_dir =
-            fs::canonicalize(real).with_context(|| format!("the folder {shown} is not there"))?;
+        let root_dir = paths::canonicalize(real)
+            .with_context(|| format!("the folder {shown} is not there"))?;
         if root_dir != real {
             bail!("{shown} changed while it was checked");
         }
@@ -50,7 +51,7 @@ impl WorkRoot {
     /// What `rel` (already checked by `names`) leads to inside the root,
     /// symlinks resolved; `None` when nothing is there.
     fn find(&self, rel: &Path) -> Result<Option<PathBuf>> {
-        let full = match fs::canonicalize(self.root.join(rel)) {
+        let full = match paths::canonicalize(self.root.join(rel)) {
             Ok(full) => full,
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e).with_context(|| format!("could not open {}", rel.display())),
@@ -75,7 +76,7 @@ impl WorkRoot {
                     return Err(e).with_context(|| format!("could not make {}", rel.display()));
                 }
             }
-            let real = fs::canonicalize(&next)
+            let real = paths::canonicalize(&next)
                 .with_context(|| format!("could not open {}", rel.display()))?;
             if !real.starts_with(&self.root) {
                 bail!("{} leads outside the session's folder", rel.display());
@@ -411,7 +412,7 @@ pub fn local_read(
 }
 
 fn local_root(root: &Path) -> Result<WorkRoot> {
-    let real = fs::canonicalize(root)
+    let real = paths::canonicalize(root)
         .with_context(|| format!("the folder {} is not there", root.display()))?;
     WorkRoot::at(&real)
 }
@@ -533,7 +534,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn root_in(dir: &TempDir) -> WorkRoot {
-        WorkRoot::at(&fs::canonicalize(dir.path()).expect("a temp folder resolves"))
+        WorkRoot::at(&paths::canonicalize(dir.path()).expect("a temp folder resolves"))
             .expect("a temp folder is a root")
     }
 

@@ -72,6 +72,8 @@ test("a row opens what it is about", () => {
   assert.equal(opens(fromNote(note("v", "move_failed", { target: session }))), "session");
   assert.equal(opens(fromNote(note("c", "conflict"))), "sync");
   assert.equal(opens(fromNote(note("m", "offline"))), "machines");
+  const run = { projects: { project: "acme/widget", run: { id: 7, host: "github.com" } } };
+  assert.equal(opens(fromNote(note("r", "run", { target: run }))), "project");
 });
 
 test("a row says where it came from and when", () => {

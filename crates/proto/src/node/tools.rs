@@ -61,6 +61,10 @@ pub enum Tool {
     /// Not a tool agents see: the node reads it for a session's first prompt.
     /// `Done` with the text, empty when there are none.
     StandingRules,
+    /// Not a tool agents see: a node asks another how its calls to each code
+    /// host went, to pick the machine that watches a project's CI runs.
+    /// `Done` with a `ForgeReach` as JSON. Between nodes only.
+    ForgeReach,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,
@@ -114,4 +118,51 @@ pub enum Reply {
         action: String,
         fields: Vec<Field>,
     },
+}
+
+/// What `ForgeReach` answers: how this node's calls to each code host went,
+/// by host name such as `github.com`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForgeReach {
+    #[serde(default)]
+    pub hosts: std::collections::BTreeMap<String, HostReach>,
+}
+
+/// How one machine's calls to one code host went since it started.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostReach {
+    /// A call succeeded.
+    #[serde(default)]
+    pub reached: bool,
+    /// Calls that failed in a row, the latest included.
+    #[serde(default)]
+    pub failures: u32,
+}
+
+impl HostReach {
+    /// Failures in a row after which a machine counts as not reaching the host.
+    pub const GIVE_UP: u32 = 3;
+
+    /// Which machines to ask the host from first: 0 reaches it, 1 was not
+    /// tried yet (or failed fewer than `GIVE_UP` times since starting), 2
+    /// keeps failing.
+    pub fn rank(self) -> u8 {
+        if self.failures >= Self::GIVE_UP {
+            2
+        } else if self.reached {
+            0
+        } else {
+            1
+        }
+    }
+
+    /// Notes one call's outcome.
+    pub fn record(&mut self, ok: bool) {
+        if ok {
+            self.reached = true;
+            self.failures = 0;
+        } else {
+            self.failures = self.failures.saturating_add(1);
+        }
+    }
 }

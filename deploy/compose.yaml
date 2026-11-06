@@ -1,0 +1,55 @@
+# beep-server and Postgres on one Docker host. Copy config.example.toml to
+# deploy/config.toml, leave out database_url (DATABASE_URL below sets it), set
+# secret_key = "/data/iroh-key" and http_listen = "0.0.0.0:47122", then:
+#
+#   POSTGRES_PASSWORD=... docker compose -f deploy/compose.yaml up -d
+#
+# See "Self-hosting" in README.md.
+name: beep
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: beep
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: beep
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "beep"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    # Built from this repository unless BEEP_SERVER_IMAGE names one you pull.
+    image: ${BEEP_SERVER_IMAGE:-beep-server:local}
+    build:
+      context: ..
+    restart: unless-stopped
+    command: ["/etc/beep/config.toml"]
+    environment:
+      DATABASE_URL: postgres://beep:${POSTGRES_PASSWORD}@postgres:5432/beep
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Apps over HTTP, on loopback only. A tunnel or a reverse proxy with
+      # TLS in front of it is up to you.
+      - "127.0.0.1:47122:47122"
+      # Nodes over iroh.
+      - "47121:47121/udp"
+    volumes:
+      - ./config.toml:/etc/beep/config.toml:ro
+      # The iroh key, logs and whatever else the server keeps.
+      - data:/data
+    # A stopping server lets running turns finish for 40s, then saves the
+    # rest as interrupted.
+    stop_grace_period: 60s
+    # The server shuts down cleanly on ctrl-c only.
+    stop_signal: SIGINT
+
+volumes:
+  postgres:
+  data:

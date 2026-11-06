@@ -21,6 +21,14 @@ pub struct SyncSpec {
     pub paused: bool,
 }
 
+/// `project/<org/repo>`: that a project exists, and its repository's web
+/// page. Where it is checked out is one `Place` per machine.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRecord {
+    /// The repository's web page.
+    pub url: String,
+}
+
 /// `project/<org/repo>/<machine>`: one machine's checkout of a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Place {
@@ -113,6 +121,7 @@ pub trait StateValue: Serialize + DeserializeOwned {
 
 impl StateValue for SyncSpec {}
 impl StateValue for Place {}
+impl StateValue for ProjectRecord {}
 impl StateValue for Credential {}
 impl StateValue for TerminalRecord {}
 impl StateValue for SessionMove {}

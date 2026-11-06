@@ -22,7 +22,7 @@ wire_structs! {
     pub struct ProjectChange {
         /// The host's events reach Beep, so the lists and runs are read again
         /// within seconds of a change. False while they are read every few
-        /// minutes only.
+        /// minutes only, always from servers since #339.
         pub live: bool,
         /// Why the project is not live, for the user; `None` when it is, or
         /// while that is not known yet.

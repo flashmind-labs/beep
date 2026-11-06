@@ -267,7 +267,8 @@ function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void
   return pop;
 }
 
-/// Draws the pill into `host` and keeps it current.
+/// Draws the pill into `host` and keeps it current. Gives what reads it again when the
+/// machines sent more, such as a plan read after the last look.
 export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promise<UsageView | null>) {
   let view: UsageView | null = null;
   let open = false;
@@ -308,6 +309,8 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
 
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
   document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
-  setInterval(() => { if (document.visibilityState === "visible") void load(false); }, POLL_MS);
+  const reload = () => { if (document.visibilityState === "visible") void load(false); };
+  setInterval(reload, POLL_MS);
   void load(false);
+  return reload;
 }
