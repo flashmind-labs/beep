@@ -15,7 +15,7 @@ import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, newWindowOn, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
-import { importButton, projectTable, overviewSection, loadOverview, projectDetail } from "./projects.ts";
+import { importButton, projectList, projectFilter, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
@@ -42,7 +42,7 @@ export function drawProjects(el: HTMLElement) {
     if (one) view.append(...projectDetail(one));
     if (one && splitOn(one)) view.classList.add("split");
     else if (!state.picked && state.overview) view.append(...overviewSection(rows));
-    else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, null, projectTable(shownRows.length ? shownRows : rows)));
+    else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, state.picked ? null : projectFilter(), projectList(shownRows.length ? shownRows : rows)));
     const found = one ? null : foundSection();
     if (found) view.append(found);
     const elsewhere = !state.picked && state.overview ? elsewhereSection(rows) : null;
