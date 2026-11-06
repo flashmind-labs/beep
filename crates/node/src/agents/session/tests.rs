@@ -114,6 +114,7 @@ async fn a_takeover_resumes_without_permission_prompts() {
     let session = Session::start(Start {
         prompt: Some("carry on".into()),
         resume: Some(id.into()),
+        earlier: Vec::new(),
         ..start_on(&fake("claude", &log), dir, None)
     })
     .unwrap();
@@ -777,6 +778,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         cwd: dir,
         prompt: Some("go".into()),
         resume: None,
+        earlier: Vec::new(),
         model: model.map(ModelId::new),
         effort: None,
         mode: None,

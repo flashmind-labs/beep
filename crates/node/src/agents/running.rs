@@ -408,6 +408,7 @@ impl Agents {
             cwd: &cwd,
             prompt: begin.prompt,
             resume: begin.resume,
+            earlier: begin.earlier,
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
@@ -469,6 +470,8 @@ fn ensure_room(sessions: &HashMap<String, Arc<Session>>) -> Result<()> {
 pub(super) struct Begin {
     pub(super) prompt: Option<String>,
     pub(super) resume: Option<String>,
+    /// The resumed session's transcript from before the node restarted.
+    pub(super) earlier: Vec<agent::Entry>,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
     /// The session mode it was in before the node restarted.
