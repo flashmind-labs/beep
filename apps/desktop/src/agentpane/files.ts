@@ -2,6 +2,7 @@
 // on its machine as a tree, read three levels at a time, what git ignores left
 // out unless asked, git's marks beside what changed.
 
+import { patchHtml } from "../ui/patch.ts";
 import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
@@ -228,9 +229,8 @@ function draw() {
   // The same rows again: leave the DOM alone.
   if (F.drawn === html && tree.firstChild && !F.reveal) return;
   F.drawn = html;
-  const keep = tree.scrollTop;
-  tree.innerHTML = html;
-  tree.scrollTop = keep;
+  // Rows that did not change stay the same elements, so a reread does not flash.
+  patchHtml(tree, html);
   const shown = F.reveal ? tree.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(F.reveal)}"]`) : null;
   if (shown) { shown.scrollIntoView({ block: "center" }); F.reveal = null; }
 }
