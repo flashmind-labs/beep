@@ -254,7 +254,7 @@ enum HooksAction {
 
 #[derive(Subcommand)]
 enum ServiceAction {
-    /// Writes the unit, LaunchAgent or scheduled task, enables it and
+    /// Writes the unit, init script, LaunchAgent or scheduled task, enables it and
     /// starts it.
     Install,
     /// Stops the service and removes it.
@@ -286,7 +286,10 @@ fn stopped() -> Result<impl Future<Output = ()>> {
     let signal = signal()?;
     let (told, stop) = oneshot::channel();
     let watch = AbortOnDropHandle::new(tokio::spawn(async move {
-        let name = signal.await;
+        let name = tokio::select! {
+            name = signal => name,
+            () = update::reexec::asked() => "restarting on the new binary",
+        };
         log::info!("stopping: {name}");
         exit_after(STOP_LIMIT);
         // Nobody listens once the node stopped another way.
@@ -313,6 +316,7 @@ fn exit_after(limit: Duration) {
         .spawn(move || {
             thread::sleep(limit);
             log::warn!("stopping took over {} s: exiting now", limit.as_secs());
+            reexec();
             process::exit(1);
         });
     if let Err(e) = spawned {
@@ -373,7 +377,19 @@ fn main() -> Result<()> {
     // Dropped as is, the runtime would wait for every blocking task still
     // running, however long.
     runtime.shutdown_timeout(EXIT_LIMIT);
+    reexec();
     done
+}
+
+/// Runs the new binary in place of this process when an update asked for
+/// it, having no service to restart the node. Returns only when it could
+/// not, which is logged.
+fn reexec() {
+    #[cfg(unix)]
+    if let Some(exe) = update::reexec::next() {
+        let e = update::reexec::exec(exe);
+        log::error!("could not start {}: {e}", exe.display());
+    }
 }
 
 async fn run() -> Result<()> {
@@ -453,7 +469,7 @@ async fn run() -> Result<()> {
                         // Its unit stays as it is, with its own workspace.
                         service::Action::Start => {
                             let manager = service::start().context(failed)?;
-                            println!("Started the stopped {manager:?} service.");
+                            println!("Started the stopped {manager} service.");
                         }
                     }
                 }

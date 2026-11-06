@@ -5,6 +5,7 @@
 mod archive;
 mod http;
 mod install;
+pub mod reexec;
 mod remote;
 mod target;
 mod version;

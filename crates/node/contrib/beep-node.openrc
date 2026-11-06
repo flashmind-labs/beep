@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+# The Beep node as an OpenRC service. `beep-node service install` writes this
+# to /etc/init.d/beep-node with its own command, arguments and PATH.
+
+description="Beep node"
+
+# OpenRC passes these through eval, so each holds shell-quoted words. The
+# node gets the installing shell's PATH; the script keeps OpenRC's own.
+command=@COMMAND@
+command_args=@ARGS@
+supervise_daemon_args=@ENV@
+
+pidfile="/run/beep-node.pid"
+output_log="/var/log/beep-node.log"
+error_log="/var/log/beep-node.log"
+
+# Restarts the node when it exits. TERM goes to the node alone, so it closes
+# its agent sessions itself, as the systemd unit's KillMode=mixed does.
+supervisor="supervise-daemon"
+respawn_delay=5
+respawn_max=0
+retry="TERM/20/KILL/5"
+
+depend() {
+	use net
+	after firewall
+}

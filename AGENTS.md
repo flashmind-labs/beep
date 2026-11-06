@@ -363,7 +363,11 @@ ticket from stdin), with the ticket from the desktop's Add a machine. It starts
 the node in the background if none runs. `--search <dir>` sets the folder to
 look for git checkouts in. `beep-node mesh devices` lists the devices and which
 are online. `beep-node setup <token>` is the older way: it links the node to a
-server account and installs the service. A node binds UDP port 47120 for
+server account and installs the service. On Linux the service is a systemd
+user unit, or for root without one a systemd system unit, an OpenRC service or
+a SysV init script (logging to `/var/log/beep-node.log`); a container with no
+init gets none, and a node with no service starts its new binary in place after
+an update from Beep. A node binds UDP port 47120 for
 iroh (`port` in `node.toml`; 0 is random), so a firewall can allow that one
 port; if it is taken the node warns and binds a random one. The server
 binds 47121 (`port` in its config). Rerunning the installer upgrades

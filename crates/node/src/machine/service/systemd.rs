@@ -1,5 +1,6 @@
-//! The node as a systemd user unit, kept running after logout and started at
-//! boot by lingering.
+//! The node as a systemd unit: a user unit, kept running after logout and
+//! started at boot by lingering, or, for root without a user instance, a
+//! system unit.
 
 use super::{Launch, Manager, Restart};
 use anyhow::{Context, Result, bail};
@@ -11,6 +12,53 @@ use std::{
 };
 
 pub(super) const UNIT: &str = "beep-node.service";
+
+/// Where the system unit lives.
+const SYSTEM_UNIT: &str = "/etc/systemd/system/beep-node.service";
+
+/// Which systemd instance runs the unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Scope {
+    /// The user's own instance (`systemctl --user`).
+    User,
+    /// PID 1, for a node run as root.
+    System,
+}
+
+impl Scope {
+    fn manager(self) -> Manager {
+        match self {
+            Self::User => Manager::Systemd,
+            Self::System => Manager::SystemdSystem,
+        }
+    }
+
+    /// `--user` for the user's instance; the system's takes no flag.
+    pub(super) fn flags(self) -> &'static [&'static str] {
+        match self {
+            Self::User => &["--user"],
+            Self::System => &[],
+        }
+    }
+
+    /// The target that starts the unit with the instance.
+    fn wanted_by(self) -> &'static str {
+        match self {
+            Self::User => "default.target",
+            Self::System => "multi-user.target",
+        }
+    }
+
+    pub(super) fn unit_path(self) -> Result<PathBuf> {
+        match self {
+            Self::User => Ok(dirs::config_dir()
+                .context("this system has no config folder")?
+                .join("systemd/user")
+                .join(UNIT)),
+            Self::System => Ok(PathBuf::from(SYSTEM_UNIT)),
+        }
+    }
+}
 
 /// Whether a systemd user instance answers here; the reason when not.
 pub(super) fn usable() -> Result<(), String> {
@@ -32,44 +80,46 @@ pub(super) fn usable() -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn install(launch: &Launch) -> Result<PathBuf> {
-    let path = unit_path()?;
+pub(super) fn install(launch: &Launch, scope: Scope) -> Result<PathBuf> {
+    let path = scope.unit_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
-    fs::write(&path, unit(launch)).with_context(|| format!("writing {}", path.display()))?;
-    systemctl(&["daemon-reload"])?;
-    systemctl(&["enable", "--now", UNIT])?;
+    fs::write(&path, unit(launch, scope)).with_context(|| format!("writing {}", path.display()))?;
+    systemctl(scope, &["daemon-reload"])?;
+    systemctl(scope, &["enable", "--now", UNIT])?;
     // Picks up a new binary or unit when it was already running.
-    systemctl(&["restart", UNIT])?;
-    linger();
+    systemctl(scope, &["restart", UNIT])?;
+    if scope == Scope::User {
+        linger();
+    }
     Ok(path)
 }
 
-pub(super) fn uninstall() -> Result<()> {
-    let path = unit_path()?;
+pub(super) fn uninstall(scope: Scope) -> Result<()> {
+    let path = scope.unit_path()?;
     if !path.exists() {
         println!("{UNIT} is not installed.");
         return Ok(());
     }
-    systemctl(&["disable", "--now", UNIT])?;
+    systemctl(scope, &["disable", "--now", UNIT])?;
     fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
-    systemctl(&["daemon-reload"])?;
+    systemctl(scope, &["daemon-reload"])?;
     println!("Stopped and removed {}.", path.display());
     Ok(())
 }
 
-pub(super) fn start() -> Result<()> {
-    systemctl(&["start", UNIT])
+pub(super) fn start(scope: Scope) -> Result<()> {
+    systemctl(scope, &["start", UNIT])
 }
 
-pub(super) fn restart() -> Result<()> {
-    systemctl(&["restart", UNIT])
+pub(super) fn restart(scope: Scope) -> Result<()> {
+    systemctl(scope, &["restart", UNIT])
 }
 
 /// What `restart` would do, without doing it.
-pub(super) fn plan(exe: &Path) -> Result<Restart> {
-    let path = unit_path()?;
+pub(super) fn plan(exe: &Path, scope: Scope) -> Result<Restart> {
+    let path = scope.unit_path()?;
     let unit = match fs::read_to_string(&path) {
         Ok(unit) => unit,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
@@ -80,14 +130,14 @@ pub(super) fn plan(exe: &Path) -> Result<Restart> {
     }
     // A unit from an older node gets this one's settings, keeping its
     // command and PATH.
-    if let Some(newer) = refreshed(&unit) {
+    if let Some(newer) = refreshed(&unit, scope) {
         fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
-        systemctl(&["daemon-reload"])?;
+        systemctl(scope, &["daemon-reload"])?;
     }
-    if !active() {
-        return Ok(Restart::Stopped(Manager::Systemd));
+    if !active(scope) {
+        return Ok(Restart::Stopped(scope.manager()));
     }
-    Ok(Restart::Restarted(Manager::Systemd))
+    Ok(Restart::Restarted(scope.manager()))
 }
 
 /// The folder the unit's `ExecStart` passes as `--dir`.
@@ -137,33 +187,28 @@ fn runs(unit: &str, exe: &Path) -> bool {
 }
 
 /// Whether the unit is running.
-fn active() -> bool {
+fn active(scope: Scope) -> bool {
     Command::new("systemctl")
-        .args(["--user", "is-active", "--quiet", UNIT])
+        .args(scope.flags())
+        .args(["is-active", "--quiet", UNIT])
         .stdin(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
 }
 
-pub(super) fn unit_path() -> Result<PathBuf> {
-    Ok(dirs::config_dir()
-        .context("this system has no config folder")?
-        .join("systemd/user")
-        .join(UNIT))
-}
-
 /// The unit file.
-fn unit(launch: &Launch) -> String {
+fn unit(launch: &Launch, scope: Scope) -> String {
     let exec: Vec<String> = std::iter::once(launch.exe.display().to_string())
         .chain(launch.args())
         .map(|arg| quote_arg(&arg))
         .collect();
-    unit_text(&exec.join(" "), &quote(&format!("PATH={}", launch.search)))
+    let search = quote(&format!("PATH={}", launch.search));
+    unit_text(&exec.join(" "), &search, scope)
 }
 
 /// `unit` written again with this node's settings, from its `ExecStart`
 /// and `PATH`; `None` when it already has them or lacks either line.
-fn refreshed(unit: &str) -> Option<String> {
+fn refreshed(unit: &str, scope: Scope) -> Option<String> {
     let exec = unit
         .lines()
         .find_map(|line| line.strip_prefix("ExecStart="))?;
@@ -171,7 +216,7 @@ fn refreshed(unit: &str) -> Option<String> {
         .lines()
         .filter_map(|line| line.strip_prefix("Environment="))
         .find(|value| value.starts_with("\"PATH="))?;
-    let newer = unit_text(exec, search);
+    let newer = unit_text(exec, search, scope);
     (newer != unit).then_some(newer)
 }
 
@@ -179,7 +224,8 @@ fn refreshed(unit: &str) -> Option<String> {
 /// `KillMode=mixed` stops only the node at first, so it closes its agent
 /// sessions itself and says they ended with it; what is left is killed
 /// once the node exits.
-fn unit_text(exec: &str, search: &str) -> String {
+fn unit_text(exec: &str, search: &str, scope: Scope) -> String {
+    let wanted = scope.wanted_by();
     format!(
         "[Unit]\n\
          Description=Beep node\n\
@@ -195,7 +241,7 @@ fn unit_text(exec: &str, search: &str) -> String {
          Environment={search}\n\
          \n\
          [Install]\n\
-         WantedBy=default.target\n",
+         WantedBy={wanted}\n",
     )
 }
 
@@ -213,14 +259,15 @@ fn quote_arg(value: &str) -> String {
     quote(&value.replace('$', "$$"))
 }
 
-fn systemctl(args: &[&str]) -> Result<()> {
+fn systemctl(scope: Scope, args: &[&str]) -> Result<()> {
     let status = Command::new("systemctl")
-        .arg("--user")
+        .args(scope.flags())
         .args(args)
         .status()
         .context("running systemctl")?;
     if !status.success() {
-        bail!("systemctl --user {} failed", args.join(" "));
+        let command: Vec<&str> = scope.flags().iter().chain(args).copied().collect();
+        bail!("systemctl {} failed", command.join(" "));
     }
     Ok(())
 }
@@ -279,7 +326,7 @@ mod tests {
 
     #[test]
     fn a_restart_only_follows_a_unit_that_runs_this_binary() {
-        let unit = unit(&launch(None));
+        let unit = unit(&launch(None), Scope::User);
         assert!(runs(&unit, Path::new("/opt/beep node/beep-node")));
         assert!(!runs(&unit, Path::new("/opt/beep node/beep")));
         assert!(!runs(&unit, Path::new("/usr/local/bin/beep-node")));
@@ -289,7 +336,7 @@ mod tests {
     fn the_unit_passes_the_workspace_and_escapes_it() {
         let mut launch = launch(Some("/home/user/my \"$work\" 100%"));
         launch.dir = PathBuf::from("/srv/a\\b");
-        let unit = unit(&launch);
+        let unit = unit(&launch, Scope::User);
         assert!(
             unit.contains(
                 "ExecStart=\"/opt/beep node/beep-node\" \"--dir\" \"/srv/a\\\\b\" \
@@ -301,15 +348,18 @@ mod tests {
 
     #[test]
     fn an_older_unit_is_rewritten_with_its_command_and_path() {
-        let current = unit(&launch(Some("/home/user/work")));
-        assert_eq!(refreshed(&current), None);
+        let current = unit(&launch(Some("/home/user/work")), Scope::User);
+        assert_eq!(refreshed(&current, Scope::User), None);
         // What `service install` wrote before KillMode and the node's own
         // log filter.
         let older = current
             .replace("KillMode=mixed\nTimeoutStopSec=20\n", "")
             .replace("\n\n[Install]", "\nEnvironment=RUST_LOG=info\n\n[Install]");
         assert_ne!(older, current);
-        assert_eq!(refreshed(&older).as_deref(), Some(current.as_str()));
+        assert_eq!(
+            refreshed(&older, Scope::User).as_deref(),
+            Some(current.as_str())
+        );
     }
 
     #[test]
@@ -317,7 +367,7 @@ mod tests {
         let mut spaced = launch(None);
         spaced.dir = PathBuf::from("/srv/my $node/50%");
         assert_eq!(
-            dir_in(&unit(&spaced)),
+            dir_in(&unit(&spaced, Scope::System)),
             Some(PathBuf::from("/srv/my $node/50%"))
         );
         let sample = "[Service]\nExecStart=\"/home/u/.local/bin/beep-node\" \"--dir\" \
@@ -327,5 +377,13 @@ mod tests {
             Some(PathBuf::from("/home/u/.config/beep-node"))
         );
         assert_eq!(dir_in("[Service]\nRestart=always\n"), None);
+    }
+
+    #[test]
+    fn a_system_unit_starts_with_the_machine() {
+        let user = unit(&launch(None), Scope::User);
+        let system = unit(&launch(None), Scope::System);
+        assert!(user.ends_with("WantedBy=default.target\n"), "{user}");
+        assert_eq!(user.replace("default.target", "multi-user.target"), system);
     }
 }
