@@ -566,6 +566,11 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dmt .l3 { grid-row: 3; grid-column: 1 / -2; display: flex; gap: 4px; overflow: hidden; white-space: nowrap; min-width: 0 }
 .dmt-t { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--elev); border-radius: 5px; padding: 0 6px; line-height: 17px }
 .dmt .ask { grid-column: 1 / -1 }
+.dmt .dmad { grid-column: 1 / -2 }
+.dmad { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); min-width: 0; white-space: nowrap }
+.dmad.bad { color: var(--err) }
+.dmad > span { overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+.dmad .dbtn { flex: none }
 .dmc-head { display: flex; align-items: center; gap: 12px; padding: 0 0 10px }
 .dmc-head .dmuted { flex: 1; display: block }
 .dagent { align-self: center; font-size: 11px; color: var(--dim); padding-left: 8px }

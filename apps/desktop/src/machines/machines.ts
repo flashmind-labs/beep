@@ -14,6 +14,7 @@ import { bytes, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { clockWarning, loadClocks } from "./clock.ts";
+import { type AdapterInstall, adapterLine } from "./adapters-state.ts";
 
 // ---------- Machines ----------
 
@@ -46,6 +47,8 @@ export interface Machine {
   env: MachineEnv | null;
   /// Removed after a day offline, such as a container.
   temporary?: boolean;
+  /// The agents whose ACP adapter it is installing or could not install.
+  adapters?: AdapterInstall[];
 }
 
 // The machines running beep-node (ListMachines), from Settings. `mac` is
@@ -70,7 +73,9 @@ export const MC: {
   installed: Map<string, string>;
   /// What each machine moved over iroh (ListMachineTraffic).
   traffic: MachineTraffic[];
-} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [] };
+  /// Try again on a machine's adapters: asking, or why it failed.
+  adapterTries: Map<string, { busy: boolean; error: string }>;
+} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [], adapterTries: new Map() };
 
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
@@ -261,6 +266,34 @@ async function updateTool(id: string, tool: string) {
   if (shown()) drawMachines();
 }
 
+/// Try again: the machine installs the adapters it could not, now.
+async function retryAdapters(id: string) {
+  if (MC.adapterTries.get(id)?.busy) return;
+  MC.adapterTries.set(id, { busy: true, error: "" });
+  if (shown()) drawMachines();
+  try {
+    await invoke("agent_adapters_install", { machineId: id });
+    MC.adapterTries.delete(id);
+    // The node reads them as installing at once; its report follows.
+    for (const a of MC.list?.find(m => m.id === id)?.adapters ?? []) a.failed = null;
+  } catch (e) {
+    MC.adapterTries.set(id, { busy: false, error: errorText(e) });
+  }
+  if (shown()) drawMachines();
+}
+
+/// A line per agent whose adapter the machine installs, with Try again on
+/// a failed one.
+function adapterLines(m: Machine) {
+  if (!m.online) return "";
+  const tried = MC.adapterTries.get(m.id);
+  return (m.adapters ?? []).map(a => {
+    const text = adapterLine(a);
+    const again = a.failed === null ? "" : `<button class="dbtn small" data-adapters="${esc(m.id)}"${tried?.busy ? " disabled" : ""}>${tried?.busy ? "Trying again…" : "Try again"}</button>`;
+    return `<span class="dmad${a.failed === null ? "" : " bad"}"><span title="${esc(text)}">${esc(text)}</span>${again}</span>`;
+  }).join("") + (tried?.error ? `<span class="dmad bad"><span>${esc(tried.error)}</span></span>` : "");
+}
+
 /// Unlinks the machine Remove asked about, online or not.
 async function removeMachine() {
   const asking = MC.asking;
@@ -419,7 +452,7 @@ function machineCard(m: Machine, columns: string[]) {
   const line3 = shown.length
     ? `<span class="l3">${shown.map(n => `<span class="dmt-t">${esc(n)}</span>`).join("")}${more.length ? `<span class="dmt-t" title="${esc(more.join(", "))}">+${more.length}</span>` : ""}</span>`
     : "";
-  return `<div class="dmach"${open}>${line1}${chev}${line2}${line3}${ask}</div>`;
+  return `<div class="dmach"${open}>${line1}${chev}${line2}${line3}${adapterLines(m)}${ask}</div>`;
 }
 
 /// One machine on its own page in Settings: what it reported, its
@@ -530,6 +563,7 @@ function drawMachines() {
   }
   for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
   for (const b of el.querySelectorAll<HTMLElement>("[data-toolup]")) b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
+  for (const b of el.querySelectorAll<HTMLElement>("[data-adapters]")) b.addEventListener("click", e => { e.stopPropagation(); void retryAdapters(b.dataset.adapters!); });
   el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });
   el.querySelector("#mcSearchEdit")?.addEventListener("click", () => {
     if (!search) return;
