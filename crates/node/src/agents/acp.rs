@@ -509,13 +509,15 @@ pub(super) fn takes_images(initialized: &InitializeResponse) -> bool {
     initialized.agent_capabilities.prompt_capabilities.image
 }
 
-/// `session/prompt` with `brief` (Beep's word to the agent) and the text
+/// `session/prompt` with `brief` (Beep's word to the agent, tagged) and the text
 /// first, then each image as an image block. Only images go when there is
 /// no text.
 pub(super) fn prompt(session: &SessionId, prompt: &Prompt, brief: Option<&str>) -> PromptRequest {
     let mut blocks = Vec::with_capacity(2 + prompt.images.len());
     if let Some(brief) = brief {
-        blocks.push(ContentBlock::Text(TextContent::new(brief)));
+        blocks.push(ContentBlock::Text(TextContent::new(super::tags::context(
+            brief,
+        ))));
     }
     if !prompt.text.is_empty() || prompt.images.is_empty() {
         blocks.push(ContentBlock::Text(TextContent::new(prompt.text.as_str())));

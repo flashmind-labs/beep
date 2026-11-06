@@ -221,7 +221,10 @@ async fn the_first_prompt_carries_the_standing_rules() {
     .await;
     assert_eq!(
         first_prompt(upstream).await,
-        [format!("Worktree first.\n\n{rules}"), "go".to_owned()]
+        [
+            crate::agents::tags::context(&format!("Worktree first.\n\n{rules}")),
+            "go".to_owned()
+        ]
     );
 }
 
@@ -234,7 +237,10 @@ async fn a_session_starts_without_rules_it_cannot_read() {
         failed: true,
     })
     .await;
-    let without = ["Worktree first.".to_owned(), "go".to_owned()];
+    let without = [
+        crate::agents::tags::context("Worktree first."),
+        "go".to_owned(),
+    ];
     assert_eq!(first_prompt(old).await, without);
     // No server takes the node's calls right now.
     assert_eq!(first_prompt(Upstream::default()).await, without);
