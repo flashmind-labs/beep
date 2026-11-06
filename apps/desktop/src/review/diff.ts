@@ -25,8 +25,9 @@ export interface DiffSource {
   /// More lines for a file's right-click menu, read once it is open; none for a file that has no more.
   menu?: (path: string, at: { x: number; y: number }) => Promise<MenuItem[]>;
   /// Where review comments are kept and go: `key` names the draft in
-  /// storage, `send` delivers the review text and says why it did not ("" when it went).
-  review: { key: string; send: (text: string) => Promise<string> };
+  /// storage, `heading` titles the review message, `send` delivers it and
+  /// says why it did not ("" when it went).
+  review: { key: string; heading: () => string; send: (text: string) => Promise<string> };
   /// The machine the diff's checkout is on, for Review with agent; a diff
   /// without one has the button disabled. `prefer` is the harness offered first;
   /// `session` is the session whose changes these are, whose child the reviewer is.
@@ -563,7 +564,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     st.sending = true;
     st.error = "";
     drawReview();
-    const why = await src.review.send(reviewText(st.view?.files ?? [], sent));
+    const why = await src.review.send(reviewText(src.review.heading(), st.view?.files ?? [], sent));
     st.sending = false;
     if (why) {
       st.error = why;
