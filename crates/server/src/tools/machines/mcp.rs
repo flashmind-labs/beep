@@ -485,12 +485,12 @@ impl Calls {
     }
 }
 
-/// What a node that still sends `prompt` or `agent` to `run_on` is told: a
+/// What a node that still sends `prompt` or `agent` to `remote_run` is told: a
 /// coding agent starts only with `start_agent`, which keeps the limits.
-const NO_AGENT_START: &str = "run_on runs commands only. Start a coding agent with start_agent, which keeps its depth, \
+const NO_AGENT_START: &str = "remote_run runs commands only. Start a coding agent with start_agent, which keeps its depth, \
      count and mode limits.";
 
-/// A command `run_on` started in the background: `task:<n>@<machine>`.
+/// A command `remote_run` started in the background: `task:<n>@<machine>`.
 #[derive(Debug, PartialEq)]
 struct Job {
     machine: String,
@@ -499,7 +499,7 @@ struct Job {
 
 impl Job {
     fn parse(id: &str) -> Result<Self, String> {
-        let bad = || format!("{id} is not a job id from run_on.");
+        let bad = || format!("{id} is not a job id from remote_run.");
         let (what, machine) = id.trim().split_once('@').ok_or_else(bad)?;
         let number = what.strip_prefix("task:").ok_or_else(bad)?;
         if machine.is_empty() {
