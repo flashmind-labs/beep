@@ -38,7 +38,8 @@ export async function readFile(machine: string, path: string, progress: (done: n
 
 /// What an error from reading a file says to the user.
 export function readError(e: unknown) {
-  const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
+  const said = e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? e.message : e;
+  const text = String(said).replace(/^bad request: /, "");
   if (/no longer|not found|gone/i.test(text)) return `File gone, or ${P.session?.machine_name ?? "the machine"} is offline.`;
   if (/unknown op|unknown request|not serve|too old|closes the stream/i.test(text)) return "beep-node there is too old. Update it.";
   return text;

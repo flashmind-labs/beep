@@ -27,6 +27,29 @@ export const retryDelay = (lost: number) => Math.min(RETRY_FIRST_MS * 2 ** Math.
 
 export const lostNote = (machine: string) => `Lost the connection to ${machine}. Reconnecting...`;
 
+/// Why `agent_steer` failed: the machine could not be reached and nothing
+/// went ("lost"), the link dropped once it went ("unsure"), or a refusal.
+export interface SendError { kind: "lost" | "unsure" | "failed"; message: string }
+
+export function sendError(e: unknown): SendError {
+  const o = typeof e === "object" && e ? e as { kind?: unknown; message?: unknown } : null;
+  const kind = o?.kind === "lost" || o?.kind === "unsure" ? o.kind : "failed";
+  return { kind, message: String(o ? o.message ?? "" : e).replace(/^bad request: /, "") };
+}
+
+/// How long a message waits for its machine to come back before it fails.
+export const HOLD_MS = 120_000;
+export const holdNote = (machine: string) => `Waiting for ${machine} to come back`;
+
+/// Whether `page`, read after a send that may have gone, shows the node took
+/// `text`: it holds more messages than the `queued` before, or the user's
+/// last message in the log is it.
+export function tookIt(page: Pick<AgentPage, "queued" | "entries">, queued: number, text: string) {
+  if (page.queued > queued) return true;
+  const last = page.entries.findLast(e => e.kind === "user");
+  return !!text.trim() && !!last && last.text.includes(text.trim());
+}
+
 /// After a failed read: the link, and the note under the log ("gone" for a
 /// session the machine does not have, with no lost link before it).
 export function readFailed(link: Link, e: unknown, machine: string): { link: Link; note: string } {
