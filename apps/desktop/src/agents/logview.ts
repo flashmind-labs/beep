@@ -413,10 +413,12 @@ function turnUnits(p: AgentPage): Unit[] {
     if (newest != null) newestStep = newest;
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
-    // An agent that says nothing on its own (Codex) is doing what its last thought says.
+    // What it does now is its last thought; the agent's own status line
+    // (Codex sends the running command) only until it has one.
     const thought = running ? [...t.steps].reverse().find(at => entry(at).kind === "thought") : undefined;
-    const doing = s.doing?.split("\n")[0].trim() || (thought != null ? thoughtLine(entry(thought).text) : "");
-    if (running) thinking = liveAt != null || doing === "Thinking";
+    const status = s.doing?.split("\n")[0].trim() ?? "";
+    const doing = (thought != null ? thoughtLine(entry(thought).text) : "") || status;
+    if (running) thinking = liveAt != null || status === "Thinking";
     return () => {
       const opened = m.opened.has(t.key);
       let work: string[], stats = turnStats(p.entries, t, p.earlier);
@@ -444,7 +446,7 @@ function turnUnits(p: AgentPage): Unit[] {
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
       const live = running ? liveLineHtml({
         state, thinking: thinking, start,
-        doing: state === "working" && doing !== "Thinking" && doing !== shownTitle ? doing : "",
+        doing: state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "",
       }) : "";
       return [user(), head, ...work, ...t.answer.map(row), live].filter(Boolean);
     };
