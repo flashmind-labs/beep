@@ -17,8 +17,10 @@ use tokio::{
 
 /// How long to wait for a connection.
 const CONNECT_WITHIN: Duration = Duration::from_secs(15);
-/// How often a source asks its target.
+/// How soon a source asks its target again after it said something new;
+/// each answer with nothing new doubles the wait, up to `MAX_ASK_EVERY`.
 const ASK_EVERY: Duration = Duration::from_secs(2);
+const MAX_ASK_EVERY: Duration = Duration::from_secs(10);
 
 /// A connection to `peer` for `beep-sessions/1`.
 pub(super) async fn dial(env: &Env, peer: EndpointId) -> Result<Connection> {
@@ -62,20 +64,27 @@ async fn ask(env: &Env, record: &SessionMove) -> Result<Target> {
 /// Keeps `said` at what the target of `record` says, for as long as it runs.
 /// A target out of reach, or one from before moves, says nothing new.
 pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::Sender<Target>) {
+    let mut wait = ASK_EVERY;
     loop {
-        match ask(env, record).await {
-            Ok(now) => {
-                said.send_if_modified(|before| {
-                    // What was told stays told, unless the target says more.
-                    let more = now != Target::Unknown && *before != now;
-                    if more {
-                        *before = now;
-                    }
-                    more
-                });
+        let more = match ask(env, record).await {
+            Ok(now) => said.send_if_modified(|before| {
+                // What was told stays told, unless the target says more.
+                let more = now != Target::Unknown && *before != now;
+                if more {
+                    *before = now;
+                }
+                more
+            }),
+            Err(e) => {
+                log::debug!("session {} target not asked: {e:#}", record.id);
+                false
             }
-            Err(e) => log::debug!("session {} target not asked: {e:#}", record.id),
-        }
-        sleep(ASK_EVERY).await;
+        };
+        wait = if more {
+            ASK_EVERY
+        } else {
+            (wait * 2).min(MAX_ASK_EVERY)
+        };
+        sleep(wait).await;
     }
 }
