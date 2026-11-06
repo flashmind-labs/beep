@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { followsAfterScroll, keptScrollTop, logScroll, pinWait } from "../src/agents/logscroll.ts";
+import { followsAfterScroll, keptScrollTop, logScroll, pinWait, returnScroll } from "../src/agents/logscroll.ts";
 
 test("scrolling up from the end lets go at once, inside the slack too", () => {
   // The regression (#369): a move up of a few pixels still counted as at
@@ -25,8 +25,26 @@ test("a pin to the end waits while the wheel turns", () => {
 test("opening or folding a row never jumps to the bottom", () => {
   // The regression: expanding Worked at the bottom of the log scrolled
   // past what it opened.
-  assert.equal(logScroll(true, true), "keep");
-  assert.equal(logScroll(false, true), "keep");
+  assert.equal(logScroll(true, "toggle"), "keep");
+  assert.equal(logScroll(false, "toggle"), "keep");
+});
+
+test("a log just opened stays at its end while older entries come in above", () => {
+  // The regression (#381): opening a session reads older entries until the
+  // oldest turn has its prompt, and that read held the row at the top in
+  // place like a click does, so the log opened at its top.
+  assert.equal(logScroll(true, "older"), "bottom");
+  assert.equal(logScroll(true, "news"), "bottom");
+  // A reader who scrolled up keeps their row.
+  assert.equal(logScroll(false, "older"), "keep");
+  assert.equal(logScroll(false, "news"), "keep");
+});
+
+test("a log put back goes to its end unless the reader had scrolled up", () => {
+  const box = { scrollTop: 0, scrollHeight: 3000, clientHeight: 800 };
+  assert.equal(returnScroll(box, 1200), 3000);
+  assert.equal(returnScroll({ ...box, stuck: true }, 1200), 3000);
+  assert.equal(returnScroll({ ...box, stuck: false }, 1200), 1200);
 });
 
 test("a kept row goes back to where it was on screen", () => {

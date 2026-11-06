@@ -479,8 +479,10 @@ export function rowInView() {
 }
 
 /// Draws the log again. `keep` finds the row the reader just opened or
-/// folded, which stays where it is on screen.
-export function drawAgentBody(keep?: string, polled = false) {
+/// folded, which stays where it is on screen. With `older` it is the row in
+/// view while older entries come in above, kept only when the reader is not
+/// at the end.
+export function drawAgentBody(keep?: string, polled = false, older = false) {
   const b = $<ChatBody>("#agbody"), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
@@ -490,7 +492,8 @@ export function drawAgentBody(keep?: string, polled = false) {
   // Read where the reader is before the log is drawn again: only a reader
   // at the bottom follows new entries; anyone else stays where they are,
   // and so does a row the reader opens or folds.
-  const scroll = logScroll(b.stuck !== false, keep != null);
+  const redraw = older ? "older" : keep != null ? "toggle" : "news";
+  const scroll = logScroll(b.stuck !== false, redraw);
   const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
   const child = AG.child != null && AG.log && p.entries[AG.child - p.earlier] ? AG.child : null;
   if (child == null) AG.child = null;
@@ -547,7 +550,7 @@ export function drawAgentBody(keep?: string, polled = false) {
   else if (anchor) restoreScroll(b, anchor);
   // A row opened at the bottom pushes the bottom away: the log follows
   // new entries again once the reader scrolls back down.
-  if (keep != null) b.stuck = atBottom(b);
+  if (redraw === "toggle") b.stuck = atBottom(b);
   fillLog(b, scroll === "bottom");
   drawnRows(b);
   syncJump(b);

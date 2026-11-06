@@ -7,7 +7,7 @@ import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneFrame, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
-import { atBottom, followsAfterScroll } from "./logscroll.ts";
+import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
@@ -48,7 +48,8 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
-    drawAgentFrame();
+    // A log the reader scrolled up in goes back where they left it; one at its end starts there again.
+    drawAgentFrame(false, left?.key === sessionKey(s) && left.body.stuck === false ? left.body : null);
     return void pollAgent();
   }
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
@@ -65,6 +66,10 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   drawAgentFrame(inPlace);
   pollAgent();
 }
+
+/// The last log drawn and the session it is of, to go back to.
+let left: { key: string; body: ChatBody } | null = null;
+const sessionKey = (s: AgentRow) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
@@ -292,7 +297,8 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const project = windowHooks?.sessionProject?.(s);
   const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small id="aghere" title="${esc(s.cwd)}">${esc(placeSub(placeOf(s), s.machine_name) ?? s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
   const conv = `<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`;
-  const keptTop = kept?.scrollTop ?? 0;
+  // Out of the page a box reads 0: it keeps where the reader left it.
+  const keptTop = kept ? (kept.isConnected ? kept.scrollTop : kept.top ?? 0) : 0;
   if (inPlace) {
     bar.querySelector(":scope > .dhead")!.outerHTML = head;
     $$("#agconv").outerHTML = conv;
@@ -315,9 +321,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   drawAgentAttached();
   drawModelPill();
   const b = kept ?? $$<ChatBody>("#agbody");
+  left = { key: sessionKey(s), body: b };
   if (kept) {
     $$("#agbody").replaceWith(kept);
-    kept.scrollTop = kept.stuck !== false ? kept.scrollHeight : keptTop;
+    kept.scrollTop = returnScroll(kept, keptTop);
   } else {
     b.stuck = true;
     // Once a frame, whatever the scroll events: a move up lets go of the end
@@ -326,9 +333,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     b.onscroll = () => {
       frame ||= requestAnimationFrame(() => {
         frame = 0;
+        if (!b.isConnected) return;
         b.stuck = followsAfterScroll(b.stuck !== false, top, b);
         scrolledLog(b);
-        top = b.scrollTop;
+        top = b.top = b.scrollTop;
         syncJump(b);
         if (nearTop(b)) void loadOlder("near");
       });

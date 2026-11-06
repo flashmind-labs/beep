@@ -226,12 +226,12 @@ impl Agents {
         if link.depth == 0 || link.depth > MAX_DEPTH {
             return Err(too_deep());
         }
-        let kind = self
-            .kinds
+        let kinds = self.kinds();
+        let kind = kinds
             .iter()
             .find(|kind| kind.name == start.harness)
             .ok_or_else(|| {
-                let have: Vec<&str> = self.kinds.iter().map(|kind| kind.name.as_str()).collect();
+                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
                 format!(
                     "This machine has no {} agent. It has: {}.",
                     start.harness,

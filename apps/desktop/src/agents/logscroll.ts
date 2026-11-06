@@ -40,9 +40,21 @@ export function pinWait(now: number, wheel?: number) {
 /// `keep` puts the row the reader saw (or clicked) back where it was.
 export type LogScroll = "bottom" | "keep";
 
-/// How the log scrolls after a redraw.
-export function logScroll(wasAtBottom: boolean, toggled: boolean): LogScroll {
-  return wasAtBottom && !toggled ? "bottom" : "keep";
+/// Why the log is drawn again: `news` from a read of the newest entries,
+/// `toggle` for rows the reader opened or folded, `older` for entries read
+/// further back and put above.
+export type Redraw = "news" | "toggle" | "older";
+
+/// How the log scrolls after a redraw: only a toggle holds a log that
+/// follows its end where it is.
+export function logScroll(wasAtBottom: boolean, why: Redraw): LogScroll {
+  return wasAtBottom && why !== "toggle" ? "bottom" : "keep";
+}
+
+/// Where a log put back in the page scrolls: to its end when it followed
+/// it, else to `top`, where the reader left it.
+export function returnScroll(b: ScrollBox & { stuck?: boolean }, top: number) {
+  return b.stuck !== false ? b.scrollHeight : top;
 }
 
 /// The scrollTop that puts a row back `before` pixels from the box's top
