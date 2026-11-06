@@ -69,6 +69,15 @@ fn record_of(mesh: &Mesh, id: &str) -> Option<SessionMove> {
     SessionMove::from_bytes(&bytes).ok()
 }
 
+/// What `mesh` calls this device, for a refusal a person reads.
+fn name_of_me(mesh: &Mesh) -> String {
+    let me = mesh.me();
+    mesh.devices()
+        .into_iter()
+        .find(|status| status.device.id == me)
+        .map_or_else(|| me.fmt_short().to_string(), |status| status.device.name)
+}
+
 impl fmt::Debug for SessionsAlpn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("SessionsAlpn")
@@ -105,7 +114,8 @@ impl ProtocolHandler for SessionsAlpn {
                             permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
                         };
                         let projects = projects_of(&mesh);
-                        serve(tx, rx, &agents, &allow, &projects).await
+                        let me = name_of_me(&mesh);
+                        serve(tx, rx, &agents, &me, &allow, &projects).await
                     });
                 }
                 Some(ended) = streams.join_next() => {

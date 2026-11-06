@@ -8,6 +8,7 @@ mod cache;
 mod claude;
 mod codex;
 mod dial;
+mod flsh;
 mod folder;
 mod follow;
 mod json;
@@ -82,6 +83,7 @@ pub(crate) enum Harness {
     Claude,
     Codex,
     Pi,
+    Flsh,
 }
 
 impl Harness {
@@ -92,7 +94,8 @@ impl Harness {
             Agent::Claude => Some(Self::Claude),
             Agent::Codex => Some(Self::Codex),
             Agent::Pi => Some(Self::Pi),
-            Agent::Flsh | Agent::OpenCode => None,
+            Agent::Flsh => Some(Self::Flsh),
+            Agent::OpenCode => None,
         }
     }
 }
@@ -102,7 +105,7 @@ impl Harness {
 pub(crate) struct Stored {
     pub(crate) bytes: Vec<u8>,
     /// Where it goes, relative to the harness's store: Claude's `projects`
-    /// folder, Codex's home, pi's sessions folder.
+    /// folder, Codex's home, pi's or flsh's sessions folder.
     pub(crate) path: PathBuf,
 }
 
@@ -122,5 +125,6 @@ pub(crate) fn rewrite(
         Harness::Claude => claude::rewrite(transcript, id, old, new),
         Harness::Codex => codex::rewrite(transcript, file_name, old, new),
         Harness::Pi => pi::rewrite(transcript, file_name, old, new),
+        Harness::Flsh => flsh::rewrite(transcript, id, old, new),
     }
 }

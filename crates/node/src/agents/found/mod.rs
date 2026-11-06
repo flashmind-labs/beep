@@ -28,6 +28,7 @@ mod git;
 pub(crate) mod memo;
 mod opencode;
 
+pub(crate) use flsh::sessions_dir as flsh_sessions_dir;
 pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
 mod transcript;

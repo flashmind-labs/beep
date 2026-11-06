@@ -179,11 +179,13 @@ pub(super) fn valid_file_name(name: &str) -> bool {
         && !name.contains(['/', '\\', '\0'])
 }
 
-/// Answers one request on a stream.
+/// Answers one request on a stream; `me` is what the mesh calls this
+/// machine.
 pub(super) async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,
     agents: &Agents,
+    me: &str,
     allow: Allow<'_>,
     projects: &[Project],
 ) -> Result<()> {
@@ -204,7 +206,7 @@ pub(super) async fn serve(
             if let Some(why) = agents.moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
             }
-            let found = match locate(agents, &agent, &id).await {
+            let found = match locate(agents, me, &agent, &id).await {
                 Ok(found) => found,
                 Err(message) => return tx.send(&Reply::Refused { message }).await,
             };
@@ -285,7 +287,7 @@ pub(super) async fn serve(
             if !offered {
                 return tx.send(&refuse("that session is not offered")).await;
             }
-            let found = match locate(agents, &agent, &id).await {
+            let found = match locate(agents, me, &agent, &id).await {
                 Ok(found) => found,
                 Err(message) => return tx.send(&Reply::Refused { message }).await,
             };
@@ -328,16 +330,20 @@ struct Found {
 
 async fn locate(
     agents: &Agents,
+    me: &str,
     agent: &AgentSlug,
     id: &str,
 ) -> std::result::Result<Found, String> {
     let movable = Agent::from_name(agent.as_str())
         .and_then(Harness::of)
         .ok_or_else(|| format!("{agent} sessions cannot move"))?;
-    let path = agents
-        .transcript_file(movable, id)
-        .await
-        .ok_or_else(|| format!("this machine has no {agent} session {id}"))?;
+    let path = match agents.transcript_file(movable, id).await {
+        Some(path) => path,
+        None if movable == Harness::Flsh && agents.flsh_in_database(id).await => {
+            return Err(super::flsh::outdated(me));
+        }
+        None => return Err(format!("this machine has no {agent} session {id}")),
+    };
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())

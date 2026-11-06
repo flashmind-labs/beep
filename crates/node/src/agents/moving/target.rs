@@ -5,6 +5,7 @@
 use super::{
     Env, Harness,
     dial::dial,
+    flsh,
     offers::project_folder,
     progress::{Tracker, show},
     read::{self, Refused},
@@ -158,6 +159,9 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         .agents
         .named(record.agent.as_str())
         .with_context(|| format!("this machine has no {}", record.agent))?;
+    if Agent::from_name(&kind.name) == Some(Agent::Flsh) {
+        flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
+    }
     if env.agents.runs(&record.id) {
         // A restart between starting and noting it.
         return Ok(());

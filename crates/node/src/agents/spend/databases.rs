@@ -1,5 +1,6 @@
-//! What OpenCode and flsh sessions spent (`opencode`, `flsh`), from their
-//! SQLite databases, read whole again whenever a database changes.
+//! What OpenCode and flsh sessions spent (`opencode`, `flsh`, `flsh_file`),
+//! from their SQLite databases and flsh's session files, read whole again
+//! whenever one changes.
 
 use super::{
     billing::{Accounts, flsh_provider},
@@ -8,7 +9,7 @@ use super::{
 use crate::agents::found::{Agent, open_database};
 use crate::agents::prices::Tokens;
 use beep_proto::{ModelId, node::usage::Billing};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
 
 /// The most rows one database gives in a pass.
@@ -124,75 +125,195 @@ pub(super) fn flsh(
     let mut rows = statement.query([since, MAX_ROWS])?;
     let mut parts: BTreeMap<String, Part> = BTreeMap::new();
     while let Some(row) = rows.next()? {
-        let session: String = row.get(0)?;
-        let cwd: String = row.get(1)?;
-        let model: String = row.get(2)?;
         let totals: String = row.get(3)?;
-        let last: Option<i64> = row.get(4)?;
         let Ok(totals) = serde_json::from_str::<FlshTotals>(&totals) else {
             continue;
         };
-        if totals.tokens_unknown {
-            continue;
-        }
-        let cached = totals
-            .cached_input_tokens
-            .unwrap_or(0)
-            .min(totals.input_tokens);
-        let tokens = Tokens {
-            input: totals.input_tokens - cached,
-            output: totals.output_tokens,
-            cache_read: cached,
-            cache_write: 0,
-            cache_write_long: 0,
+        let last: Option<i64> = row.get(4)?;
+        let session = FlshSession {
+            id: row.get(0)?,
+            cwd: row.get(1)?,
+            model: row.get(2)?,
+            totals,
+            last: count(last.unwrap_or(0)),
         };
-        let cost = totals
-            .total_cost
-            .parse::<f64>()
-            .ok()
-            .filter(|cost| cost.is_finite() && *cost > 0.0);
-        if tokens.total() == 0 && cost.is_none() {
-            continue;
-        }
-        let last = count(last.unwrap_or(0));
-        let billing = accounts.resolve(
-            Agent::Flsh,
-            Billing::Unknown,
-            flsh_provider(&model),
-            Some(cwd.as_str()),
-        );
-        let model = match model.as_str() {
-            "" => UNKNOWN_MODEL.to_owned(),
-            _ => model,
-        };
-        let mut bucket = Bucket::default();
-        match cost {
-            Some(cost) => bucket.add(&model, &tokens, Some(cost)),
-            // flsh found no price; neither would the table, mostly.
-            None if totals.cost_unknown => {
-                bucket.tokens = tokens;
-                bucket.unpriced = tokens.total();
-            }
-            None => bucket.add(&model, &tokens, None),
-        }
-        let part = parts.entry(session).or_default();
-        part.cwd = cwd;
-        part.buckets.insert(
-            BucketKey {
-                hour: last - last % 3600,
-                model: ModelId::new(model),
-                billing,
-            },
-            bucket,
-        );
+        add_flsh(&mut parts, session, None, accounts);
     }
     Ok(parts)
+}
+
+/// What a flsh session file spent beyond `counted`, which was counted
+/// where it ran before it moved here: its header's `total_usage`, in the
+/// hour the file last changed. flsh writes the whole file on each change.
+pub(super) fn flsh_file(
+    path: &Path,
+    counted: Option<&Counted>,
+    accounts: &mut Accounts,
+) -> std::io::Result<BTreeMap<String, Part>> {
+    let mut parts = BTreeMap::new();
+    if let Some(session) = flsh_header(path)? {
+        add_flsh(&mut parts, session, counted, accounts);
+    }
+    Ok(parts)
+}
+
+/// The totals in the header of the flsh session file at `path`, when it
+/// has them.
+pub(super) fn flsh_counted(path: &Path) -> std::io::Result<Option<Counted>> {
+    Ok(flsh_header(path)?.map(|session| Counted::of(&session.totals)))
+}
+
+fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
+    use std::io::{BufRead, BufReader, Read};
+    let file = std::fs::File::open(path)?;
+    let modified = file.metadata()?.modified()?;
+    let mut line = String::new();
+    BufReader::new(file.take(MAX_HEADER)).read_line(&mut line)?;
+    let Ok(header) = serde_json::from_str::<FlshHeader>(&line) else {
+        return Ok(None);
+    };
+    let (Some(totals), Some(cwd)) = (header.metadata.total_usage, header.metadata.working_dir)
+    else {
+        return Ok(None);
+    };
+    let last = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    Ok(Some(FlshSession {
+        id: header.session_id,
+        cwd,
+        model: header.metadata.model.unwrap_or_default(),
+        totals,
+        last,
+    }))
+}
+
+/// The longest flsh header read.
+const MAX_HEADER: u64 = 1024 * 1024;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FlshHeader {
+    session_id: String,
+    metadata: FlshMetadata,
+}
+
+#[derive(Deserialize)]
+struct FlshMetadata {
+    model: Option<String>,
+    working_dir: Option<String>,
+    total_usage: Option<FlshTotals>,
+}
+
+/// What a flsh session spent until it moved here, counted on the machine
+/// it ran on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub(super) struct Counted {
+    input: u64,
+    cached: u64,
+    output: u64,
+    cost: f64,
+}
+
+impl Counted {
+    fn of(totals: &FlshTotals) -> Self {
+        Self {
+            input: totals.input_tokens,
+            cached: totals.cached_input_tokens.unwrap_or(0),
+            output: totals.output_tokens,
+            cost: totals.total_cost.parse().unwrap_or(0.0),
+        }
+    }
+}
+
+/// One flsh session's totals.
+struct FlshSession {
+    id: String,
+    cwd: String,
+    model: String,
+    totals: FlshTotals,
+    /// Unix seconds of its last change.
+    last: u64,
+}
+
+/// Adds what `session` spent beyond `counted` to `parts`, in the hour of
+/// its last change.
+fn add_flsh(
+    parts: &mut BTreeMap<String, Part>,
+    session: FlshSession,
+    counted: Option<&Counted>,
+    accounts: &mut Accounts,
+) {
+    let FlshSession {
+        id,
+        cwd,
+        model,
+        totals,
+        last,
+    } = session;
+    if totals.tokens_unknown {
+        return;
+    }
+    let before = counted.copied().unwrap_or_default();
+    let input = totals.input_tokens.saturating_sub(before.input);
+    let cached = totals
+        .cached_input_tokens
+        .unwrap_or(0)
+        .saturating_sub(before.cached)
+        .min(input);
+    let tokens = Tokens {
+        input: input - cached,
+        output: totals.output_tokens.saturating_sub(before.output),
+        cache_read: cached,
+        cache_write: 0,
+        cache_write_long: 0,
+    };
+    let cost = totals
+        .total_cost
+        .parse::<f64>()
+        .ok()
+        .map(|cost| cost - before.cost)
+        .filter(|cost| cost.is_finite() && *cost > 0.0);
+    if tokens.total() == 0 && cost.is_none() {
+        return;
+    }
+    let billing = accounts.resolve(
+        Agent::Flsh,
+        Billing::Unknown,
+        flsh_provider(&model),
+        Some(cwd.as_str()),
+    );
+    let model = match model.as_str() {
+        "" => UNKNOWN_MODEL.to_owned(),
+        _ => model,
+    };
+    let mut bucket = Bucket::default();
+    match cost {
+        Some(cost) => bucket.add(&model, &tokens, Some(cost)),
+        // flsh found no price; neither would the table, mostly.
+        None if totals.cost_unknown => {
+            bucket.tokens = tokens;
+            bucket.unpriced = tokens.total();
+        }
+        None => bucket.add(&model, &tokens, None),
+    }
+    let part = parts.entry(id).or_default();
+    part.cwd = cwd;
+    part.buckets.insert(
+        BucketKey {
+            hour: last - last % 3600,
+            model: ModelId::new(model),
+            billing,
+        },
+        bucket,
+    );
 }
 
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
     use rusqlite::Connection;
+    use std::fs;
 
     /// An OpenCode database with two sessions' messages.
     pub(crate) fn opencode_database(path: &Path) {
@@ -209,6 +330,33 @@ pub(super) mod tests {
                ('m4', 'ses_b', 1000, 0, '{\"role\":\"assistant\",\"modelID\":\"example-model\",\"cost\":9,\"tokens\":{\"input\":10}}');",
         )
         .expect("the schema");
+    }
+
+    #[test]
+    fn a_flsh_session_file_counts_its_totals_beyond_what_was_counted_elsewhere() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let path = dir.path().join("a.jsonl");
+        let usage = |input: u64, cached: u64, cost: &str| {
+            format!(
+                "{{\"type\":\"system\",\"subtype\":\"session_metadata\",\"version\":2,\"sessionId\":\"c1\",\"metadata\":{{\"model\":\"openrouter:example/model\",\"working_dir\":\"/srv/project\",\"total_usage\":{{\"input_tokens\":{input},\"cached_input_tokens\":{cached},\"output_tokens\":50,\"total_cost\":\"{cost}\",\"tokens_unknown\":false,\"cost_unknown\":false}}}}}}\n{{\"type\":\"user\"}}\n"
+            )
+        };
+        fs::write(&path, usage(1000, 400, "0.42")).expect("a session file");
+        let accounts = &mut Accounts::default();
+        let parts = flsh_file(&path, None, accounts).expect("the session");
+        let bucket = parts["c1"].buckets.values().next().expect("a bucket");
+        assert_eq!((bucket.tokens.input, bucket.tokens.cache_read), (600, 400));
+        assert!((bucket.cost_usd - 0.42).abs() < 1e-9);
+        assert_eq!(parts["c1"].cwd, "/srv/project");
+
+        // It moved here at these totals, then spent more.
+        let counted = flsh_counted(&path).expect("read").expect("totals");
+        fs::write(&path, usage(1500, 500, "0.52")).expect("more");
+        let parts = flsh_file(&path, Some(&counted), accounts).expect("the session");
+        let bucket = parts["c1"].buckets.values().next().expect("a bucket");
+        assert_eq!((bucket.tokens.input, bucket.tokens.cache_read), (400, 100));
+        assert_eq!(bucket.tokens.output, 0);
+        assert!((bucket.cost_usd - 0.10).abs() < 1e-9);
     }
 
     #[test]
