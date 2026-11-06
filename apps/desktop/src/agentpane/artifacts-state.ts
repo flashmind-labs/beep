@@ -4,7 +4,7 @@
 // end, a `(made <path>)` line each.
 
 import { attr, imageLines, parseTool } from "../agents/agentlog.ts";
-import { baseName, extension, resolvePath } from "./media-state.ts";
+import { baseName, extension, mediaKind, resolvePath } from "./media-state.ts";
 
 /// How the tab shows an artifact.
 export type ArtifactKind = "html" | "md" | "svg" | "image" | "pdf";
@@ -109,11 +109,59 @@ function madeNames(text: string) {
   return lines.every(m => m) ? lines.map(m => m![1]) : [];
 }
 
-/// How the log shows a note of made files: "Made a.pdf, b.svg"; null for
-/// any other note.
-export function madeNote(text: string) {
-  const names = madeNames(text);
-  return names.length ? `Made ${names.map(baseName).join(", ")}` : null;
+/// What the log groups made files by, in the order it shows them.
+export type MadeGroup = "images" | "documents" | "pdfs" | "pages" | "models" | "other";
+
+const GROUP_ORDER: readonly MadeGroup[] = ["images", "documents", "pdfs", "pages", "models", "other"];
+
+/// A group's label over its names, and how its count reads for one and many.
+const GROUP_NAMES: Record<MadeGroup, { label: string; one: string; many: string }> = {
+  images: { label: "Images", one: "image", many: "images" },
+  documents: { label: "Documents", one: "document", many: "documents" },
+  pdfs: { label: "PDFs", one: "PDF", many: "PDFs" },
+  pages: { label: "Web pages", one: "web page", many: "web pages" },
+  models: { label: "3D models", one: "3D model", many: "3D models" },
+  other: { label: "Other", one: "other file", many: "other files" },
+};
+
+const BY_KIND: Record<ArtifactKind, MadeGroup> = { image: "images", svg: "images", md: "documents", pdf: "pdfs", html: "pages" };
+
+/// The group a made file goes in.
+export function madeGroup(path: string): MadeGroup {
+  const kind = artifactKind(path);
+  if (kind) return BY_KIND[kind];
+  return mediaKind(path) === "model" ? "models" : "other";
+}
+
+/// One made file: where it is, resolved against the session's folder, and its name.
+export interface MadeFile {
+  path: string;
+  name: string;
+}
+
+/// The files a note of the node says the turn made, grouped for the log.
+export interface MadeFiles {
+  files: MadeFile[];
+  /// The groups that have files, in order, each with its label.
+  groups: { group: MadeGroup; label: string; files: MadeFile[] }[];
+  /// "8 images, 3 documents".
+  counts: string;
+}
+
+/// The files a note of `(made <path>)` lines names, each once and grouped;
+/// null for any other note.
+export function madeFiles(text: string, cwd: string): MadeFiles | null {
+  const files: MadeFile[] = [];
+  for (const name of madeNames(text)) {
+    const path = resolvePath(cwd, name);
+    if (!files.some(f => f.path === path)) files.push({ path, name: baseName(path) });
+  }
+  if (!files.length) return null;
+  const groups = GROUP_ORDER
+    .map(group => ({ group, label: GROUP_NAMES[group].label, files: files.filter(f => madeGroup(f.path) === group) }))
+    .filter(g => g.files.length);
+  const counts = groups.map(g => `${g.files.length} ${g.files.length === 1 ? GROUP_NAMES[g.group].one : GROUP_NAMES[g.group].many}`).join(", ");
+  return { files, groups, counts };
 }
 
 /// One entry of the log, as the session view has it.

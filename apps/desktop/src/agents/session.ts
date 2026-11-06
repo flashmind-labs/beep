@@ -421,6 +421,22 @@ function agentClick(e: MouseEvent) {
     runBtn.setAttribute("aria-expanded", String(open));
     return;
   }
+  // The files a turn made fold and open in place, like a run of calls.
+  const madeHead = target.closest<HTMLElement>("#agbody [data-madeat]");
+  if (madeHead && AG.open) {
+    const opened = turnsOf(AG.open.session).made, at = Number(madeHead.dataset.madeat);
+    const open = !opened.delete(at);
+    if (open) opened.add(at);
+    madeHead.parentElement?.classList.toggle("open", open);
+    madeHead.setAttribute("aria-expanded", String(open));
+    return;
+  }
+  // A file a turn made opens in the Artifacts tab, or else in its own tab.
+  const madeFile = target.closest<HTMLElement>("#agbody [data-made]");
+  if (madeFile) {
+    if (!showArtifact(madeFile.dataset.made!)) openLinked(madeFile.dataset.made!);
+    return;
+  }
   const copy = target.closest<HTMLElement>("#agbody [data-copy]");
   if (copy) return copyCode(copy);
   if (target.closest("#agjump")) { jumpToLatest(); return; }
