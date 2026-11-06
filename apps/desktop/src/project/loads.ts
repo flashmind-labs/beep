@@ -23,6 +23,7 @@ import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjec
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.ts";
+import { stateNote } from "./filesync.ts";
 import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
@@ -284,6 +285,13 @@ export function whereRow(p: Project, m: WhereRow) {
       const note = h("small", "", "Synced by Syncthing");
       note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it here.`;
       folder.append(" ", note);
+    }
+    // A folder that went is made again and filled by its node; one whose disk is gone waits.
+    const row = state.sync.find(s => s.project === p.name && s.machine_id === m.id);
+    if (row && (row.status === "missing" || row.status === "parent_missing")) {
+      const why = h("small", "gs err", row.status === "missing" ? "Folder missing: filling it again from the other machines" : "The folder above it is missing");
+      why.title = stateNote(row) || "";
+      folder.append(h("br"), why);
     }
     const git = gitCells(p, m);
     if (git.note) folder.append(h("span", "gs-line", git.note));

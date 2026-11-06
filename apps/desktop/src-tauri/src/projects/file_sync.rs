@@ -10,9 +10,11 @@ use crate::{
     fleet::projects::{FleetState, desk, desk_or_server},
     projects::known,
 };
+use beep_projects::model::plain_path;
 use beep_proto::{
     ConflictKeep, GetProjectSyncDetail, ListProjectSync, MachineSync, MachineSyncDetail,
-    PauseProjectSync, ProjectSync, ProjectSyncDetail, SyncProgress,
+    PauseProjectSync, ProjectSync, ProjectSyncDetail, SyncProgress, SyncStatus,
+    node::sync::{FOLDER_MISSING, PARENT_MISSING},
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -23,7 +25,9 @@ use tauri::State;
 pub struct SyncRow {
     project: String,
     machine_id: String,
-    /// `offline`, `scanning`, `syncing`, `in_sync` or `failed`.
+    /// `offline`, `scanning`, `syncing`, `in_sync`, `failed`, or as `failed`, with why:
+    /// `missing` (the node makes the folder again), `parent_missing` (a disk not mounted, say)
+    /// or `syncthing` (Syncthing keeps the folder in step).
     status: &'static str,
     /// Files kept in step, and files another machine changed that this one
     /// does not have yet.
@@ -37,13 +41,30 @@ impl SyncRow {
         Self {
             project: project.to_owned(),
             machine_id: m.machine_id,
-            status: m.status.into(),
+            status: shown(m.status, m.error.as_deref()),
             files: m.files,
             pending: m.pending,
             error: m.error,
         }
     }
 }
+
+/// The status a machine's row shows: a failure says which, when the node said why.
+fn shown(status: SyncStatus, error: Option<&str>) -> &'static str {
+    let failed: &'static str = status.into();
+    if failed != "failed" {
+        return failed;
+    }
+    match error {
+        Some(why) if why.contains(PARENT_MISSING) => "parent_missing",
+        Some(why) if why.contains(FOLDER_MISSING) => "missing",
+        Some(why) if why.starts_with(SYNCTHING) => "syncthing",
+        _ => failed,
+    }
+}
+
+/// How a node says Syncthing keeps the folder, so Beep's sync waits.
+const SYNCTHING: &str = "Already synced by Syncthing";
 
 /// Every machine's sync of every project, one row each. Empty from a
 /// server too old to sync projects.
@@ -95,7 +116,7 @@ pub struct MachineDetailRow {
     machine_id: String,
     machine_name: String,
     folder: String,
-    /// `offline`, `scanning`, `syncing`, `in_sync` or `failed`.
+    /// As `SyncRow::status`.
     status: &'static str,
     files: u64,
     bytes: u64,
@@ -141,8 +162,8 @@ impl From<MachineSyncDetail> for MachineDetailRow {
         Self {
             machine_id: m.machine_id,
             machine_name: m.machine_name,
-            folder: m.folder,
-            status: m.status.into(),
+            folder: plain_path(&m.folder).into_owned(),
+            status: shown(m.status, m.error.as_deref()),
             files: m.files,
             bytes: m.bytes,
             pending: m.pending,
@@ -253,7 +274,6 @@ fn rows(projects: Vec<ProjectSync>) -> Vec<SyncRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::SyncStatus;
 
     fn machine(id: &str, status: SyncStatus) -> MachineSync {
         MachineSync {
@@ -317,5 +337,20 @@ mod tests {
         assert!(m.paused && m.can_resolve);
         assert_eq!(m.progress.as_ref().map(|p| p.files_total), Some(610));
         assert_eq!(m.waiting, ["src/main.rs"]);
+    }
+
+    #[test]
+    fn a_failure_says_which_when_the_node_said_why() {
+        let missing = format!("{FOLDER_MISSING}: /srv/project");
+        assert_eq!(shown(SyncStatus::Failed {}, Some(&missing)), "missing");
+        let unmounted = format!("{PARENT_MISSING}: /mnt/disk/project");
+        assert_eq!(
+            shown(SyncStatus::Failed {}, Some(&unmounted)),
+            "parent_missing"
+        );
+        let held = "Already synced by Syncthing (share)";
+        assert_eq!(shown(SyncStatus::Failed {}, Some(held)), "syncthing");
+        assert_eq!(shown(SyncStatus::Failed {}, Some("no room")), "failed");
+        assert_eq!(shown(SyncStatus::InSync {}, None), "in_sync");
     }
 }

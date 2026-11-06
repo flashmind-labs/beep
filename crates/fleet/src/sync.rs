@@ -22,6 +22,12 @@ use std::collections::{BTreeSet, HashMap};
 
 /// Machines asked about their sync at once.
 const MACHINES_AT_ONCE: usize = 8;
+/// Why a machine that answered without the project does not sync it: a node from before it
+/// reported the projects it refused.
+const NOT_LISTED: &str =
+    "Its beep-node does not sync this project. Update beep-node there to see why.";
+/// Why an online machine says nothing of its sync.
+const NO_ANSWER: &str = "It did not say how its sync stands.";
 
 fn status_of(state: State, error: bool) -> SyncStatus {
     match state {
@@ -36,7 +42,7 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 
 impl Desk {
     /// What `machine` says of every project it syncs; `None` when it is offline or does not answer.
-    async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
+    pub(crate) async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
         let client = self.peers.client(machine).await.ok()?;
         let reply: Reply = client.call(PROTOCOL, &Request::Status {}).await.ok()?;
         match reply {
@@ -99,17 +105,36 @@ impl Desk {
                 machine_id: machine.to_string(),
                 machine_name: self.name_of(machine),
                 folder: folder.to_owned(),
-                status: SyncStatus::Offline {},
+                // Offline only when it is: a machine that answered without the project, or that
+                // the mesh sees but did not answer, does not sync it and says why.
+                status: if said.contains_key(&machine) || self.is_online(machine) {
+                    SyncStatus::Failed {}
+                } else {
+                    SyncStatus::Offline {}
+                },
                 files: 0,
                 bytes: 0,
                 pending: 0,
                 conflicts: Vec::new(),
                 rescan_secs: None,
                 hint: None,
-                error: None,
+                error: if said.contains_key(&machine) {
+                    Some(NOT_LISTED.to_owned())
+                } else if self.is_online(machine) {
+                    Some(NO_ANSWER.to_owned())
+                } else {
+                    None
+                },
             },
         };
         (sync, seen)
+    }
+
+    fn is_online(&self, machine: EndpointId) -> bool {
+        self.mesh
+            .devices()
+            .iter()
+            .any(|status| status.device.id == machine && status.online)
     }
 
     /// Every synced project with each machine's standing. Each machine is asked once.

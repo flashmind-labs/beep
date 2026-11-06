@@ -126,16 +126,38 @@ pub async fn project_add_to_machine(
     Ok(added.folder)
 }
 
+/// Points `project` on `machine_id` at `folder`, empty or missing (the others fill it) or a
+/// checkout of the same repository (it joins and merges). The old folder stays on disk as it is.
+/// Gives the folder as the machine spells it.
+#[tauri::command]
+pub async fn project_change_folder(
+    fleet: FleetState<'_>,
+    beep: Service<'_>,
+    project: String,
+    machine_id: String,
+    folder: String,
+) -> Result<String> {
+    let changed = desk(&fleet)
+        .await?
+        .change_folder(&project, &machine_id, &folder)
+        .await?;
+    mirror_import(&beep, &changed).await;
+    Ok(changed.folder)
+}
+
 /// Takes `project` off `machine_id`: the machine stops syncing it and leaves its list, and the
-/// folder there stays as it is. Refused for the last machine, and while an agent session is open
-/// in the project there, so no agent is left working in a folder that no longer syncs.
+/// folder there stays as it is, or with `delete_folder` is deleted once the node there stopped
+/// syncing it; then says what became of it. Refused for the last machine, and while an agent
+/// session is open in the project there, so no agent is left working in a folder that no longer
+/// syncs.
 #[tauri::command]
 pub async fn project_remove_from_machine(
     fleet: FleetState<'_>,
     machines: Machines<'_>,
     project: String,
     machine_id: String,
-) -> Result<()> {
+    delete_folder: Option<bool>,
+) -> Result<Option<String>> {
     let id = machines
         .member(&machine_id)
         .ok_or_else(|| DesktopError::BadRequest("That machine is not known.".into()))?;
@@ -157,11 +179,10 @@ pub async fn project_remove_from_machine(
             machines.name_of(id)
         )));
     }
-    desk(&fleet)
+    Ok(desk(&fleet)
         .await?
-        .remove_from_machine(&project, &machine_id)
-        .await?;
-    Ok(())
+        .remove_from_machine(&project, &machine_id, delete_folder.unwrap_or(false))
+        .await?)
 }
 
 /// Copies `project` onto `machine_id` through the server, which brings it

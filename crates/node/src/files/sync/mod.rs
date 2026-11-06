@@ -18,8 +18,8 @@ use beep_mesh::Mesh;
 use beep_proto::node::{
     LinkRx, LinkTx,
     sync::{
-        CONTROLS, Keep, PROTOCOL, Project, ProjectStatus, RESCAN, Refused, Reply, Request, Skipped,
-        State,
+        CONTROLS, FOLDER_MISSING, Keep, PARENT_MISSING, PROTOCOL, Project, ProjectStatus, RESCAN,
+        Refused, Reply, Request, Skipped, State,
     },
 };
 use iroh::{Endpoint, EndpointAddr, EndpointId};
@@ -114,6 +114,27 @@ impl Held {
     }
 }
 
+/// A project the mesh or the saved list names that does not run here, and
+/// why: kept on the list, reported in the status, and tried again with the
+/// folder checks, so a folder that comes back starts syncing.
+struct Stopped {
+    project: Project,
+    from: Source,
+    message: String,
+}
+
+impl Stopped {
+    fn status(&self) -> ProjectStatus {
+        ProjectStatus {
+            name: self.project.name.clone(),
+            folder: self.project.folder.clone(),
+            state: State::Failed,
+            error: Some(self.message.clone()),
+            ..ProjectStatus::default()
+        }
+    }
+}
+
 /// Where a list of projects comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
@@ -134,6 +155,7 @@ struct Inner {
     watcher: Watcher,
     projects: Mutex<BTreeMap<String, Running>>,
     held: Mutex<BTreeMap<String, Held>>,
+    stopped: Mutex<BTreeMap<String, Stopped>>,
     syncthing: Syncthing,
     /// Checks the folders against Syncthing's every so often.
     checking: Mutex<Option<AbortOnDropHandle<()>>>,
@@ -244,6 +266,7 @@ impl Syncs {
                 watcher,
                 projects: Mutex::default(),
                 held: Mutex::default(),
+                stopped: Mutex::default(),
                 syncthing,
                 checking: Mutex::default(),
                 configuring: AsyncMutex::new(()),
@@ -371,6 +394,7 @@ impl Syncs {
                 stopping.extend(running.remove(&name));
             }
             lock(&self.inner.held).retain(|name, _| names.contains(&name.as_str()));
+            lock(&self.inner.stopped).clear();
         }
         for mut project in projects {
             project.peers.retain(|peer| peer.id != me);
@@ -425,10 +449,26 @@ impl Syncs {
                     lock(&self.inner.projects).insert(project.name.clone(), running);
                     kept.push(project);
                 }
-                Err(e) => refused.push(Refused {
-                    project: project.name.clone(),
-                    message: format!("{e:#}"),
-                }),
+                Err(e) => {
+                    let message = format!("{e:#}");
+                    refused.push(Refused {
+                        project: project.name.clone(),
+                        message: message.clone(),
+                    });
+                    // The server is told and decides; what the mesh or the saved list names
+                    // stays on the list and is tried again.
+                    if from != Source::Server {
+                        lock(&self.inner.stopped).insert(
+                            project.name.clone(),
+                            Stopped {
+                                project: project.clone(),
+                                from,
+                                message,
+                            },
+                        );
+                        kept.push(project);
+                    }
+                }
             }
         }
         for stopped in stopping {
@@ -449,19 +489,35 @@ impl Syncs {
 
     async fn run(&self, project: &Project, from: Source) -> Result<Running> {
         let (folders, folder) = (self.inner.folders.clone(), project.folder.clone());
-        let root = spawn_blocking(move || match from {
-            Source::Mesh => open_target(&folders.everywhere(), &folder),
-            Source::Saved | Source::Server => open_target(&folders, &folder),
+        let (root, made) = spawn_blocking(move || {
+            let folders = match from {
+                Source::Mesh => folders.everywhere(),
+                Source::Saved | Source::Server => folders,
+            };
+            let made = make_missing(&folders, &folder)?;
+            let root = open_target(&folders, &folder)
+                .with_context(|| format!("the folder {folder} cannot be synced"))?;
+            anyhow::Ok((root, made))
         })
-        .await?
-        .with_context(|| format!("the folder {} cannot be synced", project.folder))?;
+        .await??;
         let key = key_of(&project.name, root.path());
+        if made {
+            // A folder made again starts as Add's empty folder does: what was seen in the one
+            // that went is forgotten, so it is filled from the peers and deletes nothing.
+            log::info!(
+                "{}: {} was missing, so it is made again and filled from the other machines",
+                project.name,
+                root.path().display()
+            );
+            self.forget_key(&project.name, key, &self.state_file(key))
+                .await;
+        }
         let start = Start {
             name: project.name.clone(),
             key,
             root: Arc::new(root),
             peers: project.peers.clone(),
-            file: self.inner.dir.join(format!("{key:016x}.state")),
+            file: self.state_file(key),
             paused: project.paused,
         };
         let shared = spawn_blocking(move || Shared::load(start)).await??;
@@ -483,11 +539,19 @@ impl Syncs {
         self.forget(&shared).await;
     }
 
+    fn state_file(&self, key: Key) -> PathBuf {
+        self.inner.dir.join(format!("{key:016x}.state"))
+    }
+
     /// Forgets the state of the stopped project `shared`, unless its folder
     /// runs again under the same key.
     async fn forget(&self, shared: &Shared) {
-        let name = shared.name();
-        let key = shared.key();
+        self.forget_key(shared.name(), shared.key(), shared.file())
+            .await;
+    }
+
+    /// Forgets the state kept under `key` in `file`, unless a project runs on it.
+    async fn forget_key(&self, name: &str, key: Key, file: &Path) {
         // The same folder may have started again under the same key.
         if lock(&self.inner.projects)
             .values()
@@ -497,7 +561,7 @@ impl Syncs {
         }
         // A project turned off forgets its folder: started again, it scans
         // from nothing, so a folder emptied meanwhile deletes nothing.
-        let file = shared.file().to_owned();
+        let file = file.to_owned();
         let removed = spawn_blocking(move || match fs::remove_file(&file) {
             Err(e) if e.kind() != ErrorKind::NotFound => Err(e),
             _ => Ok(()),
@@ -576,6 +640,66 @@ impl Syncs {
         }
     }
 
+    /// Checks the projects' folders now: a running project whose folder is gone stops (its scan
+    /// already refuses to send deletes) and starts again, which makes the folder and fills it
+    /// from the peers; a project that did not start is tried again, so a folder that is back,
+    /// or whose rules can be followed now, syncs.
+    pub async fn check_folders(&self) {
+        let _one = self.inner.configuring.lock().await;
+        let running: Vec<(Project, Source)> = lock(&self.inner.projects)
+            .values()
+            .map(|running| (running.project.clone(), running.from))
+            .collect();
+        let mut again: Vec<(Project, Source)> = Vec::new();
+        for (project, from) in running {
+            let folder = PathBuf::from(&project.folder);
+            if spawn_blocking(move || folder.exists())
+                .await
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            log::info!("{}: its folder {} is gone", project.name, project.folder);
+            let stopped = lock(&self.inner.projects).remove(&project.name);
+            if let Some(stopped) = stopped {
+                self.stop(stopped).await;
+            }
+            again.push((project, from));
+        }
+        again.extend(
+            lock(&self.inner.stopped)
+                .values()
+                .map(|stopped| (stopped.project.clone(), stopped.from)),
+        );
+        for (project, from) in again {
+            match self.run(&project, from).await {
+                Ok(running) => {
+                    log::info!("syncing {} again", project.name);
+                    lock(&self.inner.stopped).remove(&project.name);
+                    lock(&self.inner.projects).insert(project.name.clone(), running);
+                }
+                Err(e) => {
+                    let message = format!("{e:#}");
+                    let mut stopped = lock(&self.inner.stopped);
+                    if stopped
+                        .get(&project.name)
+                        .is_none_or(|stopped| stopped.message != message)
+                    {
+                        log::warn!("not syncing {}: {message}", project.name);
+                    }
+                    stopped.insert(
+                        project.name.clone(),
+                        Stopped {
+                            project,
+                            from,
+                            message,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     /// Stops every project, saving its state.
     pub(crate) async fn shutdown(&self) {
         let checking = lock(&self.inner.checking).take();
@@ -594,6 +718,7 @@ impl Syncs {
             .map(|running| running.shared.status())
             .collect();
         out.extend(lock(&self.inner.held).values().map(Held::status));
+        out.extend(lock(&self.inner.stopped).values().map(Stopped::status));
         out
     }
 
@@ -760,8 +885,29 @@ async fn check_syncthing(inner: Weak<Inner>, syncthing: Syncthing) {
         let Some(inner) = inner.upgrade() else {
             return;
         };
-        Syncs { inner }.check_syncthing().await;
+        let syncs = Syncs { inner };
+        syncs.check_syncthing().await;
+        syncs.check_folders().await;
     }
+}
+
+/// Makes `folder` when it is missing and the folder above it is there, and says whether it did.
+/// With the folder above missing too, as when a disk is not mounted, nothing is made.
+fn make_missing(folders: &Folders, folder: &str) -> Result<bool> {
+    let path = Path::new(folder);
+    match fs::symlink_metadata(path) {
+        Ok(_) => return Ok(false),
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(e).with_context(|| format!("reading {folder}")),
+    }
+    if !path.parent().is_some_and(Path::is_dir) {
+        bail!("{PARENT_MISSING}: {folder}");
+    }
+    let resolved = folders
+        .resolve(folder)
+        .with_context(|| format!("{FOLDER_MISSING}: {folder}"))?;
+    fs::create_dir(&resolved).with_context(|| format!("{FOLDER_MISSING}: making {folder}"))?;
+    Ok(true)
 }
 
 impl Protocol for Syncs {
@@ -933,5 +1079,24 @@ mod tests {
         assert_eq!(a, key_of("game", Path::new("/srv/project")));
         assert_ne!(a, key_of("game", Path::new("/srv/other")));
         assert_ne!(a, key_of("gam", Path::new("e/srv/project")));
+    }
+
+    #[test]
+    fn a_missing_folder_is_made_only_where_the_folder_above_it_is() {
+        let shared = TempDir::new().expect("a temp folder");
+        let base = shared.path().canonicalize().expect("it is there");
+        let folders = Folders::new(std::slice::from_ref(&base));
+        let here = base.join("game");
+        let made = make_missing(&folders, &here.to_string_lossy()).expect("it is made");
+        assert!(made && here.is_dir());
+        let again = make_missing(&folders, &here.to_string_lossy()).expect("it is there");
+        assert!(!again);
+
+        // A disk that is not mounted leaves no folder above the project's.
+        let unmounted = base.join("disk").join("game");
+        let said =
+            make_missing(&folders, &unmounted.to_string_lossy()).expect_err("nothing is made");
+        assert!(format!("{said:#}").starts_with(PARENT_MISSING), "{said:#}");
+        assert!(!base.join("disk").exists());
     }
 }

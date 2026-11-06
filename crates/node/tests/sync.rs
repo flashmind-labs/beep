@@ -616,6 +616,71 @@ async fn a_folder_emptied_while_the_node_is_down_deletes_nothing() {
     nothing_deleted(&a, &b).await;
 }
 
+/// The project's folder on `node`, whether it is there or not.
+fn folder_path(node: &Node) -> PathBuf {
+    node.shared.path().canonicalize().unwrap().join(PROJECT)
+}
+
+/// `b` still has the file after scanning its folder again.
+async fn kept_on(b: &Node) {
+    let status = b
+        .running()
+        .transfers
+        .syncs()
+        .rescan(PROJECT)
+        .await
+        .expect("the folder scans");
+    assert_eq!(status.files, 1, "{status:?}");
+    assert_eq!(
+        read(&b.path("notes.txt")).as_deref(),
+        Some(b"keep me".as_slice())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_deleted_while_syncing_is_made_again_and_filled() {
+    let (a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    fs::remove_dir_all(folder_path(&a)).unwrap();
+    kept_on(&b).await;
+    a.running().transfers.syncs().check_folders().await;
+
+    nothing_deleted(&a, &b).await;
+    kept_on(&b).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_deleted_while_the_node_is_down_is_made_again_and_filled() {
+    let (mut a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    a.stop().await;
+    fs::remove_dir_all(folder_path(&a)).unwrap();
+    kept_on(&b).await;
+    a.start().await;
+
+    nothing_deleted(&a, &b).await;
+    kept_on(&b).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_taken_off_a_machine_and_its_folder_deleted_there_deletes_nothing_elsewhere() {
+    let (a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    let refused = a.running().transfers.syncs().configure(Vec::new()).await;
+    assert!(refused.is_empty(), "{refused:?}");
+    fs::remove_dir_all(folder_path(&a)).unwrap();
+    a.running().transfers.syncs().check_folders().await;
+
+    assert!(
+        !folder_path(&a).exists(),
+        "a project taken off is not made again"
+    );
+    kept_on(&b).await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_syncthing_keeps_is_refused() {
     let a = Node::new().await;

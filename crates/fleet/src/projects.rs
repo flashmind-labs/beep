@@ -3,7 +3,7 @@
 //! server's (`beep_projects`); this is the store and the machines it runs against.
 
 use crate::{
-    desk::Desk,
+    desk::{Desk, Seen},
     error::{FleetError, Result},
     records::{
         GroupRecord, PinRecord, Place, ProjectRecord, Stored, WRITES, at, find_project, now_ms,
@@ -25,17 +25,17 @@ use beep_projects::{
         machine::Machine,
         preview as previews,
         records::{ImportRow, NewImport},
-        repo::RepoRef,
+        repo::{RepoRef, same_repo},
         store::ImportStore,
     },
     is_windows,
     issues::{ImportedPlace, MachineName, Machines, ProjectStore},
-    model::windows_path,
     model::{IssueHost, RepoName, branch_name},
+    model::{plain_path, windows_path},
 };
 use beep_proto::{
     BranchPlace, CheckoutFailure, CreateProject, CreatedProject, FoundProject, HostRepos,
-    ImportFork, ImportPreview, ImportedProject, ProjectForge, ProjectGroup,
+    ImportFork, ImportPreview, ImportedProject, MachineFolder, ProjectForge, ProjectGroup,
     groups::{group_name, group_paths},
     node::mesh_state::SyncSpec,
 };
@@ -51,6 +51,38 @@ const FALLBACK_DEFAULT: &str = "main";
 const MAX_REPOS: usize = 100;
 /// Why the last machine with a project keeps it.
 const LAST_MACHINE: &str = "A project stays on at least one machine.";
+
+/// What `folder` holds on the online machine `seen`, with its path as the node there spells it:
+/// the sh of Git for Windows says `/c/Users/me`, and the node reads `C:\Users\me`.
+async fn look_at(seen: &Seen, folder: &str) -> Result<(FolderPath, MachineFolder)> {
+    let name = &seen.machine.name;
+    if !seen.machine.online {
+        return Err(ImportError::Offline(name.clone()).into());
+    }
+    let asked = FolderPath::parse(folder)?.ok_or(ImportError::BadFolder)?;
+    let mut there = folder::look(seen.machine.shell()?, name, &asked).await?;
+    let windows = seen.machine.os.as_deref().is_some_and(is_windows);
+    if let Some(native) = windows.then(|| windows_path(&there.path)).flatten() {
+        there.path = native;
+    }
+    Ok((asked, there))
+}
+
+/// The folder's path, refused when Syncthing keeps it in step there: Beep's sync would hold it,
+/// so nothing would ever arrive.
+fn refuse_syncthing(seen: &Seen, there: MachineFolder) -> Result<String> {
+    if seen
+        .env
+        .as_ref()
+        .is_some_and(|env| env.syncthing_folder(&there.path).is_some())
+    {
+        return Err(FleetError::refused(format!(
+            "Syncthing keeps {} in step on {}. Choose another folder.",
+            there.path, seen.machine.name
+        )));
+    }
+    Ok(there.path)
+}
 
 fn row(stored: &Stored, machine: EndpointId, place: &Place) -> ImportRow {
     ImportRow {
@@ -439,33 +471,15 @@ impl Desk {
                 stored.name
             )));
         }
-        if !seen.machine.online {
-            return Err(ImportError::Offline(name.clone()).into());
-        }
-        let shell = seen.machine.shell()?;
-        let asked = FolderPath::parse(folder)?.ok_or(ImportError::BadFolder)?;
-        let there = folder::look(shell, name, &asked).await?;
-        // The sh of Git for Windows says `/c/Users/me`; the node there reads `C:\Users\me`.
-        let windows = seen.machine.os.as_deref().is_some_and(is_windows);
-        let path = match windows.then(|| windows_path(&there.path)).flatten() {
-            Some(native) => native,
-            None => there.path,
-        };
+        let (asked, there) = look_at(&seen, folder).await?;
         if there.exists && !there.empty {
             return Err(FleetError::refused(format!(
-                "{path} has other files. Choose another folder."
+                "{} has other files. Choose another folder.",
+                there.path
             )));
         }
-        if seen
-            .env
-            .as_ref()
-            .is_some_and(|env| env.syncthing_folder(&path).is_some())
-        {
-            return Err(FleetError::refused(format!(
-                "Syncthing keeps {path} in step on {name}. Choose another folder."
-            )));
-        }
-        folder::make(shell, name, &asked).await?;
+        let path = refuse_syncthing(&seen, there)?;
+        folder::make(seen.machine.shell()?, name, &asked).await?;
 
         let _write = WRITES.lock().await;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
@@ -481,22 +495,106 @@ impl Desk {
         Ok(flow::project(row(&stored, id, &place), name.clone(), false))
     }
 
+    /// Points `project` on `machine` at `folder`, leaving the folder it had on disk as it is. The
+    /// new folder is missing or empty, and the others fill it as they fill one Add made, or holds
+    /// a checkout of the same repository, which joins the sync and merges with the others as two
+    /// checkouts do. Nothing is moved: moving a checkout under a running sync is how files get
+    /// lost.
+    pub async fn change_folder(
+        &self,
+        project: &str,
+        machine: &str,
+        folder: &str,
+    ) -> Result<ImportedProject> {
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        let id: EndpointId = machine.parse().map_err(|_| ImportError::NoSuchMachine)?;
+        let seen = self.seen_one(id).await.ok_or(ImportError::NoSuchMachine)?;
+        let name = &seen.machine.name;
+        let Some(old) = stored.places.get(&id).cloned() else {
+            return Err(FleetError::refused(format!(
+                "{} is not on {name}.",
+                stored.name
+            )));
+        };
+        let (asked, there) = look_at(&seen, folder).await?;
+        if plain_path(&there.path) == plain_path(&old.folder) {
+            return Err(FleetError::refused(format!(
+                "{} is already in {} on {name}.",
+                stored.name,
+                plain_path(&old.folder)
+            )));
+        }
+        let checkout = there.origin.as_deref().is_some_and(|origin| {
+            same_repo(&stored.record.url, origin, &forgejo_of(&self.opened()))
+        });
+        if there.exists && !there.empty && !checkout {
+            return Err(FleetError::refused(format!(
+                "{} has other files. Choose an empty folder or a checkout of {}.",
+                there.path, stored.name
+            )));
+        }
+        // An empty folder is filled by the machines it syncs with; with none, nothing would come.
+        let sync = Key::Sync(stored.name.clone());
+        let fills = read::<SyncSpec>(&self.mesh, &sync)
+            .is_some_and(|spec| spec.folders.keys().any(|other| *other != id));
+        if !checkout && !fills {
+            return Err(FleetError::refused(format!(
+                "No other machine syncs {} to fill it. Choose a checkout of it.",
+                stored.name
+            )));
+        }
+        let exists = there.exists;
+        let path = refuse_syncthing(&seen, there)?;
+        if !exists {
+            folder::make(seen.machine.shell()?, name, &asked).await?;
+        }
+
+        let _write = WRITES.lock().await;
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        let place = Place {
+            folder: path,
+            ..stored.places.get(&id).cloned().unwrap_or(old)
+        };
+        write(&self.mesh, place_key(&stored.name, id), Some(&place)).await?;
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        sync_checkouts(&self.mesh, &stored).await?;
+        Ok(flow::project(row(&stored, id, &place), name.clone(), false))
+    }
+
     /// Takes `project` off `machine`: the machine leaves the project's sync and its checkout record
     /// goes, so the node there stops syncing the folder and leaves every file in it as it is. With
     /// one machine left the sync record goes too. Only an import or Add writes a checkout record,
     /// so the machine comes back only when the user puts the project there again. The last
     /// machine is refused: a project stays on at least one.
-    pub async fn remove_from_machine(&self, project: &str, machine: &str) -> Result<()> {
+    ///
+    /// With `delete_folder`, the folder there is deleted too, once its node has stopped syncing
+    /// it, so the delete never reaches the others. Says what became of it then.
+    pub async fn remove_from_machine(
+        &self,
+        project: &str,
+        machine: &str,
+        delete_folder: bool,
+    ) -> Result<Option<String>> {
         let id: EndpointId = machine.parse().map_err(|_| ImportError::NoSuchMachine)?;
+        let (name, left) = self.leave(project, id).await?;
+        if !delete_folder {
+            return Ok(None);
+        }
+        Ok(Some(self.delete_left_folder(&name, id, &left).await))
+    }
+
+    /// Takes `project` off `machine` in the records; gives its name and the folder it had there.
+    async fn leave(&self, project: &str, id: EndpointId) -> Result<(String, String)> {
         let _write = WRITES.lock().await;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
-        if !stored.places.contains_key(&id) {
+        let Some(place) = stored.places.get(&id) else {
             return Err(FleetError::refused(format!(
                 "{} is not on {}.",
                 stored.name,
                 self.name_of(id)
             )));
-        }
+        };
+        let folder = place.folder.clone();
         // A machine gone from the mesh holds nothing, so only members count.
         let members = stored
             .places
@@ -520,7 +618,7 @@ impl Desk {
             }
         }
         write::<Place>(&self.mesh, place_key(&stored.name, id), None).await?;
-        Ok(())
+        Ok((stored.name, folder))
     }
 
     /// Makes the project `request` asks for.

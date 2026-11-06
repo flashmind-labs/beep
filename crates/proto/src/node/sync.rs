@@ -22,6 +22,15 @@ pub const CONTROLS: &str = "sync-controls/1";
 /// Offered beside `PROTOCOL` by a node that takes `Request::Rescan`.
 pub const RESCAN: &str = "sync-rescan/1";
 
+/// How `ProjectStatus::error` starts while the project's folder is not there.
+/// The node makes it again and fills it from its peers.
+pub const FOLDER_MISSING: &str = "The project's folder is missing";
+
+/// How `ProjectStatus::error` starts when the folder above the project's is
+/// missing too, as with a disk that is not mounted: nothing is made until it
+/// is back.
+pub const PARENT_MISSING: &str = "The folder above the project's folder is missing";
+
 /// The most paths `ProjectStatus::waiting` lists.
 pub const MAX_WAITING: usize = 50;
 

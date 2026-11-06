@@ -21,6 +21,7 @@ import { loadSessions, sessions } from "../agents/sessions.ts";
 import { showChanges } from "../agentpane/media.ts";
 import { makeReviews, mergeBlock, type ReviewHead } from "../review/review.ts";
 import { makeFileSync } from "./filesync.ts";
+import { changeFolder } from "./changefolder.ts";
 import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.ts";
 import { makeRuns, type RunDetail } from "./runs.ts";
@@ -43,7 +44,7 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
 export const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
-export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync") });
+export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the
 /// review view.

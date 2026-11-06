@@ -1,5 +1,8 @@
 // The "Add <project> to <machine>" sheet of a project's "Where it lives": the
-// folder there, then how far Beep's sync has brought the files.
+// folder there, then how far Beep's sync has brought the files. With `from`
+// it is the "Change folder" sheet: the machine points at another folder,
+// empty or missing (the others fill it) or a checkout of the same repository,
+// and the folder it had stays on disk as it is.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { button, el } from "../ui/dom.ts";
@@ -9,7 +12,7 @@ import { lastImport } from "../addproject/importproject.ts";
 import { defaultParent } from "../addproject/importproject-state.ts";
 import { browseStart, copyLine, destination, shortName, type CopyLine } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
-import type { MachineFolder } from "./projects-state.ts";
+import { plainPath, type MachineFolder } from "./projects-state.ts";
 
 /// How often the sheet reads the sync while it copies.
 const POLL_MS = 1000;
@@ -24,22 +27,26 @@ export interface AddToMachine {
   macId: string | null;
   /// The folder was made and the machine joined the sync.
   added: () => void;
+  /// The folder the project is in there now, to change it.
+  from?: string;
 }
 
 /// Opens the sheet; each opening has its own state, and its reads stop when it closes.
 export function openAddToMachine(o: AddToMachine) {
   const { project, machine } = o;
   const name = shortName(project);
+  const change = o.from != null;
+  const title = change ? `Change the folder of ${name} on ${machine.name}` : `Add ${name} to ${machine.name}`;
   let folder = "", browsing: MachineFolder | null = null, reading = false, error: string | null = null;
   let adding = false, copying: CopyLine | null = null, open = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const { sheet, close } = openSheet(`Add ${name} to ${machine.name}`, "am-sheet ip-sheet ip-add", {
+  const { sheet, close } = openSheet(title, "am-sheet ip-sheet ip-add", {
     onClose: () => { open = false; clearTimeout(timer); },
   });
 
   const draw = () => {
     if (!open) return;
-    sheet.replaceChildren(el("div", "am-head", el("b", "", `Add ${name} to ${machine.name}`), el("kbd", "", "esc")), ...(copying ? copyBody(copying) : form()));
+    sheet.replaceChildren(el("div", "am-head", el("b", "", title), el("kbd", "", "esc")), ...(copying ? copyBody(copying) : form()));
     if (!copying && !browsing) {
       const field = sheet.querySelector<HTMLInputElement>(".ip-dir");
       field?.focus();
@@ -69,7 +76,7 @@ export function openAddToMachine(o: AddToMachine) {
     }
     try {
       const path = await invoke<string | null>("pick_folder", { start: browseStart(folder) });
-      if (path) read(path, listing => { folder = destination(listing, project); });
+      if (path) read(path, listing => { folder = destination(listing, project, change); });
     } catch (e) {
       error = reason(e);
       draw();
@@ -82,7 +89,7 @@ export function openAddToMachine(o: AddToMachine) {
     error = null;
     draw();
     try {
-      await invoke<string>("project_add_to_machine", { project, machineId: machine.id, folder });
+      await invoke<string>(change ? "project_change_folder" : "project_add_to_machine", { project, machineId: machine.id, folder });
       o.added();
       copying = copyLine(null, machine.id, machine.name);
       poll();
@@ -115,7 +122,7 @@ export function openAddToMachine(o: AddToMachine) {
     field.setAttribute("autocorrect", "off");
     field.setAttribute("aria-label", `Folder on ${machine.name}`);
     field.value = field.title = folder;
-    const go = button(adding ? "Adding…" : "Add", "dbtn pri ip-go", add);
+    const go = button(adding ? (change ? "Changing…" : "Adding…") : change ? "Change" : "Add", "dbtn pri ip-go", add);
     go.disabled = adding || !folder.trim();
     field.addEventListener("input", () => {
       folder = field.title = field.value;
@@ -126,10 +133,12 @@ export function openAddToMachine(o: AddToMachine) {
     const pick = button(reading ? "Reading…" : "Choose…", "dbtn quiet", choose);
     pick.disabled = reading || adding;
     return [
+      ...(change ? [el("div", "am-sub", "Now in ", el("code", "", plainPath(o.from!)))] : []),
       el("div", "am-label", `Folder on ${machine.name}`),
       el("div", "am-line", el("div", "ip-folder", field), pick),
       ...(browsing ? [browser(browsing)] : []),
       ...(error ? [el("div", "am-msg bad", error)] : []),
+      ...(change ? [el("div", "am-sub", "Pick an empty folder, which the other machines fill, or a checkout of the same repository, which joins the sync. The folder it is in now stays on disk as it is.")] : []),
       el("div", "am-line ip-acts", button("Cancel", "dbtn quiet", close), go),
     ];
   }
@@ -137,10 +146,10 @@ export function openAddToMachine(o: AddToMachine) {
   function browser(listing: MachineFolder) {
     return folderBrowser(listing, {
       reading,
-      note: `It goes in ${destination(listing, project)}.`,
+      note: `It goes in ${destination(listing, project, change)}.`,
       go: path => read(path, next => { browsing = next; }),
       cancel: () => { browsing = null; draw(); },
-      use: () => { folder = destination(listing, project); browsing = null; draw(); },
+      use: () => { folder = destination(listing, project, change); browsing = null; draw(); },
     });
   }
 
@@ -153,6 +162,11 @@ export function openAddToMachine(o: AddToMachine) {
   }
 
   draw();
+  // Changing starts where the folder is now.
+  if (change) {
+    read(browseStart(o.from!), listing => { browsing = listing; });
+    return;
+  }
   // The field starts at the machine's default, unless the user got there first.
   read(null, listing => {
     const parent = defaultParent(machine.id, listing.path, o.os, lastImport());
