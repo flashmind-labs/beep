@@ -1261,3 +1261,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dchat.copy { cursor: default }
 .dchat.copy .t small { color: var(--muted) }
 .dchat.copy .dbtn { flex: none }
+
+.agrunninglist { flex: 1; min-height: 0; overflow: auto; padding: 4px }
+.agrunningrow { cursor: default }
+.agrunningrow .r { display: flex; gap: 6px; align-items: center }
+.agrunningrow .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
+.agrunningerror { padding: 8px }

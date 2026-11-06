@@ -280,6 +280,26 @@ pub async fn serve_sessions(
                 .map(|found| found.commands())
                 .unwrap_or_default(),
         },
+        SessionsRequest::Processes { session } => match agents.get(&session) {
+            Some(found) if found.info().state.status != agent::Status::Ended => {
+                match found.processes.list().await {
+                    Ok(processes) => SessionsReply::Processes { processes },
+                    Err(e) => failed(e),
+                }
+            }
+            _ => SessionsReply::Processes {
+                processes: Vec::new(),
+            },
+        },
+        SessionsRequest::StopProcess { session, pid } => match agents.get(&session) {
+            Some(found) if found.info().state.status != agent::Status::Ended => {
+                match found.processes.stop(pid).await {
+                    Ok(()) => SessionsReply::ProcessStopped {},
+                    Err(e) => failed(e),
+                }
+            }
+            _ => failed("the session has ended"),
+        },
         SessionsRequest::DeleteSession { agent, session } => {
             match agents.delete_session(&agent, &session).await {
                 Ok(()) => SessionsReply::Deleted {},

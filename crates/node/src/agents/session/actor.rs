@@ -259,7 +259,14 @@ pub(super) struct Inputs {
 }
 
 impl Actor {
-    pub(super) async fn run(mut self, child: Child, mut orders: mpsc::Receiver<Order>) {
+    pub(super) async fn run(
+        mut self,
+        child: Child,
+        mut orders: mpsc::Receiver<Order>,
+        processes: Arc<super::Processes>,
+    ) {
+        let _cleanup = super::super::processes::Cleanup(processes.clone());
+        let _watch = processes.watch();
         // Kills the agent's whole process group however the task ends,
         // aborted with its session included; `stop` below is the gentle way.
         let mut child = GroupLeader::new(child);
@@ -302,6 +309,7 @@ impl Actor {
         orders.close();
         // Questions still open are dropped with the connection.
         self.asked.clear();
+        processes.close().await;
         child.stop(STOP_GRACE).await;
         drop(held);
         if !asked {

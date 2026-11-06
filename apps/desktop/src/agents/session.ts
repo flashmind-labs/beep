@@ -5,6 +5,7 @@ import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
+import { readRunning, runningCount } from "../agentpane/running.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneFrame, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
@@ -90,7 +91,7 @@ export function agentDelay() {
   if (thinking && AGENT_ACTIVE.has(s.status)) return AGENT_THINK_POLL_MS;
   // Once stopped, the turn ending shows as soon as it does.
   if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
-  if (still >= AGENT_PAUSE_AFTER) return null;
+  if (still >= AGENT_PAUSE_AFTER && !runningCount()) return null;
   return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
 }
 
@@ -103,7 +104,7 @@ export async function pollAgent() {
   AG.inflight = o;
   const read = ++AG.polls;
   try {
-    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }), readModes(o), readTasks(o)]);
+    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }), readModes(o), readTasks(o), readRunning()]);
     if (isOpen(o)) {
       AG.modes = modes;
       AG.tasks = tasks;
@@ -163,6 +164,11 @@ export function resumeAgent() {
   AG.paused = false;
   pollAgent();
 }
+
+// A folded pane may have missed the quiet session's last poll.
+window.addEventListener("agent-pane-shown", () => {
+  if (S.view === "agent" && AG.paused) resumeAgent();
+});
 
 onShownChange(shown => {
   if (!shown) clearTimeout(AG.timer);
