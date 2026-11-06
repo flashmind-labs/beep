@@ -12,15 +12,14 @@ use crate::{
 use anyhow::Context;
 use beep_mesh::{Device, DeviceKind, PeerClient};
 use beep_report::{
-    Draft, Manifest, Period, Sender, Target, collect, draft, find_gh, gh_signed_in, issue,
-    open_issue, redact, send, server_url, zip,
+    BundleError, Draft, Manifest, Period, Sender, Target, collect, draft, find_gh, gh_signed_in,
+    issue, open_issue, redact, send, server_url, zip,
 };
-use chrono::Local;
 use futures::future::join_all;
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tauri::State;
+use tauri::{State, async_runtime::spawn_blocking};
 use tokio::time::timeout;
 
 /// How long a machine has to be reached before it is listed offline.
@@ -42,7 +41,7 @@ pub async fn report_collect(
     machine: State<'_, Machine>,
     period: Period,
 ) -> Result<Draft> {
-    let since = period.since(Local::now());
+    let since = period.since_now();
     let me = fleet.id();
     let mut devices: Vec<Device> = fleet
         .machines()
@@ -76,7 +75,9 @@ pub async fn report_collect(
         app: "desktop",
         app_version: env!("CARGO_PKG_VERSION").to_owned(),
     };
-    Ok(draft("", period, since, sender, shares).map_err(anyhow::Error::from)?)
+    // Redaction runs regexes over every share's log: off the async workers.
+    let draft = spawn_blocking(move || draft("", period, since, sender, shares)).await?;
+    Ok(draft.map_err(anyhow::Error::from)?)
 }
 
 /// A client for `id` within `REACH_LIMIT`, or why there is none.
@@ -92,9 +93,14 @@ async fn reach(fleet: &Fleet, id: EndpointId, name: &str) -> Result<PeerClient, 
 /// report endpoint.
 #[tauri::command]
 pub async fn report_send(beep: Service<'_>, draft: Draft, text: String) -> Result<Sent> {
-    let mut draft = draft;
-    draft.manifest.text = redact(&text).map_err(anyhow::Error::from)?;
-    let body = zip(&draft).map_err(anyhow::Error::from)?;
+    // Redacting every file again and deflating them is CPU work: off the async workers.
+    let body = spawn_blocking(move || -> Result<Vec<u8>, BundleError> {
+        let mut draft = draft;
+        draft.manifest.text = redact(&text)?;
+        zip(&draft)
+    })
+    .await?
+    .map_err(anyhow::Error::from)?;
     let url = server_url().map_err(anyhow::Error::from)?;
     let receipt = send(&url, body, &beep.device_key())
         .await
@@ -139,7 +145,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn sent_says_gh_only_when_signed_in() {
+    async fn signed_in_holds_only_for_a_gh_whose_auth_status_passes() {
         use std::{fs, os::unix::fs::PermissionsExt};
         let dir = tempfile::tempdir().expect("a temp dir is made");
         let stand_in = |name: &str, status: u8| {

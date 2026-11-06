@@ -16,6 +16,11 @@ pub enum Period {
 }
 
 impl Period {
+    /// `since` from the current local time.
+    pub fn since_now(self) -> i64 {
+        self.since(Local::now())
+    }
+
     /// Start of the period as Unix seconds: now minus 1 h, local midnight, or now minus 24 h.
     pub fn since(self, now: DateTime<Local>) -> i64 {
         match self {

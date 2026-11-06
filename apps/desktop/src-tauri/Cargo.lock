@@ -447,7 +447,6 @@ dependencies = [
  "beep-proto",
  "beep-report",
  "block2",
- "chrono",
  "futures",
  "iroh",
  "iroh-tickets",
