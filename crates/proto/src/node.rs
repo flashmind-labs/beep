@@ -37,7 +37,6 @@ pub mod transfer;
 pub mod update;
 pub mod usage;
 pub mod version;
-pub mod webhook;
 
 pub use control::*;
 pub use env::*;

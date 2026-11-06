@@ -80,7 +80,7 @@ using the server's credentials and harness values as soon as the account is move
 - `config`: the TOML config.
 - `memory`: memories, skills, profile, starters, watchers, the group leak check.
 - `nodes`: node connections (`serve`), linking, per-node requests, the workspace.
-- `projects`: project agent: tasks, workers, reviews, imports, `repo_watch`, `git_items`.
+- `projects`: project agent: tasks, workers, reviews, imports, `repo_watch` (polls the forges, no webhooks), `git_items`.
 - `push`: notice delivery, FCM, APNs.
 - `research`: research papers: planning, team tools, PDF.
 - `routines`: what wakes the agent: `cron`, `places`, `events`, `digest`, `wake`.
@@ -447,7 +447,7 @@ required) says the same with `harness` set to `claude` and the tools named
 - `link/`: the node's key and settings (`state`), linking and the control
   stream, reconnecting, and what carries over a restart.
 - `machine/`: what the machine has (`env`, `stats`), setup, the service,
-  self-update, provisioning and repository webhooks.
+  self-update and provisioning.
 - `run/`: process groups, shell sessions, background tasks and terminals.
 - `lib.rs` declares these; `main.rs` is the command line, with its grouped
   help and `status` output in `cli/`.
