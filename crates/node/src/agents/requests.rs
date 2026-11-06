@@ -370,6 +370,10 @@ pub async fn serve_sessions(
         SessionsRequest::Reviews { session } => SessionsReply::Reviews {
             runs: agents.reviews_of(&session),
         },
+        SessionsRequest::InstallAdapters {} => {
+            agents.install_adapters_now();
+            SessionsReply::AdaptersInstalling {}
+        }
         other => SessionsReply::Error {
             message: format!("this node does not serve {other:?}"),
         },

@@ -10,9 +10,10 @@ import type { ViewName } from "../center/state.ts";
 import { copyButton, emptyPanel } from "../ui/parts.ts";
 import { flshPanel } from "./flsh.ts";
 import { failBanner } from "../ui/failbanner.ts";
+import { type AdapterInstall, adapterLine, adapterOf } from "../machines/adapters-state.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
-interface MachineRow { id: string; name: string; online: boolean }
+interface MachineRow { id: string; name: string; online: boolean; adapters?: AdapterInstall[] }
 
 /// What the window hands `registerProviders`.
 interface ProvidersDeps {
@@ -108,6 +109,28 @@ export function registerProviders(deps: ProvidersDeps) {
     deps.redrawTop();
     draw();
     if (!st.views.has(id)) load(false);
+  }
+
+  /// How `agent`'s adapter stands on the machine picked, when it is pending.
+  const adapter = (agent: string) => adapterOf(st.machines?.find(m => m.id === st.machine)?.adapters, agent);
+
+  /// Try again: the machine installs the adapters it could not, now.
+  async function retryAdapters(agent: string) {
+    const machine = st.machine;
+    if (!machine) return;
+    st.updating.add(`${machine} ${agent}`);
+    draw();
+    try {
+      await invoke("agent_adapters_install", { machineId: machine });
+      // The node reads them as installing at once; its report follows.
+      for (const a of st.machines?.find(m => m.id === machine)?.adapters ?? []) a.failed = null;
+      st.errors.delete(machine);
+    } catch (e) {
+      st.errors.set(machine, fail(e));
+    } finally {
+      st.updating.delete(`${machine} ${agent}`);
+    }
+    draw();
   }
 
   async function update(agents: string[]) {
@@ -272,7 +295,8 @@ export function registerProviders(deps: ProvidersDeps) {
   /// The box atop the page in Settings: the agent, its version and status,
   /// and its switch on the machine picked.
   function summary(hv: HarnessView) {
-    const s = summaryLine(hv), m = machineName();
+    const pending = adapter(hv.agent);
+    const s = pending ? { text: adapterLine(pending), bad: pending.failed !== null } : summaryLine(hv), m = machineName();
     const name = h("span", "hv-name", nameLine(harnessName(hv.agent), hv.installed && hv.version ? `v${hv.version}` : "", hasUpdate(hv) ? hv.latest : null), statusSmall(s.text, s.bad));
     const on = hv.installed && hv.settings.enabled;
     const end = hv.installed ? [h("span", "on", `${on ? "On" : "Off"} for ${m}`), toggle(hv, on)] : [h("span", ""), h("span", "")];
@@ -336,7 +360,16 @@ export function registerProviders(deps: ProvidersDeps) {
       const why = `${name} does not say whether it is signed in. Run it on ${m} to sign in.`;
       out.push(inSettings ? h("div", "hv-note", why) : row(why));
     }
-    if (!hv.runnable) out.push(h("div", "hv-note", "Restart beep-node to use it."));
+    const pending = adapter(hv.agent);
+    if (pending) {
+      // In Settings the summary box already says it is installing.
+      if (!inSettings || pending.failed !== null) out.push(h("div", `hv-note${pending.failed === null ? "" : " bad"}`, adapterLine(pending)));
+      if (pending.failed !== null) {
+        const again = button(busy ? "Trying again…" : "Try again", "", () => retryAdapters(hv.agent));
+        again.disabled = busy;
+        out.push(acts(again));
+      }
+    } else if (!hv.runnable) out.push(h("div", "hv-note", "Restart beep-node to use it."));
     if (hasUpdate(hv)) {
       const up = button(busy ? "Updating…" : `Update to v${hv.latest}`, "", () => update([hv.agent]));
       up.disabled = busy || !hv.install;

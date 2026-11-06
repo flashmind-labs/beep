@@ -3,7 +3,7 @@
 
 use crate::{
     beep::{Service, epoch_ms},
-    error::Result,
+    error::{DesktopError, Result},
     fleet::{
         Machines, agents as direct,
         projects::{FleetState, desk},
@@ -245,6 +245,16 @@ pub async fn agent_harness_update(
     }
     .map_err(plain)?;
     Ok(updated.into())
+}
+
+/// Try again: `machine_id` installs the ACP adapters its agents lack now;
+/// how it goes comes with the machine's next report.
+#[tauri::command]
+pub async fn agent_adapters_install(fleet: Machines<'_>, machine_id: String) -> Result<()> {
+    let machine = fleet
+        .member(&machine_id)
+        .ok_or_else(|| DesktopError::BadRequest("The machine is not in the mesh.".into()))?;
+    direct::install_adapters(&fleet, machine).await
 }
 
 /// The settings of `agent` on each of the user's machines; `None` from a
