@@ -133,6 +133,8 @@ export const pane = {
   /// Starts a new chat with `text` and streams it here.
   async compose(text: string) {
     await start();
+    // With no server the text goes to the agent's start form instead.
+    if (S.link !== "linked") return renderAgentNew(text, "agents");
     await newChat();
     return send(text);
   },
@@ -148,6 +150,7 @@ export const pane = {
   /// user to send or change.
   async draft(text: string) {
     await start();
+    if (S.link !== "linked") return renderAgentNew(text, "agents");
     await newChat();
     const ask = $<HTMLTextAreaElement>("#ask");
     if (!ask) return;

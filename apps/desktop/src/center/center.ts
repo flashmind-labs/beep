@@ -42,6 +42,7 @@ import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf } from "../agents/running-state.ts";
+import { placeOf } from "../agents/place.ts";
 
 followSkin();
 guardClicks();
@@ -132,8 +133,10 @@ export function onlineMachines(home: HomeView | null) {
 function projectHere() {
   const on = paneOn();
   if (on.view === "agent" && AG.draft) return { project: AG.draft, machine: null };
-  const open = shownArg && typeof shownArg === "object" && "agent" in shownArg ? shownArg.agent : null;
-  return newChatTarget({ shown, picked: state.picked, view: on.view, session: on.session, agent: on.view === "agent" ? open : null, mac: state.mac?.id }, state.agents, state.home?.projects);
+  // The session on screen, which the pane may have moved to since the window opened it.
+  const open = AG.page?.session ?? (shownArg && typeof shownArg === "object" && "agent" in shownArg ? shownArg.agent : null);
+  const agent = on.view === "agent" && open ? { machine_id: open.machine_id, cwd: open.cwd, main: placeOf(open)?.main } : null;
+  return newChatTarget({ shown, picked: state.picked, view: on.view, session: on.session, agent, mac: state.mac?.id }, state.agents, state.home?.projects);
 }
 
 /// ⌘N: in a project (its page, or one of its sessions or chats) the agent
