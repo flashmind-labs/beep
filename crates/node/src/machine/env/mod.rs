@@ -59,11 +59,13 @@ pub async fn probe() -> EnvReport {
             .ok()
             .or_else(|| locate::fallback(name, home.as_deref()?));
         if let Some(program) = program {
-            let version = output(&program, args)
-                .await
-                .as_deref()
-                .and_then(first_line)
-                .map(|line| tool_version(name, &line));
+            let version = match ran(&program, args).await {
+                // A stub that only says what is missing, like `xcodebuild`
+                // with no Xcode, is not the tool.
+                Some((false, _)) => continue,
+                Some((true, text)) => first_line(&text).map(|line| tool_version(name, &line)),
+                None => None,
+            };
             tools.push(ToolInfo {
                 name: (*name).to_owned(),
                 version,
@@ -134,6 +136,12 @@ pub async fn probe() -> EnvReport {
 
 /// What `program args` printed, stdout then stderr, when it ran in time.
 pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
+    ran(program, args).await.map(|(_, text)| text)
+}
+
+/// What `program` printed, stdout then stderr, and whether it succeeded;
+/// `None` when it could not run or took too long.
+async fn ran(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<(bool, String)> {
     let mut command = crate::run::process::command(program.as_ref());
     spawn_env::apply(&mut command, Scope::Probe);
     beside(&mut command, Path::new(program.as_ref()));
@@ -145,7 +153,7 @@ pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) 
     let out = timeout(PROBE_TIMEOUT, run).await.ok()?.ok()?;
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    Some(text)
+    Some((out.status.success(), text))
 }
 
 /// `program`'s folder first on the `PATH` of `command`, when it was found
