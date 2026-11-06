@@ -28,6 +28,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cp target/release/beep-server target/release/beep-admin /usr/local/bin/
 
 FROM source AS node-build
+# Where `beep-node report` sends a problem report; empty leaves the default.
+ARG BEEP_SERVER_URL
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
@@ -45,6 +47,7 @@ RUN apt-get update \
     && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 WORKDIR /src
 COPY . .
+ARG BEEP_SERVER_URL
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
@@ -65,6 +68,7 @@ RUN apt-get update \
     && rustup target add x86_64-pc-windows-msvc
 WORKDIR /src
 COPY . .
+ARG BEEP_SERVER_URL
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/target \
