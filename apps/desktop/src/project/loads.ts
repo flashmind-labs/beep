@@ -1,7 +1,7 @@
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { ago, base, reason, since } from "../ui/format.ts";
-import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote } from "../ui/parts.ts";
+import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote, svgEl } from "../ui/parts.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -27,7 +27,8 @@ import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { placeSub } from "../agents/place-state.ts";
-import { agentCanFix, fixPrompt, gitLine, movingLabel, moveKey, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
+import { agentCanFix, fixPrompt, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
+import { IC } from "../ui/icons.ts";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the
@@ -231,21 +232,27 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
   redrawProjectsPage();
 }
 
-/// Under a checkout's folder: its branch and distance, and the reason a move
-/// was refused; and the Pull and Push buttons.
+/// Pull or Push as an icon with its count, as VS Code's status bar has them:
+/// off with nothing to move, a spinner in place of the arrow while it runs.
+function moveButton(p: Project, m: WhereRow, row: GitRow, move: GitMove, on: boolean, busy: GitMove | null | undefined) {
+  const n = move === "pull" ? row.behind : row.ahead;
+  const b = button(h("span", "gi-in", busy === move ? h("span", "dspin") : svgEl(IC[move]), String(n)), "quiet small gi", () => gitMove(p, m, row, move));
+  b.title = busy === move ? movingLabel(move) : moveTitle(move, n);
+  b.setAttribute("aria-label", moveTitle(move, n));
+  b.disabled = !!busy || !on;
+  return b;
+}
+
+/// Under a checkout's folder: its branch, and the reason a move was refused;
+/// and the Pull and Push icons.
 function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons: HTMLElement[] } {
   const row = state.gitsync.get(p.name)?.find(r => r.machine_id === m.id);
   if (!row) return { note: null, buttons: [] };
   const line = gitLine(row);
-  const note = h("small", "gs" + (line.error ? " err" : ""), ...(line.branch ? [h("code", "", line.branch), " "] : []), line.text);
+  const note = h("small", "gs" + (line.error ? " err" : ""), ...(line.branch ? [h("code", "", line.branch), line.text ? " " : ""] : []), line.text);
   if (!line.buttons) return { note, buttons: [] };
   const mv = moves.get(moveKey(p.name, m.id));
-  const busy = !!mv?.moving;
-  const pull = button(mv?.moving === "pull" ? movingLabel("pull") : "Pull", "small", () => gitMove(p, m, row, "pull"));
-  const push = button(mv?.moving === "push" ? movingLabel("push") : "Push", "small", () => gitMove(p, m, row, "push"));
-  pull.disabled = busy || !line.pull;
-  push.disabled = busy || !line.push;
-  const buttons = [pull, push];
+  const buttons = [moveButton(p, m, row, "pull", line.pull, mv?.moving), moveButton(p, m, row, "push", line.push, mv?.moving)];
   if (mv?.failed) {
     const why = h("small", "gs err", mv.failed);
     note.append(h("br"), why);

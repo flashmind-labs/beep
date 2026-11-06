@@ -45,7 +45,7 @@ impl Desk {
         }
     }
 
-    fn name_of(&self, machine: EndpointId) -> String {
+    pub(crate) fn name_of(&self, machine: EndpointId) -> String {
         self.mesh
             .devices()
             .into_iter()

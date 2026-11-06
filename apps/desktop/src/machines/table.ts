@@ -130,9 +130,14 @@ interface Removable {
 /// Right-clicking `els` opens the menu for machine `m`: a terminal on it when it is
 /// online, and removing it, which this Mac cannot do to itself.
 export function machineMenu(m: Removable, ...els: Element[]) {
+  machineMenuWith(m, () => [], ...els);
+}
+
+/// `machineMenu` with the lines `first` gives on top, read when the menu opens.
+export function machineMenuWith(m: Removable, first: () => MenuItem[], ...els: Element[]) {
   for (const el of els) el.addEventListener("contextmenu", e => {
     if (!m.id) return;
-    const items: MenuItem[] = [];
+    const items: MenuItem[] = [...first()];
     if (m.online !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
     if (m.id !== state.mac?.id) items.push({ label: "Remove…", warn: true, on: () => removeMachine(m) });
     if (items.length) openMenu(e as MouseEvent, m.name, items);
