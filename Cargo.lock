@@ -6564,7 +6564,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fac2edd2f0b56bd79a7343f49afc01c2d41010df480538a510e0abc56044f66c"
 dependencies = [
  "base64 0.22.1",
- "hmac 0.12.1",
+ "hmac",
  "jiff",
  "md-5",
  "percent-encoding",
