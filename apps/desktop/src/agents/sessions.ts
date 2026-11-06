@@ -7,6 +7,8 @@ import { refreshMoves, withoutCopies } from "./move-store.ts";
 export let sessions: AgentSession[] = [];
 
 let loading: Promise<AgentSession[]> | null = null;
+/// Called after each read of the sessions, with the new list in `sessions`.
+export const sessionsRead = new Set<() => void>();
 
 /// Reads the sessions again into `sessions` and returns them. A call made
 /// while another read is out waits for that one, so pages that ask together
@@ -16,7 +18,11 @@ export function loadSessions() {
   void loadCopies();
   loading ??= Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
     // A session that moved is on two machines for a while: it shows once.
-    .then(([list]) => { sessions = withoutCopies(list); return sessions; })
+    .then(([list]) => {
+      sessions = withoutCopies(list);
+      for (const f of sessionsRead) f();
+      return sessions;
+    })
     .finally(() => { loading = null; });
   return loading;
 }

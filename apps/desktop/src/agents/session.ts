@@ -15,7 +15,7 @@ import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
-import { loadSessions, sessions } from "./sessions.ts";
+import { loadSessions, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession } from "./closing.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
@@ -35,7 +35,8 @@ import { joinRuns, lacksPrompt } from "./older-state.ts";
 import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { drawMove } from "./move.ts";
-import { refreshMoves } from "./move-store.ts";
+import { MV, refreshMoves } from "./move-store.ts";
+import { movedTo } from "./move-state.ts";
 import { placeSub } from "./place-state.ts";
 import { sameSession } from "./running-state.ts";
 
@@ -68,6 +69,13 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   drawAgentFrame(inPlace);
   pollAgent();
 }
+
+// The open session moved and its new machine lists it: the page follows it there.
+sessionsRead.add(() => {
+  if (S.view !== "agent" || !AG.open) return;
+  const there = movedTo(AG.open, MV.records, sessions);
+  if (there) openAgent(there, { back: AG.back });
+});
 
 /// The last log drawn and the session it is of, to go back to.
 let left: { key: string; body: ChatBody } | null = null;

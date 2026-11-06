@@ -158,6 +158,15 @@ export function dedupe<T extends { machine_id: string; id: string; agent: string
   return rows.filter(s => !drop.has(s));
 }
 
+/// Where the session open on `open.machine_id` went: its row on the machine
+/// its latest move went to, once that machine lists it; else null.
+export function movedTo<T extends { machine_id: string; id: string; agent: string }>(
+  open: { machine_id: string; session: string; agent: string }, records: ReadonlyMap<string, MoveRecord>, rows: readonly T[]): T | null {
+  const r = records.get(open.session);
+  if (!r || r.from !== open.machine_id || r.agent !== open.agent) return null;
+  return rows.find(s => s.machine_id === r.to && s.id === open.session && s.agent === open.agent) ?? null;
+}
+
 /// The records by session, the latest of each.
 export function bySession(records: readonly MoveRecord[]) {
   const out = new Map<string, MoveRecord>();
