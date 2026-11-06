@@ -41,7 +41,7 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
     let mut tick: u32 = 0;
     loop {
         machines(&app, &fleet, &mut away);
-        if tick % SLOW == 0 {
+        if tick.is_multiple_of(SLOW) {
             match session.desk().await {
                 Ok(desk) => {
                     sync(&app, &desk, &mut conflicts).await;
