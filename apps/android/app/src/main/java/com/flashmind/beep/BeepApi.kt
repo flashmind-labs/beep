@@ -3,7 +3,7 @@ package com.flashmind.beep
 import com.flashmind.beep.ffi.BeepClient
 import com.flashmind.beep.ffi.BeepException
 
-/** One client per server and identity, so calls share a connection. */
+/** One client per server and identity, so calls share connections and one events stream. */
 object BeepClients {
     private class Cached(val config: ConnectionSettings, val identity: ByteArray, val client: BeepClient)
     private var cached: Cached? = null
@@ -11,10 +11,10 @@ object BeepClients {
     @Synchronized
     fun client(config: ConnectionSettings, identity: ByteArray): BeepClient {
         cached?.let { if (it.config == config && it.identity.contentEquals(identity)) return it.client }
-        // The old client's endpoint would otherwise keep pinging its relay until collected.
+        // The old client's events stream would otherwise stay open until collected.
         cached?.client?.destroy()
         val version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
-        return BeepClient(config.nodeId, identity, version).also {
+        return BeepClient(BuildConfig.SERVER_URL, config.nodeId, identity, version).also {
             it.setListener(Notices)
             cached = Cached(config, identity, it)
         }
