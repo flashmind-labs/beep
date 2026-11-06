@@ -1,0 +1,13 @@
+[package]
+name = "beep-report"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
+thiserror = "2"
