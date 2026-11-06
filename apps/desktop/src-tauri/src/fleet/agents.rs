@@ -21,7 +21,7 @@ use beep_proto::{
     GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage, HarnessEnv,
     HarnessSettings, HarnessSignIn, ListAgentModels, MachinePick, MachineSession,
     PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
-    agent_name, image_key, media_mime,
+    Upload, agent_name, image_key, media_mime,
     node::{
         agent::{self, AgentCommand, Request, WorkPlace, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
@@ -305,8 +305,13 @@ fn started(host: &Host, info: agent::SessionInfo, why: String) -> StartedAgent {
     }
 }
 
-/// Starts a session; with no machine named, Auto picks among the mesh's.
-pub(crate) async fn start(fleet: &Fleet, start: StartAgentSession) -> Result<StartedAgent> {
+/// Starts a session, with `images` sent after the prompt; with no machine
+/// named, Auto picks among the mesh's.
+pub(crate) async fn start(
+    fleet: &Fleet,
+    start: StartAgentSession,
+    images: Vec<Upload>,
+) -> Result<StartedAgent> {
     let prompt = start.prompt.trim().to_owned();
     if prompt.is_empty() {
         return Err(ApiError::bad_request("Say what the agent should do.").into());
@@ -351,6 +356,7 @@ pub(crate) async fn start(fleet: &Fleet, start: StartAgentSession) -> Result<Sta
         model: on.model,
         effort: on.effort,
         checkout: on.checkout,
+        images,
     };
     let client = fleet.client(machine).await?;
     let opened = open_agent(&client, &agent, first).await.map_err(|e| {

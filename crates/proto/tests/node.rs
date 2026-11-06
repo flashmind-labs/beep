@@ -1263,8 +1263,8 @@ mod agent {
     }
 
     mod session {
-        use beep_proto::AgentContext;
         use beep_proto::node::agent::*;
+        use beep_proto::{AgentContext, Upload};
         use serde::{Deserialize, Serialize};
 
         #[test]
@@ -1298,6 +1298,11 @@ mod agent {
                 model: Some("m".into()),
                 effort: Some(Effort::High),
                 checkout: Some(CheckoutPlan::NewBranch { base: None }),
+                images: vec![Upload {
+                    name: "shot.png".into(),
+                    mime: "image/png".into(),
+                    data: vec![1, 2, 3],
+                }],
             };
             let body = rmp_serde::to_vec_named(&newer).unwrap();
             assert_eq!(
@@ -1320,6 +1325,7 @@ mod agent {
                     model: None,
                     effort: None,
                     checkout: None,
+                    images: Vec::new(),
                 }
             );
         }
@@ -1797,6 +1803,7 @@ mod agent {
                 checkout: Some(CheckoutPlan::NewWorktree {
                     base: Some("main".into()),
                 }),
+                images: Vec::new(),
             };
             let body = rmp_serde::to_vec_named(&start).unwrap();
             assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);

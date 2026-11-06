@@ -170,7 +170,7 @@ pub(super) struct Start<'a> {
     pub(super) id: String,
     pub(super) kind: &'a AgentKind,
     pub(super) cwd: &'a Path,
-    pub(super) prompt: Option<String>,
+    pub(super) prompt: Option<Prompt>,
     /// The agent's id of an earlier session to resume instead of a new one.
     pub(super) resume: Option<String>,
     /// The resumed session's transcript from before the node restarted.
@@ -330,7 +330,7 @@ impl Session {
             cwd: cwd.to_path_buf(),
             acp_session: None,
             takes_images: None,
-            queued: prompt.map(Prompt::from).into_iter().collect(),
+            queued: prompt.into_iter().collect(),
             steers: VecDeque::new(),
             sent: 0,
             turn: None,

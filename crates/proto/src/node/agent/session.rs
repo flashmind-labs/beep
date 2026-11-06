@@ -15,7 +15,8 @@ pub enum Request {
     /// `None`) on `prompt`, on `model` when given (an id from
     /// `SessionsRequest::Models`) and thinking at `effort` when given.
     /// With `checkout`, it first makes the branch or worktree it names in
-    /// `cwd`'s git checkout and starts there. A node from before any of
+    /// `cwd`'s git checkout and starts there. `images` go with the first
+    /// prompt, as `PromptImages` sends them. A node from before any of
     /// these ignores it; one that makes checkouts says so with
     /// `NodeHello::checkouts`.
     Start {
@@ -27,6 +28,8 @@ pub enum Request {
         effort: Option<Effort>,
         #[serde(default)]
         checkout: Option<CheckoutPlan>,
+        #[serde(default)]
+        images: Vec<Upload>,
     },
     /// The first message: follows a session that already runs.
     Attach { session: String },

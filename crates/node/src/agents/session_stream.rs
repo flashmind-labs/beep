@@ -43,18 +43,23 @@ pub async fn serve_session(
             model,
             effort,
             checkout,
-        } => {
-            let begin = Begin {
-                prompt: Some(prompt),
-                model: model.map(ModelId::new),
-                effort,
-                ..Begin::default()
-            };
-            agents
-                .start_in(&kind, cwd.as_deref(), checkout, begin)
-                .await
-                .map_err(|e| format!("{e:#}"))
-        }
+            images,
+        } => match Prompt::with_images(prompt, images) {
+            Ok(Prompt { text, images }) => {
+                let begin = Begin {
+                    prompt: Some(text),
+                    images,
+                    model: model.map(ModelId::new),
+                    effort,
+                    ..Begin::default()
+                };
+                agents
+                    .start_in(&kind, cwd.as_deref(), checkout, begin)
+                    .await
+                    .map_err(|e| format!("{e:#}"))
+            }
+            Err(e) => Err(e),
+        },
         Request::Resume { session, prompt } => agents
             .resume(&kind, &session, prompt)
             .await
