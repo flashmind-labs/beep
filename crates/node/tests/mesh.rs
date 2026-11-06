@@ -8,7 +8,11 @@
 //! each under a generous outer timeout; nothing sleeps.
 
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
-use beep_node::link::peers::ReportError;
+use beep_node::link::{
+    Offers,
+    peers::{Peers, ReportError},
+};
+use beep_node::machine::provision::Provision;
 use beep_proto::node::{
     Down, LinkRx, LinkTx, NODE_ALPN, NODE_ALPN_NAMED, NodeHello, Open, Opened,
     agent::{
@@ -2070,6 +2074,73 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
         );
     }
     assert!(!marker.exists());
+}
+
+/// A desktop with its node in this process, as the Mac app runs it with Let
+/// Beep use this Mac on: it creates the mesh and serves its streams through
+/// `Peers`, the offers it was given answering them.
+async fn desktop_with_node() -> (Member, Offers) {
+    let dir = TempDir::new().expect("a temp folder");
+    let endpoint = bind(&SecretKey::generate()).await;
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .expect("the mesh is created");
+    let offers = Offers::local(&[], Provision::new(dir.path()), false);
+    let peers = Peers::new(
+        endpoint.clone(),
+        dir.path().to_path_buf(),
+        "desktop".to_owned(),
+        offers.clone(),
+    );
+    let router = Router::builder(endpoint)
+        .accept(PEER_ALPN, peers.peer_handler())
+        .accept(JOIN_ALPN, peers.join_handler())
+        .spawn();
+    peers.install(mesh.clone());
+    let member = Member {
+        mesh,
+        _router: router,
+        _dir: dir,
+    };
+    (member, offers)
+}
+
+/// Issue #390: a node's agent ran remote_run on the desktop Mac, which was online with its node
+/// on, and was turned away. It runs there like on any node, and with the setting off it says so.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_runs_a_command_on_a_desktop_that_lends_itself() {
+    let (desktop, offers) = desktop_with_node().await;
+    let work = TempDir::new().expect("a temp folder");
+    let sent = work.path().join("sent.jsonl");
+    let node = Node::start(Config {
+        name: Some("box-a"),
+        agent: Some(adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let mut mcp = agent_mcp(&desktop, &node, work.path(), &sent).await;
+    let call = json!({ "machine": "desktop", "command": "echo ran-on-the-mac" });
+    let (text, failed) = timeout(LIMIT, async {
+        loop {
+            let (text, failed) = mcp.call("remote_run", call.clone()).await;
+            // The node's link to the desktop may still be coming up.
+            if !text.contains("Could not reach") {
+                return (text, failed);
+            }
+        }
+    })
+    .await
+    .expect("the desktop answered in time");
+    assert!(!failed && text.contains("ran-on-the-mac"), "{text}");
+    offers.lend_to_peers(false);
+    let (text, failed) = mcp.call("remote_run", call).await;
+    assert!(failed, "{text}");
+    assert_eq!(
+        text,
+        "desktop doesn't run commands: Let Beep use this Mac is off in its Settings."
+    );
 }
 
 #[cfg(unix)]

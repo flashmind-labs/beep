@@ -897,6 +897,28 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
 }
 
+/// Why another node's `remote_run` may not run here, or `None`: the host
+/// lends this machine to no other device ("Let Beep use this Mac" is off).
+fn commands_off(offers: &Offers) -> Option<String> {
+    if offers.lends_to_peers() {
+        return None;
+    }
+    let name = offers
+        .mesh
+        .get()
+        .and_then(|mesh| {
+            let me = mesh.me();
+            mesh.devices()
+                .into_iter()
+                .find(|status| status.device.id == me)
+                .map(|status| status.device.name)
+        })
+        .unwrap_or_else(|| "This machine".to_owned());
+    Some(format!(
+        "{name} doesn't run commands: Let Beep use this Mac is off in its Settings."
+    ))
+}
+
 /// Serves a session stream that opened with `open`, if `who` may use it.
 pub(crate) async fn serve_open(
     mut tx: LinkTx,
@@ -937,7 +959,8 @@ pub(crate) async fn serve_open(
                 Who::Everything(_) => Caller::local(&offers),
                 Who::Node { peer, desktop_here } => Caller {
                     table: tasks::Table::Peer(peer),
-                    may_run_on_here: !desktop_here,
+                    desktop_here,
+                    commands_off: commands_off(&offers),
                     transfers: offers.transfers.get(),
                     agents: Some(offers.agents.clone()),
                 },
