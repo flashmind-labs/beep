@@ -4,6 +4,7 @@
 import { agentLabel } from "../project/projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { money, tokenCount } from "../ui/format.ts";
+import { onShownChange, pageShown } from "../ui/active.ts";
 
 export interface UsageWindow {
   minutes: number;
@@ -309,8 +310,9 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
 
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
   document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
-  const reload = () => { if (document.visibilityState === "visible") void load(false); };
+  const reload = () => { if (pageShown()) void load(false); };
   setInterval(reload, POLL_MS);
+  onShownChange(shown => { if (shown) reload(); });
   void load(false);
   return reload;
 }
