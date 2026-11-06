@@ -175,8 +175,8 @@ pub(super) struct Start<'a> {
     pub(super) follows: Option<watch::Receiver<Live>>,
     /// A first line for its transcript, such as the branch it started on.
     pub(super) note: Option<String>,
-    /// Beep's word to the agent, sent ahead of the first prompt and kept
-    /// out of the transcript.
+    /// Beep's word to the agent, kept out of the transcript: in its system
+    /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
@@ -252,11 +252,6 @@ impl Session {
             alerts,
             node,
         } = start;
-        let brief = match (brief, &mcp) {
-            (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::agents::mcp::BRIEF)),
-            (None, Some(_)) => Some(crate::agents::mcp::BRIEF.to_owned()),
-            (brief, None) => brief.map(Cow::into_owned),
-        };
         // Only a new session takes a model and thinking level; a resumed
         // one keeps its own.
         let model = model.filter(|_| resume.is_none());
@@ -326,7 +321,7 @@ impl Session {
             stopping: None,
             stop_within,
             running: HashSet::new(),
-            brief,
+            brief: brief.map(Cow::into_owned),
             mcp_servers: mcp.into_iter().collect(),
             resume,
             model,

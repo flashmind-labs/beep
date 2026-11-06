@@ -15,7 +15,7 @@ use agent_client_protocol::{
             RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest,
             SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
             SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions,
-            SessionId, SessionModeState, SetSessionConfigOptionRequest, TextContent,
+            SessionId, SessionModeState, SetSessionConfigOptionRequest, SystemPrompt, TextContent,
         },
     },
 };
@@ -224,34 +224,61 @@ struct AcpModel {
     description: Option<String>,
 }
 
-/// `session/new` in `cwd`, sent untyped so the answer keeps `models`, which
-/// the crate's typed answer drops.
+/// Whether the agent the `initialize` answer describes takes a system
+/// prompt on `session/new`, `session/load` and `session/resume` (ACP's
+/// unstable `sessionCapabilities.systemPrompt`; every such agent appends).
+pub(super) fn takes_system_prompt(initialized: &InitializeResponse) -> bool {
+    initialized
+        .agent_capabilities
+        .session_capabilities
+        .system_prompt
+        .is_some()
+}
+
+/// `text` appended to the agent's own system prompt.
+fn system_prompt(text: &str) -> SystemPrompt {
+    SystemPrompt::new(vec![ContentBlock::Text(TextContent::new(text))])
+}
+
+/// `session/new` in `cwd`, with `brief` appended to the agent's system
+/// prompt, sent untyped so the answer keeps `models`, which the crate's
+/// typed answer drops.
 pub(super) fn new_session(
     cwd: &Path,
     mcp_servers: Vec<McpServer>,
+    brief: Option<&str>,
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
     UntypedMessage::new(
         AGENT_METHOD_NAMES.session_new,
-        NewSessionRequest::new(cwd).mcp_servers(mcp_servers),
+        NewSessionRequest::new(cwd)
+            .mcp_servers(mcp_servers)
+            .system_prompt(brief.map(system_prompt)),
     )
 }
 
-/// `session/load` or `session/resume` of `session` in `cwd`, sent untyped
-/// so the answer keeps `models`, as `new_session` does.
+/// `session/load` or `session/resume` of `session` in `cwd`, with `brief`
+/// appended to the agent's system prompt, sent untyped so the answer keeps
+/// `models`, as `new_session` does.
 pub(super) fn resume_session(
     method: ResumeMethod,
     session: SessionId,
     cwd: &Path,
     mcp_servers: Vec<McpServer>,
+    brief: Option<&str>,
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    let brief = brief.map(system_prompt);
     match method {
         ResumeMethod::Load => UntypedMessage::new(
             AGENT_METHOD_NAMES.session_load,
-            LoadSessionRequest::new(session, cwd).mcp_servers(mcp_servers),
+            LoadSessionRequest::new(session, cwd)
+                .mcp_servers(mcp_servers)
+                .system_prompt(brief),
         ),
         ResumeMethod::Resume => UntypedMessage::new(
             AGENT_METHOD_NAMES.session_resume,
-            ResumeSessionRequest::new(session, cwd).mcp_servers(mcp_servers),
+            ResumeSessionRequest::new(session, cwd)
+                .mcp_servers(mcp_servers)
+                .system_prompt(brief),
         ),
     }
 }

@@ -28,7 +28,7 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
-agent-client-protocol = { version = "3.6", features = ["unstable_end_turn_token_usage"] }
+agent-client-protocol = { version = "3.6", features = ["unstable_end_turn_token_usage", "unstable_session_system_prompt"] }
 anyhow = "1"
 bao-tree = "0.17"
 base64 = "0.22"
