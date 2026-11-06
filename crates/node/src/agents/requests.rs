@@ -18,6 +18,7 @@ use tokio::{
     task::{JoinHandle, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval, timeout},
 };
+use tokio_util::task::AbortOnDropHandle;
 
 /// How long a worktree list may take, the path check and git together.
 const WORKTREES_WAIT: Duration = Duration::from_secs(8);
@@ -91,6 +92,38 @@ fn shown_entries(mut entries: Vec<agent::Entry>, thoughts: bool) -> Vec<agent::E
     entries
 }
 
+/// How long an `agents/1` answer may take before the node logs it as slow.
+const SLOW_ANSWER: Duration = Duration::from_secs(20);
+
+/// Logs it when the answer to `request` from `caller` takes over
+/// `SLOW_ANSWER`, unless dropped first. A request that streams is not
+/// watched (#428).
+fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDropHandle<()>> {
+    let what = match request {
+        SessionsRequest::Watch { .. }
+        | SessionsRequest::FollowImages {}
+        | SessionsRequest::FollowAlerts {}
+        | SessionsRequest::FollowRuns {}
+        | SessionsRequest::FollowUsage { .. } => return None,
+        // Neither carries its images or bytes into the log.
+        SessionsRequest::Steer { session, .. } => format!("Steer for session {session}"),
+        SessionsRequest::WriteFile { path, .. } => format!("WriteFile {path}"),
+        other => format!("{other:?}").chars().take(300).collect(),
+    };
+    Some(warn_if_slow(format!(
+        "agents/1 {what} from {}",
+        caller.fmt_short()
+    )))
+}
+
+/// Logs `what` as unanswered once `SLOW_ANSWER` passes, unless dropped first.
+pub(super) fn warn_if_slow(what: String) -> AbortOnDropHandle<()> {
+    AbortOnDropHandle::new(tokio::spawn(async move {
+        tokio::time::sleep(SLOW_ANSWER).await;
+        log::warn!("no answer after {} s to {what}", SLOW_ANSWER.as_secs());
+    }))
+}
+
 /// Serves one `agents/1` request.
 /// `caller` is the key of whoever opened the stream.
 pub async fn serve_sessions(
@@ -102,6 +135,7 @@ pub async fn serve_sessions(
     let Some(request) = rx.recv::<SessionsRequest>().await? else {
         return Ok(());
     };
+    let _slow = watch_slow(&request, caller);
     let reply = match request {
         SessionsRequest::List {} => SessionsReply::Sessions {
             sessions: agents.list(),
