@@ -259,10 +259,12 @@ export function entryRow(en: AgentEntry, at: number) {
           : "").join("");
     const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
     if (!own && others) return others;
-    const { names } = userImages(own);
+    const { names, text: words } = userImages(own);
     // The user's words come as Markdown HTML, its pasted blocks folded;
     // the ones the reader opened stay open.
-    const said = (en.html ?? "").replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
+    // A message just sent has no HTML until the next read: its text shows meanwhile.
+    const html = en.html ?? (words ? `<p>${esc(words).replace(/\n/g, "<br>")}</p>` : "");
+    const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
     return others + userRowHtml(said, ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "", true);
   }
   // The pictures the agent or a tool showed go after the text, as a
