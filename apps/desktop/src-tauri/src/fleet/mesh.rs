@@ -9,11 +9,7 @@ use beep_node::{
     },
     link::peers::Peers,
 };
-use beep_proto::{
-    client::PushHandler,
-    node::{sync, transfer},
-    wire::PUSH_ALPN,
-};
+use beep_proto::node::{sync, transfer};
 use iroh::{Endpoint, protocol::Router};
 use std::{
     env, mem,
@@ -80,15 +76,12 @@ impl Drop for Settle<'_> {
 }
 
 impl Serving {
-    /// Serves the mesh, joins and, with a server, its notices on `endpoint`
-    /// at once. Connections for blobs and sync wait for `start_services`.
-    pub(super) fn spawn(endpoint: &Endpoint, peers: &Peers, push: Option<PushHandler>) -> Self {
-        let mut router = Router::builder(endpoint.clone())
+    /// Serves the mesh and joins on `endpoint` at once. Connections for
+    /// blobs and sync wait for `start_services`.
+    pub(super) fn spawn(endpoint: &Endpoint, peers: &Peers) -> Self {
+        let router = Router::builder(endpoint.clone())
             .accept(PEER_ALPN, peers.peer_handler())
             .accept(JOIN_ALPN, peers.join_handler());
-        if let Some(push) = push {
-            router = router.accept(PUSH_ALPN, push);
-        }
         let late = Late::default();
         Self {
             router: late.add_to(router).spawn(),

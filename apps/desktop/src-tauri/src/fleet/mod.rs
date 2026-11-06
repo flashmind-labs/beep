@@ -29,7 +29,6 @@ use beep_node::{
     files::Folders,
     link::{Offers, peers::Peers},
 };
-use beep_proto::client::PushHandler;
 use iroh::{Endpoint, EndpointId};
 use mesh::Serving;
 pub(crate) use parents::SessionParent;
@@ -164,15 +163,15 @@ impl Fleet {
 
     /// `serve`, then `start_services`. Takes the time it takes and is meant
     /// to run in the background.
-    pub async fn run(&self, push: Option<PushHandler>) {
-        self.serve(push).await;
+    pub async fn run(&self) {
+        self.serve().await;
         self.start_services().await;
     }
 
-    /// Answers peers on the endpoint, and `push` for a server's notices,
-    /// and opens the mesh. Quick: it waits for no service.
-    async fn serve(&self, push: Option<PushHandler>) {
-        let serving = Arc::new(Serving::spawn(&self.endpoint, &self.peers, push));
+    /// Answers peers on the endpoint and opens the mesh. Quick: it waits
+    /// for no service.
+    async fn serve(&self) {
+        let serving = Arc::new(Serving::spawn(&self.endpoint, &self.peers));
         *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(serving);
         self.open().await;
     }
@@ -423,7 +422,6 @@ mod tests {
         status::Report,
         tools::{self, Reply, Request, Tool},
     };
-    use beep_proto::{client::Node, wire::PUSH_ALPN};
     use iroh::{SecretKey, endpoint::presets, protocol::Router};
     use std::{
         sync::Arc,
@@ -459,7 +457,7 @@ mod tests {
         let dir = TempDir::new().expect("a temp dir");
         let endpoint = bind(&SecretKey::generate()).await;
         let fleet = Arc::new(Fleet::new(endpoint.clone(), dir.path(), name, offers(&dir)));
-        fleet.run(None).await;
+        fleet.run().await;
         Mac {
             fleet,
             endpoint,
@@ -530,7 +528,7 @@ mod tests {
             "Studio",
             offers(&mac.dir),
         );
-        again.run(None).await;
+        again.run().await;
         assert_eq!(again.machines().len(), 1);
         again.stop().await;
     }
@@ -612,7 +610,7 @@ mod tests {
             .expect("the desktop joins");
         drop(joined);
         let second = Fleet::new(endpoint, dir.path(), "Laptop", offers(&dir));
-        second.run(None).await;
+        second.run().await;
         let theirs = second.mesh().expect("the joined mesh opens");
         until(&theirs, |mesh| online(mesh, first.fleet.id())).await;
         let mut machines: Vec<_> = second
@@ -738,22 +736,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_push_is_accepted_while_the_services_are_still_starting() {
-        let dir = TempDir::new().expect("a temp dir");
-        let endpoint = bind(&SecretKey::generate()).await;
-        let server = bind(&SecretKey::generate()).await;
-        let (_node, push) = Node::on_endpoint(endpoint.clone(), server.addr(), Arc::new(|_| true));
-        let fleet = Fleet::new(endpoint.clone(), dir.path(), "Studio", offers(&dir));
-        // The services are held back: `start_services` is not called.
-        fleet.serve(Some(push)).await;
-        let connection = timeout(LIMIT, server.connect(endpoint.addr(), PUSH_ALPN))
-            .await
-            .expect("answered in time")
-            .expect("the push connection is accepted");
-        assert!(connection.close_reason().is_none());
-    }
-
-    #[tokio::test]
     async fn a_local_sync_call_waits_for_the_services_and_a_shell_does_not() {
         let dir = TempDir::new().expect("a temp dir");
         let endpoint = bind(&SecretKey::generate()).await;
@@ -789,7 +771,7 @@ mod tests {
         .expect("a broken list");
         let endpoint = bind(&SecretKey::generate()).await;
         let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
-        fleet.run(None).await;
+        fleet.run().await;
         let started = Instant::now();
         let error = fleet
             .client(SecretKey::generate().public())
@@ -843,7 +825,7 @@ mod tests {
         carry::save(dir.path(), &[(Key::Flsh, b"keep".to_vec())]).expect("saved");
         let endpoint = bind(&SecretKey::generate()).await;
         let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
-        fleet.run(None).await;
+        fleet.run().await;
         let mesh = fleet.mesh().expect("the mesh is open");
         assert_eq!(mesh.get(&Key::Flsh), Some(b"keep".to_vec()));
         assert!(!dir.path().join("carry.json").exists());
@@ -857,7 +839,7 @@ mod tests {
         let node_offers = offers(&dir);
         let endpoint = bind(&SecretKey::generate()).await;
         let laptop = Fleet::new(endpoint, dir.path(), "Laptop", node_offers.clone());
-        laptop.run(None).await;
+        laptop.run().await;
         laptop.join(&ticket, "Laptop").await.expect("joins");
         // A setting the first Mac writes in the mesh the Laptop joined
         // reaches the Laptop's node, which followed its old mesh before.

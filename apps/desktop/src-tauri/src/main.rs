@@ -19,7 +19,7 @@ mod voice;
 
 use agents::artifacts;
 use beep::{Beep, state::StateFile};
-use beep_proto::client::bind_endpoint;
+use beep_proto::port::bind_endpoint;
 use fleet::Fleet;
 use std::{sync::Arc, time::Duration};
 use tauri::{ActivationPolicy, App, AppHandle, Manager, RunEvent, WindowEvent};
@@ -528,8 +528,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         beep_fleet::Options::default(),
         projects::live::changed(handle.clone()),
     )?);
-    let (opening, push) = (fleet.clone(), beep.push());
-    tauri::async_runtime::spawn(async move { opening.run(push).await });
+    let opening = fleet.clone();
+    tauri::async_runtime::spawn(async move { opening.run().await });
     // An account with a server moves into the mesh in the background, after Home has drawn.
     fleet::migrate::start(handle.clone());
     app.manage(machine);
