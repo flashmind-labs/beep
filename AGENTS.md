@@ -345,6 +345,10 @@ applies too; one it cannot read refuses the folder and says why.
 - Peers talk `beep-sync/3`. Nodes on `beep-sync/1` or `/2` do not sync with it.
 - Add on a project's machine row makes the folder there and joins sync: the empty
   folder takes the files and `.git` from the others (`Desk::add_to_machine`).
+- Remove on a row takes the machine out of `sync/<name>` (the record goes below two)
+  and deletes its place; the node stops and its folder stays untouched
+  (`Desk::remove_from_machine`). The last machine and one with an open agent session
+  are refused. Only an import or Add writes a place, so it does not come back by itself.
 
 A session also moves on a project Syncthing keeps in step: folders come from the place records when `sync/<name>` does not name the machine, and the target trusts Syncthing, waiting up to two minutes for its folder to be complete. A project neither keeps is refused before the source stops.
 

@@ -1232,6 +1232,102 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
     assert!(made(&at_full).is_empty());
 }
 
+/// The machines a desk lists the project on, in order.
+async fn on(desk: &Desk) -> Vec<EndpointId> {
+    let mut ids: Vec<EndpointId> = desk
+        .imported()
+        .await
+        .iter()
+        .map(|p| p.machine_id.parse().expect("an id"))
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+#[tokio::test]
+async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one() {
+    let f = fleet().await;
+    let mut others = Vec::new();
+    for name in ["mac-box", "mini-box"] {
+        let dev = join(&f.studio, DeviceKind::Node, name).await;
+        until(&f.studio.mesh, |m| online(m, dev.id)).await;
+        others.push(dev);
+    }
+    let fakes = [
+        Arc::new(FakeNode::default()),
+        Arc::new(FakeNode::default()),
+        Arc::new(FakeNode::default()),
+    ];
+    let devs = [&f.build, &others[0], &others[1]];
+    let nodes: Vec<(&Dev, &Arc<FakeNode>)> = devs.iter().copied().zip(fakes.iter()).collect();
+    let studio = desk(&f.studio, &nodes).await;
+    for dev in devs {
+        studio
+            .import(ImportJob {
+                repo: "acme/widget",
+                machine_id: Some(&dev.id.to_string()),
+                folder: None,
+                parent: None,
+                worktrees: &[],
+            })
+            .await
+            .expect("the import works");
+    }
+    let key = Key::Sync("acme/widget".to_owned());
+    let spec = |mesh: &Mesh| {
+        mesh.get(&key)
+            .map(|bytes| SyncSpec::from_bytes(&bytes).expect("a spec reads"))
+    };
+    let sorted = |mut ids: Vec<EndpointId>| {
+        ids.sort_unstable();
+        ids
+    };
+    assert_eq!(spec(&f.studio.mesh).expect("synced").folders.len(), 3);
+
+    // Off one of three: the other two keep syncing with each other.
+    studio
+        .remove_from_machine("ACME/widget", &others[1].id.to_string())
+        .await
+        .expect("it is removed");
+    let left = spec(&f.studio.mesh).expect("still synced");
+    assert_eq!(
+        left.folders.keys().copied().collect::<Vec<_>>(),
+        sorted(vec![f.build.id, others[0].id])
+    );
+    assert_eq!(on(&studio).await, sorted(vec![f.build.id, others[0].id]));
+
+    // Off one of two: nothing left to sync with, so the record goes.
+    studio
+        .remove_from_machine("acme/widget", &others[0].id.to_string())
+        .await
+        .expect("it is removed");
+    assert_eq!(spec(&f.studio.mesh), None);
+    assert_eq!(on(&studio).await, vec![f.build.id]);
+
+    // A new session puts every project on two machines in sync: the removed ones stay out.
+    let session = Session::new(peering(&f.studio, &nodes, &[]), Options::default(), |_| {})
+        .expect("a session");
+    let again = session.desk().await.expect("the desk opens");
+    assert_eq!(spec(&f.studio.mesh), None);
+    assert_eq!(on(&again).await, vec![f.build.id]);
+
+    // The last machine keeps it, and one without it has nothing to remove.
+    let refused = |said: Result<(), FleetError>| match said {
+        Err(FleetError::Refused(text)) => text,
+        Err(e) => panic!("another error: {e}"),
+        Ok(()) => panic!("it was not refused"),
+    };
+    let said = studio
+        .remove_from_machine("acme/widget", &f.build.id.to_string())
+        .await;
+    assert_eq!(refused(said), "A project stays on at least one machine.");
+    let said = studio
+        .remove_from_machine("acme/widget", &others[0].id.to_string())
+        .await;
+    assert_eq!(refused(said), "acme/widget is not on mac-box.");
+    assert_eq!(on(&studio).await, vec![f.build.id]);
+}
+
 #[tokio::test]
 async fn two_desktops_saving_instructions_keep_both_versions() {
     let f = fleet().await;

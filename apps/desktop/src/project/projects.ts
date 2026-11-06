@@ -9,7 +9,8 @@ import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { pages, state, warm, pageFresh } from "../center/state.ts";
 import { projectDot, section, plusLabel } from "../ui/pieces.ts";
-import { machineMenu } from "../machines/table.ts";
+import { machineMenuWith } from "../machines/table.ts";
+import { removeButton, removeMenuItems } from "./removemachine.ts";
 import { runningRow } from "../center/home.ts";
 import { single } from "../center/openitems.ts";
 import { setProjectOnTop, newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
@@ -205,8 +206,9 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   where.style.gridTemplateColumns = "fit-content(40%) minmax(0,1fr) auto";
   for (const m of rows) {
     const cells = whereRow(p, m);
+    if (m.kind === "here" && p.imported) cells[2]?.append(removeButton(p.name, rows, m));
     where.append(...cells);
-    if (m.id) machineMenu({ id: m.id, name: m.name, online: m.kind !== "offline" }, ...cells);
+    if (m.id) machineMenuWith({ id: m.id, name: m.name, online: m.kind !== "offline" }, () => p.imported ? removeMenuItems(p.name, rows, m) : [], ...cells);
   }
   // Once every machine answered, the note says the count instead.
   return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,

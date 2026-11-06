@@ -49,6 +49,8 @@ const MAX_IMPORT_WORKTREES: usize = 20;
 const FALLBACK_DEFAULT: &str = "main";
 /// The most repositories one host lists.
 const MAX_REPOS: usize = 100;
+/// Why the last machine with a project keeps it.
+const LAST_MACHINE: &str = "A project stays on at least one machine.";
 
 fn row(stored: &Stored, machine: EndpointId, place: &Place) -> ImportRow {
     ImportRow {
@@ -477,6 +479,48 @@ impl Desk {
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
         sync_checkouts(&self.mesh, &stored).await?;
         Ok(flow::project(row(&stored, id, &place), name.clone(), false))
+    }
+
+    /// Takes `project` off `machine`: the machine leaves the project's sync and its checkout record
+    /// goes, so the node there stops syncing the folder and leaves every file in it as it is. With
+    /// one machine left the sync record goes too. Only an import or Add writes a checkout record,
+    /// so the machine comes back only when the user puts the project there again. The last
+    /// machine is refused: a project stays on at least one.
+    pub async fn remove_from_machine(&self, project: &str, machine: &str) -> Result<()> {
+        let id: EndpointId = machine.parse().map_err(|_| ImportError::NoSuchMachine)?;
+        let _write = WRITES.lock().await;
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        if !stored.places.contains_key(&id) {
+            return Err(FleetError::refused(format!(
+                "{} is not on {}.",
+                stored.name,
+                self.name_of(id)
+            )));
+        }
+        // A machine gone from the mesh holds nothing, so only members count.
+        let members = stored
+            .places
+            .keys()
+            .filter(|on| self.mesh.is_member(**on))
+            .count();
+        if self.mesh.is_member(id) && members < 2 {
+            return Err(FleetError::refused(LAST_MACHINE));
+        }
+        let key = Key::Sync(stored.name.clone());
+        if self.mesh.get(&key).is_some() {
+            let Some(mut spec) = read::<SyncSpec>(&self.mesh, &key) else {
+                return Err(FleetError::refused(
+                    "A newer Beep wrote this project's sync. Update Beep here first.",
+                ));
+            };
+            // A pinned project names no machine: it stays pinned.
+            if spec.folders.remove(&id).is_some() {
+                let left = (spec.folders.len() >= 2).then_some(&spec);
+                write(&self.mesh, key, left).await?;
+            }
+        }
+        write::<Place>(&self.mesh, place_key(&stored.name, id), None).await?;
+        Ok(())
     }
 
     /// Makes the project `request` asks for.
