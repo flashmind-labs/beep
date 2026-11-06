@@ -199,6 +199,8 @@ pub(crate) async fn serve(
     let mut tick = interval(POLL);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
+        // Once hooks report for every session, no transcript is read.
+        let polling = trackers.iter().any(|tracker| !tracker.hooked);
         tokio::select! {
             event = events.recv() => match event {
                 Ok(activity) => {
@@ -211,7 +213,7 @@ pub(crate) async fn serve(
                 Err(RecvError::Lagged(missed)) => log::debug!("watch missed {missed} hook events"),
                 Err(RecvError::Closed) => return Ok(()),
             },
-            _ = tick.tick() => {
+            _ = tick.tick(), if polling => {
                 let (back, due) = spawn_blocking(move || {
                     let due: Vec<Activity> = trackers.iter_mut().flat_map(Tracker::poll).collect();
                     (trackers, due)
