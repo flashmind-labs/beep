@@ -17,7 +17,7 @@ export interface GitRow {
 export type GitMove = "pull" | "push";
 
 /// How a row reads: the words after the branch, which buttons work, and
-/// whether there are buttons at all.
+/// whether there are buttons at all. The counts are on the buttons.
 export interface GitLine {
   branch: string | null;
   text: string;
@@ -27,13 +27,6 @@ export interface GitLine {
   error: boolean;
 }
 
-/// "2 ahead, 1 behind", "not pushed", "up to date".
-export function distance(row: Pick<GitRow, "upstream" | "ahead" | "behind">): string {
-  if (!row.upstream) return "not pushed";
-  const parts = [row.ahead ? `${row.ahead} ahead` : "", row.behind ? `${row.behind} behind` : ""].filter(Boolean);
-  return parts.length ? parts.join(", ") : "up to date";
-}
-
 /// The line for one checkout. A button with nothing to do is off; with no
 /// upstream Push stays on, as the first push sets it.
 export function gitLine(row: GitRow): GitLine {
@@ -41,7 +34,8 @@ export function gitLine(row: GitRow): GitLine {
   if (!row.branch) return { branch: null, text: "Detached HEAD, nothing to pull or push", buttons: false, pull: false, push: false, error: false };
   return {
     branch: row.branch,
-    text: distance(row),
+    // The arrows say how far; only a branch never pushed needs words.
+    text: row.upstream ? "" : "not pushed",
     buttons: true,
     pull: !!row.upstream && row.behind > 0,
     push: !row.upstream || row.ahead > 0,
@@ -64,6 +58,14 @@ export function fixPrompt(branch: string | null, upstream: string | null): strin
 /// What a button says while its move runs.
 export function movingLabel(move: GitMove): string {
   return move === "pull" ? "Pulling…" : "Pushing…";
+}
+
+/// The tooltip of the Pull or Push icon: "Pull 3 commits", "Push 1 commit",
+/// or the bare verb with none to move.
+export function moveTitle(move: GitMove, commits: number): string {
+  const verb = move === "pull" ? "Pull" : "Push";
+  if (!commits) return verb;
+  return `${verb} ${commits} ${commits === 1 ? "commit" : "commits"}`;
 }
 
 /// The key a running or failed move is kept under.

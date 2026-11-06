@@ -327,6 +327,10 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-mt.pj-where .nm > * { flex-shrink: 0 }
 .cc-mt.pj-where .gs-line { display: block; font-size: 12px; color: var(--muted) }
 .cc-mt.pj-where .gs.err { color: var(--err) }
+.cc-mt.pj-where .gi { padding: 3px 6px }
+.cc-mt.pj-where .gi-in { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums }
+.cc-mt.pj-where .gi:disabled { opacity: .45 }
+.cc-mt.pj-where .gi .dspin { width: 10px; height: 10px }
 .cc-mt.pj-where .rmx { display: inline-grid; place-items: center; padding: 3px 5px }
 .cc-mt.pj-where .rmx:disabled { opacity: .4 }
 .cc-mt.pj-where .rmx-off { display: inline-flex }
