@@ -9,9 +9,11 @@ export function shortName(project: string) {
 }
 
 /// The folder a project goes in when `listing` is picked: that folder when it
-/// is there and empty, else one in it, named for the project.
-export function destination(listing: MachineFolder, project: string) {
-  if (listing.exists && listing.empty) return listing.path;
+/// is there and empty, or a checkout and `checkout` takes one, else one in
+/// it, named for the project.
+export function destination(listing: MachineFolder, project: string, checkout = false) {
+  if (listing.exists && (listing.empty || (checkout && listing.origin))) return listing.path;
+
   return `${listing.path.replace(/\/+$/, "")}/${shortName(project)}`;
 }
 

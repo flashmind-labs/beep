@@ -12,6 +12,7 @@ import { bytes, reason } from "../ui/format.ts";
 import { diffView } from "../review/diff.ts";
 import { compareFiles } from "./compare.ts";
 import { clockWarning, loadClocks } from "../machines/clock.ts";
+import { plainPath } from "./projects-state.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
 export interface SyncProgress {
@@ -29,7 +30,10 @@ export interface MachineDetail {
   machine_id: string;
   machine_name: string;
   folder: string;
-  /// `offline`, `scanning`, `syncing`, `in_sync` or `failed`.
+  /// `offline`, `scanning`, `syncing`, `in_sync`, `failed`, or as failed with
+  /// why: `missing` (its node makes the folder again and fills it),
+  /// `parent_missing` (the folder above it is gone too, as with a disk not
+  /// mounted) or `syncthing` (Syncthing keeps the folder in step).
   status: string;
   files: number;
   bytes: number;
@@ -70,6 +74,8 @@ export interface FileSyncDeps {
   redraw: () => void;
   /// Fills the bar of `project` to have an agent settle a conflict.
   fix?: (project: string, c: Conflict) => void;
+  /// Opens the sheet that points `project` on machine `m` at another folder.
+  changeFolder?: (project: string, m: MachineDetail) => void;
   /// Where each project's sync is kept between windows; in memory only
   /// without it.
   kept?: SectionStore<SyncDetail | null>;
@@ -97,8 +103,8 @@ export function timeLeft(secs: number | null | undefined) {
 
 /// Whether Syncthing keeps this machine's folder in step, so Beep leaves it
 /// alone until Syncthing pauses or lets go. The node says so in `error`.
-export function syncedBySyncthing(m: { error?: string | null }) {
-  return !!m.error?.startsWith("Already synced by Syncthing");
+export function syncedBySyncthing(m: { status?: string; error?: string | null }) {
+  return m.status === "syncthing" || !!m.error?.startsWith("Already synced by Syncthing");
 }
 
 /// How far a machine is, 0 to 100, or null while it is not moving files.
@@ -112,15 +118,43 @@ export function syncPct(m: Pick<MachineDetail, "status" | "progress" | "files" |
 }
 
 /// A machine's chip: "paused", "syncing 23%", "scanning", "in sync",
-/// "offline", "Synced by Syncthing" or "failed", and whether it asks for a look.
+/// "offline", "waiting for Syncthing", "folder missing", "disk missing" or
+/// "not syncing", and whether it asks for a look.
 export function stateChip(m: Pick<MachineDetail, "status" | "paused" | "progress" | "files" | "pending" | "conflicts"> & Partial<Pick<MachineDetail, "error">>): { text: string; wait: boolean } {
   if (m.status === "offline") return { text: "offline", wait: false };
-  if (syncedBySyncthing(m)) return { text: "Synced by Syncthing", wait: false };
+  if (syncedBySyncthing(m)) return { text: "waiting for Syncthing", wait: false };
+  if (m.status === "missing") return { text: "folder missing", wait: true };
+  if (m.status === "parent_missing") return { text: "disk missing", wait: true };
   if (m.paused) return { text: "paused", wait: false };
-  if (m.status === "failed") return { text: "failed", wait: true };
+  if (m.status === "failed") return { text: "not syncing", wait: true };
   if (m.status === "scanning") return { text: "scanning", wait: false };
   if (m.status === "syncing") return { text: `syncing ${syncPct(m)}%`, wait: false };
   return { text: "in sync", wait: m.conflicts.length > 0 };
+}
+
+/// What a machine's row says under its name when it does not sync, with the
+/// node's reason in the title: null while it syncs or says nothing.
+export function stateNote(m: Pick<MachineDetail, "status" | "error">): string | null {
+  if (m.status === "missing") return "The folder is gone. Beep makes it again and fills it from the other machines.";
+  if (m.status === "parent_missing") return "The folder above it is gone too, so nothing is made. Is its disk mounted?";
+  if (m.status === "syncthing") return "Syncthing keeps this folder in step. Beep syncs it once Syncthing pauses or lets go of it.";
+  return m.status === "failed" ? m.error : null;
+}
+
+/// The header's word for the whole project: "in sync" only when every
+/// machine is; else what holds it up.
+export function syncSummary(d: Pick<SyncDetail, "pinned" | "paused" | "machines">) {
+  if (d.pinned) return "pinned";
+  if (d.paused) return "paused on every machine";
+  const all = d.machines;
+  if (!all.length) return "";
+  const moving = all.filter(m => !m.paused && (m.status === "syncing" || m.status === "scanning")).length;
+  if (moving) return `${moving} syncing`;
+  const synced = all.filter(m => m.status === "in_sync" && !m.paused).length;
+  if (synced === all.length) return "in sync";
+  const off = all.filter(m => m.status === "offline").length;
+  const stuck = all.length - synced - off;
+  return [`${synced} of ${all.length} in sync`, stuck && `${stuck} not syncing`, off && `${off} offline`].filter(Boolean).join(" · ");
 }
 
 /// "1 change waiting", "3 changes waiting".
@@ -231,9 +265,9 @@ export function rowDetail(r: RowLike, name = "Machine"): MachineDetail {
 export function fileSyncTile(d: SyncDetail | null | undefined, rows?: readonly RowLike[] | null, names?: ReadonlyMap<string, string> | null): TileData {
   const machines: MachineDetail[] = d ? d.machines : (rows || []).map(r => rowDetail(r, names?.get(r.machine_id)));
   if (d === undefined && !machines.length) return { count: "", rows: [], empty: "Loading…" };
-  const moving = machines.filter(m => !m.paused && (m.status === "syncing" || m.status === "scanning")).length;
   const conflicts = conflictList({ machines }).length;
-  const count = d?.paused ? "paused" : moving ? `${moving} syncing` : conflicts ? conflictCount(conflicts) : machines.length ? "in sync" : "";
+  const summary = syncSummary({ pinned: !!d?.pinned, paused: !!d?.paused, machines });
+  const count = d?.paused ? "paused" : summary === "in sync" && conflicts ? conflictCount(conflicts) : summary;
   const out: TileRow[] = machines.map(m => {
     const chip = stateChip(m);
     return {
@@ -242,7 +276,7 @@ export function fileSyncTile(d: SyncDetail | null | undefined, rows?: readonly R
       dot: m.status === "offline" ? "off" : "",
       chip: chip.wait ? { cls: "wait", text: chip.text } : null,
       note: chip.wait ? "" : chip.text,
-      title: m.folder ? `${m.machine_name}: ${m.folder}` : m.machine_name,
+      title: m.folder ? `${m.machine_name}: ${plainPath(m.folder)}` : m.machine_name,
     };
   });
   return { count, rows: out, empty: d?.pinned ? "Pinned: it stays on the machines it is on" : "No machine syncs it" };
@@ -351,19 +385,24 @@ export function makeFileSync(deps: FileSyncDeps) {
     return act(name, c.path, () => invoke("project_sync_resolve", { project: name, machineId: c.resolver, path: c.path, keepCopy }));
   }
 
-  function machineRow(m: MachineDetail) {
+  function machineRow(name: string, m: MachineDetail) {
     const chip = stateChip(m);
     const pct = m.paused ? null : syncPct(m);
     const head = h("div", "fs-h", h("span", `ddot${m.status === "offline" ? " off" : ""}`), h("b", "", m.machine_name),
-      Object.assign(h("span", `chip${chip.wait ? " wait" : ""}`, chip.text), { title: syncedBySyncthing(m) ? m.error : "" }));
+      Object.assign(h("span", `chip${chip.wait ? " wait" : ""}`, chip.text), { title: m.error || "" }));
     const bar = pct == null ? null : h("div", "fs-bar", h("i", ""));
     if (bar) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
-    const meta = h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)), m.folder ? h("code", "", m.folder) : null);
+    const folder = plainPath(m.folder);
+    const meta = h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)), folder ? h("code", "", folder) : null);
     const row = h("div", "fs-row", head, bar, meta);
     const clock = clockWarning(m.machine_id, null);
     if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
-    if (m.error && !syncedBySyncthing(m)) row.append(h("div", "cc-err", m.error));
+    const note = stateNote(m);
+    if (note) row.append(Object.assign(h("div", m.status === "syncthing" ? "fs-m" : "cc-err", note), { title: m.error || "" }));
     if (m.hint) row.append(h("div", "fs-m", `Rescanned instead of watched. To watch it, run ${m.hint}`));
+    if (deps.changeFolder && m.status !== "offline" && m.folder) {
+      row.addEventListener("contextmenu", e => openMenu(e, m.machine_name, [{ label: "Change folder…", on: () => deps.changeFolder!(name, m) }]));
+    }
     return row;
   }
 
@@ -476,11 +515,10 @@ export function makeFileSync(deps: FileSyncDeps) {
     const toggle = button(s.busy === "pause" ? (d.paused ? "Resuming…" : "Pausing…") : d.paused ? "Resume" : "Pause", d.paused ? "pri" : "", () => pause(name, !d.paused));
     toggle.disabled = !!s.busy || d.pinned || !d.machines.length;
     toggle.title = d.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are";
-    const moving = d.machines.filter(m => !m.paused && m.status === "syncing").length;
-    const summary = d.pinned ? "pinned" : d.paused ? "paused on every machine" : moving ? `${moving} syncing` : d.machines.length ? "in sync" : "";
-    out.push(secHead(heading ?? "Machines", h("span", "fs-tools", h("small", "", summary), toggle)));
+    out.push(secHead(heading ?? "Machines", h("span", "fs-tools", h("small", "", syncSummary(d)), toggle)));
     out.push(h("div", "cc-panel fs-list", ...(d.machines.length
-      ? d.machines.map(machineRow)
+      ? d.machines.map(m => machineRow(name, m))
+
       : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: never syncs." : "No machine syncs this project."))])));
 
     const conflicts = conflictList(d);
