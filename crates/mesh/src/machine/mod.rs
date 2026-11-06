@@ -15,7 +15,7 @@ pub mod terminals;
 pub mod thumb;
 
 pub use agent::{
-    Makes, Opened, StartOn, checkout_for, node_request, open_agent, order, pick_agent,
+    Makes, Opened, StartOn, checkout_for, ended, node_request, open_agent, order, pick_agent,
     picked_effort, picked_model, queued_instead,
 };
 pub use listing::{

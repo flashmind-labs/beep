@@ -95,6 +95,12 @@ impl<T: Clone + Send + 'static> Held<T> {
             .clone()
     }
 
+    /// Changes the list as held, for what this app knows before the next read.
+    pub(crate) fn edit(&self, change: impl FnOnce(&mut [T])) {
+        let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
+        change(held.as_mut_slice());
+    }
+
     /// Allows a refresh, unless one runs: one at a time.
     fn begin(self: &Arc<Self>) -> Option<Refresh<T>> {
         (!self.refreshing.swap(true, Ordering::Relaxed)).then(|| Refresh(self.clone()))
