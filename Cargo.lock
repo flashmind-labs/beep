@@ -656,11 +656,15 @@ dependencies = [
 name = "beep-report"
 version = "0.1.0"
 dependencies = [
+ "beep-mesh",
+ "beep-proto",
  "chrono",
+ "iroh",
  "regex",
  "serde",
  "strum 0.28.0",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
