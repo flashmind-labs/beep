@@ -16,6 +16,7 @@ use beep_proto::node::{
     },
     link,
     process::{Reply as ProcessReply, Request as ProcessRequest},
+    report::{PROTOCOL as REPORT, Reply as ReportReply, Request as ReportRequest},
     shell::{Event as ShellEvent, PROTOCOL as SHELL, Request as ShellRequest},
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
@@ -690,6 +691,44 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
         Some(Report::Offers(offers)) => assert!(offers.iter().any(|o| o == SHELL)),
         other => panic!("not the offers: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn another_node_gets_a_report_with_status_and_version() {
+    let desktop = desktop(None).await;
+    let node = Node::start(Config {
+        name: Some("build-box"),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let other = peer_node(&desktop).await;
+    let conn = other.reach(node.id).await;
+    let mut stream = ready(&conn, REPORT).await;
+    stream
+        .tx
+        .send(&ReportRequest {
+            since: 0,
+            max_bytes: 1 << 16,
+        })
+        .await
+        .expect("the request is sent");
+    let reply = timeout(LIMIT, stream.rx.recv::<ReportReply>())
+        .await
+        .expect("the report came in time")
+        .expect("the report reads");
+    let Some(ReportReply::Share {
+        status,
+        version,
+        os,
+        ..
+    }) = reply
+    else {
+        panic!("not shared: {reply:?}");
+    };
+    assert_eq!(version, env!("CARGO_PKG_VERSION"));
+    assert!(status.contains("build-box"), "{status}");
+    assert!(!os.is_empty());
 }
 
 #[tokio::test]
