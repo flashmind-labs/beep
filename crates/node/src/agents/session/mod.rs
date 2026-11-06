@@ -196,6 +196,9 @@ pub(super) struct Start<'a> {
     /// Beep's word to the agent, kept out of the transcript: in its system
     /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
+    /// Beep's git rule for its folder (`checkout::rule`), which holds for
+    /// the whole session.
+    pub(super) rule: Option<&'static str>,
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
@@ -265,6 +268,7 @@ impl Session {
             follows,
             note,
             brief,
+            rule,
             mcp,
             images,
             usage,
@@ -343,6 +347,10 @@ impl Session {
             stop_within,
             running: HashSet::new(),
             brief: brief.map(Cow::into_owned),
+            standing: actor::joined(
+                rule.map(str::to_owned),
+                mcp.is_some().then_some(super::mcp::BRIEF),
+            ),
             mcp_servers: mcp.into_iter().collect(),
             resume,
             earlier,
