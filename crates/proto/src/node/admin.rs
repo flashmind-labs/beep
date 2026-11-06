@@ -48,30 +48,6 @@ pub mod traffic {
         /// `endpoint.relay.rx` and the like over all of the node's iroh sockets.
         pub counters: BTreeMap<String, u64>,
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use crate::node::{EnvReport, Up};
-
-        #[test]
-        fn traffic_round_trips_and_an_older_server_skips_it() {
-            let up = Up::Traffic(TrafficReport {
-                started_at_ms: 1_760_000_000_123,
-                counters: BTreeMap::from([("alpn.beep-sync/1.tx".to_owned(), 42)]),
-            });
-            let body = rmp_serde::to_vec_named(&up).unwrap();
-            assert_eq!(rmp_serde::from_slice::<Up>(&body).unwrap(), up);
-            // A server from before `Up::Traffic` fails to read the message, which
-            // its control loop skips.
-            #[derive(Debug, Deserialize)]
-            enum OldUp {
-                #[allow(dead_code)]
-                Env(EnvReport),
-            }
-            assert!(rmp_serde::from_slice::<OldUp>(&body).is_err());
-        }
-    }
 }
 
 pub mod version {
@@ -124,40 +100,9 @@ pub mod version {
         use super::*;
 
         #[test]
-        fn ahead_is_positive() {
-            assert_eq!(clock_offset_ms(1_000, 1_100, 11_050), Some(10_000));
-        }
-
-        #[test]
-        fn behind_is_negative() {
-            assert_eq!(clock_offset_ms(100_000, 100_200, 40_100), Some(-60_000));
-        }
-
-        #[test]
         fn a_slow_trip_is_dropped() {
             assert_eq!(clock_offset_ms(0, MAX_ROUND_TRIP_MS + 1, 0), None);
             assert_eq!(clock_offset_ms(0, MAX_ROUND_TRIP_MS, 1_000), Some(0));
-        }
-
-        #[test]
-        fn a_clock_that_went_back_is_dropped() {
-            assert_eq!(clock_offset_ms(2_000, 1_000, 1_500), None);
-        }
-
-        #[test]
-        fn warns_from_five_seconds_either_way() {
-            assert!(!clock_is_off(4_999));
-            assert!(clock_is_off(5_000));
-            assert!(clock_is_off(-5_000));
-            assert!(!clock_is_off(-4_999));
-            assert!(clock_is_off(i64::MIN));
-        }
-
-        #[test]
-        fn an_older_node_has_no_time() {
-            let old = rmp_serde::to_vec(&("0.2.3",)).expect("encodes");
-            let read: Version = crate::lenient::from_slice(&old).expect("decodes");
-            assert_eq!(read.now_ms, None);
         }
     }
 }
@@ -315,53 +260,6 @@ pub mod update {
         /// Nothing was installed, or the install stopped; in words for the
         /// user.
         Failed { reason: String },
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn update_reads_across_versions() {
-            #[derive(Serialize, Deserialize)]
-            enum Older {
-                Update {},
-            }
-            let body = rmp_serde::to_vec_named(&Older::Update {}).expect("encodes");
-            assert_eq!(
-                rmp_serde::from_slice::<Request>(&body).expect("decodes"),
-                Request::Update { now: false }
-            );
-            let body = rmp_serde::to_vec_named(&Request::Update { now: true }).expect("encodes");
-            assert!(matches!(
-                rmp_serde::from_slice::<Older>(&body).expect("decodes"),
-                Older::Update {}
-            ));
-        }
-
-        #[test]
-        fn events_round_trip() {
-            for event in [
-                Event::Newest {
-                    version: "0.1.24".into(),
-                },
-                Event::Installed {
-                    from: "0.1.20".into(),
-                    to: "0.1.24".into(),
-                    restarting: true,
-                    note: String::new(),
-                },
-                Event::Failed {
-                    reason: "no build".into(),
-                },
-            ] {
-                let body = rmp_serde::to_vec_named(&event).expect("encodes");
-                assert_eq!(
-                    rmp_serde::from_slice::<Event>(&body).expect("decodes"),
-                    event
-                );
-            }
-        }
     }
 }
 

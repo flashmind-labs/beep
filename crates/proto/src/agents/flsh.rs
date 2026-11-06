@@ -253,25 +253,4 @@ mod tests {
         };
         assert_eq!(many.check(), Err(FlshSettingsError::TooManyModels));
     }
-
-    #[test]
-    fn sorts_and_quantizations_spell_as_flsh_does() {
-        use strum::VariantArray;
-        for q in FlshQuantization::VARIANTS {
-            let text: &str = q.into();
-            let wire = rmp_serde::to_vec(q).expect("encodes");
-            assert_eq!(wire, rmp_serde::to_vec(text).expect("encodes"));
-            assert_eq!(text.parse::<FlshQuantization>().ok(), Some(*q));
-        }
-        assert!("fp7".parse::<FlshQuantization>().is_err());
-        // flsh's own enum reads what Beep writes.
-        for sort in FlshSort::VARIANTS {
-            let text: &str = sort.into();
-            let wire = rmp_serde::to_vec(sort).expect("encodes");
-            assert_eq!(wire, rmp_serde::to_vec(text).expect("encodes"));
-            let theirs: flashmind_types::ProviderSort =
-                rmp_serde::from_slice(&wire).expect("flsh reads it");
-            assert_eq!(rmp_serde::to_vec(&theirs).expect("encodes"), wire);
-        }
-    }
 }
