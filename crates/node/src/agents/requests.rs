@@ -153,7 +153,16 @@ pub async fn serve_sessions(
         }
         SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
         SessionsRequest::FollowAlerts {} => {
-            return send_alerts(tx, rx, &agents.alerts, caller).await;
+            return send_alerts(tx, rx, &agents.alerts, caller, |alert| {
+                SessionsReply::Alert { alert }
+            })
+            .await;
+        }
+        SessionsRequest::FollowRuns {} => {
+            return send_alerts(tx, rx, &agents.ci.runs, caller, |news| SessionsReply::Run {
+                news,
+            })
+            .await;
         }
         SessionsRequest::FollowUsage { history } => {
             return send_usage(tx, rx, &agents, history).await;
@@ -396,17 +405,18 @@ async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<
 }
 
 /// Sends each alert as it comes, until the caller closes the stream.
-async fn send_alerts(
+async fn send_alerts<T: Clone>(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    alerts: &AlertHub,
+    alerts: &AlertHub<T>,
     caller: EndpointId,
+    reply: impl Fn(T) -> SessionsReply,
 ) -> Result<()> {
     let follow = alerts.follow(caller);
     loop {
         tokio::select! {
             alert = follow.next() => {
-                tx.send(&SessionsReply::Alert { alert }).await?;
+                tx.send(&reply(alert)).await?;
                 follow.sent();
             }
             // The caller sends nothing more; anything is its goodbye.

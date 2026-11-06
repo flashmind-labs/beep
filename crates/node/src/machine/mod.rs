@@ -1,7 +1,8 @@
 //! The machine itself: what it has (`env`, `stats`), installing and running
 //! the node (`setup`, `service`, `update`, `provision`), and repository
-//! webhooks (`webhook`).
+//! webhooks (`webhook`), and the watch on the CI runs of pinned projects (`ci`).
 
+pub(crate) mod ci;
 pub mod env;
 pub mod provision;
 pub mod service;

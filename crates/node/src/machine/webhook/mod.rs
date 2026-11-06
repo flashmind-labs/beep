@@ -6,7 +6,10 @@ mod hosts;
 mod listener;
 mod signature;
 
-use crate::link::{Protocol, Session};
+use crate::{
+    link::{Protocol, Session},
+    machine::ci::{Ci, is_run_event},
+};
 use anyhow::{Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -19,7 +22,7 @@ use std::{
     future::{Future, pending},
     net::SocketAddr,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -46,6 +49,8 @@ struct Inner {
     active: AtomicUsize,
     /// Removals still running after their session ended.
     cleanups: TaskTracker,
+    /// The CI watch, told of each run's delivery so it lists at once.
+    ci: OnceLock<Arc<Ci>>,
 }
 
 impl Webhooks {
@@ -67,8 +72,17 @@ impl Webhooks {
                 listeners: Listeners::default(),
                 active: AtomicUsize::new(0),
                 cleanups: TaskTracker::new(),
+                ci: OnceLock::new(),
             }),
         })
+    }
+
+    /// Tells `ci` of the run deliveries from here on, and which repositories
+    /// take webhooks here, where it lists their runs only when one comes.
+    pub(crate) fn report_runs(&self, ci: Arc<Ci>) {
+        if self.inner.ci.set(ci).is_err() {
+            log::debug!("the CI watch was told of the webhooks already");
+        }
     }
 
     /// Waits up to `limit` for the webhooks of ended watches to be removed,
@@ -226,10 +240,19 @@ async fn run<H: HostApi>(
         token: inner.cleanups.token(),
     };
     server.reply(&WatchReply::Live { hook }).await?;
+    let ci = inner.ci.get().cloned();
+    let _live = ci.as_ref().map(|ci| ci.live(&watch.repo));
     loop {
         tokio::select! {
             event = route.events.recv() => match event {
-                Some(event) => server.reply(&WatchReply::Event { event }).await?,
+                Some(event) => {
+                    if let Some(ci) = &ci
+                        && is_run_event(&event)
+                    {
+                        ci.hit(&watch.repo);
+                    }
+                    server.reply(&WatchReply::Event { event }).await?;
+                }
                 None => break,
             },
             () = server.closed() => break,

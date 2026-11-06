@@ -39,6 +39,7 @@ mod permission;
 mod server;
 mod socket;
 
+pub(crate) use machines::over_the_mesh;
 pub(crate) use server::Backend;
 
 /// The server's name, as agents prefix its tools: `mcp__beep__run_on`.
