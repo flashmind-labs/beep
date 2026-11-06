@@ -1269,6 +1269,8 @@ button.dachip:hover { border-color: var(--border-hi) }
 
 .agrunninglist { flex: 1; min-height: 0; overflow: auto; padding: 4px }
 .agrunningrow { cursor: default }
+.agrunningrow .t { cursor: pointer }
+.agrunningrow.whole .t b { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
 .agrunningrow .r { display: flex; gap: 6px; align-items: center }
 .agrunningrow .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
 .agrunningerror { padding: 8px }
