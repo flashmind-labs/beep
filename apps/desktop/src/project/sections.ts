@@ -4,6 +4,7 @@ import { ago } from "../ui/format.ts";
 import { S } from "../bar/core.ts";
 import { onPlaces } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
+import { onClosing } from "../agents/closing.ts";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
@@ -106,6 +107,7 @@ export function projectsEl() { return views.get("projects")!.el; }
 
 onPlaces(() => redrawProjects());
 onMoves(() => redrawProjects());
+onClosing(() => redrawProjects());
 
 export function redrawProjects() {
   if (shown === "projects") drawProjects(projectsEl());
