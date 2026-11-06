@@ -174,17 +174,24 @@ async function agentJpeg(file: File) {
   return new File([Uint8Array.from(atob(data), c => c.charCodeAt(0))], `${name}.jpg`, { type: "image/jpeg" });
 }
 
-/// Files pasted or dropped on a coding agent session: the pictures it
-/// takes attach to the message, converted when too big or in another format;
-/// anything else, or a picture that cannot be drawn, uploads into the
-/// session's folder and is mentioned.
-async function agentDrop(files: Iterable<File>) {
+/// Files for a coding agent split into the pictures it takes, converted
+/// when too big or in another format, and the rest, a picture that cannot
+/// be drawn included.
+export async function agentPics(files: Iterable<File>) {
   const pics: File[] = [], rest: File[] = [];
   for (const f of files) {
     if (AGENT_IMAGE_TYPES.includes(f.type) && f.size <= AGENT_IMAGE_KEPT) pics.push(f);
     else if (f.type.startsWith("image/")) await agentJpeg(f).then(jpeg => pics.push(jpeg), () => rest.push(f));
     else rest.push(f);
   }
+  return { pics, rest };
+}
+
+/// Files pasted or dropped on a coding agent session: the pictures attach
+/// to the message; anything else uploads into the session's folder and is
+/// mentioned.
+async function agentDrop(files: Iterable<File>) {
+  const { pics, rest } = await agentPics(files);
   if (rest.length) uploadDropped(rest);
   if (pics.length) await agentAttach(pics);
 }
