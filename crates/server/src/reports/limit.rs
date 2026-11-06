@@ -10,6 +10,10 @@ use tokio::sync::{mpsc, oneshot};
 
 const QUEUE: usize = 256;
 
+/// Keys counted in a day. Keys cost nothing to make, so past this a key not
+/// yet counted is refused for the rest of the day.
+const MAX_KEYS: usize = 10_000;
+
 /// The handle to the task; the task ends when the last handle drops.
 #[derive(Clone)]
 pub(crate) struct KeyLimit {
@@ -35,9 +39,13 @@ struct Count {
 impl KeyLimit {
     /// Starts the task; fails outside a tokio runtime.
     pub(crate) fn spawn(per_day: u32) -> anyhow::Result<Self> {
+        Self::spawn_with(per_day, MAX_KEYS)
+    }
+
+    fn spawn_with(per_day: u32, max_keys: usize) -> anyhow::Result<Self> {
         let runtime = Handle::try_current().context("the report limit needs a tokio runtime")?;
         let (asks, rx) = mpsc::channel(QUEUE);
-        runtime.spawn(run(rx, per_day));
+        runtime.spawn(run(rx, per_day, max_keys));
         Ok(Self { asks })
     }
 
@@ -61,7 +69,7 @@ impl KeyLimit {
     }
 }
 
-async fn run(mut asks: mpsc::Receiver<Ask>, per_day: u32) {
+async fn run(mut asks: mpsc::Receiver<Ask>, per_day: u32, max_keys: usize) {
     let mut counts: HashMap<EndpointId, Count> = HashMap::new();
     let mut today = NaiveDate::MIN;
     while let Some(ask) = asks.recv().await {
@@ -70,6 +78,11 @@ async fn run(mut asks: mpsc::Receiver<Ask>, per_day: u32) {
                 if day > today {
                     today = day;
                     counts.retain(|_, count| count.day >= today);
+                }
+                if counts.len() >= max_keys && !counts.contains_key(&key) {
+                    // A sender that stopped waiting needs no answer.
+                    let _ = reply.send(false);
+                    continue;
                 }
                 let count = counts.entry(key).or_insert(Count { day, sent: 0 });
                 if count.day != day {
@@ -124,6 +137,18 @@ mod tests {
         limit.give_back(key, monday()).await.expect("the task runs");
         assert!(limit.take(key, monday()).await.expect("the task runs"));
         assert!(!limit.take(key, monday()).await.expect("the task runs"));
+    }
+
+    #[tokio::test]
+    async fn past_the_day_s_keys_a_new_key_is_refused_until_the_next_day() {
+        let limit = KeyLimit::spawn_with(5, 2).expect("inside a runtime");
+        let keys: Vec<_> = (0..3).map(|_| SecretKey::generate().public()).collect();
+        assert!(limit.take(keys[0], monday()).await.expect("the task runs"));
+        assert!(limit.take(keys[1], monday()).await.expect("the task runs"));
+        assert!(!limit.take(keys[2], monday()).await.expect("the task runs"));
+        assert!(limit.take(keys[0], monday()).await.expect("the task runs"));
+        let tuesday = monday().succ_opt().expect("a next day");
+        assert!(limit.take(keys[2], tuesday).await.expect("the task runs"));
     }
 
     #[test]

@@ -34,6 +34,8 @@ pub(crate) enum Refused {
     OverLimit,
     #[error("Problem reports are not set up on this server yet.")]
     NotSetUp,
+    #[error("Beep is taking in many reports right now; try again in a minute.")]
+    Busy,
 }
 
 impl Refused {
@@ -48,7 +50,7 @@ impl Refused {
             | Self::Sender => StatusCode::BAD_REQUEST,
             Self::Blocked => StatusCode::FORBIDDEN,
             Self::OverLimit => StatusCode::TOO_MANY_REQUESTS,
-            Self::NotSetUp => StatusCode::SERVICE_UNAVAILABLE,
+            Self::NotSetUp | Self::Busy => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 }

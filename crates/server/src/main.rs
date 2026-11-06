@@ -17,6 +17,7 @@ use beep_server::{
     push::apns::Apns,
     push::fcm::Firebase,
     push::remote::{Fallback, RemotePush},
+    reports::{self, Reports},
     store::Store,
     tools::Transitous,
     tools::search::SearchTool,
@@ -27,6 +28,7 @@ use flashmind::{
     types::{AgentLlmConfig, LlmProvider, Model},
 };
 use iroh::{Endpoint, endpoint::presets, protocol::Router};
+use reqwest::Client;
 use secrecy::SecretString;
 use std::{
     env, fs,
@@ -204,7 +206,12 @@ async fn main() -> Result<()> {
     let router = nodes::accept_nodes(Router::builder(endpoint), node_handler).spawn();
     log::info!("listening for nodes; addr={:?}", router.endpoint().addr());
 
-    let service = http::service(app.clone(), &secret_key, Pulse::every(HEARTBEAT)).await?;
+    let service = http::service(app.clone(), &secret_key, Pulse::every(HEARTBEAT))
+        .await?
+        .merge(reports::routes(Reports::new(
+            &config.reports,
+            Client::new(),
+        )?));
     let listen = config.http_listen();
     let listener = tokio::net::TcpListener::bind(listen)
         .await

@@ -192,7 +192,10 @@ It reads the Composio key and database URL from `.dev/android-server.toml`.
 A desktop's report sends a `report/1` request to each machine in the mesh. Each `beep-node` answers with its log for a period, status, version and OS.
 Only a desktop reads another machine's report (a node is refused); `beep-node report` sends that node's own.
 The app that collects them redacts secrets, zips the answers and posts them, signed, to
-`POST /v1/reports` on the server, which replies with a reference `R-<id>`.
+`POST /v1/reports` on the server's `http_listen`, which replies with a reference `R-<id>`.
+It takes 8 reports at once (more get 503), counts at most 10,000 keys a day, and
+trusts `CF-Connecting-IP` only from a peer on this machine (a Tunnel) or in
+Cloudflare's ranges (`CLOUDFLARE_V4`/`V6` in `reports/route.rs`).
 
 The server stores `reports/<mesh>/<id>.zip` and `<id>.json` (the manifest) in
 the private R2 bucket in `[reports.r2]` of its config. `just reports` lists

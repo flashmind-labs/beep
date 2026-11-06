@@ -29,12 +29,14 @@ pub enum SendError {
 /// How long a report may take to post, the server's answer included.
 const SEND_LIMIT: Duration = Duration::from_secs(60);
 
-/// Where reports go: `BEEP_REPORT_URL` when set, else the Beep server.
-// Moves to the #337 server URL when that lands.
+/// Where reports go: `BEEP_REPORT_URL` when set, else the server the build
+/// names in `BEEP_SERVER_URL`, else the Beep server.
 pub fn server_url() -> Result<Url, SendError> {
     let url = match env::var("BEEP_REPORT_URL") {
         Ok(url) => url,
-        Err(VarError::NotPresent) => default_server(),
+        Err(VarError::NotPresent) => {
+            option_env!("BEEP_SERVER_URL").map_or_else(default_server, str::to_owned)
+        }
         Err(e) => return Err(SendError::Url(e.to_string())),
     };
     Url::parse(&url).map_err(|e: ParseError| SendError::Url(e.to_string()))
