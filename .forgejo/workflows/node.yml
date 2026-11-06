@@ -3,7 +3,8 @@
 #
 # The host runner cross-builds the static Linux binaries (x86_64 and aarch64
 # musl) in Docker with zig and x86_64-pc-windows-msvc with cargo-xwin, the Mac
-# runner builds aarch64-apple-darwin, and a
+# runner builds aarch64-apple-darwin, the Linux job pushes the beep-node
+# image (amd64 and arm64) to the registry the build workflow uses, and a
 # last job attaches the archives and SHA256SUMS to the tag's Forgejo release
 # and uploads them to the R2 bucket under beep/node/<version>/, served at
 # https://releases.flashmind.com/beep/node/. latest.txt there names the newest
@@ -55,7 +56,37 @@ jobs:
           for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
             tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "$RUNNER_TEMP/node-bin/$target" beep-node
           done
-          rm -rf "$RUNNER_TEMP/node-bin"
+
+      # The container image, from the binaries above, into the registry the
+      # build workflow pushes the server to. One image per architecture, then
+      # a list naming both under <version> and latest.
+      - name: Log in to the registry
+        run: |
+          printf '%s' '${{ secrets.REGISTRY_TOKEN }}' \
+            | docker login '${{ vars.REGISTRY }}' \
+                -u '${{ vars.REGISTRY_USER }}' --password-stdin
+
+      - name: Build and push the image
+        run: |
+          set -euo pipefail
+          IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-node'
+          for arch in amd64 arm64; do
+            docker build --platform "linux/$arch" --target node-image \
+              --build-context "node-dist=$RUNNER_TEMP/node-bin" \
+              -t "$IMAGE:$VERSION-$arch" .
+            docker push "$IMAGE:$VERSION-$arch"
+          done
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" \
+            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          docker image rm "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+
+      - name: Log out
+        if: always()
+        run: docker logout '${{ vars.REGISTRY }}'
+
+      - name: Clean up
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/node-bin"
 
       - uses: actions/upload-artifact@v3
         with:

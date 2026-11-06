@@ -61,6 +61,25 @@ Ports:
 - iroh on UDP 47121 (`port` in the config), for nodes. Allow it through the
   firewall.
 
+## beep-node in Docker
+
+Each node release publishes a small beep-node image (amd64 and arm64): the
+static binary, git, curl, a shell and CA certificates. It runs as uid 1000 and keeps
+its key and mesh in `/data`. To join a mesh, pass a ticket from the desktop's
+Add a machine:
+
+```sh
+docker run -d --restart unless-stopped --hostname build-box \
+  -e BEEP_TICKET=... -v beep-node:/data registry.example/beep-node
+```
+
+The ticket is used once, on the first start; later starts reuse `/data`. The
+host name is the machine's name in the mesh. `BEEP_NODE_WORKSPACE` sets the
+folder `exec` and agents run in. Allow UDP 47120 through the firewall, or add
+`-p 47120:47120/udp`. Upgrade by pulling a newer tag; `beep-node update` does
+not work in the container. No coding agents are installed: derive an image
+`FROM` this one and add the harnesses you use.
+
 ## Android
 
 Needs JDK 17 or 21, SDK 36, NDK `28.2.13676358` and
