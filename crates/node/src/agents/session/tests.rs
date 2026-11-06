@@ -1234,6 +1234,59 @@ async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
     assert_eq!(info.state.queued, 0);
 }
 
+/// An adapter whose first turn runs a tool call that does not finish. It
+/// answers the node's `session/cancel` by ending the turn cancelled, and
+/// ends each later turn at once. It logs every line it reads.
+const STOPPED_ADAPTER: &str = r#"
+handshake "$1"
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running tests","status":"in_progress"}}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt"
+while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
+"#;
+
+/// A stop from an app keeps what it steered with: the node sends it once
+/// the turn stops, as the only copy, since the app no longer sends it again
+/// (#378). A stop of a child drops it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_steer_held_at_stop_goes_once_the_turn_stops() {
+    for keep_steers in [true, false] {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let log = dir.join("sent.jsonl");
+        let kind = script("codex", STOPPED_ADAPTER, &log);
+        let session = Session::start(start_on(&kind, dir, None)).unwrap();
+        until(&session, |live| {
+            live.info.state.summary == "Running tests" || live.status() == Status::Ended
+        })
+        .await;
+        let steer = Prompt::from("try again, it failed".to_owned());
+        session.order(Command::Steer(steer)).await.unwrap();
+        session
+            .order(Command::Cancel { keep_steers })
+            .await
+            .unwrap();
+        let turns = if keep_steers { 2 } else { 1 };
+        until(&session, |live| {
+            live.info.turns >= turns || live.status() == Status::Ended
+        })
+        .await;
+        let want: &[&str] = if keep_steers {
+            &["go", "try again, it failed"]
+        } else {
+            &["go"]
+        };
+        assert_eq!(prompts(&log), want);
+        let info = session.info();
+        assert_eq!(info.state.status, Status::Idle);
+        assert_eq!(info.state.queued, 0);
+        session.close().await;
+    }
+}
+
 #[test]
 fn steers_waiting_together_go_as_one_prompt_within_the_image_limit() {
     let mut steers: VecDeque<Prompt> = VecDeque::new();
@@ -1269,7 +1322,10 @@ while read -r line; do log "$1"; done
         live.info.state.summary == "Building" || live.status() == Status::Ended
     })
     .await;
-    session.order(Command::Cancel).await.unwrap();
+    session
+        .order(Command::Cancel { keep_steers: true })
+        .await
+        .unwrap();
     // Before the agent says anything, the turn reads as stopping.
     let info = session.info();
     assert_eq!(info.state.summary, "Stopping");

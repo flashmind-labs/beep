@@ -78,7 +78,12 @@ pub(super) enum Command {
         question: u32,
         reply: String,
     },
-    Cancel,
+    /// Stops the running turn and drops the prompts queued behind it. With
+    /// `keep_steers` the steers not yet sent go as the next prompt once the
+    /// turn stops: the app that steered sends them nowhere else (#378).
+    Cancel {
+        keep_steers: bool,
+    },
     Close,
     /// Switches the model or thinking level from the next turn.
     Configure {

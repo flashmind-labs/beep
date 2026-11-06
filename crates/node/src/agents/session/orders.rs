@@ -73,9 +73,11 @@ impl Actor {
                 self.show_queued();
                 Ok(Ok(()))
             }
-            Command::Cancel => {
+            Command::Cancel { keep_steers } => {
                 self.queued.clear();
-                self.steers.clear();
+                if !keep_steers {
+                    self.steers.clear();
+                }
                 self.show_queued();
                 while let Some(asked) = self.asked.pop_front() {
                     asked.waiting.cancel()?;
