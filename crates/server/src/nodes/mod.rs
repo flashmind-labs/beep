@@ -47,7 +47,6 @@ mod tool_update;
 pub mod transfer;
 mod update;
 mod usage;
-mod webhook;
 
 pub(crate) use crate::protocol::agent_name;
 pub use crate::protocol::node::{

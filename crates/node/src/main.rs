@@ -12,8 +12,13 @@ use beep_report::Period;
 use clap::{FromArgMatches, Parser, Subcommand};
 use std::{
     path::{Path, PathBuf},
+    process,
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::{runtime::Builder, sync::oneshot};
+use tokio_util::task::AbortOnDropHandle;
 
 mod cli;
 
@@ -267,30 +272,80 @@ fn in_background(dir: &Path, workspace: Option<&Path>) -> Result<String> {
     installed.describe()
 }
 
-/// Finishes on Ctrl-C or SIGTERM, which a service manager sends to stop.
-#[cfg(unix)]
+/// How long the node has to stop once told to, before it exits anyway. A
+/// service manager kills it after its own limit (the systemd unit's is 20 s).
+const STOP_LIMIT: Duration = Duration::from_secs(10);
+/// How long the exit waits for blocking work still running, such as the
+/// `systemctl restart` an update started, which itself waits on this exit.
+const EXIT_LIMIT: Duration = Duration::from_secs(1);
+
+/// Finishes once the node is told to stop. The signal is watched on a task
+/// of its own, so it is logged the moment it arrives even while the node is
+/// busy, and it starts the `STOP_LIMIT` deadline.
 fn stopped() -> Result<impl Future<Output = ()>> {
+    let signal = signal()?;
+    let (told, stop) = oneshot::channel();
+    let watch = AbortOnDropHandle::new(tokio::spawn(async move {
+        let name = signal.await;
+        log::info!("stopping: {name}");
+        exit_after(STOP_LIMIT);
+        // Nobody listens once the node stopped another way.
+        let _ = told.send(());
+    }));
+    Ok(async move {
+        let _watch = watch;
+        // An error means the watch is gone, which only the runtime stopping
+        // does: stop too.
+        let _ = stop.await;
+    })
+}
+
+/// Exits the process `limit` from now, unless it ended before. Only the
+/// first call counts. A plain thread, so neither a stop step that hangs nor
+/// async workers that do can hold it.
+fn exit_after(limit: Duration) {
+    static ARMED: AtomicBool = AtomicBool::new(false);
+    if ARMED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let spawned = thread::Builder::new()
+        .name("stop-deadline".to_owned())
+        .spawn(move || {
+            thread::sleep(limit);
+            log::warn!("stopping took over {} s: exiting now", limit.as_secs());
+            process::exit(1);
+        });
+    if let Err(e) = spawned {
+        log::warn!("stopping has no deadline: {e}");
+    }
+}
+
+/// Finishes on Ctrl-C or SIGTERM, which a service manager sends to stop,
+/// with the signal's name.
+#[cfg(unix)]
+fn signal() -> Result<impl Future<Output = &'static str>> {
     use tokio::signal::unix::{SignalKind, signal};
     let mut term = signal(SignalKind::terminate())?;
     Ok(async move {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = term.recv() => {}
+            _ = tokio::signal::ctrl_c() => "Ctrl-C",
+            _ = term.recv() => "SIGTERM",
         }
     })
 }
 
-/// Finishes on Ctrl-C, or when the console closes or Windows shuts down.
+/// Finishes on Ctrl-C, or when the console closes or Windows shuts down,
+/// saying which.
 #[cfg(windows)]
-fn stopped() -> Result<impl Future<Output = ()>> {
+fn signal() -> Result<impl Future<Output = &'static str>> {
     use tokio::signal::windows::{ctrl_close, ctrl_shutdown};
     let mut close = ctrl_close()?;
     let mut shutdown = ctrl_shutdown()?;
     Ok(async move {
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = close.recv() => {}
-            _ = shutdown.recv() => {}
+            _ = tokio::signal::ctrl_c() => "Ctrl-C",
+            _ = close.recv() => "the console closed",
+            _ = shutdown.recv() => "Windows shuts down",
         }
     })
 }
@@ -312,8 +367,16 @@ fn start_logging(log_file: Option<&Path>) -> Result<()> {
 /// The daily log files kept.
 const LOG_FILES: usize = 7;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let runtime = Builder::new_multi_thread().enable_all().build()?;
+    let done = runtime.block_on(run());
+    // Dropped as is, the runtime would wait for every blocking task still
+    // running, however long.
+    runtime.shutdown_timeout(EXIT_LIMIT);
+    done
+}
+
+async fn run() -> Result<()> {
     let cli =
         Cli::from_arg_matches(&cli::help::command().get_matches()).unwrap_or_else(|e| e.exit());
     start_logging(cli.log_file.as_deref())?;
@@ -421,7 +484,10 @@ async fn main() -> Result<()> {
                 tokio::select! {
                     () = &mut stop => {}
                     exited = parent => match exited {
-                        Ok(()) => log::info!("the service stopped"),
+                        Ok(()) => {
+                            log::info!("stopping: the service stopped");
+                            exit_after(STOP_LIMIT);
+                        }
                         Err(e) => {
                             log::warn!("not following the service: {e:#}");
                             stop.await;

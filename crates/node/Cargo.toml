@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.2.15"
+version = "0.2.16"
 edition = "2024"
 rust-version = "1.93"
 publish = false
@@ -33,17 +33,20 @@ anyhow = "1"
 bao-tree = "0.17"
 base64 = "0.22"
 beep-mesh = { path = "../mesh" }
+# Reads CI runs as the desktop does.
+beep-projects = { path = "../projects" }
 beep-proto = { path = "../proto" }
 beep-report = { path = "../report" }
 blake3 = "1"
 chrono = { version = "0.4", optional = true }
 clap = { version = "4", features = ["derive", "env"], optional = true }
 dirs = "7"
+# `fs::canonicalize` without the verbatim prefix Windows programs refuse.
+dunce = "1"
 fastrand = "2"
 flate2 = { version = "1", optional = true }
 futures = "0.3"
 hex = "0.4"
-hmac = "0.13"
 ignore = "0.4"
 iroh = "1.3"
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"] }

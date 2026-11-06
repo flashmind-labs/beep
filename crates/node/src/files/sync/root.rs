@@ -155,12 +155,13 @@ pub(super) fn exclude_from_git(root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::paths;
     use crate::{files::Folders, files::transfer::place::open_target};
     use tempfile::TempDir;
 
     fn open(dir: &TempDir, name: &str) -> Folder {
         let folders = Folders::new(&[dir.path().to_owned()]);
-        let path = dir.path().canonicalize().unwrap().join(name);
+        let path = paths::canonicalize(dir.path()).unwrap().join(name);
         open_target(&folders, &path.to_string_lossy()).unwrap()
     }
 

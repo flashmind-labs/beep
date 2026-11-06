@@ -24,6 +24,7 @@ use std::{
 };
 
 use super::scan::{Found, Stat};
+use crate::files::paths;
 
 pub(super) const GIT: &str = ".git";
 const PREFIX: &str = ".git/";
@@ -295,10 +296,11 @@ pub(super) struct Repo {
 }
 
 impl Repo {
-    /// The repository in `root`, once its `.git` has a `HEAD`.
+    /// The repository in `root`, once its `.git` has a `HEAD`. The root is
+    /// kept plain: Git for Windows takes no `\\?\` path.
     pub(super) fn open(root: &Path) -> Option<Self> {
         root.join(GIT).join("HEAD").is_file().then(|| Self {
-            root: root.to_owned(),
+            root: paths::plain(root),
         })
     }
 

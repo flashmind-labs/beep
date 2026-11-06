@@ -1,10 +1,9 @@
 //! Follows the project pages that show (`WatchProject`): the server says
-//! whether a project is live through a webhook or polling, and when its
-//! pull requests, issues or runs were read again, and the page redraws
-//! them as `project-live` events. A project of the mesh has no server to
-//! say: the desktop polls the host itself, and tells the page to read
-//! again every [`POLL_EVERY`] while it shows. Repository webhooks wait
-//! for the server, so such a project is never live.
+//! when a project's pull requests, issues or runs were read again, and the
+//! page redraws them as `project-live` events. A project of the mesh has no
+//! server to say: the desktop polls the host itself, and tells the page to
+//! read again every [`POLL_EVERY`] while it shows. Both poll, so a project
+//! is never live (an older server may still say it is).
 
 use crate::{
     beep::{Beep, Service},
@@ -12,6 +11,7 @@ use crate::{
     fleet::projects::{FleetState, mesh_project},
     projects::unknown_op,
 };
+use beep_fleet::Changed;
 use beep_node::link::reconnect::Backoff;
 use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
@@ -25,6 +25,8 @@ use uuid::Uuid;
 
 /// How often a polled project's page reads the host again.
 const POLL_EVERY: Duration = Duration::from_secs(120);
+/// Tells the usage pill a plan or the spending changed.
+const USAGE_CHANGED: &str = "usage-changed";
 /// Why a mesh project is not live.
 const POLLING_WHY: &str = "Beep reads the host every couple of minutes while this page shows.";
 
@@ -115,18 +117,28 @@ pub fn unfollow_project(followed: State<'_, Followed>, project_id: Option<Uuid>)
 }
 
 /// What a background read of a mesh project tells its page: read the lists or the runs again.
-pub(crate) fn changed(app: AppHandle) -> impl Fn(beep_fleet::Changed) + Send + Sync + 'static {
-    move |changed| {
-        emit(
+/// Usage that changed tells the usage pill to read it again.
+pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'static {
+    move |changed| match changed {
+        Changed::Project {
+            project,
+            lists,
+            runs,
+        } => emit(
             &app,
             &LiveRow {
-                project_id: beep_fleet::project_id(&changed.project),
+                project_id: beep_fleet::project_id(&project),
                 live: Some(false),
                 polling_why: Some(POLLING_WHY.to_owned()),
-                lists: changed.lists,
-                runs: changed.runs,
+                lists,
+                runs,
             },
-        );
+        ),
+        Changed::Usage => {
+            if let Err(e) = app.emit(USAGE_CHANGED, ()) {
+                log::debug!("the usage pill missed an update: {e}");
+            }
+        }
     }
 }
 

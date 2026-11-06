@@ -9,6 +9,7 @@ mod remote;
 mod target;
 mod version;
 
+use crate::files::paths;
 use crate::{
     link::restart::{self, Drained},
     machine::service::{self, Restart},
@@ -208,7 +209,7 @@ struct Download {
 async fn download(client: &Client, base: &str, latest: &Version) -> Result<Download, Error> {
     let target = Target::current()?;
     let exe = env::current_exe()
-        .and_then(|exe| exe.canonicalize())
+        .and_then(paths::canonicalize)
         .map_err(|source| Error::Io {
             action: "finding",
             path: PathBuf::from("this binary"),

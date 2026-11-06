@@ -633,7 +633,7 @@ fn name_the_job(text: &str, machine: &str) -> String {
     )
 }
 
-pub(super) async fn over_the_mesh(
+pub(crate) async fn over_the_mesh(
     mesh: &Mesh,
     peer: EndpointId,
     request: &Request,

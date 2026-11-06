@@ -32,9 +32,12 @@ pub(crate) enum CenterTarget {
     Agent(Box<AgentTarget>),
     Providers,
     /// The Projects page on `project`, or every project with `None`, as a
-    /// project window hands over another project.
+    /// project window hands over another project. With `run`, on its Actions
+    /// tile with that run open, as a build's notification asks.
     Projects {
         project: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunAt>,
     },
     Terminals,
     Research,
@@ -52,6 +55,13 @@ pub(crate) enum CenterTarget {
     },
     /// The Report a problem sheet, over the page on screen.
     Report,
+}
+
+/// A CI run of a project: its id on `host`, as the Actions tile keys runs.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+pub(crate) struct RunAt {
+    pub(crate) id: u64,
+    pub(crate) host: String,
 }
 
 /// A coding agent's session to open, shaped as the window's Running now
@@ -194,12 +204,16 @@ mod tests {
         assert_eq!(
             read(r#"{"projects":{"project":"org/site"}}"#),
             Some(CenterTarget::Projects {
-                project: Some("org/site".into())
+                project: Some("org/site".into()),
+                run: None,
             })
         );
         assert_eq!(
             read(r#"{"projects":{"project":null}}"#),
-            Some(CenterTarget::Projects { project: None })
+            Some(CenterTarget::Projects {
+                project: None,
+                run: None
+            })
         );
         assert_eq!(read(r#""terminals""#), Some(CenterTarget::Terminals));
         assert_eq!(read(r#""research""#), Some(CenterTarget::Research));

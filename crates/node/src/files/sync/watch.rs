@@ -424,6 +424,7 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::paths;
 
     #[test]
     fn opening_and_reading_files_is_not_a_change() {
@@ -444,7 +445,7 @@ mod tests {
     #[tokio::test]
     async fn a_new_file_wakes_its_project() {
         let dir = tempfile::TempDir::new().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = paths::canonicalize(dir.path()).unwrap();
         let watcher = Watcher::with_budget(None, None);
         let rules = Arc::new(RwLock::new(Rules::load(&root).unwrap()));
         let (wake, mut woken) = mpsc::channel(1);
