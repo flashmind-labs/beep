@@ -44,15 +44,16 @@ desktops may write.
 
 `beep-server` is optional and paid: memories, routines, app connections, the
 assistant, the project agent and reviews, and the phones (Android and iOS
-still talk only to the server). A node linked to a server keeps that link;
-once in a mesh it ignores what the server pushes for sync, credentials and
-agent settings. A desktop with a server mirrors imports and credential saves
-to it.
+still talk only to the server). A desktop with a server mirrors imports and
+credential saves to it.
 
-The server runs no user code. A hosted user's `beep-node` starts with
-`--workspace /home/user` (`BEEP_NODE_WORKSPACE`): `exec` and `process` run
-there by default, and uploads, downloads and app attachments are saved there.
-Per-user nodes are set up by hand for now.
+The server has no access to `beep-node`s: nodes never link to it, and it runs
+no user code. Machine work for the assistant and the phones goes through a
+desktop of the account (`crates/server/src/tools/machines/relay.rs`); with no
+desktop online the tool says "No desktop is online to run this." The relay
+itself (the server asking a desktop, Allow and Deny there, the run over the
+mesh) is not built yet. Released apps still get an answer to every machine
+request: lists come back empty and actions fail with a plain error.
 
 The production server is deployed from the private ops repo, not from
 here. App builds pass its `https://` address in `BEEP_SERVER_URL` (a repository
@@ -60,8 +61,8 @@ variable in CI, `-PbeepServerUrl` for Gradle); TLS vouches for the server, and i
 key comes from the server itself. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
-Moving an account: credentials are entered again on the desktop. A node in the mesh stops
-using the server's credentials and harness values as soon as the account is moved.
+Moving an account: credentials are entered again on the desktop. A node takes credentials,
+harness settings and synced projects only from its mesh.
 
 ### The desktop runs without the server for now
 
@@ -82,13 +83,12 @@ Coding agents get no memories: no memory tools and no standing rules. Memories a
 - `apps`: app catalog, Composio, MCP, `permissions`, `grants`, mail and Slack `feeds`.
 - `config`: the TOML config.
 - `memory`: memories, skills, profile, starters, watchers, the group leak check.
-- `nodes`: node connections (`serve`), linking, per-node requests, the workspace.
 - `projects`: project agent: tasks, workers, reviews, imports, `repo_watch` (polls the forges, no webhooks), `git_items`.
 - `push`: the notice log, events streams (`events`, `hub`), FCM, APNs.
 - `research`: research papers: planning, team tools, PDF.
 - `routines`: what wakes the agent: `cron`, `places`, `events`, `digest`, `wake`.
 - `store`: Postgres queries, one file per kind of row, `migrations`.
-- `tools`: the agent's tools, plus web `search` and `fetch`.
+- `tools`: the agent's tools, plus web `search` and `fetch`; `machines/relay.rs` is where machine work will go through a desktop.
 - `voice`: voice notes, live transcription (`stt`), filler lines.
 
 ### Code map: shared crates
@@ -135,8 +135,7 @@ unpooled Neon endpoint (not `-pooler`), since `LISTEN` needs a session.
 
 Scale-out: notices and update ids already cross instances through Postgres.
 What still keeps the server to one instance: runs (a run's stream lives in
-the instance that started it), node links and everything sent to a node
-(agents, terminals, files), live transcription, and the per-user caches in
+the instance that started it), live transcription, and the per-user caches in
 `App`. Those need routing by user before a second instance can serve.
 
 Deploys live in the private ops repo. Push to main so CI builds the image,
@@ -216,7 +215,7 @@ names, only the reference.
 
 Phones, desktops and `beep-probe` reach the server over HTTP
 (`crates/proto/src/transport/http.rs`, client in `client.rs`, server in
-`crates/server/src/api/http.rs`). Nodes stay on iroh (`beep-node/2`).
+`crates/server/src/api/http.rs`). Nodes never reach the server.
 
 - `GET /v1/server`: the server's id and whether it has `[login]`. No auth.
 - `POST /v1/session`: the app signs `"beep-session/1\0" || server id || key
@@ -253,12 +252,11 @@ maps and a reader skips fields it does not know.
   delete one. The numbered directories are the positional era, kept as
   history.
 
-Node and mesh messages (the node link, mesh frames and files, mesh state values,
+Node and mesh messages (mesh frames and files, mesh state values,
 the terminal host) are compact msgpack with no field names, so their fields are
 read by position too. A new field goes at the end with `#[serde(default)]`.
 Never insert, reorder, retype or remove one, and never use
-`skip_serializing_if` or `to_vec_named` (only the `beep-node/1` link writes
-maps, for released nodes). Read with `beep_proto::lenient::from_slice`, which
+`skip_serializing_if` or `to_vec_named`. Read with `beep_proto::lenient::from_slice`, which
 skips trailing fields a newer sender added; plain `rmp_serde` refuses them.
 
 Exceptions to the field rule:
@@ -275,8 +273,8 @@ Exceptions to the field rule:
 
 ALPNs: `beep-peer/2` and `beep-join/2` (a mesh from before them is in `mesh`,
 never read; the device joins again with a new ticket, kept in `mesh2`),
-`beep-node/2` (the server also accepts `beep-node/1`, maps, for released nodes;
-a node offers both) and `beep-sync/3`. Change a protocol's bytes, bump its name.
+and `beep-sync/3`. `beep-node/1` and `/2` were the retired node-server
+link. Change a protocol's bytes, bump its name.
 
 ## Desktop app
 
@@ -362,19 +360,18 @@ then join the mesh with `beep-node mesh join <ticket>` (or `-` to read the
 ticket from stdin), with the ticket from the desktop's Add a machine. It starts
 the node in the background if none runs. `--search <dir>` sets the folder to
 look for git checkouts in. `beep-node mesh devices` lists the devices and which
-are online. `beep-node setup <token>` is the older way: it links the node to a
-server account and installs the service. On Linux the service is a systemd
+are online. `beep-node setup <token>` is retired and says to join a mesh
+instead. On Linux the service is a systemd
 user unit, or for root without one a systemd system unit, an OpenRC service or
 a SysV init script (logging to `/var/log/beep-node.log`); a container with no
 init gets none, and a node with no service starts its new binary in place after
 an update from Beep. A node binds UDP port 47120 for
 iroh (`port` in `node.toml`; 0 is random), so a firewall can allow that one
-port; if it is taken the node warns and binds a random one. The server
-binds 47121 (`port` in its config). Rerunning the installer upgrades
+port; if it is taken the node warns and binds a random one. Rerunning the installer upgrades
 in place and restarts the service. There is no Intel Mac build.
 `beep-node update` does the same from the node itself: it checks
 `latest.txt`, verifies the archive against `SHA256SUMS`, swaps its own binary
-and restarts the service `setup` installed (`--check` only reports).
+and restarts its service (`--check` only reports).
 The release also pushes the `beep-node` image from the same musl binaries
 (target `node-image`, `deploy/node-entrypoint.sh`; README, beep-node in Docker).
 
@@ -387,7 +384,7 @@ command's first doc paragraph is its one line there.
 On Windows, `crates/node/install.ps1` does the same from PowerShell
 (`irm https://releases.flashmind.com/beep/node/install.ps1 | iex`): it
 installs `beep-node-<version>-x86_64-pc-windows-msvc.zip` into
-`%LOCALAPPDATA%\Programs\beep-node`, and `setup` registers the scheduled task
+`%LOCALAPPDATA%\Programs\beep-node`, and `mesh join` registers the scheduled task
 "Beep node". The release builds that zip on the host runner with cargo-xwin
 (the Dockerfile's `node-dist-windows` stage). Updates move the running exe
 aside to `beep-node.exe.old`, removed by the next update.
@@ -554,9 +551,10 @@ required) says the same with `harness` set to `claude` and the tools named
   hourly; `beep-node status` lists how each agent stands.
 - `files/`: shared folders (`Folders`), project sync, Syncthing checks,
   node-to-node transfers and the git checkout search.
-- `link/`: the node's key and settings (`state`), linking and the control
-  stream, reconnecting, and what carries over a restart.
-- `machine/`: what the machine has (`env`, `stats`), setup, the service,
+- `link/`: the node's key and settings (`state`), serving the mesh until
+  stopped (`serve`), its peers, what it takes from the mesh (`from_mesh`),
+  and what carries over a restart.
+- `machine/`: what the machine has (`env`, `stats`, `host`), the service,
   self-update and provisioning.
 - `run/`: process groups, shell sessions, background tasks and terminals.
 - `lib.rs` declares these; `main.rs` is the command line, with its grouped

@@ -38,8 +38,6 @@ services:
       # Apps over HTTP, on loopback only. A tunnel or a reverse proxy with
       # TLS in front of it is up to you.
       - "127.0.0.1:47122:47122"
-      # Nodes over iroh.
-      - "47121:47121/udp"
     volumes:
       - ./config.toml:/etc/beep/config.toml:ro
       # The iroh key, logs and whatever else the server keeps.
