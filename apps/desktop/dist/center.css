@@ -432,6 +432,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 /* In the split the bar floats under the right column only, so the list runs to the bottom. */
 .cc-main:has(> .cc-view.split) { position: relative }
 .cc-view.split ~ .cc-pjc { position: absolute; z-index: 2; bottom: 0; right: 0; left: max(240px, 30%); margin: 0 16px 14px }
+.cc-view.split ~ .cc-pjc > * { justify-self: center; width: min(100%, 760px); box-sizing: border-box }
 .cc-view.split .pj-det { padding-bottom: calc(var(--pjc-h, 110px) + 18px) }
 .pj-list { overflow: auto; border-right: 1px solid var(--border); padding-bottom: 10px; scrollbar-width: thin }
 .pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
