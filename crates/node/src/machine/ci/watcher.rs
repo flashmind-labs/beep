@@ -1,7 +1,8 @@
 //! The watch itself: one task per node that owns everything it knows. It
 //! elects the watcher of every pinned project each minute and lists the
 //! runs of those it holds: every minute while a run goes or after a push
-//! from a checkout here, every `QUIET` otherwise. The other machines are
+//! from a checkout here, every `QUIET` otherwise, and at once when a GitHub
+//! project's check every `CHECK` sees its runs changed. The other machines are
 //! asked how they reach the hosts every `QUIET`, and when one comes or goes.
 //! A mesh change elects again. Going runs are waited on by at most
 //! `MAX_WAITS` CLI processes at once, owned here and killed when the role
@@ -10,8 +11,9 @@
 use super::{
     Ci,
     book::{self, Books},
+    check::{CHECK, Checks},
     elect::elect,
-    forge::{Cli, Forge, Target},
+    forge::{Cli, Forge, Host, Target},
     projects::{self, Project},
 };
 use crate::agents::{mcp::over_the_mesh, project_folder};
@@ -38,7 +40,7 @@ use tokio::{
     select,
     sync::watch,
     task::{AbortHandle, Id, JoinError, JoinSet, spawn_blocking},
-    time::{Instant, MissedTickBehavior, interval, timeout},
+    time::{Instant, MissedTickBehavior, interval, interval_at, timeout},
 };
 
 /// How often a busy project's runs are listed: one with a run going, or
@@ -83,7 +85,7 @@ pub(crate) async fn watch(mesh: Mesh, me: EndpointId, dir: PathBuf, ci: Arc<Ci>)
         mesh,
         me,
     };
-    Watcher::start(Cli, world, ci, dir.join(FILE))
+    Watcher::start(Cli::new(), world, ci, dir.join(FILE))
         .await
         .run()
         .await;
@@ -146,6 +148,8 @@ pub(super) struct Watcher<F, W> {
     /// Each project's last push seen here, and until when it is busy.
     pushes: HashMap<String, SystemTime>,
     busy_until: HashMap<String, Instant>,
+    /// Each held GitHub project's checks.
+    checks: HashMap<String, Checks>,
     /// The file's bytes as last written or read.
     saved: Option<Vec<u8>>,
 }
@@ -173,14 +177,19 @@ impl<F: Forge, W: World> Watcher<F, W> {
             next: HashMap::new(),
             pushes: HashMap::new(),
             busy_until: HashMap::new(),
+            checks: HashMap::new(),
         }
     }
 
     pub(super) async fn run(mut self) {
         let mut tick = interval(POLL);
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // The first list comes with the first tick; the first check after.
+        let mut check = interval_at(Instant::now() + CHECK, CHECK);
+        check.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             select! {
+                _ = check.tick() => self.check_due().await,
                 _ = tick.tick() => {
                     let due = self
                         .asked
@@ -288,7 +297,35 @@ impl<F: Forge, W: World> Watcher<F, W> {
         self.next.retain(|name, _| held.contains(name));
         self.pushes.retain(|name, _| pinned.contains(name.as_str()));
         self.busy_until.retain(|name, _| held.contains(name));
+        self.checks.retain(|name, _| held.contains(name));
         gained
+    }
+
+    /// Checks every held GitHub project that is due, and lists those whose
+    /// runs changed. With no token a project is not checked, and its lists
+    /// keep their schedule.
+    async fn check_due(&mut self) {
+        let held: Vec<Project> = self
+            .held_projects()
+            .filter(|project| project.target.host == Host::GitHub)
+            .collect();
+        for project in held {
+            let now = Instant::now();
+            let checks = self.checks.entry(project.name.clone()).or_default();
+            if !checks.due(now) {
+                continue;
+            }
+            let answer = bounded(self.forge.check(&project.target, checks.etag())).await;
+            let answer = match answer {
+                Ok(Some(answer)) => Ok(answer),
+                Ok(None) => continue,
+                Err(e) => Err(e),
+            };
+            let checks = self.checks.entry(project.name.clone()).or_default();
+            if checks.answered(answer, now, SystemTime::now()) {
+                self.list(&project).await;
+            }
+        }
     }
 
     /// Lists every held project that is due: busy ones every `POLL`, the
