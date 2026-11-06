@@ -121,6 +121,11 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const view = state.pview.get(p.name)?.view ?? null;
   const agent = pageAgent(state.agents, p.name, state.subscribed)!;
   const pid = agent.project_id;
+  const asked = pa.run;
+  if (asked?.project === p.name) {
+    pa.run = null;
+    queueMicrotask(() => runs.show(pid, asked.id, asked.host));
+  }
   const sessions = state.sessions.get(p.name);
   if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
   if (terms.list(p.name) === undefined) terms.load(p.name);

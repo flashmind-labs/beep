@@ -59,42 +59,93 @@ impl From<FoundProject> for FoundRow {
     }
 }
 
-/// The checkouts the user's coding agents worked in that are not projects
-/// yet.
+/// The checkouts on the machines that are not projects yet, as each machine
+/// named them last: at once, for `rescan_found` to bring up to date.
 #[tauri::command]
 pub async fn found_projects(
-    app: AppHandle,
     beep: Service<'_>,
     fleet: Machines<'_>,
     session: FleetState<'_>,
     held: State<'_, Outside>,
 ) -> Result<Vec<FoundRow>> {
-    let (b, f, d) = (
-        beep.inner().clone(),
-        fleet.inner().clone(),
-        session.inner().clone(),
-    );
-    let found = held.found.refreshed(
-        &app,
-        async move {
-            let here = direct::found_folders(&f).await;
-            // What the mesh already has as a project is not offered again.
-            let mut found = match desk(&d).await {
-                Ok(desk) => desk.group_found(here),
-                Err(_) => beep_projects::imports::found::group(here, &[], &[]),
-            };
-            let others = extra(b.call(ListFoundFolders {}).await);
-            found.extend(others.into_iter().filter(|project| {
-                project
-                    .places
-                    .iter()
-                    .all(|place| f.member(&place.machine_id).is_none())
-            }));
-            Ok(found)
-        },
-        |old, new| old.project == new.project && old.places.len() == new.places.len(),
-    );
-    Ok(found.into_iter().map(FoundRow::from).collect())
+    Ok(grouped(&beep, &fleet, &session, &held).await)
+}
+
+/// A machine of the mesh to ask for its checkouts.
+#[derive(Debug, Serialize)]
+pub struct FoundMachine {
+    id: String,
+    name: String,
+}
+
+/// The machines of the mesh online now, this Mac among them.
+#[tauri::command]
+pub fn found_machines(fleet: Machines<'_>) -> Vec<FoundMachine> {
+    fleet
+        .online()
+        .into_iter()
+        .map(|machine| FoundMachine {
+            id: machine.to_string(),
+            name: fleet.name_of(machine),
+        })
+        .collect()
+}
+
+/// The found list after one machine looked again, and why it could not.
+#[derive(Debug, Serialize)]
+pub struct FoundAfter {
+    rows: Vec<FoundRow>,
+    /// In words, when the machine could not say what it has.
+    problem: Option<String>,
+}
+
+/// Has `machine_id` walk its search folder again, quickly, and name its
+/// checkouts; gives the found list with what it named.
+#[tauri::command]
+pub async fn rescan_found(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    session: FleetState<'_>,
+    held: State<'_, Outside>,
+    machine_id: String,
+) -> Result<FoundAfter> {
+    let machine = fleet
+        .member(&machine_id)
+        .ok_or_else(|| DesktopError::BadRequest("That machine is not in the mesh.".into()))?;
+    let problem = match direct::found_on(&fleet, machine).await {
+        Ok(found) => {
+            held.found.keep(found);
+            None
+        }
+        Err(why) => Some(why),
+    };
+    Ok(FoundAfter {
+        rows: grouped(&beep, &fleet, &session, &held).await,
+        problem,
+    })
+}
+
+/// What the machines named last, without what the mesh already has as a
+/// project, and what the server found on machines outside the mesh.
+async fn grouped(
+    beep: &Service<'_>,
+    fleet: &Machines<'_>,
+    session: &FleetState<'_>,
+    held: &Outside,
+) -> Vec<FoundRow> {
+    let here = held.found.last();
+    let mut found = match desk(session).await {
+        Ok(desk) => desk.group_found(here),
+        Err(_) => beep_projects::imports::found::group(here, &[], &[]),
+    };
+    let others = extra(beep.call(ListFoundFolders {}).await);
+    found.extend(others.into_iter().filter(|project| {
+        project
+            .places
+            .iter()
+            .all(|place| fleet.member(&place.machine_id).is_none())
+    }));
+    found.into_iter().map(FoundRow::from).collect()
 }
 
 /// One git host's repositories to clone, as the Add a project sheet lists
@@ -217,6 +268,20 @@ pub async fn list_machine_folder(
     beep.call(ListMachineFolder { machine_id, path })
         .await
         .map_err(outdated)
+}
+
+/// The branch the checkout at `path` on `machine_id` is on; `None` when it
+/// is no checkout or the machine is not in the mesh.
+#[tauri::command]
+pub async fn folder_branch(
+    fleet: Machines<'_>,
+    machine_id: String,
+    path: String,
+) -> Result<Option<String>> {
+    match fleet.member(&machine_id) {
+        Some(machine) => direct::folder_branch(&fleet, machine, &path).await,
+        None => Ok(None),
+    }
 }
 
 /// The macOS folder picker, opened at `start`; `None` when the user

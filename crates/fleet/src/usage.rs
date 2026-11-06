@@ -1,9 +1,12 @@
 //! What the coding agents cost and how much of their plans is left, summed over every machine.
 //! Each online node reports what its agents' own logs say (`agents/1`, `FollowUsage`): the
 //! desktop reads that once per call and adds it up. A node says all it has, then each change; it
-//! has no end marker, so a read ends when the node has been quiet for [`SETTLE`].
+//! has no end marker, so a read ends when the node has been quiet for [`SETTLE`]. A node reads
+//! its plans beside the stream, and Claude Code can take most of half a minute to start: a
+//! stream still owing a plan is kept as a [`PlanFollow`] until the node sends it.
 
 use crate::{desk::Desk, error::Result};
+use beep_mesh::MeshError;
 use beep_projects::imports::records::{ImportRow, project_of};
 use beep_proto::{
     AgentSlug, AgentTokens, HarnessBill, HarnessSpend, ModelId, ModelSpend, PeriodSpend,
@@ -15,19 +18,61 @@ use beep_proto::{
     },
 };
 use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone};
-use futures::{StreamExt, future::join_all};
+use futures::{Stream, StreamExt, future::join_all};
 use iroh::EndpointId;
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
+    pin::Pin,
     time::{Duration, UNIX_EPOCH},
 };
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout};
 
 /// How long a node may be quiet before what it has said is taken as all of it.
 pub const SETTLE: Duration = Duration::from_secs(2);
 /// The longest a node is listened to.
 const LISTEN: Duration = Duration::from_secs(20);
+/// How long a stream is kept for the plans it owes, from its opening: a node gives each CLI 30
+/// seconds to answer, its start included.
+const PLAN_WAIT: Duration = Duration::from_secs(35);
+/// The agents whose plans a node reads.
+const PLAN_AGENTS: [AgentSlug; 2] = [AgentSlug::CLAUDE, AgentSlug::CODEX];
+
+type Replies = Pin<Box<dyn Stream<Item = std::result::Result<SessionsReply, MeshError>> + Send>>;
+
+/// A machine's usage stream kept after a read, for the plans it has not sent yet.
+pub(crate) struct PlanFollow {
+    name: String,
+    replies: Replies,
+    /// The agents the machine runs whose plan it has not sent.
+    pub(crate) waiting: BTreeSet<AgentSlug>,
+    opened: Instant,
+}
+
+impl PlanFollow {
+    /// Hands each plan the node sends to `heard`, until it sent every agent waited on, the
+    /// stream ends or [`PLAN_WAIT`] has passed since it opened.
+    pub(crate) async fn run(mut self, heard: impl Fn(PlanLimits) + Send) {
+        let left = PLAN_WAIT.saturating_sub(self.opened.elapsed());
+        let listened = timeout(left, async {
+            while !self.waiting.is_empty() {
+                let Some(Ok(reply)) = self.replies.next().await else {
+                    return;
+                };
+                if let SessionsReply::PlanUsage { usage } = reply {
+                    self.waiting.remove(&usage.agent);
+                    if let Some(limits) = plan_limits(&self.name, &usage) {
+                        heard(limits);
+                    }
+                }
+            }
+        })
+        .await;
+        if listened.is_err() {
+            log::debug!("{} sent no plan for {:?}", self.name, self.waiting);
+        }
+    }
+}
 
 /// One session's spend on one machine, by hour.
 struct Session {
@@ -42,6 +87,7 @@ struct Session {
 struct Said {
     plans: Vec<(String, PlanUsage)>,
     sessions: HashMap<(EndpointId, AgentSlug, String), Session>,
+    follows: Vec<PlanFollow>,
 }
 
 /// What one period spent.
@@ -64,6 +110,7 @@ impl Desk {
         let Ok(client) = self.peers.client(machine).await else {
             return;
         };
+        let opened = Instant::now();
         let request = SessionsRequest::FollowUsage { history: true };
         let Ok(replies) = client
             .follow::<_, SessionsReply>(SESSIONS_PROTOCOL, &request)
@@ -71,12 +118,26 @@ impl Desk {
         else {
             return;
         };
-        let mut replies = Box::pin(replies);
+        let mut replies: Replies = Box::pin(replies);
         let quiet = self.settle;
-        let _ = timeout(LISTEN, async {
-            while let Ok(Some(Ok(reply))) = timeout(quiet, replies.next()).await {
+        let mut open = true;
+        let mut heard: BTreeSet<AgentSlug> = BTreeSet::new();
+        let listened = timeout(LISTEN, async {
+            loop {
+                let reply = match timeout(quiet, replies.next()).await {
+                    Ok(Some(Ok(reply))) => reply,
+                    Ok(_) => {
+                        open = false;
+                        return;
+                    }
+                    // Quiet: what it had is said.
+                    Err(_) => return,
+                };
                 match reply {
-                    SessionsReply::PlanUsage { usage } => said.plans.push((name.clone(), usage)),
+                    SessionsReply::PlanUsage { usage } => {
+                        heard.insert(usage.agent.clone());
+                        said.plans.push((name.clone(), usage));
+                    }
                     SessionsReply::SessionSpend { usage } => {
                         let key = (machine, usage.agent.clone(), usage.session.clone());
                         absorb(
@@ -94,6 +155,27 @@ impl Desk {
             }
         })
         .await;
+        if listened.is_err() || !open {
+            return;
+        }
+        // The agents the machine said it has, or both when it has not said.
+        let env = self.peers.last_env(machine);
+        let runs = |agent: &AgentSlug| {
+            env.as_ref()
+                .is_none_or(|env| env.tools.iter().any(|tool| tool.name == agent.as_str()))
+        };
+        let waiting: BTreeSet<AgentSlug> = PLAN_AGENTS
+            .into_iter()
+            .filter(|agent| runs(agent) && !heard.contains(agent))
+            .collect();
+        if !waiting.is_empty() {
+            said.follows.push(PlanFollow {
+                name,
+                replies,
+                waiting,
+                opened,
+            });
+        }
     }
 
     async fn said(&self) -> Said {
@@ -112,6 +194,7 @@ impl Desk {
         for said in join_all(listens).await {
             all.plans.extend(said.plans);
             all.sessions.extend(said.sessions);
+            all.follows.extend(said.follows);
         }
         all
     }
@@ -147,16 +230,23 @@ impl Desk {
     }
 
     pub async fn spend(&self) -> Result<SpendReport> {
-        let said = self.said().await;
+        Ok(self.spend_and_follow().await?.0)
+    }
+
+    /// [`Desk::spend`], with the streams of the machines that still owe a plan.
+    pub(crate) async fn spend_and_follow(&self) -> Result<(SpendReport, Vec<PlanFollow>)> {
+        let mut said = self.said().await;
+        let follows = std::mem::take(&mut said.follows);
         let imports = self.imports();
         let (today, week, month) = periods();
         let rows = |from: i64| Rows::of(&said, &imports, from);
-        Ok(SpendReport {
+        let report = SpendReport {
             limits: limits(&said),
             today: bill(&rows(today)),
             week: bill(&rows(week)),
             month: bill(&rows(month)),
-        })
+        };
+        Ok((report, follows))
     }
 }
 
@@ -208,12 +298,22 @@ impl<'a> Rows<'a> {
 }
 
 fn limits(said: &Said) -> Vec<PlanLimits> {
-    // The freshest report of each agent.
-    let mut freshest: BTreeMap<&AgentSlug, &(String, PlanUsage)> = BTreeMap::new();
-    for plan in &said.plans {
-        let held = freshest.entry(&plan.1.agent).or_insert(plan);
-        if plan.1.at >= held.1.at {
-            *held = plan;
+    freshest(
+        said.plans
+            .iter()
+            .filter_map(|(machine, plan)| plan_limits(machine, plan)),
+    )
+}
+
+/// The freshest report of each agent: Claude Code, then Codex, then the others.
+pub(crate) fn freshest(plans: impl IntoIterator<Item = PlanLimits>) -> Vec<PlanLimits> {
+    let mut by_agent: BTreeMap<AgentSlug, PlanLimits> = BTreeMap::new();
+    for plan in plans {
+        if by_agent
+            .get(&plan.agent)
+            .is_none_or(|held| plan.as_of >= held.as_of)
+        {
+            by_agent.insert(plan.agent.clone(), plan);
         }
     }
     let rank = |agent: &AgentSlug| match agent {
@@ -221,38 +321,40 @@ fn limits(said: &Said) -> Vec<PlanLimits> {
         a if *a == AgentSlug::CODEX => 1,
         _ => 2,
     };
-    let mut plans: Vec<&(String, PlanUsage)> = freshest.into_values().collect();
+    let mut plans: Vec<PlanLimits> = by_agent.into_values().collect();
     plans.sort_by(|a, b| {
-        rank(&a.1.agent)
-            .cmp(&rank(&b.1.agent))
-            .then_with(|| a.1.agent.cmp(&b.1.agent))
+        rank(&a.agent)
+            .cmp(&rank(&b.agent))
+            .then_with(|| a.agent.cmp(&b.agent))
     });
     plans
-        .into_iter()
-        .filter(|(_, plan)| !plan.windows.is_empty())
-        .map(|(machine, plan)| {
-            let mut windows: Vec<PlanWindow> = plan
-                .windows
-                .iter()
-                .map(|window| PlanWindow {
-                    minutes: window.minutes,
-                    used_percent: window.used_percent,
-                    resets_at: window
-                        .resets_at
-                        .map(|at| UNIX_EPOCH + Duration::from_secs(at)),
-                    scope: window.scope.clone(),
-                })
-                .collect();
-            windows.sort_by_key(|window| window.minutes);
-            PlanLimits {
-                agent: plan.agent.clone(),
-                plan: plan.plan.clone(),
-                machine_name: machine.clone(),
-                as_of: UNIX_EPOCH + Duration::from_secs(plan.at),
-                windows,
-            }
+}
+
+/// `plan` as `machine` read it; `None` without windows.
+fn plan_limits(machine: &str, plan: &PlanUsage) -> Option<PlanLimits> {
+    if plan.windows.is_empty() {
+        return None;
+    }
+    let mut windows: Vec<PlanWindow> = plan
+        .windows
+        .iter()
+        .map(|window| PlanWindow {
+            minutes: window.minutes,
+            used_percent: window.used_percent,
+            resets_at: window
+                .resets_at
+                .map(|at| UNIX_EPOCH + Duration::from_secs(at)),
+            scope: window.scope.clone(),
         })
-        .collect()
+        .collect();
+    windows.sort_by_key(|window| window.minutes);
+    Some(PlanLimits {
+        agent: plan.agent.clone(),
+        plan: plan.plan.clone(),
+        machine_name: machine.to_owned(),
+        as_of: UNIX_EPOCH + Duration::from_secs(plan.at),
+        windows,
+    })
 }
 
 fn cmp_cost(a: f64, b: f64) -> Ordering {

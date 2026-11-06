@@ -7,7 +7,7 @@ mod net;
 mod seal;
 
 pub use check::host_client;
-pub use seal::{CredentialKey, HarnessOwner, Owner, WebhookOwner};
+pub use seal::{CredentialKey, HarnessOwner, Owner};
 
 use crate::protocol::{
     SecretText,

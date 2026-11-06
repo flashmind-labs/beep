@@ -18,7 +18,7 @@ use tokio::task::spawn_blocking;
 
 /// What a session Beep made no branch or worktree for is told ahead of its
 /// first prompt, so the agent makes its own when it changes files.
-const WORKTREE_BRIEF: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
+pub(super) const WORKTREE_BRIEF: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
 
 /// The most branch names tried, `beep/<slug>` then `-2` and on.
 const MAX_NAMES: u32 = 100;
@@ -387,6 +387,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::files::paths;
 
     /// A temporary repository with one commit on `main`.
     pub(in crate::agents) fn repo(name: &str) -> (tempfile::TempDir, PathBuf) {
@@ -606,8 +607,8 @@ pub(super) mod tests {
         let found = make(&clone, &plan("login-copy"), "go").expect("the hand-made worktree");
         assert_eq!(found.start, Start::OwnWorktree);
         assert_eq!(
-            fs::canonicalize(&found.folder).expect("a folder"),
-            fs::canonicalize(&other).expect("a folder")
+            paths::canonicalize(&found.folder).expect("a folder"),
+            paths::canonicalize(&other).expect("a folder")
         );
         let error = make(&clone, &plan("nope"), "go").expect_err("no such branch");
         assert!(format!("{error:#}").contains("no branch nope"), "{error:#}");

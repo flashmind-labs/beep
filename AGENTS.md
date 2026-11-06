@@ -54,9 +54,8 @@ The server runs no user code. A hosted user's `beep-node` starts with
 there by default, and uploads, downloads and app attachments are saved there.
 Per-user nodes are set up by hand for now.
 
-The server is the production server on Neon, the target of
-`just deploy-server`. Desktop and iOS builds pass its node id in
-`BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
+The production server is deployed from the private ops repo, not from
+here. Desktop and iOS builds pass its node id in `BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
 Moving an account: credentials are entered again on the desktop. A node in the mesh stops
@@ -80,7 +79,7 @@ using the server's credentials and harness values as soon as the account is move
 - `config`: the TOML config.
 - `memory`: memories, skills, profile, starters, watchers, the group leak check.
 - `nodes`: node connections (`serve`), linking, per-node requests, the workspace.
-- `projects`: project agent: tasks, workers, reviews, imports, `repo_watch`, `git_items`.
+- `projects`: project agent: tasks, workers, reviews, imports, `repo_watch` (polls the forges, no webhooks), `git_items`.
 - `push`: notice delivery, FCM, APNs.
 - `research`: research papers: planning, team tools, PDF.
 - `routines`: what wakes the agent: `cron`, `places`, `events`, `digest`, `wake`.
@@ -119,16 +118,15 @@ one that would make its key an account on connecting. Not with `[instance]`.
 
 ## Deploying the server
 
-Push to main, then `just deploy-server`. It waits for the image CI builds for
-HEAD, copies the dev config and key to the remote host and restarts the
-container.
+Deploys live in the private ops repo. Push to main so CI builds the image,
+then deploy from there. `deploy/compose.yaml` is the self-host example
+(README, Self-hosting).
 
 We are in beta: every app stays on 0.x until production is ready, minor or
 patch bumps only, and the release recipes refuse anything else.
 
 Tag a deployed server with `just server-release 0.4.0` (it tags HEAD
-`server-v0.4.0`). To roll back, `just deploy-server server-v0.3.2` deploys
-that tag's image. Migrations are not undone, so an older server must still
+`server-v0.4.0`). To roll back, deploy that tag's image from the ops repo. Migrations are not undone, so an older server must still
 run against the newer schema.
 
 ## UI changes
@@ -260,7 +258,7 @@ in `build.mjs`.
 - `bar/`: the bar's page (entry `app.ts`), its views, keys and live voice.
 - `center/`: the command center window (entry `center.ts`): sidebar, Home, the bell and its notifications pane (`notices.ts`).
 - `project/`: the Projects page and one project's page.
-- `addproject/`: the Add a project, Import a project and New project sheets.
+- `addproject/`: the Add a project, Add a folder, Import a project and New project sheets.
 - `review/`: branches, reviews and the diff viewer.
 - `agents/`: coding agents: start form, picker, a session's log, the list (`sessions.ts` is the one shared session list), and the empty view of ⌘N (`draft.ts`: a session's layout with the project's start input, which becomes the session in place).
 - `agentpane/`: a session's side pane: media, files, changes, artifacts.
@@ -371,6 +369,26 @@ applies too; one it cannot read refuses the folder and says why.
 
 A session also moves on a project Syncthing keeps in step: folders come from the place records when `sync/<name>` does not name the machine, and the target trusts Syncthing, waiting up to two minutes for its folder to be complete. A project neither keeps is refused before the source stops.
 
+## Agent skills across the mesh
+
+Each node (the Mac app's too) lists the user's skills on `skills/1`
+(`crates/node/src/agents/skills/`): every `<name>/SKILL.md` folder under
+`~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills`, `~/.pi/agent/skills`,
+`~/.gemini/skills` and `~/.config/opencode/skills`, hashed over its files.
+Beep's own (the "Installed by Beep" marker) are left out. Every two minutes,
+when a machine comes or goes, and when a peer says its skills changed
+(`Changed`), a node reads the others' lists.
+
+`skills-seen` in the node folder records each name held and the copy last
+synced (hash and version, the version counting edits). A listed copy carries
+that version and whether it was edited since. A skill never held is copied
+into `~/.claude/skills` and `~/.agents/skills`. An edit spreads: a copy still
+as last synced is replaced by the newer one (staged beside it, then swapped).
+Two copies edited apart, or an edit made to an older version, are a conflict:
+nothing changes, the node logs a warning and the desktop shows a bell row. Two
+local folders follow the same rule. Deletes never spread, and a name in
+`skills-seen` that is gone here is never copied back.
+
 ## iOS app
 
 `apps/ios` is the SwiftUI port. `just ios-run` builds, installs and launches
@@ -447,7 +465,7 @@ required) says the same with `harness` set to `claude` and the tools named
 - `link/`: the node's key and settings (`state`), linking and the control
   stream, reconnecting, and what carries over a restart.
 - `machine/`: what the machine has (`env`, `stats`), setup, the service,
-  self-update, provisioning and repository webhooks.
+  self-update and provisioning.
 - `run/`: process groups, shell sessions, background tasks and terminals.
 - `lib.rs` declares these; `main.rs` is the command line, with its grouped
   help and `status` output in `cli/`.

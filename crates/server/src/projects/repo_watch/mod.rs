@@ -1,14 +1,12 @@
 //! Each project's open PRs, issues and workflow runs, cached per user and project, refreshed in
 //! the background while viewed and on Refresh at most twice a minute; running jobs every 10 s.
 
-mod forward;
 mod hosts;
 mod lists;
 mod live;
 mod runs;
 mod watch;
 
-pub(crate) use forward::{LiveState, sweep, sweep_any};
 pub(crate) use lists::ListsCopy;
 pub(crate) use watch::Changed;
 pub use watch::RepoWatch;

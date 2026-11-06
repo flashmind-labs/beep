@@ -76,7 +76,7 @@ export function route(scope: ProjectScope | null, view: ViewName, arg?: unknown)
 /// What the main window is asked to show (`CenterTarget` in center.rs).
 export type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | "providers" | "terminals" | "research"
   | { chat: { session: string | null } } | { group: { id: string } } | { agent: AgentTarget }
-  | { projects: { project: string | null } } | { ask: { prompt: string } } | { open_research: { session: string } } | { notice: { session: string | null } };
+  | { projects: { project: string | null; run?: { id: number; host: string } | null } } | { ask: { prompt: string } } | { open_research: { session: string } } | { notice: { session: string | null } };
 
 /// A coding agent session for the main window, every field filled as
 /// `AgentTarget` in center.rs reads it.
@@ -106,7 +106,10 @@ export function mainTarget(view: ViewName, arg?: unknown): CenterTarget {
   // Every name in VIEWS is also a CenterTarget string.
   if (VIEWS.has(view)) return view as CenterTarget;
   if (view === "researchopen") return { open_research: { session: (arg as { session: string }).session } };
-  if (view === "projects") return { projects: { project: (arg as { project?: string | null } | undefined)?.project ?? null } };
+  if (view === "projects") {
+    const a = arg as { project?: string | null; run?: { id: number; host: string } | null } | undefined;
+    return { projects: { project: a?.project ?? null, run: a?.run ?? null } };
+  }
   if (view !== "pane") return "home";
   if (typeof arg === "string") return PANE_PAGES.has(arg) ? arg as CenterTarget : "home";
   if (!arg || typeof arg !== "object") return "home";
