@@ -38,9 +38,15 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
       turns[turns.length - 1].steps.push(at);
     }
   });
-  // The answer is the run of agent text the turn ends with.
+  // The answer is the run of agent text the turn ends with, and what
+  // follows it that is neither a tool nor a thought (the files it made).
+  const kind = (at: number) => entries[at - offset].kind;
   for (const t of turns) {
-    while (t.steps.length && entries[t.steps[t.steps.length - 1] - offset].kind === "agent") t.answer.unshift(t.steps.pop()!);
+    let end = t.steps.length;
+    while (end && kind(t.steps[end - 1]) === "other") end--;
+    let start = end;
+    while (start && kind(t.steps[start - 1]) === "agent") start--;
+    if (start < end) t.answer = t.steps.splice(start);
   }
   return turns;
 }
