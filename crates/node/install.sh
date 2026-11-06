@@ -62,7 +62,7 @@ detect_target() {
     esac
 }
 
-# An upgrade over a node that `beep-node setup` already runs as a service:
+# An upgrade over a node already running as a service:
 # the rename above leaves the old binary running until the service restarts.
 # Succeeds when it restarted one.
 restart_service() {
@@ -153,7 +153,6 @@ main() {
     say "Next, open Add a machine in the Beep desktop app and run"
     say "  beep-node mesh join <ticket>"
     say "with the ticket it shows. It also starts beep-node in the background."
-    say "(beep-node setup <token> is the older way, for linking to a server account.)"
 }
 
 main "$@"

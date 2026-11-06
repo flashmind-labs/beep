@@ -8,10 +8,9 @@ use super::{
 use crate::{
     account::user::User,
     app::App,
-    nodes::{Follower, Online, SHELL},
     protocol::node::{
         Capability, SyncthingFolder,
-        agent::{OptionKind, Question, Request as AgentRequest, SessionInfo},
+        agent::SessionInfo,
         files::{Reply, Request},
     },
     store::{ProjectRow, TaskRow, WorkerRow},
@@ -90,59 +89,34 @@ pub(crate) trait Fleet: Machines {
         request: &StartRequest,
     ) -> Result<Started, StartError>;
 
-    async fn send_session(&self, worker: &WorkerRow, request: AgentRequest) -> Result<()>;
-
-    /// Puts the worker's `question` to the user as a card of `chat`.
-    async fn ask_user(
-        &self,
-        worker: &WorkerRow,
-        task: &TaskRow,
-        chat: Uuid,
-        question: Question,
-    ) -> Result<()>;
-
     /// Where the worker's session stands now, following it if nothing does.
     async fn session_info(&self, worker: &WorkerRow) -> Result<SessionInfo>;
-
-    /// Re-follows the worker's session, reporting to `chat`; fails when the machine lost it.
-    async fn attach(&self, worker: &WorkerRow, chat: Uuid) -> Result<SessionInfo>;
 }
 
-/// The nodes the user has connected to the server.
-pub(crate) struct NodeFleet {
+/// What a project tool hears when it needs a machine: the server reaches none.
+pub(crate) const UNREACHABLE: &str =
+    "The server reaches no machine: machines are reached through a desktop now.";
+
+/// The machines the account recorded. The server reaches none of them, so each is offline and
+/// every call that needs one fails with [`UNREACHABLE`].
+pub(crate) struct RecordedFleet {
     pub(crate) app: Arc<App>,
     pub(crate) user: Arc<User>,
 }
 
-impl NodeFleet {
+impl RecordedFleet {
     pub(crate) fn new(app: &Arc<App>, user: &Arc<User>) -> Self {
         Self {
             app: app.clone(),
             user: user.clone(),
         }
     }
-
-    /// The node's connection, only while it is signed in as this user.
-    fn online(&self, machine: &EndpointId) -> Option<Online> {
-        self.app
-            .nodes
-            .online(&machine.to_string())
-            .filter(|online| online.user == self.user.id())
-    }
 }
 
 #[async_trait]
-impl Machines for NodeFleet {
-    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>> {
-        let online = self.online(machine).filter(|online| online.offers(SHELL))?;
-        #[cfg(test)]
-        if let Some(prefix) = self.app.projects.shell_prefix() {
-            return Some(Arc::new(super::testing::Prefixed {
-                prefix,
-                shell: Arc::new(online),
-            }));
-        }
-        Some(Arc::new(online))
+impl Machines for RecordedFleet {
+    fn shell(&self, _: &EndpointId) -> Option<Arc<dyn Shell>> {
+        None
     }
 
     async fn names(&self) -> Vec<MachineName> {
@@ -151,7 +125,7 @@ impl Machines for NodeFleet {
 }
 
 #[async_trait]
-impl Fleet for NodeFleet {
+impl Fleet for RecordedFleet {
     async fn machines(&self) -> Result<Vec<Machine>> {
         let rows = self.user.nodes().await?;
         let mut machines = Vec::with_capacity(rows.len());
@@ -161,7 +135,7 @@ impl Fleet for NodeFleet {
                 continue;
             };
             machines.push(Machine {
-                online: self.online(&id).is_some(),
+                online: false,
                 id,
                 name: row.name,
                 capabilities: row
@@ -181,32 +155,16 @@ impl Fleet for NodeFleet {
         Ok(machines)
     }
 
-    async fn files(&self, machine: &EndpointId, request: &Request) -> Result<Reply> {
-        let online = self
-            .online(machine)
-            .ok_or_else(|| anyhow!("the machine is offline"))?;
-        online.files(request).await
+    async fn files(&self, _: &EndpointId, _: &Request) -> Result<Reply> {
+        Err(anyhow!(UNREACHABLE))
     }
 
     fn projects(&self) -> &Projects {
         &self.app.projects
     }
 
-    async fn close_session(
-        &self,
-        machine: &EndpointId,
-        agent: WorkerAgent,
-        session: &str,
-    ) -> Result<()> {
-        let online = self
-            .online(machine)
-            .ok_or_else(|| anyhow!("the machine is offline"))?;
-        let link = online.agent_session(agent.into(), session).await?;
-        // Closing ends the turn too; a failed cancel only costs the turn.
-        if let Err(error) = link.send(AgentRequest::Cancel {}).await {
-            log::warn!("projects: unable to cancel a worker's turn: {error:#}");
-        }
-        link.send(AgentRequest::Close {}).await
+    async fn close_session(&self, _: &EndpointId, _: WorkerAgent, _: &str) -> Result<()> {
+        Err(anyhow!(UNREACHABLE))
     }
 
     fn post(&self, chat: Uuid, label: &str, text: String) {
@@ -224,86 +182,8 @@ impl Fleet for NodeFleet {
         worker::start_task(&self.app, &self.user, project, task, request).await
     }
 
-    async fn send_session(&self, worker: &WorkerRow, request: AgentRequest) -> Result<()> {
-        let (online, session) = self.session_of(worker)?;
-        let link = online.agent_session(worker.agent.into(), session).await?;
-        link.send(request).await
-    }
-
-    async fn ask_user(
-        &self,
-        worker: &WorkerRow,
-        task: &TaskRow,
-        chat: Uuid,
-        question: Question,
-    ) -> Result<()> {
-        let (online, session) = self.session_of(worker)?;
-        let link = online.agent_session(worker.agent.into(), session).await?;
-        let follower = self.follower(worker, chat).await?;
-        let mut ask = link.ask(
-            follower,
-            question.clone(),
-            format!("{}: {}", task.slug, task.title),
-        );
-        // Answering ends the wait, and an allowed build lets the next run.
-        let send = ask.answer;
-        let user = self.user.clone();
-        let app = Arc::downgrade(&self.app);
-        let id = worker.id;
-        ask.answer = Box::new(move |request| {
-            Box::pin(async move {
-                let allowed = matches!(&request, AgentRequest::Answer { reply, .. }
-                    if question.options.iter().any(|option| &option.id == reply
-                        && matches!(option.kind, OptionKind::AllowOnce | OptionKind::AllowAlways)));
-                send(request).await;
-                if let Err(error) = user.set_worker_asking(id, false).await {
-                    log::warn!("projects: unable to note an answered question: {error:#}");
-                }
-                if allowed && let Some(app) = app.upgrade() {
-                    app.projects.allowed(id, &question);
-                }
-            })
-        });
-        self.app.nodes.deliveries.ask(&self.app, ask);
-        Ok(())
-    }
-
-    async fn session_info(&self, worker: &WorkerRow) -> Result<SessionInfo> {
-        let (online, session) = self.session_of(worker)?;
-        let link = online.agent_session(worker.agent.into(), session).await?;
-        Ok(link.now().info)
-    }
-
-    async fn attach(&self, worker: &WorkerRow, chat: Uuid) -> Result<SessionInfo> {
-        let (online, session) = self.session_of(worker)?;
-        let link = online.agent_session(worker.agent.into(), session).await?;
-        online.report_to(session, self.follower(worker, chat).await?);
-        Ok(link.now().info)
-    }
-}
-
-impl NodeFleet {
-    /// The worker's machine, while online, and its session.
-    fn session_of<'a>(&self, worker: &'a WorkerRow) -> Result<(Online, &'a str)> {
-        let online = self
-            .online(&worker.machine)
-            .ok_or_else(|| anyhow!("the machine is offline"))?;
-        let session = worker
-            .session
-            .as_deref()
-            .ok_or_else(|| anyhow!("the worker has no session yet"))?;
-        Ok((online, session))
-    }
-
-    /// Who the worker's session reports to.
-    async fn follower(&self, worker: &WorkerRow, chat: Uuid) -> Result<Follower> {
-        let machines = self.machines().await?;
-        Ok(Follower {
-            user: self.user.clone(),
-            chat,
-            node: name_of(&machines, &worker.machine),
-            agent: worker.agent.to_string(),
-        })
+    async fn session_info(&self, _: &WorkerRow) -> Result<SessionInfo> {
+        Err(anyhow!(UNREACHABLE))
     }
 }
 

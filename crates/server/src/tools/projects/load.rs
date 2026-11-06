@@ -2,9 +2,8 @@
 
 use crate::{
     account::user::User,
-    api::machine_sessions,
     app::App,
-    protocol::{AgentStatus, GitItem, GitItemKind, GitReview, MachineSession},
+    protocol::{GitItem, GitItemKind, GitReview},
     store::TaskRow,
 };
 use beep_projects::model::RepoName;
@@ -88,35 +87,17 @@ pub(super) async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
     Ok(projects)
 }
 
-/// What the git hosts and machines say now.
+/// What the git hosts say now.
 #[derive(Debug, Default)]
 pub(super) struct Live {
     pub(super) items: Vec<GitItem>,
-    /// Sessions not ended.
-    pub(super) sessions: Vec<MachineSession>,
     /// What could not be read, for the model.
     pub(super) notes: Vec<String>,
 }
 
 pub(super) async fn live(app: &App, user: &User) -> Live {
-    let (items, sessions) = tokio::join!(git_items(app, user), machine_sessions(app, user));
-    let (items, mut notes) = items;
-    let sessions = match sessions {
-        Ok(sessions) => sessions
-            .into_iter()
-            .filter(|session| session.status != (AgentStatus::Ended {}))
-            .collect(),
-        Err(e) => {
-            log::warn!("projects tool: sessions not listed: {e:#}");
-            notes.push("Coding sessions could not be listed.".to_owned());
-            Vec::new()
-        }
-    };
-    Live {
-        items,
-        sessions,
-        notes,
-    }
+    let (items, notes) = git_items(app, user).await;
+    Live { items, notes }
 }
 
 /// The user's open items on their git hosts, and notes on hosts that did not answer.
@@ -164,24 +145,6 @@ pub(super) fn items_of<'a>(project: &Project, live: &'a Live) -> Vec<&'a GitItem
         .iter()
         .filter(|item| item.repo.eq_ignore_ascii_case(&name))
         .collect()
-}
-
-pub(super) fn sessions_of<'a>(project: &Project, live: &'a Live) -> Vec<&'a MachineSession> {
-    live.sessions
-        .iter()
-        .filter(|session| in_project(project, session))
-        .collect()
-}
-
-/// Whether the session runs in or under one of the project's folders.
-pub(super) fn in_project(project: &Project, session: &MachineSession) -> bool {
-    project.places.iter().any(|place| {
-        place.endpoint == session.machine_id
-            && session
-                .cwd
-                .strip_prefix(place.folder.trim_end_matches('/'))
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-    })
 }
 
 /// A pull request waiting on the user: a review request, or theirs with changes asked or failing checks.

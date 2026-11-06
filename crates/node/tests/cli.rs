@@ -27,7 +27,7 @@ fn beep_node(args: &[&str]) -> String {
 #[test]
 fn help_lists_the_commands_in_groups() {
     let help = beep_node(&["--help"]);
-    for heading in ["Mesh", "Agents", "Service", "Diagnostics", "Setup"] {
+    for heading in ["Mesh", "Agents", "Service", "Diagnostics", "Other"] {
         assert!(
             help.lines().any(|line| line == heading),
             "no {heading} group in:\n{help}"
@@ -41,6 +41,20 @@ fn help_lists_the_commands_in_groups() {
     ] {
         assert!(help.contains(listed), "{listed} missing from:\n{help}");
     }
+}
+
+/// An older script's `setup <token>` fails and points to a mesh ticket.
+#[test]
+fn setup_is_retired_and_points_to_mesh_join() {
+    let dir = TempDir::new().expect("a temp folder");
+    let dir = dir.path().to_str().expect("a utf-8 path");
+    let out = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+        .args(["--dir", dir, "setup", "bk1-abc", "--no-run"])
+        .output()
+        .expect("beep-node runs");
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert!(text.contains("beep-node mesh join <ticket>"), "{text}");
 }
 
 #[test]

@@ -1,14 +1,12 @@
 //! Background work: sub-agents run outside the user's turns with a token budget, a time limit and a typed decision.
 
-mod approvals;
 mod decision;
 mod run;
 
-pub use approvals::Approvals;
 pub use decision::Decision;
 pub use run::{Ended, Failure, Watch};
 
-use crate::{app::UserNotice, lock, research::RoleModel};
+use crate::{lock, research::RoleModel};
 use flashmind::{
     core::CancellationToken,
     types::{AgentLlmConfig, LlmProvider, ProviderPreferences, ToolGate, tool::Tool},
@@ -19,10 +17,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    sync::{Notify, broadcast},
-    task::JoinSet,
-};
+use tokio::{sync::Notify, task::JoinSet};
 
 /// What a task is, for its limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -155,20 +150,13 @@ pub struct Subagents {
     slots: Arc<Mutex<Slots>>,
     tasks: Mutex<JoinSet<()>>,
     stop: CancellationToken,
-    /// Calls waiting for the user's OK.
-    pub approvals: Arc<Approvals>,
     /// Woken whenever a turn ends, so a waiting delivery tries again.
     pub(crate) turn_ended: Notify,
 }
 
 impl Subagents {
-    pub fn new(
-        provider: Arc<dyn LlmProvider>,
-        llm: AgentLlmConfig,
-        notifications: broadcast::Sender<UserNotice>,
-    ) -> Self {
+    pub fn new(provider: Arc<dyn LlmProvider>, llm: AgentLlmConfig) -> Self {
         Self {
-            approvals: Arc::new(Approvals::new(notifications)),
             provider,
             llm,
             slots: Arc::default(),

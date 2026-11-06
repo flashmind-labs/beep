@@ -1,7 +1,7 @@
 //! A project chat's turn: its prompt, its kind and the context block.
 
 use super::{
-    fleet::{self, Fleet, Machine, NodeFleet},
+    fleet::{self, Fleet, Machine, RecordedFleet},
     issues,
     model::memory_scope,
     personas::{self, PersonaFileError, ProjectPersona},
@@ -70,7 +70,7 @@ const MIRROR_BUDGET: Duration = Duration::from_secs(30);
 
 /// Each project turn's start: files missed issues, then gives the context block.
 pub(crate) async fn start(app: &Arc<App>, user: &Arc<User>, project: &ProjectRow) -> String {
-    let fleet = Arc::new(NodeFleet::new(app, user));
+    let fleet = Arc::new(RecordedFleet::new(app, user));
     start_with(fleet, user, project, MIRROR_BUDGET).await
 }
 
@@ -107,7 +107,7 @@ pub(crate) async fn thread_context(
     project: &ProjectRow,
     chat: &ThreadChatRow,
 ) -> String {
-    let fleet = NodeFleet::new(app, user);
+    let fleet = RecordedFleet::new(app, user);
     threads::chat_context(&fleet, user, project, chat).await
 }
 

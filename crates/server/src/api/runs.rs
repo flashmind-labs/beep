@@ -244,18 +244,6 @@ pub(super) async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
         decision,
         for_session,
     } = req;
-    // A call of background work waits on its own; nothing resumes.
-    if cx
-        .app
-        .subagents
-        .approvals
-        .answer(&cx.user, &query_id, decision, for_session)
-        .await?
-    {
-        return Err(ApiError::Conflict {
-            message: "answered; the background work goes on".into(),
-        });
-    }
     let message = Message {
         session_id,
         request_id: Uuid::nil(),

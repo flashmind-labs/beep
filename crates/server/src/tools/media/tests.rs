@@ -1,7 +1,7 @@
 //! The media tools against recorded answers served from a local socket.
 
 use super::{
-    call::{Call, ImageSource},
+    call::Call,
     job::{JobError, first_file},
     produce::{self, Endpoints, Job},
     provider::{Keys, MediaKind, MediaProvider},
@@ -193,7 +193,7 @@ async fn openai_edits_an_image_it_is_given() {
     let call = call(
         MediaKind::Image,
         MediaProvider::OpenAi,
-        json!({ "prompt": "make it night", "image": "photo.png", "aspect_ratio": "1:1" }),
+        json!({ "prompt": "make it night", "image": "https://example.com/photo.png", "aspect_ratio": "1:1" }),
     );
     let (endpoints, key) = (endpoints(&root), key());
     let image = format!("data:image/png;base64,{PNG_B64}");
@@ -358,8 +358,17 @@ fn calls_take_only_a_service_the_user_has_a_key_for() {
     );
     let meshy = [MediaProvider::Meshy];
     assert!(Call::parse(MediaKind::Model3d, &meshy, &json!({})).is_err());
-    let image = Call::parse(MediaKind::Model3d, &meshy, &json!({ "image": "chair.png" })).unwrap();
-    assert_eq!(image.image, Some(ImageSource::Path("chair.png".into())));
+    assert!(Call::parse(MediaKind::Model3d, &meshy, &json!({ "image": "chair.png" })).is_err());
+    let image = Call::parse(
+        MediaKind::Model3d,
+        &meshy,
+        &json!({ "image": "https://example.com/chair.png" }),
+    )
+    .unwrap();
+    assert_eq!(
+        image.image.as_deref(),
+        Some("https://example.com/chair.png")
+    );
     let video = [MediaProvider::Venice];
     for duration in [json!(0), json!(31), json!(2.5), json!("5")] {
         let args = json!({ "prompt": "waves", "duration": duration });
@@ -391,7 +400,6 @@ async fn a_made_image_is_kept_with_the_chat() {
     let media = |keys| Media {
         user: user.clone(),
         chat,
-        workspace: None,
         keys,
         endpoints: endpoints(&root),
     };
@@ -411,8 +419,6 @@ async fn a_made_image_is_kept_with_the_chat() {
     assert_eq!(file["mime"], "image/png");
     assert_eq!(output["provider"], "OpenAI");
     assert_eq!(output["model"], "gpt-image-2");
-    // Without an environment online it is not in the home folder, and says so.
-    assert!(output["note"].as_str().unwrap().contains("home folder"));
     let id = file["id"].as_str().unwrap();
     let kept = user.file_part(id, 0, 100).await.unwrap().unwrap();
     assert_eq!(kept.data, png());

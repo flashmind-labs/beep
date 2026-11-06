@@ -119,7 +119,12 @@ impl ScopeNames {
         };
         match kind {
             "machine" => {
-                let Some(node) = machines::find(&self.0, name) else {
+                let wanted = machines::command_name(name);
+                let found = self
+                    .0
+                    .iter()
+                    .find(|node| machines::command_name(&node.name) == wanted);
+                let Some(node) = found else {
                     bail!("the user has no machine called {name:?}; the machines list shows them");
                 };
                 Ok(Scope::Machine(

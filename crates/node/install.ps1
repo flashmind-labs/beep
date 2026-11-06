@@ -108,7 +108,7 @@
         $env:Path = "$env:Path;$bindir"
     }
 
-    # An upgrade over a node that `beep-node setup` already runs in the
+    # An upgrade over a node already running in the
     # background: the scheduled task keeps the old one running until it
     # restarts.
     $scheduled = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
@@ -124,5 +124,4 @@
     Write-Host 'Next, open Add a machine in the Beep desktop app and run'
     Write-Host '  beep-node mesh join <ticket>'
     Write-Host 'with the ticket it shows. It also starts beep-node in the background.'
-    Write-Host '(beep-node setup <token> is the older way, for linking to a server account.)'
 }

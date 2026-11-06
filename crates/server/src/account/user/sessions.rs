@@ -9,9 +9,9 @@ use crate::{
         UpdatePage, Upload, WebSource,
     },
     store::{
-        AgentImageBytes, AgentImageOf, AlertRow, CopiedShare, DeletedTurn, FinishedTurn,
-        FoundSession, Listing, NewAttachment, NewFile, NewPicture, PicturesOf, RunStatus,
-        SavedTurn, Share, StoredContext, StoredMessage, TurnRecord, TurnsToDelete,
+        AgentImageBytes, AlertRow, CopiedShare, DeletedTurn, FinishedTurn, FoundSession, Listing,
+        NewAttachment, NewFile, NewPicture, PicturesOf, RunStatus, SavedTurn, Share, StoredContext,
+        StoredMessage, TurnRecord, TurnsToDelete,
     },
 };
 use anyhow::Result;
@@ -152,15 +152,6 @@ impl User {
             data,
         };
         self.store.save_file(&self.key, file).await
-    }
-
-    /// Keeps a copy of a picture a coding agent session showed, unless one is kept.
-    pub(crate) async fn save_agent_image(
-        &self,
-        of: AgentImageOf<'_>,
-        image: &AgentImageBytes,
-    ) -> Result<()> {
-        self.store.save_agent_image(&self.key, of, image).await
     }
 
     /// The kept copy of the user's agent session picture `key`.

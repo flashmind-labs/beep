@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use beep_server::{
-    account::instance::{InstanceConfig, NODE_FILE},
+    account::instance::InstanceConfig,
     agent::models::ModelChoices,
     app::{Admission, App, ServerTools, SignedIn},
     protocol::DeviceKind,
@@ -12,7 +12,7 @@ use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
 };
 use iroh::SecretKey;
-use std::{fs, path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 /// The instance tests never run a model turn.
 struct NoModel;
@@ -178,49 +178,5 @@ async fn an_account_from_before_claims_the_instance() {
     assert!(
         refused(&app, &other).await,
         "the other account is not the owner's"
-    );
-}
-
-#[tokio::test]
-async fn the_bundled_node_joins_the_owner() {
-    let db = TestDb::new().await.expect("test database");
-    let dir = tempfile::tempdir().expect("a temp dir");
-    let link: PathBuf = dir.path().to_owned();
-    let config = InstanceConfig {
-        local_node: Some(link.clone()),
-        ..instance("")
-    };
-    let app = app(db.store().await.expect("store"), Some(config)).await;
-    let node = SecretKey::generate();
-    fs::write(
-        link.join(NODE_FILE),
-        format!("{}\nhome box\n", node.public()),
-    )
-    .expect("the node file is written");
-
-    // Nobody owns the instance yet, so the node waits.
-    let waiting = app.sign_in_linked(&node.public()).await.expect("answers");
-    assert!(waiting.is_none());
-
-    let owner = signed_in(&app, &SecretKey::generate()).await.user;
-    let joined = app
-        .sign_in_linked(&node.public())
-        .await
-        .expect("answers")
-        .expect("the node signs in");
-    assert_eq!(joined.user.id(), owner.id());
-    let keys = owner.account_keys().await.expect("the keys");
-    assert!(
-        keys.iter()
-            .any(|key| key.endpoint_id == node.public().to_string() && key.name == "home box")
-    );
-
-    // Another key that no one linked is no node of the owner's.
-    let stranger = SecretKey::generate();
-    assert!(
-        app.sign_in_linked(&stranger.public())
-            .await
-            .expect("answers")
-            .is_none()
     );
 }

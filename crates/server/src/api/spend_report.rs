@@ -17,15 +17,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
 };
 
-pub(super) async fn get_spend_report(
-    cx: Cx,
-    GetSpendReport { refresh }: GetSpendReport,
-) -> Reply<SpendReport> {
-    if refresh {
-        for node in cx.app.nodes.of_user(cx.user.id()) {
-            node.refresh_usage();
-        }
-    }
+pub(super) async fn get_spend_report(cx: Cx, _: GetSpendReport) -> Reply<SpendReport> {
     let periods = cx.user.usage_periods().await?;
     let (days, models, plans, imports, nodes) = tokio::try_join!(
         cx.user.day_spend(&periods),

@@ -52,8 +52,7 @@ fn server_url() -> &'static str {
 }
 
 pub struct Beep {
-    /// The one iroh endpoint of the app, which the mesh and the node link
-    /// share.
+    /// The one iroh endpoint of the app, which the mesh shares.
     endpoint: Endpoint,
     /// The server's client, if this app has a server.
     server: Option<Arc<Client>>,
@@ -124,11 +123,6 @@ impl Beep {
     /// This Mac's device key, which signs what it sends.
     pub(crate) fn device_key(&self) -> SecretKey {
         secret_key(&self.identity)
-    }
-
-    /// This Mac's iroh endpoint, which the node link shares.
-    pub fn endpoint(&self) -> &Endpoint {
-        &self.endpoint
     }
 
     /// Whether this app talks to a server now. Not while signed out, so

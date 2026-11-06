@@ -1,21 +1,13 @@
 //! A node in a mesh takes its synced projects, credentials and agent
 //! settings from the mesh's replicated state (`sync/*`, `credential/*`,
-//! `harness/*`, `flsh`), and ignores what a server pushes for them. The
-//! state file the mesh keeps is the only copy on disk, so the credentials
-//! come back after a restart with no second file to guard.
+//! `harness/*`, `flsh`). The state file the mesh keeps is the only copy on
+//! disk, so the credentials come back after a restart with no second file to
+//! guard.
 //!
 //! `follow` runs while the node is in the mesh. Each change to the state or
 //! the device list applies what differs from what was applied before.
-//!
-//! The mesh takes over one family of state (sync, credentials, harness
-//! settings, flsh) only once it has held a key of that family, a deleted one
-//! included, or an `unmoved/...` record of it: a moved account cuts the
-//! server's credentials and harness values off at once. Until then the node
-//! keeps what the server set and keeps taking the server's pushes for it, so a
-//! running node that joins a mesh with nothing in it loses nothing.
 
 use crate::{
-    AsyncMutex,
     link::Offers,
     link::watchdog::{self, Step},
 };
@@ -35,69 +27,18 @@ use std::{
     sync::Arc,
     time::Instant,
 };
-use tokio::sync::{MutexGuard, broadcast::error::RecvError, watch};
-
-/// A kind of state the mesh can own on the node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Family {
-    Sync,
-    Credentials,
-    Harnesses,
-    Flsh,
-}
-
-impl Family {
-    const ALL: [Family; 4] = [
-        Family::Sync,
-        Family::Credentials,
-        Family::Harnesses,
-        Family::Flsh,
-    ];
-
-    /// What the text form of every key of this family starts with.
-    fn prefix(self) -> &'static str {
-        match self {
-            Family::Sync => "sync/",
-            Family::Credentials => "credential/",
-            Family::Harnesses => "harness/",
-            Family::Flsh => "flsh",
-        }
-    }
-
-    /// What the text form of a record of a value the account move could not bring starts with,
-    /// for the families that hold secrets.
-    fn unmoved(self) -> Option<&'static str> {
-        match self {
-            Family::Credentials => Some("unmoved/credential/"),
-            Family::Harnesses => Some("unmoved/harness/"),
-            Family::Sync | Family::Flsh => None,
-        }
-    }
-
-    /// Whether the mesh owns this family: it has held a key of it, or says by an `unmoved/...`
-    /// record that the account moved and the server's values are not to be used. Until then the
-    /// server's.
-    pub(crate) fn held(self, mesh: &Mesh) -> bool {
-        mesh.has_held(self.prefix())
-            || self
-                .unmoved()
-                .is_some_and(|prefix| !mesh.scan(prefix).is_empty())
-    }
-}
+use tokio::sync::{broadcast::error::RecvError, watch};
 
 /// The mesh the node belongs to, once it does.
 #[derive(Clone)]
 pub(crate) struct Membership {
     mesh: Arc<watch::Sender<Option<Mesh>>>,
-    /// Held while credentials are applied, so a server's push cannot land after the mesh's.
-    applying: Arc<AsyncMutex<()>>,
 }
 
 impl Default for Membership {
     fn default() -> Self {
         Self {
             mesh: Arc::new(watch::Sender::new(None)),
-            applying: Arc::default(),
         }
     }
 }
@@ -113,17 +54,6 @@ impl Membership {
 
     pub(crate) fn get(&self) -> Option<Mesh> {
         self.mesh.borrow().clone()
-    }
-
-    /// Waits for the turn to apply credentials: whoever holds it has the node's credentials to
-    /// themselves, and checks `owns` under it.
-    pub(crate) async fn applying(&self) -> MutexGuard<'_, ()> {
-        self.applying.lock().await
-    }
-
-    /// Whether the node is in a mesh that owns `family` now.
-    pub(crate) fn owns(&self, family: Family) -> bool {
-        self.get().is_some_and(|mesh| family.held(&mesh))
     }
 }
 
@@ -152,7 +82,6 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
 /// What the node holds from the mesh now, to apply only what changed.
 #[derive(Default)]
 struct Applied {
-    owned: Option<Vec<Family>>,
     credentials: Option<MachineCredentials>,
     settings: Option<AgentSettings>,
     projects: Option<Vec<Project>>,
@@ -164,20 +93,9 @@ struct Applied {
 
 impl Applied {
     async fn apply(&mut self, mesh: &Mesh, me: EndpointId, offers: &Offers) {
-        let owned: Vec<Family> = Family::ALL
-            .into_iter()
-            .filter(|family| family.held(mesh))
-            .collect();
-        if self.owned.as_ref() != Some(&owned) {
-            log::info!("from the mesh: owns {owned:?}");
-            self.owned = Some(owned.clone());
-        }
-        if let Some(provision) = &offers.provision
-            && owned.contains(&Family::Credentials)
-        {
+        if let Some(provision) = &offers.provision {
             let credentials = credentials(mesh);
             if self.credentials.as_ref() != Some(&credentials) {
-                let _applying = offers.mesh.applying().await;
                 provision.apply(credentials.clone()).await;
                 log::info!(
                     "from the mesh: {} credentials",
@@ -186,30 +104,17 @@ impl Applied {
                 self.credentials = Some(credentials);
             }
         }
-        let harnesses = owned.contains(&Family::Harnesses);
-        let flsh = owned.contains(&Family::Flsh);
-        if harnesses || flsh {
-            let now = offers.agents.settings();
-            let mut settings = settings(mesh);
-            if !harnesses {
-                settings.harnesses = now.harnesses;
-            }
-            if !flsh {
-                settings.flsh = now.flsh;
-            }
-            if self.settings.as_ref() != Some(&settings) {
-                offers.agents.set_settings(settings.clone());
-                offers.agents.settings_arrived();
-                log::info!(
-                    "from the mesh: settings for {} agents",
-                    settings.harnesses.len()
-                );
-                self.settings = Some(settings);
-            }
+        let settings = settings(mesh);
+        if self.settings.as_ref() != Some(&settings) {
+            offers.agents.set_settings(settings.clone());
+            offers.agents.settings_arrived();
+            log::info!(
+                "from the mesh: settings for {} agents",
+                settings.harnesses.len()
+            );
+            self.settings = Some(settings);
         }
-        if let Some(transfers) = offers.transfers.get()
-            && owned.contains(&Family::Sync)
-        {
+        if let Some(transfers) = offers.transfers.get() {
             let (projects, pending) = projects(mesh, me, &mut self.specs);
             if self.projects.as_ref() != Some(&projects) || self.pending != pending {
                 let started = Instant::now();

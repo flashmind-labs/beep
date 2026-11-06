@@ -1,25 +1,23 @@
-//! In-memory project state: sessions to workers, build-edit flags, issue mirroring, the
+//! In-memory project state: issue mirroring, the
 //! lifecycle schedule and its jobs.
 
 use super::{
     lifecycle,
     model::{ProjectId, WorkerId},
-    policy::{self, Verdict, WorkerScope},
     schedule::{self, Due, Schedule},
 };
 use crate::{
     account::user::User,
-    app::App,
+    app::{App, Draws, Message},
     lock,
-    nodes::{News, Post},
-    protocol::node::agent::Question,
+    protocol::DeviceKind,
+    store::CreateRun,
 };
-use anyhow::Result;
+use anyhow::{Result, bail};
 use chrono::{DateTime, TimeDelta, Utc};
 use futures::{FutureExt, future::BoxFuture};
-use iroh::EndpointId;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     future::Future,
     panic::AssertUnwindSafe,
     sync::{Arc, Mutex, Weak},
@@ -29,7 +27,7 @@ use strum::Display;
 use tokio::{
     sync::{Notify, mpsc, watch},
     task::JoinSet,
-    time::timeout,
+    time::{Instant, sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
@@ -41,29 +39,21 @@ const JOBS_QUEUED: usize = 64;
 const DROPPED_RETRY: TimeDelta = TimeDelta::seconds(30);
 /// The most jobs one worker keeps waiting; more are dropped.
 const WORKER_JOBS: usize = 64;
-
-/// Whether the projects took a session's news.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Handled {
-    Yes,
-    No,
-}
+/// How long a report waits for its busy chat, and how often it tries when no turn end woke it.
+const POST_PATIENCE: Duration = Duration::from_secs(30 * 60);
+const POST_RETRY: Duration = Duration::from_secs(5);
 
 /// What a lifecycle job does, for the logs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub(crate) enum JobKind {
     #[strum(to_string = "startup")]
     Startup,
-    #[strum(to_string = "worker report")]
-    News,
-    #[strum(to_string = "worker catch-up")]
-    CatchUp,
+    #[strum(to_string = "chat report")]
+    Post,
     #[strum(to_string = "pull request check")]
     Check,
     #[strum(to_string = "idle close")]
     IdleClose,
-    #[strum(to_string = "re-attach")]
-    Reattach,
     #[strum(to_string = "worker queue")]
     WorkerQueue,
 }
@@ -92,14 +82,8 @@ impl Job {
 /// The projects' shared state, one per server.
 #[derive(Default)]
 pub struct Projects {
-    /// Workers by the machine and node session they run in.
-    sessions: Mutex<HashMap<(EndpointId, String), WorkerId>>,
-    /// Workers whose next build or test asks first.
-    build_edited: Mutex<HashSet<WorkerId>>,
     /// The issue mirroring of each project, the last one started.
     mirrors: Mutex<HashMap<ProjectId, Mirror>>,
-    /// Each worker's last handled turn and question, so a report seen twice is handled once.
-    seen: Mutex<HashMap<WorkerId, Seen>>,
     schedule: Mutex<Schedule>,
     /// Wakes the schedule's runner when something is armed.
     armed: Arc<Notify>,
@@ -110,18 +94,9 @@ pub struct Projects {
     worker_jobs: Mutex<HashMap<WorkerId, VecDeque<Job>>>,
     /// What [`Self::post`] posted, for the tests to wait on.
     #[cfg(test)]
-    posted: Mutex<Vec<Post>>,
+    posted: Mutex<Vec<(String, String)>>,
     #[cfg(test)]
     posted_signal: Notify,
-    /// Shell text run before each node command, such as a `PATH` with a fake `gh`.
-    #[cfg(test)]
-    shell_prefix: Mutex<Option<String>>,
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct Seen {
-    turn: u32,
-    question: Option<u32>,
 }
 
 /// The lifecycle's job runner.
@@ -136,21 +111,8 @@ struct Mirror {
 }
 
 impl Projects {
-    pub(crate) fn worker_of(&self, machine: &EndpointId, session: &str) -> Option<WorkerId> {
-        lock(&self.sessions)
-            .get(&(*machine, session.to_owned()))
-            .copied()
-    }
-
-    pub(crate) fn track(&self, machine: EndpointId, session: &str, worker: WorkerId) {
-        lock(&self.sessions).insert((machine, session.to_owned()), worker);
-    }
-
     /// Forgets everything kept about `worker`, including its idle close.
     pub(crate) fn untrack(&self, worker: WorkerId) {
-        lock(&self.sessions).retain(|_, tracked| *tracked != worker);
-        lock(&self.build_edited).remove(&worker);
-        lock(&self.seen).remove(&worker);
         self.disarm(&Due::Idle(worker));
     }
 
@@ -159,39 +121,6 @@ impl Projects {
     pub(crate) fn forget_project(&self, project: ProjectId) {
         self.disarm(&Due::Check(project));
         lock(&self.mirrors).retain(|id, mirror| *id != project || !*mirror.done.borrow());
-    }
-
-    /// Whether `turn` of `worker` is new, marking it handled; `stored` is the store's count.
-    pub(crate) fn take_turn(&self, worker: WorkerId, turn: u32, stored: u32) -> bool {
-        let mut seen = lock(&self.seen);
-        let seen = seen.entry(worker).or_insert(Seen {
-            turn: stored,
-            question: None,
-        });
-        seen.turn = seen.turn.max(stored);
-        let new = turn > seen.turn;
-        if new {
-            seen.turn = turn;
-        }
-        new
-    }
-
-    /// Whether question `id` of `worker`'s is new, noting it handled.
-    pub(crate) fn take_question(&self, worker: WorkerId, id: u32) -> bool {
-        let mut seen = lock(&self.seen);
-        let seen = seen.entry(worker).or_default();
-        let new = seen.question != Some(id);
-        seen.question = Some(id);
-        new
-    }
-
-    /// Unmarks question `id` of `worker` so it is handled again next time.
-    pub(crate) fn forget_question(&self, worker: WorkerId, id: u32) {
-        if let Some(seen) = lock(&self.seen).get_mut(&worker)
-            && seen.question == Some(id)
-        {
-            seen.question = None;
-        }
     }
 
     pub(crate) fn arm(&self, due: Due, at: DateTime<Utc>) {
@@ -313,38 +242,6 @@ impl Projects {
         job
     }
 
-    /// Takes a node session's news when the session is a project worker's.
-    pub(crate) fn on_news(
-        &self,
-        app: &Arc<App>,
-        machine: &EndpointId,
-        session: &str,
-        news: &News,
-        waited: bool,
-    ) -> Handled {
-        let Some(worker) = self.worker_of(machine, session) else {
-            return Handled::No;
-        };
-        let news = news.clone();
-        let job = Job::new(JobKind::News, move |app| async move {
-            lifecycle::on_news(&app, worker, news, waited).await
-        });
-        self.spawn_for(app, worker, job);
-        Handled::Yes
-    }
-
-    /// `machine` connected again: its workers report again, or are gone.
-    pub(crate) fn reconnected(&self, app: &Arc<App>, user: &Arc<User>, machine: EndpointId) {
-        let user = user.clone();
-        // Dropped, the workers wait for the machine's next reconnect.
-        self.spawn(
-            app,
-            Job::new(JobKind::Reattach, move |app| async move {
-                lifecycle::reconnected(&app, &user, machine).await
-            }),
-        );
-    }
-
     /// Starts a turn of `chat` on `text`, labelled `label`.
     pub(crate) fn post(
         &self,
@@ -356,82 +253,16 @@ impl Projects {
     ) {
         #[cfg(test)]
         {
-            lock(&self.posted).push(Post {
-                user: user.clone(),
-                chat,
-                label: label.to_owned(),
-                text: text.clone(),
-            });
+            lock(&self.posted).push((label.to_owned(), text.clone()));
             self.posted_signal.notify_waiters();
         }
-        app.nodes.deliveries.post(
+        let label = label.to_owned();
+        self.spawn(
             app,
-            Post {
-                user,
-                chat,
-                label: label.to_owned(),
-                text,
-            },
+            Job::new(JobKind::Post, move |app| async move {
+                deliver(&app, &user, chat, &label, text).await
+            }),
         );
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_shell_prefix(&self, prefix: &str) {
-        *lock(&self.shell_prefix) = Some(prefix.to_owned());
-    }
-
-    #[cfg(test)]
-    pub(crate) fn shell_prefix(&self) -> Option<String> {
-        lock(&self.shell_prefix).clone()
-    }
-
-    /// Waits until `done` holds for what was posted, and gives it.
-    #[cfg(test)]
-    pub(crate) async fn posted_until(
-        &self,
-        done: impl Fn(&[(String, String)]) -> bool,
-    ) -> Vec<(String, String)> {
-        loop {
-            let signal = self.posted_signal.notified();
-            tokio::pin!(signal);
-            signal.as_mut().enable();
-            let posted: Vec<(String, String)> = lock(&self.posted)
-                .iter()
-                .map(|post| (post.label.clone(), post.text.clone()))
-                .collect();
-            if done(&posted) {
-                return posted;
-            }
-            signal.await;
-        }
-    }
-
-    /// [`policy::judge`], holding builds back after a build file edit until [`Self::allowed`].
-    pub(crate) fn judge(
-        &self,
-        worker: WorkerId,
-        question: &Question,
-        scope: &WorkerScope<'_>,
-    ) -> Verdict {
-        let build_edited = lock(&self.build_edited).contains(&worker);
-        let verdict = policy::judge(
-            question,
-            &WorkerScope {
-                build_edited,
-                ..*scope
-            },
-        );
-        if policy::edits_build_file(question) {
-            lock(&self.build_edited).insert(worker);
-        }
-        verdict
-    }
-
-    /// The user allowed `question`: an allowed build or test lets the next ones run again.
-    pub(crate) fn allowed(&self, worker: WorkerId, question: &Question) {
-        if policy::runs_build(question) {
-            lock(&self.build_edited).remove(&worker);
-        }
     }
 
     /// Runs `project`'s issue mirroring unless one already runs, waiting at most `budget`; true if
@@ -495,6 +326,59 @@ async fn run_worker(app: &Arc<App>, worker: WorkerId) {
     }
 }
 
+/// Starts a turn of `chat` on `text` once the chat is free, giving up after [`POST_PATIENCE`].
+async fn deliver(
+    app: &Arc<App>,
+    user: &Arc<User>,
+    chat: Uuid,
+    label: &str,
+    text: String,
+) -> Result<()> {
+    let deadline = Instant::now() + POST_PATIENCE;
+    loop {
+        // Registered before trying, so a turn ending in between still wakes it.
+        let ended = app.subagents.turn_ended.notified();
+        tokio::pin!(ended);
+        ended.as_mut().enable();
+        match app
+            .submit(user, posted_message(chat, label, text.clone()))
+            .await?
+        {
+            CreateRun::Conflict if Instant::now() < deadline => {}
+            CreateRun::Conflict => bail!("chat {chat} stayed busy; the report was dropped"),
+            CreateRun::Created(_) | CreateRun::Existing(_) => return Ok(()),
+        }
+        tokio::select! {
+            () = ended => {}
+            () = sleep(POST_RETRY) => {}
+        }
+    }
+}
+
+/// A turn the project starts in its chat, labelled `label`.
+fn posted_message(chat: Uuid, label: &str, text: String) -> Message {
+    Message {
+        session_id: chat,
+        request_id: Uuid::new_v4(),
+        message: text,
+        cron_id: None,
+        scheduled: Some(label.to_owned()),
+        always_sent: true,
+        woken: None,
+        images: Vec::new(),
+        files: Vec::new(),
+        answer: None,
+        model: None,
+        thinking: None,
+        origin: DeviceKind::Phone {},
+        platform: None,
+        draws: Draws::default(),
+        finished_research: true,
+        voice: None,
+        spoken: false,
+    }
+}
+
 /// Runs the jobs, at most [`JOBS_RUNNING`] at once.
 async fn run_jobs(app: Weak<App>, mut waiting: mpsc::Receiver<Job>) {
     let mut running = JoinSet::new();
@@ -521,55 +405,9 @@ mod tests {
     use super::*;
     use crate::memory::watchers::testing::{Harness, Scripted};
     use anyhow::anyhow;
-    use beep_projects::{
-        leak::PublicText,
-        model::{MachinePath, RepoName, Visibility},
-    };
+
     use tokio::sync::{Semaphore, oneshot};
     use uuid::Uuid;
-
-    fn ask(text: &str, detail: &str) -> Question {
-        Question {
-            id: 1,
-            text: text.to_owned(),
-            detail: Some(detail.to_owned()),
-            options: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn a_build_file_edit_holds_builds_until_one_is_allowed() {
-        let repo = RepoName::parse("acme/widget").expect("a repo");
-        let worktree = MachinePath::parse("/srv/project/.worktrees/fix-it").expect("a path");
-        let public_text = PublicText::new(&[], &[]);
-        let scope = WorkerScope {
-            repo: &repo,
-            worktree: &worktree,
-            branch: "beep/fix-it",
-            default_branch: "main",
-            visibility: Visibility::Private,
-            outside_allowed: false,
-            public_text: &public_text,
-            build_edited: false,
-        };
-        let projects = Projects::default();
-        let (worker, other) = (WorkerId(Uuid::new_v4()), WorkerId(Uuid::new_v4()));
-        let test = ask("Run a command", "cargo test");
-        assert_eq!(projects.judge(worker, &test, &scope), Verdict::Allow);
-        let edit = ask("Write file", "crates/x/build.rs");
-        assert_eq!(projects.judge(worker, &edit, &scope), Verdict::Allow);
-        assert_eq!(projects.judge(worker, &test, &scope), Verdict::AskUser);
-        // Asking again does not let it through, nor does allowing a non-build.
-        projects.allowed(worker, &ask("Run a command", "curl x"));
-        assert_eq!(projects.judge(worker, &test, &scope), Verdict::AskUser);
-        assert_eq!(projects.judge(other, &test, &scope), Verdict::Allow);
-        projects.allowed(worker, &test);
-        assert_eq!(projects.judge(worker, &test, &scope), Verdict::Allow);
-        // Ending the worker forgets it.
-        projects.judge(worker, &edit, &scope);
-        projects.untrack(worker);
-        assert_eq!(projects.judge(worker, &test, &scope), Verdict::Allow);
-    }
 
     #[tokio::test]
     async fn jobs_dropped_for_a_full_queue_are_armed_again() {
@@ -598,7 +436,7 @@ mod tests {
         // A worker's report waits in its worker's queue, which is armed.
         let worker = WorkerId(Uuid::new_v4());
         let (ran, report) = oneshot::channel();
-        let job = Job::new(JobKind::News, move |_| async move {
+        let job = Job::new(JobKind::Post, move |_| async move {
             ran.send(()).map_err(|()| anyhow!("the test stopped"))
         });
         projects.spawn_for(app, worker, job);
@@ -626,7 +464,7 @@ mod tests {
         let (done, second_done) = oneshot::channel();
         let first = {
             let order = order.clone();
-            Job::new(JobKind::News, move |_| async move {
+            Job::new(JobKind::Post, move |_| async move {
                 started.send(()).map_err(|()| anyhow!("the test stopped"))?;
                 gate.await?;
                 lock(&order).push(1);

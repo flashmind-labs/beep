@@ -9,7 +9,7 @@ use crate::{
     api::router::Cx,
     app::App,
     projects::{
-        fleet::NodeFleet,
+        fleet::RecordedFleet,
         model::ProjectId,
         thread_detail,
         threads::{self, ListedThread},
@@ -56,7 +56,7 @@ pub(super) async fn list_thread_chats(cx: Cx, req: ListThreadChats) -> Reply<Vec
 pub(super) async fn get_project_thread(cx: Cx, req: GetProjectThread) -> Reply<ThreadView> {
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
     threads::view(
-        &NodeFleet::new(&cx.app, &cx.user),
+        &RecordedFleet::new(&cx.app, &cx.user),
         &cx.user,
         &project,
         &req.repo,
@@ -69,7 +69,7 @@ pub(super) async fn get_project_thread(cx: Cx, req: GetProjectThread) -> Reply<T
 pub(super) async fn get_thread_detail(cx: Cx, req: GetThreadDetail) -> Reply<ThreadDetail> {
     let project = project_of(&cx.user, ProjectId(req.project_id)).await?;
     thread_detail::read(
-        &NodeFleet::new(&cx.app, &cx.user),
+        &RecordedFleet::new(&cx.app, &cx.user),
         &cx.user,
         &project,
         req.number,
@@ -107,7 +107,7 @@ async fn project_threads(
     id: ProjectId,
 ) -> Reply<Vec<ProjectThread>> {
     let project = project_of(user, id).await?;
-    let listed = threads::list(&NodeFleet::new(app, user), user, &project)
+    let listed = threads::list(&RecordedFleet::new(app, user), user, &project)
         .await
         .map_err(issue_refusal)?;
     Ok(listed.into_iter().map(thread_view).collect())
@@ -121,7 +121,7 @@ async fn reply(
     number: u64,
 ) -> Reply<Uuid> {
     let project = project_of(user, id).await?;
-    threads::ask_for_reply(&NodeFleet::new(app, user), user, &project, repo, number)
+    threads::ask_for_reply(&RecordedFleet::new(app, user), user, &project, repo, number)
         .await
         .map_err(issue_refusal)
 }
@@ -134,7 +134,7 @@ async fn open_chat(
     number: u64,
 ) -> Reply<ThreadChat> {
     let project = project_of(user, id).await?;
-    let chat = threads::open_chat(&NodeFleet::new(app, user), user, &project, repo, number)
+    let chat = threads::open_chat(&RecordedFleet::new(app, user), user, &project, repo, number)
         .await
         .map_err(issue_refusal)?;
     Ok(chat_view(chat))

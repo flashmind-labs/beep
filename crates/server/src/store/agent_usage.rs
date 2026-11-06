@@ -3,23 +3,12 @@
 use super::Store;
 use crate::{
     account::user::UserKey,
-    protocol::{
-        AgentSlug, ModelId,
-        node::usage::{LimitWindow, MAX_WINDOW_MINUTES, PlanUsage, TurnUsage},
-    },
+    protocol::{AgentSlug, ModelId, node::usage::LimitWindow},
 };
-use anyhow::{Context, Result, bail};
-use chrono::{DateTime, NaiveDate, Utc};
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use iroh::EndpointId;
 use sqlx::{Row, postgres::PgRow, types::Json};
-
-/// The longest agent, model or session name kept, and the longest folder.
-const MAX_NAME: usize = 200;
-const MAX_FOLDER: usize = 4096;
-/// The most one turn may cost; more is a report gone wrong.
-const MAX_TURN_COST: f64 = 10_000.0;
-/// The most windows one plan keeps.
-const MAX_WINDOWS: usize = 16;
 
 /// What one folder's sessions on one machine spent with one agent, today or earlier this week.
 #[derive(Debug, Clone, PartialEq)]
@@ -58,13 +47,6 @@ pub(crate) struct PlanRow {
 const TODAY: &str =
     "(now() AT TIME ZONE COALESCE((SELECT timezone FROM users WHERE id=$1), 'UTC'))::date";
 
-pub(super) fn name(what: &str, value: &str, max: usize) -> Result<()> {
-    if value.is_empty() || value.len() > max {
-        bail!("the {what} is empty or too long");
-    }
-    Ok(())
-}
-
 /// The node in `row`'s `endpoint_id`, which holds an `EndpointId`'s text.
 pub(super) fn endpoint_of(row: &PgRow) -> Result<EndpointId> {
     let text: String = row.try_get("endpoint_id")?;
@@ -78,81 +60,6 @@ pub(super) fn agent_of(row: &PgRow) -> Result<AgentSlug> {
 }
 
 impl Store {
-    /// Adds one finished turn, run on `endpoint`, to its session's day.
-    pub(crate) async fn add_turn_usage(
-        &self,
-        user: &UserKey,
-        endpoint: &EndpointId,
-        turn: &TurnUsage,
-    ) -> Result<()> {
-        name("session", &turn.session, MAX_NAME)?;
-        name("agent", turn.agent.as_str(), MAX_NAME)?;
-        name("folder", &turn.cwd, MAX_FOLDER)?;
-        let cost = turn
-            .cost_usd
-            .filter(|cost| cost.is_finite() && (0.0..=MAX_TURN_COST).contains(cost));
-        let tokens = i64::try_from(turn.tokens)?;
-        let unpriced = if cost.is_some() { 0 } else { tokens };
-        let at = i64::try_from(turn.at)?;
-        let agent_session = turn
-            .agent_session
-            .as_deref()
-            .filter(|id| !id.is_empty() && id.len() <= MAX_NAME);
-        let mut tx = self.pool.begin().await?;
-        let day: NaiveDate = sqlx::query_scalar(
-            "SELECT (to_timestamp($2) AT TIME ZONE
-                 COALESCE((SELECT timezone FROM users WHERE id=$1), 'UTC'))::date",
-        )
-        .bind(user.as_str())
-        .bind(at as f64)
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO agent_usage (user_id, endpoint_id, session, day, agent, cwd, cost_usd,
-                 tokens, unpriced_tokens, turns, agent_session)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10)
-             ON CONFLICT (user_id, endpoint_id, session, day) DO UPDATE SET
-                 agent_session = COALESCE(excluded.agent_session, agent_usage.agent_session),
-                 cost_usd = CASE WHEN excluded.cost_usd IS NULL THEN agent_usage.cost_usd
-                     ELSE COALESCE(agent_usage.cost_usd, 0) + excluded.cost_usd END,
-                 tokens = agent_usage.tokens + excluded.tokens,
-                 unpriced_tokens = agent_usage.unpriced_tokens + excluded.unpriced_tokens,
-                 turns = agent_usage.turns + 1",
-        )
-        .bind(user.as_str())
-        .bind(endpoint.to_string())
-        .bind(&turn.session)
-        .bind(day)
-        .bind(turn.agent.as_str())
-        .bind(&turn.cwd)
-        .bind(cost)
-        .bind(tokens)
-        .bind(unpriced)
-        .bind(agent_session)
-        .execute(&mut *tx)
-        .await?;
-        for model in turn.models.iter().take(MAX_WINDOWS) {
-            if model.model.is_empty() || model.model.as_str().len() > MAX_NAME {
-                continue;
-            }
-            sqlx::query(
-                "INSERT INTO agent_model_usage (user_id, day, agent, model, tokens)
-                 VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (user_id, day, agent, model) DO UPDATE SET
-                     tokens = agent_model_usage.tokens + excluded.tokens",
-            )
-            .bind(user.as_str())
-            .bind(day)
-            .bind(turn.agent.as_str())
-            .bind(model.model.as_str())
-            .bind(i64::try_from(model.tokens)?)
-            .execute(&mut *tx)
-            .await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-
     /// This week's spend from Monday by machine, folder and agent, today apart.
     pub(crate) async fn week_spend(&self, user: &UserKey) -> Result<Vec<SpendRow>> {
         let rows = sqlx::query(&format!(
@@ -199,48 +106,6 @@ impl Store {
                 })
             })
             .collect()
-    }
-
-    /// Keeps `plan` from `endpoint` unless a fresher report for the agent exists; says whether it was kept.
-    pub(crate) async fn save_plan_usage(
-        &self,
-        user: &UserKey,
-        endpoint: &EndpointId,
-        plan: &PlanUsage,
-    ) -> Result<bool> {
-        name("agent", plan.agent.as_str(), MAX_NAME)?;
-        if plan.plan.as_ref().is_some_and(|p| p.len() > MAX_NAME) {
-            bail!("the plan's name is too long");
-        }
-        let windows: Vec<&LimitWindow> = plan
-            .windows
-            .iter()
-            .filter(|w| w.minutes > 0 && w.minutes <= MAX_WINDOW_MINUTES)
-            .filter(|w| w.used_percent.is_finite())
-            .filter(|w| w.scope.as_ref().is_none_or(|s| s.len() <= MAX_NAME))
-            .take(MAX_WINDOWS)
-            .collect();
-        let read_at = DateTime::<Utc>::from_timestamp(i64::try_from(plan.at)?, 0)
-            .unwrap_or_else(Utc::now)
-            // A clock ahead of the server's does not win for good.
-            .min(Utc::now());
-        let saved = sqlx::query(
-            "INSERT INTO plan_usage (user_id, agent, endpoint_id, plan, windows, read_at)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (user_id, agent) DO UPDATE SET
-                 endpoint_id=excluded.endpoint_id, plan=excluded.plan,
-                 windows=excluded.windows, read_at=excluded.read_at
-             WHERE excluded.read_at >= plan_usage.read_at",
-        )
-        .bind(user.as_str())
-        .bind(plan.agent.as_str())
-        .bind(endpoint.to_string())
-        .bind(&plan.plan)
-        .bind(Json(&windows))
-        .bind(read_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(saved.rows_affected() > 0)
     }
 
     /// Each agent's plan usage, by agent.
