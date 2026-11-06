@@ -177,6 +177,48 @@ pub(super) fn tools(reviewer: bool) -> Value {
             "annotations": { "title": "List agents", "readOnlyHint": true }
         },
         {
+            "name": "beep_status",
+            "description": "How Beep itself stands on each of the user's machines, for debugging \
+                Beep: its version, OS, uptime, the mesh's devices with when each was last seen, \
+                each synced project and the coding agents found. From a desktop every machine; \
+                from a node this machine only. Secrets are removed.",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+            "annotations": { "title": "Beep status", "readOnlyHint": true }
+        },
+        {
+            "name": "beep_logs",
+            "description": "A machine's Beep log (on a desktop, the app's log), its newest lines \
+                from the last `minutes`, for debugging Beep. From a node only that node's own \
+                log can be read. Secrets are removed.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "machine": machine("The machine, by its name in beep_status or list_machines; this machine when left out"),
+                    "minutes": { "type": "integer", "minimum": 1, "maximum": 10080, "description": "How far back, default 60" },
+                    "lines": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "The most lines, newest kept, default 300" }
+                },
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Beep logs", "readOnlyHint": true }
+        },
+        {
+            "name": "file_report",
+            "description": "Send Beep a problem report, as Report a problem in the desktop app \
+                does: your findings as its description, with Beep's logs and status of every \
+                machine (of this machine only from a node), secrets removed. The user is asked \
+                first. Returns its reference, R- and an id, for the user.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "description": { "type": "string", "description": "What went wrong and its cause, as you found it" },
+                    "period": { "type": "string", "enum": ["hour", "today", "day"], "description": "How far back the logs go, default today" }
+                },
+                "required": ["description"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "File a problem report", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
             "name": ASK_USER,
             "description": "Ask the user a question and wait for the answer. It shows in \
                 Beep's Needs you on their desktop and phone. Give `options` for a choice; they \

@@ -458,6 +458,9 @@ mod tests {
                 "send_to_agent",
                 "stop_agent",
                 "list_agents",
+                "beep_status",
+                "beep_logs",
+                "file_report",
                 "ask_user",
                 "review"
             ]
