@@ -7,6 +7,7 @@ mod from_mesh;
 pub(crate) use from_mesh::Membership;
 pub mod local;
 pub(crate) mod local_socket;
+pub mod local_status;
 pub(crate) mod note;
 pub(crate) mod peer_tools;
 pub mod peers;

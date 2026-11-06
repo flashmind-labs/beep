@@ -139,6 +139,7 @@ mod tests {
             },
             online: true,
             addr: None,
+            last_seen: None,
         }
     }
 

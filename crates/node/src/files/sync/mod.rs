@@ -722,6 +722,11 @@ impl Syncs {
         out
     }
 
+    /// The projects waiting for Syncthing to let go of their folder.
+    pub(crate) fn held(&self) -> BTreeSet<String> {
+        lock(&self.inner.held).keys().cloned().collect()
+    }
+
     /// Waits until this node has everything `peer` had in `project` at
     /// some point after `since`: a pull that went through, not one that
     /// failed, brought its list, and the files are here. `progress` sees
