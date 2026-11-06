@@ -170,7 +170,10 @@ impl Live {
     pub(crate) fn prompted(&mut self, text: &str) {
         // Until the agent names the session, its first prompt does.
         if self.info.title.is_none()
-            && let Some(line) = text.lines().map(str::trim).find(|line| !line.is_empty())
+            && let Some(line) = crate::agents::tags::said(text)
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
         {
             self.info.title = Some(cut(line, MAX_LINE));
         }
