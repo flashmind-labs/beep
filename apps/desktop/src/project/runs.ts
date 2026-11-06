@@ -11,6 +11,11 @@ import { emptyPanel, note, secHead } from "../ui/parts.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
+import {
+  Bounded, DetailCache, HOVER_MS, KeptRows, POLL_MS, ahead, detailDue, detailKey, going, limited, listDue, runKey,
+} from "./runs-state.ts";
+
+export { going, runKey };
 
 /// The current step of a running job (StepRow).
 export interface StepNow {
@@ -111,11 +116,6 @@ export function runTile(d: Pick<RunsRow, "runs" | "hosts"> | null | undefined, e
   };
 }
 
-/// Which run a row is: its host and id, as ids repeat across hosts.
-export function runKey(r: Pick<RunRow, "id" | "host">) {
-  return `${r.host ?? ""}#${r.id}`;
-}
-
 /// The Actions heading's line per host when runs come from more than one:
 /// "GitHub: 1 running · 1 failed", or the host's error.
 export function hostCounts(d: Pick<RunsRow, "runs" | "hosts">) {
@@ -162,11 +162,6 @@ export interface RunDetail {
   log: RunLogRow | null;
   error: string | null;
   rate_limited_until: number | null;
-}
-
-/// Not done yet.
-export function going(state: RunState) {
-  return state === "queued" || state === "waiting" || state === "running";
 }
 
 /// "48s", "3m 12s", "1h 4m": how long `ms` milliseconds is.
@@ -275,9 +270,9 @@ export interface RunDeps {
 interface ProjectRuns {
   data: RunsRow | null | undefined;
   error: string;
+  /// The run opened, by `runKey`, and the run itself to read it again.
   open: string | null;
-  detail: RunDetail | null;
-  detailError: string;
+  openRun: Pick<RunRow, "id" | "host"> | null;
   loading: boolean;
   /// The state the finished runs are filtered to.
   only?: string | null;
@@ -292,6 +287,12 @@ const RUN_MARKS: Record<string, string> = {
   cancelled: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 12h10"/></svg>',
 };
 
+/// The latest a rate limit of any host the runs come from lifts.
+function limitOf(d: RunsRow | null | undefined) {
+  const all = [d?.rate_limited_until ?? null, ...(d?.hosts ?? []).map(x => x.rate_limited_until)].filter((t): t is number => !!t);
+  return all.length ? Math.max(...all) : null;
+}
+
 export function makeRuns(deps: RunDeps) {
   const { invoke, h, button, redraw, openUrl, fix } = deps;
   const kept = deps.kept ?? new PageCache(null).section<RunsRow | null>("runs");
@@ -299,12 +300,25 @@ export function makeRuns(deps: RunDeps) {
   /// When each project's runs were last asked for, so a draw asks again
   /// only once they are old.
   const tried = new Map<string, number>();
+  /// Each run's details as last read, by project and run, for this session.
+  const details = new DetailCache<RunDetail>();
+  /// Why a run's details did not read, by the same key.
+  const detailErrors = new Map<string, string>();
+  /// Details being read now, by the same key, so one read runs at a time.
+  const reading = new Set<string>();
+  /// Details read ahead, a few at a time.
+  const aheadQueue = new Bounded();
+  /// The rows and opened runs drawn last, kept while nothing in them changes.
+  const drawn = new KeptRows<HTMLElement>();
+  /// The next poll of a running run opened, or of the list while one goes.
+  let poll: ReturnType<typeof setTimeout> | null = null;
+  let hover: ReturnType<typeof setTimeout> | null = null;
 
   /// A project's runs, from the cache until they are read.
   const of = (id: string) => {
     let s = all.get(id);
     if (!s) {
-      s = { data: kept.get(id), error: "", open: null, detail: null, detailError: "", loading: false };
+      s = { data: kept.get(id), error: "", open: null, openRun: null, loading: false };
       all.set(id, s);
     }
     return s;
@@ -323,6 +337,7 @@ export function makeRuns(deps: RunDeps) {
     if (s.loading) return;
     s.loading = true;
     tried.set(id, Date.now());
+    const was = JSON.stringify([s.data, s.error]);
     try {
       s.data = await invoke<RunsRow | null>("center_project_runs", { projectId: id, refresh });
       s.error = "";
@@ -333,40 +348,91 @@ export function makeRuns(deps: RunDeps) {
     } finally {
       s.loading = false;
     }
-    redraw();
+    if (s.data) readAhead(id, s.data);
+    // A read that changed nothing draws nothing.
+    if (JSON.stringify([s.data, s.error]) !== was) redraw();
   }
 
-  /// Reads run `run` from the host it ran on.
-  async function loadDetail(id: string, run: Pick<RunRow, "id" | "host">) {
-    const s = of(id);
-    const key = runKey(run);
+  /// Reads run `run` from the host it ran on and keeps it; `refresh` reads
+  /// past the app's copy. Draws again when it is the run opened.
+  async function loadDetail(id: string, run: Pick<RunRow, "id" | "host">, refresh = false) {
+    const key = detailKey(id, run);
+    if (reading.has(key)) return;
+    reading.add(key);
     try {
-      const d = await invoke<RunDetail>("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null });
-      if (s.open === key) { s.detail = d; s.detailError = ""; }
+      const d = await invoke<RunDetail>("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null, refresh });
+      details.put(key, d, Date.now());
+      detailErrors.delete(key);
     } catch (e) {
-      if (s.open === key) s.detailError = reason(e);
+      detailErrors.set(key, reason(e));
+    } finally {
+      reading.delete(key);
     }
-    redraw();
+    if (of(id).open === runKey(run)) redraw();
+  }
+
+  /// The list's row of run `run`, if the list has it.
+  const listed = (s: ProjectRuns, run: Pick<RunRow, "id" | "host">) => s.data?.runs.find(r => runKey(r) === runKey(run));
+
+  /// Reads run `run`'s details when they are due: none kept, changed in the
+  /// list since, or still going and a poll old.
+  function readDetail(id: string, run: Pick<RunRow, "id" | "host">) {
+    const s = of(id);
+    const due = detailDue(details.get(detailKey(id, run)), listed(s, run), Date.now(), limitOf(s.data));
+    if (due) return loadDetail(id, run, due.refresh);
+  }
+
+  /// Whether run `r`'s details are kept or on their way.
+  const known = (id: string, r: Pick<RunRow, "id" | "host">) => details.has(detailKey(id, r)) || reading.has(detailKey(id, r));
+
+  /// Reads ahead the details of the newest runs and of the newest failed
+  /// one, with its log, a few at a time, while the rate limit allows.
+  function readAhead(id: string, d: RunsRow) {
+    if (limited(limitOf(d), Date.now())) return;
+    for (const r of ahead(d.runs, r => known(id, r))) aheadQueue.add(detailKey(id, r), () => loadDetail(id, r));
+  }
+
+  /// The pointer rests on a run: its details are read ahead.
+  function hovered(id: string, r: RunRow) {
+    if (hover) clearTimeout(hover);
+    hover = setTimeout(() => {
+      hover = null;
+      if (known(id, r) || limited(limitOf(of(id).data), Date.now())) return;
+      aheadQueue.add(detailKey(id, r), () => loadDetail(id, r));
+    }, HOVER_MS);
   }
 
   function toggle(id: string, run: Pick<RunRow, "id" | "host">) {
     const s = of(id);
     const key = runKey(run);
-    if (s.open === key) { s.open = null; s.detail = null; redraw(); return; }
+    if (s.open === key) { s.open = null; s.openRun = null; redraw(); return; }
     s.open = key;
-    s.detail = null;
-    s.detailError = "";
+    s.openRun = { id: run.id, host: run.host ?? null };
     redraw();
-    loadDetail(id, run);
+    readDetail(id, run);
   }
 
-  /// Every 10 seconds while the page shows: reads again only while a run
-  /// goes, so nothing is asked while all are done.
+  /// While the section shows: the running run opened, and the list while a
+  /// run goes, every `POLL_MS`. Nothing is asked while all are done or the
+  /// rate limit holds. Each draw sets the next poll, so a page that no
+  /// longer shows the section stops polling.
+  function schedule(id: string) {
+    if (poll) return;
+    const s = of(id);
+    const now = Date.now();
+    const open = s.openRun ? details.get(detailKey(id, s.openRun))?.data : undefined;
+    const runGoes = !!open && going(open.run.state) && !limited(limitOf(s.data), now);
+    if (!runGoes && !listDue(s.data?.runs ?? [], limitOf(s.data), now)) return;
+    poll = setTimeout(() => { poll = null; tick(id); }, POLL_MS);
+  }
+
+  /// Reads again only while a run goes, so nothing is asked while all are
+  /// done: on each poll, and every 10 seconds while the page shows.
   function tick(id: string) {
     const s = of(id);
     if (!s.data) return;
-    if (s.data.runs.some(r => going(r.state))) load(id);
-    if (s.open != null && s.detail && going(s.detail.run.state)) loadDetail(id, s.detail.run);
+    if (listDue(s.data.runs, limitOf(s.data), Date.now())) load(id);
+    if (s.openRun) readDetail(id, s.openRun);
   }
 
   /// A job's or step's line: its dot, name and how long it took.
@@ -376,14 +442,25 @@ export function makeRuns(deps: RunDeps) {
     return h("span", `pj-step ${cls}`, h("span", state === "failed" ? "ddot bad" : going(state) ? "ddot" : "ddot off"), h("span", "", name), h("small", "", took));
   }
 
+  /// What was read last of the run opened: drawn at once, and read again
+  /// behind it when due.
+  function openDetail(id: string) {
+    const s = of(id);
+    return s.openRun ? details.get(detailKey(id, s.openRun))?.data ?? null : null;
+  }
+
   /// The run opened: its jobs, the steps of the failing or running job,
   /// the end of the failing step's log and Fix this.
-  function detailEl(s: ProjectRuns) {
+  function detailEl(id: string, run: Pick<RunRow, "id" | "host">) {
     const box = h("span", "pj-run");
-    if (s.detailError) { box.append(h("span", "cc-err", s.detailError)); return box; }
-    const d = s.detail;
-    if (!d) { box.append(h("small", "dmuted", "Reading the run…")); return box; }
-    if (d.error) box.append(h("span", "cc-err", d.error));
+    const key = detailKey(id, run);
+    const d = details.get(key)?.data;
+    const failed = detailErrors.get(key);
+    if (!d) { box.append(failed ? h("span", "cc-err", failed) : h("small", "dmuted", "Reading the run…")); return box; }
+    // The buttons act on what is read by the time they are pressed.
+    const now = () => openDetail(id) ?? d;
+    const error = [failed, d.error].filter(Boolean).join(" ");
+    if (error) box.append(h("span", "cc-err", error));
     if (!d.jobs.length) box.append(h("small", "dmuted", "The host gives no jobs for this run."));
     const jobs = h("span", "pj-jobs");
     for (const j of d.jobs) {
@@ -404,12 +481,12 @@ export function makeRuns(deps: RunDeps) {
     }
     const acts = h("span", "acts");
     if (d.run.state === "failed") {
-      const b = button("Fix this", "pri", () => fix(d));
+      const b = button("Fix this", "pri", () => fix(now()));
       b.title = "Start a coding agent on this run's branch with the failure in its prompt";
       acts.append(b);
     }
     const job = d.jobs.find(j => j.state === "failed");
-    if (job?.url) acts.append(button("Full log", "", () => openUrl(job.url)));
+    if (job?.url) acts.append(button("Full log", "", () => openUrl(now().jobs.find(j => j.state === "failed")?.url || job.url)));
     if (acts.childNodes.length) box.append(acts);
     return box;
   }
@@ -454,23 +531,34 @@ export function makeRuns(deps: RunDeps) {
     head.setAttribute("aria-expanded", String(opened));
     head.addEventListener("click", () => toggle(id, r));
     head.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(id, r); } });
+    head.addEventListener("mouseenter", () => hovered(id, r));
+    head.addEventListener("mouseleave", () => { if (hover) { clearTimeout(hover); hover = null; } });
     head.addEventListener("contextmenu", e => {
       const items: MenuItem[] = [{ label: `Open on ${hostLabel(r.host, hosts)}`, on: () => openUrl(r.url) }];
       // What the opened run's buttons do, once its detail is read.
-      const d = opened ? s.detail : null;
+      const d = s.open === runKey(r) ? openDetail(id) : null;
       if (d?.run.state === "failed") items.push({ label: "Fix this", on: () => fix(d) });
       const job = d?.jobs.find(j => j.state === "failed");
       if (job?.url) items.push({ label: "Full log", on: () => openUrl(job.url!) });
       openMenu(e, `${r.workflow} #${r.number}`, items);
     });
     const el = h("div", `pj-runrow ${chip.cls || "idle"}${opened ? " open" : ""}`, head);
-    if (opened) el.append(detailEl(s));
-    return el;
+    if (opened) el.append(detailEl(id, r));
+    // A row drawn as before stays the element on screen: no flash, and a
+    // spinner keeps turning.
+    return drawn.take(detailKey(id, r), el.outerHTML, el);
   }
 
   /// The Actions section of the project page.
   function section(agent: Agent) {
     const id = agent.project_id;
+    const box = sectionEl(id);
+    drawn.sweep(`${id}\n`);
+    schedule(id);
+    return box;
+  }
+
+  function sectionEl(id: string) {
     const s = of(id);
     ensure(id);
     const d = s.data;

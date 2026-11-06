@@ -361,7 +361,8 @@ impl From<ProjectRunDetail> for RunDetailRow {
 
 /// One run with its jobs, steps and, when it failed, the end of its log,
 /// read from `host`, the host its row names. Without one, or from a server
-/// that reads one host, from the primary host.
+/// that reads one host, from the primary host. A project of the mesh gives
+/// a finished run as read before; `refresh` reads the host now.
 #[tauri::command]
 pub async fn center_project_run(
     fleet: FleetState<'_>,
@@ -369,10 +370,11 @@ pub async fn center_project_run(
     project_id: Uuid,
     run_id: u64,
     host: Option<String>,
+    refresh: Option<bool>,
 ) -> Result<RunDetailRow> {
-    let desk = desk(&fleet).await?;
-    if let Some(name) = desk.project_name(project_id) {
-        let mut row: RunDetailRow = desk.run(&name, run_id).await?.into();
+    if let Some(name) = desk(&fleet).await?.project_name(project_id) {
+        let read = fleet.run(&name, run_id, refresh.unwrap_or(false)).await?;
+        let mut row: RunDetailRow = read.into();
         row.run.host = host;
         return Ok(row);
     }

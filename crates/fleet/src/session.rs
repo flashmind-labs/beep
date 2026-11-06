@@ -9,7 +9,7 @@ use crate::{
     error::{FleetError, Result},
     peer::Peers,
 };
-use beep_proto::{HostedRuns, LabeledProjectLists, PlanLimits, SpendReport};
+use beep_proto::{HostedRuns, LabeledProjectLists, PlanLimits, ProjectRunDetail, SpendReport};
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -20,7 +20,7 @@ use std::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 use tokio::{
     sync::{Semaphore, watch},
@@ -36,6 +36,17 @@ const MESH_WAIT: Duration = Duration::from_secs(5);
 const READS_AT_ONCE: usize = 4;
 /// Machines' streams kept open at once for the plans they owe.
 const PLAN_FOLLOWS: usize = 16;
+/// How long a run list with a run still going is fresh, so its progress moves on the page's
+/// poll; while the host's rate limit is low it keeps `Options::fresh`.
+const GOING_FRESH: Duration = Duration::from_secs(5);
+/// How long a running run's details are fresh: under the page's five-second poll, so each poll
+/// reads the host.
+const RUN_GOING_FRESH: Duration = Duration::from_secs(4);
+/// How long a finished run's details are fresh. A run started again shows changed in the list,
+/// and the page then asks past this copy.
+const RUN_DONE_FRESH: Duration = Duration::from_secs(3600);
+/// Runs' details kept, over every project.
+const MAX_RUN_DETAILS: usize = 64;
 
 /// What a background read changed, for the page that shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,9 +85,14 @@ impl<K, T> Default for Cache<K, T> {
 impl<K: Hash + Eq + Clone, T: Clone> Cache<K, T> {
     /// The last read and whether it is older than `fresh`.
     fn get(&self, key: &K, fresh: Duration) -> Option<(T, bool)> {
+        self.get_by(key, |_| fresh)
+    }
+
+    /// The last read and whether it is older than `fresh` says that read stays fresh.
+    fn get_by(&self, key: &K, fresh: impl Fn(&T) -> Duration) -> Option<(T, bool)> {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let held = held.get(key)?;
-        let stale = held.at.is_none_or(|at| at.elapsed() >= fresh);
+        let stale = held.at.is_none_or(|at| at.elapsed() >= fresh(&held.value));
         Some((held.value.clone(), stale))
     }
 
@@ -101,6 +117,28 @@ impl<K: Hash + Eq + Clone, T: Clone> Cache<K, T> {
 
     fn put(&self, key: K, value: T) {
         self.hold(key, value, Some(Instant::now()));
+    }
+
+    /// Puts `value`, and drops the oldest reads past `max`.
+    fn put_within(&self, key: K, value: T, max: usize) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.insert(
+            key,
+            Held {
+                at: Some(Instant::now()),
+                value,
+            },
+        );
+        while held.len() > max {
+            let Some(oldest) = held
+                .iter()
+                .min_by_key(|(_, read)| read.at)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            held.remove(&oldest);
+        }
     }
 
     fn hold(&self, key: K, value: T, at: Option<Instant>) {
@@ -161,6 +199,8 @@ pub struct Session {
     changed: Arc<dyn Fn(Changed) + Send + Sync>,
     lists: Cache<String, LabeledProjectLists>,
     runs: Cache<String, HostedRuns>,
+    /// Runs opened, by project and run id.
+    run_details: Cache<(String, u64), ProjectRunDetail>,
     spend: Cache<(), SpendReport>,
     /// The freshest plan of each agent any read heard, which `spend` gives: a machine's stream
     /// that still owes a plan adds it when the node sends it.
@@ -200,6 +240,7 @@ impl Session {
             changed: Arc::new(changed),
             lists: Cache::default(),
             runs: Cache::default(),
+            run_details: Cache::default(),
             spend,
             plans: watch::Sender::new(plans.unwrap_or_default()),
             following: AtomicUsize::new(0),
@@ -291,10 +332,12 @@ impl Session {
         });
     }
 
-    /// The project's CI runs, kept as [`Session::lists`] keeps its lists.
+    /// The project's CI runs, kept as [`Session::lists`] keeps its lists, but stale after
+    /// [`GOING_FRESH`] while a run goes, so its progress moves on.
     pub async fn runs(self: &Arc<Self>, project: &str, refresh: bool) -> Result<HostedRuns> {
         let key = project.to_owned();
-        if !refresh && let Some((held, stale)) = self.runs.get(&key, self.options.fresh) {
+        let fresh = |runs: &HostedRuns| runs_fresh(runs, self.options.fresh, SystemTime::now());
+        if !refresh && let Some((held, stale)) = self.runs.get_by(&key, fresh) {
             if stale {
                 self.read_runs_later(key);
             }
@@ -304,6 +347,26 @@ impl Session {
         let read = self.desk().await?.runs(project).await?;
         if started == self.epoch.load(Ordering::Relaxed) {
             self.runs.put(key, read.clone());
+        }
+        Ok(read)
+    }
+
+    /// Run `id` of the project with its jobs and the end of a failed job's log. A finished run
+    /// is read once and then given from here; a running one is read again after
+    /// [`RUN_GOING_FRESH`], or after `Options::fresh` while the host's rate limit is low.
+    /// `refresh` reads the host now, for a run the list shows changed.
+    pub async fn run(&self, project: &str, id: u64, refresh: bool) -> Result<ProjectRunDetail> {
+        let key = (project.to_owned(), id);
+        let fresh =
+            |detail: &ProjectRunDetail| run_fresh(detail, self.options.fresh, SystemTime::now());
+        if !refresh && let Some((held, false)) = self.run_details.get_by(&key, fresh) {
+            return Ok(held);
+        }
+        let started = self.epoch.load(Ordering::Relaxed);
+        let read = self.desk().await?.run(project, id).await?;
+        if started == self.epoch.load(Ordering::Relaxed) {
+            self.run_details
+                .put_within(key, read.clone(), MAX_RUN_DETAILS);
         }
         Ok(read)
     }
@@ -465,6 +528,7 @@ impl Session {
         self.epoch.fetch_add(1, Ordering::Relaxed);
         self.lists.clear();
         self.runs.clear();
+        self.run_details.clear();
     }
 
     /// Waits for the background reads that are running.
@@ -472,6 +536,41 @@ impl Session {
         let mut reads =
             std::mem::take(&mut *self.tasks.lock().unwrap_or_else(PoisonError::into_inner));
         while reads.join_next().await.is_some() {}
+    }
+}
+
+/// Whether the host's rate limit is low at `now`, by what a read said.
+fn low(until: Option<SystemTime>, now: SystemTime) -> bool {
+    until.is_some_and(|until| until > now)
+}
+
+/// How long a run list stays fresh: [`GOING_FRESH`] while a run goes and no host's rate limit is
+/// low, else `fresh`.
+fn runs_fresh(runs: &HostedRuns, fresh: Duration, now: SystemTime) -> Duration {
+    let going = runs.runs.iter().any(|hosted| hosted.run.state.going());
+    let limited = runs
+        .hosts
+        .iter()
+        .any(|host| low(host.rate_limited_until, now));
+    if going && !limited {
+        GOING_FRESH.min(fresh)
+    } else {
+        fresh
+    }
+}
+
+/// How long a run's details stay fresh: a finished run's for [`RUN_DONE_FRESH`], a running
+/// one's for [`RUN_GOING_FRESH`], and `fresh` while the rate limit is low or for a read that
+/// came back with a problem, such as a log that did not read.
+fn run_fresh(detail: &ProjectRunDetail, fresh: Duration, now: SystemTime) -> Duration {
+    if detail.error.is_some() {
+        fresh
+    } else if !detail.run.state.going() {
+        RUN_DONE_FRESH
+    } else if low(detail.rate_limited_until, now) {
+        fresh
+    } else {
+        RUN_GOING_FRESH.min(fresh)
     }
 }
 
@@ -493,6 +592,7 @@ fn load_spend(path: &Path) -> Option<SpendReport> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_proto::{RunState, WorkflowRun};
 
     #[test]
     fn a_failed_read_dates_the_last_one_so_the_next_try_waits_for_its_age() {
@@ -509,5 +609,64 @@ mod tests {
         assert_eq!(cache.get(&"a".to_owned(), hour), Some((1, true)));
         cache.touch(&"a".to_owned());
         assert_eq!(cache.get(&"a".to_owned(), hour), Some((1, false)));
+    }
+
+    #[test]
+    fn the_oldest_reads_go_past_the_limit() {
+        let cache: Cache<u8, u8> = Cache::default();
+        for key in 0..4 {
+            cache.put_within(key, key, 3);
+        }
+        let hour = Duration::from_secs(3600);
+        assert_eq!(cache.get(&0, hour), None);
+        assert!((1..4).all(|key| cache.get(&key, hour).is_some()));
+    }
+
+    fn detail(state: RunState) -> ProjectRunDetail {
+        ProjectRunDetail {
+            run: WorkflowRun {
+                id: 1,
+                number: 1,
+                workflow: "CI".into(),
+                title: String::new(),
+                branch: "main".into(),
+                event: "push".into(),
+                actor: String::new(),
+                state,
+                url: String::new(),
+                started_at: None,
+                finished_at: None,
+                progress: None,
+                pull_requests: Vec::new(),
+            },
+            jobs: Vec::new(),
+            log: None,
+            error: None,
+            rate_limited_until: None,
+        }
+    }
+
+    #[test]
+    fn a_finished_run_stays_fresh_and_a_running_one_polls_unless_the_limit_is_low() {
+        let now = SystemTime::now();
+        let fresh = FRESH;
+        assert_eq!(
+            run_fresh(&detail(RunState::Failed {}), fresh, now),
+            RUN_DONE_FRESH
+        );
+        assert_eq!(
+            run_fresh(&detail(RunState::Running {}), fresh, now),
+            RUN_GOING_FRESH
+        );
+        let limited = ProjectRunDetail {
+            rate_limited_until: Some(now + Duration::from_secs(600)),
+            ..detail(RunState::Running {})
+        };
+        assert_eq!(run_fresh(&limited, fresh, now), fresh);
+        let partly = ProjectRunDetail {
+            error: Some("The log did not read".into()),
+            ..detail(RunState::Failed {})
+        };
+        assert_eq!(run_fresh(&partly, fresh, now), fresh);
     }
 }
