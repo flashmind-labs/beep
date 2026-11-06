@@ -8,6 +8,7 @@ use super::{
     Env, Harness,
     background::{Kept, keep_local, unix_secs},
     cache::Meta,
+    flsh,
     offers::{harness_of, now_secs, project_folder},
     rewrite, store,
 };
@@ -163,6 +164,9 @@ pub(super) async fn continue_here(
         .agents
         .named(agent.as_str())
         .with_context(|| format!("this machine has no {agent}"))?;
+    if Agent::from_name(&kind.name) == Some(Agent::Flsh) {
+        flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
+    }
     let folders = continued_folders(env, &meta)?;
     if !folders.new.is_dir() {
         bail!(

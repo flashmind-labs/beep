@@ -30,7 +30,7 @@ impl ProtocolHandler for Open {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, &|_, _| true, &[]).await;
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", &|_, _| true, &[]).await;
         connection.closed().await;
         Ok(())
     }
@@ -210,7 +210,7 @@ impl ProtocolHandler for Strict {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, &|_, _| false, &[]).await;
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", &|_, _| false, &[]).await;
         connection.closed().await;
         Ok(())
     }
@@ -532,4 +532,69 @@ async fn a_read_the_source_stops_answering_fails_instead_of_waiting_forever() {
     .expect_err("a stalled read fails");
     assert!(format!("{err:#}").contains("sent nothing"), "{err:#}");
     assert!(!err.is::<super::read::Refused>(), "it is tried again");
+}
+
+/// A flsh store with one session file and, in another folder, a database
+/// from before flsh kept files.
+fn flsh_source() -> (TempDir, Arc<Agents>) {
+    let dir = TempDir::new().expect("a temp folder");
+    let files = dir.path().join("455e16743bf22d19");
+    fs::create_dir_all(&files).expect("folders");
+    fs::write(files.join("a.jsonl"), FLSH).expect("a session file");
+    let old = dir.path().join("0123456789abcdef");
+    fs::create_dir_all(&old).expect("folders");
+    let conn = rusqlite::Connection::open(old.join("sessions.db")).expect("a database");
+    conn.execute_batch(
+        "CREATE TABLE sessions (chat_key TEXT, entry_kind TEXT, content TEXT,
+            turn_index INTEGER, created_at INTEGER);
+         CREATE TABLE session_meta (chat_key TEXT PRIMARY KEY, title TEXT, model TEXT,
+            working_dir TEXT, created_at INTEGER NOT NULL);
+         INSERT INTO session_meta VALUES ('session_old', NULL, 'm', '/srv/app', 100);",
+    )
+    .expect("a database");
+    let agents = Agents {
+        stores: Stores::at(None, None, Some(dir.path())),
+        ..Agents::default()
+    };
+    agents.reopened.send_replace(true);
+    (dir, Arc::new(agents))
+}
+
+const FLSH: &str = include_str!("../found/fixtures/flsh.jsonl");
+
+async fn read_flsh(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pulled> {
+    let client = endpoint().await;
+    let connection = client.connect(server.endpoint().addr(), ALPN).await?;
+    let (send, recv) = connection.open_bi().await?;
+    let (tx, rx) = link(send, recv);
+    let ask = super::read::Ask {
+        agent: AgentSlug::from("flsh"),
+        id,
+        copy,
+        kind: super::read::Kind::Move { worktree: false },
+    };
+    pull(tx, rx, ask).await
+}
+
+#[tokio::test]
+async fn a_flsh_session_file_is_read_and_one_in_an_old_database_is_refused() {
+    let (_dir, agents) = flsh_source();
+    let server = serving(&agents).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    let id = "session_0b1c2d3e00004000800001234567890a";
+    let pulled = read_flsh(&server, &copy, id).await.expect("a read");
+    assert_eq!(pulled.file_name, "a.jsonl");
+    assert_eq!(fs::read_to_string(&copy).expect("copy"), FLSH);
+
+    let old = mine.path().join("old.jsonl");
+    let err = read_flsh(&server, &old, "session_old")
+        .await
+        .expect_err("refused");
+    assert!(err.is::<super::read::Refused>(), "{err:#}");
+    assert!(
+        err.to_string()
+            .contains("Update flsh on laptop to 0.2.10 to move this session"),
+        "{err:#}"
+    );
 }

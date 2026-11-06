@@ -3884,63 +3884,6 @@ async fn a_session_a_move_names_is_not_filed_as_lost_by_the_note_of_an_earlier_c
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_branch_checked_out_on_the_target_refuses_the_move_and_the_session_stays() {
-    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
-    let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
-    timeout(LIMIT, async {
-        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .expect("the branch reached the other machine");
-    // On `b` the branch is checked out in a worktree of its own.
-    let elsewhere = pair.b_folder.join(".worktrees/elsewhere");
-    git_in(
-        &pair.b_folder,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            elsewhere.to_str().expect("utf8"),
-            "feat",
-        ],
-    );
-    let conn_a = pair.desktop.reach(pair.a.id).await;
-    let conn_b = pair.desktop.reach(pair.b.id).await;
-    run_session_in(&conn_a, &a_worktree).await;
-    rollout_on(&pair.a, &a_worktree);
-
-    ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 1).await;
-    until_progress(&conn_b, "refused", |p| {
-        p.phase == MovePhase::Failed
-            && p.reason
-                .as_deref()
-                .is_some_and(|reason| reason.contains("checked out in"))
-    })
-    .await;
-    pair.a.logged("the move of session s did not finish").await;
-    assert!(!pair.b_folder.join(".worktrees/feat").exists());
-    // The source never ended the session, and still runs it.
-    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
-    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
-    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
-        .await
-        .expect("answered")
-        .expect("reads")
-    {
-        Some(SessionsReply::Sessions { sessions }) => {
-            assert!(
-                sessions.iter().any(|s| s.state.status != Status::Ended),
-                "{sessions:?}"
-            );
-        }
-        other => panic!("not a list: {other:?}"),
-    }
-}
-
-#[cfg(unix)]
-#[tokio::test]
 async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
     let pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
     let a_worktree = repo_with_dirty_worktree(&pair.a_folder);

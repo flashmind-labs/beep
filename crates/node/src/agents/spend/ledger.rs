@@ -204,6 +204,10 @@ pub(super) struct Database {
     pub(super) agent: Option<Agent>,
     pub(super) stamp: Stamp,
     pub(super) parts: BTreeMap<String, Part>,
+    /// For a flsh session file that moved here: what it had spent on the
+    /// machine it came from.
+    #[serde(default)]
+    pub(super) counted: Option<super::databases::Counted>,
 }
 
 /// Everything read so far.
