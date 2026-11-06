@@ -5,7 +5,8 @@ const MASK: &str = "[redacted]";
 
 const SECRET_KEY: &str = r"[A-Za-z0-9_.-]*(?:token|secret|password|passwd|api[_-]?key|private[_-]?key|credential|cookie)[A-Za-z0-9_.-]*";
 const SEP: &str = r#"["']?\s*[:=]\s*"#;
-const WRAPPER: &str = r"(?:[A-Za-z_][A-Za-z0-9_]*\()?";
+const WRAPPER: &str = r"(?:[A-Za-z_][A-Za-z0-9_]*\()*";
+const OPEN: &str = r"(?:[A-Za-z_][A-Za-z0-9_]*)?\(";
 const QUOTED: &str = r#""(?:\\.|[^"\\\r\n])*""#;
 const QUOTED_SINGLE: &str = r"'(?:\\.|[^'\\\r\n])*'";
 const BARE: &str = r#"[^\s,;&"'}\[(][^\s,;&"'}()]*"#;
@@ -20,9 +21,7 @@ pub enum RedactError {
 #[derive(Clone, Copy)]
 enum Skip {
     Never,
-    /// Counters such as `input_tokens` and `token_count`.
-    Counter,
-    /// A counter, or a value that is a number, a null, a plain word or a call.
+    /// A numeric counter, or a value that is a null, a plain word or a call.
     CounterOrOrdinary,
     /// A flag followed by another flag, or by an ordinary value.
     Flag,
@@ -54,7 +53,7 @@ fn rules() -> Vec<Rule> {
     vec![
         whole(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----(?:.*?-----END [A-Z ]*PRIVATE KEY-----|.*)"),
         keep(format!(
-            r#"(?i)(\bauthorization["']?\s*[:=]\s*)(?:{QUOTED}|{QUOTED_SINGLE}|(?:\w+\s+)?[^\s,;"']+)"#
+            r#"(?i)(\bauthorization["']?\s*[:=]\s*)(?:{QUOTED}|{QUOTED_SINGLE}|(?:\w+[ \t]+)?[^\s,;"']+)"#
         )),
         keep(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"),
         keep(r#"(?i)(\b(?:set-)?cookie\s*[:=]\s*)[A-Za-z0-9_.-]+=[^\r\n"']*"#),
@@ -69,12 +68,19 @@ fn rules() -> Vec<Rule> {
         rule(
             format!(r"(?i)((?P<key>{SECRET_KEY}){SEP}{WRAPPER}){QUOTED}"),
             format!("${{1}}\"{MASK}\""),
-            Skip::Counter,
+            Skip::Never,
         ),
         rule(
             format!(r"(?i)((?P<key>{SECRET_KEY}){SEP}{WRAPPER}){QUOTED_SINGLE}"),
             format!("${{1}}'{MASK}'"),
-            Skip::Counter,
+            Skip::Never,
+        ),
+        rule(
+            format!(
+                r#"(?i)((?P<key>{SECRET_KEY}){SEP}(?:{OPEN})+)(?P<val>[^\s,;&"'}}\[()][^\s,;&"'}}()]*)"#
+            ),
+            format!("${{1}}{MASK}"),
+            Skip::CounterOrOrdinary,
         ),
         rule(
             format!(r"(?i)((?P<key>{SECRET_KEY}){SEP})(?P<val>{BARE})"),
@@ -106,34 +112,38 @@ struct Compiled {
 
 impl Compiled {
     fn skips(&self, caps: &Captures, haystack: &str) -> bool {
-        let counter = caps.name("key").is_some_and(|k| {
-            let k = k.as_str().to_ascii_lowercase();
-            k.ends_with("tokens") || k.ends_with("_count") || k.ends_with("-count")
-        });
-        let val = caps.name("val");
+        let key = caps
+            .name("key")
+            .map(|k| k.as_str().to_ascii_lowercase())
+            .unwrap_or_default();
+        let counter = key.ends_with("tokens") || key.ends_with("_count") || key.ends_with("-count");
+        let Some(val) = caps.name("val") else {
+            return false;
+        };
+        let val = val.as_str();
+        let numeric = val.chars().all(|c| c.is_ascii_digit() || c == '.');
         match self.skip {
             Skip::Never => false,
-            Skip::Counter => counter,
             Skip::CounterOrOrdinary => {
-                counter
-                    || val.is_some_and(|v| {
-                        ordinary_value(v.as_str()) || haystack[v.end()..].starts_with('(')
-                    })
+                (counter && numeric)
+                    || ordinary_word(val)
+                    || haystack[caps.name("val").map_or(0, |v| v.end())..].starts_with('(')
             }
             Skip::Flag => {
-                counter
-                    || val
-                        .is_some_and(|v| v.as_str().starts_with('-') || ordinary_value(v.as_str()))
+                (counter && numeric)
+                    || val.starts_with('-')
+                    || ordinary_word(val)
+                    || key.ends_with("-file")
+                    || key.ends_with("-path")
             }
         }
     }
 }
 
-/// A number, a null or boolean, or a short plain word: not a secret.
-fn ordinary_value(val: &str) -> bool {
+/// A null or boolean, or a short plain word: not a secret.
+fn ordinary_word(val: &str) -> bool {
     let lower = val.to_ascii_lowercase();
     matches!(lower.as_str(), "null" | "none" | "nil" | "true" | "false")
-        || val.chars().all(|c| c.is_ascii_digit() || c == '.')
         || (val.len() < 8 && val.chars().all(|c| c.is_ascii_alphabetic()))
 }
 
@@ -234,6 +244,36 @@ mod tests {
             t("--password=hunter22", "--password=[redacted]"),
             t("--api-key abcd1234", "--api-key [redacted]"),
             t("sk-abcdefghijklmnopqrstuvwx", "[redacted]"),
+            t(
+                "Some(Token(\"opaque-value-123\"))",
+                "Some(Token(\"opaque-value-123\"))",
+            ),
+            t(
+                "token: Some(Token(\"opaque-value-123\"))",
+                "token: Some(Token(\"[redacted]\"))",
+            ),
+            t(
+                "Config { api_key: Some(Secret(\"sk_live_value\")), n: 1 }",
+                "Config { api_key: Some(Secret(\"[redacted]\")), n: 1 }",
+            ),
+            t("token: Some(abc123xyz)", "token: Some([redacted])"),
+            t("token=(abcdefgh123)", "token=([redacted])"),
+            t("password=12345678", "password=[redacted]"),
+            t("token=1234567890123456789", "token=[redacted]"),
+            t("pin_secret=000111", "pin_secret=[redacted]"),
+            t(
+                "access_tokens=abc123secretvalue",
+                "access_tokens=[redacted]",
+            ),
+            t("GITHUB_TOKENS=abcdef123456789", "GITHUB_TOKENS=[redacted]"),
+            t(
+                "authorization: Bearer\nnext_line_value keep",
+                "authorization: [redacted]\nnext_line_value keep",
+            ),
+            t(
+                "--token-file /path/to/work/tok --path-x",
+                "--token-file /path/to/work/tok --path-x",
+            ),
         ]
     }
 
