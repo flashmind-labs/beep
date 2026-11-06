@@ -157,11 +157,24 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   };
   const q = el.querySelector<HTMLInputElement>(".agc-search")!;
   q.addEventListener("input", () => { p.query = q.value; drawModels(el, o); });
+  // ↑ ↓ move a highlight through the models, the field keeping focus; ↩ picks
+  // the highlighted one, else the first.
   q.addEventListener("keydown", e => {
+    const rows = [...el.querySelectorAll<HTMLElement>("[data-agmo]")];
+    const at = rows.findIndex(r => r.classList.contains("hi"));
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!rows.length) return;
+      const to = e.key === "ArrowDown" ? Math.min(at + 1, rows.length - 1) : Math.max(at - 1, 0);
+      rows[at]?.classList.remove("hi");
+      rows[to].classList.add("hi");
+      rows[to].scrollIntoView({ block: "nearest" });
+      return;
+    }
     if (e.key !== "Enter" || e.metaKey) return;
     e.preventDefault();
-    const first = el.querySelector<HTMLElement>("[data-agmo]");
-    if (first) { p.model = first.dataset.agmo!; p.query = ""; o.changed("model"); }
+    const pick = rows[at] ?? rows[0];
+    if (pick) { p.model = pick.dataset.agmo!; p.query = ""; o.changed("model"); }
   });
   drawModels(el, o);
 }

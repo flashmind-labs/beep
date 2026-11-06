@@ -58,6 +58,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘D", does: "Deny" },
     { keys: "⌘.", does: "Stop the turn" },
     { keys: "⌘M", does: "Pick the model, on the start form" },
+    { keys: "↑ ↓", does: "Move through models, in the model search" },
     { keys: "⌘U", does: "Open or fold thoughts" },
     { keys: "⌘Y", does: "Open or fold commands" },
     { keys: "⇧⌘Y", does: "Open or fold the last command" },

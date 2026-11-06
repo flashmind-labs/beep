@@ -79,7 +79,7 @@ export interface ModelRow {
 /// The model column for `list` (`undefined` while the machine is asked, `null`
 /// when it cannot say), filtered by `query`.
 export function modelRows(list: AgentModels | null | undefined, query: string): { rows: ModelRow[]; note: string } {
-  const q = query.trim(), lower = q.toLowerCase();
+  const q = query.trim(), words = q.toLowerCase().split(/\s+/).filter(Boolean);
   // The harness's own "default" entry is our Default row: one row, whose
   // note says what it resolves to.
   const isDefault = (m: ModelInfo) => m.id.toLowerCase() === "default" || /^default\b/i.test(m.name);
@@ -88,7 +88,8 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
     : current && !isDefault(current) ? current.name || current.id
     : !own && list?.current ? list.current : "its own";
   const first: ModelRow = { value: "", label: "Default", note: resolves };
-  const fits = (r: ModelRow) => !lower || r.label.toLowerCase().includes(lower) || r.value.toLowerCase().includes(lower);
+  // Every word of the query, in any order, as flashmind-cli matches models.
+  const fits = (r: ModelRow) => { const text = `${r.label} ${r.value}`.toLowerCase(); return words.every(w => text.includes(w)); };
   if (list === undefined) return { rows: [first], note: "Asking the machine which models it has…" };
   if (!list || list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
   if (list.pick === "named" || !list.models.length) {
