@@ -1,9 +1,9 @@
 //! `Mesh`: one device's membership. An owner task keeps a dialer per other
 //! member; `link` runs each connection; `join` handles tickets.
 
-use crate::frame;
 use crate::state::now_ms;
 use crate::store::{Core, SharedView, Store, View};
+use crate::wire;
 use crate::{Device, DeviceKind, JoinTicket, Key, MeshError, link};
 use iroh::endpoint::{
     Connection, IdleTimeout, QuicTransportConfig, RecvStream, SendStream, VarInt,
@@ -16,7 +16,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{Notify, Semaphore, broadcast, watch};
@@ -95,7 +95,7 @@ pub type StreamHandler =
 /// An address and the owner's counter for it. Higher replaces lower.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct AddrNote {
-    #[serde(with = "crate::bin::addr")]
+    #[serde(with = "crate::wire::addr")]
     pub addr: EndpointAddr,
     pub generation: u64,
 }
@@ -137,7 +137,6 @@ pub(crate) struct Inner {
     pub addrs: Mutex<BTreeMap<EndpointId, AddrNote>>,
     /// When each peer's link last ended, since the mesh opened.
     pub last_seen: Mutex<BTreeMap<EndpointId, SystemTime>>,
-    pub addr_updates: AtomicU64,
     /// Our own address and its counter.
     own_addr: Mutex<AddrNote>,
     /// Rung when any address changes, for dialers waiting out a backoff.
@@ -217,7 +216,7 @@ impl Inner {
     /// we hold, so peers holding different notes for a third settle on the
     /// newest, and one stamped more than a minute ahead of our clock is
     /// dropped, so no relay can pin a victim's address.
-    pub async fn learn(&self, list: Vec<AddrNote>, from: Option<EndpointId>) {
+    pub async fn learn(&self, list: Vec<AddrNote>, from: EndpointId) {
         let ceiling = now_ms().saturating_add(MAX_AHEAD_MS);
         let view = self.view();
         let mut changed = false;
@@ -228,7 +227,7 @@ impl Inner {
                 if id == self.me || !view.devices.is_member(id) {
                     continue;
                 }
-                let first_hand = from == Some(id);
+                let first_hand = from == id;
                 if !first_hand && note.generation > ceiling {
                     continue;
                 }
@@ -243,7 +242,6 @@ impl Inner {
             }
         }
         if changed {
-            self.addr_updates.fetch_add(1, Ordering::Relaxed);
             let all: Vec<_> = self.addrs().values().cloned().collect();
             if let Err(e) = self.store.run(move |core| core.save_addrs(&all)).await {
                 debug!("could not save peer addresses: {e}");
@@ -463,7 +461,6 @@ impl Mesh {
             retired: Mutex::default(),
             addrs: Mutex::new(known),
             last_seen: Mutex::default(),
-            addr_updates: AtomicU64::new(0),
             own_addr: Mutex::new(first),
             addr_wake: Notify::new(),
             wake: Notify::new(),
@@ -616,20 +613,6 @@ impl Mesh {
         self.inner.rev.subscribe()
     }
 
-    /// Feeds an address for a member that did not come from the peer
-    /// itself, such as one found on the local network. Higher `generation`
-    /// wins.
-    pub async fn hint_addr(&self, addr: EndpointAddr, generation: u64) {
-        self.inner
-            .learn(vec![AddrNote { addr, generation }], None)
-            .await;
-    }
-
-    /// How many times the address table has changed.
-    pub fn addr_updates(&self) -> u64 {
-        self.inner.addr_updates.load(Ordering::Relaxed)
-    }
-
     /// What peers tell a restart of this mesh from a second dial by.
     #[cfg(test)]
     pub(crate) fn session(&self) -> u64 {
@@ -647,7 +630,7 @@ impl Mesh {
         let first = self
             .inner
             .live(peer)
-            .ok_or_else(|| frame::net("not connected"))?;
+            .ok_or_else(|| wire::net("not connected"))?;
         self.open_from(peer, first).await
     }
 
@@ -671,7 +654,7 @@ impl Mesh {
                             retries -= 1;
                             conn = live;
                         }
-                        _ => return Err(frame::net(e)),
+                        _ => return Err(wire::net(e)),
                     }
                 }
             }

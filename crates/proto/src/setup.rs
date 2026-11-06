@@ -96,14 +96,8 @@ impl SetupToken {
 
     /// The command that sets a machine up with this token.
     pub fn command(&self) -> String {
-        setup_command(&self.to_string())
+        format!("beep-node setup {}", self.to_string().trim())
     }
-}
-
-/// `beep-node setup <token>`, for showing next to a token as
-/// `CreateNodeToken` gave it.
-pub fn setup_command(token: &str) -> String {
-    format!("beep-node setup {}", token.trim())
 }
 
 impl fmt::Display for SetupToken {

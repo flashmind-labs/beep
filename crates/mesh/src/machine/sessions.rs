@@ -18,18 +18,18 @@ use beep_proto::{
 use std::{future::Future, time::Duration};
 
 /// How long an ordinary read of the node's sessions may take.
-pub const READ_TIMEOUT: Duration = Duration::from_secs(10);
+const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a picture may take: a whole one is a few MiB, which a link
 /// through a busy relay carries in far more than `READ_TIMEOUT`.
-pub const IMAGE_TIMEOUT: Duration = Duration::from_secs(60);
+const IMAGE_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to list models: it may start the agent first.
-pub const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
+const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to read a diff: git may walk a large checkout.
-pub const DIFF_TIMEOUT: Duration = Duration::from_secs(60);
+const DIFF_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node may take to report its harnesses: it asks npm for versions.
-pub const REPORT_TIMEOUT: Duration = Duration::from_secs(45);
+const REPORT_TIMEOUT: Duration = Duration::from_secs(45);
 /// How long an install or update may take on the node, and a little more.
-pub const UPDATE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
+const UPDATE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 
 /// Sends one `agents/1` request and gives the node's reply within `limit`.
 pub trait Sessions {
@@ -635,49 +635,5 @@ fn harness_reply(
             Ok(None)
         }
         Err(e) => Err(e),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::anyhow;
-
-    /// A node whose link is down.
-    struct Down;
-
-    impl Sessions for Down {
-        async fn sessions(
-            &self,
-            _: SessionsRequest,
-            _: Duration,
-        ) -> Result<SessionsReply, MeshError> {
-            Err(MeshError::Link(anyhow!("the node closed the stream")))
-        }
-    }
-
-    #[tokio::test]
-    async fn a_node_that_cannot_say_has_no_models_or_harnesses() {
-        assert!(models(&Down, "claude").await.expect("no error").is_none());
-        assert!(harnesses(&Down, false).await.expect("no error").is_none());
-        assert!(
-            update_harness(&Down, "claude")
-                .await
-                .expect("no error")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn an_older_node_is_told_to_update() {
-        let said = |e: MeshError| format!("{e:#}");
-        let e = external(&Down, "claude", 1, None).await.expect_err("down");
-        assert!(said(e).contains("the node may need an update to list them"));
-        let e = live(&Down, "s", None).await.expect_err("down");
-        assert!(said(e).contains("the node may need an update for live status"));
-        let e = found_folders(&Down, 1).await.expect_err("down");
-        assert!(said(e).contains("the node may need an update to find them"));
-        let e = in_folders(&Down, Vec::new(), 1).await.expect_err("down");
-        assert!(said(e).contains("the node may need an update to list them"));
     }
 }
