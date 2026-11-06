@@ -4,7 +4,7 @@
 
 /// What runs a loop in the CSS (`infinite`). A loop missing here still aligns,
 /// but maybe a frame late, through animationstart.
-const LOOPING = ".dspin, .dthink.live .lb i";
+const LOOPING = ".dspin, .dthink.live .lb";
 
 function align() {
   for (const a of document.getAnimations()) {
