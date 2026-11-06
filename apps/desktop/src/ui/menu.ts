@@ -90,8 +90,13 @@ export interface ConfirmOptions {
   note?: string;
   /// The button that does it, such as "Remove".
   action: string;
-  /// Does it; a failure shows in the sheet, which stays open to try again.
-  run: () => Promise<unknown>;
+  /// An unticked box under the text, with `note` in place of the sheet's
+  /// note while it is ticked.
+  tick?: { label: string; note: string };
+  /// Does it, told whether the box is ticked; a failure shows in the sheet,
+  /// which stays open to try again. With the box ticked, text it gives back
+  /// stays shown in the sheet until it is closed.
+  run: (ticked: boolean) => Promise<unknown>;
 }
 
 /// Asks before `options.run`: Esc or Cancel closes the sheet, the action
@@ -117,8 +122,13 @@ export function confirmSheet(options: ConfirmOptions) {
     act.disabled = true;
     error.hidden = true;
     try {
-      await options.run();
+      const said = await options.run(box.checked);
       busy = false;
+      if (box.checked && typeof said === "string" && said) {
+        sheet.replaceChildren(el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
+          el("div", "am-msg", said), el("div", "gp-foot", button("Close", "dbtn", close)));
+        return;
+      }
       close();
     } catch (e) {
       busy = false;
@@ -128,10 +138,20 @@ export function confirmSheet(options: ConfirmOptions) {
     }
   };
   const act = button(options.action, "dbtn warn", go);
+  const box = el("input");
+  box.type = "checkbox";
+  const note = el("div", "am-sub", options.note || "");
+  note.hidden = !options.note;
+  box.addEventListener("change", () => {
+    const text = box.checked ? options.tick?.note : options.note;
+    note.textContent = text || "";
+    note.hidden = !text;
+  });
   sheet.append(...present([
     el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
     el("div", "am-msg", options.text),
-    options.note ? el("div", "am-sub", options.note) : null,
+    options.tick ? el("label", "am-sub am-tick", box, options.tick.label) : null,
+    note,
     error,
     el("div", "gp-foot", button("Cancel", "dbtn quiet", close), act),
   ]));

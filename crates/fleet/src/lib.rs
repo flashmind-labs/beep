@@ -5,6 +5,7 @@ mod desk;
 mod error;
 mod git_board;
 mod issues;
+mod left_folder;
 pub mod migrate;
 mod moves;
 mod open_items;

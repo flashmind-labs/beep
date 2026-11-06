@@ -262,6 +262,8 @@ export interface ThreadDeps {
   changed: () => unknown;
   /// Where the lists are kept between windows; in memory only without it.
   kept?: SectionStore<KeptThreads>;
+  /// Whether a server is there: Plan and Discuss need its project agent.
+  server?: () => boolean;
 }
 
 /// A project's lists as the page cache keeps them.
@@ -296,6 +298,7 @@ type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
 export function makeThreads(deps: ThreadDeps) {
   const { invoke, h, button, ago, redraw, openUrl, openChat, changed } = deps;
+  const server = deps.server ?? (() => true);
   const kept = deps.kept ?? new PageCache(null).section<KeptThreads>("threads");
   const all = new Map<string, ProjectThreads>();
 
@@ -464,15 +467,15 @@ export function makeThreads(deps: ThreadDeps) {
     return actsEl(s, [`r${n}`, `c${n}`, `a${n}`], buttons);
   }
 
-  /// An open issue's buttons: Work on it, Plan and Discuss.
+  /// An open issue's buttons: Work on it, and with a server Plan and Discuss.
   function issueButtons(agent: Agent, ctx: RepoActs, i: IssueRow) {
     const s = of(agent.project_id);
     const n = i.number;
-    const buttons = [
-      button("Work on it", "pri", () => ctx.workOn(i)),
-      button("Plan", "", () => track(agent, n)),
-      button(s.busy.has(`d${n}`) ? "Opening…" : "Discuss", "", () => discuss(agent, n)),
-    ];
+    const buttons = [button("Work on it", "pri", () => ctx.workOn(i))];
+    if (server()) {
+      buttons.push(button("Plan", "", () => track(agent, n)),
+        button(s.busy.has(`d${n}`) ? "Opening…" : "Discuss", "", () => discuss(agent, n)));
+    }
     for (const b of buttons) b.disabled = s.busy.has(`i${n}`);
     buttons[0].title = "Start a coding agent on a new branch for this issue";
     return actsEl(s, [`i${n}`, `d${n}`], buttons);
@@ -496,12 +499,12 @@ export function makeThreads(deps: ThreadDeps) {
 
   /// An issue row's right-click menu: what its buttons do.
   function issueMenu(e: MouseEvent, agent: Agent, ctx: RepoActs, i: IssueRow) {
-    openMenu(e, `#${i.number} ${i.title}`, [
+    const items: MenuItem[] = [
       { label: "Open on forge", on: () => openUrl(i.url) },
       { label: "Work on it", on: () => ctx.workOn(i) },
-      { label: "Plan", on: () => void track(agent, i.number) },
-      { label: "Discuss", on: () => void discuss(agent, i.number) },
-    ]);
+    ];
+    if (server()) items.push({ label: "Plan", on: () => void track(agent, i.number) }, { label: "Discuss", on: () => void discuss(agent, i.number) });
+    openMenu(e, `#${i.number} ${i.title}`, items);
   }
 
   /// The user's pull requests and issues, with replies and chats.

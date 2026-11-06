@@ -1,6 +1,7 @@
 // A project page's sections (terminals, file sync, reviews, threads, runs)
 // and the acts its agent's cards call.
 import { ago } from "../ui/format.ts";
+import { S } from "../bar/core.ts";
 import { onPlaces } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { dbtn as button } from "../ui/parts.ts";
@@ -20,6 +21,7 @@ import { loadSessions, sessions } from "../agents/sessions.ts";
 import { showChanges } from "../agentpane/media.ts";
 import { makeReviews, mergeBlock, type ReviewHead } from "../review/review.ts";
 import { makeFileSync } from "./filesync.ts";
+import { changeFolder } from "./changefolder.ts";
 import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.ts";
 import { makeRuns, type RunDetail } from "./runs.ts";
@@ -42,7 +44,7 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null };
 
 export const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
-export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync") });
+export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the
 /// review view.
@@ -77,10 +79,11 @@ export const thr = makeThreads({
   openChat: (chat: string) => { ownChats.add(chat); go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
   kept: keptSection("threads"),
+  server: () => S.server,
 });
 
 /// A pull request or issue read in full, in the split's right column.
-export const details = makeThreadDetail({ redraw: () => redrawProjects(), openUrl });
+export const details = makeThreadDetail({ redraw: () => redrawProjects(), openUrl, comment: () => !S.server });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
 export const runs = makeRuns({
