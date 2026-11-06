@@ -12,7 +12,10 @@ use crate::{
 use beep_proto::{HostedRuns, LabeledProjectLists, PlanLimits, SpendReport};
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     hash::Hash,
+    io,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -47,9 +50,9 @@ pub enum Changed {
     Usage,
 }
 
-/// Something read, and when.
+/// Something read, and when; `None` for a read kept from an earlier run, which is stale.
 struct Held<T> {
-    at: Instant,
+    at: Option<Instant>,
     value: T,
 }
 
@@ -73,7 +76,8 @@ impl<K: Hash + Eq + Clone, T: Clone> Cache<K, T> {
     fn get(&self, key: &K, fresh: Duration) -> Option<(T, bool)> {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let held = held.get(key)?;
-        Some((held.value.clone(), held.at.elapsed() >= fresh))
+        let stale = held.at.is_none_or(|at| at.elapsed() >= fresh);
+        Some((held.value.clone(), stale))
     }
 
     /// Dates the last read now, as a read that failed does, so the next try waits for its age.
@@ -84,7 +88,7 @@ impl<K: Hash + Eq + Clone, T: Clone> Cache<K, T> {
             .unwrap_or_else(PoisonError::into_inner)
             .get_mut(key)
         {
-            held.at = Instant::now();
+            held.at = Some(Instant::now());
         }
     }
 
@@ -96,10 +100,11 @@ impl<K: Hash + Eq + Clone, T: Clone> Cache<K, T> {
     }
 
     fn put(&self, key: K, value: T) {
-        let held = Held {
-            at: Instant::now(),
-            value,
-        };
+        self.hold(key, value, Some(Instant::now()));
+    }
+
+    fn hold(&self, key: K, value: T, at: Option<Instant>) {
+        let held = Held { at, value };
         self.held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -133,6 +138,8 @@ pub struct Options {
     pub fresh: Duration,
     /// How long a call waits for the mesh to open.
     pub mesh_wait: Duration,
+    /// Where the last usage report is kept, so the next run shows it at once.
+    pub usage_file: Option<PathBuf>,
 }
 
 impl Default for Options {
@@ -142,6 +149,7 @@ impl Default for Options {
             github_api: None,
             fresh: FRESH,
             mesh_wait: MESH_WAIT,
+            usage_file: None,
         }
     }
 }
@@ -164,6 +172,8 @@ pub struct Session {
     epoch: AtomicU64,
     /// Bounds the background reads.
     limit: Arc<Semaphore>,
+    /// One write of `usage_file` at a time.
+    saving: Mutex<()>,
     /// The background reads, owned here: they stop with the session.
     tasks: Mutex<JoinSet<()>>,
     /// Whether the first desk put the projects already imported in sync.
@@ -177,6 +187,12 @@ impl Session {
         options: Options,
         changed: impl Fn(Changed) + Send + Sync + 'static,
     ) -> Result<Arc<Self>> {
+        let spend = Cache::default();
+        let saved = options.usage_file.as_deref().and_then(load_spend);
+        let plans = saved.as_ref().map(|report| report.limits.clone());
+        if let Some(report) = saved {
+            spend.hold((), report, None);
+        }
         Ok(Arc::new(Self {
             options,
             peers,
@@ -184,11 +200,12 @@ impl Session {
             changed: Arc::new(changed),
             lists: Cache::default(),
             runs: Cache::default(),
-            spend: Cache::default(),
-            plans: watch::Sender::new(Vec::new()),
+            spend,
+            plans: watch::Sender::new(plans.unwrap_or_default()),
             following: AtomicUsize::new(0),
             epoch: AtomicU64::new(0),
             limit: Arc::new(Semaphore::new(READS_AT_ONCE)),
+            saving: Mutex::new(()),
             tasks: Mutex::default(),
             checkouts_synced: AtomicBool::new(false),
         }))
@@ -323,12 +340,14 @@ impl Session {
         });
     }
 
-    /// What the agents cost and how much of their plans is left: the last report at once, and a
-    /// new one collected behind it (it takes the machines a moment to say). `refresh`, or no
-    /// report yet, waits for one. A plan a machine sends after the report is added when it
-    /// comes, and `changed` hears [`Changed::Usage`].
+    /// What the agents cost and how much of their plans is left: the last report at once, the
+    /// one kept from the last run included, and a new one collected behind it (it takes the
+    /// machines a moment to say). `refresh`, or no report yet, waits for one. A plan a machine
+    /// sends after the report is added when it comes, and `changed` hears [`Changed::Usage`].
+    /// The pill polls once per `fresh`, so a report is stale at half that: each poll reads
+    /// again, and a machine that came online since is heard within a poll.
     pub async fn spend(self: &Arc<Self>, refresh: bool) -> Result<SpendReport> {
-        let mut report = match self.spend.get(&(), self.options.fresh) {
+        let mut report = match self.spend.get(&(), self.options.fresh / 2) {
             Some((held, stale)) if !refresh => {
                 if stale {
                     self.read_spend_later();
@@ -370,6 +389,7 @@ impl Session {
     fn keep_spend(self: &Arc<Self>, read: SpendReport, follows: Vec<PlanFollow>) {
         self.hear(read.limits.clone());
         self.spend.put((), read);
+        self.save_spend();
         for mut follow in follows {
             // A plan of the agent already shown is not waited for: the next read brings it.
             let shown = self.plans.borrow().clone();
@@ -388,6 +408,7 @@ impl Session {
                 follow
                     .run(|plan| {
                         if this.hear(vec![plan]) {
+                            this.save_spend();
                             (this.changed)(Changed::Usage);
                         }
                     })
@@ -395,6 +416,36 @@ impl Session {
                 this.following.fetch_sub(1, Ordering::Relaxed);
             });
         }
+    }
+
+    /// Writes the report held and its plans to `usage_file`, off the async workers.
+    fn save_spend(self: &Arc<Self>) {
+        let Some(path) = self.options.usage_file.clone() else {
+            return;
+        };
+        let this = self.clone();
+        self.spawn(async move {
+            let saved = tokio::task::spawn_blocking(move || this.write_spend(&path)).await;
+            match saved {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::warn!("the usage was not kept for the next run: {e}"),
+                Err(e) => log::warn!("keeping the usage stopped: {e}"),
+            }
+        });
+    }
+
+    /// Writes what is held when the write starts, one write at a time, so the last one written
+    /// is the newest.
+    fn write_spend(&self, path: &Path) -> io::Result<()> {
+        let _one = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some((mut report, _)) = self.spend.get(&(), Duration::ZERO) else {
+            return Ok(());
+        };
+        report.limits = self.plans.borrow().clone();
+        let bytes = rmp_serde::to_vec_named(&report).map_err(io::Error::other)?;
+        let part = path.with_extension("part");
+        fs::write(&part, bytes)?;
+        fs::rename(&part, path)
     }
 
     /// Takes the freshest of `plans` and those held; true when that changed anything.
@@ -424,6 +475,21 @@ impl Session {
     }
 }
 
+/// The report the last run kept at `path`; `None` without one.
+fn load_spend(path: &Path) -> Option<SpendReport> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            log::warn!("the usage kept by the last run was not read: {e}");
+            return None;
+        }
+    };
+    rmp_serde::from_slice(&bytes)
+        .inspect_err(|e| log::warn!("the usage kept by the last run did not decode: {e}"))
+        .ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,7 +505,7 @@ mod tests {
             .expect("not poisoned")
             .get_mut("a")
             .expect("held")
-            .at = Instant::now() - 2 * hour;
+            .at = None;
         assert_eq!(cache.get(&"a".to_owned(), hour), Some((1, true)));
         cache.touch(&"a".to_owned());
         assert_eq!(cache.get(&"a".to_owned(), hour), Some((1, false)));
