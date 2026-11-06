@@ -46,6 +46,8 @@ pub struct MachineView {
     version: String,
     /// `None` until its first report.
     env: Option<MachineEnv>,
+    /// It leaves the mesh when it stops, such as a container.
+    temporary: bool,
 }
 
 impl From<Machine> for MachineView {
@@ -57,6 +59,7 @@ impl From<Machine> for MachineView {
             seen_at: epoch_ms(machine.seen_at),
             version: machine.version,
             env: machine.env,
+            temporary: false,
         }
     }
 }
@@ -286,7 +289,21 @@ pub async fn list_machines(
     held: State<'_, Outside>,
 ) -> Result<Vec<MachineView>> {
     let machines = machines(&app, &fleet, &held);
-    Ok(machines.into_iter().map(MachineView::from).collect())
+    let temporary = fleet
+        .mesh()
+        .map(|mesh| mesh.temporaries())
+        .unwrap_or_default();
+    Ok(machines
+        .into_iter()
+        .map(MachineView::from)
+        .map(|view| MachineView {
+            temporary: view
+                .id
+                .parse::<EndpointId>()
+                .is_ok_and(|id| temporary.contains(&id)),
+            ..view
+        })
+        .collect())
 }
 
 /// The machines that are on with a clock far enough off to warn about.

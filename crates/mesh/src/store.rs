@@ -254,6 +254,7 @@ impl Core {
         addr: EndpointAddr,
         kind: DeviceKind,
         ttl: Duration,
+        temporary: bool,
     ) -> Result<JoinTicket, MeshError> {
         self.desktop()?;
         let now = now_ms();
@@ -264,6 +265,7 @@ impl Core {
             kind,
             secret: JoinSecret::generate(),
             expires_ms: now.saturating_add(ttl_ms),
+            temporary,
         };
         self.tickets.retain(|t| !t.expired(now));
         self.tickets.push(ticket.clone());
@@ -303,8 +305,44 @@ impl Core {
             Err(e) => return Err(e),
         }
         self.save_devices()?;
+        if ticket.temporary {
+            self.state
+                .set(Key::Temporary(joiner.to_string()), Some(Vec::new()))?;
+        }
         self.publish();
         Ok(self.devices.ops().to_vec())
+    }
+
+    /// Removes the temporary device `id` and its `temporary/` key. `asker` is the device that
+    /// asked, when one did, and may only ask about itself. A device already removed is done:
+    /// `Ok(false)`, so two desktops may both try. One that is not temporary is refused.
+    pub(crate) fn remove_temporary(
+        &mut self,
+        asker: Option<EndpointId>,
+        id: EndpointId,
+    ) -> Result<bool, MeshError> {
+        self.desktop()?;
+        let refuse = |why: &str| MeshError::Refused(why.to_owned());
+        if asker.is_some_and(|asker| asker != id) {
+            return Err(refuse("a device may only remove itself"));
+        }
+        let key = Key::Temporary(id.to_string());
+        let temporary = self.state.get(&key).is_some();
+        if self.devices.is_removed(id) {
+            if temporary {
+                self.state.set(key, None)?;
+                self.publish();
+            }
+            return Ok(false);
+        }
+        if !temporary || !self.devices.is_member(id) {
+            return Err(refuse("not a temporary device"));
+        }
+        self.devices.remove(&self.key, id)?;
+        self.save_devices()?;
+        self.state.set(key, None)?;
+        self.publish();
+        Ok(true)
     }
 
     pub(crate) fn remove(&mut self, id: EndpointId) -> Result<(), MeshError> {

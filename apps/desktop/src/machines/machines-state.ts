@@ -120,3 +120,9 @@ export function updatedNotes(installed: Installed, machine: string, tools: reado
     return to && shownVersion(installed, `${machine} ${t.name}`, t.name, t.version) === to && bareVersion(t.name, t.version) !== to ? [`Updated ${t.name} to ${to}`] : [];
   });
 }
+
+/// The tag after a machine's name: "container" for one that leaves the mesh
+/// when it stops, else none.
+export function machineTag(m: { temporary?: boolean }): string | null {
+  return m.temporary ? "container" : null;
+}

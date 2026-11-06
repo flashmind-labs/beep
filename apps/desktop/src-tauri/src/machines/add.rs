@@ -28,10 +28,18 @@ pub struct TokenView {
 }
 
 /// A ticket that brings a device of `kind` into the mesh, with what to copy: the line a node
-/// runs, or the ticket itself for another Mac to paste.
+/// runs, or the ticket itself for another Mac to paste. A `temporary` node, such as a
+/// container, leaves the mesh when it stops.
 #[tauri::command]
-pub async fn mesh_invite(fleet: State<'_, Arc<Fleet>>, kind: DeviceKind) -> Result<TokenView> {
-    let ticket = fleet.invite(kind).await?;
+pub async fn mesh_invite(
+    fleet: State<'_, Arc<Fleet>>,
+    kind: DeviceKind,
+    temporary: Option<bool>,
+) -> Result<TokenView> {
+    let ticket = match (kind, temporary.unwrap_or(false)) {
+        (DeviceKind::Node, true) => fleet.invite_temporary().await?,
+        _ => fleet.invite(kind).await?,
+    };
     let token = ticket.encode_string();
     let command = match kind {
         DeviceKind::Node => format!("beep-node mesh join {token}"),
@@ -153,6 +161,7 @@ mod tests {
             kind: DeviceKind::Node,
             secret: JoinSecret::generate(),
             expires_ms: 100_000,
+            temporary: false,
         };
         let before = member(DeviceKind::Node, 39_999);
         let desktop = member(DeviceKind::Desktop, 50_000);

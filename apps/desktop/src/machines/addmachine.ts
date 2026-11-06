@@ -1,7 +1,7 @@
 // The "Add a machine" sheet.
 import { invoke } from "../ui/tauri.ts";
-import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch } from "./addmachine-state.ts";
-import type { AddEvent, MacSeen } from "./addmachine-state.ts";
+import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch, inviteArgs, joinedNote } from "./addmachine-state.ts";
+import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
 import { button, el, present } from "../ui/dom.ts";
 import { copyButton, openSheet } from "../ui/parts.ts";
 import { openJoinTicket } from "./jointicket.ts";
@@ -21,8 +21,8 @@ const POLL_MS = 2000;
 const TICK_MS = 1000;
 
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START;
-/// What the ticket is for: a node, or another Mac.
-let kind: "node" | "desktop" = "node";
+/// What the ticket is for: a node, a container, or another Mac.
+let kind: TicketKind = "node";
 let ticker: Timer, poller: Timer, close: (() => void) | null = null, onClose: (() => void) | null = null;
 /// `onClose` of the sheet that opened, for the join sheet it hands over to.
 let onCloseAgain: (() => void) | null = null;
@@ -91,7 +91,7 @@ async function start() {
   clearInterval(poller);
   poller = undefined;
   try {
-    const made = await invoke<NodeToken>("mesh_invite", { kind: kind === "node" ? "Node" : "Desktop" });
+    const made = await invoke<NodeToken>("mesh_invite", inviteArgs(kind));
     if (!root) return;
     update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at });
     poller = setInterval(poll, POLL_MS);
@@ -152,7 +152,7 @@ function statusLine() {
   if (state.step !== "waiting") return el("div", "am-status");
   return el("div", "am-status am-wait",
     el("span", "dspin"),
-    `Waiting for ${kind === "node" ? "the machine" : "the other Mac"} · works once, `,
+    `Waiting for ${kind === "desktop" ? "the other Mac" : "the machine"} · works once, `,
     el("span", "left", `${timeLeft(state.expiresAt, Date.now())} left`),
     el("span", "end", button("Cancel", "dbtn quiet", closeAddMachine)));
 }
@@ -200,9 +200,9 @@ function draw() {
   if (first && !box.contains(document.activeElement)) first.focus();
 }
 
-/// Node or Desktop: what the ticket is for.
+/// Node, Container or Desktop: what the ticket is for.
 function kindPicker() {
-  const card = (k: "node" | "desktop", title: string, sub: string) => {
+  const card = (k: TicketKind, title: string, sub: string) => {
     const b = el("button", "dbtn am-kind", el("b", "", title), el("span", "", sub));
     b.type = "button";
     b.setAttribute("role", "radio");
@@ -210,7 +210,7 @@ function kindPicker() {
     b.addEventListener("click", () => { if (kind === k) return; kind = k; start(); });
     return b;
   };
-  const group = el("div", "am-kinds", card("node", "Node", "A server or any always-on box"), card("desktop", "Desktop", "Another Mac"));
+  const group = el("div", "am-kinds", ...KINDS.map(k => card(k.kind, k.title, k.sub)));
   group.setAttribute("role", "radiogroup");
   group.setAttribute("aria-label", "Kind of machine");
   return group;
@@ -244,7 +244,7 @@ function body() {
       const what = describeMachine(state.machine);
       return [
         el("div", "am-done", el("span", "ddot"), el("b", "", `${state.machine.name} joined`)),
-        el("div", "am-sub", `${what ? what + ". " : ""}It shows under Machines and can run agents now.`),
+        el("div", "am-sub", `${what ? what + ". " : ""}${joinedNote(kind)}`),
         button("Done", "dbtn pri", closeAddMachine),
       ];
     }

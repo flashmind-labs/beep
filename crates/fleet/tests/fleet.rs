@@ -2375,3 +2375,70 @@ async fn the_agent_accounts_list_this_mac_though_its_own_probe_says_nothing() {
     assert!(mine.claude && mine.codex && mine.online);
     assert_eq!(mine.codex_signed_in, Some(true));
 }
+
+#[tokio::test]
+async fn a_temporary_device_offline_for_ten_minutes_is_removed_and_a_normal_one_stays() {
+    use beep_fleet::temporary::{GONE_AFTER, Leftovers, sweep};
+    use std::time::Instant;
+    let desk = create("desk").await;
+    let other_desk = join(&desk, DeviceKind::Desktop, "other desk").await;
+    let ticket = desk
+        .mesh
+        .invite_temporary(Duration::from_secs(3600))
+        .await
+        .expect("ticket is minted");
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("temp dir");
+    let container = Mesh::join(dir.path(), bind(&key).await, &ticket, "container")
+        .await
+        .expect("device joins");
+    let gone = key.public();
+    let normal = join(&desk, DeviceKind::Node, "normal").await;
+    until(&other_desk.mesh, |m| m.is_temporary(gone)).await;
+    // Both are off now: the container never served, the normal node stops.
+    drop(container);
+    let normal_id = normal.id;
+    drop(normal);
+    until(&desk.mesh, |m| !online(m, gone) && !online(m, normal_id)).await;
+    let (mut here, mut there) = (Leftovers::default(), Leftovers::default());
+    let start = Instant::now();
+    assert!(
+        sweep(&desk.mesh, &mut here, start)
+            .await
+            .expect("swept")
+            .is_empty()
+    );
+    assert!(
+        sweep(&other_desk.mesh, &mut there, start)
+            .await
+            .expect("swept")
+            .is_empty()
+    );
+    let later = start + GONE_AFTER - Duration::from_secs(1);
+    assert!(
+        sweep(&desk.mesh, &mut here, later)
+            .await
+            .expect("swept")
+            .is_empty()
+    );
+    let due = start + GONE_AFTER;
+    let removed = sweep(&desk.mesh, &mut here, due).await.expect("swept");
+    assert_eq!(removed.iter().map(|d| d.id).collect::<Vec<_>>(), [gone]);
+    assert!(desk.mesh.is_removed(gone));
+    assert!(desk.mesh.is_member(normal_id));
+    // The other desktop gets there too and finds it done, or removes it first: never an error.
+    sweep(&other_desk.mesh, &mut there, due)
+        .await
+        .expect("swept");
+    until(&other_desk.mesh, |m| {
+        m.is_removed(gone) && !m.is_temporary(gone)
+    })
+    .await;
+    assert!(
+        sweep(&other_desk.mesh, &mut there, due + GONE_AFTER)
+            .await
+            .expect("swept")
+            .is_empty()
+    );
+    assert!(other_desk.mesh.is_member(normal_id));
+}

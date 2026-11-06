@@ -388,6 +388,19 @@ aside to `beep-node.exe.old`, removed by the next update.
 
 `send_files` works like scp and needs no shared folders: any path here, any folder there (made if missing), and always directly over the mesh when the target is in it. Other file access (`files/1`, project sync, session moves) keeps to `files` in `node.toml`.
 
+## Temporary machines
+
+Add a machine's Container option mints a ticket with `temporary` set
+(`Mesh::invite_temporary`). The desktop that spends it writes
+`temporary/<id>` in the replicated state, never in the signed `Device`. A
+temporary node that stops on a signal asks a desktop over `leave/1` to remove
+it (3 s at most, skipped while an update restarts it); a desktop takes that
+only from the device about itself (`Mesh::remove_on_request`). Every desktop
+also removes a temporary device offline for 10 minutes
+(`beep_fleet::temporary`, run from `notices/watch.rs`) with a bell row;
+removal is idempotent, so two desktops may both try. Other machines are never
+removed on their own.
+
 ## beep-sync and git
 
 The whole checkout syncs: tracked files, ignored files and `.git`

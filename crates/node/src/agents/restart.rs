@@ -75,6 +75,11 @@ impl Agents {
         Hold(&self.holding)
     }
 
+    /// Whether an update holds prompts now, which it does until it restarts the node.
+    pub(crate) fn held(&self) -> bool {
+        *self.holding.borrow()
+    }
+
     /// Whether prompts are held now, and when that changes.
     #[cfg(test)]
     pub(crate) fn holding_now(&self) -> watch::Receiver<bool> {

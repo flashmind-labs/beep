@@ -494,8 +494,70 @@ impl Mesh {
         let addr = self.inner.endpoint.addr();
         self.inner
             .store
-            .run(move |core| core.invite(addr, kind, ttl))
+            .run(move |core| core.invite(addr, kind, ttl, false))
             .await
+    }
+
+    /// Mints a single-use ticket for a temporary node, such as a container: it leaves the mesh
+    /// when it stops. A node cannot.
+    pub async fn invite_temporary(&self, ttl: Duration) -> Result<JoinTicket, MeshError> {
+        let addr = self.inner.endpoint.addr();
+        self.inner
+            .store
+            .run(move |core| core.invite(addr, DeviceKind::Node, ttl, true))
+            .await
+    }
+
+    /// Whether `id` joined with a temporary ticket and was not removed since.
+    pub fn is_temporary(&self, id: EndpointId) -> bool {
+        self.inner
+            .view()
+            .values
+            .contains_key(&Key::Temporary(id.to_string()))
+    }
+
+    /// The temporary devices.
+    pub fn temporaries(&self) -> BTreeSet<EndpointId> {
+        self.inner
+            .view()
+            .values
+            .keys()
+            .filter_map(|key| match key {
+                Key::Temporary(id) => id.parse().ok(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Removes the temporary device `id` for good. `Ok(false)` when it was removed already;
+    /// a device that is not temporary is refused. A node cannot.
+    pub async fn remove_temporary(&self, id: EndpointId) -> Result<bool, MeshError> {
+        self.removing_temporary(None, id).await
+    }
+
+    /// Removes the temporary device `id` because `asker` asked as it stops. Only a temporary
+    /// device asking about itself is taken. A node cannot.
+    pub async fn remove_on_request(
+        &self,
+        asker: EndpointId,
+        id: EndpointId,
+    ) -> Result<bool, MeshError> {
+        self.removing_temporary(Some(asker), id).await
+    }
+
+    async fn removing_temporary(
+        &self,
+        asker: Option<EndpointId>,
+        id: EndpointId,
+    ) -> Result<bool, MeshError> {
+        let removed = self
+            .inner
+            .store
+            .run(move |core| core.remove_temporary(asker, id))
+            .await?;
+        // No receiver is a normal state.
+        self.inner.changes.send(Key::Temporary(id.to_string())).ok();
+        Ok(removed)
     }
 
     /// Removes a device for good. A node cannot.
