@@ -38,7 +38,8 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
     let mut away = Away::default();
     let mut conflicts = Conflicts::default();
     let mut moves = HashSet::new();
-    for tick in 0u32.. {
+    let mut tick: u32 = 0;
+    loop {
         machines(&app, &fleet, &mut away);
         if tick % SLOW == 0 {
             match session.desk().await {
@@ -49,6 +50,7 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
                 Err(e) => log::debug!("the bell does not read the mesh: {e}"),
             }
         }
+        tick = tick.wrapping_add(1);
         sleep(TICK).await;
     }
 }
