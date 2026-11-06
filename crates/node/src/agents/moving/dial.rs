@@ -21,6 +21,8 @@ const CONNECT_WITHIN: Duration = Duration::from_secs(15);
 /// each answer with nothing new doubles the wait, up to `MAX_ASK_EVERY`.
 const ASK_EVERY: Duration = Duration::from_secs(2);
 const MAX_ASK_EVERY: Duration = Duration::from_secs(10);
+/// How long the target has to answer once reached.
+const ANSWER_WITHIN: Duration = Duration::from_secs(30);
 
 /// A connection to `peer` for `beep-sessions/1`.
 pub(super) async fn dial(env: &Env, peer: EndpointId) -> Result<Connection> {
@@ -46,7 +48,9 @@ async fn ask(env: &Env, record: &SessionMove) -> Result<Target> {
         at: record.at,
     })
     .await?;
-    let answer = rx.recv::<Reply>().await?;
+    let answer = timeout(ANSWER_WITHIN, rx.recv::<Reply>())
+        .await
+        .context("the target did not answer in time")??;
     connection.close(0u32.into(), b"done");
     match answer {
         Some(Reply::State {
@@ -62,21 +66,40 @@ async fn ask(env: &Env, record: &SessionMove) -> Result<Target> {
 }
 
 /// Keeps `said` at what the target of `record` says, for as long as it runs.
-/// A target out of reach, or one from before moves, says nothing new.
+/// A target out of reach, or one from before moves, says nothing new. Each
+/// change, reaching it or not, is logged once.
 pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::Sender<Target>) {
     let mut wait = ASK_EVERY;
+    // `Some(true)` once the last ask reached the target, `Some(false)` once
+    // it did not.
+    let mut reached = None;
     loop {
         let more = match ask(env, record).await {
-            Ok(now) => said.send_if_modified(|before| {
-                // What was told stays told, unless the target says more.
-                let more = now != Target::Unknown && *before != now;
-                if more {
-                    *before = now;
+            Ok(now) => {
+                if reached != Some(true) {
+                    log::info!(
+                        "session {}: asked the target how the move stands",
+                        record.id
+                    );
+                    reached = Some(true);
                 }
-                more
-            }),
+                said.send_if_modified(|before| {
+                    // What was told stays told, unless the target says more.
+                    let more = now != Target::Unknown && *before != now;
+                    if more {
+                        log::info!("session {}: the target says {now:?}", record.id);
+                        *before = now;
+                    }
+                    more
+                })
+            }
             Err(e) => {
-                log::debug!("session {} target not asked: {e:#}", record.id);
+                if reached != Some(false) {
+                    log::warn!("session {}: cannot ask the target: {e:#}", record.id);
+                    reached = Some(false);
+                } else {
+                    log::debug!("session {} target not asked: {e:#}", record.id);
+                }
                 false
             }
         };
