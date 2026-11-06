@@ -35,7 +35,7 @@ use std::{
     convert::Infallible,
     future::{Future, pending},
     io,
-    net::Ipv4Addr,
+    net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     time::SystemTime,
 };
@@ -88,9 +88,13 @@ pub async fn serve(
     service: axum::Router,
     stop: impl Future<Output = ()> + Send + 'static,
 ) -> Result<()> {
-    axum::serve(listener, service)
-        .with_graceful_shutdown(stop)
-        .await?;
+    // The peer's address, which the reports route reads.
+    axum::serve(
+        listener,
+        service.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(stop)
+    .await?;
     Ok(())
 }
 

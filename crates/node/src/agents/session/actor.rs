@@ -11,6 +11,7 @@ use crate::agents::{
     images::Picture,
     known,
     live::{Live, TurnTokens, cut},
+    mcp,
     place::of_folder,
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
@@ -201,7 +202,8 @@ pub(super) struct Actor {
     pub(super) stop_within: Duration,
     /// The tool calls of the running turn that have not finished.
     pub(super) running: HashSet<ToolCallId>,
-    /// Beep's word to the agent, until the first prompt carries it.
+    /// Beep's word to the agent from whoever started the session; once
+    /// `initialize` is answered, what the first prompt still carries.
     pub(super) brief: Option<String>,
     /// The MCP servers the agent's session gets.
     pub(super) mcp_servers: Vec<McpServer>,
@@ -658,18 +660,44 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         initialized: &InitializeResponse,
     ) -> Option<End> {
+        // What the Beep tools are holds for the whole session; the caller's
+        // brief is said once, where the session starts or resumes.
+        let tools = (!self.mcp_servers.is_empty()).then_some(mcp::BRIEF);
+        let takes_system = acp::takes_system_prompt(initialized);
         let Some(session) = self.resume.take() else {
-            match acp::new_session(&self.cwd, self.mcp_servers.clone()) {
+            let brief = joined(self.brief.take(), tools);
+            let system = if takes_system {
+                brief
+            } else {
+                self.brief = brief;
+                None
+            };
+            match acp::new_session(&self.cwd, self.mcp_servers.clone(), system.as_deref()) {
                 Ok(request) => self.send(cx, request, Reply::NewSession),
                 Err(e) => return Some(End::Failed(format!("the agent did not start: {e}"))),
             }
             return None;
         };
+        // A resumed session keeps the caller's brief in its first prompt: it
+        // says what changed at this point of the conversation, and Claude
+        // Code takes a changed system prompt only at its next compaction.
+        let system = if takes_system {
+            tools
+        } else {
+            self.brief = joined(self.brief.take(), tools);
+            None
+        };
         let session = SessionId::from(session);
         let Some(method) = acp::resume_method(initialized) else {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
-        match acp::resume_session(method, session.clone(), &self.cwd, self.mcp_servers.clone()) {
+        match acp::resume_session(
+            method,
+            session.clone(),
+            &self.cwd,
+            self.mcp_servers.clone(),
+            system,
+        ) {
             Ok(request) => self.send(cx, request, |result| Reply::Resumed(session, result)),
             Err(e) => {
                 return Some(End::Failed(format!(
@@ -827,4 +855,12 @@ fn cycle(mut modes: Vec<ModeOption>, bypass: Option<&str>) -> Vec<ModeOption> {
 /// What people call the agent `name`, such as Claude Code for `claude`.
 pub(super) fn agent_title(name: &str) -> &str {
     known(name).map_or(name, |known| known.title)
+}
+
+/// The caller's `brief`, then what the Beep `tools` are.
+fn joined(brief: Option<String>, tools: Option<&str>) -> Option<String> {
+    match (brief, tools) {
+        (Some(brief), Some(tools)) => Some(format!("{brief}\n\n{tools}")),
+        (brief, tools) => brief.or(tools.map(str::to_owned)),
+    }
 }

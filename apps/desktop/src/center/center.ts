@@ -35,6 +35,7 @@ import { loadAgents, takePending } from "./pane.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
+import { openReport } from "../report/report.ts";
 import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
 import type { MacControl } from "../machines/machine-state.ts";
@@ -149,6 +150,10 @@ pane.connect({
   openProviders() {
     closeSettings();
     go("providers");
+  },
+  openReport() {
+    closeSettings();
+    openReport(document.body);
   },
   settingsAway(view) {
     closeSettings();

@@ -464,6 +464,8 @@ pub struct Offers {
     pub agents: Arc<Agents>,
     /// Protocols the host adds, such as the Mac app's `desktop/1`.
     pub extra: Vec<Arc<dyn Protocol>>,
+    /// The log `report/1` shares.
+    pub log: Logs,
     /// Takes the user's credentials and installs the tools they are for.
     /// Without it the node does not ask for credentials.
     pub provision: Option<Arc<Provision>>,
@@ -507,6 +509,7 @@ impl Offers {
         Self {
             agents: Arc::new(Agents::new(crate::agents::detect(agents))),
             extra: Vec::new(),
+            log: Logs::service(),
             provision: Some(provision),
             tools: Upstream::new(has_server),
             traffic: Traffic::default(),

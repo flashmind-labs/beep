@@ -29,6 +29,7 @@ mod machines;
 pub mod names;
 pub mod node;
 mod projects;
+pub mod report;
 mod requests;
 pub mod secret;
 pub mod setup;

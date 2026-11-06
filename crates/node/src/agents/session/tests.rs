@@ -179,6 +179,118 @@ async fn the_first_prompt_carries_the_brief() {
     );
 }
 
+/// An adapter that takes a system prompt, as Claude Code's and Codex's do:
+/// it makes or loads a session and ends its first turn at once.
+const SYSTEM_PROMPT_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"systemPrompt":{}}}}'
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+fn beep_server() -> McpServer {
+    McpServer::Stdio(agent_client_protocol::schema::v1::McpServerStdio::new(
+        "beep",
+        "/bin/true",
+    ))
+}
+
+/// The text of each block of the prompt `sent`.
+fn prompt_texts(sent: &Value) -> Vec<&str> {
+    sent["params"]["prompt"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|block| block["text"].as_str().unwrap())
+        .collect()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_that_takes_a_system_prompt_gets_the_brief_in_session_new() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
+    let session = Session::start(Start {
+        brief: Some("Worktree first.".into()),
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+    let sent = sent(&log);
+    assert_eq!(sent[1]["method"], "session/new");
+    let brief = format!("Worktree first.\n\n{}", crate::agents::mcp::BRIEF);
+    assert_eq!(
+        sent[1]["params"]["systemPrompt"],
+        serde_json::json!({"mode": "append", "content": [{"type": "text", "text": brief}]})
+    );
+    assert_eq!(sent[2]["method"], "session/prompt");
+    assert_eq!(prompt_texts(&sent[2]), ["go"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
+    let session = Session::start(Start {
+        resume: Some("s".into()),
+        brief: Some("This session moved.".into()),
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+    let sent = sent(&log);
+    assert_eq!(sent[1]["method"], "session/load");
+    assert_eq!(
+        sent[1]["params"]["systemPrompt"],
+        serde_json::json!({
+            "mode": "append",
+            "content": [{"type": "text", "text": crate::agents::mcp::BRIEF}],
+        })
+    );
+    assert_eq!(
+        prompt_texts(&sent[2]),
+        [
+            crate::agents::tags::context("This session moved.").as_str(),
+            "go"
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_agent_without_a_system_prompt_gets_the_whole_brief_in_its_first_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("pi", PLAIN_ADAPTER, &log);
+    let session = Session::start(Start {
+        brief: Some("Worktree first.".into()),
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    let sent = sent(&log);
+    assert!(sent[1]["params"].get("systemPrompt").is_none());
+    let brief = format!("Worktree first.\n\n{}", crate::agents::mcp::BRIEF);
+    assert_eq!(
+        prompt_texts(&sent[2]),
+        [crate::agents::tags::context(&brief).as_str(), "go"]
+    );
+}
+
 /// An adapter that starts a session and ends its first turn at once.
 const PLAIN_ADAPTER: &str = r#"
 handshake "$1"

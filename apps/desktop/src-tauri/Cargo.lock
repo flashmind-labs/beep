@@ -445,6 +445,7 @@ dependencies = [
  "beep-node",
  "beep-projects",
  "beep-proto",
+ "beep-report",
  "block2",
  "futures",
  "iroh",
@@ -555,6 +556,7 @@ dependencies = [
  "beep-mesh",
  "beep-projects",
  "beep-proto",
+ "beep-report",
  "blake3",
  "dirs 7.0.0",
  "dunce",
@@ -637,6 +639,27 @@ dependencies = [
  "tokio",
  "tokio-util",
  "uuid",
+]
+
+[[package]]
+name = "beep-report"
+version = "0.1.0"
+dependencies = [
+ "beep-mesh",
+ "beep-proto",
+ "chrono",
+ "hex",
+ "iroh",
+ "regex",
+ "reqwest 0.12.28",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "strum",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "zip",
 ]
 
 [[package]]
@@ -8764,6 +8787,7 @@ checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
 dependencies = [
  "arbitrary",
  "crc32fast",
+ "flate2",
  "indexmap 2.14.2",
  "memchr",
 ]

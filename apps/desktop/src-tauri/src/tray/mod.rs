@@ -4,4 +4,4 @@
 mod menu;
 pub(crate) mod waiting;
 
-pub(crate) use menu::{Recent, became_linked, install, refresh, refresh_recent};
+pub(crate) use menu::{REPORT, Recent, became_linked, install, refresh, refresh_recent};

@@ -12,6 +12,7 @@ mod notices;
 mod palette;
 mod platform;
 mod projects;
+mod report;
 mod research;
 mod settings;
 mod tray;
@@ -385,6 +386,10 @@ fn main() {
             projects::threads::center_comment_thread,
             projects::threads::center_thread_view,
             projects::threads::center_track_issue,
+            report::commands::report_collect,
+            report::commands::report_issue,
+            report::commands::report_issue_text,
+            report::commands::report_send,
             research::commands::export_research,
             research::commands::list_researches,
             research::commands::open_research,
@@ -612,6 +617,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         }
     }
 
+    center::app_menu::install(app)?;
     tray::install(app, &beep)?;
 
     // The app works with no subscription, so the first launch lands on Home like any other.

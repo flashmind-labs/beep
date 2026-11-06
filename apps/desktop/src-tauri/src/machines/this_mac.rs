@@ -105,6 +105,7 @@ impl Machine {
         if let Some(log) = logfile::current() {
             offers.extra.push(Arc::new(Logs::file(log)));
         }
+        offers.log = Logs::files(logfile::kept());
         Self {
             task: Mutex::default(),
             link: Arc::default(),

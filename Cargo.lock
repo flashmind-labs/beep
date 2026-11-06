@@ -607,7 +607,9 @@ dependencies = [
  "beep-mesh",
  "beep-projects",
  "beep-proto",
+ "beep-report",
  "blake3",
+ "chrono",
  "clap",
  "dirs",
  "dunce",
@@ -707,6 +709,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "beep-report"
+version = "0.1.0"
+dependencies = [
+ "beep-mesh",
+ "beep-proto",
+ "chrono",
+ "hex",
+ "iroh",
+ "regex",
+ "reqwest 0.12.28",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "zip",
+]
+
+[[package]]
 name = "beep-server"
 version = "0.1.0"
 dependencies = [
@@ -719,6 +742,7 @@ dependencies = [
  "beep-node",
  "beep-projects",
  "beep-proto",
+ "beep-report",
  "blake3",
  "bytes",
  "chacha20poly1305",
@@ -726,6 +750,7 @@ dependencies = [
  "chrono-tz",
  "flashmind",
  "futures",
+ "hex",
  "html2text",
  "image",
  "imagesize",
@@ -740,6 +765,7 @@ dependencies = [
  "rmp-serde",
  "rust_decimal",
  "rustls",
+ "rusty-s3",
  "secrecy",
  "serde",
  "serde_bytes",
@@ -6530,6 +6556,25 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rusty-s3"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fac2edd2f0b56bd79a7343f49afc01c2d41010df480538a510e0abc56044f66c"
+dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "jiff",
+ "md-5",
+ "percent-encoding",
+ "quick-xml 0.38.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "url",
+ "zeroize",
+]
 
 [[package]]
 name = "rustybuzz"

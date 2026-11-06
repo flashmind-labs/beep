@@ -2,7 +2,7 @@
 
 /// The web host share and invite links point at. The Cloudflare Worker in
 /// `deploy/links` serves it, and the Android manifest claims it for App Links.
-const LINK_HOST: &str = "beep.flashmind.com";
+pub(crate) const LINK_HOST: &str = "beep.flashmind.com";
 
 /// The link to the shared session `token`.
 pub fn share_url(token: &str) -> String {
