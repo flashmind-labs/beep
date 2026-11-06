@@ -40,6 +40,19 @@ pub enum Answer {
     },
 }
 
+impl Answer {
+    /// How the answer reads to the person sending the report.
+    pub fn label(&self) -> String {
+        match self {
+            Answer::Answered => "answered".to_owned(),
+            Answer::OlderNode => "older node".to_owned(),
+            Answer::Offline { .. } => "offline".to_owned(),
+            Answer::Silent => "did not answer".to_owned(),
+            Answer::Failed { reason } => format!("failed: {reason}"),
+        }
+    }
+}
+
 /// One machine's part of a report.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Share {

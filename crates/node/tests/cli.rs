@@ -114,14 +114,27 @@ fn take_one(listener: TcpListener) -> JoinHandle<Vec<u8>> {
     })
 }
 
-/// `beep-node report` on `dir`, sending to `url`, with `stdin` typed in.
-fn report(dir: &TempDir, url: &str, args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+/// `beep-node report` on `dir`, sending to `url`, with a home of its own.
+fn report_command(dir: &TempDir, url: &str, args: &[&str]) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_beep-node"));
+    command
         .arg("--dir")
         .arg(dir.path())
         .arg("report")
         .args(args)
         .env("BEEP_REPORT_URL", url)
+        .env("HOME", dir.path())
+        .env("XDG_CONFIG_HOME", dir.path().join("config"));
+    command
+}
+
+/// `report_command` with `stdin` typed in.
+fn report(dir: &TempDir, url: &str, args: &[&str], stdin: &str) -> Output {
+    typed(report_command(dir, url, args), stdin)
+}
+
+fn typed(mut command: Command, stdin: &str) -> Output {
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -191,4 +204,44 @@ fn report_without_yes_sends_nothing_on_no() {
             .is_err_and(|e| e.kind() == ErrorKind::WouldBlock),
         "something was posted"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_github_issue_that_fails_after_sending_still_exits_zero() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = set_up_dir();
+    // A gh that is signed in but cannot open the issue.
+    let bin = dir.path().join("bin");
+    std::fs::create_dir(&bin).expect("a bin folder");
+    let gh = bin.join("gh");
+    std::fs::write(
+        &gh,
+        "#!/bin/sh\n[ \"$1\" = auth ] && exit 0\necho 'stand-in gh refuses' >&2\nexit 1\n",
+    )
+    .expect("the stand-in gh is written");
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755))
+        .expect("the stand-in gh runs");
+    let path = std::env::join_paths(std::iter::once(bin).chain(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )))
+    .expect("a PATH");
+    let (listener, url) = stand_in();
+    let posted = take_one(listener);
+    let mut command = report_command(&dir, &url, &["--message", "it froze"]);
+    command.env("PATH", path);
+    let out = typed(command, "y\ny\n");
+    let stdout = ran(&out);
+    posted.join().expect("the report was posted");
+    assert!(stdout.contains("Sent. Reference: R-TEST"), "{stdout}");
+    assert!(
+        stdout.contains("Report it on GitHub too? [y/N]"),
+        "{stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("the report was sent, but the GitHub issue did not open"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("stand-in gh refuses"), "{stderr}");
 }

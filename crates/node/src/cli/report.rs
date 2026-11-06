@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use beep_mesh::DeviceKind;
 use beep_node::{
     link::{peers, state::State},
-    machine::{env::os_version, service::logs::Logs, setup::host_name},
+    machine::{env::os_version, service::logs::Logs},
 };
 use beep_proto::node::report::MAX_BYTES;
 use beep_report::{
@@ -34,6 +34,7 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
         None => ask(&mut input, "What happened?").await?,
     };
     let since = period.since(Local::now());
+    let id = state.key.public();
     let (shares, mesh) = match peers::collect_report(dir, since).await {
         Ok(Some(shares)) => {
             // The mesh's id only labels the report; one the node does not give is left out.
@@ -44,17 +45,14 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
                 .and_then(|status| status.mesh);
             (shares, mesh)
         }
-        Ok(None) => (
-            vec![own_share(state.key.public(), since, NO_NODE).await],
-            None,
-        ),
+        Ok(None) => (vec![own_share(id, &state.name, since, NO_NODE).await], None),
         Err(e) => {
             let why = format!("{e:#}");
-            (vec![own_share(state.key.public(), since, &why).await], None)
+            (vec![own_share(id, &state.name, since, &why).await], None)
         }
     };
     let sender = Sender {
-        id: state.key.public(),
+        id,
         mesh,
         app: "node",
         app_version: VERSION.to_owned(),
@@ -82,17 +80,23 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
     if !gh_signed_in(&gh).await || !confirm(&mut input, "Report it on GitHub too? [y/N]").await? {
         return Ok(());
     }
-    let issue = issue(&draft.manifest, &receipt.reference)?;
-    let url = open_issue(&gh, &issue)
-        .await
-        .context("the report was sent, but the GitHub issue did not open")?;
-    println!("{url}");
+    // The report reached Beep: a failed issue is said, not a failed command.
+    match open(&gh, &draft, &receipt.reference).await {
+        Ok(url) => println!("{url}"),
+        Err(e) => eprintln!("the report was sent, but the GitHub issue did not open: {e:#}"),
+    }
     Ok(())
+}
+
+/// Opens the public issue for the sent report and returns its URL.
+async fn open(gh: &Path, draft: &Draft, reference: &str) -> Result<String> {
+    let issue = issue(&draft.manifest, reference)?;
+    Ok(open_issue(gh, &issue).await?)
 }
 
 /// This machine's share read here, for when the running node gives none;
 /// `status` says why.
-async fn own_share(id: EndpointId, since: i64, status: &str) -> Share {
+async fn own_share(id: EndpointId, name: &str, since: i64, status: &str) -> Share {
     // A log that cannot be read still leaves the rest worth sending.
     let max = usize::try_from(MAX_BYTES).unwrap_or(usize::MAX);
     let log = spawn_blocking(move || Logs::service().window(since, max))
@@ -102,7 +106,7 @@ async fn own_share(id: EndpointId, since: i64, status: &str) -> Share {
         .unwrap_or_else(|e| format!("the log could not be read: {e:#}"));
     Share {
         id,
-        name: host_name().await,
+        name: name.to_owned(),
         kind: DeviceKind::Node,
         answer: Answer::Answered,
         log,
@@ -121,14 +125,7 @@ fn listing(draft: &Draft) -> String {
     }
     out.push_str("Machines:\n");
     for machine in &draft.manifest.machines {
-        let answer = match &machine.answer {
-            Answer::Answered => "answered".to_owned(),
-            Answer::OlderNode => "older node, log only".to_owned(),
-            Answer::Silent => "did not answer".to_owned(),
-            Answer::Offline { reason } => reason.clone(),
-            Answer::Failed { reason } => format!("failed: {reason}"),
-        };
-        out.push_str(&format!("  {}  {answer}\n", machine.name));
+        out.push_str(&format!("  {}  {}\n", machine.name, machine.answer.label()));
     }
     out
 }
@@ -168,7 +165,13 @@ mod tests {
     async fn a_silent_node_gives_this_machines_share_with_why() {
         let silent = anyhow::Error::from(ReportError::Silent(30));
         let now = Local::now().timestamp();
-        let share = own_share(SecretKey::generate().public(), now, &format!("{silent:#}")).await;
+        let share = own_share(
+            SecretKey::generate().public(),
+            "build-box",
+            now,
+            &format!("{silent:#}"),
+        )
+        .await;
         assert_eq!(
             share.status,
             "the running node did not answer in 30 seconds"
