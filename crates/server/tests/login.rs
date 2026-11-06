@@ -1,22 +1,23 @@
-//! Hosted login over real connections: a guest key asks for a code, the website signs a token, and
-//! the key signs in with it.
+//! Hosted login over real HTTP: a guest key asks for a code, the website signs a token, and the
+//! key signs in with it.
 
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use beep_server::{
-    account::login::{LoginCheck, LoginConfig},
+    account::login::LoginConfig,
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools},
-    client::{Client, Node},
-    protocol::{ApiError, CompleteLogin, Health, ListDevices, SecretText, StartLogin, wire},
-    push::Pusher,
+    protocol::{
+        ApiError, CompleteLogin, Health, ListDevices, SecretText, StartLogin, client::Client,
+    },
+    push::Pulse,
     store::TestDb,
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
 };
-use iroh::{SecretKey, endpoint::presets, protocol::Router};
+use iroh::SecretKey;
 use serde_json::{Value, json};
 use std::{
     sync::Arc,
@@ -42,7 +43,7 @@ impl LlmProvider for NoModel {
 
 struct Harness {
     _db: TestDb,
-    router: Router,
+    apps: http::Local,
     website: SecretKey,
 }
 
@@ -54,18 +55,16 @@ impl Harness {
             hex(website.public().as_bytes())
         ))
         .expect("a valid login table");
-        let (db, router) = serve(Some(config)).await;
+        let (db, apps) = serve(Some(config)).await;
         Self {
             _db: db,
-            router,
+            apps,
             website,
         }
     }
 
-    async fn node(&self, identity: SecretKey) -> Node {
-        Node::bind(identity, self.router.endpoint().addr(), Arc::new(|_| true))
-            .await
-            .expect("the node binds")
+    fn client(&self, identity: SecretKey) -> Client {
+        Client::new(self.apps.url(), identity).expect("a client")
     }
 
     /// A token as the website signs it.
@@ -84,10 +83,9 @@ impl Harness {
     }
 }
 
-async fn serve(login: Option<LoginConfig>) -> (TestDb, Router) {
+async fn serve(login: Option<LoginConfig>) -> (TestDb, http::Local) {
     let db = TestDb::new().await.expect("test database");
     let store = db.store().await.expect("test store");
-    let hosted = login.is_some();
     let app = App::new(
         store,
         Arc::new(NoModel),
@@ -98,20 +96,10 @@ async fn serve(login: Option<LoginConfig>) -> (TestDb, Router) {
         },
         ModelChoices::only("openai:test".parse().expect("a valid model")),
     );
-    let endpoint = iroh::Endpoint::builder(presets::Minimal)
-        .secret_key(SecretKey::generate())
-        .bind()
+    let apps = http::Local::start(app, &SecretKey::generate(), Pulse::manual())
         .await
-        .expect("the server binds");
-    let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), None);
-    let mut router = Router::builder(endpoint).accept(
-        transport::ALPN,
-        transport::BeepHandler::new(app.clone(), pusher),
-    );
-    if hosted {
-        router = router.accept(wire::LOGIN_ALPN, LoginCheck);
-    }
-    (db, router.spawn())
+        .expect("the apps' HTTP starts");
+    (db, apps)
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -180,138 +168,128 @@ fn assert_guest(result: anyhow::Result<impl Sized>) {
     );
 }
 
-/// Waits for the server to close `client`, as it does once a guest signed in.
-async fn closed(client: Client) {
-    client.closed().await;
-}
-
 #[tokio::test]
-async fn a_guest_signs_in_with_the_token_and_reconnects_signed_in() {
+async fn a_guest_signs_in_with_the_token_and_is_signed_in_at_once() {
     let h = Harness::new().await;
-    let mac = h.node(SecretKey::generate()).await;
+    let mac = h.client(SecretKey::generate());
     assert!(mac.has_login().await);
 
-    let guest = mac.connect().await.expect("a guest connects");
+    let guest = &mac;
     assert_guest(guest.call(&ListDevices {}).await);
-    let code = start(&guest).await;
-    complete(&guest, h.token(&code, "google:1"))
+    let code = start(guest).await;
+    complete(guest, h.token(&code, "google:1"))
         .await
         .expect("the token signs in");
-    closed(guest).await;
 
-    let signed_in = mac.connect().await.expect("the key reconnects");
+    let signed_in = &mac;
     signed_in.call(&Health {}).await.expect("it is signed in");
     let devices = signed_in.call(&ListDevices {}).await.expect("devices");
     assert_eq!(devices.len(), 1);
     assert!(devices[0].this_device && devices[0].primary);
 
     // A second device with the same login joins that account.
-    let laptop = h.node(SecretKey::generate()).await;
-    let guest = laptop.connect().await.expect("a guest connects");
-    let code = start(&guest).await;
-    complete(&guest, h.token(&code, "google:1"))
+    let laptop = h.client(SecretKey::generate());
+    let guest = &laptop;
+    let code = start(guest).await;
+    complete(guest, h.token(&code, "google:1"))
         .await
         .expect("the token signs in");
-    closed(guest).await;
-    let second = laptop.connect().await.expect("the key reconnects");
+    let second = &laptop;
     let devices = second.call(&ListDevices {}).await.expect("devices");
     assert_eq!(devices.len(), 2, "both keys are on one account");
     assert!(devices.iter().any(|d| d.this_device && !d.primary));
 }
 
 #[tokio::test]
-async fn a_code_works_after_the_guest_connection_dropped() {
+async fn a_code_works_from_another_client_with_the_key() {
     let h = Harness::new().await;
-    let mac = h.node(SecretKey::generate()).await;
-    let first = mac.connect().await.expect("a guest connects");
+    let key = SecretKey::generate();
+    let first = h.client(key.clone());
     let code = start(&first).await;
     drop(first);
-    let again = mac.connect().await.expect("the key reconnects");
+    let again = h.client(key);
     complete(&again, h.token(&code, "google:1"))
         .await
-        .expect("the code belongs to the key, not the connection");
+        .expect("the code belongs to the key, not the client");
 }
 
 #[tokio::test]
 async fn a_bad_token_is_refused_and_leaves_the_key_a_guest() {
     let h = Harness::new().await;
-    let mac = h.node(SecretKey::generate()).await;
-    let stranger = h.node(SecretKey::generate()).await;
-    let guest = mac.connect().await.expect("a guest connects");
-    let other = stranger.connect().await.expect("a guest connects");
-    let code = start(&guest).await;
+    let mac = h.client(SecretKey::generate());
+    let stranger = h.client(SecretKey::generate());
+    let guest = &mac;
+    let other = &stranger;
+    let code = start(guest).await;
 
     // Another key's code: a login link sent to someone else.
-    assert_refused(complete(&other, h.token(&code, "google:1")).await);
+    assert_refused(complete(other, h.token(&code, "google:1")).await);
     // Signed by another key.
     let forged = sign(
         &SecretKey::generate(),
         &json!({"v": 1, "code": code, "sub": "google:1", "exp": unix_now() + 300}),
     );
-    assert_refused(complete(&guest, forged).await);
+    assert_refused(complete(guest, forged).await);
     // The signature is over the payload's exact characters.
     let token = h.token(&code, "google:1");
     let (payload, signature) = token.expose().split_once('.').expect("two parts");
     let changed = format!("{payload}{}.{signature}", "A");
-    assert_refused(complete(&guest, SecretText::new(changed)).await);
+    assert_refused(complete(guest, SecretText::new(changed)).await);
     // Past its `exp`.
     let late = sign(
         &h.website,
         &json!({"v": 1, "code": code, "sub": "google:1", "exp": unix_now() - 1}),
     );
-    assert_refused(complete(&guest, late).await);
+    assert_refused(complete(guest, late).await);
     // Another version.
     let newer = sign(
         &h.website,
         &json!({"v": 2, "code": code, "sub": "google:1", "exp": unix_now() + 300}),
     );
-    assert_refused(complete(&guest, newer).await);
+    assert_refused(complete(guest, newer).await);
     // A code the server never made.
-    assert_refused(complete(&guest, h.token("nope", "google:1")).await);
+    assert_refused(complete(guest, h.token("nope", "google:1")).await);
     assert_guest(guest.call(&ListDevices {}).await);
 
     // None of that used the code up.
-    complete(&guest, h.token(&code, "google:1"))
+    complete(guest, h.token(&code, "google:1"))
         .await
         .expect("the right token still works");
     // And it works only once.
-    closed(guest).await;
-    let signed_in = mac.connect().await.expect("the key reconnects");
-    assert_refused(complete(&signed_in, h.token(&code, "google:1")).await);
+    let signed_in = &mac;
+    assert_refused(complete(signed_in, h.token(&code, "google:1")).await);
 }
 
 #[tokio::test]
 async fn a_signed_in_key_attaches_a_login_unless_another_account_holds_it() {
     let h = Harness::new().await;
-    let mac = h.node(SecretKey::generate()).await;
-    let guest = mac.connect().await.expect("a guest connects");
-    let code = start(&guest).await;
-    complete(&guest, h.token(&code, "google:1"))
+    let mac = h.client(SecretKey::generate());
+    let guest = &mac;
+    let code = start(guest).await;
+    complete(guest, h.token(&code, "google:1"))
         .await
         .expect("the token signs in");
-    closed(guest).await;
-    let first = mac.connect().await.expect("the key reconnects");
+    let first = &mac;
 
     // A second login on the same account, then the first one again.
-    let code = start(&first).await;
-    complete(&first, h.token(&code, "apple:1"))
+    let code = start(first).await;
+    complete(first, h.token(&code, "apple:1"))
         .await
         .expect("a new login attaches");
-    let code = start(&first).await;
-    complete(&first, h.token(&code, "google:1"))
+    let code = start(first).await;
+    complete(first, h.token(&code, "google:1"))
         .await
         .expect("its own login is fine");
 
-    let other = h.node(SecretKey::generate()).await;
-    let guest = other.connect().await.expect("a guest connects");
-    let code = start(&guest).await;
-    complete(&guest, h.token(&code, "email:b@example.com"))
+    let other = h.client(SecretKey::generate());
+    let guest = &other;
+    let code = start(guest).await;
+    complete(guest, h.token(&code, "email:b@example.com"))
         .await
         .expect("the token signs in");
-    closed(guest).await;
-    let second = other.connect().await.expect("the key reconnects");
-    let code = start(&second).await;
-    let err = complete(&second, h.token(&code, "google:1"))
+    let second = &other;
+    let code = start(second).await;
+    let err = complete(second, h.token(&code, "google:1"))
         .await
         .expect_err("another account holds the login");
     assert!(
@@ -328,16 +306,9 @@ async fn a_signed_in_key_attaches_a_login_unless_another_account_holds_it() {
 
 #[tokio::test]
 async fn without_a_login_section_nothing_changes() {
-    let (_db, router) = serve(None).await;
-    let node = Node::bind(
-        SecretKey::generate(),
-        router.endpoint().addr(),
-        Arc::new(|_| true),
-    )
-    .await
-    .expect("the node binds");
-    assert!(!node.has_login().await, "the check makes no account");
-    let client = node.connect().await.expect("it connects");
+    let (_db, apps) = serve(None).await;
+    let client = Client::new(apps.url(), SecretKey::generate()).expect("a client");
+    assert!(!client.has_login().await, "the check makes no account");
     let devices = client.call(&ListDevices {}).await.expect("devices");
     assert_eq!(devices.len(), 1, "an unknown key makes its own account");
     let err = client

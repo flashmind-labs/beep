@@ -131,7 +131,7 @@ async fn read_watch(
 ) -> Result<()> {
     let (mut tx, mut rx) = online.open_stream(SESSIONS_PROTOCOL).await?;
     tx.send(&SessionsRequest::Watch { sessions }).await?;
-    match timeout(crate::api::transport::READ_TIMEOUT, rx.recv()).await?? {
+    match timeout(crate::nodes::READ_TIMEOUT, rx.recv()).await?? {
         Some(SessionsReply::Watching { unknown }) if !unknown.is_empty() => {
             log::info!(
                 "follow: {} sessions not found on {}",

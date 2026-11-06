@@ -196,13 +196,6 @@ impl Firebase {
         self.send(token, &android, &json!({ "notice": sealed }))
             .await
     }
-
-    /// Wakes the phone to connect and take its queued notices.
-    pub async fn wake(&self, token: &str) -> Result<Delivery> {
-        // Repeated wakes collapse into one.
-        let android = json!({ "priority": "HIGH", "ttl": "600s", "collapse_key": "wake" });
-        self.send(token, &android, &json!({ "wake": "1" })).await
-    }
 }
 
 #[cfg(test)]

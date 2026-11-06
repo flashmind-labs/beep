@@ -211,7 +211,7 @@ ffi_enum! {
         2 Tool {}
         3 Question {}
         4 Other {}
-        5 Thought { ms: Option<u64> } since THOUGHTS
+        5 Thought { ms: Option<u64> }
     }
 }
 
@@ -241,12 +241,12 @@ ffi_enum! {
         0 Prompt { text: String }
         1 Cancel {}
         2 Close {}
-        3 PromptImages { text: String, images: Vec<Upload> } since AGENT_IMAGES
-        4 Configure { model: Option<ModelId>, effort: Option<AgentEffort> } since AGENT_CONFIGURE
-        5 Steer { text: String, images: Vec<Upload> } since AGENT_STEER
-        6 DropSteers {} since AGENT_STEER
-        7 SetMode { mode: String } since AGENT_MODES
-        8 StopTask { task: String } since AGENT_TASKS
+        3 PromptImages { text: String, images: Vec<Upload> }
+        4 Configure { model: Option<ModelId>, effort: Option<AgentEffort> }
+        5 Steer { text: String, images: Vec<Upload> }
+        6 DropSteers {}
+        7 SetMode { mode: String }
+        8 StopTask { task: String }
     }
 }
 

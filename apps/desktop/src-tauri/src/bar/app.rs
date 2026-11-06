@@ -42,8 +42,8 @@ pub fn status(beep: Service<'_>) -> Status {
 }
 
 #[tauri::command]
-pub fn link_offer(beep: Service<'_>) -> Result<LinkView> {
-    beep.link_offer(&identity::computer_name())
+pub async fn link_offer(beep: Service<'_>) -> Result<LinkView> {
+    beep.link_offer(&identity::computer_name()).await
 }
 
 #[tauri::command]

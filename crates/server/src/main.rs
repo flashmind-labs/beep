@@ -1,23 +1,19 @@
 use anyhow::{Context, Result};
-use beep_proto::{
-    logging::{self, RollingFile},
-    wire::LOGIN_ALPN,
-};
+use beep_proto::logging::{self, RollingFile};
 use beep_server::{
     account::credentials::CredentialKey,
     account::instance,
-    account::login,
     agent::cache_session::SharedCacheSessions,
     agent::decision::DecisionTool,
     agent::metering::Metered,
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools, admin},
     apps::ComposioSettings,
     config::{self, Config},
     memory::memories,
     nodes,
-    push::Pusher,
+    push::Pulse,
     push::apns::Apns,
     push::fcm::Firebase,
     push::remote::{Fallback, RemotePush},
@@ -133,8 +129,8 @@ async fn main() -> Result<()> {
         },
         models,
     );
-    // Subscribed before users start, so notices from their first crons wait
-    // for the pusher instead of being dropped.
+    // Subscribed before users start, so notices from their first crons are
+    // logged instead of dropped.
     let notices = app.notifications.subscribe();
     app.start_users().await?;
     admin::serve(app.clone(), admin::default_path(Path::new(&config_path)))?;
@@ -198,18 +194,27 @@ async fn main() -> Result<()> {
     };
     let fallback = (firebase.is_some() || apns.is_some())
         .then(|| Arc::new(RemotePush::new(app.store.clone(), firebase, apns)) as Arc<dyn Fallback>);
-    let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), fallback);
-    pusher.start(notices);
-    let handler = transport::BeepHandler::new(app.clone(), pusher);
+    let _notices = beep_server::push::notices::start(
+        app.store.clone(),
+        notices,
+        fallback,
+        beep_server::push::notices::ACK_WAIT,
+    );
     let node_handler = nodes::NodeHandler::new(app.clone(), endpoint.id());
-    let mut router = Router::builder(endpoint).accept(transport::ALPN, handler);
-    router = nodes::accept_nodes(router, node_handler);
-    if app.login().is_some() {
-        router = router.accept(LOGIN_ALPN, login::LoginCheck);
-    }
-    let router = router.spawn();
+    let router = nodes::accept_nodes(Router::builder(endpoint), node_handler).spawn();
+    log::info!("listening for nodes; addr={:?}", router.endpoint().addr());
 
-    log::info!("listening; addr={:?}", router.endpoint().addr());
+    let service = http::service(app.clone(), &secret_key, Pulse::every(HEARTBEAT)).await?;
+    let listen = config.http_listen();
+    let listener = tokio::net::TcpListener::bind(listen)
+        .await
+        .with_context(|| format!("binding the apps' HTTP on {listen}"))?;
+    log::info!("serving the apps; http={listen}");
+    let (stopped, stop) = tokio::sync::oneshot::channel::<()>();
+    let serving = tokio::spawn(http::serve(listener, service, async {
+        // A dropped sender stops it too.
+        let _ = stop.await;
+    }));
 
     stop_signal().await?;
     // Nodes and apps stay connected while turns finish, so their tool calls
@@ -218,9 +223,17 @@ async fn main() -> Result<()> {
     // Turns still going end as interrupted and are saved before the
     // connections close, so the apps hear how they ended.
     app.shutdown().await;
+    drop(stopped);
+    match serving.await {
+        Ok(served) => served?,
+        Err(e) => log::warn!("the apps' HTTP ended badly: {e}"),
+    }
     router.shutdown().await?;
     Ok(())
 }
+
+/// How often open events streams send a heartbeat.
+const HEARTBEAT: Duration = beep_proto::http::HEARTBEAT;
 
 /// How long a stopping server lets running turns finish. With the cancel
 /// wait in `App::shutdown`, it stays under compose's `stop_grace_period`.

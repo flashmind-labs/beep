@@ -140,14 +140,14 @@ pub(super) async fn read_hello(
     connection: &Connection,
     linked: bool,
 ) -> Result<(LinkTx, LinkRx, NodeHello)> {
-    let (send, recv) = timeout(crate::api::transport::READ_TIMEOUT, connection.accept_bi())
+    let (send, recv) = timeout(crate::nodes::READ_TIMEOUT, connection.accept_bi())
         .await
         .context("no control stream")??;
     let (tx, mut rx) = link_on(connection, send, recv);
     if !linked {
         rx.set_max_frame(MAX_UNLINKED_HELLO);
     }
-    let hello: NodeHello = timeout(crate::api::transport::READ_TIMEOUT, rx.recv())
+    let hello: NodeHello = timeout(crate::nodes::READ_TIMEOUT, rx.recv())
         .await
         .context("no hello")??
         .context("closed before its hello")?;

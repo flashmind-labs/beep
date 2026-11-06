@@ -86,7 +86,7 @@ pub(super) async fn watch_project(
             }
         }
         tokio::select! {
-            _ = cx.connection.closed() => return Ok(()),
+            _ = sink.closed() => return Ok(()),
             changed = changes.recv() => {
                 let (lists, runs) = match changed {
                     Ok(Changed { user, project, lists, runs })

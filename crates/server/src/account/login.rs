@@ -1,5 +1,5 @@
 //! Hosted login. The website signs the user in and gives the app a signed token, which the app
-//! hands back here over the connection of the key that asked for the code. A code only works for
+//! hands back here, signed in as the key that asked for the code. A code only works for
 //! its own key, so a login link sent to someone else cannot attach another person's device.
 //!
 //! Token: `<payload>.<signature>`, both unpadded base64url. The signature is Ed25519 over the
@@ -13,11 +13,7 @@ use crate::{
 use anyhow::Context;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
-use iroh::{
-    EndpointId, PublicKey, SecretKey, Signature,
-    endpoint::{Connection, VarInt},
-    protocol::{AcceptError, ProtocolHandler},
-};
+use iroh::{EndpointId, PublicKey, SecretKey, Signature};
 use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
@@ -35,17 +31,6 @@ pub struct LoginConfig {
     pub website: Url,
     /// The website's Ed25519 public key: 32 bytes as hex.
     pub website_key: PublicKey,
-}
-
-/// Answers `LOGIN_ALPN`: being reached at all says this server has hosted sign-in.
-#[derive(Debug, Clone)]
-pub struct LoginCheck;
-
-impl ProtocolHandler for LoginCheck {
-    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        connection.close(VarInt::from_u32(0), b"hosted");
-        Ok(())
-    }
 }
 
 /// What a token says. No `Debug`: `code` must not reach a log.

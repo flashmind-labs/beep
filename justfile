@@ -163,14 +163,14 @@ restart-server:
     @sleep 2
     @pgrep -f "beep-server {{server_config}}" > /dev/null && echo "Server started" || (echo "Server failed to start, check .dev/server.log"; exit 1)
 
-# Write the server's node ID where the Android build picks it up
+# Write the server's address where the app builds pick it up.
+# BEEP_SERVER_URL sets it; the emulator reaches a local server by default.
 bake-profile:
     #!/usr/bin/env bash
-    node_id=$(sed 's/\x1b\[[0-9;]*m//g' .dev/logs/beep.log | grep -o 'node_id=[0-9a-f]*' | tail -1 | cut -d= -f2)
-    if [ -z "$node_id" ]; then echo "No node ID in server log"; exit 1; fi
+    server_url="${BEEP_SERVER_URL:-http://10.0.2.2:47122}"
     mkdir -p .dev/android-assets
-    printf '{"node_id":"%s"}\n' "$node_id" > .dev/android-assets/testing-profile.json
-    echo "Baked node ID: ${node_id:0:12}..."
+    printf '{"server_url":"%s"}\n' "$server_url" > .dev/android-assets/testing-profile.json
+    echo "Baked server: $server_url"
 
 # Install APK on connected device
 install-apk:

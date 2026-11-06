@@ -21,7 +21,7 @@ class ChatFlowTest {
         val device = UiDevice.getInstance(instrumentation)
         device.wakeUp()
         device.executeShellCommand("wm dismiss-keyguard")
-        // The server comes from the node ID this test APK was built with.
+        // The server comes from the address this test APK was built with.
         LocalStorage(context).saveState(ChatState())
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         assertTrue(device.wait(Until.hasObject(By.text("A little help.\nRight here.")), 15000))

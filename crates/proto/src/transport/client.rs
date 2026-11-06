@@ -1,504 +1,399 @@
+//! The apps' side of `http`: one `Client` per server, signed in as this
+//! device's key.
+
 use crate::{
-    Call, Duplex, Hello, Notice, Platform, Rpc, Stream, WIRE,
-    wire::{ALPN, LOGIN_ALPN, PUSH_ALPN, Rx, Tx, framed},
-};
-use anyhow::{Context, Result};
-use iroh::{
-    Endpoint, EndpointAddr, EndpointId, SecretKey,
-    endpoint::{
-        Builder, Connection, ConnectionError, NetReportConfig, PortmapperConfig,
-        QuicTransportConfig, VarInt, presets,
+    ApiError, AppEvent, Call, Duplex, Platform, Stream,
+    http::{
+        self, CONTENT_TYPE, ERR, EVENTS_PATH, HEARTBEAT, OK, PLATFORM_HEADER, REFUSED_HEADER,
+        Refusal, SERVER_PATH, SESSION_PATH, ServerInfo, SessionStart, SessionToken, VERSION_HEADER,
     },
-    protocol::{AcceptError, ProtocolHandler},
 };
-use serde::de::DeserializeOwned;
+use anyhow::{Context, Result, anyhow, bail};
+use bytes::Bytes;
+use futures::{StreamExt, TryStreamExt, stream::BoxStream};
+use iroh::{EndpointId, SecretKey};
+use reqwest::{
+    Body, Method, RequestBuilder, Response, StatusCode,
+    header::{AUTHORIZATION, CONTENT_TYPE as CONTENT_TYPE_HEADER},
+};
+use serde::{Serialize, de::DeserializeOwned};
 use std::{
-    fmt::{self, Debug, Formatter},
+    io,
     marker::PhantomData,
-    sync::{
-        Arc, Mutex, PoisonError,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    sync::oneshot,
-    time::{sleep, timeout},
+    sync::{OnceCell, mpsc},
+    time::timeout,
 };
+use tokio_util::{codec::FramedRead, io::StreamReader};
+
+pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-/// How long an app waits to learn whether the server has hosted sign-in.
-const LOGIN_CHECK_TIMEOUT: Duration = Duration::from_secs(8);
-/// How long a connection with no requests stays open. Each open connection
-/// sends a QUIC keep-alive every 5s, which keeps a phone's radio awake.
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-/// Close code for a connection closed for being idle.
-pub const IDLE_CLOSE: u32 = 0x1d1e;
-/// Close code the server gives a key the account removed.
-pub const CLOSE_REVOKED: u32 = 403;
-/// Close code a single-user server gives a key that is not one of its
-/// owner's. The owner links more devices with `LinkDevice`.
-pub const CLOSE_NOT_INVITED: u32 = 4403;
+/// A token is renewed this long before it runs out.
+const RENEW_BEFORE: Duration = Duration::from_secs(60);
+/// A quiet events stream is given up after this: two heartbeats missed.
+pub const EVENTS_SILENCE: Duration = Duration::from_secs(HEARTBEAT.as_secs() * 5 / 2);
+/// `Duplex` frames waiting to go up.
+const UPLINK_QUEUE: usize = 16;
 
-/// Called with each notice the server sends. Returns false if the notice
-/// was not handled, so the server keeps it and sends it again later.
-pub type OnNotice = Arc<dyn Fn(Notice) -> bool + Send + Sync>;
-
-/// This device's iroh endpoint, bound once and kept for the life of the
-/// process. Its home relay stays up, so the server can dial it with notices
-/// while no connection is open.
-pub struct Node {
-    endpoint: Endpoint,
-    server: EndpointAddr,
-    on_notice: OnNotice,
-    idle: Duration,
-    /// Opens every connection, telling the server what this app reads.
-    hello: Hello,
-    /// Dropped with the node, which stops the accept loop and closes the
-    /// endpoint, so a replaced node stops pinging its relay. A node on an
-    /// endpoint its caller serves has none.
-    _stop: Option<oneshot::Sender<()>>,
+/// A session token and when to stop using it.
+struct Token {
+    bearer: String,
+    renew_at: Instant,
 }
 
-/// The settings every device's endpoint has: HTTPS probes stay on, since
-/// without them a network that blocks QUIC never finds a home relay and
-/// the server could not reach the device.
-fn builder(identity: SecretKey) -> Builder {
-    let mut net_report = NetReportConfig::default();
-    net_report.captive_portal_check = false;
-    Endpoint::builder(presets::N0)
-        .secret_key(identity)
-        // UPnP and PCP never work on cellular, and each probe wakes the radio.
-        .portmapper_config(PortmapperConfig::Disabled)
-        .net_report_config(net_report)
-}
-
-/// Binds an endpoint as `identity` that serves nothing yet: the caller
-/// serves its protocols through a `Router`, which can include
-/// `Node::on_endpoint`'s `PushHandler`.
-pub async fn bind_endpoint(
-    identity: SecretKey,
-    transport: QuicTransportConfig,
-) -> Result<Endpoint> {
-    Ok(builder(identity).transport_config(transport).bind().await?)
-}
-
-/// Takes the server's notice connections for a `Node` on an endpoint the
-/// caller serves through a `Router`, on `PUSH_ALPN`. Any other peer is
-/// turned away.
-#[derive(Clone)]
-pub struct PushHandler {
-    server: EndpointId,
-    on_notice: OnNotice,
-}
-
-impl Debug for PushHandler {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("PushHandler")
-    }
-}
-
-impl ProtocolHandler for PushHandler {
-    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        if connection.remote_id() != self.server {
-            log::warn!("refused a push from {}", connection.remote_id());
-            connection.close(VarInt::from_u32(1), b"not the server");
-            return Ok(());
-        }
-        serve_notices(connection, self.on_notice.clone()).await;
-        Ok(())
-    }
-}
-
-impl Node {
-    /// Binds as `identity`. The server knows the user by its public key, and
-    /// a key it has not seen before starts a new account. Only `server` may
-    /// push notices.
-    pub async fn bind(
-        identity: SecretKey,
-        server: impl Into<EndpointAddr>,
-        on_notice: OnNotice,
-    ) -> Result<Self> {
-        let server = server.into();
-        let endpoint = builder(identity)
-            .alpns(vec![PUSH_ALPN.to_vec()])
-            .bind()
-            .await?;
-        let (stop, stopped) = oneshot::channel();
-        tokio::spawn(accept_pushes(
-            endpoint.clone(),
-            server.id,
-            on_notice.clone(),
-            stopped,
-        ));
-        Ok(Self::with(endpoint, server, on_notice, Some(stop)))
-    }
-
-    /// A node on `endpoint`, which the caller serves through a `Router`
-    /// that accepts `PUSH_ALPN` with the returned handler. The endpoint is
-    /// the caller's to close.
-    pub fn on_endpoint(
-        endpoint: Endpoint,
-        server: impl Into<EndpointAddr>,
-        on_notice: OnNotice,
-    ) -> (Self, PushHandler) {
-        let server = server.into();
-        let push = PushHandler {
-            server: server.id,
-            on_notice: on_notice.clone(),
-        };
-        (Self::with(endpoint, server, on_notice, None), push)
-    }
-
-    fn with(
-        endpoint: Endpoint,
-        server: EndpointAddr,
-        on_notice: OnNotice,
-        stop: Option<oneshot::Sender<()>>,
-    ) -> Self {
-        Self {
-            endpoint,
-            server,
-            on_notice,
-            idle: IDLE_TIMEOUT,
-            hello: Hello {
-                wire: WIRE,
-                platform: None,
-                version: None,
-            },
-            _stop: stop,
-        }
-    }
-
-    /// Sets how long an idle connection stays open; tests shorten it.
-    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
-        self.idle = idle;
-        self
-    }
-
-    /// Names the app in each connection's `Hello`: which one it is and its
-    /// own version, such as "0.1.0 (142)".
-    pub fn with_app(mut self, platform: Platform, version: impl Into<String>) -> Self {
-        self.hello.platform = Some(platform);
-        self.hello.version = Some(version.into());
-        self
-    }
-
-    pub fn id(&self) -> EndpointId {
-        self.endpoint.id()
-    }
-
-    pub fn endpoint(&self) -> &Endpoint {
-        &self.endpoint
-    }
-
-    /// Opens a connection to the server. It closes itself once idle for
-    /// `IDLE_TIMEOUT`, and `Client::is_closed` then says to make a new one.
-    pub async fn connect(&self) -> Result<Client> {
-        self.connect_to(self.server.clone()).await
-    }
-
-    /// `connect` to another server, to try it before making it this node's.
-    pub async fn connect_to(&self, server: impl Into<EndpointAddr>) -> Result<Client> {
-        let connect = self.endpoint.connect(server.into(), ALPN);
-        let connection = timeout(CONNECT_TIMEOUT, connect)
-            .await
-            .context("connect timed out")??;
-        // The first stream, so the server reads it before any request. Its
-        // reply is not waited for: requests may follow at once.
-        let (send, recv) = connection.open_bi().await?;
-        let (mut tx, mut rx) = framed(send, recv);
-        tx.request(&self.hello).await?;
-        tx.finish()?;
-        tokio::spawn(async move {
-            if let Err(e) = rx.reply::<()>().await {
-                log::debug!("hello failed: {e:#}");
-            }
-        });
-        let activity = Arc::new(Activity::new());
-        tokio::spawn(close_when_idle(
-            connection.clone(),
-            activity.clone(),
-            self.idle,
-        ));
-        tokio::spawn(serve_notices(connection.clone(), self.on_notice.clone()));
-        Ok(Client {
-            connection,
-            activity,
-        })
-    }
-
-    /// Whether the server has hosted sign-in. An unreachable server reads as
-    /// no. Connects on `LOGIN_ALPN`, so no account is made.
-    pub async fn has_login(&self) -> bool {
-        let connect = self.endpoint.connect(self.server.clone(), LOGIN_ALPN);
-        matches!(timeout(LOGIN_CHECK_TIMEOUT, connect).await, Ok(Ok(_)))
-    }
-
-    /// Tells iroh the network changed. Android gives iroh no way to watch
-    /// for this itself, so the app calls it from its network callback.
-    pub async fn network_change(&self) {
-        self.endpoint.network_change().await;
-    }
-
-    pub async fn close(&self) {
-        self.endpoint.close().await;
-    }
-}
-
-/// One iroh connection to the server. Requests run concurrently, one stream each.
-/// Errors the server sends back are `ApiError`, recoverable by downcast.
+/// One server, reached over HTTP as `identity`. Requests run concurrently;
+/// errors the server sends back are `ApiError`, and a refused key is
+/// `Refusal`, both recoverable by downcast.
 pub struct Client {
-    connection: Connection,
-    activity: Arc<Activity>,
+    http: reqwest::Client,
+    base: String,
+    identity: SecretKey,
+    platform: Option<Platform>,
+    version: Option<String>,
+    server: OnceCell<ServerInfo>,
+    /// Held while a token is made, so concurrent requests make one.
+    token: AsyncMutex<Option<Token>>,
 }
 
 impl Client {
-    /// True once the connection is gone and a new one is needed.
-    pub fn is_closed(&self) -> bool {
-        self.connection.close_reason().is_some()
+    /// A client of the server at `base`, such as `https://example.com`. Plain
+    /// `http://` speaks HTTP/2 without TLS, for a server on this machine.
+    pub fn new(base: &str, identity: SecretKey) -> Result<Self> {
+        let base = base.trim().trim_end_matches('/').to_owned();
+        let mut builder = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
+        if base.starts_with("http://") {
+            builder = builder.http2_prior_knowledge();
+        } else if !base.starts_with("https://") {
+            bail!("the server address must start with https://");
+        }
+        Ok(Self {
+            http: builder.build()?,
+            base,
+            identity,
+            platform: None,
+            version: None,
+            server: OnceCell::new(),
+            token: AsyncMutex::new(None),
+        })
     }
 
-    /// Closes the connection, ending the requests and streams open on it.
-    /// A later call needs a new `Client`.
-    pub fn close(&self) {
-        self.connection
-            .close(VarInt::from_u32(IDLE_CLOSE), b"closed by the app");
+    /// Names the app on each request: which one it is and its own version,
+    /// such as "0.1.0 (142)".
+    pub fn with_app(mut self, platform: Platform, version: impl Into<String>) -> Self {
+        self.platform = Some(platform);
+        self.version = Some(version.into());
+        self
     }
 
-    /// Waits until the connection is gone.
-    pub async fn closed(&self) {
-        self.connection.closed().await;
+    /// This device's key, which the server knows it by.
+    pub fn id(&self) -> EndpointId {
+        self.identity.public()
     }
 
-    /// True once the server closed the connection because the account
-    /// removed this key.
-    pub fn is_revoked(&self) -> bool {
-        matches!(
-            self.connection.close_reason(),
-            Some(ConnectionError::ApplicationClosed(close))
-                if close.error_code == VarInt::from_u32(CLOSE_REVOKED)
-        )
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+
+    /// The server's key and whether it has hosted sign-in. Asks once; makes
+    /// no account.
+    pub async fn server_info(&self) -> Result<&ServerInfo> {
+        self.server
+            .get_or_try_init(|| async {
+                let response = self
+                    .http
+                    .get(self.url(SERVER_PATH))
+                    .send()
+                    .await
+                    .context("the server did not answer")?;
+                let body = ok_body(response).await?;
+                http::decode(&body).context("could not read the server's reply")
+            })
+            .await
+    }
+
+    /// The server's key, which link offers are signed for.
+    pub async fn server_id(&self) -> Result<EndpointId> {
+        let info = self.server_info().await?;
+        info.id.parse().context("the server sent a bad key")
+    }
+
+    /// Whether the server has hosted sign-in. An unreachable one reads as no.
+    pub async fn has_login(&self) -> bool {
+        self.server_info().await.is_ok_and(|info| info.login)
     }
 
     /// Sends a request and returns its reply.
     pub async fn call<R: Call>(&self, request: &R) -> Result<R::Reply> {
-        let mut replies = self.open(request).await?;
-        replies.next().await?.context("stream closed without reply")
+        let body = http::encode(request)?;
+        let response = self.post(&http::path(R::OP), body).await?;
+        let reply = ok_body(response).await?;
+        http::decode(&reply).context("could not read the server's reply")
     }
 
-    /// Sends a request and returns its replies as they arrive. The
-    /// connection stays open while the returned `Replies` lives.
+    /// Sends a request and returns its replies as they arrive.
     pub async fn stream<R: Stream>(&self, request: &R) -> Result<Replies<R::Reply>> {
-        self.open(request).await
+        let body = http::encode(request)?;
+        let response = self.post(&http::path(R::OP), body).await?;
+        Ok(Replies::new(checked(response).await?))
     }
 
-    /// Sends a request that keeps sending: `Uplink` carries what follows
-    /// it, and the replies arrive as they come.
+    /// Sends a request that keeps sending: `Uplink` carries what follows it,
+    /// and the replies arrive as they come.
     pub async fn duplex<R: Duplex>(
         &self,
         request: &R,
     ) -> Result<(Uplink<R::Up>, Replies<R::Reply>)> {
-        let busy = Busy::new(self.activity.clone());
-        let (send, recv) = self.connection.open_bi().await?;
-        let (mut tx, rx) = framed(send, recv);
-        tx.request(request).await?;
-        let uplink = Uplink {
-            tx,
+        let (tx, mut rx) = mpsc::channel(UPLINK_QUEUE);
+        let mut uplink = Uplink {
+            tx: Some(tx),
             _up: PhantomData,
         };
-        let replies = Replies {
-            rx,
-            _busy: busy,
-            _reply: PhantomData,
-        };
-        Ok((uplink, replies))
+        uplink.send_bytes(&http::encode(request)?).await?;
+        // The body cannot be sent twice, so the token is made first.
+        let token = self.bearer().await?;
+        let body = Body::wrap_stream(futures::stream::poll_fn(move |cx| rx.poll_recv(cx)));
+        let response = self
+            .request(Method::POST, &http::path(R::OP), &token)
+            .body(body)
+            .send()
+            .await
+            .context("the server did not answer")?;
+        Ok((uplink, Replies::new(checked(response).await?)))
     }
 
-    async fn open<R: Rpc, T>(&self, request: &R) -> Result<Replies<T>> {
-        let busy = Busy::new(self.activity.clone());
-        let (send, recv) = self.connection.open_bi().await?;
-        let (mut tx, rx) = framed(send, recv);
-        tx.request(request).await?;
-        tx.finish()?;
-        Ok(Replies {
-            rx,
-            _busy: busy,
-            _reply: PhantomData,
+    /// Opens the events stream, after the notice `after` when given.
+    pub async fn events(&self, after: Option<i64>) -> Result<Events> {
+        let path = match after {
+            Some(after) => format!("{EVENTS_PATH}?after={after}"),
+            None => EVENTS_PATH.to_owned(),
+        };
+        let response = self.send(Method::GET, &path, None).await?;
+        Ok(Events {
+            frames: frames(checked(response).await?),
+            silence: EVENTS_SILENCE,
         })
+    }
+
+    async fn post(&self, path: &str, body: Vec<u8>) -> Result<Response> {
+        self.send(Method::POST, path, Some(Bytes::from(body))).await
+    }
+
+    /// Sends with the session token, making a new one once when the server
+    /// says it is stale.
+    async fn send(&self, method: Method, path: &str, body: Option<Bytes>) -> Result<Response> {
+        for attempt in 0..2 {
+            let token = self.bearer().await?;
+            let mut request = self.request(method.clone(), path, &token);
+            if let Some(body) = &body {
+                request = request.body(body.clone());
+            }
+            let response = request.send().await.context("the server did not answer")?;
+            if response.status() == StatusCode::UNAUTHORIZED && attempt == 0 {
+                self.forget_token(&token).await;
+                continue;
+            }
+            return Ok(response);
+        }
+        bail!("the server refused every session token")
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
+    }
+
+    fn request(&self, method: Method, path: &str, token: &str) -> RequestBuilder {
+        let mut request = self
+            .http
+            .request(method, self.url(path))
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .header(CONTENT_TYPE_HEADER, CONTENT_TYPE);
+        if let Some(platform) = self.platform {
+            request = request.header(PLATFORM_HEADER, platform.as_header());
+        }
+        if let Some(version) = &self.version {
+            request = request.header(VERSION_HEADER, version);
+        }
+        request
+    }
+
+    /// A session token good for now, made if there is none.
+    async fn bearer(&self) -> Result<String> {
+        let mut token = self.token.lock().await;
+        if let Some(token) = token.as_ref().filter(|t| Instant::now() < t.renew_at) {
+            return Ok(token.bearer.clone());
+        }
+        let made = self.start_session().await?;
+        let bearer = made.bearer.clone();
+        *token = Some(made);
+        Ok(bearer)
+    }
+
+    async fn forget_token(&self, stale: &str) {
+        let mut token = self.token.lock().await;
+        if token.as_ref().is_some_and(|t| t.bearer == stale) {
+            *token = None;
+        }
+    }
+
+    async fn start_session(&self) -> Result<Token> {
+        let server = self.server_id().await?;
+        let at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let key = self.identity.public();
+        let signature = self
+            .identity
+            .sign(&http::session_message(&server, &key, at));
+        let start = SessionStart {
+            key: key.to_string(),
+            at,
+            signature: signature.to_bytes().to_vec(),
+        };
+        let response = self
+            .http
+            .post(self.url(SESSION_PATH))
+            .header(CONTENT_TYPE_HEADER, CONTENT_TYPE)
+            .body(http::encode(&start)?)
+            .send()
+            .await
+            .context("the server did not answer")?;
+        let body = ok_body(response).await?;
+        let session: SessionToken =
+            http::decode(&body).context("could not read the session token")?;
+        let lasts = Duration::from_secs(session.expires_in).saturating_sub(RENEW_BEFORE);
+        Ok(Token {
+            bearer: session.token.expose().to_owned(),
+            renew_at: Instant::now() + lasts,
+        })
+    }
+}
+
+/// The response when it succeeded, else the error it carries.
+async fn checked(response: Response) -> Result<Response> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    if let Some(refusal) = response
+        .headers()
+        .get(REFUSED_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(Refusal::parse)
+    {
+        return Err(refusal.into());
+    }
+    let body = response.bytes().await.unwrap_or_default();
+    match http::decode::<ApiError>(&body) {
+        Ok(error) => Err(error.into()),
+        Err(_) => Err(anyhow!("the server answered {status}")),
+    }
+}
+
+async fn ok_body(response: Response) -> Result<Bytes> {
+    let response = checked(response).await?;
+    Ok(response.bytes().await?)
+}
+
+type Frames = FramedRead<
+    StreamReader<BoxStream<'static, io::Result<Bytes>>, Bytes>,
+    tokio_util::codec::LengthDelimitedCodec,
+>;
+
+fn frames(response: Response) -> Frames {
+    let body = response.bytes_stream().map_err(io::Error::other).boxed();
+    FramedRead::new(StreamReader::new(body), http::codec())
+}
+
+/// The replies of a `Stream` or `Duplex` request.
+pub struct Replies<T> {
+    frames: Frames,
+    _reply: PhantomData<fn() -> T>,
+}
+
+impl<T: DeserializeOwned> Replies<T> {
+    fn new(response: Response) -> Self {
+        Self {
+            frames: frames(response),
+            _reply: PhantomData,
+        }
+    }
+
+    /// Next reply, `None` at end of stream. An error frame is an `ApiError`.
+    pub async fn next(&mut self) -> Result<Option<T>> {
+        let Some(frame) = self.frames.next().await else {
+            return Ok(None);
+        };
+        let frame = frame.context("the stream broke")?;
+        let (&tag, body) = frame.split_first().context("empty frame")?;
+        match tag {
+            OK => Ok(Some(
+                http::decode(body).context("could not read the server's reply")?,
+            )),
+            ERR => Err(http::decode::<ApiError>(body)
+                .context("could not read the server's error")?
+                .into()),
+            tag => bail!("unknown frame tag {tag}"),
+        }
     }
 }
 
 /// The sending side of a `Duplex` request. Finish it to say nothing more
 /// comes; dropping it does the same.
 pub struct Uplink<T> {
-    tx: Tx,
+    tx: Option<mpsc::Sender<io::Result<Bytes>>>,
     _up: PhantomData<fn(T)>,
 }
 
-impl<T: serde::Serialize> Uplink<T> {
+impl<T: Serialize> Uplink<T> {
     pub async fn send(&mut self, up: &T) -> Result<()> {
-        self.tx.ok(up).await
+        self.send_bytes(&http::encode(up)?).await
     }
 
     pub fn finish(&mut self) -> Result<()> {
-        self.tx.finish()
+        self.tx = None;
+        Ok(())
+    }
+
+    async fn send_bytes(&mut self, body: &[u8]) -> Result<()> {
+        let tx = self.tx.as_ref().context("the uplink is finished")?;
+        tx.send(Ok(http::length_prefixed(body)))
+            .await
+            .map_err(|_| anyhow!("the request ended"))
     }
 }
 
-pub struct Replies<T> {
-    rx: Rx,
-    _busy: Busy,
-    _reply: PhantomData<fn() -> T>,
+/// The events stream. It fails once the server goes quiet for longer than
+/// its heartbeat allows.
+pub struct Events {
+    frames: Frames,
+    silence: Duration,
 }
 
-impl<T: DeserializeOwned> Replies<T> {
-    /// Next reply, `None` at end of stream.
-    pub async fn next(&mut self) -> Result<Option<T>> {
-        self.rx.reply().await
-    }
-}
-
-/// Requests in flight on a connection and when the last one ended.
-struct Activity {
-    open: AtomicUsize,
-    last: Mutex<Instant>,
-}
-
-impl Activity {
-    fn new() -> Self {
-        Self {
-            open: AtomicUsize::new(0),
-            last: Mutex::new(Instant::now()),
-        }
-    }
-
-    fn touch(&self) {
-        *self.last.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
-    }
-
-    /// How long until the connection has been idle for `idle`, zero if it
-    /// already has. A connection with requests in flight is never idle.
-    fn until_idle(&self, idle: Duration) -> Duration {
-        if self.open.load(Ordering::Acquire) > 0 {
-            return idle;
-        }
-        let last = *self.last.lock().unwrap_or_else(PoisonError::into_inner);
-        idle.saturating_sub(last.elapsed())
-    }
-}
-
-/// Marks a request in flight until dropped.
-struct Busy(Arc<Activity>);
-
-impl Busy {
-    fn new(activity: Arc<Activity>) -> Self {
-        activity.open.fetch_add(1, Ordering::AcqRel);
-        activity.touch();
-        Self(activity)
-    }
-}
-
-impl Drop for Busy {
-    fn drop(&mut self) {
-        self.0.touch();
-        self.0.open.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-async fn close_when_idle(connection: Connection, activity: Arc<Activity>, idle: Duration) {
-    loop {
-        let wait = activity.until_idle(idle);
-        if wait.is_zero() {
-            connection.close(VarInt::from_u32(IDLE_CLOSE), b"idle");
-            return;
-        }
-        tokio::select! {
-            _ = connection.closed() => return,
-            _ = sleep(wait) => {}
-        }
-    }
-}
-
-/// Accepts the server's connections for pushing notices. Any other peer is
-/// turned away. Closes the endpoint once `stopped` fires.
-async fn accept_pushes(
-    endpoint: Endpoint,
-    server: EndpointId,
-    on_notice: OnNotice,
-    mut stopped: oneshot::Receiver<()>,
-) {
-    loop {
-        let incoming = tokio::select! {
-            incoming = endpoint.accept() => incoming,
-            _ = &mut stopped => break,
+impl Events {
+    /// Next event, `None` when the server ended the stream.
+    pub async fn next(&mut self) -> Result<Option<AppEvent>> {
+        let frame = match timeout(self.silence, self.frames.next()).await {
+            Ok(frame) => frame,
+            Err(_) => bail!(
+                "the server sent nothing for {} seconds",
+                self.silence.as_secs()
+            ),
         };
-        let Some(incoming) = incoming else { return };
-        let on_notice = on_notice.clone();
-        tokio::spawn(async move {
-            let connection = match incoming.await {
-                Ok(connection) => connection,
-                Err(e) => {
-                    log::debug!("push connection failed: {e:#}");
-                    return;
-                }
-            };
-            if connection.remote_id() != server {
-                log::warn!("refused a push from {}", connection.remote_id());
-                connection.close(VarInt::from_u32(1), b"not the server");
-                return;
-            }
-            serve_notices(connection, on_notice).await;
-        });
-    }
-    endpoint.close().await;
-}
-
-/// Answers the notice streams the server opens on `connection`. They do not
-/// count as activity, so the server cannot keep a connection open.
-async fn serve_notices(connection: Connection, on_notice: OnNotice) {
-    while let Ok((send, recv)) = connection.accept_bi().await {
-        let on_notice = on_notice.clone();
-        tokio::spawn(async move {
-            let (mut tx, mut rx) = framed(send, recv);
-            let notice = match rx.reply::<Notice>().await {
-                Ok(Some(notice)) => notice,
-                Ok(None) => return,
-                Err(e) => {
-                    log::debug!("bad notice stream: {e:#}");
-                    return;
-                }
-            };
-            // An unhandled notice gets no ack, so the server sends it again.
-            if !on_notice(notice) {
-                return;
-            }
-            let acked = async {
-                tx.ok(&()).await?;
-                tx.finish()
-            };
-            if let Err(e) = acked.await {
-                log::debug!("notice ack failed: {e:#}");
-            }
-        });
+        let Some(frame) = frame else {
+            return Ok(None);
+        };
+        let frame = frame.context("the events stream broke")?;
+        Ok(Some(
+            http::decode(&frame).context("could not read an event")?,
+        ))
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // An attached terminal holds its stream open for hours with nothing
-    // on it; the idle close must wait for it to end.
-    #[test]
-    fn a_connection_with_a_stream_open_is_never_idle() {
-        let activity = Arc::new(Activity::new());
-        let idle = Duration::from_nanos(1);
-        let stream = Busy::new(activity.clone());
-        *activity.last.lock().unwrap() = Instant::now() - Duration::from_secs(60 * 60);
-        assert_eq!(activity.until_idle(idle), idle);
-        drop(stream);
-        *activity.last.lock().unwrap() = Instant::now() - Duration::from_secs(1);
-        assert!(activity.until_idle(idle).is_zero());
-    }
+/// True when `error` is the server refusing this key.
+pub fn refusal(error: &anyhow::Error) -> Option<Refusal> {
+    error.downcast_ref::<Refusal>().copied()
 }

@@ -3,8 +3,9 @@
 //! bindings.
 //!
 //! Each request is a struct declared in `requests!` with its op and reply
-//! type. Enums made with `wire_enum!` encode as `[op, field...]`; structs
-//! encode as their fields in declaration order.
+//! type, sent over HTTP (see `http`). Enums made with `wire_enum!` encode as
+//! `[op, field...]`; structs encode with their field names on the apps'
+//! wire and as their fields in declaration order on the node link.
 //!
 //! With the `uniffi` feature, the types a client sees also derive UniFFI
 //! bindings.

@@ -26,7 +26,7 @@ pub async fn project_groups(
         Ok(desk) => {
             let mut groups = desk.map(|desk| desk.groups()).unwrap_or_default();
             // The groups only the server has, until they are moved into the mesh.
-            if beep.server().is_some() {
+            if beep.has_server() {
                 match known(beep.call(ListProjectGroups {}).await) {
                     Ok(theirs) => {
                         let theirs: Vec<ProjectGroup> = theirs
@@ -59,7 +59,7 @@ pub async fn project_group_save(
     // A group only the server has is changed there.
     if let Some(id) = id
         && desk.as_ref().is_none_or(|desk| !desk.has_group(id))
-        && beep.server().is_some()
+        && beep.has_server()
     {
         return beep
             .call(SaveProjectGroup {
@@ -82,9 +82,7 @@ pub async fn project_group_delete(
     id: Uuid,
 ) -> Result<()> {
     match desk_or_server(&fleet, &beep).await? {
-        Some(desk) if desk.has_group(id) || beep.server().is_none() => {
-            Ok(desk.delete_group(id).await?)
-        }
+        Some(desk) if desk.has_group(id) || !beep.has_server() => Ok(desk.delete_group(id).await?),
         _ => beep.call(DeleteProjectGroup { id }).await,
     }
 }

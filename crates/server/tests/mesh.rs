@@ -5,17 +5,16 @@ use async_trait::async_trait;
 use beep_server::{
     account::user::User,
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools},
-    client::{Client, Node},
-    protocol::{ApiError, DeviceKind, ListImportedProjects, MirrorImport},
-    push::Pusher,
+    protocol::{ApiError, DeviceKind, ListImportedProjects, MirrorImport, client::Client},
+    push::Pulse,
     store::{NewKey, NewNode, TestDb},
 };
 use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, LlmProvider, Provider,
 };
-use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
+use iroh::SecretKey;
 use std::sync::Arc;
 
 /// These tests never run a model turn.
@@ -36,13 +35,12 @@ impl LlmProvider for NoModel {
 
 struct Harness {
     _db: TestDb,
-    router: Router,
+    apps: http::Local,
     app: Arc<App>,
 }
 
 /// One signed-in account: its user row and a connected app.
 struct Account {
-    _node: Node,
     user: Arc<User>,
     phone: Client,
 }
@@ -56,23 +54,10 @@ async fn harness() -> Harness {
         ServerTools::default(),
         ModelChoices::only("openai:test".parse().expect("a valid model")),
     );
-    let endpoint = Endpoint::builder(presets::Minimal)
-        .secret_key(SecretKey::generate())
-        .bind()
+    let apps = http::Local::start(app.clone(), &SecretKey::generate(), Pulse::manual())
         .await
-        .expect("the server binds");
-    let pusher = Pusher::new(endpoint.clone(), Arc::new(app.store.clone()), None);
-    let router = Router::builder(endpoint)
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
-        .spawn();
-    Harness {
-        _db: db,
-        router,
-        app,
-    }
+        .expect("the apps' HTTP starts");
+    Harness { _db: db, apps, app }
 }
 
 impl Harness {
@@ -85,15 +70,8 @@ impl Harness {
             .expect("sign in")
             .expect("a new key is never revoked")
             .user;
-        let node = Node::bind(identity, self.router.endpoint().addr(), Arc::new(|_| true))
-            .await
-            .expect("an app binds");
-        let phone = node.connect().await.expect("an app connects");
-        Account {
-            _node: node,
-            user,
-            phone,
-        }
+        let phone = Client::new(self.apps.url(), identity).expect("an app client");
+        Account { user, phone }
     }
 }
 

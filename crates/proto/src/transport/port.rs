@@ -1,8 +1,12 @@
-//! Fixed UDP ports for iroh endpoints, so a firewall can let them through.
+//! Fixed UDP ports for iroh endpoints, so a firewall can let them through,
+//! and the settings every device's endpoint has.
 
 use iroh::{
-    Endpoint,
-    endpoint::{BindError, BindOpts, Builder, QuicTransportConfig, QuicTransportConfigBuilder},
+    Endpoint, SecretKey,
+    endpoint::{
+        BindError, BindOpts, Builder, NetReportConfig, PortmapperConfig, QuicTransportConfig,
+        QuicTransportConfigBuilder, presets,
+    },
 };
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
@@ -11,6 +15,31 @@ pub const NODE_PORT: u16 = 47120;
 /// The UDP port the server binds unless its config names another; not the
 /// node's, since a node often runs beside it.
 pub const SERVER_PORT: u16 = 47121;
+/// The TCP port the server serves the apps' HTTP on unless its config names
+/// another.
+pub const SERVER_HTTP_PORT: u16 = 47122;
+
+/// Close code the server gives a node key the account removed.
+pub const CLOSE_REVOKED: u32 = 403;
+
+/// Binds an endpoint as `identity` that serves nothing yet: the caller
+/// serves its protocols through a `Router`. HTTPS probes stay on, since
+/// without them a network that blocks QUIC never finds a home relay.
+pub async fn bind_endpoint(
+    identity: SecretKey,
+    transport: QuicTransportConfig,
+) -> anyhow::Result<Endpoint> {
+    let mut net_report = NetReportConfig::default();
+    net_report.captive_portal_check = false;
+    Ok(Endpoint::builder(presets::N0)
+        .secret_key(identity)
+        // UPnP and PCP never work on cellular, and each probe wakes the radio.
+        .portmapper_config(PortmapperConfig::Disabled)
+        .net_report_config(net_report)
+        .transport_config(transport)
+        .bind()
+        .await?)
+}
 
 /// The transport of everything that stays connected. It sends each datagram on
 /// its own: on a network card without checksum offload, batches fail. The socket

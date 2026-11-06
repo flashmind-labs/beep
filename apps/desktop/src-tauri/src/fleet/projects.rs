@@ -58,7 +58,7 @@ pub(crate) async fn desk(session: &Arc<Session>) -> Result<Desk> {
 pub(crate) async fn desk_or_server(session: &Arc<Session>, beep: &Beep) -> Result<Option<Desk>> {
     match desk(session).await {
         Ok(desk) => Ok(Some(desk)),
-        Err(e) if beep.server().is_some() => {
+        Err(e) if beep.has_server() => {
             log::info!("no mesh, so the server answers: {e}");
             Ok(None)
         }
@@ -80,7 +80,7 @@ pub(crate) async fn mesh_project(
 /// Tells the server that `imported` landed, so phones and the project agent list it. The server
 /// is not needed for the import, so a refusal or no answer is logged and the import stands.
 pub(crate) async fn mirror_import(beep: &Beep, imported: &ImportedProject) {
-    if beep.server().is_none() {
+    if !beep.has_server() {
         return;
     }
     let request = MirrorImport {
@@ -97,7 +97,7 @@ pub(crate) async fn mirror_import(beep: &Beep, imported: &ImportedProject) {
 /// Tells the server a project was removed. The caller hears if it did not: the project is gone
 /// from the mesh all the same.
 pub(crate) async fn mirror_remove(beep: &Beep, project: &str) -> Result<()> {
-    if beep.server().is_none() {
+    if !beep.has_server() {
         return Ok(());
     }
     let request = RemoveProject {

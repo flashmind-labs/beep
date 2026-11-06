@@ -491,7 +491,7 @@ impl BeepClient {
             cols: 80,
             rows: 24,
         };
-        let client = self.client().await?;
+        let client = self.client();
         let (input, output) =
             timed(CALL_TIMEOUT, "attach terminal", client.duplex(&request)).await?;
         Ok(Arc::new(TerminalConnection {

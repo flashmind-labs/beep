@@ -1,17 +1,15 @@
 use anyhow::{Context, Result, bail, ensure};
 use beep_server::{
-    client::{Client, Node, OnNotice},
     config::load_secret_key,
     protocol::{
-        CreateNodeToken, GetEvents, GetNodeToken, Health, ListCrons, ListMemories, ListProjectSync,
-        ListSessions, SetProjectSync, StreamNotifications, SyncStatus,
+        AppEvent, CreateNodeToken, GetEvents, GetNodeToken, Health, ListCrons, ListMemories,
+        ListProjectSync, ListSessions, SetProjectSync, SyncStatus, client::Client,
     },
 };
-use iroh::PublicKey;
-use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
+use std::{fmt::Debug, path::Path, time::Duration};
 
 const USAGE: &str =
-    "usage: beep-probe NODE_ID COMMAND [ARGS]; key file from BEEP_IDENTITY, made if missing
+    "usage: beep-probe SERVER_URL COMMAND [ARGS]; key file from BEEP_IDENTITY, made if missing
 
 commands:
   health | sessions | memories | crons | notifications
@@ -27,13 +25,7 @@ async fn main() -> Result<()> {
     ensure!(args.len() >= 2, USAGE);
     let identity = std::env::var_os("BEEP_IDENTITY").context("set BEEP_IDENTITY")?;
     let identity = load_secret_key(Some(Path::new(&identity)))?;
-    let node_id: PublicKey = args[0].parse().context("invalid node ID")?;
-    let on_notice: OnNotice = Arc::new(|notice| {
-        show(notice);
-        true
-    });
-    let node = Node::bind(identity, node_id, on_notice).await?;
-    let c = node.connect().await?;
+    let c = Client::new(&args[0], identity)?;
     let rest: Vec<&str> = args[2..].iter().map(String::as_str).collect();
     match (args[1].as_str(), rest.as_slice()) {
         ("health", []) => show(c.call(&Health {}).await?),
@@ -41,9 +33,11 @@ async fn main() -> Result<()> {
         ("memories", []) => show(c.call(&ListMemories {}).await?),
         ("crons", []) => show(c.call(&ListCrons {}).await?),
         ("notifications", []) => {
-            let mut notices = c.stream(&StreamNotifications {}).await?;
-            while let Some(notice) = notices.next().await? {
-                show(notice);
+            let mut events = c.events(None).await?;
+            while let Some(event) = events.next().await? {
+                if let AppEvent::Notice { notice, .. } = event {
+                    show(notice);
+                }
             }
         }
         ("events", [run_id]) => {

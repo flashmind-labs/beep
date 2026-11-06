@@ -430,7 +430,7 @@ cat > /dev/null
         };
         let offers = Offers::local(&[agent], Provision::new(dir.path()), false);
         let fleet = Arc::new(Fleet::new(bind().await, dir.path(), "Studio", offers));
-        fleet.run(None).await;
+        fleet.run().await;
         let (following, mut heard_from) = start(fleet.clone());
         let following = tokio::spawn(following);
 
