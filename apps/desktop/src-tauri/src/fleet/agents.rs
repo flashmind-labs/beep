@@ -21,7 +21,7 @@ use beep_proto::{
     GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage, HarnessEnv,
     HarnessSettings, HarnessSignIn, ListAgentModels, MachinePick, MachineSession,
     PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
-    image_key, media_mime,
+    agent_name, image_key, media_mime,
     node::{
         agent::{self, AgentCommand, Request, WorkPlace, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
@@ -342,10 +342,7 @@ pub(crate) async fn start(fleet: &Fleet, start: StartAgentSession) -> Result<Sta
     };
     let client = fleet.client(machine).await?;
     let opened = open_agent(&client, &agent, first).await.map_err(|e| {
-        DesktopError::BadRequest(format!(
-            "Could not start {}: {e:#}",
-            machine::agent_name(&agent)
-        ))
+        DesktopError::BadRequest(format!("Could not start {}: {e:#}", agent_name(&agent)))
     })?;
     Ok(started(&fleet.host_of(machine), opened.info, why))
 }
@@ -425,7 +422,7 @@ pub(crate) async fn resume(
         .map_err(|e| {
             DesktopError::BadRequest(format!(
                 "Could not resume the {} session: {e:#}",
-                machine::agent_name(&resume.agent)
+                agent_name(&resume.agent)
             ))
         })?;
     Ok(started(&fleet.host_of(machine), opened.info, String::new()))
@@ -506,7 +503,7 @@ pub(crate) async fn models(
         return Err(ApiError::bad_request(format!(
             "{} does not offer {}.",
             fleet.name_of(machine),
-            machine::agent_name(&list.agent)
+            agent_name(&list.agent)
         ))
         .into());
     }
@@ -693,7 +690,7 @@ pub(crate) async fn update_harness(
         .map_err(|e| {
             DesktopError::BadRequest(format!(
                 "Could not update {} on {}: {}",
-                machine::agent_name(agent),
+                agent_name(agent),
                 fleet.name_of(machine),
                 beep_proto::node::harness::clean_output(&format!("{e:#}"))
             ))
