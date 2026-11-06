@@ -50,6 +50,8 @@ pub(crate) enum CenterTarget {
     Ask {
         prompt: String,
     },
+    /// The Report a problem sheet, over the page on screen.
+    Report,
 }
 
 /// A coding agent's session to open, shaped as the window's Running now
@@ -201,6 +203,7 @@ mod tests {
         );
         assert_eq!(read(r#""terminals""#), Some(CenterTarget::Terminals));
         assert_eq!(read(r#""research""#), Some(CenterTarget::Research));
+        assert_eq!(read(r#""report""#), Some(CenterTarget::Report));
         let session = Uuid::new_v4();
         assert_eq!(
             read(&format!(r#"{{"open_research":{{"session":"{session}"}}}}"#)),
