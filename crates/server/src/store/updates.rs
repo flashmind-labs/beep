@@ -18,7 +18,7 @@ const TOMBSTONE_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// How often old tombstones are dropped.
 const PRUNE_EVERY: Duration = Duration::from_secs(60 * 60);
 
-/// Drops tombstones past `TOMBSTONE_KEEP`, and ended grants, once an hour.
+/// Drops tombstones past `TOMBSTONE_KEEP`, ended grants and old notices, once an hour.
 pub fn start_pruning(store: Store) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(PRUNE_EVERY);
@@ -33,6 +33,11 @@ pub fn start_pruning(store: Store) {
                 Ok(0) => {}
                 Ok(rows) => log::info!("pruned {rows} ended grant(s) and old grant uses"),
                 Err(error) => log::warn!("unable to prune grants: {error:#}"),
+            }
+            match store.prune_notices().await {
+                Ok(0) => {}
+                Ok(rows) => log::info!("pruned {rows} old notice(s)"),
+                Err(error) => log::warn!("unable to prune notices: {error:#}"),
             }
         }
     });
@@ -224,6 +229,11 @@ impl Store {
     /// Wakes the update streams of the users a committed write logged for.
     pub(super) fn announce(&self, bumped: &[Bumped]) {
         self.updates.announce(bumped);
+    }
+
+    /// Wakes the update streams here for a write another instance committed.
+    pub(crate) fn updated_elsewhere(&self, bumped: Bumped) {
+        self.updates.announce(&[bumped]);
     }
 
     /// `user`'s newest update id, now and as it moves.

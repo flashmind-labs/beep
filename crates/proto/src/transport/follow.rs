@@ -1,8 +1,9 @@
-//! Keeps an app's events stream open: reconnects when it drops and resumes
-//! after the last notice read.
+//! Keeps an app's events stream open: reconnects when it drops, resumes
+//! after the last notice read and acks the notices the app showed, so the
+//! server does not push them to the phone as well.
 
 use crate::{
-    AppEvent,
+    AckNotice, AppEvent,
     client::{Client, refusal},
 };
 use std::{
@@ -23,8 +24,9 @@ const BACKOFF: [Duration; 5] = [
     Duration::from_secs(30),
 ];
 
-/// Takes each event but heartbeats and `Resume`.
-pub type OnEvent = Arc<dyn Fn(AppEvent) + Send + Sync>;
+/// Takes each event but heartbeats and `Resume`. True for a notice the app
+/// showed, which acks it.
+pub type OnEvent = Arc<dyn Fn(AppEvent) -> bool + Send + Sync>;
 
 /// The task following `client`'s events. Dropping it stops the task.
 pub struct Follow {
@@ -87,10 +89,17 @@ async fn follow(client: Arc<Client>, on_event: OnEvent, shared: Arc<Shared>) {
                         Ok(Some(AppEvent::Heartbeat {})) => {}
                         Ok(Some(AppEvent::Resume { after: from })) => after = Some(from),
                         Ok(Some(event)) => {
-                            if let AppEvent::Notice { id, .. } = &event {
-                                after = Some(*id);
+                            let notice = match &event {
+                                AppEvent::Notice { id, .. } => Some(*id),
+                                _ => None,
+                            };
+                            let shown = on_event(event);
+                            if let Some(id) = notice {
+                                after = Some(id);
+                                if shown && let Err(e) = client.call(&AckNotice { id }).await {
+                                    log::debug!("acking notice {id} failed: {e:#}");
+                                }
                             }
-                            on_event(event);
                         }
                         Ok(None) => break,
                         Err(e) => {

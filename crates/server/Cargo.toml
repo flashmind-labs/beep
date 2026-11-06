@@ -14,9 +14,11 @@ pdf = ["dep:pulldown-cmark", "dep:mitex", "dep:typst", "dep:typst-layout", "dep:
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+# The apps' HTTP; TLS is the proxy's in front.
+axum = { version = "0.8", features = ["http2"] }
 base64 = "0.22"
 beep-mesh = { path = "../mesh" }
-beep-proto = { path = "../proto", features = ["logging"] }
+beep-proto = { path = "../proto", features = ["logging", "client"] }
 beep-projects = { path = "../projects" }
 blake3 = "1"
 bytes = "1"
@@ -44,7 +46,7 @@ sqlx-core = { version = "0.8.6", features = ["migrate"] }
 sqlx-postgres = { version = "0.8.6", features = ["chrono", "json", "migrate", "uuid"] }
 tokio = { version = "1", features = ["full"] }
 url = { version = "2", features = ["serde"] }
-tokio-util = { version = "0.7", features = ["codec", "rt"] }
+tokio-util = { version = "0.7", features = ["codec", "io", "rt"] }
 # Composio trigger events arrive over a Pusher websocket.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 toml = "1"

@@ -3,17 +3,16 @@
 mod feeds;
 mod routes;
 mod runs;
-use feeds::{
-    get_updates, health, hello, stock_chart, stream_notifications, stream_updates, suggest_prompts,
-};
+use feeds::{ack_notice, get_updates, health, stock_chart, suggest_prompts};
 pub use routes::router;
 use runs::{
     active_run, answer_approval, cancel_run, chat, check_images, device_result, get_events,
     get_run, list_active_runs, speak_notice,
 };
 
+mod auth;
+pub mod http;
 pub mod router;
-pub mod transport;
 
 use crate::{api::router::Cx, protocol::*};
 use chrono::{DateTime, Utc};
