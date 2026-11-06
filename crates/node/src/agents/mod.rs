@@ -86,8 +86,6 @@ use session::{Command, NodeMode, Session, Start};
 use spend::Spend;
 use usage::UsageHub;
 
-/// The most sessions running at once.
-const MAX_RUNNING: usize = 8;
 /// The most sessions kept, ended ones included; the oldest ended go first.
 const MAX_KEPT: usize = 64;
 /// The most transcript entries one request reads.

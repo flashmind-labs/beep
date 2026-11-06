@@ -567,42 +567,6 @@ async fn a_worktree_with_edits_since_the_patch_is_left_where_it_is() {
 }
 
 #[tokio::test]
-async fn a_node_with_no_room_refuses_before_it_writes_anything() {
-    use super::resume::{Arrival, Folders, How, resume};
-    let s = source_env().await;
-    for _ in 0..8 {
-        s.env
-            .agents
-            .start(
-                &kind(),
-                Some(&s.work.to_string_lossy()),
-                Begin {
-                    prompt: Some("first".into()),
-                    ..Begin::default()
-                },
-            )
-            .expect("a session starts");
-    }
-    let copy = s.work.join("copy.jsonl");
-    fs::write(&copy, "{}\n").expect("a copy");
-    let arrival = Arrival {
-        id: "s9",
-        mode: None,
-        from: s.env.mesh.me(),
-        how: How::Continued,
-    };
-    let folders = Folders {
-        old: s.work.clone(),
-        new: s.work.clone(),
-    };
-    let failed = resume(&s.env, &arrival, &kind(), &folders, "s9.jsonl".into(), copy)
-        .await
-        .expect_err("no room");
-    assert!(format!("{failed:#}").contains("already run"), "{failed:#}");
-    assert!(!s.env.roots.codex.exists() && !s.env.roots.claude.exists());
-}
-
-#[tokio::test]
 async fn a_worktree_left_by_a_crash_inside_attach_is_taken_back_when_clean() {
     use super::{saved::MadeWorktree, worktree::Placed};
     let s = source_env().await;

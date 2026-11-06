@@ -504,8 +504,7 @@ requests (`Tool::StartAgent` and friends, which an older node reads as
 
 - Depth at most 3 and at most 8 live agents per root, checked by the node
   that starts the child from the `ParentLink` the caller passes (depth,
-  root, `others` counted on earlier machines). A node runs 8 sessions at
-  most, so on one machine a root has 7 children.
+  root, `others` counted on earlier machines).
 - An agent reaches only its own children, by the same refusal for an id that
   is not its own as for one that does not exist. Only the user answers a
   child's permission questions. A child never runs above its parent's mode:
