@@ -15,7 +15,7 @@ import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usa
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
-import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub } from "./logview.ts";
+import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
@@ -106,8 +106,9 @@ export async function pollAgent() {
       const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
       // The older entries held stay while the newest are read again.
       AG.page = joinRuns(AG.page, page);
-      if (placed) drawAgentFrame();
-      else if (field && $("#agconv")) drawAgentFrame(true);
+      // The frame around the log is drawn again; the log itself stays.
+      if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));
+      else if (field && $("#agconv")) drawAgentFrame(true, $<ChatBody>("#agbody"));
       // What the last failed read said no longer holds.
       if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
       AG.readError = "";
@@ -273,8 +274,9 @@ function followsOnly(s: AgentRow) {
 
 /// The parts that stay while the session updates: the head, the body and the field.
 /// With `inPlace` only the head and the conversation are replaced, so the pane
-/// beside them, its terminals running, is not drawn again.
-export function drawAgentFrame(inPlace = false) {
+/// beside them, its terminals running, is not drawn again. `kept`, the log
+/// already drawn, goes back in as it is, where it was scrolled.
+export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const s = AG.page!.session, k = agentKind(s.agent);
   const field = followsOnly(s)
     ? `<div class="dmuted dblock dbanner">${canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here."}</div>`
@@ -283,6 +285,7 @@ export function drawAgentFrame(inPlace = false) {
   const project = windowHooks?.sessionProject?.(s);
   const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small id="aghere" title="${esc(s.cwd)}">${esc(placeSub(placeOf(s), s.machine_name) ?? s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
   const conv = `<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`;
+  const keptTop = kept?.scrollTop ?? 0;
   if (inPlace) {
     bar.querySelector(":scope > .dhead")!.outerHTML = head;
     $$("#agconv").outerHTML = conv;
@@ -304,9 +307,14 @@ export function drawAgentFrame(inPlace = false) {
   }
   drawAgentAttached();
   drawModelPill();
-  const b = $$<ChatBody>("#agbody");
-  b.stuck = true;
-  b.onscroll = () => { b.stuck = atBottom(b); syncJump(b); if (nearTop(b)) void loadOlder("near"); };
+  const b = kept ?? $$<ChatBody>("#agbody");
+  if (kept) {
+    $$("#agbody").replaceWith(kept);
+    kept.scrollTop = kept.stuck !== false ? kept.scrollHeight : keptTop;
+  } else {
+    b.stuck = true;
+    b.onscroll = () => { b.stuck = atBottom(b); scrolledLog(b); syncJump(b); if (nearTop(b)) void loadOlder("near"); };
+  }
   drawAgentBody();
   $("#agmsg")?.focus();
   bar.onclick = agentClick;

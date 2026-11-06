@@ -884,6 +884,12 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dhints.slim { padding: 2px 16px 6px; border-top: 0; background: none; font-size: 11px; color: var(--dim); gap: 4px 12px }
 .dhints.slim kbd { font-size: 10.5px }
 .dcoderlog { display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 21px }
+/* A session's log draws only the turns near the view, one .agturn each,
+   and spacers for the rest (logwindow.ts), which keeps the view in place itself. */
+#agbody { overflow-anchor: none }
+.agturn { display: flex; flex-direction: column; gap: 12px; min-width: 0 }
+.agturn[hidden], .agspace[hidden] { display: none }
+.agspace { flex: none }
 .dcoderen { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
 .dcoderen.user { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); font-size: 13.5px; line-height: 20px }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
