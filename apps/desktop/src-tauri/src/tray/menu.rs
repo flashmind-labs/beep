@@ -124,17 +124,17 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     }
     if SERVER_ENABLED && !linked {
         let title = if beep.signed_out() {
-            "Sign in…"
+            "Sign in"
         } else {
-            "Subscription…"
+            "Subscription"
         };
         item("link", title, true, None)?;
     }
-    item(REPORT, "Report a Problem…", true, None)?;
-    item("settings", "Settings…", true, Some("cmd+,"))?;
+    item(REPORT, "Report a Problem", true, None)?;
+    item("settings", "Settings", true, Some("cmd+,"))?;
     match update::ready(app) {
         Some(_) => item("restart-update", "Restart to Update Beep", true, None)?,
-        None => item("check-update", "Check for Updates…", true, None)?,
+        None => item("check-update", "Check for Updates", true, None)?,
     }
     item("show-logs", "Show Logs", true, None)?;
     separator()?;
