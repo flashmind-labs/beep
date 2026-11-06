@@ -9,7 +9,10 @@
 //! Prompts from before the tags hold the brief bare; `bare_block` and
 //! `untagged` find it by the strings Beep wrote then.
 
-use super::{checkout::WORKTREE_BRIEF, cut, mcp};
+use super::{
+    checkout::{WORKTREE_BRIEF, WORKTREE_BRIEF_BEFORE},
+    cut, mcp,
+};
 
 const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
@@ -183,7 +186,7 @@ pub(crate) fn untagged(text: &str) -> String {
     if !is_bare(trimmed) {
         return text.to_owned();
     }
-    for end in [mcp::BRIEF, WORKTREE_BRIEF] {
+    for end in [mcp::BRIEF, WORKTREE_BRIEF, WORKTREE_BRIEF_BEFORE] {
         if let Some(at) = trimmed.rfind(end) {
             let (brief, rest) = trimmed.split_at(at + end.len());
             return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
