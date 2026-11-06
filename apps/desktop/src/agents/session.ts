@@ -7,7 +7,7 @@ import { hints } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneFrame, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
-import { atBottom } from "./logscroll.ts";
+import { atBottom, followsAfterScroll } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
@@ -314,7 +314,20 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     kept.scrollTop = kept.stuck !== false ? kept.scrollHeight : keptTop;
   } else {
     b.stuck = true;
-    b.onscroll = () => { b.stuck = atBottom(b); scrolledLog(b); syncJump(b); if (nearTop(b)) void loadOlder("near"); };
+    // Once a frame, whatever the scroll events: a move up lets go of the end
+    // at once, and a wheel turning holds off pins to the end (`pinEnd`).
+    let frame = 0, top = b.scrollTop;
+    b.onscroll = () => {
+      frame ||= requestAnimationFrame(() => {
+        frame = 0;
+        b.stuck = followsAfterScroll(b.stuck !== false, top, b);
+        scrolledLog(b);
+        top = b.scrollTop;
+        syncJump(b);
+        if (nearTop(b)) void loadOlder("near");
+      });
+    };
+    b.addEventListener("wheel", () => { b.wheel = performance.now(); }, { passive: true });
   }
   drawAgentBody();
   $("#agmsg")?.focus();
