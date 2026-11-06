@@ -1,18 +1,20 @@
-//! The watch itself: one task per node that owns everything it knows. Each
-//! minute it asks the other machines how they reach the hosts, elects the
-//! watcher of every pinned project and lists the runs of those it holds.
+//! The watch itself: one task per node that owns everything it knows. It
+//! elects the watcher of every pinned project each minute and lists the
+//! runs of those it holds: every minute while a run goes or after a push
+//! from a checkout here, every `QUIET` otherwise. The other machines are
+//! asked how they reach the hosts every `QUIET`, and when one comes or goes.
 //! A mesh change elects again. Going runs are waited on by at most
 //! `MAX_WAITS` CLI processes at once, owned here and killed when the role
 //! moves away or the node stops.
 
 use super::{
     Ci,
-    book::Books,
+    book::{self, Books},
     elect::elect,
     forge::{Cli, Forge, Target},
     projects::{self, Project},
 };
-use crate::agents::mcp::over_the_mesh;
+use crate::agents::{mcp::over_the_mesh, project_folder};
 use anyhow::{Result, anyhow, bail};
 use beep_mesh::Mesh;
 use beep_proto::{
@@ -26,20 +28,26 @@ use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+    fs,
     future::Future,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::{
     select,
     sync::watch,
-    task::{AbortHandle, Id, JoinError, JoinSet},
-    time::{MissedTickBehavior, interval, timeout},
+    task::{AbortHandle, Id, JoinError, JoinSet, spawn_blocking},
+    time::{Instant, MissedTickBehavior, interval, timeout},
 };
 
-/// How often the runs are listed, and the machines asked.
+/// How often a busy project's runs are listed: one with a run going, or
+/// pushed to within `BUSY`.
 pub(super) const POLL: Duration = Duration::from_secs(60);
+/// How often a quiet project's runs are listed, and the machines asked.
+pub(super) const QUIET: Duration = Duration::from_secs(10 * 60);
+/// How long a project stays busy after a push.
+const BUSY: Duration = Duration::from_secs(10 * 60);
 /// How long a list, a read or a login may take, on top of the CLI's own limit.
 const CALL_LIMIT: Duration = Duration::from_secs(45);
 /// How long another machine has to say how it reaches the hosts.
@@ -63,6 +71,9 @@ pub(super) trait World: Send + Sync + 'static {
     fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send;
     /// Waits for the mesh to change; false once it is gone.
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
+    /// When this machine's checkout of `project` last moved a remote's ref,
+    /// as a push does; `None` with no checkout here or no such ref.
+    fn pushed(&self, project: &Project) -> impl Future<Output = Option<SystemTime>> + Send;
 }
 
 /// Watches while the node is in `mesh`, keeping its file in `dir`.
@@ -128,15 +139,26 @@ pub(super) struct Watcher<F, W> {
     queued: VecDeque<RunKey>,
     /// The last read of each run waited on or queued.
     last: HashMap<RunKey, WorkflowRun>,
+    /// When the machines were last asked, and which were online then.
+    asked: Option<(Instant, BTreeSet<EndpointId>)>,
+    /// When each held project is listed next.
+    next: HashMap<String, Instant>,
+    /// Each project's last push seen here, and until when it is busy.
+    pushes: HashMap<String, SystemTime>,
+    busy_until: HashMap<String, Instant>,
+    /// The file's bytes as last written or read.
+    saved: Option<Vec<u8>>,
 }
 
 impl<F: Forge, W: World> Watcher<F, W> {
     pub(super) async fn start(forge: F, world: W, ci: Arc<Ci>, file: PathBuf) -> Self {
+        let books = Books::load(&file).await;
         Self {
             forge: Arc::new(forge),
             world,
             ci,
-            books: Books::load(&file).await,
+            saved: books.encode().ok(),
+            books,
             file,
             logins: HashMap::new(),
             peers: BTreeMap::new(),
@@ -147,6 +169,10 @@ impl<F: Forge, W: World> Watcher<F, W> {
             tasks: HashMap::new(),
             queued: VecDeque::new(),
             last: HashMap::new(),
+            asked: None,
+            next: HashMap::new(),
+            pushes: HashMap::new(),
+            busy_until: HashMap::new(),
         }
     }
 
@@ -156,13 +182,24 @@ impl<F: Forge, W: World> Watcher<F, W> {
         loop {
             select! {
                 _ = tick.tick() => {
-                    self.ask_peers().await;
+                    let due = self
+                        .asked
+                        .as_ref()
+                        .is_none_or(|(at, _)| at.elapsed() >= QUIET);
+                    if due {
+                        self.ask_peers().await;
+                    }
                     self.elect();
                     self.list_due().await;
                 }
                 alive = self.world.changed() => {
                     if !alive {
                         return;
+                    }
+                    // A machine came or went: its reach decides the watcher.
+                    let online = self.world.online();
+                    if self.asked.as_ref().is_some_and(|(_, then)| *then != online) {
+                        self.ask_peers().await;
                     }
                     for project in self.elect() {
                         self.list(&project).await;
@@ -187,6 +224,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .flat_map(|project| project.machines.iter().copied())
             .filter(|machine| *machine != me && online.contains(machine))
             .collect();
+        self.asked = Some((Instant::now(), online));
         let world = &self.world;
         let answers = join_all(asked.into_iter().map(|peer| async move {
             let said = match timeout(ASK_LIMIT, world.ask(peer)).await {
@@ -246,14 +284,29 @@ impl<F: Forge, W: World> Watcher<F, W> {
         self.held = held;
         let pinned: BTreeSet<&str> = self.projects.iter().map(|p| p.name.as_str()).collect();
         self.books.retain(|name| pinned.contains(name));
+        let held = &self.held;
+        self.next.retain(|name, _| held.contains(name));
+        self.pushes.retain(|name, _| pinned.contains(name.as_str()));
+        self.busy_until.retain(|name, _| held.contains(name));
         gained
     }
 
-    /// Lists every held project.
+    /// Lists every held project that is due: busy ones every `POLL`, the
+    /// others every `QUIET`. A push seen here makes a project busy and due.
     async fn list_due(&mut self) {
-        let due: Vec<Project> = self.held_projects().collect();
-        for project in due {
-            self.list(&project).await;
+        let now = Instant::now();
+        let held: Vec<Project> = self.held_projects().collect();
+        for project in held {
+            if let Some(at) = self.world.pushed(&project).await {
+                let before = self.pushes.insert(project.name.clone(), at);
+                if before.is_some_and(|before| before != at) {
+                    self.busy_until.insert(project.name.clone(), now + BUSY);
+                    self.next.remove(&project.name);
+                }
+            }
+            if self.next.get(&project.name).is_none_or(|next| now >= *next) {
+                self.list(&project).await;
+            }
         }
     }
 
@@ -287,6 +340,15 @@ impl<F: Forge, W: World> Watcher<F, W> {
         };
         self.ci.record_reach(&host, true);
         self.logins.insert(host, login.clone());
+        let going = runs.iter().any(|run| run.state.going());
+        let busy = going
+            || self
+                .busy_until
+                .get(&project.name)
+                .is_some_and(|until| Instant::now() < *until);
+        let wait = if busy { POLL } else { QUIET };
+        self.next
+            .insert(project.name.clone(), Instant::now() + wait);
         let seen = self
             .books
             .listed(&project.name, &runs, &login, SystemTime::now());
@@ -425,9 +487,21 @@ impl<F: Forge, W: World> Watcher<F, W> {
         }
     }
 
-    async fn save(&self) {
-        if let Err(e) = self.books.save(&self.file).await {
-            log::warn!("CI watch: {e:#}");
+    /// Writes the file when what it holds changed.
+    async fn save(&mut self) {
+        let bytes = match self.books.encode() {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!("CI watch: {e:#}");
+                return;
+            }
+        };
+        if self.saved.as_ref() == Some(&bytes) {
+            return;
+        }
+        match book::write(&self.file, &bytes).await {
+            Ok(()) => self.saved = Some(bytes),
+            Err(e) => log::warn!("CI watch: {e:#}"),
         }
     }
 }
@@ -485,4 +559,38 @@ impl World for MeshWorld {
     async fn changed(&mut self) -> bool {
         self.updates.changed().await.is_ok()
     }
+
+    async fn pushed(&self, project: &Project) -> Option<SystemTime> {
+        let folder = project_folder(&self.mesh, &project.name, &self.me)?;
+        spawn_blocking(move || remote_refs_changed(Path::new(&folder)))
+            .await
+            .ok()
+            .flatten()
+    }
+}
+
+/// When a remote's ref in the checkout at `folder` last moved: a push (or a
+/// fetch) writes them. A few file times, no git. `None` for a linked
+/// worktree, whose refs live in another folder.
+fn remote_refs_changed(folder: &Path) -> Option<SystemTime> {
+    let git = folder.join(".git");
+    let modified = |path: &Path| fs::metadata(path).and_then(|meta| meta.modified()).ok();
+    let mut newest = modified(&git.join("packed-refs"));
+    let mut dirs = vec![git.join("refs/remotes")];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                dirs.push(entry.path());
+            } else if let Some(at) = modified(&entry.path()) {
+                newest = newest.max(Some(at));
+            }
+        }
+    }
+    newest
 }

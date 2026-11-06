@@ -65,17 +65,9 @@ impl Books {
             })
     }
 
-    /// Writes the file, through a partial one so a reader never sees half.
-    pub(super) async fn save(&self, path: &Path) -> anyhow::Result<()> {
-        let bytes = serde_json::to_vec(self)?;
-        let mut partial: PathBuf = path.to_owned();
-        partial.as_mut_os_string().push(".part");
-        tokio::fs::write(&partial, &bytes)
-            .await
-            .with_context(|| format!("writing {}", partial.display()))?;
-        tokio::fs::rename(&partial, path)
-            .await
-            .with_context(|| format!("replacing {}", path.display()))
+    /// The file's bytes.
+    pub(super) fn encode(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
     }
 
     /// Takes the newest runs of `project`, as listed at `now`, and says
@@ -129,6 +121,19 @@ impl Books {
     pub(super) fn retain(&mut self, keep: impl Fn(&str) -> bool) {
         self.projects.retain(|name, _| keep(name));
     }
+}
+
+/// Writes `bytes` at `path`, through a partial file so a reader never sees
+/// half.
+pub(super) async fn write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let mut partial: PathBuf = path.to_owned();
+    partial.as_mut_os_string().push(".part");
+    tokio::fs::write(&partial, bytes)
+        .await
+        .with_context(|| format!("writing {}", partial.display()))?;
+    tokio::fs::rename(&partial, path)
+        .await
+        .with_context(|| format!("replacing {}", path.display()))
 }
 
 /// Whether a run that ended at `at` ended lately. A host clock ahead of
