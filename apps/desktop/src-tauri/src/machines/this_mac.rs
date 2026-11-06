@@ -267,7 +267,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_mac_with_no_server_offers_no_memory_tools() {
+    fn a_mac_knows_whether_it_has_a_server() {
         let dir = std::env::temp_dir().join(format!("beep-this-mac-{}", std::process::id()));
         assert!(!Machine::new(&dir, false).offers().has_server());
         assert!(Machine::new(&dir, true).offers().has_server());

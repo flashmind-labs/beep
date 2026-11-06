@@ -1,6 +1,5 @@
 //! The Beep MCP server's tools (`tools/1`), called by node agents one stream per call.
-//! `send_files` acts, so under ask first it answers `Reply::Ask`. The memory tools
-//! do not ask: they only touch the caller's own memories.
+//! `send_files` acts, so under ask first it answers `Reply::Ask`.
 
 use super::{
     Machines, Need, command_name, copy, exec::ExecTool, log::MachineLogTool, process::ProcessTool,
@@ -15,7 +14,6 @@ use crate::{
         sync::{ProjectStatus, State as SyncState},
         tools::{Approved, Field, PROTOCOL, Reply, Request, Tool as Call},
     },
-    tools::agent_memory,
 };
 use anyhow::{Context, Result};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
@@ -41,6 +39,9 @@ const SYNC_WAIT: Duration = Duration::from_secs(90);
 const SYNC_POLL: Duration = Duration::from_secs(1);
 /// The most paths one `send_files` takes.
 const MAX_SEND: usize = 20;
+
+/// What a coding agent hears for a memory tool: memories are the assistant's.
+const NO_MEMORIES: &str = "Coding agents have no memories.";
 
 /// Serves one `tools/1` stream the node `caller` opened.
 pub(crate) async fn serve(calls: Calls, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
@@ -90,7 +91,7 @@ impl Calls {
             request.session,
             request.tool
         );
-        done(self.run(request.tool, &request.session, args).await)
+        done(self.run(request.tool, args).await)
     }
 
     /// The name of the desktop a call's `machine` names, if it is one.
@@ -168,9 +169,7 @@ impl Calls {
         }
     }
 
-    async fn run(&self, tool: Call, session: &str, args: Value) -> Outcome {
-        let user = &self.machines.user;
-        let memory = |outcome: Result<String>| outcome.map_err(|e| format!("{e:#}"));
+    async fn run(&self, tool: Call, args: Value) -> Outcome {
         match tool {
             Call::ListMachines => self.list_machines().await,
             Call::RunOn => self.run_on(parse(args)?).await,
@@ -179,11 +178,12 @@ impl Calls {
             Call::JobStatus => self.job(parse::<JobArgs>(args)?.id, false).await,
             Call::Cancel => self.job(parse::<JobArgs>(args)?.id, true).await,
             Call::MachineLog => self.machine_log(parse(args)?).await,
-            Call::Remember => memory(agent_memory::remember(user, session, &args).await),
-            Call::Recall => memory(agent_memory::recall(user, &args).await),
-            Call::UpdateMemory => memory(agent_memory::update(user, session, &args).await),
-            Call::Forget => memory(agent_memory::forget(user, &args).await),
-            Call::StandingRules => memory(agent_memory::standing_rules(user).await),
+            // An older node may still send these.
+            Call::Remember
+            | Call::Recall
+            | Call::UpdateMemory
+            | Call::Forget
+            | Call::StandingRules => Err(NO_MEMORIES.into()),
             // The nodes answer these between themselves; a node never sends them here.
             Call::StartAgent
             | Call::AgentStatus
@@ -652,11 +652,7 @@ fn sync_line(status: &ProjectStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        memory::watchers::testing::{Harness, Scripted},
-        protocol::MemorySource,
-        store::{Fact, Scope, Validity},
-    };
+    use crate::memory::watchers::testing::{Harness, Scripted};
 
     fn calls(harness: &Harness) -> Calls {
         calls_from(harness, "unknown")
@@ -840,103 +836,30 @@ mod tests {
         }
     }
 
-    fn memory_call(tool: Call, args: Value) -> Request {
-        request(tool, args, Approved::No)
-    }
-
-    #[track_caller]
-    fn text_of(reply: Reply) -> String {
-        match reply {
-            Reply::Done {
-                text,
-                failed: false,
-            } => text,
-            other => panic!("the call failed: {other:?}"),
-        }
-    }
-
-    /// A rule from the user, or a memory from elsewhere, as the store keeps it.
-    fn stated<'a>(content: &'a str, category: &'static str, source: MemorySource) -> Fact<'a> {
-        Fact {
-            content,
-            category: Some(category),
-            source,
-            valid: None,
-            origin: None,
-            scope: None,
-        }
-    }
-
     #[tokio::test]
-    async fn a_node_agent_remembers_and_recalls_through_the_server() {
+    async fn an_older_nodes_memory_calls_are_refused() {
         let harness = Harness::new(Scripted::default()).await;
-        let offers = beep_node::link::Offers::default();
-        let upstream = offers.tools.clone();
-        let (_key, router, served) = linked_node(&harness, offers).await;
-        let rule = "Always use the render box for Blender.";
-        let args = json!({ "content": rule });
-        let saved = timeout(Duration::from_secs(20), async {
-            // The node takes calls once its link is up.
-            loop {
-                let call = memory_call(Call::Remember, args.clone());
-                match upstream.call(&call).await {
-                    Ok(reply) => break reply,
-                    Err(_) => tokio::task::yield_now().await,
-                }
-            }
-        })
-        .await
-        .expect("the node linked");
-        assert!(text_of(saved).starts_with("Remembered"));
-
-        // It is on the Memories page, and said by the user.
-        let page = harness.alice.list_memories().await.expect("memories");
-        assert_eq!(page.len(), 1);
-        assert_eq!(page[0].content, rule);
-        assert_eq!(page[0].source, MemorySource::User {});
-        let id = page[0].id.clone();
-        let again = upstream
-            .call(&memory_call(Call::Remember, args))
-            .await
-            .expect("the server answers");
-        assert!(text_of(again).starts_with("Already"));
-
-        let call = memory_call(Call::Recall, json!({ "query": "Blender" }));
-        let found = text_of(upstream.call(&call).await.expect("the server answers"));
-        assert!(found.contains(rule) && found.contains(&id), "{found}");
-        let rules = upstream.standing_rules("a3f9c1").await;
-        assert!(rules.is_some_and(|rules| rules.contains(rule)));
-
-        // Another user has none of it.
-        let bob = Calls {
-            machines: Machines {
-                app: harness.app.clone(),
-                user: harness.bob.clone(),
-            },
-            caller: "unknown".into(),
-        };
-        let theirs = bob
-            .answer(&memory_call(Call::Recall, json!({ "query": "Blender" })))
-            .await;
-        assert_eq!(text_of(theirs), "No memories found.");
-        let theirs = bob
-            .answer(&memory_call(Call::StandingRules, json!({})))
-            .await;
-        assert_eq!(text_of(theirs), "");
-        let theirs = bob
-            .answer(&memory_call(Call::Forget, json!({ "id": id })))
-            .await;
-        assert!(matches!(theirs, Reply::Done { failed: true, .. }));
-
-        // A wrong memory can be put right; it stays a rule. Then it can go.
-        let fixed = "Always use the other box for Blender.";
-        let call = memory_call(Call::UpdateMemory, json!({ "id": id, "content": fixed }));
-        text_of(upstream.call(&call).await.expect("the server answers"));
-        let rules = upstream.standing_rules("a3f9c1").await;
-        assert!(rules.is_some_and(|rules| rules.contains(fixed)));
-        let call = memory_call(Call::Forget, json!({ "id": id }));
-        text_of(upstream.call(&call).await.expect("the server answers"));
-        assert_eq!(upstream.standing_rules("a3f9c1").await, None);
+        let content = "Always use the render box for Blender.";
+        for tool in [
+            Call::Remember,
+            Call::Recall,
+            Call::UpdateMemory,
+            Call::Forget,
+            Call::StandingRules,
+        ] {
+            let args = json!({ "content": content, "query": "", "id": "m1" });
+            let reply = calls(&harness)
+                .answer(&request(tool, args, Approved::No))
+                .await;
+            assert_eq!(
+                reply,
+                Reply::Done {
+                    text: NO_MEMORIES.into(),
+                    failed: true
+                },
+                "{tool:?}"
+            );
+        }
         assert!(
             harness
                 .alice
@@ -945,99 +868,6 @@ mod tests {
                 .expect("memories")
                 .is_empty()
         );
-
-        served.abort();
-        router.shutdown().await.expect("the router stops");
-    }
-
-    #[tokio::test]
-    async fn standing_rules_are_capped_and_hold_only_what_the_user_stated() {
-        let harness = Harness::new(Scripted::default()).await;
-        let alice = &harness.alice;
-        let add = |content: String, category, source| async move {
-            let fact = stated(&content, category, source);
-            alice.add_memory(fact).await.expect("it is stored");
-        };
-        let user = MemorySource::User {};
-        add(
-            "Mail secret: the deal closes Friday.".into(),
-            "preference",
-            MemorySource::Email {},
-        )
-        .await;
-        add(
-            "Slack secret: the team moves.".into(),
-            "preference",
-            MemorySource::Slack {},
-        )
-        .await;
-        add(
-            "Learned: likes small commits.".into(),
-            "preference",
-            MemorySource::Learned {},
-        )
-        .await;
-        add("Lives at the old mill.".into(), "place", user).await;
-        add("Long rule: ".repeat(40), "preference", user).await;
-        let mut trip = stated("Is away this week.", "preference", user);
-        trip.valid = Some(Validity {
-            from: None,
-            until: chrono::NaiveDate::from_ymd_opt(2099, 1, 1),
-        });
-        alice.add_memory(trip).await.expect("it is stored");
-        let mut scoped = stated("Build this project with just.", "preference", user);
-        scoped.scope = Some(Scope::project("sample").expect("a project scope"));
-        alice.add_memory(scoped).await.expect("it is stored");
-
-        let call = memory_call(Call::StandingRules, json!({}));
-        let few = text_of(calls(&harness).answer(&call).await);
-        assert_eq!(few.lines().count(), 2, "{few}");
-        assert!(
-            few.contains("- [project:sample] Build this project with just."),
-            "{few}"
-        );
-
-        // Recall holds the same line on mail and Slack.
-        let recall = memory_call(Call::Recall, json!({ "query": "" }));
-        let found = text_of(calls(&harness).answer(&recall).await);
-        assert!(found.contains("Learned: likes"), "{found}");
-        assert!(!found.contains("secret"), "{found}");
-        // What an agent cannot see, it cannot change.
-        let rows = alice.memory_rows().await.expect("memories");
-        let mail = rows
-            .iter()
-            .find(|row| row.source == MemorySource::Email {})
-            .expect("the mail memory");
-        let forget = memory_call(Call::Forget, json!({ "id": mail.id }));
-        assert!(matches!(
-            calls(&harness).answer(&forget).await,
-            Reply::Done { failed: true, .. }
-        ));
-
-        for at in 0..20 {
-            add(
-                format!("Rule number {at} of many, which all want to go first."),
-                "preference",
-                user,
-            )
-            .await;
-        }
-        let many = text_of(calls(&harness).answer(&call).await);
-        // The header and at most twelve rules, those about the user ahead of a project's.
-        assert_eq!(many.lines().count(), 13, "{many}");
-        assert!(!many.contains("[project:sample]"), "{many}");
-
-        // Longer rules run into the limit in bytes first.
-        for at in 0..20 {
-            let rule = format!("Rule {at} {}", "of some length ".repeat(14));
-            let fact = stated(&rule, "preference", user);
-            harness.bob.add_memory(fact).await.expect("it is stored");
-        }
-        let long = agent_memory::standing_rules(&harness.bob)
-            .await
-            .expect("the rules read");
-        assert!(long.len() <= 1500, "{}", long.len());
-        assert!((2..13).contains(&long.lines().count()), "{long}");
     }
 
     #[tokio::test]
@@ -1045,7 +875,7 @@ mod tests {
         // A newer tool reads as `Unknown`, by the test in `beep_proto::node::tools`.
         let harness = Harness::new(Scripted::default()).await;
         let reply = calls(&harness)
-            .answer(&memory_call(Call::Unknown, json!({})))
+            .answer(&request(Call::Unknown, json!({}), Approved::No))
             .await;
         assert!(
             matches!(&reply, Reply::Done { failed: true, text } if text.contains("needs an update")),

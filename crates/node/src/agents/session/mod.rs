@@ -10,7 +10,6 @@ use super::{
     images::Images,
     known,
     live::Live,
-    mcp::Upstream,
     route, unix_now,
     usage::UsageHub,
 };
@@ -182,8 +181,6 @@ pub(super) struct Start<'a> {
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
-    /// Where to read the user's standing rules, which join the brief.
-    pub(super) rules: Option<Upstream>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -250,19 +247,14 @@ impl Session {
             note,
             brief,
             mcp,
-            rules,
             images,
             usage,
             alerts,
             node,
         } = start;
-        let memory =
-            crate::agents::mcp::MEMORY_TOOLS && rules.as_ref().is_none_or(Upstream::has_server);
         let brief = match (brief, &mcp) {
-            (Some(brief), Some(_)) => {
-                Some(format!("{brief}\n\n{}", crate::agents::mcp::brief(memory)))
-            }
-            (None, Some(_)) => Some(crate::agents::mcp::brief(memory)),
+            (Some(brief), Some(_)) => Some(format!("{brief}\n\n{}", crate::agents::mcp::BRIEF)),
+            (None, Some(_)) => Some(crate::agents::mcp::BRIEF.to_owned()),
             (brief, None) => brief.map(Cow::into_owned),
         };
         // Only a new session takes a model and thinking level; a resumed
@@ -323,7 +315,6 @@ impl Session {
             node_stopping: node.stopping,
             holding: node.holding,
             moving: false,
-            session: id.clone(),
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
             acp_session: None,
@@ -336,7 +327,6 @@ impl Session {
             stop_within,
             running: HashSet::new(),
             brief,
-            rules,
             mcp_servers: mcp.into_iter().collect(),
             resume,
             model,
