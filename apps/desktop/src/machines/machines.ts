@@ -14,6 +14,8 @@ import { bytes, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { clockWarning, loadClocks } from "./clock.ts";
+import { openSignIn } from "./signin.ts";
+import { signInOffer } from "./signin-state.ts";
 
 // ---------- Machines ----------
 
@@ -437,9 +439,12 @@ function machinePage(m: Machine) {
   if (env?.logins.length) {
     const rows = env.logins.map(l => {
       const who = l.signed_in ? esc(l.account ?? "Signed in") : '<span class="dtag ask">Not signed in</span>';
-      return `<tr><td class="dmono">${esc(l.tool)}</td><td>${who}</td></tr>`;
+      const offer = l.signed_in ? null : signInOffer(l.tool, m.name, m.online, m.id === MC.mac);
+      const act = !offer ? "" : "how" in offer ? `<small class="dmuted">${esc(offer.how)}</small>`
+        : `<button class="dbtn small" data-signin="${esc(l.tool)}">Sign in</button>`;
+      return `<tr><td class="dmono">${esc(l.tool)}</td><td>${who}</td><td style="text-align:right">${act}</td></tr>`;
     }).join("");
-    html += `<div class="dset-h">Sign-ins</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th></tr></thead><tbody>${rows}</tbody></table>`;
+    html += `<div class="dset-h">Sign-ins</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   if (env?.tools.length) {
     const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
@@ -522,6 +527,9 @@ function drawMachines() {
   el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
   if (open) {
+    for (const b of el.querySelectorAll<HTMLElement>("[data-signin]")) b.addEventListener("click", () => openSignIn(open, b.dataset.signin!, () => {
+      if (shown()) void renderMachines(open.id).then(() => hosted()?.changed());
+    }));
     el.querySelector("#mcLog")?.addEventListener("click", () => { void readLog(open.id); });
     el.querySelector<HTMLElement>("#mcLogCopy")?.addEventListener("click", e => { void copy(log?.text ?? "", e.currentTarget as HTMLElement); });
     el.querySelector("#mcLogSave")?.addEventListener("click", () => { void saveLog(open); });

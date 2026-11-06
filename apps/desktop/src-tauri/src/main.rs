@@ -323,6 +323,7 @@ fn main() {
             machines::terminals::terminals_list,
             machines::tools::tool_updates,
             machines::tools::update_machine_tool,
+            machines::sign_in::machine_sign_in,
             notices::work::answer_work,
             notices::work::list_questions,
             palette::index::center_find_text,
