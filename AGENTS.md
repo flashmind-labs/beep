@@ -194,8 +194,10 @@ Only a desktop reads another machine's report (a node is refused); `beep-node re
 The app that collects them redacts secrets, zips the answers and posts them, signed, to
 `POST /v1/reports` on the server's `http_listen`, which replies with a reference `R-<id>`.
 It takes 8 reports at once (more get 503), counts at most 10,000 keys a day, and
-trusts `CF-Connecting-IP` only from a peer on this machine (a Tunnel) or in
-Cloudflare's ranges (`CLOUDFLARE_V4`/`V6` in `reports/route.rs`).
+trusts `CF-Connecting-IP` only from a loopback, private or link-local peer (a
+Tunnel's `cloudflared`, here or on the compose bridge) or Cloudflare's ranges
+(`CLOUDFLARE_V4`/`V6` in `reports/route.rs`). Node and desktop builds take the
+server from the `BEEP_SERVER_URL` repository variable.
 
 The server stores `reports/<mesh>/<id>.zip` and `<id>.json` (the manifest) in
 the private R2 bucket in `[reports.r2]` of its config. `just reports` lists

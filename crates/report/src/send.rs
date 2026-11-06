@@ -35,7 +35,10 @@ pub fn server_url() -> Result<Url, SendError> {
     let url = match env::var("BEEP_REPORT_URL") {
         Ok(url) => url,
         Err(VarError::NotPresent) => {
-            option_env!("BEEP_SERVER_URL").map_or_else(default_server, str::to_owned)
+            // A build without the variable, or with it empty, leaves the default.
+            option_env!("BEEP_SERVER_URL")
+                .filter(|url| !url.is_empty())
+                .map_or_else(default_server, str::to_owned)
         }
         Err(e) => return Err(SendError::Url(e.to_string())),
     };

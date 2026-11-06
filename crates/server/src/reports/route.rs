@@ -37,7 +37,8 @@ const CLIENT_IP_HEADER: &str = "cf-connecting-ip";
 const MAX_UPLOADS: usize = 8;
 
 /// Cloudflare's published ranges (https://www.cloudflare.com/ips/): only a
-/// peer in one of them, or on this machine (a Tunnel), names the client.
+/// peer in one of them, or on this machine or a private network (a Tunnel's
+/// `cloudflared`, here or in a container beside the server), names the client.
 const CLOUDFLARE_V4: [(Ipv4Addr, u8); 15] = [
     (Ipv4Addr::new(173, 245, 48, 0), 20),
     (Ipv4Addr::new(103, 21, 244, 0), 22),
@@ -204,8 +205,8 @@ async fn keep(store: &ReportStore, manifest: &Manifest, body: Bytes) -> Result<S
     Ok(id)
 }
 
-/// Cloudflare's `CF-Connecting-IP` when the peer is Cloudflare or this
-/// machine and the header reads, else the peer's address.
+/// Cloudflare's `CF-Connecting-IP` when the peer is Cloudflare, this machine
+/// or a private network and the header reads, else the peer's address.
 fn client_ip(headers: &HeaderMap, peer: Option<IpAddr>) -> Option<IpAddr> {
     if !peer.is_some_and(from_cloudflare) {
         return peer;
@@ -217,11 +218,14 @@ fn client_ip(headers: &HeaderMap, peer: Option<IpAddr>) -> Option<IpAddr> {
         .or(peer)
 }
 
-/// A Tunnel's `cloudflared` on this machine, or Cloudflare's own edge.
+/// A Tunnel's `cloudflared` on this machine or a private network (a compose
+/// bridge), or Cloudflare's own edge.
 fn from_cloudflare(peer: IpAddr) -> bool {
     match peer.to_canonical() {
         IpAddr::V4(ip) => {
             ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
                 || CLOUDFLARE_V4.iter().any(|&(net, bits)| {
                     let mask = u32::MAX << (32 - u32::from(bits));
                     u32::from(ip) & mask == u32::from(net)
@@ -229,6 +233,8 @@ fn from_cloudflare(peer: IpAddr) -> bool {
         }
         IpAddr::V6(ip) => {
             ip.is_loopback()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
                 || CLOUDFLARE_V6.iter().any(|&(net, bits)| {
                     let mask = u128::MAX << (128 - u32::from(bits));
                     u128::from(ip) & mask == u128::from(net)
@@ -280,11 +286,18 @@ mod tests {
 
     #[test]
     fn the_header_names_the_client_only_from_cloudflare_or_a_tunnel() {
+        // 172.18.0.5 is cloudflared in a container on the compose bridge.
         let client: IpAddr = "198.51.100.1".parse().expect("an address");
         let headers = from("198.51.100.1");
         for peer in [
             "127.0.0.1",
             "::1",
+            "172.18.0.5",
+            "10.1.2.3",
+            "192.168.1.9",
+            "169.254.0.2",
+            "fd12::7",
+            "fe80::1",
             "104.16.1.2",
             "2606:4700::1",
             "::ffff:172.64.0.9",
