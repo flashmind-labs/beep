@@ -301,10 +301,12 @@ impl Fleet {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-        if let Some(serving) = serving {
-            serving.stop().await;
-        }
-        self.status.stop().await;
+        let serving = async {
+            if let Some(serving) = serving {
+                serving.stop().await;
+            }
+        };
+        tokio::join!(serving, self.status.stop());
     }
 
     /// The newest release of each tool a node installs.

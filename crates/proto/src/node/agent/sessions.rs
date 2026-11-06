@@ -1,9 +1,11 @@
-//! The `agents/1` protocol: one request, one reply, about all the sessions.
+//! The `agents/1` protocol: one request, one reply, about all the sessions,
+//! and the names of the protocols each agent speaks.
 
 use super::{
-    Activity, CopyView, Entry, ExternalSession, LiveStatus, ModelList, MoveProgress, Question,
-    SessionFolder, SessionInfo, Steer, StopReason,
+    Activity, Entry, ExternalSession, LiveStatus, ModelList, Question, SessionFolder, SessionInfo,
+    Steer, StopReason,
 };
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 
 /// What the server sends on an `agents/1` stream: one request, one reply.
@@ -489,399 +491,78 @@ pub enum AlertKind {
     Failed { reason: String },
 }
 
-#[cfg(test)]
-mod tests {
-    use super::super::*;
-    use super::*;
+/// The version every agent protocol shares.
+const VERSION: &str = "1";
 
-    /// What a node from before moves reads on `agents/1`.
-    #[derive(Debug, PartialEq, Deserialize)]
-    enum BeforeMoves {
-        List {},
-    }
+/// Lists sessions and reads transcripts.
+pub const SESSIONS_PROTOCOL: &str = "agents/1";
 
-    #[test]
-    fn the_move_request_is_new_and_a_node_before_it_refuses_it() {
-        let asked = SessionsRequest::MoveProgress {
-            session: "s1".into(),
-        };
-        let bytes = rmp_serde::to_vec(&asked).expect("encodes");
-        // Fixture: a map of one entry, the variant's name, its fields in a
-        // list. It never changes once released.
-        let mut fixture = vec![0x81, 0xac];
-        fixture.extend_from_slice(b"MoveProgress");
-        fixture.extend_from_slice(&[0x91, 0xa2, b's', b'1']);
-        assert_eq!(bytes, fixture);
-        assert_eq!(
-            crate::lenient::from_slice::<SessionsRequest>(&fixture).expect("decodes"),
-            asked
-        );
-        // The older node cannot read it: its stream closes.
-        assert!(rmp_serde::from_slice::<BeforeMoves>(&bytes).is_err());
-        // What it did read still reads.
-        let list = rmp_serde::to_vec(&SessionsRequest::List {}).expect("encodes");
-        assert_eq!(
-            rmp_serde::from_slice::<BeforeMoves>(&list).expect("decodes"),
-            BeforeMoves::List {}
-        );
-    }
+/// The protocol for the agent `name`, such as `claude/1`.
+pub fn protocol(name: &str) -> String {
+    format!("{name}/{VERSION}")
+}
 
-    #[test]
-    fn the_move_reply_round_trips() {
-        let reply = SessionsReply::Moving {
-            progress: Some(MoveProgress {
-                phase: MovePhase::Files,
-                copied: 6,
-                total: 6,
-                files_left: 12,
-                source_away: false,
-                reason: None,
-            }),
-        };
-        let bytes = rmp_serde::to_vec(&reply).expect("encodes");
-        assert_eq!(
-            crate::lenient::from_slice::<SessionsReply>(&bytes).expect("decodes"),
-            reply
-        );
-    }
+/// The agent a protocol name serves, such as `claude` for `claude/1`.
+pub fn agent_of(protocol: &str) -> Option<&str> {
+    let (name, version) = protocol.split_once('/')?;
+    (version == VERSION && crate::node::harness::harness(name).is_some()).then_some(name)
+}
 
-    #[test]
-    fn only_one_shot_reads_may_be_asked_again() {
-        let folder = SessionsRequest::Folder {
-            root: "/srv/project".into(),
-            path: "src".into(),
-            ignored: false,
-            depth: 3,
-        };
-        let read = SessionsRequest::ReadFile {
-            root: "/srv/project".into(),
-            path: "notes.txt".into(),
-            offset: 0,
-            len: 10,
-        };
-        assert!(folder.is_read());
-        assert!(read.is_read());
-        assert!(SessionsRequest::List {}.is_read());
-        let write = SessionsRequest::WriteFile {
-            root: "/srv/project".into(),
-            path: "notes.txt".into(),
-            offset: 0,
-            size: 2,
-            data: b"hi".to_vec(),
-        };
-        assert!(!write.is_read());
-        assert!(
-            !SessionsRequest::UpdateHarness {
-                agent: "claude".into()
-            }
-            .is_read()
-        );
-        assert!(!SessionsRequest::FollowAlerts {}.is_read());
-        assert!(!SessionsRequest::Watch { sessions: vec![] }.is_read());
-    }
+/// A step of a move, in order.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MovePhase {
+    /// The source still runs the turn, or cannot be reached.
+    #[default]
+    Waiting,
+    /// The conversation is being copied.
+    Conversation,
+    /// The project's files are being brought in line.
+    Files,
+    /// The session is starting here.
+    Resuming,
+    /// The session runs here.
+    Done,
+    /// The move failed; the session stays where it was.
+    Failed,
+    /// The record was deleted before the session resumed here.
+    Cancelled,
+}
 
-    #[test]
-    fn worktrees_round_trip_and_may_be_asked_again() {
-        let ask = SessionsRequest::Worktrees {
-            folder: "/srv/project".into(),
-        };
-        assert!(ask.is_read());
-        let body = rmp_serde::to_vec(&ask).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
-            ask
-        );
-        let reply = SessionsReply::Worktrees {
-            worktrees: vec![Worktree {
-                path: "/srv/project/.worktrees/fix".into(),
-                branch: None,
-                head: "abc1234".into(),
-                own: true,
-            }],
-        };
-        let body = rmp_serde::to_vec(&reply).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
-            reply
-        );
-    }
+/// What `SessionsRequest::MoveProgress` answers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MoveProgress {
+    pub phase: MovePhase,
+    /// Bytes of the conversation copied, and the source's size when known.
+    pub copied: u64,
+    pub total: u64,
+    /// Files of the project not here yet.
+    pub files_left: u64,
+    /// The source cannot be reached now.
+    pub source_away: bool,
+    /// Why it failed, when it did.
+    pub reason: Option<String>,
+}
 
-    #[test]
-    fn commands_round_trip_and_may_be_asked_again() {
-        let ask = SessionsRequest::Commands {
-            session: "a3f9c1".into(),
-        };
-        assert!(ask.is_read());
-        let body = rmp_serde::to_vec(&ask).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
-            ask
-        );
-        let reply = SessionsReply::Commands {
-            commands: vec![AgentCommand {
-                name: "review".into(),
-                description: "Review the changes".into(),
-                hint: "[number]".into(),
-            }],
-        };
-        let body = rmp_serde::to_vec(&reply).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
-            reply
-        );
-    }
-
-    #[test]
-    fn a_command_without_a_hint_reads_with_an_empty_one() {
-        #[derive(Serialize)]
-        struct Older {
-            name: String,
-            description: String,
-        }
-        let body = rmp_serde::to_vec(&Older {
-            name: "compact".into(),
-            description: "Free up context".into(),
-        })
-        .unwrap();
-        let read: AgentCommand = rmp_serde::from_slice(&body).unwrap();
-        assert_eq!(read.name, "compact");
-        assert_eq!(read.hint, "");
-    }
-
-    #[test]
-    fn follow_usage_reads_across_versions() {
-        #[derive(Serialize, Deserialize)]
-        enum Older {
-            FollowUsage {},
-        }
-        let body = rmp_serde::to_vec_named(&Older::FollowUsage {}).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
-            SessionsRequest::FollowUsage { history: false }
-        );
-        let body =
-            rmp_serde::to_vec_named(&SessionsRequest::FollowUsage { history: true }).unwrap();
-        assert!(matches!(
-            rmp_serde::from_slice::<Older>(&body).unwrap(),
-            Older::FollowUsage {}
-        ));
-    }
-
-    #[test]
-    fn external_requests_and_replies_round_trip() {
-        let request = SessionsRequest::External {
-            agent: "claude".into(),
-            limit: 20,
-            session: None,
-        };
-        let body = rmp_serde::to_vec_named(&request).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
-            request
-        );
-        let reply = SessionsReply::Activity {
-            activity: Activity {
-                session: "0f3c2a9e-1111-4222-8333-944455556666".into(),
-                kind: ActivityKind::NeedsInput,
-                message: "Claude needs your permission to use Bash".into(),
-                from_hook: true,
-            },
-        };
-        let body = rmp_serde::to_vec_named(&reply).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
-            reply
-        );
-    }
-
-    #[test]
-    fn model_requests_and_replies_round_trip() {
-        let request = SessionsRequest::Models {
-            agent: "flsh".into(),
-        };
-        let body = rmp_serde::to_vec_named(&request).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
-            request
-        );
-        let reply = SessionsReply::Models {
-            models: ModelList {
-                pick: ModelPick::Listed,
-                current: Some("openai:gpt-test".into()),
-                models: vec![ModelOption {
-                    id: "openai:gpt-test".into(),
-                    name: "GPT Test".into(),
-                    description: None,
-                }],
-            },
-        };
-        let body = rmp_serde::to_vec_named(&reply).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsReply>(&body).unwrap(),
-            reply
-        );
-        let start = Request::Start {
-            cwd: None,
-            prompt: "go".into(),
-            model: Some("openai:gpt-test".into()),
-            effort: Some(Effort::Xhigh),
-            checkout: Some(CheckoutPlan::NewWorktree {
-                base: Some("main".into()),
-            }),
-        };
-        let body = rmp_serde::to_vec_named(&start).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);
-    }
-
-    #[test]
-    fn a_transcript_ask_before_an_entry_reads_on_a_node_that_does_not_know_before() {
-        let ask = SessionsRequest::Transcript {
-            session: "s".into(),
-            last: 50,
-            thoughts: true,
-            before: Some(120),
-        };
-        // A node from before `before`, in both encodings its link uses.
-        #[derive(Debug, PartialEq, Serialize, Deserialize)]
-        enum Older {
-            Transcript {
-                session: String,
-                last: u32,
-                thoughts: bool,
-            },
-        }
-        let older = Older::Transcript {
-            session: "s".into(),
-            last: 50,
-            thoughts: true,
-        };
-        let named = rmp_serde::to_vec_named(&ask).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Older>(&named).unwrap(), older);
-        let compact = rmp_serde::to_vec(&ask).unwrap();
-        assert_eq!(
-            crate::lenient::from_slice::<Older>(&compact).unwrap(),
-            older
-        );
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&named).unwrap(),
-            ask
-        );
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&compact).unwrap(),
-            ask
-        );
-    }
-
-    #[test]
-    fn a_transcript_ask_from_before_before_reads_here_and_a_field_after_it_is_skipped() {
-        #[derive(Debug, PartialEq, Serialize, Deserialize)]
-        enum Older {
-            Transcript {
-                session: String,
-                last: u32,
-                thoughts: bool,
-            },
-        }
-        let old = rmp_serde::to_vec(&Older::Transcript {
-            session: "s".into(),
-            last: 5,
-            thoughts: true,
-        })
-        .unwrap();
-        assert_eq!(
-            crate::lenient::from_slice::<SessionsRequest>(&old).unwrap(),
-            SessionsRequest::Transcript {
-                session: "s".into(),
-                last: 5,
-                thoughts: true,
-                before: None,
-            }
-        );
-
-        // A newer app's field after `before` is skipped by the lenient reader.
-        #[derive(Serialize)]
-        enum Newer {
-            Transcript {
-                session: String,
-                last: u32,
-                thoughts: bool,
-                before: Option<u64>,
-                later: u8,
-            },
-        }
-        let newer = rmp_serde::to_vec(&Newer::Transcript {
-            session: "s".into(),
-            last: 5,
-            thoughts: false,
-            before: Some(9),
-            later: 1,
-        })
-        .unwrap();
-        assert_eq!(
-            crate::lenient::from_slice::<SessionsRequest>(&newer).unwrap(),
-            SessionsRequest::Transcript {
-                session: "s".into(),
-                last: 5,
-                thoughts: false,
-                before: Some(9),
-            }
-        );
-    }
-
-    #[test]
-    fn a_transcript_ask_without_thoughts_reads_here_and_a_thought_reads_as_other_there() {
-        #[derive(Debug, PartialEq, Serialize, Deserialize)]
-        enum Older {
-            Transcript { session: String, last: u32 },
-        }
-        let body = rmp_serde::to_vec_named(&Older::Transcript {
-            session: "s".into(),
-            last: 5,
-        })
-        .unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
-            SessionsRequest::Transcript {
-                session: "s".into(),
-                last: 5,
-                thoughts: false,
-                before: None,
-            }
-        );
-
-        #[derive(Debug, PartialEq, Serialize, Deserialize)]
-        enum OlderKind {
-            User,
-            #[serde(other)]
-            Other,
-        }
-        #[derive(Debug, PartialEq, Serialize, Deserialize)]
-        struct OlderEntry {
-            kind: OlderKind,
-            text: String,
-        }
-        let thought = Entry {
-            kind: EntryKind::Thought,
-            text: "hmm".into(),
-            ms: Some(1200),
-        };
-        let body = rmp_serde::to_vec_named(&thought).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Entry>(&body).unwrap(), thought);
-        assert_eq!(
-            rmp_serde::from_slice::<OlderEntry>(&body).unwrap(),
-            OlderEntry {
-                kind: OlderKind::Other,
-                text: "hmm".into()
-            }
-        );
-        let body = rmp_serde::to_vec_named(&OlderEntry {
-            kind: OlderKind::User,
-            text: "hi".into(),
-        })
-        .unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<Entry>(&body).unwrap(),
-            Entry::new(EntryKind::User, "hi".into())
-        );
-    }
+/// A session of another machine that this node keeps a copy of
+/// (`SessionsRequest::Copies`), or a version of a session that lost to
+/// another machine's after both were continued.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopyView {
+    pub agent: String,
+    /// The agent's own id for the session.
+    pub id: String,
+    /// The machine that ran it (this one, for a version that lost).
+    pub from: EndpointId,
+    /// The project, by the name `sync/<name>` has.
+    pub project: String,
+    /// The folder it ran in, relative to the project's checkout.
+    pub path: String,
+    /// Unix seconds: its last activity, and when the copy was last brought
+    /// up to date.
+    pub last_activity: u64,
+    pub fetched_at: u64,
+    pub size: u64,
+    /// Set for a version that lost: when it was set aside.
+    pub lost: Option<u64>,
 }

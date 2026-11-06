@@ -13,6 +13,7 @@ use crate::{
     link::local_socket::{Listener, Stream},
     link::local_status::{self, LocalStatus},
     link::report::serve_report,
+    link::watchdog::{self, Step},
     machine::{env, stats},
 };
 use anyhow::{Context, Result, bail};
@@ -603,6 +604,7 @@ pub(crate) async fn listen(dir: &Path, peers: Peers) -> Result<()> {
         }
         let peers = peers.clone();
         commands.spawn(async move {
+            let _running = watchdog::enter(Step::MeshCommand);
             match timeout(COMMAND_LIMIT, answer(stream, &peers)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::debug!("a mesh command failed: {e:#}"),

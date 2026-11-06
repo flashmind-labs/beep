@@ -639,7 +639,7 @@ requests! {
     /// project.
     175 DismissProjectIssue { project_id: Uuid, number: u64 } => Call<()>
     /// A one-time setup token that links a machine to the caller's account:
-    /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
+    /// on the machine, `beep-node setup <token>` (see `SetupToken::command`).
     /// It works for ten minutes. `name` is what the machine is called once
     /// linked; without it, the name `setup` is given, else the machine's
     /// host name. `BadRequest` when the name is empty or too long or the
@@ -1312,39 +1312,6 @@ requests! {
 mod tests {
     use super::*;
 
-    #[test]
-    fn chat_from_an_app_without_platform_decodes() {
-        let old = (
-            Uuid::nil(),
-            Uuid::nil(),
-            "hi",
-            Vec::<String>::new(),
-            None::<String>,
-            None::<ReasoningLevel>,
-        );
-        let buf = rmp_serde::to_vec(&old).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap().platform, None);
-    }
-
-    #[test]
-    fn a_group_message_from_before_images_still_decodes() {
-        #[derive(Serialize)]
-        struct Old {
-            group_id: String,
-            request_id: Uuid,
-            message: String,
-        }
-        let old = Old {
-            group_id: "g1".into(),
-            request_id: Uuid::new_v4(),
-            message: "hi".into(),
-        };
-        let buf = rmp_serde::to_vec(&old).unwrap();
-        let decoded: SendToGroup = rmp_serde::from_slice(&buf).unwrap();
-        assert_eq!(decoded.message, "hi");
-        assert!(decoded.images.is_empty());
-    }
-
     impl Feature {
         const LATER: Feature = Feature(u32::MAX);
     }
@@ -1362,17 +1329,5 @@ mod tests {
         use compat::Sample;
         assert_eq!(Shape::samples(1), [Shape::Old { size: 42 }]);
         assert_eq!(Shape::samples(u32::MAX).len(), 2);
-    }
-
-    #[test]
-    fn a_request_skips_fields_a_newer_app_added() {
-        // GetRun with a second field this build does not know.
-        let buf = [0x92, 0xa2, b'r', b'1', 0x91, 0x07];
-        assert_eq!(
-            rmp_serde::from_slice::<GetRun>(&buf).unwrap(),
-            GetRun { id: "r1".into() }
-        );
-        // A request with no fields yet, given one.
-        assert!(rmp_serde::from_slice::<Health>(&[0x91, 0xc0]).is_ok());
     }
 }

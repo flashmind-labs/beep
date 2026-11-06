@@ -7,8 +7,8 @@
 //! checks origins against the list. Sync never decides "in sync" from
 //! heads: it sends `since(what the peer holds)` and keeps going.
 
-use crate::frame::{self, FrameReader, MAX_FRAME};
 use crate::mesh::{AddrNote, Inner, Live, MAX_STREAMS, PeerStream};
+use crate::wire::{self, FrameReader, MAX_FRAME};
 use crate::{DeviceOp, Entry, Heads, MeshError};
 use iroh::EndpointId;
 use iroh::endpoint::{Connection, SendStream};
@@ -41,7 +41,7 @@ pub(crate) enum Frame {
     /// Both sides send one first, before anything else.
     Hello {
         addrs: Vec<AddrNote>,
-        #[serde(with = "crate::bin::heads")]
+        #[serde(with = "crate::wire::heads")]
         heads: Heads,
         /// Random per start of a `Mesh`: a new one means the peer restarted.
         session: u64,
@@ -84,17 +84,17 @@ fn unregister(inner: &Inner, conn: &Connection, peer: EndpointId) {
 /// its `Remove`) and a `Removed`, then the connection closes.
 pub(crate) async fn tell_removed(inner: &Inner, conn: Connection) {
     let work = async {
-        let (mut send, _recv) = conn.accept_bi().await.map_err(frame::net)?;
+        let (mut send, _recv) = conn.accept_bi().await.map_err(wire::net)?;
         let hello = Frame::Hello {
             addrs: Vec::new(),
             heads: Heads::new(),
             session: inner.session,
         };
-        frame::send(&mut send, &hello).await?;
+        wire::send(&mut send, &hello).await?;
         let ops = inner.store.run(|core| Ok(core.ops())).await?;
         send_ops(&mut send, &ops).await?;
-        frame::send(&mut send, &Frame::Removed).await?;
-        send.finish().map_err(frame::net)?;
+        wire::send(&mut send, &Frame::Removed).await?;
+        send.finish().map_err(wire::net)?;
         timeout(FLUSH, conn.closed()).await.ok();
         Ok::<(), MeshError>(())
     };
@@ -186,7 +186,7 @@ async fn run(
             tokio::select! {
                 ended = tasks.join_next() => match ended {
                     Some(Ok(result)) => result,
-                    Some(Err(e)) => Err(frame::net(e)),
+                    Some(Err(e)) => Err(wire::net(e)),
                     None => Ok(()),
                 },
                 // The streams end with the connection.
@@ -229,14 +229,14 @@ async fn handshake(
 ) -> Result<Shaken, MeshError> {
     let opened = async {
         if dialer == inner.me {
-            conn.open_bi().await.map_err(frame::net)
+            conn.open_bi().await.map_err(wire::net)
         } else {
-            conn.accept_bi().await.map_err(frame::net)
+            conn.accept_bi().await.map_err(wire::net)
         }
     };
     let (mut send, recv) = timeout(SETUP, opened)
         .await
-        .map_err(|_| frame::net("no sync stream"))??;
+        .map_err(|_| wire::net("no sync stream"))??;
     let mut recv = FrameReader::new(recv, MAX_FRAME);
     let heads = inner.store.run(|core| Ok(core.heads())).await?;
     let first = inner.addr_list();
@@ -245,19 +245,19 @@ async fn handshake(
         heads,
         session: inner.session,
     };
-    frame::send(&mut send, &hello).await?;
+    wire::send(&mut send, &hello).await?;
     let theirs = timeout(SETUP, recv.recv::<Frame>())
         .await
-        .map_err(|_| frame::net("no hello"))??;
+        .map_err(|_| wire::net("no hello"))??;
     let Some(Frame::Hello {
         addrs,
         heads,
         session,
     }) = theirs
     else {
-        return Err(frame::net("the first frame was not a hello"));
+        return Err(wire::net("the first frame was not a hello"));
     };
-    inner.learn(addrs, Some(peer)).await;
+    inner.learn(addrs, peer).await;
     Ok(Shaken {
         send,
         recv,
@@ -277,8 +277,8 @@ async fn read(
     let mut refused = 0;
     while let Some(frame) = recv.recv::<Frame>().await? {
         match frame {
-            Frame::Hello { .. } => return Err(frame::net("a second hello")),
-            Frame::Addrs(addrs) => inner.learn(addrs, Some(peer)).await,
+            Frame::Hello { .. } => return Err(wire::net("a second hello")),
+            Frame::Addrs(addrs) => inner.learn(addrs, peer).await,
             Frame::Ops(ops) => {
                 let merged = inner.store.run(move |core| core.merge(&ops)).await?;
                 if !merged.rejected.is_empty() {
@@ -314,7 +314,7 @@ async fn read(
         }
         if refused >= MAX_REFUSED {
             conn.close(1u32.into(), b"too many refused items");
-            return Err(frame::net("too many refused items"));
+            return Err(wire::net("too many refused items"));
         }
     }
     Ok(())
@@ -322,7 +322,7 @@ async fn read(
 
 async fn send_ops(send: &mut SendStream, ops: &[DeviceOp]) -> Result<(), MeshError> {
     for chunk in ops.chunks(OPS_PER_FRAME) {
-        frame::send(send, &Frame::Ops(chunk.to_vec())).await?;
+        wire::send(send, &Frame::Ops(chunk.to_vec())).await?;
     }
     Ok(())
 }
@@ -362,7 +362,7 @@ async fn flush(
             *head = (*head).max(e.seq);
         }
     }
-    frame::send(send, &Frame::Entries(page)).await
+    wire::send(send, &Frame::Entries(page)).await
 }
 
 async fn write(
@@ -396,8 +396,8 @@ async fn write(
             // would discard what it has not read. A peer that stalls is
             // cut off by `own` after a grace period either way.
             let tell = async {
-                frame::send(&mut send, &Frame::Removed).await?;
-                send.finish().map_err(frame::net)?;
+                wire::send(&mut send, &Frame::Removed).await?;
+                send.finish().map_err(wire::net)?;
                 conn.closed().await;
                 Ok::<(), MeshError>(())
             };
@@ -412,7 +412,7 @@ async fn write(
             .collect();
         if !fresh.is_empty() {
             sent_addrs.extend(fresh.iter().map(|n| (n.addr.id, n.clone())));
-            frame::send(&mut send, &Frame::Addrs(fresh)).await?;
+            wire::send(&mut send, &Frame::Addrs(fresh)).await?;
         }
         let theirs = known.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let entries = inner.store.run(move |core| Ok(core.since(&theirs))).await?;
@@ -445,7 +445,7 @@ async fn streams(
         }
         tokio::select! {
             accepted = conn.accept_bi() => {
-                let (mut send, mut recv) = accepted.map_err(frame::net)?;
+                let (mut send, mut recv) = accepted.map_err(wire::net)?;
                 let handler = inner
                     .handler
                     .lock()

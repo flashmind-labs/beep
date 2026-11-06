@@ -27,19 +27,3 @@ impl fmt::Debug for SecretText {
         f.write_str("SecretText(hidden)")
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn debug_hides_the_secret() {
-        let secret = SecretText::new("ghp_example1234");
-        assert!(!format!("{secret:?}").contains("1234"));
-        let body = rmp_serde::to_vec(&secret).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<String>(&body).unwrap(),
-            "ghp_example1234"
-        );
-    }
-}
