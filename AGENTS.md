@@ -378,11 +378,18 @@ Each node (the Mac app's too) lists the user's skills on `skills/1`
 `~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills`, `~/.pi/agent/skills`,
 `~/.gemini/skills` and `~/.config/opencode/skills`, hashed over its files.
 Beep's own (the "Installed by Beep" marker) are left out. Every two minutes,
-and when a machine comes or goes, a node reads the others' lists and copies a
-skill it never held into `~/.claude/skills` and `~/.agents/skills`, when every
-copy in the mesh is alike. A name with two contents changes nothing: it is a
-warning in the node log and a bell row on the desktop. Deletes never spread;
-`skills-seen` in the node folder keeps a deleted skill from coming back.
+when a machine comes or goes, and when a peer says its skills changed
+(`Changed`), a node reads the others' lists.
+
+`skills-seen` in the node folder records each name held and the copy last
+synced (hash and version, the version counting edits). A listed copy carries
+that version and whether it was edited since. A skill never held is copied
+into `~/.claude/skills` and `~/.agents/skills`. An edit spreads: a copy still
+as last synced is replaced by the newer one (staged beside it, then swapped).
+Two copies edited apart, or an edit made to an older version, are a conflict:
+nothing changes, the node logs a warning and the desktop shows a bell row. Two
+local folders follow the same rule. Deletes never spread, and a name in
+`skills-seen` that is gone here is never copied back.
 
 ## iOS app
 

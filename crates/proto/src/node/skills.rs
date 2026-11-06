@@ -18,6 +18,9 @@ pub enum Request {
     /// The skills the node found differing across the mesh:
     /// `Reply::Conflicts`.
     Conflicts {},
+    /// The caller's skills changed: the node compares again soon.
+    /// `Reply::Skills`, empty.
+    Changed {},
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +40,13 @@ pub struct Listed {
     pub hash: String,
     /// The skills folders that hold this copy, such as `~/.claude/skills`.
     pub folders: Vec<String>,
+    /// How many edits the copy the node last synced has been through.
+    #[serde(default)]
+    pub ver: u64,
+    /// Whether this copy was edited on the node since it last synced: it is
+    /// then one edit past `ver`.
+    #[serde(default)]
+    pub edited: bool,
 }
 
 /// A file of a skill, at its path in the skill's folder, `/` between parts.

@@ -3,8 +3,8 @@
 
 use super::{
     Skills,
-    compare::{Holder, Outcome, compare},
-    disk::{self, Scan, Seen},
+    compare::{Holder, Outcome, Take, compare},
+    disk::{self, Base, Scan, Seen},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{Mesh, MeshError, PeerClient};
@@ -15,7 +15,6 @@ use beep_proto::node::{
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    mem,
     path::PathBuf,
     time::Duration,
 };
@@ -34,8 +33,8 @@ const READ_LIMIT: Duration = Duration::from_secs(10);
 const SEEN: &str = "skills-seen";
 
 /// Compares this machine's skills with every other machine's now, when a
-/// machine comes or goes, and every `EVERY`, until the mesh stops. Nothing
-/// when the host does not sync skills.
+/// machine comes or goes or says its skills changed, and every `EVERY`,
+/// until the mesh stops. Nothing when the host does not sync skills.
 pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     let Some(home) = skills.home().cloned() else {
         return;
@@ -52,11 +51,13 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
             return;
         }
     };
+    let nudge = skills.nudge.clone();
     let mut pass = Passes {
         mesh: mesh.clone(),
         home,
         seen,
         lists: HashMap::new(),
+        sent: HashMap::new(),
         told: BTreeMap::new(),
         said: None,
         skills,
@@ -67,10 +68,14 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     tick.tick().await;
     loop {
         let now = online(&mesh);
-        pass.run(&now).await;
+        // A pass that took a skill runs again, so the others hear of it.
+        if pass.run(&now).await {
+            continue;
+        }
         loop {
             tokio::select! {
                 _ = tick.tick() => break,
+                () = nudge.notified() => break,
                 changed = updates.changed() => {
                     if changed.is_err() {
                         return;
@@ -102,6 +107,8 @@ struct Passes {
     /// Each other machine's last list, kept while it is offline so its
     /// conflicts stay told.
     lists: HashMap<EndpointId, Vec<Listed>>,
+    /// The list each machine was last told changed.
+    sent: HashMap<EndpointId, Vec<Listed>>,
     /// The conflicts last logged, by name.
     told: BTreeMap<String, Conflict>,
     /// The summary last logged.
@@ -121,10 +128,13 @@ struct Summary {
 }
 
 impl Passes {
-    async fn run(&mut self, online: &BTreeSet<EndpointId>) {
+    /// One pass; whether it wrote a skill.
+    async fn run(&mut self, online: &BTreeSet<EndpointId>) -> bool {
         let Some(scan) = self.scan().await else {
-            return;
+            return false;
         };
+        let here = self.listing(&scan);
+        self.skills.listed.send_replace(Some(here.clone()));
         let mut compared = 0;
         for &peer in online {
             let client = PeerClient::over(self.mesh.clone(), peer);
@@ -141,7 +151,7 @@ impl Passes {
                 Err(e) => log::debug!("skills: {peer} not read: {e}"),
             }
         }
-        let mesh = &self.mesh;
+        let mesh = self.mesh.clone();
         self.lists.retain(|id, _| mesh.is_member(*id));
         let names: HashMap<EndpointId, String> = mesh
             .devices()
@@ -154,66 +164,62 @@ impl Passes {
                 .cloned()
                 .unwrap_or_else(|| id.fmt_short().to_string())
         };
-        let here = name_of(&mesh.me());
+        let me = name_of(&mesh.me());
         let mut machines: Vec<(EndpointId, String)> =
             self.lists.keys().map(|id| (*id, name_of(id))).collect();
         machines.sort_by(|a, b| a.1.cmp(&b.1));
         let mut holders = vec![Holder {
-            machine: &here,
-            listed: &scan.listed,
+            machine: &me,
+            here: true,
+            listed: &here,
         }];
         for (id, name) in &machines {
             if let Some(listed) = self.lists.get(id) {
                 holders.push(Holder {
                     machine: name,
+                    here: false,
                     listed,
                 });
             }
         }
-        let Outcome { conflicts, wanted } = compare(&holders, |name| {
+        let Outcome {
+            conflicts,
+            takes,
+            synced,
+        } = compare(&holders, |name| {
             !scan.names.contains(name) && !self.seen.contains(name)
         });
         drop(holders);
-        for want in wanted.into_iter().take(MAX_TAKEN) {
-            let from = self
-                .lists
-                .iter()
-                .filter(|(id, _)| online.contains(*id))
-                .find(|(_, listed)| {
-                    listed
-                        .iter()
-                        .any(|l| l.name == want.name && l.hash == want.hash)
-                })
-                .map(|(id, _)| *id);
-            let Some(from) = from else {
+        let mut wrote = false;
+        for take in takes.into_iter().take(MAX_TAKEN) {
+            let Some((files, from)) = self.files_for(&take, &here, online, &me).await else {
                 continue;
             };
-            let request = Request::Get {
-                name: want.name.clone(),
-                hash: want.hash.clone(),
-            };
-            let files = match PeerClient::over(self.mesh.clone(), from)
-                .call(PROTOCOL, &request)
-                .await
-            {
-                Ok(Reply::Files { files }) => files,
-                Ok(_) => continue,
-                Err(e) => {
-                    log::debug!("skills: {} not fetched: {e}", want.name);
-                    continue;
+            let fresh = take.old.is_empty();
+            match self.write(&take, files).await {
+                Ok(true) => {
+                    wrote = true;
+                    self.seen.set(&take.name, take.base.clone());
+                    let from =
+                        from.map_or_else(|| "another folder here".to_owned(), |id| name_of(&id));
+                    if fresh {
+                        log::info!("skills: got {} from {from}", take.name);
+                    } else {
+                        log::info!("skills: updated {} from {from}", take.name);
+                    }
                 }
-            };
-            if files.is_empty() || disk::hash(&files) != want.hash {
-                // Changed since it was listed: the next pass sees it anew.
-                continue;
-            }
-            match self.take(&want.name, files).await {
-                Ok(true) => log::info!("skills: got {} from {}", want.name, name_of(&from)),
                 Ok(false) => {}
-                Err(e) => log::warn!("skill {} not written: {e:#}", want.name),
+                Err(e) => log::warn!("skill {} not written: {e:#}", take.name),
             }
         }
+        for record in synced {
+            self.seen.set(&record.name, record.base);
+        }
         self.tell(conflicts);
+        self.save().await;
+        if !wrote {
+            self.say_changed(online, &here).await;
+        }
         let summary = Summary {
             held: scan
                 .listed
@@ -233,26 +239,14 @@ impl Passes {
             );
             self.said = Some(summary);
         }
+        wrote
     }
 
-    /// The skills on disk now, each name among them kept as held.
-    async fn scan(&mut self) -> Option<Scan> {
+    /// The skills on disk now.
+    async fn scan(&self) -> Option<Scan> {
         let home = self.home.clone();
-        let mut seen = mem::take(&mut self.seen);
-        let done = spawn_blocking(move || {
-            let scan = disk::scan(&home);
-            let kept = seen.add(scan.listed.iter().map(|l| l.name.as_str()));
-            (seen, scan, kept)
-        })
-        .await;
-        match done {
-            Ok((seen, scan, kept)) => {
-                self.seen = seen;
-                if let Err(e) = kept {
-                    log::warn!("skills: the record of held names not written: {e:#}");
-                }
-                Some(scan)
-            }
+        match spawn_blocking(move || disk::scan(&home)).await {
+            Ok(scan) => Some(scan),
             Err(e) => {
                 log::warn!("skills: reading the skills folders failed: {e}");
                 None
@@ -260,20 +254,143 @@ impl Passes {
         }
     }
 
-    /// Writes a skill from another machine and keeps its name as held.
-    async fn take(&mut self, name: &str, files: Vec<SkillFile>) -> Result<bool> {
+    /// `scan`'s copies with what this machine last synced of each: its
+    /// version, and whether the copy was edited since. A name held for the
+    /// first time with one content counts as synced as it is.
+    fn listing(&mut self, scan: &Scan) -> Vec<Listed> {
+        let mut contents: BTreeMap<&str, usize> = BTreeMap::new();
+        for listed in &scan.listed {
+            *contents.entry(&listed.name).or_default() += 1;
+        }
+        for (name, count) in contents {
+            self.seen.hold(name);
+            if self.seen.base(name).is_none()
+                && count == 1
+                && let Some(listed) = scan.listed.iter().find(|l| l.name == name)
+            {
+                self.seen.set(
+                    name,
+                    Base {
+                        hash: listed.hash.clone(),
+                        ver: 0,
+                    },
+                );
+            }
+        }
+        scan.listed
+            .iter()
+            .map(|listed| {
+                let base = self.seen.base(&listed.name);
+                Listed {
+                    ver: base.map_or(0, |base| base.ver),
+                    edited: base.is_some_and(|base| base.hash != listed.hash),
+                    ..listed.clone()
+                }
+            })
+            .collect()
+    }
+
+    /// The files of `take`'s copy: from a folder here that holds it, or
+    /// from a machine online that does (`Some` of it). None when no copy
+    /// came whole.
+    async fn files_for(
+        &self,
+        take: &Take,
+        here: &[Listed],
+        online: &BTreeSet<EndpointId>,
+        me: &str,
+    ) -> Option<(Vec<SkillFile>, Option<EndpointId>)> {
+        let hash = &take.base.hash;
+        let files = if here.iter().any(|l| l.name == take.name && &l.hash == hash) {
+            let home = self.home.clone();
+            let name = take.name.clone();
+            let wanted = hash.clone();
+            let files = spawn_blocking(move || disk::files_of(&home, &name, &wanted))
+                .await
+                .ok()?;
+            (files, None)
+        } else {
+            let from = self
+                .lists
+                .iter()
+                .filter(|(id, _)| online.contains(*id))
+                .find(|(_, listed)| {
+                    listed
+                        .iter()
+                        .any(|l| l.name == take.name && &l.hash == hash)
+                })
+                .map(|(id, _)| *id)?;
+            let request = Request::Get {
+                name: take.name.clone(),
+                hash: hash.clone(),
+            };
+            match PeerClient::over(self.mesh.clone(), from)
+                .call(PROTOCOL, &request)
+                .await
+            {
+                Ok(Reply::Files { files }) => (files, Some(from)),
+                Ok(_) => return None,
+                Err(e) => {
+                    log::debug!("skills: {} not fetched on {me}: {e}", take.name);
+                    return None;
+                }
+            }
+        };
+        // Changed since it was listed: the next pass sees it anew.
+        (!files.0.is_empty() && disk::hash(&files.0) == *hash).then_some(files)
+    }
+
+    /// Writes `take`'s files: a new skill into the agents' folders, or in
+    /// place of the old copies here that are still as listed.
+    async fn write(&self, take: &Take, files: Vec<SkillFile>) -> Result<bool> {
         let home = self.home.clone();
-        let name = name.to_owned();
-        let mut seen = mem::take(&mut self.seen);
-        let (seen, wrote) = spawn_blocking(move || {
-            let wrote = disk::install(&home, &name, &files)
-                .and_then(|wrote| seen.add([name.as_str()]).map(|()| wrote));
-            (seen, wrote)
+        let name = take.name.clone();
+        let old = take.old.clone();
+        spawn_blocking(move || {
+            if old.is_empty() {
+                return disk::install(&home, &name, &files);
+            }
+            let mut replaced = 0;
+            for copy in &old {
+                replaced += disk::replace(&home, &name, &files, &copy.folders, &copy.hash)?;
+            }
+            Ok(replaced > 0)
         })
         .await
-        .context("writing the skill stopped")?;
-        self.seen = seen;
-        wrote
+        .context("writing the skill stopped")?
+    }
+
+    /// Writes the record of held names when it changed.
+    async fn save(&mut self) {
+        let Some(saved) = self.seen.unsaved() else {
+            return;
+        };
+        match spawn_blocking(move || saved.write()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("skills: the record of held names not written: {e:#}"),
+            Err(e) => log::warn!("skills: writing the record of held names stopped: {e}"),
+        }
+    }
+
+    /// Tells each machine online whose last word from here is older than
+    /// `here` that this machine's skills changed, so it compares again.
+    async fn say_changed(&mut self, online: &BTreeSet<EndpointId>, here: &[Listed]) {
+        for &peer in online {
+            if self.sent.get(&peer).is_some_and(|sent| sent == here) {
+                continue;
+            }
+            let client = PeerClient::over(self.mesh.clone(), peer);
+            match client
+                .call::<_, Reply>(PROTOCOL, &Request::Changed {})
+                .await
+            {
+                Ok(_) => {
+                    self.sent.insert(peer, here.to_vec());
+                }
+                Err(e) => log::debug!("skills: {peer} not told: {e}"),
+            }
+        }
+        self.sent.retain(|id, _| online.contains(id));
     }
 
     /// Logs each conflict that is new or changed, and hands them to the
@@ -317,19 +434,27 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Res
         Request::Conflicts {} => Reply::Conflicts {
             conflicts: skills.conflicts.borrow().clone(),
         },
-        Request::List {} => Reply::Skills {
-            skills: blocking(move || disk::scan(&home).listed).await?,
-        },
+        Request::List {} => {
+            // The first pass lists them; it runs as the node joins.
+            let mut listed = skills.listed.subscribe();
+            let skills = timeout(READ_LIMIT, listed.wait_for(Option::is_some))
+                .await
+                .context("the skills were not listed in time")?
+                .context("the node stopped")?
+                .clone()
+                .unwrap_or_default();
+            Reply::Skills { skills }
+        }
         Request::Get { name, hash } => Reply::Files {
-            files: blocking(move || disk::files_of(&home, &name, &hash)).await?,
+            files: spawn_blocking(move || disk::files_of(&home, &name, &hash))
+                .await
+                .context("reading the skills folders stopped")?,
         },
+        Request::Changed {} => {
+            skills.nudge.notify_one();
+            Reply::Skills { skills: Vec::new() }
+        }
     };
     tx.send(&reply).await?;
     tx.finish().await
-}
-
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T> {
-    spawn_blocking(work)
-        .await
-        .context("reading the skills folders stopped")
 }
