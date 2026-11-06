@@ -1,7 +1,7 @@
-//! The log of the systemd user unit, read with `journalctl`.
+//! The log of the systemd unit, read with `journalctl`.
 
 use super::{LogOptions, Printer};
-use crate::machine::service::systemd::{UNIT, unit_path};
+use crate::machine::service::systemd::{Scope, UNIT};
 use anyhow::{Context, Result, bail};
 use std::{
     io::{BufRead, BufReader, Write},
@@ -11,14 +11,18 @@ use std::{
 /// What journalctl prints last with `--show-cursor`: where it stopped.
 const CURSOR: &str = "-- cursor: ";
 
-pub(super) fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> Result<()> {
-    if !unit_path()?.exists() {
+pub(super) fn read(
+    options: &LogOptions,
+    printer: &mut Printer<impl Write>,
+    scope: Scope,
+) -> Result<()> {
+    if !scope.unit_path()?.exists() {
         bail!("the node's service is not installed here: there is no {UNIT}");
     }
     let since = format!("-{}s", options.since.as_secs());
     // The past first, so `--lines` knows where it ends; following then
     // starts right after its last entry.
-    let mut past = journalctl();
+    let mut past = journalctl(scope);
     past.args(["--since", &since]);
     if options.follow {
         past.arg("--show-cursor");
@@ -28,7 +32,7 @@ pub(super) fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> R
     if !options.follow {
         return Ok(());
     }
-    let mut follow = journalctl();
+    let mut follow = journalctl(scope);
     follow.arg("--follow");
     match &cursor {
         Some(cursor) => follow.args(["--after-cursor", cursor]),
@@ -39,10 +43,9 @@ pub(super) fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> R
 }
 
 /// `journalctl` for the unit, printing the node's own lines as written.
-fn journalctl() -> Command {
+fn journalctl(scope: Scope) -> Command {
     let mut command = Command::new("journalctl");
-    command.args([
-        "--user",
+    command.args(scope.flags()).args([
         "--unit",
         UNIT,
         "--output",

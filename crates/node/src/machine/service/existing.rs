@@ -1,6 +1,7 @@
 //! Which folder an installed service runs from, so `mesh join` never
 //! replaces a service that serves another node. The parsers read the text
-//! each manager keeps: a systemd unit, a launchd plist, a Windows task.
+//! each manager keeps: a systemd unit, an init.d script, a launchd plist, a
+//! Windows task.
 
 use crate::files::paths;
 use anyhow::{Context, Result, bail};
@@ -10,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{Manager, launchd, systemd, windows};
+use super::{Manager, initd, launchd, systemd, windows};
 
 /// The service of this machine's manager, as far as its definition says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,7 +27,9 @@ pub(super) enum Installed {
 /// What the installed service is, read from its definition.
 pub(super) fn installed(manager: Manager) -> Result<Installed> {
     let (path, parse): (PathBuf, fn(&str) -> Option<PathBuf>) = match manager {
-        Manager::Systemd => (systemd::unit_path()?, systemd::dir_in),
+        Manager::Systemd => (systemd::Scope::User.unit_path()?, systemd::dir_in),
+        Manager::SystemdSystem => (systemd::Scope::System.unit_path()?, systemd::dir_in),
+        Manager::OpenRc | Manager::SysVInit => (PathBuf::from(initd::SCRIPT), initd::dir_in),
         Manager::Launchd => (launchd::plist_path()?, launchd::dir_in),
         Manager::TaskScheduler => {
             if !windows::installed() {

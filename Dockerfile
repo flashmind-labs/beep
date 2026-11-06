@@ -83,11 +83,50 @@ COPY --from=node-dist-build /dist /
 FROM scratch AS node-dist-windows
 COPY --from=node-dist-windows-build /dist /
 
+# The beep-node container image: the static binary, git, a shell, CA
+# certificates and curl (the node fetches gh and its tools with it), running as uid 1000 with its state in /data. Its files are
+# put together on the build machine for either architecture, so no emulation
+# is needed: `docker build --platform linux/arm64 --target node-image .`.
+# The node workflow hands in the binaries it built with
+# `--build-context node-dist=<dir>` instead of compiling them again.
+FROM --platform=$BUILDPLATFORM alpine:3.22 AS node-image-root
+ARG TARGETARCH
+RUN --mount=from=node-dist,target=/dist set -eu; \
+    case "$TARGETARCH" in \
+        amd64) arch=x86_64 ;; \
+        arm64) arch=aarch64 ;; \
+        *) echo "There is no beep-node for $TARGETARCH." >&2; exit 1 ;; \
+    esac; \
+    apk add --root /out --initdb --arch "$arch" --no-scripts --no-cache \
+        --keys-dir "/usr/share/apk/keys/$arch" --repositories-file /etc/apk/repositories \
+        alpine-baselayout busybox ca-certificates-bundle curl git; \
+    # --no-scripts skips the busybox links, which this one's list matches.
+    for applet in $(busybox --list-full); do \
+        [ -e "/out/$applet" ] || ln -s /bin/busybox "/out/$applet"; \
+    done; \
+    echo 'beep:x:1000:1000:beep:/data:/bin/sh' >> /out/etc/passwd; \
+    echo 'beep:x:1000:' >> /out/etc/group; \
+    mkdir -p /out/data /out/usr/local/bin; \
+    chown 1000:1000 /out/data; \
+    install -m 0755 "/dist/$arch-unknown-linux-musl/beep-node" /out/usr/local/bin/beep-node
+COPY deploy/node-entrypoint.sh /out/usr/local/bin/beep-node-entrypoint
+
+FROM scratch AS node-image
+COPY --from=node-image-root /out /
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    HOME=/data
+USER 1000:1000
+WORKDIR /data
+VOLUME /data
+EXPOSE 47120/udp
+ENTRYPOINT ["beep-node-entrypoint"]
+
 # The user's environment: beep-node in Ubuntu, bundled with a single-user
 # server (deploy/onprem) or run on any other machine, linked over iroh. The
 # agent runs code and keeps the user's files in /home/user, a volume, as the
 # user `user` with passwordless sudo, so it can apt install what it needs.
-# Build it with `--target node`. The coding agents come from npm; set AGENTS
+# Build it with `--target node`; deploy/onprem/compose.yml builds it locally
+# and CI no longer publishes it (the published image is `node-image`). The coding agents come from npm; set AGENTS
 # to "" to leave them out.
 FROM ubuntu:stonking-20261023.1 AS node
 ARG AGENTS="@anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp @openai/codex @agentclientprotocol/codex-acp"
