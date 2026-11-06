@@ -6,6 +6,7 @@ use strum::{EnumString, IntoStaticStr};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize, EnumString, IntoStaticStr,
 )]
+#[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum Period {
     Hour,
