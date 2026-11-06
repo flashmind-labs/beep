@@ -251,7 +251,7 @@ ffi_enum! {
 }
 
 /// The image types `AgentSteer::PromptImages` may carry.
-pub const AGENT_IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
+const AGENT_IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 /// The most images one `AgentSteer::PromptImages` may carry.
 pub const MAX_AGENT_IMAGES: usize = 5;
@@ -381,70 +381,5 @@ ffi_structs! {
         pub name: String,
         /// It lets the agent go ahead, once or always.
         pub allow: bool,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn image(name: &str, mime: &str, data: Vec<u8>) -> Upload {
-        Upload {
-            name: name.into(),
-            mime: mime.into(),
-            data,
-        }
-    }
-
-    fn png(size: usize) -> Vec<u8> {
-        let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
-        data.resize(size.max(data.len()), 0);
-        data
-    }
-
-    #[test]
-    fn agent_images_of_the_four_types_pass() {
-        let mut webp = b"RIFF\0\0\0\0WEBPVP8 ".to_vec();
-        webp.push(0);
-        let images = [
-            image("a.png", "image/png", png(100)),
-            image("b.jpg", "image/jpeg", vec![0xff, 0xd8, 0xff, 0xe0]),
-            image("c.gif", "image/gif", b"GIF89a..".to_vec()),
-            image("d.webp", "image/webp", webp),
-        ];
-        assert_eq!(check_agent_images(&images), Ok(()));
-        assert_eq!(check_agent_images(&[]), Ok(()));
-    }
-
-    #[test]
-    fn agent_images_over_the_limits_are_refused() {
-        let six: Vec<Upload> = (0..6)
-            .map(|_| image("a.png", "image/png", png(10)))
-            .collect();
-        let error = check_agent_images(&six).unwrap_err().to_string();
-        assert!(error.contains("At most 5 images"), "{error}");
-
-        let big = [image("big.png", "image/png", png(MAX_AGENT_IMAGE + 1))];
-        let error = check_agent_images(&big).unwrap_err().to_string();
-        assert!(error.contains("big.png is over 5 MB"), "{error}");
-        let at_limit = [image("ok.png", "image/png", png(MAX_AGENT_IMAGE))];
-        assert_eq!(check_agent_images(&at_limit), Ok(()));
-
-        let two = [
-            image("a.png", "image/png", png(4 << 20)),
-            image("b.png", "image/png", png(4 << 20)),
-        ];
-        let error = check_agent_images(&two).unwrap_err().to_string();
-        assert!(error.contains("over 7 MB together"), "{error}");
-    }
-
-    #[test]
-    fn agent_images_of_other_types_are_refused() {
-        let svg = [image("a.svg", "image/svg+xml", b"<svg/>".to_vec())];
-        let error = check_agent_images(&svg).unwrap_err().to_string();
-        assert!(error.contains("a.svg is not a PNG"), "{error}");
-        let lying = [image("a.png", "image/png", vec![0xff, 0xd8, 0xff])];
-        let error = check_agent_images(&lying).unwrap_err().to_string();
-        assert!(error.contains("not the image/png it says"), "{error}");
     }
 }

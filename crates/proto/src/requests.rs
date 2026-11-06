@@ -630,7 +630,7 @@ requests! {
     /// project.
     175 DismissProjectIssue { project_id: Uuid, number: u64 } => Call<()>
     /// A one-time setup token that links a machine to the caller's account:
-    /// on the machine, `beep-node setup <token>` (see `setup::setup_command`).
+    /// on the machine, `beep-node setup <token>` (see `SetupToken::command`).
     /// It works for ten minutes. `name` is what the machine is called once
     /// linked; without it, the name `setup` is given, else the machine's
     /// host name. `BadRequest` when the name is empty or too long or the

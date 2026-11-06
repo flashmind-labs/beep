@@ -1,14 +1,13 @@
 //! Auto picks a session's machine: `needs` and the folder are required, prompt hints only steer.
 
-use super::{Exec, agent_name, exec, sessions};
+use super::{Exec, exec, listing::NODE_LIMIT, sessions};
 use crate::PeerClient;
-use beep_proto::{AgentHost, ApiError, MachineCapability, StartAgentSession, node::agent::Status};
+use beep_proto::{
+    AgentHost, ApiError, MachineCapability, StartAgentSession, agent_name, node::agent::Status,
+};
 use futures::{StreamExt, stream};
-use std::time::Duration;
 use tokio::time::timeout;
 
-/// How long one request to a node may take.
-const NODE_LIMIT: Duration = Duration::from_secs(3);
 /// Nodes asked at once.
 const IN_FLIGHT: usize = 4;
 
@@ -43,7 +42,7 @@ const CALLS_FOR: &[(MachineCapability, &[&str])] = &[
 ];
 
 /// The capabilities `text` calls for, in `CALLS_FOR` order.
-pub fn called_for(text: &str) -> Vec<MachineCapability> {
+fn called_for(text: &str) -> Vec<MachineCapability> {
     let lower = text.to_lowercase();
     let words: Vec<&str> = lower
         .split(|c: char| !c.is_alphanumeric())
@@ -70,7 +69,7 @@ pub fn called_for(text: &str) -> Vec<MachineCapability> {
 
 /// What Auto knows of one online machine.
 #[derive(Debug)]
-pub struct Candidate<'a> {
+struct Candidate<'a> {
     pub name: &'a str,
     /// It offers the agent asked for, or any agent when none was.
     pub offers: bool,
@@ -91,7 +90,7 @@ impl Candidate<'_> {
 
 /// Why no machine fits a start.
 #[derive(Debug, PartialEq, thiserror::Error)]
-pub enum AutoError {
+enum AutoError {
     #[error("None of your machines online offers {agent}.")]
     NoAgent { agent: String },
     #[error("No machine online with {agent} has {needs}. With {agent}: {offering}.")]
@@ -105,7 +104,7 @@ pub enum AutoError {
 }
 
 /// What a start asks of its machine.
-pub struct Wants<'a> {
+struct Wants<'a> {
     /// The agent's name for messages, such as "Claude Code".
     pub agent: &'a str,
     /// Asked for by the app: a machine must have all of them.
@@ -117,13 +116,13 @@ pub struct Wants<'a> {
 
 /// The machines Auto picks among, by index, and the hints none of them met.
 #[derive(Debug, PartialEq)]
-pub struct Pool {
+struct Pool {
     pub at: Vec<usize>,
     pub missed: Vec<MachineCapability>,
 }
 
 /// The machines with the agent, every need and the folder, narrowed by hints when some match.
-pub fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoError> {
+fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoError> {
     let agent = wants.agent.to_owned();
     let names = |at: &[usize]| list(at.iter().map(|&at| candidates[at].name));
     let offering: Vec<usize> = (0..candidates.len())
@@ -178,7 +177,7 @@ pub fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, Aut
 }
 
 /// Whether picking needs running-session counts: several fit and none is the user's environment.
-pub fn needs_load(candidates: &[Candidate<'_>], pool: &Pool) -> bool {
+fn needs_load(candidates: &[Candidate<'_>], pool: &Pool) -> bool {
     pool.at.len() > 1 && !pool.at.iter().any(|&at| candidates[at].workspace)
 }
 
@@ -190,7 +189,7 @@ pub struct Choice {
 }
 
 /// Picks the user's environment, else the least busy machine, then by name; `pool` is never empty.
-pub fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choice {
+fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choice {
     let wanted: Vec<&str> = wants
         .needs
         .iter()
@@ -348,7 +347,7 @@ async fn has_folder(at: usize, auto: &AutoHost, folder: &str) -> (usize, bool) {
 }
 
 /// `test -d` for `folder`, with a leading `~` left to the node's shell.
-pub fn folder_test(folder: &str) -> Option<String> {
+fn folder_test(folder: &str) -> Option<String> {
     let quoted = |path: &str| {
         shlex::try_quote(path)
             .ok()
