@@ -38,7 +38,7 @@ impl Desk {
 
     /// What reading `name`'s host needs. With `local_only`, and a checkout of the project on this
     /// Mac, only this Mac is asked, so nothing waits on another machine. Otherwise the machines
-    /// the project is on are asked, and no other.
+    /// the project is on are asked, and no other, nearest first.
     pub(crate) async fn host_reads(
         &self,
         name: &str,

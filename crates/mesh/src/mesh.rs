@@ -18,7 +18,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::sync::{Notify, Semaphore, broadcast, watch};
 use tokio::task::{AbortHandle, JoinHandle, JoinSet, spawn_blocking};
 use tokio::time::{Instant, sleep, timeout};
@@ -105,6 +105,9 @@ pub struct DeviceStatus {
     pub device: Device,
     pub online: bool,
     pub addr: Option<EndpointAddr>,
+    /// When its link here last ended, since this mesh opened; `None` while
+    /// online or when it was not reached since.
+    pub last_seen: Option<SystemTime>,
 }
 
 pub(crate) struct Live {
@@ -132,6 +135,8 @@ pub(crate) struct Inner {
     /// by stable id. A removal cuts these too.
     retired: Mutex<BTreeMap<usize, Connection>>,
     pub addrs: Mutex<BTreeMap<EndpointId, AddrNote>>,
+    /// When each peer's link last ended, since the mesh opened.
+    pub last_seen: Mutex<BTreeMap<EndpointId, SystemTime>>,
     /// Our own address and its counter.
     own_addr: Mutex<AddrNote>,
     /// Rung when any address changes, for dialers waiting out a backoff.
@@ -165,6 +170,12 @@ impl Inner {
 
     pub fn retired(&self) -> MutexGuard<'_, BTreeMap<usize, Connection>> {
         self.retired.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn last_seen(&self) -> MutexGuard<'_, BTreeMap<EndpointId, SystemTime>> {
+        self.last_seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn addrs(&self) -> MutexGuard<'_, BTreeMap<EndpointId, AddrNote>> {
@@ -449,6 +460,7 @@ impl Mesh {
             conns: Mutex::default(),
             retired: Mutex::default(),
             addrs: Mutex::new(known),
+            last_seen: Mutex::default(),
             own_addr: Mutex::new(first),
             addr_wake: Notify::new(),
             wake: Notify::new(),
@@ -501,6 +513,11 @@ impl Mesh {
         self.inner.me
     }
 
+    /// The mesh's id: the id of the desktop that started it.
+    pub fn id(&self) -> EndpointId {
+        self.inner.view().devices.mesh()
+    }
+
     /// Whether `id` is a device of the mesh now. Asked per connection and
     /// per request, so a removed device is out at once.
     pub fn is_member(&self, id: EndpointId) -> bool {
@@ -511,16 +528,21 @@ impl Mesh {
         let view = self.inner.view();
         let conns = self.inner.conns();
         let addrs = self.inner.addrs();
+        let last_seen = self.inner.last_seen();
         view.devices
             .members()
             .into_iter()
             .map(|device| {
                 let me = device.id == self.inner.me;
+                let online = me
+                    || conns
+                        .get(&device.id)
+                        .is_some_and(|l| l.conn.close_reason().is_none());
                 DeviceStatus {
-                    online: me
-                        || conns
-                            .get(&device.id)
-                            .is_some_and(|l| l.conn.close_reason().is_none()),
+                    online,
+                    last_seen: (!online)
+                        .then(|| last_seen.get(&device.id).copied())
+                        .flatten(),
                     addr: if me {
                         Some(self.inner.endpoint.addr())
                     } else {

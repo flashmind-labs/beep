@@ -608,3 +608,61 @@ impl SecretKeyFor {
         iroh::SecretKey::generate().public()
     }
 }
+
+/// Whether the thread at `task` (`<pid>/task/<tid>` under `/proc`) sleeps,
+/// as one blocked on a lock does.
+#[cfg(target_os = "linux")]
+fn sleeps(task: &Path) -> bool {
+    std::fs::read_to_string(Path::new("/proc").join(task).join("stat"))
+        .ok()
+        .and_then(|stat| {
+            let (_, rest) = stat.rsplit_once(')')?;
+            Some(rest.trim_start().starts_with('S'))
+        })
+        .unwrap_or(false)
+}
+
+/// The note of what is open must not hold the session list, or a session's
+/// state, while it reads a session's children. A node held both: every
+/// request that lists sessions waited behind it, and the node stopped
+/// answering anything (#329).
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
+    use std::{sync::mpsc, time::Instant};
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let name = Agents::name_of(&parent);
+    let mut kid = RemoteKid::expected(&name, SecretKeyFor::id(), "box");
+    kid.id = "k1".into();
+    rig.agents.adopt_remote(&parent, kid.clone());
+    let agents = &rig.agents;
+    let noted = std::thread::scope(|scope| {
+        // The children's list is busy, so the note stops on it.
+        let busy = crate::lock(&agents.family.remote);
+        let (tx, rx) = mpsc::channel();
+        let noting = scope.spawn(move || {
+            let me = std::fs::read_link("/proc/thread-self").expect("the thread's /proc entry");
+            tx.send(me).expect("the test waits for it");
+            agents.open_sessions()
+        });
+        let task = rx.recv().expect("the noting thread starts");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !sleeps(&task) {
+            assert!(Instant::now() < deadline, "the note never waited");
+            std::thread::yield_now();
+        }
+        let (tx, rx) = mpsc::channel();
+        scope.spawn(move || {
+            // Sending fails only once the test gave up.
+            let _ = tx.send(agents.list().len());
+        });
+        let listed = rx.recv_timeout(Duration::from_secs(10));
+        drop(busy);
+        assert_eq!(listed, Ok(1), "listing the sessions waited on the note");
+        noting.join().expect("the note is made")
+    });
+    assert_eq!(noted.len(), 1);
+    assert_eq!(noted[0].kids, vec![kid]);
+    parent.close().await;
+}

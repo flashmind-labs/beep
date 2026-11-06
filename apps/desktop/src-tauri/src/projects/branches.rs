@@ -25,7 +25,7 @@ pub(crate) enum Placed {
     Server,
 }
 
-/// Where `project` has a checkout on a machine of the mesh that is online.
+/// Where `project` has a checkout on a machine of the mesh that is online, nearest first.
 /// A project the mesh records is never the server's: with no checkout of it
 /// online that is an error. A project only the server records, as the server
 /// places it on the mesh's machines, or else it stays the server's.
@@ -34,11 +34,12 @@ pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<
     if let Some(mesh) = fleet.mesh()
         && beep_fleet::has_project(&mesh, project)
     {
-        let recorded: Vec<Place> = beep_fleet::places(&mesh, project)
+        let mut recorded: Vec<Place> = beep_fleet::places(&mesh, project)
             .into_iter()
             .filter(|(machine, _)| online.contains(machine))
             .map(|(machine, folder)| Place { machine, folder })
             .collect();
+        beep_fleet::nearest_first(&mesh, &mut recorded, |place| place.machine);
         if recorded.is_empty() {
             return Err(crate::error::DesktopError::BadRequest(
                 "No machine with a checkout of the project is online.".into(),
@@ -51,7 +52,7 @@ pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<
             project: project.to_owned(),
         })
         .await;
-    let places: Vec<Place> = crate::fleet::extra(machines)
+    let mut places: Vec<Place> = crate::fleet::extra(machines)
         .into_iter()
         .filter(|machine| machine.online)
         .filter_map(|machine| {
@@ -61,6 +62,9 @@ pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<
             })
         })
         .collect();
+    if let Some(mesh) = fleet.mesh() {
+        beep_fleet::nearest_first(&mesh, &mut places, |place| place.machine);
+    }
     Ok(if places.is_empty() {
         Placed::Server
     } else {

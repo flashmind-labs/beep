@@ -11,6 +11,8 @@ use crate::{
     link::connection::{Offers, Protocol, Who, changed, read_open, serve_open, withheld},
     link::from_mesh,
     link::local_socket::{Listener, Stream},
+    link::local_status::{self, LocalStatus},
+    link::watchdog::{self, Step},
     machine::{env, stats},
 };
 use anyhow::{Context, Result, bail};
@@ -31,7 +33,7 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
@@ -49,6 +51,9 @@ const JOIN: &str = "join ";
 const DEVICES: &str = "devices";
 /// `leave`; the node answers `left`, or `failed <why>`.
 const LEAVE: &str = "leave";
+/// The node answers a `LocalStatus` in compact msgpack, then closes. A node
+/// from before it closes without answering.
+const STATUS: &str = "status";
 
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
@@ -70,6 +75,8 @@ struct Inner {
     endpoint: Endpoint,
     dir: PathBuf,
     name: String,
+    /// When the node started.
+    started: SystemTime,
     offers: Mutex<Offers>,
     /// Protocols a host will offer once its services are up.
     later: watch::Sender<BTreeSet<String>>,
@@ -126,6 +133,7 @@ impl Peers {
                 endpoint,
                 dir,
                 name,
+                started: SystemTime::now(),
                 offers: Mutex::new(offers),
                 later: watch::channel(BTreeSet::new()).0,
                 active: Mutex::new(None),
@@ -277,6 +285,62 @@ impl Peers {
         self.active()
             .map(|active| active.mesh.devices())
             .unwrap_or_default()
+    }
+
+    /// What `beep-node status` shows. Checks each project's folder on disk.
+    async fn local_status(&self) -> Result<LocalStatus> {
+        let active = self.active();
+        let mesh = active
+            .as_ref()
+            .filter(|active| active.mesh.is_member(active.mesh.me()))
+            .map(|active| active.mesh.clone());
+        let devices = mesh
+            .as_ref()
+            .map(Mesh::devices)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|status| local_status::Peer {
+                id: status.device.id,
+                name: status.device.name,
+                kind: status.device.kind,
+                online: status.online,
+                last_seen: status.last_seen.map(unix_secs),
+            })
+            .collect();
+        let syncs = self
+            .inner
+            .offers()
+            .transfers
+            .get()
+            .map(|transfers| transfers.syncs());
+        let projects = match syncs {
+            Some(syncs) => {
+                let held = syncs.held();
+                let statuses = syncs.status();
+                // A folder on a disk that hangs must not hold a worker.
+                tokio::task::spawn_blocking(move || {
+                    statuses
+                        .into_iter()
+                        .map(|status| local_status::Project {
+                            held: held.contains(&status.name),
+                            missing: !Path::new(&status.folder).exists(),
+                            status,
+                        })
+                        .collect()
+                })
+                .await?
+            }
+            None => Vec::new(),
+        };
+        Ok(LocalStatus {
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            started: unix_secs(self.inner.started),
+            name: self.inner.name.clone(),
+            id: self.inner.endpoint.id(),
+            mesh: mesh.map(|mesh| mesh.id()),
+            devices,
+            projects,
+        })
     }
 
     fn active(&self) -> Option<Active> {
@@ -523,6 +587,7 @@ pub(crate) async fn listen(dir: &Path, peers: Peers) -> Result<()> {
         }
         let peers = peers.clone();
         commands.spawn(async move {
+            let _running = watchdog::enter(Step::MeshCommand);
             match timeout(COMMAND_LIMIT, answer(stream, &peers)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::debug!("a mesh command failed: {e:#}"),
@@ -576,11 +641,23 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         }
         out.push_str("end\n");
         out
+    } else if request == STATUS {
+        let status = peers.local_status().await?;
+        write.write_all(&rmp_serde::to_vec(&status)?).await?;
+        write.shutdown().await?;
+        return Ok(());
     } else {
         return Ok(());
     };
     write.write_all(reply.as_bytes()).await?;
     Ok(())
+}
+
+/// Seconds since the Unix epoch; 0 for a time before it.
+fn unix_secs(at: SystemTime) -> u64 {
+    at.duration_since(UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or(0)
 }
 
 /// The longest request the node reads; a ticket is far shorter.
@@ -662,6 +739,34 @@ pub async fn devices(dir: &Path) -> Result<Vec<String>> {
     let mut lines = ask(dir, DEVICES).await?;
     lines.retain(|line| line != "end");
     Ok(lines)
+}
+
+/// What the node running from `dir` says of itself; `None` when no node
+/// runs from there.
+#[cfg(feature = "cli")]
+pub async fn local_status(dir: &Path) -> Result<Option<LocalStatus>> {
+    use crate::link::local_socket;
+    /// How long the node may take to answer.
+    const STATUS_LIMIT: Duration = Duration::from_secs(20);
+    /// The most bytes read: far more than a status takes.
+    const MAX_STATUS: u64 = 4 * 1024 * 1024;
+    let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
+        return Ok(None);
+    };
+    let (read, mut write) = split(stream);
+    write.write_all(format!("{STATUS}\n").as_bytes()).await?;
+    let mut bytes = Vec::new();
+    timeout(STATUS_LIMIT, read.take(MAX_STATUS).read_to_end(&mut bytes))
+        .await
+        .context("the node took too long to answer")??;
+    if bytes.is_empty() {
+        bail!(
+            "the running node is older than this beep-node and cannot say; restart it on \
+             this version (`beep-node update`, or restart the service)"
+        );
+    }
+    let status = beep_proto::lenient::from_slice(&bytes).context("reading the node's status")?;
+    Ok(Some(status))
 }
 
 #[cfg(feature = "cli")]
