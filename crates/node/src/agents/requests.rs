@@ -1,9 +1,8 @@
 //! The `agents/1` requests: one answer each, or a stream the server follows.
 
 use super::{
-    Agents, AlertHub, Images, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, Plans,
-    SPEND_EVERY, custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder,
-    worktrees,
+    Agents, AlertHub, Images, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
+    custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
 };
 use crate::agents::claude::Excerpt;
 use anyhow::{Context, Result};
@@ -11,9 +10,8 @@ use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, SessionsReply, SessionsRequest},
-    usage::{PlanUsage, SessionSpend},
+    usage::SessionSpend,
 };
-use futures::future::BoxFuture;
 use iroh::EndpointId;
 use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
@@ -421,13 +419,25 @@ async fn send_alerts(
 /// usage, reading the plans every `PLAN_EVERY` and when the server asks,
 /// until the server closes the stream. With `history`, also what sessions
 /// spent as the agents' logs tell it, read every `SPEND_EVERY`.
-async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bool) -> Result<()> {
+async fn send_usage(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    agents: &Arc<Agents>,
+    history: bool,
+) -> Result<()> {
     let mut plans = agents.usage.plans();
-    let mut sent = Plans::new();
+    // What earlier reads left goes out at once: a desktop opens a stream per
+    // look and listens only briefly, so it would miss a CLI that starts slowly.
+    let mut sent = plans.borrow_and_update().clone();
+    for plan in sent.values() {
+        tx.send(&SessionsReply::PlanUsage {
+            usage: plan.clone(),
+        })
+        .await?;
+    }
     let mut every = interval(PLAN_EVERY);
     every.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    // A read runs a CLI or two; it runs beside the loop, not in it.
-    let mut reading: Option<BoxFuture<'_, Vec<PlanUsage>>> = None;
+    // When this stream last asked for a read, which runs beside it.
     let mut last_read: Option<Instant> = None;
     let mut every_scan = interval(SPEND_EVERY);
     every_scan.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -449,15 +459,9 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
                 }
                 sent = now;
             }
-            _ = every.tick(), if reading.is_none() => {
-                reading = Some(Box::pin(agents.read_plans()));
-            }
-            Some(read) = async { Some(reading.as_mut()?.await) }, if reading.is_some() => {
-                reading = None;
+            _ = every.tick() => {
+                agents.read_plans_soon();
                 last_read = Some(Instant::now());
-                for plan in read {
-                    agents.usage.set_plan(plan);
-                }
             }
             _ = every_scan.tick(), if history && scanning.is_none() => {
                 let spend = agents.spend.clone();
@@ -484,8 +488,9 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
             message = rx.recv::<SessionsRequest>() => match message {
                 Ok(Some(SessionsRequest::RefreshPlanUsage {})) => {
                     let recent = last_read.is_some_and(|at| at.elapsed() < PLAN_REFRESH_GAP);
-                    if reading.is_none() && !recent {
-                        reading = Some(Box::pin(agents.read_plans()));
+                    if !recent {
+                        agents.read_plans_soon();
+                        last_read = Some(Instant::now());
                     }
                 }
                 // Anything else is the server's goodbye.
