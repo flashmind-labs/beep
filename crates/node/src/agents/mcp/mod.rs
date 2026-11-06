@@ -36,6 +36,7 @@ mod catalog;
 pub(crate) mod children;
 mod machines;
 mod permission;
+mod review;
 mod server;
 mod socket;
 
@@ -68,7 +69,7 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     Mac builds, or one with a GPU for heavy jobs. remote_run runs a command there, never on your own machine; job_status and \
     cancel follow a background command. \
     sync_project syncs a project's files to the user's other machines before work there, and \
-    send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
+    send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
     for the answer. Running and sending may wait for the user to allow it.";
 
 /// How sessions start the server, and the key their tokens are made with.
@@ -305,6 +306,9 @@ struct Node {
 
 impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
+        if review::handles(request.tool) {
+            return Ok(review::call(&self.offers, request).await);
+        }
         if children::handles(request.tool) {
             return Ok(children::call(&self.offers, request).await);
         }
@@ -337,6 +341,10 @@ impl Backend for Node {
 
     async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
         self.offers.agents.ask(session, question).await
+    }
+
+    fn reviewer(&self, session: &str) -> bool {
+        self.offers.agents.is_reviewer(session)
     }
 }
 

@@ -361,6 +361,7 @@ impl Reach<'_> {
                     prompt: start.prompt,
                     cwd: Some(cwd),
                     model: start.model.map(ModelId::new),
+                    review: None,
                 },
             )
             .await?;
@@ -464,6 +465,10 @@ impl Reach<'_> {
     }
 
     async fn status(&self, id: &str) -> Reply {
+        // A review's id: its reviewer is gone once it is done.
+        if let Some(run) = self.agents.review_for(self.who, ChildId::parse(id).session) {
+            return super::review::standing(run);
+        }
         match self.view_of(id).await {
             Ok(view) => json_of(&view),
             Err(e) => fail(e),
@@ -754,6 +759,7 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
                     prompt: order.prompt,
                     cwd: order.cwd,
                     model: order.model.map(ModelId::new),
+                    review: None,
                 };
                 match agents.start_child(order.parent, start).await {
                     Ok(child) => json_of(&ChildView::of(&child.info(), &Agents::name_of(&child))),

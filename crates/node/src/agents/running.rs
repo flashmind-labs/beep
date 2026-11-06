@@ -308,9 +308,14 @@ impl Agents {
         ensure_room(&self.lock())
     }
 
-    /// Every session, oldest first.
+    /// Every session but the reviewers, oldest first.
     pub(super) fn list(&self) -> Vec<SessionInfo> {
-        let mut sessions: Vec<SessionInfo> = self.lock().values().map(|s| s.info()).collect();
+        let mut sessions: Vec<SessionInfo> = self
+            .lock()
+            .values()
+            .filter(|s| !s.reviewer)
+            .map(|s| s.info())
+            .collect();
         sessions.sort_by_key(|info| info.started_at);
         sessions
     }
@@ -391,7 +396,13 @@ impl Agents {
             },
         };
         let resumed = begin.resume.is_some();
-        let session = Arc::new(Session::start(Start {
+        // A reviewer tells the user nothing itself: the review does.
+        let alerts = if begin.review {
+            Arc::default()
+        } else {
+            self.alerts.clone()
+        };
+        let mut session = Session::start(Start {
             id: id.clone(),
             kind,
             cwd: &cwd,
@@ -407,12 +418,14 @@ impl Agents {
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             images: self.images.clone(),
             usage: self.usage.clone(),
-            alerts: self.alerts.clone(),
+            alerts,
             node: NodeMode {
                 stopping: self.stopping.clone(),
                 holding: self.holding.subscribe(),
             },
-        })?);
+        })?;
+        session.reviewer = begin.review;
+        let session = Arc::new(session);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
         sessions.insert(id, session.clone());
@@ -468,6 +481,8 @@ pub(super) struct Begin {
     pub(super) parent: Option<ParentLink>,
     /// The parent's state when it runs here.
     pub(super) follows: Option<watch::Receiver<Live>>,
+    /// A temporary reviewer (`agents::reviews`).
+    pub(super) review: bool,
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or

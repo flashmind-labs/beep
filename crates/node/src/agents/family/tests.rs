@@ -73,6 +73,7 @@ fn start(harness: &str, prompt: &str, dir: &Path) -> ChildStart {
         prompt: prompt.into(),
         cwd: Some(dir.to_string_lossy().into_owned()),
         model: None,
+        review: None,
     }
 }
 

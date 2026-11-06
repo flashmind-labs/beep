@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Tree, follow, followSteps, removedCheckout, reviewIn, rootOf, treeAt } from "../src/agentpane/worktree-state.ts";
+import { type Tree, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt } from "../src/agentpane/worktree-state.ts";
+import { homeShort } from "../src/project/projects-state.ts";
 
 const tree = (path: string, branch: string | null, own = false): Tree => ({ path, branch, head: "abc1234", own });
 const main = tree("/srv/app", "main", true);
@@ -136,7 +137,8 @@ test("a folder that is gone gives the main checkout, a live one gives null", () 
   assert.equal(gone("/srv/app", [{ ...main, own: false }]), null);
 });
 
-test("a review of another worktree says which", () => {
-  assert.equal(reviewIn("Review of your changes:\n\nx", "/srv/app", "/srv/app/"), "Review of your changes:\n\nx");
-  assert.equal(reviewIn("Review of your changes:\n\nx", "/srv/app-side", "/srv/app"), "In /srv/app-side: Review of your changes:\n\nx");
+test("a review names its folder, with ~ for home, and says when it is a worktree", () => {
+  assert.equal(reviewHeading(homeShort("/home/user/app/.worktrees/side"), true), "Review on worktree: ~/app/.worktrees/side");
+  assert.equal(reviewHeading(homeShort("/Users/user/app/"), false), "Review on ~/app");
+  assert.equal(reviewHeading(homeShort("/srv/app"), false), "Review on /srv/app");
 });

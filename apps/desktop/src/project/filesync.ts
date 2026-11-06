@@ -428,7 +428,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (!compared.has(key)) return;
     compared.set(key, typeof done === "string" ? done : diffView({
       load: async () => done,
-      review: { key: "compare", send: async () => "Comments are not sent from here" },
+      review: { key: "compare", heading: () => "Review", send: async () => "Comments are not sent from here" },
     }).el);
     redraw();
   }

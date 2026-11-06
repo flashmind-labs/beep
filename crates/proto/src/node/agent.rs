@@ -19,11 +19,13 @@
 mod checkout;
 mod external;
 mod models;
+mod review;
 mod session;
 mod sessions;
 
 pub use checkout::*;
 pub use external::*;
 pub use models::*;
+pub use review::*;
 pub use session::*;
 pub use sessions::*;

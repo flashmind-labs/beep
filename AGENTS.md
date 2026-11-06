@@ -514,6 +514,16 @@ requests (`Tool::StartAgent` and friends, which an older node reads as
   `MachineSession` has no parent; the desktop reads it from the node's
   `SessionInfo` (`fleet/parents.rs`).
 
+Reviews (`crates/node/src/agents/reviews.rs`, `mcp/review.rs`): the `review`
+tool starts a temporary reviewer child in the caller's folder, in its harness's
+read-only mode (Claude Code's plan, Codex's read-only), within the same limits.
+Only a reviewer is offered `submit_review`, with typed findings; one that ends
+its turn without calling it is told once to. Once it submitted, failed or was
+stopped it is closed and dropped: never listed, never in `reopen.json`. Its
+review stays on the node, in memory (the last 64), for `review` with its id,
+`agent_status`, and `agents/1` `Review` and `Reviews`. The desktop's Review
+with agent starts the same reviewer with `StartReview`.
+
 To make a harness's own subagent tool hand work to `start_agent`, add a
 project-level agent file. Beep does not install these. For Claude Code,
 `.claude/agents/codex-worker.md`:

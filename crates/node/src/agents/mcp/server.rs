@@ -38,6 +38,9 @@ pub(crate) trait Backend: Sync {
     /// Puts `question` to the user in `session` and waits for the answer.
     fn ask(&self, session: &str, question: Asking)
     -> impl Future<Output = Result<Answered>> + Send;
+    /// Whether `session` is a temporary reviewer, which is offered
+    /// `submit_review`.
+    fn reviewer(&self, session: &str) -> bool;
 }
 
 /// Serves MCP for `session` until the reader ends and every call is
@@ -120,7 +123,10 @@ async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Optio
             )
         }
         "ping" => success(id, json!({})),
-        "tools/list" => success(id, json!({ "tools": catalog::tools() })),
+        "tools/list" => success(
+            id,
+            json!({ "tools": catalog::tools(backend.reviewer(session)) }),
+        ),
         "tools/call" => {
             let name = params
                 .get("name")
@@ -188,6 +194,10 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
             | Tool::Forget,
         )
         | Err(_) => {
+            return Called::failed(format!("There is no tool {name}."));
+        }
+        // Only a reviewer hands a review in.
+        Ok(Tool::SubmitReview) if !backend.reviewer(session) => {
             return Called::failed(format!("There is no tool {name}."));
         }
         Ok(tool) => tool,
@@ -311,6 +321,8 @@ mod tests {
         calls: Mutex<Vec<Request>>,
         asked: Mutex<Vec<String>>,
         answer: &'static str,
+        /// The session is a reviewer.
+        reviewer: bool,
     }
 
     impl Fake {
@@ -319,6 +331,7 @@ mod tests {
                 calls: Mutex::default(),
                 asked: Mutex::default(),
                 answer,
+                reviewer: false,
             }
         }
     }
@@ -358,6 +371,11 @@ mod tests {
                 .into_iter()
                 .find(|option| option.id == self.answer)
                 .map_or_else(|| Answered::Said(self.answer.into()), Answered::Picked))
+        }
+
+        fn reviewer(&self, session: &str) -> bool {
+            assert_eq!(session, "a3f9c1");
+            self.reviewer
         }
     }
 
@@ -439,7 +457,8 @@ mod tests {
                 "send_to_agent",
                 "stop_agent",
                 "list_agents",
-                "ask_user"
+                "ask_user",
+                "review"
             ]
         );
         let hints = |name: &str| {
@@ -535,5 +554,48 @@ mod tests {
         )
         .await;
         assert_eq!(text(&out[0]), "The user answered: the release branch");
+    }
+
+    #[tokio::test]
+    async fn only_a_reviewer_is_offered_submit_review() {
+        let names = |out: &[Value]| -> Vec<String> {
+            out[0]["result"]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let submit = request(
+            2,
+            "tools/call",
+            json!({ "name": "submit_review", "arguments": { "verdict": "approve", "summary": "Fine.", "findings": [] } }),
+        );
+        let worker = Fake::new(ALLOW);
+        let out = exchange(
+            &worker,
+            &[request(1, "tools/list", json!({})), submit.clone()],
+        )
+        .await;
+        let offered = names(&out);
+        assert!(offered.contains(&"review".to_owned()), "{offered:?}");
+        assert!(
+            !offered.contains(&"submit_review".to_owned()),
+            "{offered:?}"
+        );
+        assert_eq!(text(&out[1]), "There is no tool submit_review.");
+        assert!(worker.calls.lock().unwrap().is_empty(), "nothing was sent");
+
+        let reviewer = Fake {
+            reviewer: true,
+            ..Fake::new(ALLOW)
+        };
+        let out = exchange(&reviewer, &[request(1, "tools/list", json!({})), submit]).await;
+        let offered = names(&out);
+        assert!(offered.contains(&"submit_review".to_owned()), "{offered:?}");
+        assert!(!offered.contains(&"review".to_owned()), "{offered:?}");
+        let calls = reviewer.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].tool, Tool::SubmitReview);
     }
 }

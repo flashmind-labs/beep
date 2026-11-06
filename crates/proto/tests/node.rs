@@ -842,6 +842,8 @@ mod tools {
             (Tool::ListAgents, "list_agents"),
             (Tool::AgentParent, "agent_parent"),
             (Tool::AgentCount, "agent_count"),
+            (Tool::Review, "review"),
+            (Tool::SubmitReview, "submit_review"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));
@@ -1525,6 +1527,70 @@ mod agent {
             );
             assert!(!SessionsRequest::FollowAlerts {}.is_read());
             assert!(!SessionsRequest::Watch { sessions: vec![] }.is_read());
+        }
+
+        #[test]
+        fn the_review_request_is_new_and_a_node_before_it_refuses_it() {
+            let asked = SessionsRequest::Review { id: "a3".into() };
+            let bytes = rmp_serde::to_vec(&asked).expect("encodes");
+            // Fixture: a map of one entry, the variant's name, its fields in a
+            // list. It never changes once released.
+            let mut fixture = vec![0x81, 0xa6];
+            fixture.extend_from_slice(b"Review");
+            fixture.extend_from_slice(&[0x91, 0xa2, b'a', b'3']);
+            assert_eq!(bytes, fixture);
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsRequest>(&fixture).expect("decodes"),
+                asked
+            );
+            assert!(asked.is_read());
+            assert!(rmp_serde::from_slice::<BeforeMoves>(&bytes).is_err());
+            let start = SessionsRequest::StartReview {
+                order: ReviewOrder {
+                    cwd: "/srv/project".into(),
+                    agent: "codex".into(),
+                    base: "HEAD".into(),
+                    parent: Some("a3f9c1".into()),
+                    ..ReviewOrder::default()
+                },
+            };
+            assert!(!start.is_read());
+            let bytes = rmp_serde::to_vec(&start).expect("encodes");
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).expect("decodes"),
+                start
+            );
+        }
+
+        #[test]
+        fn a_review_round_trips() {
+            let run = ReviewRun {
+                id: "b4e0d2".into(),
+                parent: Some("a3f9c1".into()),
+                cwd: "/srv/project".into(),
+                base: "main".into(),
+                agent: "claude".into(),
+                started_at: 1_700_000_000,
+                review: Some(SubmittedReview {
+                    verdict: CodeVerdict::Changes,
+                    summary: "One bug.".into(),
+                    findings: vec![CodeFinding {
+                        file: "src/limit.rs".into(),
+                        line: Some(42),
+                        severity: FindingSeverity::High,
+                        summary: "Off by one".into(),
+                        scenario: "A limit of 0 lets one through.".into(),
+                    }],
+                }),
+                error: None,
+            };
+            assert!(!run.running());
+            let reply = SessionsReply::Review { run: run.clone() };
+            let bytes = rmp_serde::to_vec(&reply).expect("encodes");
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsReply>(&bytes).expect("decodes"),
+                reply
+            );
         }
 
         #[test]

@@ -9,8 +9,9 @@ import { type DiffViewHandle, diffView } from "../review/diff.ts";
 import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
-import { paneRoot, refreshWorktrees, removedBranch } from "./worktree.ts";
-import { reviewIn } from "./worktree-state.ts";
+import { paneLinked, paneRoot, refreshWorktrees, removedBranch } from "./worktree.ts";
+import { reviewHeading } from "./worktree-state.ts";
+import { homeShort } from "../project/projects-state.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -46,8 +47,8 @@ export function changesView() {
     },
     open: { label: "Open in a tab", run: openWorkFile },
     menu: (path, at) => localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, at),
-    review: { key: `${s.machine_id}\n${s.id}`, send: text => sendReview(reviewIn(text, paneRoot(), s.cwd)) },
-    agent: { machine: { id: s.machine_id, name: s.machine_name }, prefer: s.agent, open: async started => (await import("../center/views.ts")).go("pane", { agent: started }) },
+    review: { key: `${s.machine_id}\n${s.id}`, heading: () => reviewHeading(homeShort(paneRoot()), paneLinked()), send: sendReview },
+    agent: { machine: { id: s.machine_id, name: s.machine_name }, prefer: s.agent, session: s.id },
   });
   el.append(C.note, view.el);
   drawNote();

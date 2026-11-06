@@ -252,9 +252,11 @@ export function entryRow(en: AgentEntry, at: number) {
       : `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`).join("");
     const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
     if (!own && others) return others;
-    const { text: said, names } = userImages(own);
-    const user = (s: string) => AG.log ? AG.log.userHtml(s, linkified, i => AG.opened.has(`${at}:${i}`)) : linkified(s);
-    return others + userRowHtml(user(said), ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "");
+    const { names } = userImages(own);
+    // The user's words come as Markdown HTML, its pasted blocks folded;
+    // the ones the reader opened stay open.
+    const said = (en.html ?? "").replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
+    return others + userRowHtml(said, ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "", true);
   }
   // The pictures the agent or a tool showed go after the text, as a
   // user's do. The HTML is already without their lines.
