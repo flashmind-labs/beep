@@ -9,7 +9,7 @@ use crate::ApiError;
 /// `~/Projects/work` on a Mac and `/home/user/work` on
 /// Linux are both `work`. A folder outside the home folder stays
 /// absolute; the home folder itself, or its `Projects`, is empty.
-pub fn project_group_path(path: &str) -> String {
+fn project_group_path(path: &str) -> String {
     let path = path.trim().replace('\\', "/");
     let Some(rest) = home_relative(&path) else {
         let trimmed = path.trim_end_matches('/');

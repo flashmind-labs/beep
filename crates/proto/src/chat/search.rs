@@ -17,7 +17,7 @@ pub fn match_snippet(text: &str, query: &str) -> Option<String> {
 }
 
 /// Where `query` first appears in `text`, ignoring case.
-pub fn find_ignoring_case(text: &str, query: &str) -> Option<Range<usize>> {
+fn find_ignoring_case(text: &str, query: &str) -> Option<Range<usize>> {
     // Comparing char by char lowercases every character of every message,
     // which is slow over a long history. For a plain ASCII query the bytes
     // can be compared instead: the only other character whose lowercase is
@@ -44,7 +44,7 @@ pub fn find_ignoring_case(text: &str, query: &str) -> Option<Range<usize>> {
 
 /// The words around `at` on one line, without Markdown marks, cut short
 /// with `...` on either side.
-pub fn snippet(text: &str, at: Range<usize>) -> String {
+fn snippet(text: &str, at: Range<usize>) -> String {
     let before: Vec<char> = text[..at.start].chars().collect();
     let from = before.len().saturating_sub(SNIPPET_BEFORE);
     let after: String = text[at.start..].chars().take(SNIPPET_AFTER).collect();

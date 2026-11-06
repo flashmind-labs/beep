@@ -251,7 +251,7 @@ ffi_enum! {
 }
 
 /// The image types `AgentSteer::PromptImages` may carry.
-pub const AGENT_IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
+const AGENT_IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 /// The most images one `AgentSteer::PromptImages` may carry.
 pub const MAX_AGENT_IMAGES: usize = 5;
