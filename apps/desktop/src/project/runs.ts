@@ -394,7 +394,7 @@ export function makeRuns(deps: RunDeps) {
     if (d.jobs.length) box.append(jobs);
     const shown = d.jobs.find(j => j.state === "failed") || d.jobs.find(j => going(j.state));
     if (shown?.steps.length) {
-      box.append(h("span", "pj-steps", ...shown.steps.map(st => stepLine(`${st.number}. ${st.name}`, st.state, st))));
+      box.append(h("span", "pj-steps", ...shown.steps.map((st, i) => stepLine(`${i + 1}. ${st.name}`, st.state, st))));
     }
     if (d.log) {
       const where = [d.log.job, d.log.step].filter(Boolean).join(", ");
