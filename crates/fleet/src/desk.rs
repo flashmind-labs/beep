@@ -17,7 +17,11 @@ use beep_proto::node::{EnvReport, agent::SESSIONS_PROTOCOL, shell};
 use futures::future::join_all;
 use iroh::EndpointId;
 use reqwest::{Client, redirect::Policy};
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, PoisonError},
+    time::{Duration, Instant},
+};
 use tokio::{sync::Semaphore, time::timeout};
 
 /// Calls to git hosts in flight at once.
@@ -161,6 +165,9 @@ pub(crate) struct Seen {
     pub(crate) env: Option<EnvReport>,
 }
 
+/// A checkout's remote URLs and when they were read.
+type KeptRemotes = (Instant, Vec<String>);
+
 /// Calls to git hosts from this Mac, shared by every call of the session: one client, one limit
 /// on calls in flight, and the replies and rate limits kept for the runs.
 #[derive(Clone)]
@@ -168,6 +175,8 @@ pub(crate) struct DesktopHosts {
     client: Client,
     calls: Arc<Semaphore>,
     kept: Arc<HostCalls>,
+    /// Each project's checkout remotes and when they were read, for the hosts its runs are on.
+    remotes: Arc<Mutex<HashMap<String, KeptRemotes>>>,
 }
 
 impl DesktopHosts {
@@ -183,6 +192,7 @@ impl DesktopHosts {
             client,
             calls: Arc::new(Semaphore::new(MAX_CALLS)),
             kept: Arc::default(),
+            remotes: Arc::default(),
         })
     }
 
@@ -196,6 +206,19 @@ impl DesktopHosts {
 
     pub(crate) fn host_calls(&self) -> &HostCalls {
         &self.kept
+    }
+
+    /// `project`'s remotes as read less than `within` ago.
+    pub(crate) fn remotes(&self, project: &str, within: Duration) -> Option<Vec<String>> {
+        let kept = self.remotes.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.get(project)
+            .filter(|(at, _)| at.elapsed() < within)
+            .map(|(_, urls)| urls.clone())
+    }
+
+    pub(crate) fn keep_remotes(&self, project: &str, urls: Vec<String>) {
+        let mut kept = self.remotes.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.insert(project.to_owned(), (Instant::now(), urls));
     }
 }
 

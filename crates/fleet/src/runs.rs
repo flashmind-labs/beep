@@ -1,6 +1,8 @@
-//! A project's CI runs, read from its host's Actions API with the user's token: the list with each
+//! A project's CI runs, read from its hosts' Actions API with the user's token: the list with each
 //! running run's progress, how each open pull request's checks stand, and one run's jobs with the
-//! end of a failed job's log. The reads and their ETag cache are `beep_projects::repo_watch`'s.
+//! end of a failed job's log. A repository pushed to GitHub and a Forgejo server runs on both, so
+//! every host a checkout's remotes name is read too. The reads and their ETag cache are
+//! `beep_projects::repo_watch`'s.
 
 use crate::{
     desk::Desk,
@@ -8,9 +10,11 @@ use crate::{
     records::{Stored, find_project, now_ms, time},
 };
 use beep_projects::{
-    credentials::Slot,
+    branches::{READ_LIMIT, run_script},
+    credentials::{Opened, Slot},
     imports::{
         hosts::{credential_of, forgejo_of},
+        preview::{parse_remotes, remotes_script},
         repo::{Host, RepoRef},
     },
     issues::list_open_prs,
@@ -26,12 +30,18 @@ use beep_proto::{
 };
 use futures::future::{join, join_all};
 use secrecy::ExposeSecret;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 /// What the host's rate limit is shared by: the desktop's calls to it.
 const WHO: &str = "desktop";
 /// The most running runs whose jobs are read for their progress.
 const PROGRESS_READS: usize = 5;
+/// The most hosts one project's runs are read from.
+const MAX_HOSTS: usize = 4;
+/// How long a checkout's remotes are kept.
+const REMOTES_FOR: Duration = Duration::from_secs(30 * 60);
+/// The most machines asked for a checkout's remotes.
+const REMOTES_ASKED: usize = 2;
 const NO_HOST: &str =
     "This project's repository is not on a GitHub or Forgejo host Beep has a token for.";
 
@@ -40,15 +50,22 @@ struct Place {
     target: Target,
     kind: GitHostKind,
     repo: String,
+    /// The repository's web page on the host.
+    web: String,
 }
 
 impl Desk {
-    /// The project's host and the token that reads it, or why there is none.
+    /// The project's own host and the token that reads it, or why there is none.
     fn run_place(&self, stored: &Stored) -> std::result::Result<Place, String> {
         let opened = self.opened();
         let repo = RepoRef::parse(&stored.record.url, &forgejo_of(&opened))
             .map_err(|_| NO_HOST.to_owned())?;
-        let found = credential_of(&repo, &opened)
+        self.place_of(&repo, &opened)
+    }
+
+    /// Where `repo`'s runs are read, with the user's token for its host.
+    fn place_of(&self, repo: &RepoRef, opened: &[Opened]) -> std::result::Result<Place, String> {
+        let found = credential_of(repo, opened)
             .ok_or_else(|| format!("Beep has no token for {}.", repo.host_name()))?;
         let name = RepoName::parse(&repo.project()).map_err(|e| e.to_string())?;
         let secret = found.secret.expose_secret().to_owned().into();
@@ -76,14 +93,93 @@ impl Desk {
             target,
             kind,
             repo: repo.project(),
+            web: repo.web_url(),
         })
     }
 
-    /// The newest runs of the project, and the checks of its open pull requests.
+    /// Every host the project's repository is on with a token here: its own first, then each
+    /// host a checkout's remote names it on (by full name, or by name under another owner). Two
+    /// remotes to one server, such as over ssh and over http, are one host.
+    async fn run_places(&self, stored: &Stored) -> std::result::Result<Vec<Place>, String> {
+        let opened = self.opened();
+        let servers = forgejo_of(&opened);
+        let own = RepoRef::parse(&stored.record.url, &servers).map_err(|_| NO_HOST.to_owned())?;
+        let remotes: Vec<RepoRef> = self
+            .checkout_remotes(stored)
+            .await
+            .iter()
+            .filter_map(|url| RepoRef::parse(url, &servers).ok())
+            .collect();
+        let full = remotes
+            .iter()
+            .filter(|repo| repo.project().eq_ignore_ascii_case(&own.project()));
+        let named = remotes
+            .iter()
+            .filter(|repo| repo.name().eq_ignore_ascii_case(own.name()));
+        let mut repos: Vec<&RepoRef> = Vec::new();
+        for repo in [&own].into_iter().chain(full).chain(named) {
+            if !repos.iter().any(|seen| seen.host == repo.host) {
+                repos.push(repo);
+            }
+        }
+        let mut places: Vec<Place> = Vec::new();
+        let mut first_error = None;
+        for repo in repos {
+            match self.place_of(repo, &opened) {
+                Ok(place) if !places.iter().any(|p| p.target.host == place.target.host) => {
+                    places.push(place);
+                }
+                Ok(_) => {}
+                Err(why) => {
+                    first_error.get_or_insert(why);
+                }
+            }
+        }
+        places.truncate(MAX_HOSTS);
+        match first_error {
+            Some(why) if places.is_empty() => Err(why),
+            _ => Ok(places),
+        }
+    }
+
+    /// The remote URLs of one of the project's checkouts, this Mac's first, kept for
+    /// [`REMOTES_FOR`]; none when no machine answered.
+    async fn checkout_remotes(&self, stored: &Stored) -> Vec<String> {
+        if let Some(kept) = self.hosts.remotes(&stored.name, REMOTES_FOR) {
+            return kept;
+        }
+        let mut machines: Vec<_> = stored.places.keys().copied().collect();
+        crate::nearest_first(&self.mesh, &mut machines, |machine| *machine);
+        machines.sort_by_key(|machine| *machine != self.local);
+        for id in machines.into_iter().take(REMOTES_ASKED) {
+            let Some(seen) = self.seen_one(id).await else {
+                continue;
+            };
+            let Ok(shell) = seen.machine.shell() else {
+                continue;
+            };
+            let folder = stored.places[&id].folder.clone();
+            match run_script(shell, &remotes_script(&[folder]), READ_LIMIT).await {
+                Ok(out) => {
+                    let urls: Vec<String> = parse_remotes(&out)
+                        .into_iter()
+                        .flat_map(|folder| folder.remotes.into_iter().map(|(_, url)| url))
+                        .collect();
+                    self.hosts.keep_remotes(&stored.name, urls.clone());
+                    return urls;
+                }
+                Err(e) => log::info!("runs: remotes not read on {}: {e:#}", seen.machine.name),
+            }
+        }
+        Vec::new()
+    }
+
+    /// The newest runs of the project from every host it is on, newest first, and the checks of
+    /// its open pull requests on each.
     pub async fn runs(&self, project: &str) -> Result<HostedRuns> {
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
-        let place = match self.run_place(&stored) {
-            Ok(place) => place,
+        let places = match self.run_places(&stored).await {
+            Ok(places) => places,
             Err(why) => {
                 return Ok(HostedRuns {
                     runs: Vec::new(),
@@ -93,19 +189,70 @@ impl Desk {
                 });
             }
         };
-        let client = self.hosts.reqwest()?;
-        let calls = self.hosts.host_calls();
-        let caller = place.target.caller(self.hosts.semaphore(), &client);
-        let host = place.target.host.clone();
-        // The list and the open pull requests are asked at once.
-        let (listed, heads) = join(
-            host_runs::list(calls, &caller, &place.target),
+        // The hosts and the open pull requests are asked at once.
+        let (read, heads) = join(
+            join_all(places.iter().map(|place| self.host_runs(place))),
             self.open_heads(project),
         )
         .await;
-        let (mut shown, error) = match listed {
-            Ok(listed) => (listed, None),
-            Err(e) => (Vec::new(), Some(e.to_string())),
+        let refs: Vec<PrHeadRef<'_>> = heads
+            .iter()
+            .map(|(number, head)| PrHeadRef {
+                number: *number,
+                head,
+            })
+            .collect();
+        let mut all = HostedRuns {
+            runs: Vec::new(),
+            checks: Vec::new(),
+            hosts: Vec::new(),
+            error: None,
+        };
+        for (runs, mut host) in read {
+            host.primary = all.hosts.is_empty();
+            let checks = pr_checks(&runs, &refs);
+            all.checks
+                .extend(checks.into_iter().map(|checks| HostedChecks {
+                    host: host.host.clone(),
+                    checks,
+                }));
+            all.runs.extend(runs.into_iter().map(|run| HostedRun {
+                host: host.host.clone(),
+                run,
+            }));
+            all.hosts.push(host);
+        }
+        newest_first(&mut all.runs);
+        Ok(all)
+    }
+
+    /// One host's newest runs, with the progress of those running, and how its read went.
+    async fn host_runs(&self, place: &Place) -> (Vec<WorkflowRun>, RunsHost) {
+        let calls = self.hosts.host_calls();
+        let mut host = RunsHost {
+            host: place.target.host.clone(),
+            kind: place.kind,
+            repo: place.repo.clone(),
+            primary: false,
+            synced_at: Some(time(now_ms())),
+            error: None,
+            rate_limited_until: None,
+            url: Some(place.web.clone()),
+        };
+        let client = match self.hosts.reqwest() {
+            Ok(client) => client,
+            Err(e) => {
+                host.error = Some(e.to_string());
+                return (Vec::new(), host);
+            }
+        };
+        let caller = place.target.caller(self.hosts.semaphore(), &client);
+        let mut shown = match host_runs::list(calls, &caller, &place.target).await {
+            Ok(listed) => listed,
+            Err(e) => {
+                host.error = Some(e.to_string());
+                Vec::new()
+            }
         };
         // The running runs' jobs are read together, the host's calls bounded by the caller's
         // semaphore; none while the rate limit is low, as they are only for live progress.
@@ -126,42 +273,8 @@ impl Desk {
             }))
             .await;
         }
-        let runs: Vec<WorkflowRun> = shown.iter().map(|listed| listed.run.clone()).collect();
-        let refs: Vec<PrHeadRef<'_>> = heads
-            .iter()
-            .map(|(number, head)| PrHeadRef {
-                number: *number,
-                head,
-            })
-            .collect();
-        let checks = pr_checks(&runs, &refs)
-            .into_iter()
-            .map(|checks| HostedChecks {
-                host: host.clone(),
-                checks,
-            })
-            .collect();
-        let rate_limited_until = calls.limited_until(&place.target.who, SystemTime::now());
-        Ok(HostedRuns {
-            runs: runs
-                .into_iter()
-                .map(|run| HostedRun {
-                    host: host.clone(),
-                    run,
-                })
-                .collect(),
-            checks,
-            hosts: vec![RunsHost {
-                host,
-                kind: place.kind,
-                repo: place.repo,
-                primary: true,
-                synced_at: Some(time(now_ms())),
-                error,
-                rate_limited_until,
-            }],
-            error: None,
-        })
+        host.rate_limited_until = calls.limited_until(&place.target.who, SystemTime::now());
+        (shown.into_iter().map(|listed| listed.run).collect(), host)
     }
 
     /// The open pull requests' numbers and head branches; none when they cannot be read, as the
@@ -181,10 +294,29 @@ impl Desk {
             .unwrap_or_default()
     }
 
-    /// Run `id` with its jobs and, when it failed, the end of the failing job's log.
-    pub async fn run(&self, project: &str, id: u64) -> Result<ProjectRunDetail> {
+    /// Run `id` on `host` (the project's own host for `None`) with its jobs and, when it failed,
+    /// the end of the failing job's log.
+    pub async fn run(
+        &self,
+        project: &str,
+        host: Option<&str>,
+        id: u64,
+    ) -> Result<ProjectRunDetail> {
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
-        let place = self.run_place(&stored).map_err(FleetError::Refused)?;
+        let own = self.run_place(&stored);
+        let elsewhere = host.filter(|host| own.as_ref().is_ok_and(|own| own.target.host != *host));
+        let other = match elsewhere {
+            Some(host) => self
+                .run_places(&stored)
+                .await
+                .ok()
+                .and_then(|places| places.into_iter().find(|place| place.target.host == host)),
+            None => None,
+        };
+        let place = match other {
+            Some(place) => place,
+            None => own.map_err(FleetError::Refused)?,
+        };
         let client = self.hosts.reqwest()?;
         let calls = self.hosts.host_calls();
         let caller = place.target.caller(self.hosts.semaphore(), &client);
@@ -230,4 +362,16 @@ impl Desk {
             rate_limited_until: calls.limited_until(&place.target.who, SystemTime::now()),
         })
     }
+}
+
+/// Sorts runs newest first by start, or by finish for one cancelled before it started, with
+/// those still waiting to start first; ties keep their order.
+fn newest_first(runs: &mut [HostedRun]) {
+    runs.sort_by(|a, b| {
+        let key = |r: &HostedRun| {
+            let at = r.run.started_at.or(r.run.finished_at);
+            (at.is_none(), at)
+        };
+        key(b).cmp(&key(a))
+    });
 }

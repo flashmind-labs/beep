@@ -79,6 +79,8 @@ export interface HostRow {
   synced_at: number | null;
   error: string | null;
   rate_limited_until: number | null;
+  /// The repository's web page there; missing from a server.
+  url?: string | null;
 }
 
 /// The run list (RunsRow).
@@ -263,6 +265,8 @@ export interface RunDeps {
   mode?: (id: string) => HTMLElement | null;
   /// Where the runs are kept between windows; in memory only without it.
   kept?: SectionStore<RunsRow | null>;
+  /// Called when a read changes the hosts the runs come from.
+  hostsChanged?: () => void;
 }
 
 /// One project's runs: undefined while they load, null from a server too old to
@@ -337,7 +341,7 @@ export function makeRuns(deps: RunDeps) {
     if (s.loading) return;
     s.loading = true;
     tried.set(id, Date.now());
-    const was = JSON.stringify([s.data, s.error]);
+    const was = JSON.stringify([s.data, s.error]), hostsWere = JSON.stringify(s.data?.hosts ?? []);
     try {
       s.data = await invoke<RunsRow | null>("center_project_runs", { projectId: id, refresh });
       s.error = "";
@@ -351,6 +355,7 @@ export function makeRuns(deps: RunDeps) {
     if (s.data) readAhead(id, s.data);
     // A read that changed nothing draws nothing.
     if (JSON.stringify([s.data, s.error]) !== was) redraw();
+    if (JSON.stringify(s.data?.hosts ?? []) !== hostsWere) deps.hostsChanged?.();
   }
 
   /// Reads run `run` from the host it ran on and keeps it; `refresh` reads
@@ -614,6 +619,8 @@ export function makeRuns(deps: RunDeps) {
     ensure,
     /// Each open pull request's checks, once the runs are read.
     checks: (id: string) => of(id).data?.checks ?? null,
+    /// The hosts the runs are read from, as last read; none before.
+    hosts: (id: string) => all.get(id)?.data?.hosts ?? kept.get(id)?.hosts ?? null,
     /// Opens run `run` of project `id` on `host`, as a PR row's checks
     /// link does.
     show: (id: string, run: number, host?: string | null) => {

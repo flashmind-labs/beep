@@ -206,6 +206,8 @@ pub struct HostRow {
     synced_at: Option<u64>,
     error: Option<String>,
     rate_limited_until: Option<u64>,
+    /// The repository's web page there; `None` from a server.
+    url: Option<String>,
 }
 
 impl From<RunsHost> for HostRow {
@@ -221,6 +223,7 @@ impl From<RunsHost> for HostRow {
             synced_at: ms(h.synced_at),
             error: h.error,
             rate_limited_until: ms(h.rate_limited_until),
+            url: h.url,
         }
     }
 }
@@ -373,7 +376,9 @@ pub async fn center_project_run(
     refresh: Option<bool>,
 ) -> Result<RunDetailRow> {
     if let Some(name) = desk(&fleet).await?.project_name(project_id) {
-        let read = fleet.run(&name, run_id, refresh.unwrap_or(false)).await?;
+        let read = fleet
+            .run(&name, host.as_deref(), run_id, refresh.unwrap_or(false))
+            .await?;
         let mut row: RunDetailRow = read.into();
         row.run.host = host;
         return Ok(row);
