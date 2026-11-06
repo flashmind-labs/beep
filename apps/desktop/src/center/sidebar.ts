@@ -10,7 +10,8 @@ import { pane } from "../bar/pane.ts";
 import { live, S } from "../bar/core.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
-import { openAddProject, importFound } from "../addproject/addproject.ts";
+import { openAddProject, importFound, rescanAll } from "../addproject/addproject.ts";
+import { openAddFolder } from "../addproject/addfolder.ts";
 import { openNewProject } from "../addproject/newproject.ts";
 import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
 import { button, el as h, type Kid } from "../ui/dom.ts";
@@ -560,13 +561,11 @@ function landed(p: { name: string }) {
   openProjects(p.name);
 }
 
-/// Opens the Import a project sheet, at the folder choice with `choose`; the
-/// project is selected once it is in.
-export function importSheet(choose = false, repo: string | null = null, machine: string | null = null) {
+/// Opens the Import a project sheet; the project is selected once it is in.
+export function importSheet(repo: string | null = null, machine: string | null = null) {
   openImportProject({
     machines: state.home?.machines || [],
     macId: state.mac?.id || null,
-    choose,
     repo,
     machine,
     onDone: landed,
@@ -578,19 +577,24 @@ export function addProject() {
   openAddProject({
     machines: state.home?.machines || [],
     onImported: landed,
-    onChoose: () => importSheet(true),
-    onClone: repo => importSheet(false, repo ?? null),
+    onChoose: () => openAddFolder({
+      machines: state.home?.machines || [],
+      macId: state.mac?.id || null,
+      onDone: landed,
+      onBack: addProject,
+    }),
+    onClone: repo => importSheet(repo ?? null),
     onNew: () => openNewProject({
       machines: state.home?.machines || [],
       onDone: landed,
       onBack: addProject,
-      onClone: repo => importSheet(false, repo),
+      onClone: repo => importSheet(repo),
     }),
   });
 }
 
-/// Asks the machines for the checkouts their agents worked in, for the
-/// Projects page; it redraws once they answer.
+/// The checkouts the machines named last, for the Projects page, then each
+/// machine's look again as it answers; it redraws each time.
 export const loadFound = single(async () => {
   try {
     state.found = await invoke<FoundRow[]>("found_projects");
@@ -599,6 +603,11 @@ export const loadFound = single(async () => {
     state.found = state.found || [];
   }
   if (!state.picked) redrawProjects();
+  await rescanAll(() => {}, (_, after) => {
+    if (!after.rows) return;
+    state.found = after.rows;
+    if (!state.picked) redrawProjects();
+  });
 });
 
 /// Imports a found row from the Projects page and opens it.
