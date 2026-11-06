@@ -4,7 +4,7 @@
 use super::{
     Skills,
     compare::{Holder, Outcome, Take, compare},
-    disk::{self, Base, Scan, Seen},
+    disk::{self, Base, Hashes, Scan, Seen},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{Mesh, MeshError, PeerClient};
@@ -15,16 +15,22 @@ use beep_proto::node::{
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    mem,
     path::PathBuf,
     time::Duration,
 };
 use tokio::{
     task::spawn_blocking,
-    time::{MissedTickBehavior, interval, timeout},
+    time::{Instant, MissedTickBehavior, interval, timeout},
 };
 
-/// How often the machines are compared when nothing comes or goes.
+/// How often the skills here are looked at when nothing comes or goes. A
+/// look reads only the files' metadata unless one changed.
 const EVERY: Duration = Duration::from_secs(120);
+/// How often the other machines' lists are read when none came, went or
+/// said its skills changed: each says so itself, so this only catches a
+/// word that was lost.
+const ASK_EVERY: Duration = Duration::from_secs(15 * 60);
 /// The most skills taken in one pass; the rest wait for the next.
 const MAX_TAKEN: usize = 32;
 /// How long a peer has to send its request.
@@ -56,6 +62,9 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
         mesh: mesh.clone(),
         home,
         seen,
+        hashes: Hashes::default(),
+        asked: None,
+        compared: 0,
         lists: HashMap::new(),
         sent: HashMap::new(),
         told: BTreeMap::new(),
@@ -66,26 +75,27 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     let mut tick = interval(EVERY);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick.tick().await;
+    let mut ask = true;
     loop {
         let now = online(&mesh);
         // A pass that took a skill runs again, so the others hear of it.
-        if pass.run(&now).await {
+        if pass.run(&now, ask).await {
             continue;
         }
-        loop {
+        ask = loop {
             tokio::select! {
-                _ = tick.tick() => break,
-                () = nudge.notified() => break,
+                _ = tick.tick() => break false,
+                () = nudge.notified() => break true,
                 changed = updates.changed() => {
                     if changed.is_err() {
                         return;
                     }
                     if online(&mesh) != now {
-                        break;
+                        break true;
                     }
                 }
             }
-        }
+        };
     }
 }
 
@@ -104,6 +114,12 @@ struct Passes {
     mesh: Mesh,
     home: PathBuf,
     seen: Seen,
+    /// The skill folders' hashes, so an unchanged one is not read again.
+    hashes: Hashes,
+    /// When the other machines' lists were last read.
+    asked: Option<Instant>,
+    /// How many of them answered then.
+    compared: usize,
     /// Each other machine's last list, kept while it is offline so its
     /// conflicts stay told.
     lists: HashMap<EndpointId, Vec<Listed>>,
@@ -128,28 +144,16 @@ struct Summary {
 }
 
 impl Passes {
-    /// One pass; whether it wrote a skill.
-    async fn run(&mut self, online: &BTreeSet<EndpointId>) -> bool {
+    /// One pass; whether it wrote a skill. The other machines' lists are
+    /// read again when `ask`, or when they were last read `ASK_EVERY` ago.
+    async fn run(&mut self, online: &BTreeSet<EndpointId>, ask: bool) -> bool {
         let Some(scan) = self.scan().await else {
             return false;
         };
         let here = self.listing(&scan);
         self.skills.listed.send_replace(Some(here.clone()));
-        let mut compared = 0;
-        for &peer in online {
-            let client = PeerClient::over(self.mesh.clone(), peer);
-            match client.call(PROTOCOL, &Request::List {}).await {
-                Ok(Reply::Skills { skills }) => {
-                    self.lists.insert(peer, skills);
-                    compared += 1;
-                }
-                Ok(other) => log::debug!("skills: {peer} answered {other:?}"),
-                // A node from before skills/1, or one that does not sync them.
-                Err(MeshError::Declined { .. }) => {
-                    self.lists.remove(&peer);
-                }
-                Err(e) => log::debug!("skills: {peer} not read: {e}"),
-            }
+        if ask || self.asked.is_none_or(|at| at.elapsed() >= ASK_EVERY) {
+            self.ask(online).await;
         }
         let mesh = self.mesh.clone();
         self.lists.retain(|id, _| mesh.is_member(*id));
@@ -234,7 +238,7 @@ impl Passes {
                 .map(|l| &l.name)
                 .collect::<BTreeSet<_>>()
                 .len(),
-            compared,
+            compared: self.compared,
             differ: self.told.len(),
         };
         if self.said != Some(summary) {
@@ -249,11 +253,42 @@ impl Passes {
         wrote
     }
 
+    /// Reads each online machine's list.
+    async fn ask(&mut self, online: &BTreeSet<EndpointId>) {
+        let mut compared = 0;
+        for &peer in online {
+            let client = PeerClient::over(self.mesh.clone(), peer);
+            match client.call(PROTOCOL, &Request::List {}).await {
+                Ok(Reply::Skills { skills }) => {
+                    self.lists.insert(peer, skills);
+                    compared += 1;
+                }
+                Ok(other) => log::debug!("skills: {peer} answered {other:?}"),
+                // A node from before skills/1, or one that does not sync them.
+                Err(MeshError::Declined { .. }) => {
+                    self.lists.remove(&peer);
+                }
+                Err(e) => log::debug!("skills: {peer} not read: {e}"),
+            }
+        }
+        self.compared = compared;
+        self.asked = Some(Instant::now());
+    }
+
     /// The skills on disk now.
-    async fn scan(&self) -> Option<Scan> {
+    async fn scan(&mut self) -> Option<Scan> {
         let home = self.home.clone();
-        match spawn_blocking(move || disk::scan(&home)).await {
-            Ok(scan) => Some(scan),
+        let mut hashes = mem::take(&mut self.hashes);
+        let scanned = spawn_blocking(move || {
+            let scan = disk::scan(&home, &mut hashes);
+            (scan, hashes)
+        })
+        .await;
+        match scanned {
+            Ok((scan, hashes)) => {
+                self.hashes = hashes;
+                Some(scan)
+            }
             Err(e) => {
                 log::warn!("skills: reading the skills folders failed: {e}");
                 None
