@@ -29,8 +29,9 @@ use tokio_util::task::AbortOnDropHandle;
 static UPDATING: AtomicBool = AtomicBool::new(false);
 
 /// How long an update waits for the agent sessions to be idle before
-/// restarting anyway, in minutes.
-pub const WAIT_MINUTES: u64 = 30;
+/// restarting anyway, in minutes. New prompts are held meanwhile, so it is
+/// short; the sessions resume after the restart.
+pub const WAIT_MINUTES: u64 = 2;
 
 /// The restart an update from Beep waits to run.
 type Waiting = Arc<Mutex<Option<AbortOnDropHandle<()>>>>;
