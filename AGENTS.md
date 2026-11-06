@@ -54,9 +54,8 @@ The server runs no user code. A hosted user's `beep-node` starts with
 there by default, and uploads, downloads and app attachments are saved there.
 Per-user nodes are set up by hand for now.
 
-The server is the production server on Neon, the target of
-`just deploy-server`. Desktop and iOS builds pass its node id in
-`BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
+The production server is deployed from the private ops repo, not from
+here. Desktop and iOS builds pass its node id in `BEEP_NODE_ID`. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
 Moving an account: credentials are entered again on the desktop. A node in the mesh stops
@@ -119,16 +118,15 @@ one that would make its key an account on connecting. Not with `[instance]`.
 
 ## Deploying the server
 
-Push to main, then `just deploy-server`. It waits for the image CI builds for
-HEAD, copies the dev config and key to the remote host and restarts the
-container.
+Deploys live in the private ops repo. Push to main so CI builds the image,
+then deploy from there. `deploy/compose.yaml` is the self-host example
+(README, Self-hosting).
 
 We are in beta: every app stays on 0.x until production is ready, minor or
 patch bumps only, and the release recipes refuse anything else.
 
 Tag a deployed server with `just server-release 0.4.0` (it tags HEAD
-`server-v0.4.0`). To roll back, `just deploy-server server-v0.3.2` deploys
-that tag's image. Migrations are not undone, so an older server must still
+`server-v0.4.0`). To roll back, deploy that tag's image from the ops repo. Migrations are not undone, so an older server must still
 run against the newer schema.
 
 ## UI changes

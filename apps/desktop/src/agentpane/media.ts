@@ -326,17 +326,17 @@ export function leavePane() {
 // S.view stays "agent" while the center shows another page; only a session on screen zooms.
 onZoomKey(() => S.view === "agent" && !!P.session && !!shell()?.clientWidth, toggleZoom);
 
-// ⇧tab with focus in a dock: its next tab, round to the first. A terminal keeps the
-// key, and in the message field it is the mode's.
+// ⌃tab with focus in a dock: its next tab, round to the first; ⌃⇧tab the one before.
 window.addEventListener("keydown", e => {
-  if (e.key !== "Tab" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key !== "Tab" || !e.ctrlKey || e.metaKey || e.altKey) return;
   const target = e.target as Element;
   const pane = target.closest<HTMLElement>(".agpane[data-dock]");
-  if (!pane || target.closest(".tm-xterm")) return;
+  if (!pane) return;
   e.preventDefault();
   e.stopImmediatePropagation();
   const d = pane.dataset.dock as Dock, ids = docked()[d];
-  showTab(d, ids[(ids.indexOf(P.on[d]) + 1) % ids.length]);
+  const step = e.shiftKey ? ids.length - 1 : 1;
+  showTab(d, ids[(ids.indexOf(P.on[d]) + step) % ids.length]);
   pane.focus({ preventScroll: true });
 }, true);
 
