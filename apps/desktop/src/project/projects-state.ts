@@ -625,3 +625,11 @@ export function overviewSub(groups: readonly { group?: unknown; org: string | nu
   const where = parts.length ? ` in ${parts.join(" and ")}` : "";
   return `${projects}${where}, ${workers ? `${plural(workers, "worker", "workers")} running` : "no workers running"}`;
 }
+
+/// A Windows folder as the user knows it, without the `\\?\` prefix a
+/// resolved path carries; any other path as it is.
+export function plainPath(path: string): string {
+  if (path.startsWith("\\\\?\\UNC\\")) return "\\\\" + path.slice(8);
+  if (/^\\\\\?\\[A-Za-z]:/.test(path)) return path.slice(4);
+  return path;
+}
