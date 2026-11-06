@@ -1,6 +1,7 @@
 //! Alerts the user would want (a question, a turn that ended with nothing
 //! queued, a failed session), held in `AlertHub` for the `FollowAlerts`
-//! streams: the server's and each desktop's.
+//! streams: the server's and each desktop's. The CI runs a node tells
+//! (`machine::ci`) are held the same way, in a hub of `RunNews`.
 //!
 //! The hub keeps the last `MAX_KEPT` alerts, numbered. Each follower, known
 //! by its key, has a cursor into them, so it gets each alert once while the
@@ -27,18 +28,34 @@ const FRESH: Duration = Duration::from_secs(10 * 60);
 /// goes first.
 const MAX_FOLLOWERS: usize = 64;
 
-#[derive(Debug, Default)]
-pub(crate) struct AlertHub {
-    held: Mutex<Held>,
+#[derive(Debug)]
+pub(crate) struct AlertHub<T = Alert> {
+    held: Mutex<Held<T>>,
     /// Woken when an alert joins the ring.
     arrived: Notify,
 }
 
-#[derive(Debug, Default)]
-struct Held {
+impl<T> Default for AlertHub<T> {
+    fn default() -> Self {
+        Self {
+            held: Mutex::new(Held {
+                next: 0,
+                kept: VecDeque::new(),
+                cursors: HashMap::new(),
+                clock: 0,
+                #[cfg(test)]
+                drained: 0,
+            }),
+            arrived: Notify::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Held<T> {
     /// The number the next alert gets.
     next: u64,
-    kept: VecDeque<Numbered>,
+    kept: VecDeque<Numbered<T>>,
     cursors: HashMap<EndpointId, Cursor>,
     /// Counts reads, to tell which follower was seen least recently.
     clock: u64,
@@ -48,9 +65,9 @@ struct Held {
 }
 
 #[derive(Debug)]
-struct Numbered {
+struct Numbered<T> {
     number: u64,
-    alert: Alert,
+    alert: T,
     at: Instant,
 }
 
@@ -62,18 +79,18 @@ struct Cursor {
 }
 
 /// One stream's view of the alerts.
-pub(crate) struct Follow<'a> {
-    hub: &'a AlertHub,
+pub(crate) struct Follow<'a, T> {
+    hub: &'a AlertHub<T>,
     id: EndpointId,
 }
 
-impl AlertHub {
+impl<T: Clone> AlertHub<T> {
     /// Keeps `alert` for every follower to read.
-    pub(crate) fn record(&self, alert: Alert) {
+    pub(crate) fn record(&self, alert: T) {
         self.record_at(alert, Instant::now());
     }
 
-    fn record_at(&self, alert: Alert, at: Instant) {
+    fn record_at(&self, alert: T, at: Instant) {
         let mut held = lock(&self.held);
         let number = held.next;
         held.next += 1;
@@ -86,13 +103,13 @@ impl AlertHub {
     }
 
     /// The stream of follower `id`, which carries on from where `id` left off.
-    pub(crate) fn follow(&self, id: EndpointId) -> Follow<'_> {
+    pub(crate) fn follow(&self, id: EndpointId) -> Follow<'_, T> {
         Follow { hub: self, id }
     }
 
     /// Every alert recorded since the last call, oldest first.
     #[cfg(test)]
-    pub(crate) fn drain(&self) -> Vec<Alert> {
+    pub(crate) fn drain(&self) -> Vec<T> {
         let mut held = lock(&self.held);
         let from = held.drained;
         held.drained = held.next;
@@ -104,9 +121,9 @@ impl AlertHub {
     }
 }
 
-impl Held {
+impl<T> Held<T> {
     /// The first alert follower `id` has not had, with its number.
-    fn after(&self, id: EndpointId) -> Option<&Numbered> {
+    fn after(&self, id: EndpointId) -> Option<&Numbered<T>> {
         let from = self.cursors.get(&id).map_or(0, |cursor| cursor.next);
         self.kept.iter().find(|kept| kept.number >= from)
     }
@@ -150,10 +167,10 @@ impl Held {
     }
 }
 
-impl Follow<'_> {
+impl<T: Clone> Follow<'_, T> {
     /// The next alert this follower has not had, once there is one. It is
     /// the same alert until `sent` says it went out.
-    pub(crate) async fn next(&self) -> Alert {
+    pub(crate) async fn next(&self) -> T {
         loop {
             // Made before looking, so an alert that comes between is not missed.
             let arrived = self.hub.arrived.notified();
@@ -202,7 +219,7 @@ mod tests {
     }
 
     /// The next alert, taken as a stream does: read, then sent.
-    async fn take(follow: &Follow<'_>) -> String {
+    async fn take(follow: &Follow<'_, Alert>) -> String {
         let alert = timeout(Duration::from_secs(10), follow.next())
             .await
             .expect("an alert is there");
@@ -210,7 +227,7 @@ mod tests {
         alert.session
     }
 
-    async fn nothing(follow: &Follow<'_>) -> bool {
+    async fn nothing(follow: &Follow<'_, Alert>) -> bool {
         timeout(Duration::from_millis(50), follow.next())
             .await
             .is_err()
@@ -224,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_new_follower_starts_at_the_last_ten_minutes_and_a_returning_one_where_it_left() {
-        let hub = AlertHub::default();
+        let hub = AlertHub::<Alert>::default();
         let (new, returning) = (follower(), follower());
         let (Some(stale), Some(older), Some(newer)) = (ago(30 * 60), ago(9 * 60), ago(60)) else {
             return;
@@ -244,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_new_follower_with_only_stale_alerts_waits_for_the_next() {
-        let hub = AlertHub::default();
+        let hub = AlertHub::<Alert>::default();
         let Some(stale) = ago(FRESH.as_secs() + 1) else {
             return;
         };
@@ -257,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_offline_desktop_gets_what_it_missed() {
-        let hub = AlertHub::default();
+        let hub = AlertHub::<Alert>::default();
         let (server, desktop) = (hub.follow(follower()), follower());
         hub.record(alert("one"));
         assert_eq!(take(&server).await, "one");
@@ -271,7 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_server_and_a_desktop_each_get_every_alert() {
-        let hub = AlertHub::default();
+        let hub = AlertHub::<Alert>::default();
         let (server, desktop) = (hub.follow(follower()), hub.follow(follower()));
         for session in ["a", "b", "c"] {
             hub.record(alert(session));
@@ -286,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_reconnecting_follower_gets_nothing_twice() {
-        let hub = AlertHub::default();
+        let hub = AlertHub::<Alert>::default();
         let id = follower();
         hub.record(alert("a"));
         hub.record(alert("b"));
@@ -306,7 +323,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_slow_follower_holds_nobody_up() {
-        let hub = AlertHub::default();
+        let hub = AlertHub::<Alert>::default();
         let (slow, quick) = (hub.follow(follower()), hub.follow(follower()));
         for n in 0..MAX_KEPT + 10 {
             hub.record(alert(&n.to_string()));
@@ -318,7 +335,7 @@ mod tests {
 
     #[test]
     fn only_the_most_recent_followers_are_remembered() {
-        let hub = AlertHub::default();
+        let hub = AlertHub::<Alert>::default();
         let ids: Vec<EndpointId> = (0..=MAX_FOLLOWERS).map(|_| follower()).collect();
         hub.record(alert("a"));
         for id in &ids {

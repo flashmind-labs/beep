@@ -189,7 +189,7 @@ done
 
     /// The next question a follower has not had, taken as a stream does. The turn that ended
     /// before it is skipped.
-    async fn heard(follow: &crate::agents::alerts::Follow<'_>) -> Alert {
+    async fn heard(follow: &crate::agents::alerts::Follow<'_, Alert>) -> Alert {
         loop {
             let alert = timeout(Duration::from_secs(20), follow.next())
                 .await

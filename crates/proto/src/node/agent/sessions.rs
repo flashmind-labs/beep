@@ -243,6 +243,10 @@ pub enum SessionsRequest {
         session: String,
         key: String,
     },
+    /// Sends the CI runs the user started that ended, as `Run` replies, until
+    /// the caller closes the stream: on the node that watches each project. A
+    /// node from before it closes the stream.
+    FollowRuns {},
 }
 
 impl SessionsRequest {
@@ -282,7 +286,8 @@ impl SessionsRequest {
             | Self::DeleteSession { .. }
             | Self::ContinueCopy { .. }
             | Self::DiscardCopy { .. }
-            | Self::FollowAlerts {} => false,
+            | Self::FollowAlerts {}
+            | Self::FollowRuns {} => false,
         }
     }
 }
@@ -428,6 +433,21 @@ pub enum SessionsReply {
     },
     /// The answer to `ContinueCopy` and `DiscardCopy`.
     CopyDone {},
+    /// One run on a `FollowRuns` stream.
+    Run {
+        news: RunNews,
+    },
+}
+
+/// A CI run the user started (a push or a pull request) that ended, told by
+/// the node that watches its project.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunNews {
+    /// The project, as `org/repo`.
+    pub project: String,
+    /// The host the run is on, such as `github.com`, as the Actions tile names it.
+    pub host: String,
+    pub run: crate::WorkflowRun,
 }
 
 /// A slash command or skill an agent offers, as `SessionsRequest::Commands`

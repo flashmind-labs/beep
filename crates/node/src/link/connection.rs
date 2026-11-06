@@ -153,6 +153,7 @@ pub async fn serve(
     // and Gitea on the private-network address the settings name.
     let webhooks = match Webhooks::new(state.webhook_listen) {
         Ok(webhooks) => {
+            webhooks.report_runs(offers.agents.ci.clone());
             offers.extra.push(Arc::new(webhooks.clone()));
             Some(webhooks)
         }
