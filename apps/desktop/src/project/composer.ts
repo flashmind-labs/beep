@@ -65,6 +65,8 @@ export const projectComp = (() => {
   err.setAttribute("role", "status");
   const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, send);
   const form = h("form", "cc-pjc", h("div", "box", input, row, pick), err);
+  // The split's right column leaves room for the floating bar.
+  new ResizeObserver(() => form.parentElement?.style.setProperty("--pjc-h", `${form.offsetHeight}px`)).observe(form);
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
