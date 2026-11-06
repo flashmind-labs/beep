@@ -5,8 +5,23 @@ use super::output;
 use beep_proto::node::{GpuInfo, GpuVendor};
 use serde_json::Value;
 use std::env;
+use tokio::sync::OnceCell;
 
+/// The machine's graphics cards, read once: `system_profiler` takes seconds,
+/// and the cards do not change while the machine runs. A read that found
+/// none is tried again.
 pub(crate) async fn gpus() -> Vec<GpuInfo> {
+    static READ: OnceCell<Vec<GpuInfo>> = OnceCell::const_new();
+    let read = READ
+        .get_or_try_init(|| async {
+            let found = read_gpus().await;
+            if found.is_empty() { Err(()) } else { Ok(found) }
+        })
+        .await;
+    read.cloned().unwrap_or_default()
+}
+
+async fn read_gpus() -> Vec<GpuInfo> {
     if which::which("nvidia-smi").is_ok() {
         let args = [
             "--query-gpu=name,memory.total,driver_version",
