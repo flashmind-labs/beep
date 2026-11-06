@@ -6,7 +6,7 @@
 use crate::{beep::Beep, machines::desktop, platform::logfile};
 use beep_node::{
     agents::{mcp, skills::Skills},
-    link::{self, Offers, reconnect::Backoff},
+    link::{self, Offers, listen_hooks, reconnect::Backoff, state::Search},
     machine::{provision::Provision, service::logs::Logs},
 };
 use beep_proto::node::desktop::{Permission, Permissions};
@@ -106,6 +106,8 @@ impl Machine {
             offers.extra.push(Arc::new(Logs::file(log)));
         }
         offers.log = Logs::files(logfile::kept());
+        // Searches read the agents' logs ahead on tasks of their own.
+        async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
         Self {
             task: Mutex::default(),
             link: Arc::default(),
@@ -131,7 +133,9 @@ impl Machine {
                 log::warn!("not serving the Beep MCP server: {e}");
             }
             let _mcp = mcp::start(&home.dir, &home.offers);
-            // Both stop when this task does, with the app.
+            // Terminal Claude Code sessions report their state here; the
+            // MCP server stops when this task does, with the app.
+            listen_hooks(&home.offers.agents, &home.dir).await;
             pending::<()>().await;
         });
     }

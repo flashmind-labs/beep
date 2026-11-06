@@ -19,6 +19,7 @@ mod traffic;
 pub(crate) mod watchdog;
 
 pub use connection::{
-    Claimed, Linked, Offers, Protocol, Session, claim, connect, open, print_offer, serve, stay,
+    Claimed, Linked, Offers, Protocol, Session, claim, connect, listen_hooks, open, print_offer,
+    serve, stay,
 };
 pub use traffic::Traffic;

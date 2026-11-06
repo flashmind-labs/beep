@@ -107,9 +107,13 @@ pub(super) struct Snapshot {
 impl Store {
     /// The store on this machine, when Claude Code has one.
     pub(crate) fn locate() -> Option<Self> {
-        let root = super::config_dir()?;
+        Self::in_root(&super::config_dir()?)
+    }
+
+    /// The store in Claude Code's folder `root`, once it has `projects`.
+    pub(super) fn in_root(root: &Path) -> Option<Self> {
         root.join("projects").is_dir().then(|| Self {
-            root,
+            root: root.to_owned(),
             memos: Arc::default(),
         })
     }

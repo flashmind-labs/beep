@@ -461,3 +461,21 @@ async fn a_session_resumes_only_on_its_own_agent() {
     );
     running.close().await;
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn sessions_list_with_no_agent_program_found() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let agents = Agents {
+        external: External::locate_in(root.path()),
+        ..Agents::default()
+    };
+    assert_eq!(agents.offers(), vec![agent::SESSIONS_PROTOCOL.to_owned()]);
+    let project = root.path().join("projects/-srv-project");
+    std::fs::create_dir_all(&project).expect("folders");
+    let line = r#"{"type":"user","cwd":"/srv/project","timestamp":"2026-11-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
+    let file = project.join(format!("{CLAUDE_ID}.jsonl"));
+    std::fs::write(file, format!("{line}\n")).expect("a transcript");
+    let listed = agents.external.list(10, None, HashMap::new()).await;
+    assert_eq!(listed.expect("a list").len(), 1);
+}

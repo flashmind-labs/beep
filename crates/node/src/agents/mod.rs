@@ -32,6 +32,7 @@ mod image_index;
 mod images;
 mod kinds;
 mod live;
+mod locate;
 mod media_file;
 mod models;
 mod moving;
