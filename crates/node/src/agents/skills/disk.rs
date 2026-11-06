@@ -79,6 +79,9 @@ pub(super) fn scan(home: &Path) -> Scan {
                 name,
                 hash,
                 folders,
+                // The follow task fills these in from what it synced.
+                ver: 0,
+                edited: false,
             })
             .collect(),
         names,
@@ -213,10 +216,8 @@ fn targets(home: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Writes the skill `name` into each target folder that has nothing by that
-/// name. Each copy is written beside its place and renamed, so an agent never
-/// reads half a skill. Whether any was written.
-pub(super) fn install(home: &Path, name: &str, files: &[SkillFile]) -> Result<bool> {
+/// Whether `files` are a skill's files Beep may write: plain names only.
+fn check(name: &str, files: &[SkillFile]) -> Result<()> {
     if !valid_part(name) {
         bail!("{name:?} is not a skill name");
     }
@@ -225,80 +226,204 @@ pub(super) fn install(home: &Path, name: &str, files: &[SkillFile]) -> Result<bo
             bail!("{:?} is not a path in a skill", file.path);
         }
     }
+    Ok(())
+}
+
+/// Writes `files` into `.<name>.beep` in `dir`, in place of any left there,
+/// and returns that folder.
+fn stage(dir: &Path, name: &str, files: &[SkillFile]) -> Result<PathBuf> {
+    let partial = dir.join(format!(".{name}.beep"));
+    remove(&partial)?;
+    for file in files {
+        let path = file
+            .path
+            .split('/')
+            .fold(partial.clone(), |p, part| p.join(part));
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        }
+        fs::write(&path, &file.data).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(partial)
+}
+
+/// Removes the folder `path`; nothing when there is none.
+fn remove(path: &Path) -> Result<()> {
+    match fs::remove_dir_all(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => {
+            Err(e).with_context(|| format!("removing {}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Writes the skill `name` into each target folder that has nothing by that
+/// name. Each copy is written beside its place and renamed, so an agent never
+/// reads half a skill. Whether any was written.
+pub(super) fn install(home: &Path, name: &str, files: &[SkillFile]) -> Result<bool> {
+    check(name, files)?;
     let mut wrote = false;
     for dir in targets(home) {
         let place = dir.join(name);
         if fs::symlink_metadata(&place).is_ok() {
             continue;
         }
-        let partial = dir.join(format!(".{name}.beep"));
-        match fs::remove_dir_all(&partial) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                return Err(e).with_context(|| format!("removing {}", partial.display()));
-            }
-            _ => {}
-        }
-        for file in files {
-            let path = file
-                .path
-                .split('/')
-                .fold(partial.clone(), |p, part| p.join(part));
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("creating {}", parent.display()))?;
-            }
-            fs::write(&path, &file.data).with_context(|| format!("writing {}", path.display()))?;
-        }
+        let partial = stage(&dir, name, files)?;
         fs::rename(&partial, &place).with_context(|| format!("writing {}", place.display()))?;
         wrote = true;
     }
     Ok(wrote)
 }
 
-/// The skill names this machine has held, one per line in a file of the
-/// node's own. A name in it is never fetched again, so a skill the user
-/// deleted here stays deleted.
+/// Puts `files` in place of the skill `name` in each of `folders` (labels as
+/// `scan` gives them) whose copy still hashes to `old`, so an edit made here
+/// since is kept. The new copy is staged beside the old one, then the two
+/// are swapped: an agent reads the old skill or the new one, never half.
+/// How many copies were replaced.
+pub(super) fn replace(
+    home: &Path,
+    name: &str,
+    files: &[SkillFile],
+    folders: &[String],
+    old: &str,
+) -> Result<usize> {
+    check(name, files)?;
+    let mut replaced = 0;
+    for rel in READ.iter().filter(|rel| folders.contains(&label(rel))) {
+        let dir = home.join(rel);
+        let place = dir.join(name);
+        if !matches!(read(&place), Ok(Some(now)) if hash(&now) == old) {
+            continue;
+        }
+        let partial = stage(&dir, name, files)?;
+        let aside = dir.join(format!(".{name}.beep-old"));
+        remove(&aside)?;
+        fs::rename(&place, &aside).with_context(|| format!("moving {}", place.display()))?;
+        if let Err(e) = fs::rename(&partial, &place) {
+            // The old copy goes back rather than leave no skill.
+            if let Err(back) = fs::rename(&aside, &place) {
+                log::warn!("{} not put back: {back}", place.display());
+            }
+            return Err(e).with_context(|| format!("writing {}", place.display()));
+        }
+        remove(&aside)?;
+        replaced += 1;
+    }
+    Ok(replaced)
+}
+
+/// The copy of a skill this machine last synced: its hash and how many
+/// edits it has been through in the mesh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Base {
+    pub hash: String,
+    pub ver: u64,
+}
+
+/// The skill names this machine has held, each with the copy it last synced,
+/// in a file of the node's own: one line per name, then a tab, the hash, a
+/// tab and the version when it has one. A name in it is never fetched again,
+/// so a skill the user deleted here stays deleted.
 #[derive(Default)]
 pub(super) struct Seen {
     file: PathBuf,
-    names: BTreeSet<String>,
+    names: BTreeMap<String, Option<Base>>,
+    /// Changed since it was last written.
+    dirty: bool,
 }
 
 impl Seen {
     pub(super) fn load(file: &Path) -> Result<Self> {
-        let names = match fs::read_to_string(file) {
-            Ok(text) => text.lines().map(str::to_owned).collect(),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => BTreeSet::new(),
+        let text = match fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
             Err(e) => return Err(e).with_context(|| format!("reading {}", file.display())),
         };
+        let names = text
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let mut parts = line.split('\t');
+                let name = parts.next().unwrap_or_default().to_owned();
+                let base = match (parts.next(), parts.next().map(str::parse)) {
+                    (Some(hash), Some(Ok(ver))) => Some(Base {
+                        hash: hash.to_owned(),
+                        ver,
+                    }),
+                    _ => None,
+                };
+                (name, base)
+            })
+            .collect();
         Ok(Self {
             file: file.to_owned(),
             names,
+            dirty: false,
         })
     }
 
     pub(super) fn contains(&self, name: &str) -> bool {
-        self.names.contains(name)
+        self.names.contains_key(name)
     }
 
-    /// Adds `names`, writing the file when one is new.
-    pub(super) fn add<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) -> Result<()> {
-        let mut grew = false;
-        for name in names {
-            grew |= self.names.insert(name.to_owned());
+    pub(super) fn base(&self, name: &str) -> Option<&Base> {
+        self.names.get(name).and_then(Option::as_ref)
+    }
+
+    /// Keeps `name` as held, with no copy synced yet when it is new.
+    pub(super) fn hold(&mut self, name: &str) {
+        if !self.names.contains_key(name) {
+            self.names.insert(name.to_owned(), None);
+            self.dirty = true;
         }
-        if !grew {
-            return Ok(());
+    }
+
+    /// Records `base` as the copy of `name` last synced.
+    pub(super) fn set(&mut self, name: &str, base: Base) {
+        if self.base(name) != Some(&base) {
+            self.names.insert(name.to_owned(), Some(base));
+            self.dirty = true;
         }
+    }
+
+    /// The file's text when it needs writing, and from then on it counts as
+    /// written.
+    pub(super) fn unsaved(&mut self) -> Option<Saved> {
+        if !self.dirty {
+            return None;
+        }
+        self.dirty = false;
         let mut text = String::new();
-        for name in &self.names {
+        for (name, base) in &self.names {
             text.push_str(name);
+            if let Some(base) = base {
+                text.push_str(&format!("\t{}\t{}", base.hash, base.ver));
+            }
             text.push('\n');
         }
+        Some(Saved {
+            file: self.file.clone(),
+            text,
+        })
+    }
+}
+
+/// The record's text, to write off the async workers.
+pub(super) struct Saved {
+    file: PathBuf,
+    text: String,
+}
+
+impl Saved {
+    /// Writes the record beside its place and renames it in.
+    pub(super) fn write(&self) -> Result<()> {
         if let Some(parent) = self.file.parent() {
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
-        fs::write(&self.file, text).with_context(|| format!("writing {}", self.file.display()))
+        let partial = self.file.with_extension("beep");
+        fs::write(&partial, &self.text)
+            .with_context(|| format!("writing {}", partial.display()))?;
+        fs::rename(&partial, &self.file).with_context(|| format!("writing {}", self.file.display()))
     }
 }
 
