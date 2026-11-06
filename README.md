@@ -40,6 +40,27 @@ Check the endpoint with the probe:
 BEEP_IDENTITY=.dev/probe-key cargo run -q -p beep-server --bin beep-probe -- NODE_ID health
 ```
 
+## Self-hosting
+
+`deploy/compose.yaml` runs beep-server and Postgres with Docker Compose.
+
+1. `cp config.example.toml deploy/config.toml` and edit it: set `model` and
+   `provider_key`, remove `database_url` (compose passes `DATABASE_URL`), and
+   set `secret_key = "/data/iroh-key"` and `http_listen = "0.0.0.0:47122"`.
+2. `POSTGRES_PASSWORD=<something long> docker compose -f deploy/compose.yaml up -d`
+
+The image is built from this checkout; set `BEEP_SERVER_IMAGE` to use one
+you built or pulled elsewhere. The iroh key and logs live in the `data`
+volume.
+
+Ports:
+
+- HTTP for the apps on `http_listen`, default `127.0.0.1:47122`. Compose
+  publishes it on the host's loopback only. How it reaches the internet (a
+  tunnel, or a reverse proxy with TLS) is your choice.
+- iroh on UDP 47121 (`port` in the config), for nodes. Allow it through the
+  firewall.
+
 ## Android
 
 Needs JDK 17 or 21, SDK 36, NDK `28.2.13676358` and

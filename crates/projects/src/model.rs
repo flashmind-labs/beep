@@ -486,8 +486,8 @@ mod tests {
         let url: ForgejoUrl = "http://forge.local:3000".parse().unwrap();
         assert_eq!(url.as_str(), "http://forge.local:3000");
         // Over a VPN a server named like one on the internet can be plain http.
-        let url: ForgejoUrl = "http://git.example.com:8087".parse().unwrap();
-        assert_eq!(url.as_str(), "http://git.example.com:8087");
+        let url: ForgejoUrl = "http://git.example.com:3000".parse().unwrap();
+        assert_eq!(url.as_str(), "http://git.example.com:3000");
         assert!("ftp://git.example.com".parse::<ForgejoUrl>().is_err());
         assert!("git.example.com".parse::<ForgejoUrl>().is_err());
         assert!(
