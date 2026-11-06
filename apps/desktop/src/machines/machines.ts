@@ -2,7 +2,7 @@
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
-import { bareVersion, coderColumns, coders, errorText, isCoder, newestNode, nodeBehind, type NodeUpdate, shownVersion, specLine, toolChips, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
+import { bareVersion, coderColumns, coders, errorText, isCoder, nodeBehind, offeredNode, type NodeUpdate, shownVersion, specLine, toolChips, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
@@ -56,6 +56,8 @@ export const MC: {
   asking: { id: string; busy: boolean; error: string } | null;
   /// The machines Update works on.
   updatable: Set<string>;
+  /// The newest beep-node release, null until read or while offline.
+  released: string | null;
   /// Update's progress by machine.
   updates: Map<string, NodeUpdate>;
   /// Tools behind their newest release (ToolUpdate).
@@ -66,7 +68,7 @@ export const MC: {
   installed: Map<string, string>;
   /// What each machine moved over iroh (ListMachineTraffic).
   traffic: MachineTraffic[];
-} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [] };
+} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [] };
 
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
@@ -145,6 +147,7 @@ export async function renderMachines(id: string | null = null) {
   }
   if (shown()) drawMachines();
   // Looking the newest releases up can take a while; the page shows first.
+  void loadNodeRelease();
   try {
     const tools = await invoke<ToolUpdate[]>("tool_updates");
     // The page only changes when a newer release shows up.
@@ -154,6 +157,13 @@ export async function renderMachines(id: string | null = null) {
   } catch (e) {
     console.warn("tool updates:", e);
   }
+}
+
+async function loadNodeRelease() {
+  const released = await invoke<string | null>("node_release").catch(e => { console.warn("beep-node release:", e); return null; });
+  if (released === MC.released) return;
+  MC.released = released;
+  if (shown()) drawMachines();
 }
 
 async function loadSearch(id: string) {
@@ -356,10 +366,11 @@ function removeParts(m: Machine) {
 
 const statusTag = (m: Machine) => m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
 const nodeVersion = (m: Machine) => /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
-/// The newest beep-node on the account's machines, which the others are behind.
+/// The newest beep-node released or on the account's machines, which the
+/// others are behind.
 // Only nodes that update themselves count: the Mac app's built-in node is
 // whatever version the app was built with, which may never have been released.
-const newest = () => newestNode((MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
+const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
 /// The beep-node chip, marked when an update is out.
 function nodeChip(m: Machine) {
