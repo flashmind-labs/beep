@@ -190,6 +190,22 @@ const ALWAYS: &[&str] = &[
     "**/.worktrees",
     "**/.claude/worktrees",
     "*.sync-conflict-*",
+    // Editor and OS temporary files.
+    "*.swp",
+    "*.swo",
+    "*.swx",
+    "*~",
+    "4913",
+    ".#*",
+    "\\#*#",
+    "*___jb_tmp___",
+    "*___jb_old___",
+    "Thumbs.db",
+    "desktop.ini",
+    "._*",
+    "*.tmp",
+    "*.crdownload",
+    "*.part",
 ];
 
 fn is_marker(name: &str, marker: &str) -> bool {
@@ -610,6 +626,30 @@ mod tests {
         ] {
             assert_eq!(rules.skip(Path::new(own), false), Some(Skip::Own), "{own}");
         }
+    }
+
+    #[test]
+    fn editor_and_os_temporary_files_stay_out() {
+        let dir = project(&["notes.txt"]);
+        let rules = Rules::load(dir.path()).unwrap();
+        for name in [
+            ".a.txt.swp",
+            "a.txt~",
+            "4913",
+            ".#a.txt",
+            "#a.txt#",
+            "a.rs___jb_tmp___",
+            "Thumbs.db",
+            "._a.txt",
+            "a.tmp",
+            "a.zip.crdownload",
+            "a.part",
+        ] {
+            for path in [name.to_owned(), format!("sub/{name}")] {
+                assert_eq!(skipped(&rules, &path, false), Some(Rule::Default), "{path}");
+            }
+        }
+        assert_eq!(skipped(&rules, "notes.txt", false), None);
     }
 
     #[test]
