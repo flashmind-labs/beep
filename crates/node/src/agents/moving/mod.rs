@@ -33,7 +33,7 @@ pub use alpn::SessionsAlpn;
 pub(crate) use follow::follow;
 pub(crate) use offers::project_folder;
 pub(crate) use progress::Moves;
-pub(crate) use read::ALPN as SESSIONS_ALPN;
+pub use read::ALPN as SESSIONS_ALPN;
 
 use super::{Agents, found::Agent};
 use crate::files::sync::Syncs;
