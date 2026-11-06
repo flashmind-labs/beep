@@ -146,6 +146,15 @@ impl Live {
         (entries, earlier)
     }
 
+    /// Notes whether the user stopped the turn that ended, or closed the
+    /// session: a child's log says so, since its parent may have too.
+    pub(crate) fn stopped(&mut self, by_user: bool) {
+        self.stopped_by_user = by_user;
+        if by_user && self.info.parent.is_some() {
+            self.push(EntryKind::Other, "Stopped by you");
+        }
+    }
+
     pub(crate) fn push(&mut self, kind: EntryKind, text: &str) {
         self.end_thought(Instant::now());
         self.in_message = false;

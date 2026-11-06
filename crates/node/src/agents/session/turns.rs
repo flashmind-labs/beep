@@ -136,8 +136,10 @@ impl Actor {
         }
         let mut files = None;
         let mut made = None;
+        let by_user = std::mem::take(&mut self.by_user) && stop == StopReason::Cancelled;
         self.live.send_modify(|live| {
             live.end_thought(Instant::now());
+            live.stopped(by_user);
             live.info.turns += 1;
             live.last_stop = Some(stop);
             live.info.question = None;

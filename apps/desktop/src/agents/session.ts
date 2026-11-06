@@ -413,6 +413,19 @@ async function closeRow(x: HTMLElement) {
   closeSub(at);
 }
 
+/// Stop on a running child's row: stops its turn, as Stop in its own log does.
+async function stopKid(x: HTMLElement) {
+  const kid = x.closest<HTMLElement>("[data-kid]");
+  const row = kid && await kidSession(kid.dataset.kid!, kid.dataset.key);
+  if (!row) return;
+  try {
+    await invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: "cancel" });
+  } catch (e) {
+    AG.note = readError(e);
+    drawAgentBody();
+  }
+}
+
 function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
   const target = e.target as HTMLElement;
@@ -427,6 +440,8 @@ function agentClick(e: MouseEvent) {
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
   if (closing) return void closeRow(closing);
+  const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
+  if (stopping) return void stopKid(stopping);
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
