@@ -423,22 +423,34 @@ mod transport {
 }
 
 mod requests {
-    use beep_proto::*;
+    use beep_proto::{
+        http::{decode, encode},
+        *,
+    };
     use serde::Serialize;
     use uuid::Uuid;
 
     #[test]
     fn chat_from_an_app_without_platform_decodes() {
-        let old = (
-            Uuid::nil(),
-            Uuid::nil(),
-            "hi",
-            Vec::<String>::new(),
-            None::<String>,
-            None::<ReasoningLevel>,
-        );
-        let buf = rmp_serde::to_vec(&old).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Chat>(&buf).unwrap().platform, None);
+        #[derive(Serialize)]
+        struct Old {
+            session_id: Uuid,
+            request_id: Uuid,
+            message: &'static str,
+            images: Vec<String>,
+            model: Option<String>,
+            thinking: Option<ReasoningLevel>,
+        }
+        let old = Old {
+            session_id: Uuid::nil(),
+            request_id: Uuid::nil(),
+            message: "hi",
+            images: Vec::new(),
+            model: None,
+            thinking: None,
+        };
+        let buf = encode(&old).unwrap();
+        assert_eq!(decode::<Chat>(&buf).unwrap().platform, None);
     }
 
     #[test]
@@ -454,22 +466,27 @@ mod requests {
             request_id: Uuid::new_v4(),
             message: "hi".into(),
         };
-        let buf = rmp_serde::to_vec(&old).unwrap();
-        let decoded: SendToGroup = rmp_serde::from_slice(&buf).unwrap();
+        let buf = encode(&old).unwrap();
+        let decoded: SendToGroup = decode(&buf).unwrap();
         assert_eq!(decoded.message, "hi");
         assert!(decoded.images.is_empty());
     }
 
     #[test]
     fn a_request_skips_fields_a_newer_app_added() {
-        // GetRun with a second field this build does not know.
-        let buf = [0x92, 0xa2, b'r', b'1', 0x91, 0x07];
-        assert_eq!(
-            rmp_serde::from_slice::<GetRun>(&buf).unwrap(),
-            GetRun { id: "r1".into() }
-        );
+        #[derive(Serialize)]
+        struct Newer {
+            id: &'static str,
+            extra: u8,
+        }
+        let buf = encode(&Newer { id: "r1", extra: 7 }).unwrap();
+        assert_eq!(decode::<GetRun>(&buf).unwrap(), GetRun { id: "r1".into() });
         // A request with no fields yet, given one.
-        assert!(rmp_serde::from_slice::<Health>(&[0x91, 0xc0]).is_ok());
+        #[derive(Serialize)]
+        struct Given {
+            extra: Option<u8>,
+        }
+        assert!(decode::<Health>(&encode(&Given { extra: None }).unwrap()).is_ok());
     }
 }
 

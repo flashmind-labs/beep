@@ -742,7 +742,7 @@ mod tests {
         let dir = TempDir::new().expect("a temp dir");
         let endpoint = bind(&SecretKey::generate()).await;
         let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
-        fleet.serve(None).await;
+        fleet.serve().await;
         let client = fleet.client(fleet.id()).await.expect("this Mac is local");
         timeout(LIMIT, client.open("shell/1"))
             .await
