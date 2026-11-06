@@ -20,7 +20,7 @@ use anyhow::Result;
 use beep_projects::{
     Shell,
     commands::{HostCommand, gh_account, parse_login},
-    issues::{head, run_host, run_rendered},
+    issues::{clipped, run_host, run_rendered},
     model::{IssueHost, RepoName},
     quote,
 };
@@ -302,17 +302,6 @@ pub(crate) async fn read(
         shell,
         repo,
     })
-}
-
-/// `text` trimmed and cut to at most `max` bytes, "..." marking a cut.
-pub(super) fn clipped(text: &str, max: usize) -> String {
-    let text = text.trim();
-    let cut = head(text, max);
-    if cut.len() < text.len() {
-        format!("{}...", cut.trim_end())
-    } else {
-        cut.to_owned()
-    }
 }
 
 /// Thread `number` of `repo` as its chat card shows it, long text cut short.

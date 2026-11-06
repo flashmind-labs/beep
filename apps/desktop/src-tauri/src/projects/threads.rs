@@ -15,7 +15,7 @@ use beep_proto::{
     OpenThreadChat, ProjectIssue, ProjectPullRequest, ProjectThread, PullRequestHead,
     ReplyToThread, ThreadChat, ThreadDetail, ThreadPost, ThreadView, TrackProjectIssue,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 fn outdated(e: DesktopError) -> DesktopError {
@@ -235,13 +235,16 @@ pub async fn center_track_issue(
     Ok(task.id)
 }
 
-/// The user's open pull requests and issues in the project; `None` from a
-/// server too old to list them.
+/// The user's open pull requests and issues in the project; `None` with no
+/// server or one too old to list them.
 #[tauri::command]
 pub async fn center_project_threads(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<ThreadRow>>> {
+    if beep.server().is_none() {
+        return Ok(None);
+    }
     Ok(known(beep.call(ListProjectThreads { project_id }).await)?
         .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
@@ -315,12 +318,16 @@ pub async fn center_open_thread_chat(
     Ok(chat.into())
 }
 
-/// The project's thread chats; `None` from a server too old to keep them.
+/// The project's thread chats; `None` with no server or one too old to keep
+/// them.
 #[tauri::command]
 pub async fn center_thread_chats(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<ThreadChatRow>>> {
+    if beep.server().is_none() {
+        return Ok(None);
+    }
     Ok(known(beep.call(ListThreadChats { project_id }).await)?
         .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
@@ -406,12 +413,45 @@ impl From<ThreadDetail> for ThreadDetailRow {
 }
 
 /// Pull request or issue `number` of the project read in full from its
-/// host now; `None` from a server too old to read one.
+/// host now, through a machine of the mesh that has the project, else the
+/// server; `None` from a server too old to read one.
 #[tauri::command]
 pub async fn center_thread_detail(
+    fleet: FleetState<'_>,
     beep: Service<'_>,
     project_id: Uuid,
     number: u64,
 ) -> Result<Option<ThreadDetailRow>> {
+    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
+        return Ok(Some(desk.thread_detail(&name, number).await?.into()));
+    }
     Ok(known(beep.call(GetThreadDetail { project_id, number }).await)?.map(Into::into))
+}
+
+/// Whether a thread is a pull request or an issue, as the page names it.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadKind {
+    Pr,
+    Issue,
+}
+
+/// Posts `body` as the user's comment on pull request or issue `number`,
+/// through a machine of the mesh that has the project.
+#[tauri::command]
+pub async fn center_comment_thread(
+    fleet: FleetState<'_>,
+    project_id: Uuid,
+    kind: ThreadKind,
+    number: u64,
+    body: String,
+) -> Result<()> {
+    let Some((desk, name)) = mesh_project(&fleet, project_id).await? else {
+        return Err(DesktopError::NoServer);
+    };
+    let kind = match kind {
+        ThreadKind::Pr => GitItemKind::PullRequest {},
+        ThreadKind::Issue => GitItemKind::Issue {},
+    };
+    Ok(desk.comment_thread(&name, kind, number, &body).await?)
 }

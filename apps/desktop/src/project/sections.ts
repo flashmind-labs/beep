@@ -1,6 +1,7 @@
 // A project page's sections (terminals, file sync, reviews, threads, runs)
 // and the acts its agent's cards call.
 import { ago } from "../ui/format.ts";
+import { S } from "../bar/core.ts";
 import { onPlaces } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { dbtn as button } from "../ui/parts.ts";
@@ -77,10 +78,11 @@ export const thr = makeThreads({
   openChat: (chat: string) => { ownChats.add(chat); go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },
   changed: () => loadProjectAgent(),
   kept: keptSection("threads"),
+  server: () => S.server,
 });
 
 /// A pull request or issue read in full, in the split's right column.
-export const details = makeThreadDetail({ redraw: () => redrawProjects(), openUrl });
+export const details = makeThreadDetail({ redraw: () => redrawProjects(), openUrl, comment: () => !S.server });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
 export const runs = makeRuns({
