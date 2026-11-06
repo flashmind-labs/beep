@@ -38,10 +38,6 @@ pub(crate) trait Backend: Sync {
     /// Puts `question` to the user in `session` and waits for the answer.
     fn ask(&self, session: &str, question: Asking)
     -> impl Future<Output = Result<Answered>> + Send;
-    /// Whether `remember`, `recall` and the other memory tools are offered.
-    fn memory_tools(&self) -> bool {
-        true
-    }
 }
 
 /// Serves MCP for `session` until the reader ends and every call is
@@ -119,15 +115,12 @@ async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Optio
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": super::brief(backend.memory_tools()),
+                    "instructions": super::BRIEF,
                 }),
             )
         }
         "ping" => success(id, json!({})),
-        "tools/list" => success(
-            id,
-            json!({ "tools": catalog::tools(backend.memory_tools()) }),
-        ),
+        "tools/list" => success(id, json!({ "tools": catalog::tools() })),
         "tools/call" => {
             let name = params
                 .get("name")
@@ -178,7 +171,16 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
         return ask_user(backend, session, args).await;
     }
     let tool = match name.parse::<Tool>() {
-        Ok(Tool::Unknown | Tool::StandingRules) | Err(_) => {
+        // Coding agents get no memories: those tools are the assistant's.
+        Ok(
+            Tool::Unknown
+            | Tool::StandingRules
+            | Tool::Remember
+            | Tool::Recall
+            | Tool::UpdateMemory
+            | Tool::Forget,
+        )
+        | Err(_) => {
             return Called::failed(format!("There is no tool {name}."));
         }
         Ok(tool) => tool,
@@ -431,10 +433,6 @@ mod tests {
                 "send_to_agent",
                 "stop_agent",
                 "list_agents",
-                "remember",
-                "recall",
-                "update_memory",
-                "forget",
                 "ask_user"
             ]
         );
@@ -444,9 +442,9 @@ mod tests {
             tool["annotations"].clone()
         };
         // Codex asks unless a tool reads only, or is neither destructive nor open world.
-        assert_eq!(hints("recall")["readOnlyHint"], true);
-        assert_eq!(hints("remember")["destructiveHint"], false);
-        assert_eq!(hints("remember")["openWorldHint"], false);
+        assert_eq!(hints("list_machines")["readOnlyHint"], true);
+        assert_eq!(hints("run_on")["destructiveHint"], false);
+        assert_eq!(hints("run_on")["openWorldHint"], false);
         assert_eq!(text(&out[2]), "- build-box: online");
         assert_eq!(out[2]["result"]["isError"], false);
         assert_eq!(text(&out[3]), "build-box is offline.");

@@ -1,5 +1,5 @@
 //! The Beep MCP server, whose tools let this node's coding agents work across
-//! the user's machines and share what the user told them: `start` serves it,
+//! the user's machines: `start` serves it,
 //! and `Launch` names it in each session's `session/new` as
 //! `beep-node mcp --session <id>`.
 
@@ -59,11 +59,9 @@ const OPEN_LIMIT: Duration = Duration::from_secs(15);
 /// How long one call may run on the server: a command runs at most half
 /// an hour, and a sync waits a minute and a half.
 const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
-/// How long a starting session waits for the user's standing rules.
-const RULES_LIMIT: Duration = Duration::from_secs(3);
 
-/// What the agent hears ahead of its first prompt about the machine tools.
-const MACHINES_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
+/// What the agent hears ahead of its first prompt.
+pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
     machines. list_machines says which machines there are, whether each is online, its OS, \
     what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
     machine whose OS and tools fit the work, such as a macOS machine with Xcode for iOS and \
@@ -72,25 +70,6 @@ const MACHINES_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. machine_log reads a machine's beep-node log. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
     for the answer. Running and sending may wait for the user to allow it.";
-
-/// Agents get no memory tools for now, with or without a server: the desktop
-/// shows no memories. Set true to bring them back.
-pub(crate) const MEMORY_TOOLS: bool = false;
-
-/// The memory tools, which only the server holds.
-const MEMORY_BRIEF: &str = " remember saves a lasting instruction or preference the user \
-    states, for every agent on every machine; recall looks up what they said, before a \
-    decision it may speak to.";
-
-/// What the agent hears ahead of its first prompt; the memory tools only
-/// when `memory`.
-pub(crate) fn brief(memory: bool) -> String {
-    if memory {
-        format!("{MACHINES_BRIEF}{MEMORY_BRIEF}")
-    } else {
-        MACHINES_BRIEF.to_owned()
-    }
-}
 
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {
@@ -285,34 +264,6 @@ impl Upstream {
         self.connection.send_replace(connection);
     }
 
-    /// The user's standing rules for the first prompt of `session`. `None`
-    /// when there are none or they cannot be read in time, as from a server
-    /// too old to know them: a session starts without them. Their text stays
-    /// out of the log.
-    pub async fn standing_rules(&self, session: &str) -> Option<String> {
-        let request = Request {
-            session: session.to_owned(),
-            tool: Tool::StandingRules,
-            args: "{}".to_owned(),
-            approved: Approved::No,
-        };
-        match timeout(RULES_LIMIT, self.call(&request)).await {
-            Ok(Ok(Reply::Done {
-                text,
-                failed: false,
-            })) if !text.is_empty() => Some(text),
-            Ok(Ok(_)) => None,
-            Ok(Err(e)) => {
-                log::debug!("no standing rules for session {session}: {e:#}");
-                None
-            }
-            Err(_) => {
-                log::debug!("no standing rules for session {session}: the server took too long");
-                None
-            }
-        }
-    }
-
     /// Runs `request` on the server.
     pub async fn call(&self, request: &Request) -> Result<Reply> {
         let reply = self.exchange(request).await?;
@@ -384,12 +335,6 @@ impl Backend for Node {
     async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
         self.offers.agents.ask(session, question).await
     }
-
-    /// The memory tools live on the server: a node with none has nothing to
-    /// remember with, in a mesh or not, as its brief says.
-    fn memory_tools(&self) -> bool {
-        MEMORY_TOOLS && self.offers.tools.has_server()
-    }
 }
 
 /// The first line a connection sends: whose it is.
@@ -413,9 +358,7 @@ pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
         "serving the Beep MCP server on {}",
         local_socket::shown(socket)
     );
-    offers
-        .agents
-        .serve_mcp(launch.clone(), offers.tools.clone());
+    offers.agents.serve_mcp(launch.clone());
     offers.agents.serve_mesh(offers.mesh.clone());
     let node = Arc::new(Node { offers });
     let mut connections = JoinSet::new();

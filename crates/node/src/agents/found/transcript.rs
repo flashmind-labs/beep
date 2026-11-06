@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn a_pi_prompt_keeps_the_brief_apart() {
-        let brief = crate::agents::mcp::brief(false);
+        let brief = crate::agents::mcp::BRIEF;
         let line = json!({"type": "message", "message": {"role": "user", "content": [
             {"type": "text", "text": brief},
             {"type": "text", "text": "ok, let's keep going"}
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(
             tags::parts(&shown[0]),
             [
-                tags::Part::Context(&brief),
+                tags::Part::Context(brief),
                 tags::Part::User("ok, let's keep going")
             ]
         );
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn a_codex_prompt_keeps_the_brief_apart() {
-        let brief = crate::agents::mcp::brief(false);
+        let brief = crate::agents::mcp::BRIEF;
         let glued = json!({"type": "event_msg", "payload": {"type": "user_message",
             "message": format!("{brief}\nok, let's keep going")}});
         let item = json!({"type": "event_msg", "payload": {"type": "item_completed",
