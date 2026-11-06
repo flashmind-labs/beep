@@ -4,7 +4,6 @@ import type * as CredentialsModule from "./credentials.ts";
 import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount, Provider } from "./credentials.ts";
 import { when } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
-import { S } from "../bar/core.ts";
 import type { Machine } from "../machines/machines.ts";
 import { fillSection, SET, setRoot, setShown, setSkeleton } from "./settings.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
@@ -32,7 +31,6 @@ export function setCredsHtml() {
   if (CRED.list === null) return `<div class="dmuted">Could not load your credentials.</div>`;
   // Which machines have gh and teacli, when the machines are known.
   const machines = Array.isArray(SET.machines) ? SET.machines : null;
-  CRED.server = S.server;
   return CRED.mod.credentialsHtml(CRED, machines, esc, when);
 }
 
@@ -184,12 +182,10 @@ export function bindCreds(el: Element) {
   $in("#credCancel")?.addEventListener("click", () => { CRED.edit = null; CRED.error = ""; redraw(); });
   const save = async () => {
     if (CRED.busy || !CRED.mod) return;
-    const machines = $in<HTMLInputElement>("#credMachines");
-    // The checkbox shows only in an API key's form, the URL only in a new server's.
-    if (CRED.edit?.kind === "api_key" && machines) CRED.edit.toMachines = machines.checked;
+    // The URL shows only in a new server's form.
     const url = $in<HTMLInputElement>("#credUrl")?.value;
     if (CRED.edit?.kind === "forgejo" && url !== undefined) CRED.edit.url = url;
-    const d = CRED.mod.draft(CRED.edit, url, $in<HTMLInputElement>("#credSecret")?.value, machines ? machines.checked : true);
+    const d = CRED.mod.draft(CRED.edit, url, $in<HTMLInputElement>("#credSecret")?.value);
     if (d.error) {
       CRED.error = d.error;
       const err = $in("#credErr");

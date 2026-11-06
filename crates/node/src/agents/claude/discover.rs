@@ -420,13 +420,28 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
             pid: Some(file.pid),
         };
     }
-    // A `claude` without a pid file, in this session's folder.
     let claimed = |pid: u32| {
         snapshot
             .pid_files
             .iter()
             .any(|file| file.pid == pid && running(file.pid))
     };
+    // A process whose arguments name the session, one the daemon runs in
+    // the background (it writes no pid file), while that is the newest in
+    // its folder: after `/clear` the arguments still name the one before.
+    if seen.newest_in_folder
+        && let Some(process) = snapshot
+            .processes
+            .iter()
+            .find(|process| process.session.as_deref() == Some(seen.id) && !claimed(process.pid))
+    {
+        return Found {
+            presence: Presence::Running,
+            pid: Some(process.pid),
+        };
+    }
+    // A `claude` without a pid file in this session's folder, whatever its
+    // arguments name, runs the folder's newest session.
     if seen.newest_in_folder
         && let Some(process) = snapshot.processes.iter().find(|process| {
             !claimed(process.pid)
@@ -480,7 +495,66 @@ mod tests {
         Process {
             pid,
             cwd: Some(PathBuf::from(cwd)),
+            session: None,
         }
+    }
+
+    /// A session the daemon runs in the background: its process names the
+    /// session in its arguments and has no pid file.
+    #[test]
+    fn a_process_naming_the_session_runs_it_wherever_it_is() {
+        let now = SystemTime::now();
+        let old = now - Duration::from_secs(3600);
+        let named = |pid: u32, cwd: &str, session: &str| Process {
+            session: Some(session.to_owned()),
+            ..process(pid, cwd)
+        };
+        let snapshot = Snapshot {
+            processes: vec![named(8271, "/elsewhere", ID)],
+            now: Some(now),
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            presence(&seen(old, true), &snapshot),
+            Found {
+                presence: Presence::Running,
+                pid: Some(8271)
+            }
+        );
+        // The arguments name the session that was resumed; after `/clear`
+        // the process runs a newer one, so only the folder's newest counts.
+        assert_eq!(
+            presence(&seen(old, false), &snapshot).presence,
+            Presence::Stopped
+        );
+        // One in the folder naming another, older session runs the newest.
+        let other = Snapshot {
+            processes: vec![named(8271, "/srv/project", OTHER)],
+            now: Some(now),
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            presence(&seen(old, true), &other),
+            Found {
+                presence: Presence::Running,
+                pid: Some(8271)
+            }
+        );
+        // Its pid file, when it has one, says what it runs.
+        let claimed = Snapshot {
+            processes: vec![named(8271, "/srv/project", ID)],
+            pid_files: vec![PidFile {
+                pid: 8271,
+                session_id: OTHER.into(),
+                status: Some("busy".into()),
+            }],
+            now: Some(now),
+            ..Snapshot::default()
+        };
+        assert_eq!(
+            presence(&seen(old, true), &claimed).presence,
+            Presence::Stopped
+        );
     }
 
     #[test]
