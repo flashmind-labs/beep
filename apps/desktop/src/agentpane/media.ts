@@ -14,6 +14,7 @@ import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
 import { drawWorktrees, paneRoot, startWorktrees } from "./worktree.ts";
 import { dropTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
+import { newTermLike } from "../terminals/newkey-state.ts";
 import { drag, tabDown } from "./drag.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
@@ -680,12 +681,13 @@ export function saveWorkFile(rel: string, note: (text: string) => void, root = p
 
 /// Opens a terminal tab on the pane's machine, in its folder (⌘T, ⌃`), in
 /// dock `d`, else where the newest terminal sits. With no machine to run it
-/// the tab says so. `zoom` fills the view with it, as ⇧esc does.
-export function newTerminal(d?: Dock, zoom = false) {
+/// the tab says so. `zoom` fills the view with it, as ⇧esc does. `like`
+/// gives another machine and folder, such as those of a terminal on screen.
+export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name">) {
   const s = P.session;
   if (!s) return;
   const terms = P.tabs.filter(t => t.kind === "term");
-  const root = paneRoot();
+  const root = like?.cwd ?? paneRoot();
   const name = terminalName(root, terms.map(t => t.name));
   const id = `term:${name}`;
   // While the window is too narrow for a right dock, every tab shows at
@@ -694,7 +696,23 @@ export function newTerminal(d?: Dock, zoom = false) {
   const newest = terms.at(-1);
   const to = d && !narrow ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
   if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
-  const at = { machine_id: s.machine_id, machine_name: s.machine_name, cwd: root, project: s.project ?? "" };
-  open({ id, kind: "term", name, path: null, url: null, at, error: s.machine_id ? "" : "No machine has a checkout of this project to open a terminal in." });
+  const at = like ?? { machine_id: s.machine_id, machine_name: s.machine_name, cwd: root, project: s.project ?? "" };
+  open({ id, kind: "term", name, path: null, url: null, at, error: at.machine_id ? "" : "No machine has a checkout of this project to open a terminal in." });
   if (zoom) { P.zoom = dockOf(id); place(); }
+}
+
+/// ⌘N with a terminal tab on screen: a new one on its machine, in its folder,
+/// in its dock. False when no terminal shows.
+export function newTerminalLike() {
+  if (!shell()) return false;
+  const shown = DOCKS.filter(d => paneOf(d)?.hidden === false).flatMap(d => {
+    const tab = P.tabs.find(t => t.id === P.on[d] && t.kind === "term");
+    const at = tab && (tab.term?.row ?? tab.existing ?? tab.at);
+    return at ? [{ dock: d, machine_id: at.machine_id, machine_name: at.machine_name, cwd: at.cwd, project: at.project, focused: !!tab.term?.screen.focused() }] : [];
+  });
+  const like = newTermLike(shown);
+  if (!like) return false;
+  const { dock, focused: _, ...at } = like;
+  newTerminal(dock, false, at);
+  return true;
 }
