@@ -11,6 +11,7 @@ import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
 import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { reason } from "../ui/format.ts";
+import { newTermLike } from "./newkey-state.ts";
 
 /// A terminal (TerminalRow).
 export interface TerminalRow {
@@ -113,6 +114,8 @@ interface TerminalForm {
   name: string;
   machine: string | null;
   cwd: string;
+  /// The project it is listed under, when not the page's.
+  project?: string;
 }
 
 /// How an open terminal's live view stands.
@@ -485,7 +488,7 @@ export function makeTerminals(deps: TerminalDeps) {
     t.busy = true;
     t.error = "";
     redraw();
-    const fields = { project: name, machineId: form.machine, name: form.name, command: form.command, cwd: form.cwd };
+    const fields = { project: form.project ?? name, machineId: form.machine, name: form.name, command: form.command, cwd: form.cwd };
     try {
       let made = await invoke<TerminalRow | null>("terminal_open", { terminal: { ...fields, ...START_SIZE } });
       // A server from before interactive terminals runs commands view only.
@@ -654,6 +657,17 @@ export function makeTerminals(deps: TerminalDeps) {
     redraw();
   }
 
+  /// ⌘N on the Terminals page: a new terminal on the open one's machine, in
+  /// its folder and project. False when none is open.
+  function newLikeOpen() {
+    const t = of(ALL);
+    const open = t.open ? (t.list || []).find(x => x.id === t.open) : undefined;
+    const like = newTermLike(open ? [{ ...open, focused: !!lives.get(open.id)?.screen.focused() }] : []);
+    if (!like) return false;
+    if (!t.busy) start(ALL, { command: "", name: "", machine: like.machine_id, cwd: like.cwd, project: like.project });
+    return true;
+  }
+
   /// The Terminals page: every machine with its terminals at the left, the
   /// open terminal or the New terminal form at the right.
   function machinesPanel(machines: readonly TerminalMachine[]) {
@@ -709,6 +723,7 @@ export function makeTerminals(deps: TerminalDeps) {
     list: (name: string) => of(name).list,
     machinesPanel,
     newOn,
+    newLikeOpen,
     /// Opens terminal `id` on the Terminals page, attached live.
     show: (id: string) => select(ALL, id),
     stop: () => { watch(null); dropAll(); shown = null; },
