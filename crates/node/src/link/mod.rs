@@ -7,6 +7,7 @@ mod from_mesh;
 pub(crate) use from_mesh::Membership;
 pub mod local;
 pub(crate) mod local_socket;
+pub mod local_status;
 pub(crate) mod note;
 pub(crate) mod peer_tools;
 pub mod peers;
@@ -14,6 +15,7 @@ pub mod reconnect;
 pub(crate) mod restart;
 pub mod state;
 mod traffic;
+pub(crate) mod watchdog;
 
 pub use connection::{
     Claimed, Linked, Offers, Protocol, Session, claim, connect, open, print_offer, serve, stay,

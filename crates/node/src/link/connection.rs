@@ -11,6 +11,7 @@ use crate::{
     link::restart::{self, Reopen},
     link::state::State,
     link::traffic::Traffic,
+    link::watchdog,
     link::{
         from_mesh::{Family, Membership},
         peer_tools::{self, Caller},
@@ -243,6 +244,8 @@ pub async fn serve(
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
     let _mcp = mcp::start(&state.dir, &offers);
+    // Logs when the async workers, or a step that hung before, stop moving.
+    let _watchdog = watchdog::start();
     // `beep-node update` asks the node to hold still over another one.
     let agents = offers.agents.clone();
     let control_dir = state.dir.clone();

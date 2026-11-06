@@ -54,7 +54,7 @@ struct Sampled<T> {
 struct Peer {
     device: Device,
     online: bool,
-    /// When it last reported.
+    /// When it last reported, or its link went.
     seen_at: Option<SystemTime>,
     /// The beep-node it runs; not known to a node from before `version/1`.
     version: Option<String>,
@@ -100,9 +100,10 @@ impl Shared {
     }
 
     /// Takes the members and who is on from `mesh`, and drops those that
-    /// are not members any more.
+    /// are not members any more. One whose link just went was seen now.
     fn refresh(&self, mesh: &Mesh) {
         let devices = mesh.devices();
+        let now = SystemTime::now();
         {
             let mut peers = self.peers();
             peers.retain(|id, _| devices.iter().any(|status| status.device.id == *id));
@@ -110,6 +111,9 @@ impl Shared {
                 let peer = peers
                     .entry(status.device.id)
                     .or_insert_with(|| Peer::new(status.device.clone()));
+                if peer.online && !status.online {
+                    peer.seen_at = Some(now);
+                }
                 peer.device = status.device;
                 peer.online = status.online;
             }
@@ -634,6 +638,7 @@ mod tests {
         // The node said its version, and a joined device that runs no node has none.
         assert!(studio.version.starts_with(|c: char| c.is_ascii_digit()));
         // Switched off: its endpoint closes, and with it the link.
+        let on_until = std::time::SystemTime::now();
         router.shutdown().await.expect("the router stops");
         drop(mesh);
         endpoint.close().await;
@@ -644,7 +649,13 @@ mod tests {
         .await;
         let machines = status.machines();
         assert!(machines.iter().any(|m| m.id == this && m.online));
-        assert!(machines.iter().any(|m| m.id == other && !m.online));
+        let off = machines.iter().find(|m| m.id == other).expect("listed");
+        assert!(!off.online);
+        // Seen when its link went, not when it joined (#329).
+        assert!(
+            off.seen_at >= on_until,
+            "seen when it joined, not when it went"
+        );
     }
 
     #[tokio::test]
