@@ -9,7 +9,7 @@ import { ICON } from "../ui/icons.ts";
 import { onShownChange, pageShown } from "../ui/active.ts";
 
 /// `word`, its letters lit one after another in a loop.
-const sweptLabel = (word: string) => `<span class="lb">${[...word].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
+const sweptLabel = (word: string) => `<span class="lb">${esc(word)}</span>`;
 
 /// A running turn's one live line: what it does now (its last thought line),
 /// or "Thinking" or "Working" until there is one, its letters sweeping, and
