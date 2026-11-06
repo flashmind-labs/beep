@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Alert, type Note, type NoteKind, asks, badge, bellLabel, bySide, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
+import { type Alert, type Note, type NoteKind, asks, badge, bellLabel, bySide, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, copies, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
 
 const alert = (id: string, over: Partial<Alert> = {}): Alert => ({ session_id: id, title: `Title ${id}`, source: "Apps", text: `Text ${id}`, read: false, at: 1_760_000_000_000, ...over });
 const note = (id: string, kind: NoteKind, over: Partial<Note> = {}): Note => ({ id, kind, title: `Title ${id}`, text: "", source: "build-box", at: 1_760_000_000_000, read: false, done: false, target: null, ...over });
@@ -74,10 +74,23 @@ test("a row opens what it is about", () => {
   assert.equal(opens(fromNote(note("m", "offline"))), "machines");
   // A temporary machine removed after it was gone a while.
   assert.equal(opens(fromNote(note("r", "removed"))), "machines");
+  // A skill conflict opens in the pane.
+  assert.equal(opens(fromNote(note("s", "skill_conflict"))), "skill");
   const run = { projects: { project: "acme/widget", run: { id: 7, host: "github.com" } } };
   assert.equal(opens(fromNote(note("r", "run", { target: run }))), "project");
 });
 
 test("a row says where it came from and when", () => {
   assert.equal(subLine(fromAlert(alert("a", { source: "Places" })), "4 min"), "Places · 4 min");
+});
+
+test("a skill conflict lists its copies and which are on this Mac", () => {
+  const i = fromNote(note("skill:notes", "skill_conflict", { title: "Skill notes differs on box-a and box-b", text: "box-a ~/.claude/skills\nbox-b ~/.agents/skills", here: ["box-a ~/.claude/skills"] }));
+  assert.equal(skillName(i), "notes");
+  assert.deepEqual(copies(i), [
+    { machine: "box-a", folder: "~/.claude/skills", here: true },
+    { machine: "box-b", folder: "~/.agents/skills", here: false },
+  ]);
+  // A note saved before `here` existed has no copy on this Mac.
+  assert.ok(copies(fromNote(note("o", "skill_conflict", { text: "box-a ~/x" }))).every(c => !c.here));
 });

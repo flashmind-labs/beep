@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
     fs,
-    path::PathBuf,
+    path::{Component, PathBuf},
+    process::Command,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::SystemTime,
 };
@@ -66,6 +67,9 @@ pub struct Note {
     pub(crate) done: bool,
     /// The session a click opens, for agents and moves.
     pub(crate) target: Option<CenterTarget>,
+    /// The lines of `text` that are on this Mac, for a skill conflict.
+    #[serde(default)]
+    pub(crate) here: Vec<String>,
 }
 
 impl Note {
@@ -81,6 +85,7 @@ impl Note {
             read: false,
             done: false,
             target: None,
+            here: Vec::new(),
         }
     }
 }
@@ -366,6 +371,27 @@ pub fn notes_dismiss(app: AppHandle, notes: State<'_, Arc<Notes>>, ids: Vec<Stri
     if notes.dismiss(&ids) {
         changed(&app, notes.inner().clone());
     }
+}
+
+/// Shows skill `name` of a skills `folder` on this Mac, such as
+/// `~/.claude/skills`, in Finder.
+#[tauri::command]
+pub fn skill_reveal(app: AppHandle, folder: String, name: String) -> Result<()> {
+    let home = app.path().home_dir()?;
+    let skill = match folder.strip_prefix("~/") {
+        Some(rest) => home.join(rest).join(&name),
+        None => PathBuf::from(&folder).join(&name),
+    };
+    let climbs = skill.components().any(|part| part == Component::ParentDir);
+    if name.contains(['/', '\\']) || climbs || !skill.starts_with(&home) || !skill.is_dir() {
+        return Err(DesktopError::BadRequest("not a skill on this Mac".into()));
+    }
+    Command::new("open")
+        .arg("-R")
+        .arg(&skill)
+        .spawn()
+        .map_err(anyhow::Error::from)?;
+    Ok(())
 }
 
 /// Answers the question ask note `id` is about, as Allow and Deny on its

@@ -211,6 +211,7 @@ async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflic
                 if let Some(conflict) = conflict {
                     let note = Note {
                         text: conflict.copies.join("\n"),
+                        here: conflict.here.clone(),
                         ..Note::new(
                             NoteKind::SkillConflict,
                             id,

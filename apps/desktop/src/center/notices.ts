@@ -12,7 +12,7 @@ import { dbtn as button, svgEl } from "../ui/parts.ts";
 import { IC } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { openSettings } from "../settings/sheet.ts";
-import { type Alerts, type Item, type Note, asks, badge, bellLabel, bySide, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, subLine, unreadCount, unreadIds, without } from "./notices-state.ts";
+import { type Alerts, type Item, type Note, asks, badge, bellLabel, bySide, copies, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, skillName, subLine, unreadCount, unreadIds, without } from "./notices-state.ts";
 import { go } from "./views.ts";
 
 const BELL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg>';
@@ -50,7 +50,7 @@ export function mountNotices(host: HTMLElement) {
     if (wanted && find(alerts ?? [], wanted)) opened = wanted;
     wanted = null;
     // An opened alert that is gone, dismissed or a chat now, shows the list.
-    if (opened && !find(alerts ?? [], opened)) opened = null;
+    if (opened && !find(items(), opened)) opened = null;
     if (opened) read([opened]);
     draw();
   };
@@ -58,7 +58,7 @@ export function mountNotices(host: HTMLElement) {
   const setNotes = (next: Note[]) => {
     notes = next.map(fromNote);
     // The list is redrawn unless an alert is open, with a reply maybe typed in it.
-    if (open && opened) drawBell(); else draw();
+    if (open && opened && find(alerts ?? [], opened)) drawBell(); else draw();
   };
 
   const toggle = (to: boolean) => {
@@ -90,8 +90,8 @@ export function mountNotices(host: HTMLElement) {
 
   const draw = () => {
     const bell = makeBell();
-    const shown = opened && find(alerts ?? [], opened);
-    host.replaceChildren(bell, ...(open ? [shown ? openedView(shown) : listView(items())] : []));
+    const shown = opened && find(items(), opened);
+    host.replaceChildren(bell, ...(open ? [shown ? (shown.server ? openedView(shown) : skillView(shown)) : listView(items())] : []));
   };
 
   /// Marks `list` read, here and where it is kept; `redraw` false leaves the pane as drawn.
@@ -127,7 +127,7 @@ export function mountNotices(host: HTMLElement) {
   const openItem = (i: Item) => {
     const to = opens(i);
     read([i.id], to === "alert");
-    if (to === "alert") {
+    if (to === "alert" || to === "skill") {
       opened = i.id;
       draw();
       return;
@@ -193,6 +193,16 @@ export function mountNotices(host: HTMLElement) {
       if (e.target === r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openItem(i); }
     });
     return r;
+  };
+
+  /// A skill conflict opened: its copies, with no reply to give.
+  const skillView = (i: Item) => {
+    const back = button("Notifications", "small quiet", () => { opened = null; draw(); });
+    const head = h("div", "nt-h", back, h("span", "", subLine(i, ago(i.at))), button("Dismiss", "small", () => dismiss([i.id])));
+    const lines = copies(i).map(c => h("div", "nt-copy", h("span", "", c.machine, c.folder ? h("i", "", c.folder) : null),
+      c.here ? button("Show in Finder", "small quiet", () => invoke("skill_reveal", { folder: c.folder, name: skillName(i) }).catch(e => console.warn("showing a skill:", e))) : null));
+    const body = h("div", "nt-list nt-note", h("b", "", i.title), ...lines, h("p", "nt-hint", "Beep changes neither copy. Make them the same, or delete one, and this row settles."));
+    return h("div", "nt-pop", head, body);
   };
 
   const openedView = (i: Item) => {

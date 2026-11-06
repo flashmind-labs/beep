@@ -834,6 +834,9 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .nt-note { padding: 14px; display: grid; gap: 8px; align-content: start }
 .nt-note b { font-size: 14px; font-weight: 600; line-height: 20px }
 .nt-note p { margin: 0; font-size: 13.5px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere }
+.nt-copy { display: flex; gap: 8px; align-items: center; justify-content: space-between; font-size: 13px }
+.nt-copy i { margin-left: 8px; font-style: normal; font-family: var(--mono); font-size: 12px; color: var(--muted) }
+.nt-hint { color: var(--muted) }
 .nt-rep { flex: none; display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border) }
 .nt-ask { flex: 1; min-width: 0; height: 30px; padding: 0 10px; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--fg); font: inherit; font-size: 13px }
 .nt-ask:focus { outline: 2px solid var(--accent); outline-offset: -1px }

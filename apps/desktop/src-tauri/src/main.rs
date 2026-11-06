@@ -229,6 +229,7 @@ fn main() {
             notices::alerts::alerts_read,
             notices::history::notes_answer,
             notices::history::notes_dismiss,
+            notices::history::skill_reveal,
             notices::history::notes_list,
             notices::history::notes_read,
             center::home::center_answer_agent,
