@@ -169,10 +169,25 @@ export function matchesFilter(f: Pick<DiffFile, "path" | "old_path">, q: string)
 
 const count = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 
-/// "6 files changed", or "No changes".
+/// "6 files", or "No changes".
 export function changedLabel(v: Pick<DiffView, "files" | "more">) {
   const n = v.files.length + v.more;
-  return n ? `${count(n, "file", "files")} changed` : "No changes";
+  return n ? count(n, "file", "files") : "No changes";
+}
+
+/// What the diff is against, in full, for the header's tooltip.
+export function baseTitle(v: Pick<DiffView, "base" | "merge_base" | "working_tree">, uncommitted: boolean) {
+  if (uncommitted) return "Against HEAD, uncommitted changes only";
+  let t = `Against ${v.base}`;
+  if (v.merge_base) t += ` at ${v.merge_base.slice(0, 7)}`;
+  if (v.working_tree) t += ", uncommitted included";
+  return t;
+}
+
+/// Whether every file shown is folded, so the one Expand / Collapse toggle
+/// offers Expand ("+"); with any open, or none shown, it offers Collapse.
+export function allFolded(files: readonly DiffFile[], kept: ReadonlyMap<string, boolean>) {
+  return files.length > 0 && files.every(f => isFolded(f, kept));
 }
 
 /// What a file without its lines says, and the button that loads them.

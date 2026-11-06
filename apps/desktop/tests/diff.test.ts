@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DiffFile, type DiffView, diffRows, splitHeight, splitRows, withLoaded,
+  type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, diffRows, splitHeight, splitRows, withLoaded,
 } from "../src/review/diff-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
@@ -66,4 +66,23 @@ test("splitHeight counts wrapped lines", () => {
   const cell = (n: number) => ({ k: " " as const, num: 1, text: "x".repeat(n), eol: false });
   const rows = [{ kind: "hunk" as const, text: "@@" }, { kind: "gap" as const, lines: 3 }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
   assert.equal(splitHeight(rows, 10), 19 + 22 + 19 * 3);
+});
+
+test("the header counts files and keeps the base in its tooltip", () => {
+  assert.equal(changedLabel({ files: [file("a"), file("b")], more: 1 }), "3 files");
+  assert.equal(changedLabel({ files: [file("a")], more: 0 }), "1 file");
+  assert.equal(changedLabel({ files: [], more: 0 }), "No changes");
+  const v = { base: "origin/main", merge_base: "3f2c1a0e9b", working_tree: true };
+  assert.equal(baseTitle(v, false), "Against origin/main at 3f2c1a0, uncommitted included");
+  assert.equal(baseTitle({ ...v, merge_base: "", working_tree: false }, false), "Against origin/main");
+  assert.equal(baseTitle(v, true), "Against HEAD, uncommitted changes only");
+});
+
+test("the fold toggle offers expand only when every shown file is folded", () => {
+  const files = [file("a"), file("gone", { status: "deleted" })];
+  assert.equal(allFolded(files, new Map()), false);
+  assert.equal(allFolded(files, new Map([["a", true]])), true);
+  assert.equal(allFolded([files[1]], new Map()), true);
+  assert.equal(allFolded(files, new Map([["a", true], ["gone", false]])), false);
+  assert.equal(allFolded([], new Map()), false);
 });
