@@ -292,6 +292,34 @@ async fn the_twenty_first_report_of_a_day_is_refused() {
 }
 
 #[tokio::test]
+async fn a_report_the_store_fails_to_keep_does_not_use_up_the_day() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let folder = dir.path().join("store");
+    // A file where the store's folder should be, so every write fails.
+    std::fs::write(&folder, b"in the way").expect("the file writes");
+    let url = serve_with(&ReportsConfig {
+        folder: Some(folder.clone()),
+        per_key_per_day: 1,
+        ..ReportsConfig::default()
+    })
+    .await;
+    let key = SecretKey::generate();
+    let (status, _) = Post::by(&key)
+        .send(&url, report(key.public(), None, "first try"))
+        .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    std::fs::remove_file(&folder).expect("the file goes");
+    send(&url, report(key.public(), None, "second try"), &key)
+        .await
+        .expect("the failed one was given back");
+}
+
+#[test]
+fn reports_outside_a_runtime_is_an_error() {
+    assert!(Reports::new(&ReportsConfig::default(), Client::new()).is_err());
+}
+
+#[tokio::test]
 async fn without_a_store_the_route_says_reports_are_not_set_up() {
     let url = serve_with(&ReportsConfig::default()).await;
     let key = SecretKey::generate();
