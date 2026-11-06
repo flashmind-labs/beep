@@ -361,6 +361,17 @@ pub fn head(text: &str, max: usize) -> &str {
     &text[..end]
 }
 
+/// `text` trimmed and cut to at most `max` bytes, "..." marking a cut.
+pub fn clipped(text: &str, max: usize) -> String {
+    let text = text.trim();
+    let cut = head(text, max);
+    if cut.len() < text.len() {
+        format!("{}...", cut.trim_end())
+    } else {
+        cut.to_owned()
+    }
+}
+
 /// Every open issue on a project's host, as it was read.
 #[derive(Debug, Clone)]
 pub struct HostIssues {
@@ -974,6 +985,52 @@ mod tests {
             .expect("a host");
         assert_eq!(found.host, IssueHost::Github);
         assert!(found.machines.is_empty() && !found.home);
+    }
+
+    fn github_home() -> Store {
+        Store {
+            name: repo(),
+            home: Some(machine(1)),
+            imports: Vec::new(),
+            host: IssueHost::Github,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pull_request_reads_in_full_through_a_machine() {
+        let pr = r#"{"number": 41, "title": "Cut the cache", "body": "Shorter", "url": "https://github.com/acme/widget/pull/41", "author": {"login": "sam"}, "state": "OPEN", "isDraft": false, "labels": [], "createdAt": "2026-10-30T09:00:00Z", "comments": [{"author": {"login": "alice"}, "createdAt": "2026-10-30T11:00:00Z", "body": "Looks good"}], "reviews": [], "reviewDecision": "", "statusCheckRollup": [{"conclusion": "FAILURE"}]}"#;
+        let fleet = Fleet2(Arc::new(ByCommand(vec![(
+            "pr view 41",
+            ShellOutput::exited(0, pr),
+        )])));
+        let store = github_home();
+        let detail = crate::thread_detail::read(&store, &fleet, 41)
+            .await
+            .expect("the pull request reads");
+        assert_eq!(detail.title, "Cut the cache");
+        assert_eq!(detail.comments.len(), 1);
+        assert_eq!(detail.checks, Some(beep_proto::RunState::Failed {}));
+        let other = crate::thread_detail::read(&store, &fleet, 42).await;
+        assert!(other.is_err(), "no rule answers #42");
+    }
+
+    #[tokio::test]
+    async fn a_comment_on_a_pull_request_goes_through_gh_pr_comment() {
+        let fleet = Fleet2(Arc::new(ByCommand(vec![(
+            "pr comment 41",
+            ShellOutput::exited(0, ""),
+        )])));
+        let pr = beep_proto::GitItemKind::PullRequest {};
+        crate::thread_detail::comment(&github_home(), &fleet, pr, 41, "Thanks")
+            .await
+            .expect("the comment posts");
+        let issue = beep_proto::GitItemKind::Issue {};
+        let store = github_home();
+        let refused = crate::thread_detail::comment(&store, &fleet, issue, 41, "Thanks");
+        assert!(
+            refused.await.is_err(),
+            "an issue comment is not a pr comment"
+        );
     }
 
     /// Answers by the first rule whose text the command holds.

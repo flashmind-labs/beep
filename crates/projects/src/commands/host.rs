@@ -25,6 +25,10 @@ pub(super) const LABELS: [(&str, &str); 4] = [
     (LABEL_REVIEW, "1d76db"),
 ];
 
+const GH_PR_FIELDS: &str = "number,title,body,url,author,state,isDraft,labels,createdAt,comments,reviews,reviewDecision,statusCheckRollup";
+
+const GH_ISSUE_FIELDS: &str = "number,title,body,url,author,state,labels,createdAt,comments";
+
 pub(super) const LABEL_DESCRIPTION: &str = "Managed by the project agent";
 
 /// What Beep asks a code host for.
@@ -67,7 +71,17 @@ pub enum HostCommand<'a> {
     ViewPrHead {
         number: u64,
     },
+    /// One pull request or issue in full: its text, state, comments and, for a pull request,
+    /// its reviews and checks.
+    ViewThread {
+        number: u64,
+    },
     CommentIssue {
+        number: u64,
+        body: &'a str,
+    },
+    /// A comment on a pull request's conversation.
+    CommentPr {
         number: u64,
         body: &'a str,
     },
@@ -142,7 +156,7 @@ impl HostCommand<'_> {
                 vec![title, body]
             }
             Self::CloseIssue { comment, .. } => vec![comment],
-            Self::CommentIssue { body, .. } => vec![body],
+            Self::CommentIssue { body, .. } | Self::CommentPr { body, .. } => vec![body],
             Self::PostReview { body, comments, .. } => {
                 let mut out = vec![*body];
                 out.extend(comments.iter().map(|comment| comment.body.as_str()));
@@ -304,8 +318,17 @@ impl HostCommand<'_> {
                 number,
                 &["--json", "number,headRefName,isCrossRepository"],
             ),
+            // A number that is not a pull request is an issue.
+            Self::ViewThread { number } => format!(
+                "{} 2>/dev/null || {}",
+                number_command(&["pr", "view"], number, &["--json", GH_PR_FIELDS]),
+                number_command(&["issue", "view"], number, &["--json", GH_ISSUE_FIELDS]),
+            ),
             Self::CommentIssue { number, body } => {
                 number_command(&["issue", "comment"], number, &["--body", body])
+            }
+            Self::CommentPr { number, body } => {
+                number_command(&["pr", "comment"], number, &["--body", body])
             }
             // `gh api` takes no -R; the owner's account decides who it is.
             Self::WhoAmI => format!(
@@ -481,7 +504,17 @@ impl HostCommand<'_> {
             Self::ListOpenPrs => tea(&["pr", "list"], &[], &["-s", "open", "--all"]),
             Self::ViewIssue { number } => tea(&["issue", "get"], &[&number.to_string()], &[]),
             Self::ViewPrHead { number } => tea(&["pr", "get"], &[&number.to_string()], &[]),
-            Self::CommentIssue { number, body } => tea(
+            // Forgejo keeps a pull request's conversation as its issue's comments.
+            Self::ViewThread { number } => {
+                let number = number.to_string();
+                format!(
+                    "{} && {}",
+                    tea(&["issue", "get"], &[&number], &[]),
+                    tea(&["issue", "comment", "list"], &[&number], &["--all"]),
+                )
+            }
+            // Forgejo keeps a pull request's conversation as its issue's comments.
+            Self::CommentIssue { number, body } | Self::CommentPr { number, body } => tea(
                 &["issue", "comment", "create"],
                 &[&number.to_string()],
                 &["-b", body],

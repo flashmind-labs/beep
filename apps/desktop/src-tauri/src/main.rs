@@ -379,6 +379,7 @@ fn main() {
             projects::threads::center_reply_thread,
             projects::threads::center_thread_chats,
             projects::threads::center_thread_detail,
+            projects::threads::center_comment_thread,
             projects::threads::center_thread_view,
             projects::threads::center_track_issue,
             research::commands::export_research,

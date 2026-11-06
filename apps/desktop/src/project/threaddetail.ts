@@ -1,7 +1,7 @@
 // The project page's pane for one pull request or issue: its state, labels,
-// description and comments, read from the host through the server. The app
-// renders the text as Markdown and drops raw HTML before it gets here, so
-// the HTML it gives is safe to insert. Commenting stays on the host.
+// description and comments, read from the host through a machine with the
+// project, or the server. The app renders the text as Markdown and drops raw
+// HTML before it gets here, so the HTML it gives is safe to insert. Commenting stays on the host.
 import { ago } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, stateChip } from "../ui/parts.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
@@ -61,8 +61,14 @@ const CHECKS: Record<string, [string, string]> = {
   queued: ["running", "checks queued"], waiting: ["running", "checks waiting"],
 };
 
-export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: string) => unknown }) {
+/// A comment being written or posted under one thread.
+type Draft = { text: string; posting: boolean; error?: string };
+
+/// `comment()` says whether the pane offers a comment box: with no server,
+/// the comment goes to the host through a machine with the project.
+export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: string) => unknown; comment: () => boolean }) {
   const reads = new Map<string, Read>();
+  const drafts = new Map<string, Draft>();
 
   function read(projectId: string, number: number) {
     const key = `${projectId}#${number}`;
@@ -85,6 +91,32 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
       a.addEventListener("click", e => { e.preventDefault(); if (a.href) deps.openUrl(a.href); });
     }
     return box;
+  }
+
+  /// The box under the comments: Comment posts it on the host as the
+  /// machine's signed-in account, then reads the thread again.
+  function replyBox(projectId: string, d: ThreadDetailRow) {
+    const key = `${projectId}#${d.number}`;
+    const draft = drafts.get(key) ?? { text: "", posting: false };
+    drafts.set(key, draft);
+    const input = h("textarea") as HTMLTextAreaElement;
+    input.value = draft.text;
+    input.placeholder = "Comment";
+    input.disabled = draft.posting;
+    input.addEventListener("input", () => { draft.text = input.value; post.disabled = !draft.text.trim(); });
+    const post = button(draft.posting ? "Posting…" : "Comment", "pri", () => {
+      const body = draft.text.trim();
+      if (!body || draft.posting) return;
+      draft.posting = true;
+      draft.error = undefined;
+      deps.redraw();
+      invoke("center_comment_thread", { projectId, kind: d.kind, number: d.number, body })
+        .then(() => { draft.text = ""; const r = reads.get(key); if (r) r.at = 0; })
+        .catch(e => { draft.error = String(e).replace(/^(bad request|error):\s*/i, ""); })
+        .finally(() => { draft.posting = false; deps.redraw(); });
+    });
+    post.disabled = draft.posting || !draft.text.trim();
+    return h("div", "pj-reply", input, post, draft.error ? h("div", "cc-err", draft.error) : null);
   }
 
   /// The pane: the head with `acts` and Open on the host, then the
@@ -116,7 +148,8 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
       for (const c of d.comments) {
         body.push(h("div", "pj-post", h("div", "by", h("b", "", c.author || "someone"), ` · ${ago(c.at)}`), md(c.html)));
       }
-      body.push(h("small", "dmuted", `Read only here. Comment on ${forgeLabel(url).replace(/^Open on /, "")}.`));
+      if (deps.comment() && d.state === "open") body.push(replyBox(projectId, d));
+      else body.push(h("small", "dmuted", `Read only here. Comment on ${forgeLabel(url).replace(/^Open on /, "")}.`));
     }
     return [head, h("div", "pj-db", ...body)];
   }
