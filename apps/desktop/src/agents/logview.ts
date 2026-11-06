@@ -11,11 +11,12 @@ import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
-import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentImages, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
+import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { parentRow } from "./nesting-state.ts";
 import { sessions } from "./sessions.ts";
-import { fillAgentPics, gonePic } from "./images.ts";
+import { fillAgentPics } from "./images.ts";
+import { picTile } from "./pic-state.ts";
 import { filesHtml, planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
@@ -209,13 +210,9 @@ export function closeChild() {
 /// from the session's machine by its key (an empty tile while it loads),
 /// or its name when neither can be.
 function entryPic(n: string) {
-  const key = /^image-([0-9a-f]{16})$/.exec(n)?.[1], label = key ? "Image" : n;
-  const whole = key ? agentImages.get(key) : undefined, thumb = key ? agentThumbs.get(key) : undefined;
-  const url = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || (typeof whole === "string" ? whole : "") || (typeof thumb === "string" ? thumb : "");
-  const named = `${key ? ` data-key="${key}"` : ""} data-name="${esc(n)}" alt="${esc(label)}" title="${esc(label)}"`;
-  if (url) return `<img class="pic" src="${esc(url)}"${named}>`;
-  if (key && thumb !== null) return `<img class="pic"${named}>`;
-  return gonePic(label);
+  const key = /^image-([0-9a-f]{16})$/.exec(n)?.[1];
+  const sent = (AG.open && agentPics.get(`${AG.open.session}\n${n}`)) || undefined;
+  return picTile(n, sent, key ? agentThumbs.get(key) : undefined);
 }
 
 /// The thought still arriving, by its place, which shows "Thinking"; set

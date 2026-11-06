@@ -34,7 +34,7 @@ use std::{
     future::Future,
     time::{Duration, UNIX_EPOCH},
 };
-use tokio::time::timeout;
+use tokio::time::{error::Elapsed, timeout};
 
 /// The most transcript entries one view reads at once.
 const MAX_ENTRIES: u32 = 200;
@@ -219,10 +219,13 @@ pub(crate) async fn session(
         }
         Err(e) => {
             log::warn!("transcript not read; session={} error={e:#}", get.session);
-            // A session started outside Beep shows why its log is empty.
-            if view.session.external {
-                view.error = Some(format!("{e:#}"));
+            // A session started outside Beep shows why its log is empty. A
+            // Beep session's read fails instead: an empty log would replace
+            // the one the window holds, and the next read draw it all again.
+            if !view.session.external {
+                return Err(e);
             }
+            view.error = Some(format!("{e:#}"));
         }
     }
     Ok(view)
@@ -575,6 +578,26 @@ pub(crate) async fn image(
         mime: found.mime,
         data: found.data,
     })
+}
+
+/// The picture a session's log shows by `key`, made small on its machine.
+/// `None` from a node from before thumbnails, which closes the stream: the
+/// caller then reads it whole.
+pub(crate) async fn thumb(
+    fleet: &Fleet,
+    machine: EndpointId,
+    get: &GetAgentImage,
+) -> Result<Option<AgentImageData>> {
+    let client = fleet.client(machine).await?;
+    let found = match sessions::thumb(&client, &get.session, &get.key).await {
+        Err(MeshError::Link(e)) if e.downcast_ref::<Elapsed>().is_none() => return Ok(None),
+        other => other?.ok_or_else(not_found)?,
+    };
+    Ok(Some(AgentImageData {
+        key: get.key.clone(),
+        mime: found.mime,
+        data: found.data,
+    }))
 }
 
 /// The custom agents the harnesses define for `folder` on a machine.
