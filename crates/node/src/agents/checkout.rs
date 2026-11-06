@@ -16,11 +16,25 @@ use std::{
 };
 use tokio::task::spawn_blocking;
 
-/// What a session Beep made no branch or worktree for is told ahead of its
-/// first prompt, so the agent makes its own when it changes files.
-pub(super) const WORKTREE_BRIEF: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither. Once the branch is merged, remove the worktree, delete its folder with everything left in it (build output and other artifacts) and delete the branch.";
-/// The brief before it said to clean up after a merge, as old prompts hold it.
-pub(super) const WORKTREE_BRIEF_BEFORE: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
+/// The rule for an agent in a git repository's main checkout.
+pub(super) const MAIN_CHECKOUT_RULE: &str = "Beep: this folder is a git repository's main checkout. Before you change any file, create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and make every change there. Work that changes nothing stays here. Once the branch is merged, remove the worktree, delete its folder with everything left in it (build output and other artifacts) and delete the branch.";
+/// The rule for an agent in a linked git worktree.
+pub(super) const WORKTREE_RULE: &str = "Beep: this folder is a git worktree. Make every change and commit here, not in the main checkout. Once its branch is merged, remove the worktree, delete its folder with everything left in it (build output and other artifacts) and delete the branch.";
+
+/// Beep's standing rule for an agent in `dir`, by the git checkout it is
+/// in: the nearest `.git` above it is a folder in a main checkout and a
+/// file in a linked worktree. None outside git.
+pub(super) fn rule(dir: &Path) -> Option<&'static str> {
+    let git = dir
+        .ancestors()
+        .map(|at| at.join(".git"))
+        .find(|git| git.exists())?;
+    Some(if git.is_dir() {
+        MAIN_CHECKOUT_RULE
+    } else {
+        WORKTREE_RULE
+    })
+}
 
 /// The most branch names tried, `beep/<slug>` then `-2` and on.
 const MAX_NAMES: u32 = 100;
@@ -69,6 +83,23 @@ impl Made {
             }
         }
     }
+
+    /// What the agent is told of it: where it works, and for a new branch
+    /// in the checkout itself, that it makes no worktree.
+    pub(super) fn brief(&self) -> String {
+        let (branch, folder) = (&self.branch, self.folder.display());
+        match self.start {
+            Start::NewBranch => format!(
+                "Beep: Beep made the branch {branch} for this session in this checkout. Commit on it here and make no worktree. Once it is merged, delete it."
+            ),
+            Start::NewWorktree | Start::AddedWorktree => format!(
+                "Beep: Beep made the worktree {folder} on the branch {branch} for this session. Work and commit there."
+            ),
+            Start::OwnWorktree => format!(
+                "Beep: this session works on the branch {branch} in its worktree {folder}. Work and commit there."
+            ),
+        }
+    }
 }
 
 /// Where a new session starts, and what it opens with.
@@ -78,29 +109,24 @@ pub(super) struct Place {
     pub(super) folder: Option<String>,
     /// The first line of its transcript, when a plan made a checkout.
     pub(super) note: Option<String>,
-    /// Beep's word to the agent ahead of its first prompt.
-    pub(super) brief: Option<&'static str>,
+    /// Beep's word to the agent ahead of its first prompt, when a plan made
+    /// a checkout.
+    pub(super) brief: Option<String>,
 }
 
 /// Where a session asked to start in `cwd` runs: what `plan` makes, or,
-/// with no plan, `cwd` as it is, with the agent told to make its own
-/// branch and worktree before it changes files.
+/// with no plan, `cwd` as it is. The git rule for the folder comes with the
+/// session (`rule`).
 pub(super) async fn place(
     cwd: Option<String>,
     plan: Option<CheckoutPlan>,
     prompt: &str,
 ) -> Result<Place> {
     let Some(plan) = plan else {
-        // Only a main checkout needs one: a worktree, such as a project
-        // worker's, or a folder outside git is left as it is.
-        let dir = folder(cwd.as_deref())?;
-        let main = spawn_blocking(move || in_main_checkout(&dir))
-            .await
-            .context("the checkout task stopped")?;
         return Ok(Place {
             folder: cwd,
             note: None,
-            brief: main.then_some(WORKTREE_BRIEF),
+            brief: None,
         });
     };
     let made = make_checkout(cwd.as_deref(), plan, prompt).await?;
@@ -112,17 +138,8 @@ pub(super) async fn place(
     Ok(Place {
         folder: Some(folder),
         note: Some(made.note()),
-        brief: None,
+        brief: Some(made.brief()),
     })
-}
-
-/// Whether `dir` is inside a git repository's main checkout: the nearest
-/// `.git` above it is a folder, where a linked worktree has a file.
-fn in_main_checkout(dir: &Path) -> bool {
-    dir.ancestors()
-        .map(|at| at.join(".git"))
-        .find(|git| git.exists())
-        .is_some_and(|git| git.is_dir())
 }
 
 /// Carries out `plan` in the git checkout of `cwd` (as `folder` reads it),
@@ -442,7 +459,8 @@ pub(super) mod tests {
             .expect("a place");
         assert_eq!(place.folder.as_deref(), Some(cwd.as_str()));
         assert_eq!(place.note, None, "no branch line");
-        assert_eq!(place.brief, Some(WORKTREE_BRIEF));
+        assert_eq!(place.brief, None);
+        assert_eq!(rule(&work), Some(MAIN_CHECKOUT_RULE));
         assert_eq!(current(&work), "main");
         assert_eq!(run(&work, &["branch", "--format=%(refname:short)"]), "main");
         assert!(!work.join(".worktrees").exists(), "no worktree");
@@ -483,6 +501,8 @@ pub(super) mod tests {
         assert_eq!(made.start, Start::NewWorktree);
         assert_eq!(current(&tree), "beep/add-dark-mode");
         assert_eq!(current(&work), "main", "the checkout keeps its branch");
+        assert_eq!(rule(&made.folder), Some(WORKTREE_RULE));
+        assert!(made.brief().contains(&tree.display().to_string()));
         assert_eq!(
             run(&tree, &["rev-parse", "HEAD"]),
             run(&work, &["rev-parse", "base-here"]),
