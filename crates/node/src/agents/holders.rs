@@ -77,14 +77,13 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>
     use tokio::{process::Command, time::timeout};
     /// How long `lsof` may take.
     const LIMIT: Duration = Duration::from_secs(10);
-    let lsof = Command::new("lsof")
-        .args(["-F", "n", "-w", "--"])
+    let mut lsof = Command::new("lsof");
+    lsof.args(["-F", "n", "-w", "--"])
         .args(real.keys())
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let out = timeout(LIMIT, lsof).await.ok()?.ok()?;
+        .kill_on_drop(true);
+    let out = timeout(LIMIT, lsof.output()).await.ok()?.ok()?;
     // lsof exits 1 when any file is not open; what it printed still counts.
     let open = String::from_utf8_lossy(&out.stdout)
         .lines()
