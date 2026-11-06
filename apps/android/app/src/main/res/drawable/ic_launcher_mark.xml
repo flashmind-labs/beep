@@ -1,0 +1,14 @@
+<!-- flashmind's mark, the launcher foreground and its monochrome layer. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:translateX="34.4" android:translateY="34.4" android:scaleX="1.4" android:scaleY="1.4">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M14,1L27,27H23.9L15.4,10V27H12.6V10L4.1,27H1Z" />
+    </group>
+
+</vector>

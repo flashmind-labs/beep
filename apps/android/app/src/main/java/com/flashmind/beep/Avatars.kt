@@ -65,7 +65,7 @@ object Avatars {
     private const val KEY = "app_icon"
     private val ManifestDefault = Avatar.Pager
     /**
-     * Aliases of the avatars that were dropped. They stay in the manifest, showing the pager, so a
+     * Aliases of the avatars that were dropped. They stay in the manifest, showing flashmind's mark, so a
      * phone that had one enabled keeps a launcher entry until [apply] turns it off.
      */
     private val Retired = listOf(".LauncherBeep", ".LauncherBubble", ".LauncherSpark", ".LauncherGhost")

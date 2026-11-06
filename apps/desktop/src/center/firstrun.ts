@@ -22,7 +22,7 @@ function keep() {
 }
 
 /// flashmind's mark.
-const LOGO = '<svg width="34" height="34" viewBox="0 0 156 156" fill="currentColor" aria-hidden="true"><path d="M78 0 156 156H138L86 52V156H70V52L18 156H0Z"/></svg>';
+const LOGO = '<svg width="34" height="34" viewBox="0 0 28 28" fill="currentColor" aria-hidden="true"><path d="M14 1 27 27h-3.1L15.4 10v17h-2.8V10L4.1 27H1Z"/></svg>';
 
 const big = (title: string, text: string, cls: string, onClick: () => void) =>
   button(el("span", "fr-big", el("b", "", title), el("span", "", text)), `dbtn fr-btn ${cls}`, onClick);

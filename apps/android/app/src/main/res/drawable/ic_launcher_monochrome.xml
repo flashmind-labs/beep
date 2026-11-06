@@ -1,43 +1,12 @@
+<!-- flashmind's mark for notifications and the Quick Settings tile. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28">
 
-    <group android:translateX="0" android:translateY="1">
-        <path
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="4"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M68.4,33.1A8,8 0,0 1,74.9,39.6 M69.1,29.2A12,12 0,0 1,78.8,38.9" />
-        <path
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="3"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M42,38H58A12,12 0,0 1,70,50V64A12,12 0,0 1,58,76H42A12,12 0,0 1,30,64V50A12,12 0,0 1,42,38Z" />
-        <path
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="3"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M42,43H58A7,7 0,0 1,65,50V64A7,7 0,0 1,58,71H42A7,7 0,0 1,35,64V50A7,7 0,0 1,42,43Z" />
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M40.8,55a3.2,3.2 0,1 0,6.4 0a3.2,3.2 0,1 0,-6.4 0Z" />
-        <path
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="3"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M51.5,56Q55.5,52 59.5,56" />
-        <path
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="3"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M45,62Q50,66.5 56,62" />
-    </group>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M14,1L27,27H23.9L15.4,10V27H12.6V10L4.1,27H1Z" />
 
 </vector>
