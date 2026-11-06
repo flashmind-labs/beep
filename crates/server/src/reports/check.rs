@@ -16,6 +16,8 @@ use thiserror::Error;
 pub(crate) enum Refused {
     #[error("The report is over {} MB.", MAX_BODY / (1024 * 1024))]
     TooLarge,
+    #[error("The report did not arrive whole.")]
+    Body,
     #[error("The report's {0} header is missing or does not read.")]
     Header(&'static str),
     #[error("This computer's clock is off by {0} minutes; set it right and send again.")]
@@ -38,9 +40,12 @@ impl Refused {
     pub(crate) fn status(&self) -> StatusCode {
         match self {
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::Header(_) | Self::Clock(_) | Self::Signature | Self::Manifest | Self::Sender => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::Body
+            | Self::Header(_)
+            | Self::Clock(_)
+            | Self::Signature
+            | Self::Manifest
+            | Self::Sender => StatusCode::BAD_REQUEST,
             Self::Blocked => StatusCode::FORBIDDEN,
             Self::OverLimit => StatusCode::TOO_MANY_REQUESTS,
             Self::NotSetUp => StatusCode::SERVICE_UNAVAILABLE,

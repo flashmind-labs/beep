@@ -5,7 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::body::Bytes;
 use axum::extract::rejection::BytesRejection;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
@@ -16,6 +16,7 @@ use axum::routing::post;
 use axum::{Extension, Router};
 use beep_proto::ApiError;
 use beep_proto::report::{MAX_BODY, PATH, Receipt, report_id};
+use beep_report::Manifest;
 use chrono::{DateTime, NaiveDate};
 use iroh::EndpointId;
 use reqwest::Client;
@@ -43,14 +44,15 @@ struct Inner {
 }
 
 impl Reports {
-    /// Starts the task that counts each key's reports, so it needs a runtime.
+    /// Starts the task that counts each key's reports; fails outside a
+    /// tokio runtime.
     pub fn new(config: &ReportsConfig, http: Client) -> Result<Self> {
         Ok(Self {
             inner: Arc::new(Inner {
                 store: ReportStore::from_config(config, http)?,
                 blocked_keys: config.blocked_keys.iter().copied().collect(),
                 blocked_ips: config.blocked_ips.iter().copied().collect(),
-                limit: KeyLimit::spawn(config.per_key_per_day),
+                limit: KeyLimit::spawn(config.per_key_per_day)?,
             }),
         })
     }
@@ -84,7 +86,8 @@ async fn receive(
     }
 }
 
-/// Checks the report and stores it; the outer error is the store failing.
+/// Checks the report and stores it. The outer error is the store failing,
+/// which gives the report back to the day's count.
 async fn take(
     reports: &Inner,
     peer: Option<IpAddr>,
@@ -99,7 +102,7 @@ async fn take(
         Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
             return Ok(Err(Refused::TooLarge));
         }
-        Err(e) => return Err(e).context("reading the report"),
+        Err(_) => return Ok(Err(Refused::Body)),
     };
     if client_ip(headers, peer).is_some_and(|ip| reports.blocked_ips.contains(&ip)) {
         return Ok(Err(Refused::Blocked));
@@ -112,12 +115,26 @@ async fn take(
     if reports.blocked_keys.contains(&manifest.sender) {
         return Ok(Err(Refused::Blocked));
     }
-    if !reports.limit.take(manifest.sender, day(now_ms)).await? {
+    let day = day(now_ms);
+    if !reports.limit.take(manifest.sender, day).await? {
         return Ok(Err(Refused::OverLimit));
     }
+    match keep(store, &manifest, body).await {
+        Ok(id) => Ok(Ok(Receipt {
+            reference: format!("R-{}", id.to_uppercase()),
+        })),
+        Err(e) => {
+            reports.limit.give_back(manifest.sender, day).await?;
+            Err(e)
+        }
+    }
+}
+
+/// Puts the zip and its manifest in the store; returns the report's id.
+async fn keep(store: &ReportStore, manifest: &Manifest, body: Bytes) -> Result<String> {
     let id = report_id(&body);
     let folder = format!("reports/{}", manifest.mesh.unwrap_or(manifest.sender));
-    let json = serde_json::to_vec_pretty(&manifest)?;
+    let json = serde_json::to_vec_pretty(manifest)?;
     // The zip first: a listing reads the .json, so a listed report has its zip.
     store
         .put(
@@ -129,9 +146,7 @@ async fn take(
     store
         .put(&format!("{folder}/{id}.json"), json, "application/json")
         .await?;
-    Ok(Ok(Receipt {
-        reference: format!("R-{}", id.to_uppercase()),
-    }))
+    Ok(id)
 }
 
 /// Cloudflare's `CF-Connecting-IP` when it reads, else the peer's address.
