@@ -2,6 +2,7 @@ import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { attach, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
+import { P, closeTab, type MediaTab } from "../src/agentpane/media.ts";
 import { makeTerminals, ALL, type Screen, type TermEvent, type TerminalRow } from "../src/terminals/terminals.ts";
 
 const ROW: TerminalRow = {
@@ -133,4 +134,50 @@ test("the Terminals page reconnects without writing to the screen", async t => {
   assert.equal(count("terminal_attach"), 2);
   assert.deepEqual(screen.shown, []);
   terms.stop();
+});
+
+/// The session's pane is not on screen: closing a tab draws nothing.
+function noPane(t: { after(fn: () => void): void }) {
+  const doc = document as { getElementById(id: string): unknown };
+  const was = doc.getElementById;
+  doc.getElementById = () => null;
+  t.after(() => { doc.getElementById = was; });
+}
+
+test("closing a terminal's tab ends the terminal on its machine", async t => {
+  noPane(t);
+  calls.length = 0;
+  const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {}, onEscape() {} });
+  const attached = nextAttach();
+  attach(term);
+  attached.send({ kind: "attached" });
+  const tab: MediaTab = { id: "term:shell 1", kind: "term", name: "shell 1", path: null, url: null, size: 0, done: 0, error: "", el: null, term };
+  P.tabs.push(tab);
+  closeTab(tab.id);
+  await settle();
+  assert.deepEqual(calls.filter(c => c.cmd === "terminal_close").map(c => c.args), [{ id: "t1" }]);
+  assert.ok(!P.tabs.includes(tab), "the tab went");
+  attached.end();
+  await settle();
+  assert.equal(count("terminal_attach"), 1, "a stopped terminal is not followed again");
+});
+
+test("a terminal whose stop fails keeps its tab and is followed again", async t => {
+  noPane(t);
+  calls.length = 0;
+  const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {}, onEscape() {} });
+  const attached = nextAttach();
+  attach(term);
+  attached.send({ kind: "attached" });
+  const tab: MediaTab = { id: "term:shell 2", kind: "term", name: "shell 2", path: null, url: null, size: 0, done: 0, error: "", el: null, term };
+  P.tabs.push(tab);
+  answers.terminal_close = Promise.reject(new Error("build-box: the node stopped answering"));
+  nextAttach();
+  closeTab(tab.id);
+  await settle();
+  delete answers.terminal_close;
+  assert.ok(P.tabs.includes(tab), "the tab stays");
+  assert.equal(term.link, "attaching");
+  assert.equal(count("terminal_attach"), 2);
+  P.tabs.length = 0;
 });
