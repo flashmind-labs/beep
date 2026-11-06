@@ -2,7 +2,7 @@
 //! is the checkout it was added to, a subfolder's the top) and its `origin`
 //! remote.
 
-use crate::agents::work_folder::git;
+use crate::{agents::work_folder::git, machine::service::plain_path};
 use beep_proto::node::agent::WorkPlace;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -37,7 +37,9 @@ pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
     let top = PathBuf::from(lines.next()?.trim());
     let common = PathBuf::from(lines.next()?.trim());
     let main = main_folder(dir, &top, &common);
-    let real_top = top.canonicalize().unwrap_or_else(|_| top.clone());
+    let real_top = top
+        .canonicalize()
+        .map_or_else(|_| top.clone(), |real| PathBuf::from(plain_path(&real)));
     let branch = git(dir, &["symbolic-ref", "--short", "-q", "HEAD"])
         .map(|name| name.trim().to_owned())
         .filter(|name| !name.is_empty());
@@ -72,9 +74,10 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
     let common = if common.is_absolute() {
         common.to_owned()
     } else {
-        // Relative to `dir`, as git prints it there.
+        // Relative to `dir`, as git prints it there. Without the `\\?\` that Windows adds, so
+        // the folder reads as the user knows it.
         match dir.join(common).canonicalize() {
-            Ok(path) => path,
+            Ok(path) => PathBuf::from(plain_path(&path)),
             Err(_) => return top.to_owned(),
         }
     };
