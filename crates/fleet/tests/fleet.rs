@@ -1752,9 +1752,121 @@ async fn a_projects_runs_read_with_the_hosts_token() {
     assert_eq!(runs.runs[0].run.id, 77);
     assert_eq!(runs.hosts[0].repo, "acme/widget");
     assert!(runs.hosts[0].primary && runs.hosts[0].error.is_none());
-    let one = studio.run("acme/widget", 77).await.expect("the run reads");
+    let one = studio
+        .run("acme/widget", None, 77)
+        .await
+        .expect("the run reads");
     assert_eq!(one.jobs.len(), 1);
     assert!(one.run.progress.is_some(), "a running run shows its step");
+}
+
+/// GitHub at the root and a Forgejo server under `/forge`, on one port: GitHub has run 77,
+/// started first, and Forgejo run 88, started later.
+async fn two_forges() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
+    let base = format!("http://{}", listener.local_addr().expect("an address"));
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut head = vec![0; 2048];
+            let read = socket.read(&mut head).await.unwrap_or(0);
+            let head = String::from_utf8_lossy(&head[..read]);
+            let run = |id: u64, at: &str| {
+                format!(
+                    r#"{{"id":{id},"name":"CI","run_number":{id},"event":"push","status":"completed","conclusion":"success","head_branch":"main","run_started_at":"{at}","actor":{{"login":"octo"}}}}"#
+                )
+            };
+            let body = if head.starts_with("GET /forge/api/v1/repos/acme/widget/actions/runs") {
+                format!(
+                    r#"{{"workflow_runs":[{}]}}"#,
+                    run(88, "2026-11-03T10:00:00Z")
+                )
+            } else if head.starts_with("GET /repos/acme/widget/actions/runs") {
+                format!(
+                    r#"{{"workflow_runs":[{}]}}"#,
+                    run(77, "2026-11-03T09:00:00Z")
+                )
+            } else if head.starts_with("GET /user/orgs") {
+                r#"[{"login":"acme"}]"#.to_owned()
+            } else {
+                r#"{"login":"octo"}"#.to_owned()
+            };
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(reply.as_bytes()).await.ok();
+        }
+    });
+    base
+}
+
+#[tokio::test]
+async fn a_repository_on_github_and_forgejo_lists_both_hosts_runs_as_one() {
+    let f = fleet().await;
+    let api = two_forges().await;
+    let forge = format!("{api}/forge");
+    let port = api.rsplit(':').next().expect("a port").to_owned();
+    // The checkout reaches the Forgejo server twice, over http and over ssh.
+    let remotes: &'static str = Box::leak(
+        format!(
+            "@@dir /srv/widget\nremote.origin.url https://github.com/acme/widget.git\nremote.forge.url http://127.0.0.1:{port}/forge/acme/widget.git\nremote.mirror.url git@127.0.0.1:acme/widget.git\n"
+        )
+        .into_boxed_str(),
+    );
+    let node = Arc::new(FakeNode {
+        prints: vec![("get-regexp", remotes)],
+        ..FakeNode::default()
+    });
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(&api);
+    studio
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .await
+        .expect("the token is saved");
+    studio
+        .save_credential(
+            &CredentialKind::Forgejo { url: forge.clone() },
+            &SecretText::new("forge-token-5521"),
+            false,
+        )
+        .await
+        .expect("the Forgejo token is saved");
+    studio
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    let runs = studio.runs("acme/widget").await.expect("the runs read");
+    assert_eq!(runs.error, None);
+    let hosts: Vec<(&str, bool, Option<&str>)> = runs
+        .hosts
+        .iter()
+        .map(|h| (h.host.as_str(), h.primary, h.url.as_deref()))
+        .collect();
+    let forge_host = format!("127.0.0.1:{port}");
+    let forge_page = format!("{forge}/acme/widget");
+    assert_eq!(
+        hosts,
+        [
+            ("github.com", true, Some("https://github.com/acme/widget")),
+            (forge_host.as_str(), false, Some(forge_page.as_str())),
+        ],
+        "one host per server, the project's own first"
+    );
+    let ids: Vec<(u64, &str)> = runs
+        .runs
+        .iter()
+        .map(|r| (r.run.id, r.host.as_str()))
+        .collect();
+    assert_eq!(
+        ids,
+        [(88, forge_host.as_str()), (77, "github.com")],
+        "newest first, each naming its host"
+    );
 }
 
 /// A GitHub with five running runs and failed run 90, whose failed job 9 has a log. It answers
@@ -1865,7 +1977,7 @@ async fn a_finished_run_opened_again_asks_the_host_nothing() {
     // The list, and the jobs of the five running runs for their progress.
     assert_eq!(taken().len(), 6);
     let first = session
-        .run("acme/widget", 90, false)
+        .run("acme/widget", None, 90, false)
         .await
         .expect("the run");
     assert_eq!(first.log.expect("a failed run's log").job, "Build");
@@ -1880,15 +1992,18 @@ async fn a_finished_run_opened_again_asks_the_host_nothing() {
         ]
     );
     session
-        .run("acme/widget", 90, false)
+        .run("acme/widget", None, 90, false)
         .await
         .expect("the run");
     assert!(taken().is_empty(), "a finished run is given as read");
-    session.run("acme/widget", 90, true).await.expect("the run");
+    session
+        .run("acme/widget", None, 90, true)
+        .await
+        .expect("the run");
     assert_eq!(taken().len(), 3, "refresh reads the host");
     session.forget();
     session
-        .run("acme/widget", 90, false)
+        .run("acme/widget", None, 90, false)
         .await
         .expect("the run");
     assert_eq!(taken().len(), 3, "forgotten, it reads the host");

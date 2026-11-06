@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { awaitsView, foundFor, mergeProjects, plainPath, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy } from "../src/project/projects-state.ts";
+import { awaitsView, foundFor, mergeProjects, plainPath, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
 
 const imported = [
@@ -217,4 +217,40 @@ test("a Windows folder shows without its verbatim prefix", () => {
   assert.equal(plainPath("\\\\?\\C:\\Users\\me\\games"), "C:\\Users\\me\\games");
   assert.equal(plainPath("\\\\?\\UNC\\nas\\share"), "\\\\nas\\share");
   assert.equal(plainPath("/Users/me/code"), "/Users/me/code");
+});
+
+test("the header has one button per forge, the project's own first, one per server", () => {
+  const host = (host: string, kind: "github" | "forgejo", primary: boolean, url: string | null = null) =>
+    ({ host, kind, repo: "acme/widget", primary, url });
+  // Before the runs are read: the project's page alone.
+  assert.deepEqual(forgeLinks("https://github.com/acme/widget", null), [{ label: "GitHub", url: "https://github.com/acme/widget" }]);
+  assert.deepEqual(forgeLinks("http://forge.example.com:3000/acme/widget", []), [{ label: "Forgejo", url: "http://forge.example.com:3000/acme/widget" }]);
+  // A Forgejo host keeps its scheme and port from its page.
+  assert.deepEqual(
+    forgeLinks("https://github.com/acme/widget", [
+      host("forge.example.com:3000", "forgejo", false, "http://forge.example.com:3000/acme/widget"),
+      host("github.com", "github", true),
+    ]),
+    [
+      { label: "GitHub", url: "https://github.com/acme/widget" },
+      { label: "Forgejo", url: "http://forge.example.com:3000/acme/widget" },
+    ],
+  );
+  // The same server named twice, over another port, is one button.
+  assert.deepEqual(
+    forgeLinks(null, [
+      host("forge.example.com:3000", "forgejo", true, "http://forge.example.com:3000/acme/widget"),
+      host("forge.example.com", "forgejo", false, "https://forge.example.com/acme/widget"),
+    ]).map(f => f.label),
+    ["Forgejo"],
+  );
+  // A Forgejo host with no page (from a server) gets no button; two Forgejo servers are named.
+  assert.deepEqual(forgeLinks(null, [host("forge.example.com", "forgejo", true)]), []);
+  assert.deepEqual(
+    forgeLinks(null, [
+      host("forge.example.com", "forgejo", true, "https://forge.example.com/acme/widget"),
+      host("git.example.org", "forgejo", false, "https://git.example.org/acme/widget"),
+    ]).map(f => f.label),
+    ["forge.example.com", "git.example.org"],
+  );
 });

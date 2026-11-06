@@ -48,6 +48,10 @@ wire_structs! {
         pub error: Option<String>,
         /// As `ProjectRuns::rate_limited_until`, for this host.
         pub rate_limited_until: Option<SystemTime>,
+        /// The repository's web page there, such as `http://forge.example.com:3000/org/repo`;
+        /// `None` from a reader that does not know the server's scheme and port.
+        #[serde(default)]
+        pub url: Option<String>,
     }
 
     /// What `ListProjectRuns` gives.
