@@ -150,11 +150,15 @@ export function syncSummary(d: Pick<SyncDetail, "pinned" | "paused" | "machines"
   if (!all.length) return "";
   const moving = all.filter(m => !m.paused && (m.status === "syncing" || m.status === "scanning")).length;
   if (moving) return `${moving} syncing`;
-  const synced = all.filter(m => m.status === "in_sync" && !m.paused).length;
-  if (synced === all.length) return "in sync";
+  // Machines Syncthing keeps in step are fine, just not Beep's to sync.
+  const st = all.filter(syncedBySyncthing).length;
   const off = all.filter(m => m.status === "offline").length;
-  const stuck = all.length - synced - off;
-  return [`${synced} of ${all.length} in sync`, stuck && `${stuck} not syncing`, off && `${off} offline`].filter(Boolean).join(" · ");
+  if (st && st + off === all.length) return ["Syncthing keeps it in step", off && `${off} offline`].filter(Boolean).join(" · ");
+  const ours = all.length - st;
+  const synced = all.filter(m => m.status === "in_sync" && !m.paused).length;
+  if (synced === ours) return st ? `in sync · ${st} by Syncthing` : "in sync";
+  const stuck = ours - synced - off;
+  return [`${synced} of ${ours} in sync`, stuck && `${stuck} not syncing`, off && `${off} offline`, st && `${st} by Syncthing`].filter(Boolean).join(" · ");
 }
 
 /// "1 change waiting", "3 changes waiting".
@@ -514,6 +518,8 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (d === undefined) return [...out, emptyPanel(h("span", "", "Loading…"))];
     const toggle = button(s.busy === "pause" ? (d.paused ? "Resuming…" : "Pausing…") : d.paused ? "Resume" : "Pause", d.paused ? "pri" : "", () => pause(name, !d.paused));
     toggle.disabled = !!s.busy || d.pinned || !d.machines.length;
+    // Nothing of Beep's to pause when Syncthing keeps every folder.
+    toggle.hidden = !d.paused && d.machines.every(syncedBySyncthing);
     toggle.title = d.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are";
     out.push(secHead(heading ?? "Machines", h("span", "fs-tools", h("small", "", syncSummary(d)), toggle)));
     out.push(h("div", "cc-panel fs-list", ...(d.machines.length
