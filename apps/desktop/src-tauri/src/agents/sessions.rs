@@ -27,9 +27,17 @@ use beep_proto::{
     },
 };
 use serde::Serialize;
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use uuid::Uuid;
+
+/// How long one scan of the sessions started outside Beep serves every
+/// caller (the tray, Home, the palette) before the next runs: each scan
+/// starts `ps`, `lsof` and git on every machine.
+const SCAN_FRESH: Duration = Duration::from_secs(30);
 
 /// A machine that can run a coding agent.
 #[derive(Debug, Serialize)]
@@ -258,7 +266,10 @@ pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &str) {
             listed.question = None;
         }
     };
-    app.state::<Outside>().sessions.edit(end);
+    let held = app.state::<Outside>();
+    held.sessions.edit(end);
+    // The scan runs again on the next read, which may find it gone.
+    held.scans.stale();
     app.state::<Arc<AgentSessions>>().edit(end);
     if let Err(e) = app.emit("sessions-changed", session) {
         log::warn!("could not tell the windows a session closed: {e}");
@@ -303,10 +314,11 @@ pub(crate) async fn machine_sessions(
         same_session,
     ));
     let f = fleet.clone();
-    sessions.extend(held.scans.refreshed(
+    sessions.extend(held.scans.refreshed_after(
         app,
         async move { Ok(direct::scanned_sessions(&f).await) },
         same_session,
+        SCAN_FRESH,
     ));
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
