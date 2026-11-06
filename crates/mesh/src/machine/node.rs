@@ -8,6 +8,7 @@ use beep_proto::node::{
     process::{self, TaskId},
     search,
     shell::{self, Event},
+    sign_in,
     tool_update::{self, Tool},
     update,
 };
@@ -30,6 +31,9 @@ const RESCAN_LIMIT: Duration = Duration::from_secs(20);
 /// How long a request to the node's tasks or terminals may take; a stop
 /// waits for the process group to end.
 pub(super) const TASK_LIMIT: Duration = Duration::from_secs(20);
+/// How long a sign-in request may take: a start waits up to 30 seconds for
+/// the agent's link.
+const SIGN_IN_LIMIT: Duration = Duration::from_secs(45);
 /// How long a request to the node's shared folders may take.
 const FILES_LIMIT: Duration = Duration::from_secs(30);
 
@@ -68,6 +72,19 @@ pub async fn files(
         closed: "the node closed the files session",
     };
     exchange(client, FILES_LIMIT, files::PROTOCOL, request, words).await
+}
+
+/// Sends `request` to the node's agent sign-ins and returns how that
+/// sign-in stands.
+pub async fn sign_in(
+    client: &PeerClient,
+    request: &sign_in::Request,
+) -> Result<sign_in::State, MeshError> {
+    let words = Words {
+        silent: "the machine did not answer about the sign-in",
+        closed: "the machine closed the sign-in without an answer",
+    };
+    exchange(client, SIGN_IN_LIMIT, sign_in::PROTOCOL, request, words).await
 }
 
 /// The last `lines` lines of the node's log.

@@ -5,6 +5,7 @@ pub(crate) mod add;
 pub(crate) mod desktop;
 pub(crate) mod list;
 pub(crate) mod mcp_command;
+pub(crate) mod sign_in;
 pub(crate) mod terminals;
 pub(crate) mod this_mac;
 pub(crate) mod tools;

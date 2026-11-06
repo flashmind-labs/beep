@@ -420,7 +420,14 @@ async fn sign_in(agent: &str, cli: &std::path::Path, kind: &AgentKind) -> SignIn
     };
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    read_sign_in(agent, out.status.success(), &text)
+    let mut read = read_sign_in(agent, out.status.success(), &text);
+    if agent == "claude"
+        && read.signed_in == Some(false)
+        && crate::machine::env::claude_in_keychain().await
+    {
+        read.signed_in = Some(true);
+    }
+    read
 }
 
 /// What a status command's exit and output say of the sign-in.
