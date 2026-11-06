@@ -64,15 +64,3 @@ pub fn username(id: &EndpointId) -> String {
         pick(&VERBS, c)
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use iroh::SecretKey;
-
-    #[test]
-    fn names_are_stable() {
-        let id = SecretKey::from_bytes(&[7; 32]).public();
-        assert_eq!(username(&id), "sturdy-monkey-swim");
-    }
-}

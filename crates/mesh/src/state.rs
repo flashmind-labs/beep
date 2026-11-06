@@ -153,10 +153,10 @@ pub struct Entry {
     #[serde(with = "serde_bytes")]
     pub value: Option<Vec<u8>>,
     pub at_ms: u64,
-    #[serde(with = "crate::bin::id")]
+    #[serde(with = "crate::wire::id")]
     pub origin: EndpointId,
     pub seq: u64,
-    #[serde(with = "crate::bin::sig")]
+    #[serde(with = "crate::wire::sig")]
     sig: Signature,
 }
 
@@ -168,7 +168,7 @@ struct Signed<'a> {
     #[serde(with = "serde_bytes")]
     value: Option<&'a [u8]>,
     at_ms: u64,
-    #[serde(with = "crate::bin::id")]
+    #[serde(with = "crate::wire::id")]
     origin: EndpointId,
     seq: u64,
 }
@@ -243,7 +243,7 @@ pub struct Applied {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Record {
-    Heads(#[serde(with = "crate::bin::heads")] Heads),
+    Heads(#[serde(with = "crate::wire::heads")] Heads),
     Entry(Entry),
 }
 
