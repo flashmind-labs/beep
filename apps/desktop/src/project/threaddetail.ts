@@ -140,7 +140,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
       h("div", "acts", ...acts, url ? button(forgeLabel(url), "", () => deps.openUrl(url)) : null));
     const body: Node[] = [];
     if (r.error) body.push(h("div", "cc-err", r.error));
-    if (d === undefined && !r.error) body.push(emptyPanel(h("span", "", "Reading it from the host…")));
+    if (d === undefined && !r.error) body.push(emptyPanel(h("span", "", "Loading…")));
     if (d === null) body.push(emptyPanel(h("span", "", "The server needs an update before it shows the description and comments.")));
     if (d) {
       body.push(d.body_html.trim() ? md(d.body_html) : h("p", "dmuted", "No description."));

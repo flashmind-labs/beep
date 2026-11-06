@@ -8,21 +8,22 @@ use beep_node::{
 
 use anyhow::{Context, Result};
 use beep_proto::logging::{self, RollingFile};
-use clap::{Parser, Subcommand};
+use clap::{FromArgMatches, Parser, Subcommand};
 use std::{
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+mod cli;
 
 #[derive(Parser)]
 #[command(version, about = "Lets Beep run work on this machine")]
 struct Cli {
-    /// Where the key and settings live. Defaults to the user's config folder.
+    /// Where the key and settings live; the user's config folder by default.
     #[arg(long, global = true)]
     dir: Option<PathBuf>,
-    /// Makes this machine the user's environment: Beep keeps the user's
-    /// files in this folder and runs its code there. Used by `run` and
-    /// `local`.
+    /// Makes this folder the user's workspace, for `run` and `local`: Beep
+    /// keeps the user's files in it and runs their code there.
     #[arg(long, global = true, env = "BEEP_NODE_WORKSPACE")]
     workspace: Option<PathBuf>,
     /// Logs to this file, a new one each day, instead of stderr. The
@@ -39,6 +40,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Links this machine to a server account with a setup token.
+    ///
     /// Links this machine to the account that made `token` in Beep ("Add a
     /// machine"), then runs the node in the background as a service that
     /// starts with the machine (see `service`). Where there is no service
@@ -62,6 +65,8 @@ enum Command {
         #[arg(long)]
         foreground: bool,
     },
+    /// Links to an older server with a code (legacy).
+    ///
     /// The old way, kept for older servers: makes this machine's key and
     /// prints a code to paste into the phone. Prefer `setup`.
     Link {
@@ -72,16 +77,21 @@ enum Command {
         #[arg(long)]
         name: String,
     },
+    /// Serves Beep in this terminal until stopped.
+    ///
     /// Serves Beep until stopped: to the server when this machine is linked to
     /// one, and to the devices of its mesh. Makes this machine's key on the
     /// first run.
     Run,
-    /// This machine's mesh of devices. A desktop starts one and brings
-    /// machines in; a node can only join.
+    /// This machine's mesh of devices.
+    ///
+    /// A desktop starts a mesh and brings machines in; a node can only join.
     Mesh {
         #[command(subcommand)]
         action: MeshAction,
     },
+    /// Runs as the node bundled with a single-user server (legacy).
+    ///
     /// Runs as the node bundled with a single-user server: reads the
     /// server's key from a folder both share, leaves this node's key there
     /// for the server to link to its owner, then serves like `run`.
@@ -93,14 +103,18 @@ enum Command {
         #[arg(long, default_value = "Beep server")]
         name: String,
     },
-    /// Prints what this machine would report.
+    /// Prints what this machine reports to Beep.
     Env,
+    /// Installs or removes the background service.
+    ///
     /// Runs the node in the background as a service: a systemd user unit on
     /// Linux, a LaunchAgent on macOS, a scheduled task on Windows.
     Service {
         #[command(subcommand)]
         action: ServiceAction,
     },
+    /// Installs the newest beep-node and restarts the service.
+    ///
     /// Installs the newest beep-node over this one and restarts the
     /// service running it, as rerunning the installer does.
     Update {
@@ -114,6 +128,8 @@ enum Command {
         #[arg(long, default_value_t = update::WAIT_MINUTES)]
         wait: u64,
     },
+    /// Installs or removes the Claude Code hooks.
+    ///
     /// Claude Code hooks that tell the node when a session started outside
     /// Beep ends a turn or waits for the user. Install edits Claude Code's
     /// settings and prints what it changed.
@@ -143,11 +159,13 @@ enum Command {
     #[cfg(unix)]
     #[command(hide = true)]
     PtyHost,
-    /// Lists the Claude Code sessions on this machine started outside Beep.
+    /// Lists the Claude Code sessions started outside Beep.
     Sessions {
         #[arg(long, default_value_t = 20)]
         limit: u32,
     },
+    /// Shows the service's log.
+    ///
     /// Shows the service's log, without the info lines of iroh and the
     /// networking crates under it (warnings and errors still show).
     Logs {
@@ -164,12 +182,25 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Shows the node, its peers and project sync.
+    ///
+    /// Asks the node running from `--dir`: its version and how long it has
+    /// run, this machine's name and id, the mesh and its devices (online, or
+    /// when last seen), and for each project whether it is in sync, syncing,
+    /// waiting for Syncthing, missing its folder, or not syncing and why.
+    /// Says so when no node is running.
+    #[command(visible_aliases = ["s", "st"])]
+    Status,
+    /// Prints the version.
+    Version,
 }
 
 #[derive(Subcommand)]
 enum MeshAction {
-    /// Joins the mesh a desktop's ticket names, in the node that is running
-    /// from this folder.
+    /// Joins the mesh a desktop's ticket names.
+    ///
+    /// Joins in the node running from this folder, and starts it as a
+    /// service first when none runs.
     Join {
         /// The ticket, or `-` to read it from stdin, which keeps it out of
         /// process listings and shell history.
@@ -178,10 +209,12 @@ enum MeshAction {
         #[arg(long)]
         search: Option<String>,
     },
-    /// Lists the devices of the mesh and which are online.
+    /// Lists the mesh's devices and which are online.
+    #[command(visible_alias = "peers")]
     Devices,
-    /// Leaves the mesh and deletes what this machine kept of it, so it can
-    /// join another. The node keeps running.
+    /// Leaves the mesh and deletes what this machine kept of it.
+    ///
+    /// Afterwards it can join another. The node keeps running.
     Leave,
 }
 
@@ -262,7 +295,8 @@ const LOG_FILES: usize = 7;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let cli =
+        Cli::from_arg_matches(&cli::help::command().get_matches()).unwrap_or_else(|e| e.exit());
     start_logging(cli.log_file.as_deref())?;
     #[cfg(unix)]
     beep_node::machine::raise_open_files();
@@ -457,6 +491,24 @@ async fn main() -> Result<()> {
         }
         Command::Env => {
             println!("{:#?}", env::probe().await);
+            Ok(())
+        }
+        Command::Status => {
+            let text = match peers::local_status(&dir).await? {
+                Some(status) => {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|since| since.as_secs())
+                        .unwrap_or(0);
+                    cli::status::render(&status, now)
+                }
+                None => cli::status::not_running(),
+            };
+            print!("{text}");
+            Ok(())
+        }
+        Command::Version => {
+            println!("beep-node {}", cli::status::VERSION);
             Ok(())
         }
     }
