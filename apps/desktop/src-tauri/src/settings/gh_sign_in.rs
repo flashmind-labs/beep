@@ -5,7 +5,6 @@
 
 use crate::{
     bar::app::open_url,
-    beep::Beep,
     error::Result,
     fleet::projects::FleetState,
     settings::cli_login::{find_tool, refused, save_gh_login},
@@ -16,7 +15,7 @@ use serde::Serialize;
 use std::{
     path::Path,
     process::Stdio,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 use tauri::{State, ipc::Channel};
@@ -136,7 +135,6 @@ pub struct DeviceCode {
 #[tauri::command]
 pub async fn gh_sign_in(
     fleet: FleetState<'_>,
-    beep: State<'_, Arc<Beep>>,
     sign_in: State<'_, GhSignIn>,
     on_code: Channel<DeviceCode>,
 ) -> Result<CredentialView> {
@@ -153,7 +151,7 @@ pub async fn gh_sign_in(
     run_gh(&gh, &on_code, cancelled).await?;
     // Dropped only now, after gh is gone, so quitting waits for that.
     drop(ended);
-    save_gh_login(&fleet, &beep).await
+    save_gh_login(&fleet).await
 }
 
 /// Stops the GitHub sign-in under way.
