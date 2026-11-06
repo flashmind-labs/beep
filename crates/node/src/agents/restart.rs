@@ -221,8 +221,14 @@ impl Agents {
     /// Whether the sessions open before the last stop run again, or there
     /// were none. Until then a session may be about to come back, so one
     /// that does not run is not yet one that ended.
-    pub(crate) fn reopened(&self) -> bool {
+    pub fn reopened(&self) -> bool {
         *self.reopened.borrow()
+    }
+
+    /// For a host that resumes no sessions after a restart, as the Mac app:
+    /// moves and reads stop waiting for them at once.
+    pub fn nothing_to_reopen(&self) {
+        self.reopened.send_replace(true);
     }
 
     /// What it takes to start session `id` again, as it runs now.

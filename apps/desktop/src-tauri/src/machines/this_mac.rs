@@ -96,6 +96,9 @@ impl Machine {
     pub fn new(dir: &Path, has_server: bool) -> Self {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone(), has_server);
+        // The app resumes no sessions after a restart: a move or a read of
+        // one need not wait for any.
+        offers.agents.nothing_to_reopen();
         offers.extra.push(Arc::new(desktop::Desktop));
         // The user's coding agent skills reach the mesh's other machines.
         if let Some(home) = std::env::var_os("HOME") {
@@ -276,5 +279,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("beep-this-mac-{}", std::process::id()));
         assert!(!Machine::new(&dir, false).offers().has_server());
         assert!(Machine::new(&dir, true).offers().has_server());
+    }
+
+    #[test]
+    fn a_mac_has_no_sessions_to_resume_that_moves_wait_for() {
+        let dir = std::env::temp_dir().join(format!("beep-this-mac-reopen-{}", std::process::id()));
+        assert!(Machine::new(&dir, false).offers().agents.reopened());
     }
 }

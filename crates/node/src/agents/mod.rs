@@ -65,7 +65,7 @@ pub(crate) use acp::{Line, LineReader};
 pub(crate) use images::{Picture, block_picture};
 pub use kinds::{AgentKind, detect};
 pub(crate) use live::cut;
-pub(crate) use moving::SESSIONS_ALPN;
+pub use moving::SESSIONS_ALPN;
 pub use moving::SessionsAlpn;
 pub(crate) use moving::follow as follow_moves;
 pub(crate) use moving::project_folder;

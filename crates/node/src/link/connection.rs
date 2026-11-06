@@ -4,7 +4,7 @@
 use crate::files::paths;
 use crate::{
     agents::mcp::{self, Upstream},
-    agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn, skills::Skills},
+    agents::{AgentKind, Agents, SESSIONS_ALPN, skills::Skills},
     files::Folders,
     files::search::Searches,
     files::transfer::Transfers,
@@ -224,10 +224,7 @@ pub async fn serve(
     let mut router = Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
-        .accept(
-            SESSIONS_ALPN,
-            SessionsAlpn::new(offers.agents.clone(), offers.mesh.clone()),
-        );
+        .accept(SESSIONS_ALPN, peers.sessions_handler());
     if let Some(served) = served {
         router = served.add_to(router);
     }
