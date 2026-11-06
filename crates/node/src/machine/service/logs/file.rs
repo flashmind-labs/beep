@@ -1,5 +1,6 @@
-//! The log file the service writes: the LaunchAgent's output on macOS, the
-//! node's daily files on Windows. Followed by polling it for growth.
+//! The log file the service writes: the init.d service's output on Linux,
+//! the LaunchAgent's on macOS, the node's daily files on Windows. Followed by
+//! polling it for growth.
 
 use super::{LogOptions, Printer, cutoff};
 use anyhow::{Context, Result, bail};
@@ -18,6 +19,18 @@ const POLL: Duration = Duration::from_millis(500);
 struct LogFiles {
     older: Vec<PathBuf>,
     current: PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+fn files(_cutoff: i64) -> Result<LogFiles> {
+    use crate::machine::service::initd::{LOG, SCRIPT};
+    if !std::path::Path::new(SCRIPT).exists() {
+        bail!("the node's service is not installed here: there is no {SCRIPT}");
+    }
+    Ok(LogFiles {
+        older: Vec::new(),
+        current: PathBuf::from(LOG),
+    })
 }
 
 #[cfg(target_os = "macos")]

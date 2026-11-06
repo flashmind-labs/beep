@@ -3,7 +3,7 @@
 use super::{
     Error, Newest, download,
     http::{base, client},
-    newest, said,
+    newest, reexec, said,
 };
 use crate::{
     agents::Agents,
@@ -14,6 +14,7 @@ use crate::{
 use beep_proto::node::{LinkRx, LinkTx, update};
 use futures::FutureExt;
 use std::{
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
@@ -86,7 +87,7 @@ async fn serve(
             (update::Event::Failed { reason }, None)
         }
     };
-    let Some(plan) = restart else {
+    let Some(next) = restart else {
         UPDATING.store(false, AtomicOrdering::SeqCst);
         tx.send(&event).await?;
         return tx.finish().await;
@@ -104,12 +105,21 @@ async fn serve(
     let restart = tokio::spawn(async move {
         let restarted = agents
             .restart_when_idle(limit, async {
-                log::info!("restarting the service on the new binary");
-                spawn_blocking(move || plan.run()).await
+                match next {
+                    Next::Service(plan) => {
+                        log::info!("restarting the service on the new binary");
+                        spawn_blocking(move || plan.run().map(drop)).await
+                    }
+                    Next::Itself(exe) => {
+                        log::info!("restarting on the new binary");
+                        reexec::ask(exe);
+                        Ok(Ok(()))
+                    }
+                }
             })
             .await;
         match restarted {
-            Ok(Ok(_)) => {}
+            Ok(Ok(())) => {}
             Ok(Err(e)) => log::warn!("the service did not restart: {e:#}"),
             Err(e) => log::warn!("the restart failed: {e}"),
         }
@@ -119,11 +129,33 @@ async fn serve(
     Ok(())
 }
 
-/// What an update from Beep did, and the restart to run when the service
-/// should.
+/// What an update from Beep did, and the restart to run.
 struct Remote {
     event: update::Event,
-    restart: Option<service::Plan>,
+    restart: Option<Next>,
+}
+
+/// What starts the new binary.
+#[derive(Debug)]
+enum Next {
+    /// The service that runs this node.
+    Service(service::Plan),
+    /// This node, in place, having no service: a container, or a node run
+    /// in the foreground.
+    Itself(PathBuf),
+}
+
+/// Whether the service restarts the node, or it starts the new binary
+/// itself. `None` leaves it on the old one: on Windows a node with no
+/// service of its own keeps running until it is restarted.
+fn next(plan: service::Plan, exe: PathBuf, unix: bool) -> Option<Next> {
+    match plan.restart {
+        Restart::Restarted(_) => Some(Next::Service(plan)),
+        // The service is stopped, runs another binary or is not there, so
+        // this node is not its: it runs `exe` and restarts itself.
+        _ if unix => Some(Next::Itself(exe)),
+        _ => None,
+    }
 }
 
 async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
@@ -148,9 +180,10 @@ async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
         version: latest.clone(),
         source,
     })?;
-    let restarting = matches!(plan.restart, Restart::Restarted(_));
-    let note = if !restarting {
-        said(&plan.restart, &latest)
+    let not_restarting = said(&plan.restart, &latest);
+    let next = next(plan, exe, cfg!(unix));
+    let note = if next.is_none() {
+        not_restarting
     } else if !now && agents.until_idle().now_or_never().is_none() {
         "It restarts once its agent sessions are idle.".to_owned()
     } else {
@@ -160,9 +193,43 @@ async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
         event: update::Event::Installed {
             from: current.to_string(),
             to: latest.to_string(),
-            restarting,
+            restarting: next.is_some(),
             note,
         },
-        restart: restarting.then_some(plan),
+        restart: next,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::machine::service::Manager;
+
+    fn plan(restart: Restart) -> service::Plan {
+        service::Plan::new(restart)
+    }
+
+    #[test]
+    fn a_running_service_restarts_the_node() {
+        let restarted = plan(Restart::Restarted(Manager::OpenRc));
+        let chosen = next(restarted, PathBuf::from("/bin/beep-node"), true);
+        assert!(matches!(chosen, Some(Next::Service(_))), "{chosen:?}");
+    }
+
+    #[test]
+    fn a_node_with_no_service_of_its_own_restarts_itself_on_unix() {
+        let exe = PathBuf::from("/bin/beep-node");
+        for restart in [
+            Restart::NotInstalled,
+            Restart::Stopped(Manager::Systemd),
+            Restart::OtherBinary(PathBuf::from("/etc/init.d/beep-node")),
+        ] {
+            let chosen = next(plan(restart.clone()), exe.clone(), true);
+            assert!(
+                matches!(&chosen, Some(Next::Itself(path)) if *path == exe),
+                "{restart:?}: {chosen:?}"
+            );
+            assert!(next(plan(restart), exe.clone(), false).is_none());
+        }
+    }
 }
