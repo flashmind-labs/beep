@@ -12,13 +12,17 @@
   --dv-file-bg: #FFFFFF; --dv-head-bg: #F4F8F5; --dv-gut-bg: #F7FAF8;
 }
 .dv { display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 100%; font-size: 12.5px; color: var(--fg); outline: 0; container-type: inline-size }
-.dv-head { flex: none; display: flex; align-items: center; gap: 6px 8px; padding: 8px 10px; border-bottom: 1px solid var(--border) }
-.dv-sum { flex: 0 1 auto; display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; font-variant-numeric: tabular-nums }
+.dv-head { flex: none; display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border) }
+.dv-head > * { flex: none }
+.dv-head > .dv-sum { flex: 0 1 auto; display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums }
+.dv-head > .dv-find { flex: 0 1 160px; max-width: 160px; min-width: 80px }
+.dv-head > .dv-sp { flex: 1 1 0; min-width: 0 }
+.dv-tools { display: inline-flex; gap: 2px }
+.dv-tools .dv-btn.icon { border-color: transparent }
+.dv-tools .dv-btn.icon[aria-pressed="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg) }
+.dv-pm { display: inline-block; width: 14px; text-align: center; font-size: 15px; line-height: 14px; font-weight: 500 }
+.dv-head .dv-n { margin-left: 2px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--on-accent) 25%, transparent); font-size: 11px; font-variant-numeric: tabular-nums }
 @container (max-width: 640px) {
-  .dv-head { flex-wrap: wrap }
-  .dv-sum { flex-basis: 100% }
-  .dv-head .dv-sp { display: none }
-  .dv-find { flex: 1 1 120px; max-width: none }
   .dv-keys { display: none }
 }
 .dv-sum b { font-weight: 500 }
@@ -107,7 +111,6 @@
 .dv-keys { flex: none; display: flex; gap: 12px; padding: 5px 12px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px }
 .dv-keys kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; font: 10.5px var(--mono); color: var(--muted) }
 /* Review comments. */
-.dv-cmts { font-size: 12px; color: var(--muted) }
 .dv-head [hidden] { display: none }
 .dv-l:not(.hunk):not(.gap):not(.none) .dv-g { cursor: pointer }
 .dv-l:not(.hunk):not(.gap):not(.none):hover .dv-g span:last-child { color: var(--fg) }
