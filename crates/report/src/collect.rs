@@ -89,6 +89,13 @@ const MAX_LOG: usize = MAX_BYTES as usize;
 /// Every target's share, in `targets` order, from log lines at or after
 /// `since` (Unix seconds).
 pub async fn collect(targets: Vec<Target>, since: i64) -> Vec<Share> {
+    collect_within(targets, since, MAX_BYTES).await
+}
+
+/// `collect` with at most `max_bytes` of each log (up to `MAX_BYTES`); 0
+/// asks for the status alone.
+pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) -> Vec<Share> {
+    let max_bytes = max_bytes.min(MAX_BYTES);
     // A time before 1970 asks for the whole log.
     let since = u64::try_from(since).unwrap_or(0);
     let mut shares = Vec::with_capacity(targets.len());
@@ -106,7 +113,8 @@ pub async fn collect(targets: Vec<Target>, since: i64) -> Vec<Share> {
                 let mut share = Share::empty(id, name, kind, Answer::Silent);
                 shares.push(share.clone());
                 let task = tasks.spawn(async move {
-                    if let Ok(answer) = timeout(ASK_LIMIT, ask(&client, since, &mut share)).await {
+                    let asked = ask(&client, since, max_bytes, &mut share);
+                    if let Ok(answer) = timeout(ASK_LIMIT, asked).await {
                         share.answer = answer;
                     }
                     share.log = newest_lines(share.log, MAX_LOG);
@@ -138,11 +146,8 @@ pub async fn collect(targets: Vec<Target>, since: i64) -> Vec<Share> {
 
 /// Asks `report/1`, or `logs/1` from a node that predates it, filling
 /// `share` as answers come in.
-async fn ask(client: &PeerClient, since: u64, share: &mut Share) -> Answer {
-    let request = Request {
-        since,
-        max_bytes: MAX_BYTES,
-    };
+async fn ask(client: &PeerClient, since: u64, max_bytes: u32, share: &mut Share) -> Answer {
+    let request = Request { since, max_bytes };
     match client.call::<_, Reply>(PROTOCOL, &request).await {
         Ok(Reply::Share {
             log,

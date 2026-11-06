@@ -35,7 +35,7 @@ use std::{
     fmt::Write,
     future::Future,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -214,20 +214,35 @@ pub struct Peers {
     inner: Arc<Inner>,
 }
 
+/// The node as the agents' Beep MCP server reaches it, for its own status,
+/// logs and problem reports. Shared by every copy of the offers, set by
+/// `Peers::new`. Weak: the node holds the offers.
+#[derive(Clone, Default)]
+pub(crate) struct Reach(Arc<Mutex<Weak<Inner>>>);
+
+impl Reach {
+    /// The node, while it runs.
+    pub(crate) fn peers(&self) -> Option<Peers> {
+        let inner = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.upgrade().map(|inner| Peers { inner })
+    }
+}
+
 impl Peers {
     pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                endpoint,
-                dir,
-                name,
-                started: SystemTime::now(),
-                offers: Mutex::new(offers),
-                later: watch::channel(BTreeSet::new()).0,
-                active: Mutex::new(None),
-                follower: Mutex::new(None),
-            }),
-        }
+        let reach = offers.reach.clone();
+        let inner = Arc::new(Inner {
+            endpoint,
+            dir,
+            name,
+            started: SystemTime::now(),
+            offers: Mutex::new(offers),
+            later: watch::channel(BTreeSet::new()).0,
+            active: Mutex::new(None),
+            follower: Mutex::new(None),
+        });
+        *reach.0.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&inner);
+        Self { inner }
     }
 
     /// Adds a protocol to what peers can open, for a host that starts it
@@ -386,11 +401,15 @@ impl Peers {
         self.inner.active()
     }
 
-    /// Every device's share of a problem report from Unix second `since`:
-    /// this node's through its own `report/1`, the others' over their live
-    /// links. This node alone before it joined a mesh, and when it is not a
-    /// desktop: the others refuse a node.
+    /// Every device's share of a problem report from Unix second `since`.
     async fn report(&self, since: i64) -> Vec<Share> {
+        collect(self.report_targets(), since).await
+    }
+
+    /// What `report` asks: this node through its own `report/1`, the others
+    /// over their live links. This node alone before it joined a mesh, and
+    /// when it is not a desktop: the others refuse a node.
+    pub(crate) fn report_targets(&self) -> Vec<Target> {
         let me = self.inner.endpoint.id();
         let active = self.active().filter(|_| self.is_desktop());
         let own = |name: String, kind: DeviceKind| Target {
@@ -399,7 +418,7 @@ impl Peers {
             kind,
             client: Ok(PeerClient::local(self.local_session())),
         };
-        let targets = match active.filter(|active| active.mesh.is_member(me)) {
+        match active.filter(|active| active.mesh.is_member(me)) {
             Some(active) => active
                 .mesh
                 .devices()
@@ -422,8 +441,17 @@ impl Peers {
                 })
                 .collect(),
             None => vec![own(self.inner.name.clone(), DeviceKind::Node)],
-        };
-        collect(targets, since).await
+        }
+    }
+
+    /// What `beep-node status` shows of this node.
+    pub(crate) async fn status(&self) -> Result<LocalStatus> {
+        self.inner.local_status().await
+    }
+
+    /// The key this node signs with, as a problem report is signed.
+    pub(crate) fn key(&self) -> iroh::SecretKey {
+        self.inner.endpoint.secret_key().clone()
     }
 
     /// Takes `mesh` as the node's membership; its peers' streams are served

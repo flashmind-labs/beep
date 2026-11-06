@@ -28,6 +28,7 @@ use tokio_util::task::AbortOnDropHandle;
 pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
+mod debug;
 mod machines;
 mod review;
 mod server;
@@ -193,6 +194,9 @@ impl Backend for Node {
         }
         if children::handles(request.tool) {
             return Ok(children::call(&self.offers, request).await);
+        }
+        if debug::handles(request.tool) {
+            return Ok(debug::call(&self.offers, request).await);
         }
         // The machines of the mesh answer for themselves.
         let Some(mesh) = self.offers.mesh.get() else {

@@ -77,6 +77,11 @@ pub enum Tool {
     /// the child finished a turn or waits on the user, for a note in the
     /// parent's session. Between nodes only.
     AgentNote,
+    /// Beep itself, for an agent debugging it: every machine's status, a
+    /// machine's log, and a problem report sent. On the caller's own node only.
+    BeepStatus,
+    BeepLogs,
+    FileReport,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,
