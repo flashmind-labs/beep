@@ -103,8 +103,6 @@ fn a_chat_allow_runs_without_asking_but_never_past_read_only() {
 
 #[test]
 fn the_chat_machine_log_tool_has_no_card_and_no_rule() {
-    // Only the Beep MCP server's machine_log asks (through `check` with its own slug).
-    assert!(lookup(MACHINE_LOG).is_none());
     assert!(lookup("machine_log").is_none());
 }
 

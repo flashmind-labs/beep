@@ -171,9 +171,10 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
         return ask_user(backend, session, args).await;
     }
     let tool = match name.parse::<Tool>() {
-        // Coding agents get no memories: those tools are the assistant's.
+        // Coding agents get no memories, which are the assistant's, and read no machine logs.
         Ok(
             Tool::Unknown
+            | Tool::MachineLog
             | Tool::StandingRules
             | Tool::Remember
             | Tool::Recall
@@ -427,7 +428,6 @@ mod tests {
                 "send_files",
                 "job_status",
                 "cancel",
-                "machine_log",
                 "start_agent",
                 "agent_status",
                 "send_to_agent",
@@ -484,6 +484,16 @@ mod tests {
         assert_eq!(out[0]["result"]["isError"], true);
         assert!(text(&out[0]).contains("did not allow run_on"), "{out:?}");
         assert_eq!(denying.calls.lock().unwrap().len(), 1, "it never ran");
+    }
+
+    #[tokio::test]
+    async fn machine_log_is_no_tool() {
+        let fake = Fake::new(ALLOW);
+        let read = json!({ "name": "machine_log", "arguments": { "machine": "build-box" } });
+        let out = exchange(&fake, &[request(1, "tools/call", read)]).await;
+        assert_eq!(out[0]["result"]["isError"], true);
+        assert_eq!(text(&out[0]), "There is no tool machine_log.");
+        assert!(fake.calls.lock().unwrap().is_empty(), "nothing was sent");
     }
 
     #[tokio::test]
