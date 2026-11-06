@@ -23,6 +23,7 @@ beep-mesh = { path = "../../../crates/mesh" }
 beep-node = { path = "../../../crates/node", default-features = false }
 beep-projects = { path = "../../../crates/projects" }
 beep-proto = { path = "../../../crates/proto", features = ["client"] }
+beep-report = { path = "../../../crates/report" }
 futures = "0.3"
 iroh = "1.3"
 iroh-tickets = "1"

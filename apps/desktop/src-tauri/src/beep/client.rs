@@ -18,7 +18,7 @@ use beep_proto::{
     follow::{Follow, OnEvent},
     http::Refusal,
 };
-use iroh::{Endpoint, EndpointId};
+use iroh::{Endpoint, EndpointId, SecretKey};
 use serde_bytes::ByteBuf;
 use std::{
     fs::{self, File},
@@ -119,6 +119,11 @@ impl Beep {
 
     pub fn id(&self) -> EndpointId {
         self.endpoint.id()
+    }
+
+    /// This Mac's device key, which signs what it sends.
+    pub(crate) fn device_key(&self) -> SecretKey {
+        secret_key(&self.identity)
     }
 
     /// This Mac's iroh endpoint, which the node link shares.

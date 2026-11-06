@@ -9,7 +9,7 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::{self, BufRead, BufReader, ErrorKind, Write},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -59,7 +59,10 @@ pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
     };
     let mut printer = Printer::new(&options, cutoff(RECENT), Vec::new());
     match file {
-        Some(file) => read_file(file, &mut printer)?,
+        Some(file) => {
+            read_file(file, &mut printer)?;
+            printer.caught_up()?;
+        }
         None => read(&options, &mut printer)?,
     }
     let out = &printer.out;
@@ -71,12 +74,68 @@ pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
     Ok(String::from_utf8_lossy(&out[whole..]).into_owned())
 }
 
+/// The log from Unix second `since` on, in whole lines, the newest kept up
+/// to `max_bytes`: of the log files `files`, oldest first, or of the
+/// service's log when there are none. A log with no timestamp at all gives
+/// its last lines.
+pub(crate) fn window(files: &[PathBuf], since: i64, max_bytes: usize) -> Result<String> {
+    let read = window_from(files, Some(since), max_bytes)?;
+    if read.timed {
+        return Ok(read.text);
+    }
+    Ok(window_from(files, None, max_bytes)?.text)
+}
+
+/// What `window_from` read.
+struct Window {
+    text: String,
+    /// Whether any line had a timestamp.
+    timed: bool,
+}
+
+fn window_from(files: &[PathBuf], cutoff: Option<i64>, max_bytes: usize) -> Result<Window> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |now| now.as_secs());
+    // No cutoff, or one before 1970, is the whole log.
+    let from = cutoff.unwrap_or(0).max(0).unsigned_abs();
+    let options = LogOptions {
+        since: Duration::from_secs(now.saturating_sub(from)),
+        follow: false,
+        lines: None,
+        all: false,
+    };
+    let mut printer = Printer {
+        filter: Filter::new(false, cutoff),
+        tail: Some(Tail::bytes(max_bytes)),
+        out: Vec::new(),
+    };
+    if files.is_empty() {
+        read(&options, &mut printer)?;
+    } else {
+        for path in files {
+            // A file not written yet, or rolled away mid-read, holds nothing here.
+            let file = match File::open(path) {
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                file => file.with_context(|| format!("opening {}", path.display()))?,
+            };
+            for line in BufReader::new(file).split(b'\n') {
+                printer.bytes(&line?)?;
+            }
+        }
+        printer.caught_up()?;
+    }
+    Ok(Window {
+        text: String::from_utf8_lossy(&printer.out).into_owned(),
+        timed: printer.filter.timed,
+    })
+}
+
 fn read_file(path: &Path, printer: &mut Printer<impl Write>) -> Result<()> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     for line in BufReader::new(file).split(b'\n') {
         printer.bytes(&line?)?;
     }
-    printer.caught_up()?;
     Ok(())
 }
 
@@ -270,6 +329,8 @@ struct Filter {
     /// Whether the last timestamped line was at or after the cutoff. Lines
     /// without a timestamp go with it.
     in_window: bool,
+    /// Whether a line with a timestamp came.
+    timed: bool,
 }
 
 impl Filter {
@@ -278,6 +339,7 @@ impl Filter {
             all,
             cutoff,
             in_window: cutoff.is_none(),
+            timed: false,
         }
     }
 
@@ -287,6 +349,7 @@ impl Filter {
         let Some(head) = head(&plain) else {
             return self.in_window;
         };
+        self.timed = true;
         if !self.in_window {
             self.in_window = self.cutoff.is_none_or(|cutoff| head.time >= cutoff);
         }
@@ -294,10 +357,13 @@ impl Filter {
     }
 }
 
-/// The last lines kept, up to a count.
+/// The last lines kept, up to a count and a size.
 #[derive(Debug)]
 struct Tail {
     cap: usize,
+    /// The most bytes kept, newlines included.
+    max_bytes: usize,
+    bytes: usize,
     lines: VecDeque<String>,
 }
 
@@ -305,7 +371,17 @@ impl Tail {
     fn new(cap: usize) -> Self {
         Self {
             cap,
+            max_bytes: usize::MAX,
+            bytes: 0,
             lines: VecDeque::with_capacity(cap.min(4096)),
+        }
+    }
+
+    /// As many of the last lines as fit in `max_bytes`.
+    fn bytes(max_bytes: usize) -> Self {
+        Self {
+            max_bytes,
+            ..Self::new(usize::MAX)
         }
     }
 
@@ -314,9 +390,19 @@ impl Tail {
             return;
         }
         if self.lines.len() == self.cap {
-            self.lines.pop_front();
+            self.pop();
         }
+        self.bytes += line.len() + 1;
         self.lines.push_back(line.to_owned());
+        while self.bytes > self.max_bytes {
+            self.pop();
+        }
+    }
+
+    fn pop(&mut self) {
+        if let Some(line) = self.lines.pop_front() {
+            self.bytes -= line.len() + 1;
+        }
     }
 }
 
@@ -468,5 +554,72 @@ mod tests {
             .expect("writing to a Vec cannot fail");
         let out = String::from_utf8(printer.out).expect("the lines written were UTF-8");
         assert_eq!(out, format!("{IROH_WARN}\n{NODE}\n"));
+    }
+
+    /// A node log line written `secs` after the Unix epoch.
+    fn at(secs: i64, text: &str) -> String {
+        let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
+        format!("1970-01-01T{h:02}:{m:02}:{s:02}.000001Z  INFO beep_node: {text}")
+    }
+
+    fn log_file(dir: &Path, name: &str, lines: &[String]) -> PathBuf {
+        let path = dir.join(name);
+        let mut text = lines.join("\n");
+        text.push('\n');
+        std::fs::write(&path, text).expect("the temp folder is writable");
+        path
+    }
+
+    #[test]
+    fn window_keeps_lines_since_and_their_untimed_followers() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let trace = "   0: beep_node::link::connect".to_owned();
+        let lines = [
+            at(100, "old"),
+            at(200, "kept"),
+            trace.clone(),
+            at(300, "new"),
+        ];
+        let file = log_file(dir.path(), "beep.log", &lines);
+        let text = window(&[file], 150, 1 << 20).expect("the file reads");
+        assert_eq!(text, format!("{}\n{trace}\n{}\n", lines[1], lines[3]));
+    }
+
+    #[test]
+    fn window_reads_rotated_files_oldest_first() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let old = log_file(dir.path(), "beep.1.log", &[at(100, "a"), at(200, "b")]);
+        let new = log_file(dir.path(), "beep.log", &[at(300, "c")]);
+        let text = window(&[old, new], 150, 1 << 20).expect("the files read");
+        assert_eq!(text, format!("{}\n{}\n", at(200, "b"), at(300, "c")));
+    }
+
+    #[test]
+    fn window_skips_a_listed_file_that_is_missing() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let missing = dir.path().join("beep.2.log");
+        let new = log_file(dir.path(), "beep.log", &[at(300, "c")]);
+        let text = window(&[missing, new], 150, 1 << 20).expect("the file reads");
+        assert_eq!(text, format!("{}\n", at(300, "c")));
+    }
+
+    #[test]
+    fn window_without_timestamps_gives_the_last_lines() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let lines: Vec<String> = (0..10).map(|n| format!("untimed {n}")).collect();
+        assert!(lines.iter().all(|line| line.len() + 1 == 10));
+        let file = log_file(dir.path(), "beep.log", &lines);
+        let text = window(&[file], 150, 35).expect("the file reads");
+        assert_eq!(text, "untimed 7\nuntimed 8\nuntimed 9\n");
+    }
+
+    #[test]
+    fn window_keeps_the_newest_whole_lines_under_the_cap() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let lines: Vec<String> = (0..5).map(|n| at(100 + n, "line")).collect();
+        let file = log_file(dir.path(), "beep.log", &lines);
+        let line = lines[0].len() + 1;
+        let text = window(&[file], 0, 2 * line + line / 2).expect("the file reads");
+        assert_eq!(text, format!("{}\n{}\n", lines[3], lines[4]));
     }
 }

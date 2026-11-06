@@ -12,15 +12,17 @@ use crate::{
     link::from_mesh,
     link::local_socket::{Listener, Stream},
     link::local_status::{self, LocalStatus},
+    link::report::serve_report,
     link::watchdog::{self, Step},
     machine::{env, stats},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream,
-    SessionFn, StreamHandler,
+    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerClient,
+    PeerStream, SessionFn, StreamHandler,
 };
-use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, status::Report};
+use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
+use beep_report::{Share, Target, collect};
 use iroh::{
     Endpoint,
     endpoint::Connection,
@@ -54,6 +56,10 @@ const LEAVE: &str = "leave";
 /// The node answers a `LocalStatus` in compact msgpack, then closes. A node
 /// from before it closes without answering.
 const STATUS: &str = "status";
+/// `report <since>`, Unix seconds; the node answers every device's
+/// `Share` of a problem report, a `Vec<Share>` in compact msgpack, then
+/// closes. A node from before it closes without answering.
+const REPORT: &str = "report ";
 
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
@@ -94,6 +100,68 @@ impl Inner {
         self.follower.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    fn active(&self) -> Option<Active> {
+        self.active
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// What `beep-node status` shows. Checks each project's folder on disk.
+    async fn local_status(&self) -> Result<LocalStatus> {
+        let active = self.active();
+        let mesh = active
+            .as_ref()
+            .filter(|active| active.mesh.is_member(active.mesh.me()))
+            .map(|active| active.mesh.clone());
+        let devices = mesh
+            .as_ref()
+            .map(Mesh::devices)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|status| local_status::Peer {
+                id: status.device.id,
+                name: status.device.name,
+                kind: status.device.kind,
+                online: status.online,
+                last_seen: status.last_seen.map(unix_secs),
+            })
+            .collect();
+        let syncs = self
+            .offers()
+            .transfers
+            .get()
+            .map(|transfers| transfers.syncs());
+        let projects = match syncs {
+            Some(syncs) => {
+                let held = syncs.held();
+                let statuses = syncs.status();
+                // A folder on a disk that hangs must not hold a worker.
+                tokio::task::spawn_blocking(move || {
+                    statuses
+                        .into_iter()
+                        .map(|status| local_status::Project {
+                            held: held.contains(&status.name),
+                            missing: !Path::new(&status.folder).exists(),
+                            status,
+                        })
+                        .collect()
+                })
+                .await?
+            }
+            None => Vec::new(),
+        };
+        Ok(LocalStatus {
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            started: unix_secs(self.started),
+            name: self.name.clone(),
+            id: self.endpoint.id(),
+            mesh: mesh.map(|mesh| mesh.id()),
+            devices,
+            projects,
+        })
+    }
+
     /// Serves a stream a peer, or this process, opened.
     async fn serve(&self, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
         let open = read_open(&mut rx).await?;
@@ -107,6 +175,24 @@ impl Inner {
             bail!("the node stopped");
         }
         let offers = self.offers().clone();
+        // Only a desktop, or this process, reads a problem report, lent or
+        // not: a node sends its own and reads no one else's.
+        if open.protocol == report::PROTOCOL {
+            let mut tx = tx;
+            if let Who::Node { .. } = who {
+                let reason = "only a desktop reads a problem report".to_owned();
+                return tx.send(&Opened::Refused { reason }).await;
+            }
+            tx.send(&Opened::Ready {}).await?;
+            return match self.local_status().await {
+                Ok(status) => serve_report(tx, rx, status, offers.log).await,
+                Err(e) => {
+                    let reason = format!("this machine's status could not be read: {e:#}");
+                    tx.send(&report::Reply::Failed { reason }).await?;
+                    tx.finish().await
+                }
+            };
+        }
         // The person at this machine is not held to the setting; a device of the mesh is.
         if who.id() != self.endpoint.id()
             && let Some(reason) = withheld(&open.protocol, offers.lends_to_peers())
@@ -287,68 +373,48 @@ impl Peers {
             .unwrap_or_default()
     }
 
-    /// What `beep-node status` shows. Checks each project's folder on disk.
-    async fn local_status(&self) -> Result<LocalStatus> {
-        let active = self.active();
-        let mesh = active
-            .as_ref()
-            .filter(|active| active.mesh.is_member(active.mesh.me()))
-            .map(|active| active.mesh.clone());
-        let devices = mesh
-            .as_ref()
-            .map(Mesh::devices)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|status| local_status::Peer {
-                id: status.device.id,
-                name: status.device.name,
-                kind: status.device.kind,
-                online: status.online,
-                last_seen: status.last_seen.map(unix_secs),
-            })
-            .collect();
-        let syncs = self
-            .inner
-            .offers()
-            .transfers
-            .get()
-            .map(|transfers| transfers.syncs());
-        let projects = match syncs {
-            Some(syncs) => {
-                let held = syncs.held();
-                let statuses = syncs.status();
-                // A folder on a disk that hangs must not hold a worker.
-                tokio::task::spawn_blocking(move || {
-                    statuses
-                        .into_iter()
-                        .map(|status| local_status::Project {
-                            held: held.contains(&status.name),
-                            missing: !Path::new(&status.folder).exists(),
-                            status,
-                        })
-                        .collect()
-                })
-                .await?
-            }
-            None => Vec::new(),
-        };
-        Ok(LocalStatus {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-            started: unix_secs(self.inner.started),
-            name: self.inner.name.clone(),
-            id: self.inner.endpoint.id(),
-            mesh: mesh.map(|mesh| mesh.id()),
-            devices,
-            projects,
-        })
+    fn active(&self) -> Option<Active> {
+        self.inner.active()
     }
 
-    fn active(&self) -> Option<Active> {
-        self.inner
-            .active
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+    /// Every device's share of a problem report from Unix second `since`:
+    /// this node's through its own `report/1`, the others' over their live
+    /// links. This node alone before it joined a mesh, and when it is not a
+    /// desktop: the others refuse a node.
+    async fn report(&self, since: i64) -> Vec<Share> {
+        let me = self.inner.endpoint.id();
+        let active = self.active().filter(|_| self.is_desktop());
+        let own = |name: String, kind: DeviceKind| Target {
+            id: me,
+            name,
+            kind,
+            client: Ok(PeerClient::local(self.local_session())),
+        };
+        let targets = match active.filter(|active| active.mesh.is_member(me)) {
+            Some(active) => active
+                .mesh
+                .devices()
+                .into_iter()
+                .map(|status| {
+                    let device = status.device;
+                    if device.id == me {
+                        return own(device.name, device.kind);
+                    }
+                    Target {
+                        id: device.id,
+                        name: device.name,
+                        kind: device.kind,
+                        client: active
+                            .mesh
+                            .peer(device.id)
+                            .map(PeerClient::new)
+                            .ok_or_else(|| "offline".to_owned()),
+                    }
+                })
+                .collect(),
+            None => vec![own(self.inner.name.clone(), DeviceKind::Node)],
+        };
+        collect(targets, since).await
     }
 
     /// Takes `mesh` as the node's membership; its peers' streams are served
@@ -653,8 +719,14 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         out.push_str("end\n");
         out
     } else if request == STATUS {
-        let status = peers.local_status().await?;
+        let status = peers.inner.local_status().await?;
         write.write_all(&rmp_serde::to_vec(&status)?).await?;
+        write.shutdown().await?;
+        return Ok(());
+    } else if let Some(since) = request.strip_prefix(REPORT) {
+        let since: i64 = since.trim().parse().context("reading the report's start")?;
+        let shares = peers.report(since).await;
+        write.write_all(&rmp_serde::to_vec(&shares)?).await?;
         write.shutdown().await?;
         return Ok(());
     } else {
@@ -780,6 +852,57 @@ pub async fn local_status(dir: &Path) -> Result<Option<LocalStatus>> {
     Ok(Some(status))
 }
 
+/// Why the running node gave no report; the text is the share's status.
+#[cfg(feature = "cli")]
+#[derive(Debug, thiserror::Error)]
+pub enum ReportError {
+    #[error("the running node did not answer in {0} seconds")]
+    Silent(u64),
+    #[error("the running node is older and cannot collect")]
+    Older,
+}
+
+/// How long the running node has to collect a report.
+#[cfg(feature = "cli")]
+const REPORT_LIMIT: Duration = Duration::from_secs(30);
+
+/// Every device's share of a problem report from Unix second `since`, as
+/// the node running from `dir` collects it; `None` when no node runs there.
+#[cfg(feature = "cli")]
+pub async fn collect_report(dir: &Path, since: i64) -> Result<Option<Vec<Share>>> {
+    collect_report_within(dir, since, REPORT_LIMIT).await
+}
+
+/// `collect_report` with the node given `limit` to answer.
+#[cfg(feature = "cli")]
+pub async fn collect_report_within(
+    dir: &Path,
+    since: i64,
+    limit: Duration,
+) -> Result<Option<Vec<Share>>> {
+    use crate::link::local_socket;
+    /// The most bytes read: every device's share at its cap, and more.
+    const MAX_SHARES: u64 = 64 * 1024 * 1024;
+    let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
+        return Ok(None);
+    };
+    let (read, mut write) = split(stream);
+    let mut bytes = Vec::new();
+    timeout(limit, async {
+        write
+            .write_all(format!("{REPORT}{since}\n").as_bytes())
+            .await?;
+        read.take(MAX_SHARES).read_to_end(&mut bytes).await
+    })
+    .await
+    .map_err(|_| ReportError::Silent(limit.as_secs()))??;
+    if bytes.is_empty() {
+        return Err(ReportError::Older.into());
+    }
+    let shares = beep_proto::lenient::from_slice(&bytes).context("reading the node's report")?;
+    Ok(Some(shares))
+}
+
 #[cfg(feature = "cli")]
 async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
     use crate::link::local_socket;
@@ -810,6 +933,7 @@ async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
 #[cfg(all(test, feature = "cli"))]
 mod tests {
     use super::*;
+    use iroh::EndpointId;
     use iroh_tickets::Ticket;
 
     /// Answers the wait's probe, then one join, the way the node does.
@@ -1042,6 +1166,106 @@ mod tests {
             );
         }
         drop(serving.await.expect("served both"));
+    }
+
+    /// `report/1` stays open to a desktop on a machine that is not lent.
+    #[tokio::test]
+    async fn a_machine_not_lent_still_gives_a_desktop_its_report() {
+        let (answer, reply) = ask_report(Who::Everything).await;
+        assert!(matches!(answer, Some(Opened::Ready {})), "{answer:?}");
+        assert!(
+            matches!(&reply, Some(report::Reply::Share { log, .. }) if log == "a line\n"),
+            "{reply:?}"
+        );
+    }
+
+    /// Another node of the mesh is refused a machine's report.
+    #[tokio::test]
+    async fn a_node_is_refused_a_report() {
+        let (answer, reply) = ask_report(|peer| Who::Node {
+            peer,
+            desktop_here: false,
+        })
+        .await;
+        assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
+        assert!(reply.is_none(), "{reply:?}");
+    }
+
+    /// Opens `report/1` on a node that is not lent, from a caller `who`
+    /// makes of its key, and asks for the share when the node is ready.
+    async fn ask_report(who: fn(EndpointId) -> Who) -> (Option<Opened>, Option<report::Reply>) {
+        use crate::machine::service::logs::Logs;
+        use beep_proto::node::Open;
+        use iroh::{SecretKey, endpoint::presets};
+        const ALPN: &[u8] = b"report-test";
+        let bind = || async {
+            Endpoint::builder(presets::Minimal)
+                .secret_key(SecretKey::generate())
+                .alpns(vec![ALPN.to_vec()])
+                .bind()
+                .await
+                .expect("the endpoint binds")
+        };
+        let (node, desktop) = (bind().await, bind().await);
+        let dir = tempfile::tempdir().expect("temp dir");
+        let log = dir.path().join("beep.log");
+        std::fs::write(&log, "a line\n").expect("the temp folder is writable");
+        let offers = Offers {
+            log: Logs::file(log),
+            ..Offers::default()
+        };
+        offers.lend_to_peers(false);
+        let peers = Peers::new(
+            node.clone(),
+            dir.path().to_owned(),
+            "box".to_owned(),
+            offers,
+        );
+        let addr = node.addr();
+        let dialing = tokio::spawn({
+            let desktop = desktop.clone();
+            async move { desktop.connect(addr, ALPN).await }
+        });
+        let from_desktop = node
+            .accept()
+            .await
+            .expect("a connection comes")
+            .await
+            .expect("it is accepted");
+        let to_node = dialing.await.expect("joined").expect("connected");
+        let who = who(desktop.id());
+        let serving = tokio::spawn(async move {
+            let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
+            let (tx, rx) = link(send, recv);
+            peers.inner.serve(tx, rx, who).await.expect("served");
+            from_desktop
+        });
+        let (send, recv) = to_node.open_bi().await.expect("a stream opens");
+        let (mut tx, mut rx) = link(send, recv);
+        tx.send(&Open {
+            protocol: report::PROTOCOL.to_owned(),
+        })
+        .await
+        .expect("the protocol is sent");
+        let answer = timeout(Duration::from_secs(30), rx.recv::<Opened>())
+            .await
+            .expect("an answer came")
+            .expect("it reads");
+        let mut reply = None;
+        if matches!(answer, Some(Opened::Ready {})) {
+            tx.send(&report::Request {
+                since: 0,
+                max_bytes: 1024,
+            })
+            .await
+            .expect("the request is sent");
+            reply = timeout(Duration::from_secs(30), rx.recv::<report::Reply>())
+                .await
+                .expect("a reply came")
+                .expect("it reads");
+        }
+        drop(serving.await.expect("served"));
+        (answer, reply)
     }
 
     #[tokio::test]

@@ -160,6 +160,8 @@ export interface WindowHooks {
   openInstructions(): void;
   /// Settings' Coding agents row: the sheet closes and the page shows.
   openProviders(): void;
+  /// Settings' Report a problem row: the sheet closes and the report sheet opens.
+  openReport(): void;
   /// A page Settings leads to, such as Apps: the sheet closes and the pane
   /// shows it; null only closes.
   settingsAway(view: string | null): void;

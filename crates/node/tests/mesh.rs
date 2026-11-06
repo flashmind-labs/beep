@@ -8,6 +8,7 @@
 //! each under a generous outer timeout; nothing sleeps.
 
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
+use beep_node::link::peers::ReportError;
 use beep_proto::node::{
     Down, LinkRx, LinkTx, NODE_ALPN, NODE_ALPN_NAMED, NodeHello, Open, Opened,
     agent::{
@@ -16,6 +17,7 @@ use beep_proto::node::{
     },
     link,
     process::{Reply as ProcessReply, Request as ProcessRequest},
+    report::PROTOCOL as REPORT,
     shell::{Event as ShellEvent, PROTOCOL as SHELL, Request as ShellRequest},
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
@@ -31,6 +33,7 @@ use beep_proto::{
         },
     },
 };
+use beep_report::Answer;
 use futures::{SinkExt, StreamExt};
 use iroh::{
     Endpoint, EndpointId, SecretKey,
@@ -690,6 +693,71 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
         Some(Report::Offers(offers)) => assert!(offers.iter().any(|o| o == SHELL)),
         other => panic!("not the offers: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn another_node_is_refused_a_report() {
+    let desktop = desktop(None).await;
+    let node = Node::start(Config {
+        name: Some("build-box"),
+        ..Config::default()
+    })
+    .await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let other = peer_node(&desktop).await;
+    let conn = other.reach(node.id).await;
+    let (_, opened) = open(&conn, REPORT).await;
+    assert!(matches!(opened, Opened::Refused { .. }), "{opened:?}");
+}
+
+#[tokio::test]
+async fn a_node_in_a_mesh_reports_only_itself_for_the_cli() {
+    let desktop = desktop(None).await;
+    let a = Node::start(Config {
+        name: Some("box-a"),
+        ..Config::default()
+    })
+    .await;
+    let b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let shares = beep_node::link::peers::collect_report(a.dir.path(), 0)
+        .await
+        .expect("the node collects")
+        .expect("the node runs");
+    assert_eq!(shares.len(), 1, "{shares:?}");
+    let own = &shares[0];
+    assert_eq!(own.id, a.id);
+    assert_eq!(own.answer, Answer::Answered);
+    assert!(own.status.contains("box-a"), "{}", own.status);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_silent_node_on_the_socket_does_not_stop_the_report() {
+    let dir = TempDir::new().expect("a temp folder");
+    let listener =
+        tokio::net::UnixListener::bind(dir.path().join("mesh.sock")).expect("the socket binds");
+    // Accepts and never writes, as a node whose workers are stuck.
+    let _held = tokio::spawn(async move {
+        let mut open = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            open.push(stream);
+        }
+    });
+    let started = tokio::time::Instant::now();
+    let collected =
+        beep_node::link::peers::collect_report_within(dir.path(), 0, Duration::from_secs(1)).await;
+    let silent = collected
+        .expect_err("a silent node gives no report")
+        .downcast::<ReportError>()
+        .expect("the error says the node was silent");
+    assert!(matches!(silent, ReportError::Silent(1)), "{silent:?}");
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 #[tokio::test]

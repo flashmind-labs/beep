@@ -1,4 +1,4 @@
-/* Sheets over the window: Add a machine, Add and Import a project, New project, groups, confirmations. */
+/* Sheets over the window: Add a machine, Add and Import a project, New project, groups, confirmations, Report a problem. */
 .am-scrim { position: fixed; inset: 0; z-index: 35; overflow-y: auto; background: color-mix(in srgb, var(--shade) 45%, transparent); display: grid; justify-items: center; align-content: start; padding: 90px 0 24px; animation: dover .15s var(--ease) }
 .am-sheet { width: 560px; max-width: calc(100% - 40px); padding: 18px 20px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); box-shadow: 0 20px 60px color-mix(in srgb, var(--shade) 50%, transparent); color: var(--fg) }
 .am-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px }
@@ -114,3 +114,29 @@
 .fr-big b { font-size: 14px; font-weight: 600 }
 .fr-big span { font-size: 12.5px; font-weight: 400; line-height: 1.4; opacity: .8 }
 .fr-card .am-line, .fr-card .am-msg { margin-bottom: 0 }
+/* Report a problem. */
+.rp-ta { display: block; box-sizing: border-box; width: 100%; min-height: 84px; margin-bottom: 14px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; line-height: 18px; outline: 0; resize: vertical; caret-color: var(--accent); user-select: text }
+.rp-ta:focus { border-color: var(--accent) }
+.rp-ta::placeholder { color: var(--dim) }
+.rp-periods { margin-bottom: 16px }
+.rp-wait { margin-bottom: 12px }
+.rp-box { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--deep); margin-bottom: 14px; overflow: hidden }
+.rp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 0; background: none; color: var(--fg); font: inherit; font-size: 13px; text-align: left }
+.rp-row + .rp-row { border-top: 1px solid var(--border) }
+button.rp-row { cursor: pointer }
+button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.rp-row .m { color: var(--muted); font-size: 12px; white-space: nowrap }
+.rp-row .m.bad { color: var(--err) }
+.rp-row code, .rp-pane, .rp-ref, .rp-issue { font-family: var(--mono) }
+.rp-row code { font-size: 12.5px; overflow-wrap: anywhere }
+.rp-link { padding: 0 0 14px }
+.rp-pane { margin: 0 0 14px; max-height: 190px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--muted); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
+.rp-pane .r { color: var(--fg); background: color-mix(in srgb, var(--fg) 12%, transparent); border-radius: 3px; padding: 0 3px }
+.rp-pane-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px }
+.rp-pane-head small { color: var(--muted); font-size: 12px }
+.rp-total { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 12.5px; color: var(--muted) }
+.rp-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); font-size: 15px; letter-spacing: .04em; user-select: text }
+.rp-issue { margin: 0 0 14px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
+.rp-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
+.rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err); user-select: text }
+.rp-hint { font-size: 12px; line-height: 17px; margin: -8px 0 14px; color: var(--muted) }

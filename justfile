@@ -221,6 +221,18 @@ tool-schema *args:
 usage days="14":
     uv run -q --with 'psycopg[binary]' python -I scripts/usage.py --config {{server_config}} {{days}}
 
+# Problem reports in R2, newest first: just reports
+reports:
+    uv run -q --with boto3 python -I scripts/reports.py --config {{server_config}} list
+
+# Download and unzip a report to target/reports/<id>: just report R-ABC...
+report id:
+    uv run -q --with boto3 python -I scripts/reports.py --config {{server_config}} get {{id}}
+
+# Delete a solved report's zip and manifest: just report-solved R-ABC...
+report-solved id:
+    uv run -q --with boto3 python -I scripts/reports.py --config {{server_config}} solved {{id}}
+
 # Run the prompt evals against the real model in the dev config. They cost
 # money. `just eval search` runs the cases whose name contains "search".
 eval filter="": test-db

@@ -30,6 +30,15 @@ pub(crate) fn current() -> Option<PathBuf> {
     Some(path(&dir()?, 0))
 }
 
+/// The log files there may be, oldest first, the one being written last.
+/// One not written yet is skipped when read.
+pub(crate) fn kept() -> Vec<PathBuf> {
+    let Some(dir) = dir() else {
+        return Vec::new();
+    };
+    (0..FILES_KEPT).rev().map(|n| path(&dir, n)).collect()
+}
+
 /// Starts logging to the file, written on a thread of its own. The guard
 /// flushes it when dropped. Without a file the app runs as before, silent.
 pub fn start() -> Option<WorkerGuard> {
