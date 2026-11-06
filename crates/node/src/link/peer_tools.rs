@@ -86,6 +86,19 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     ) {
         return agent_call(request, &caller).await;
     }
+    if request.tool == Tool::ForgeReach {
+        let outcome = match &caller.agents {
+            Some(agents) => serde_json::to_string(&agents.ci.reach()).map_err(|e| e.to_string()),
+            None => Err("This node watches no CI runs.".to_owned()),
+        };
+        return match outcome {
+            Ok(text) => Reply::Done {
+                text,
+                failed: false,
+            },
+            Err(text) => Reply::Done { text, failed: true },
+        };
+    }
     let outcome = match serde_json::from_str::<Value>(&request.args) {
         Err(e) => Err(format!("The arguments are not JSON: {e}")),
         Ok(args) => match request.tool {

@@ -75,7 +75,7 @@ pub use session_stream::serve_session;
 pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
 use acp::Prompt;
-use alerts::AlertHub;
+pub(crate) use alerts::AlertHub;
 use compaction::Route;
 use images::Images;
 use kinds::{Adapter, KNOWN, known, route};
@@ -140,6 +140,8 @@ pub struct Agents {
     usage: Arc<UsageHub>,
     /// What sessions did that the user would want to hear about.
     alerts: Arc<AlertHub>,
+    /// The CI runs this node tells, and how it reaches the hosts.
+    pub(crate) ci: Arc<crate::machine::ci::Ci>,
     /// What sessions spent, from the agents' own logs.
     spend: Arc<Spend>,
     /// Set while the agents' plans are read.
@@ -176,6 +178,8 @@ pub struct Agents {
     /// The checkouts found on disk under home, once `warm` read them;
     /// held while it does.
     on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
+    /// A quick walk for checkouts runs; one at a time.
+    rescanning: AtomicBool,
 }
 
 /// The folders found in the agents' logs, and when.
@@ -194,6 +198,7 @@ impl Agents {
             images: Arc::default(),
             usage: Arc::default(),
             alerts: Arc::default(),
+            ci: Arc::default(),
             spend: Arc::new(Spend::locate()),
             reading_plans: AtomicBool::new(false),
             moves: moving::Moves::default(),
@@ -209,6 +214,7 @@ impl Agents {
             reopened: watch::Sender::new(false),
             sighted: AsyncMutex::default(),
             on_disk: AsyncMutex::default(),
+            rescanning: AtomicBool::new(false),
         }
     }
 }

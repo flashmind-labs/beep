@@ -37,6 +37,16 @@ pub(crate) async fn serve(
             Some(notice) = notices.recv() => (notice, Via::Server),
             Some(direct) = direct.recv() => match direct {
                 Direct::Notice(notice) => (*notice, Via::Machine),
+                // A build: the bell keeps it, and the first machine to tell
+                // it shows it.
+                Direct::Run(news) => {
+                    if let Some(note) = history::run_ended(&app, &news)
+                        && let Some(target) = note.target
+                    {
+                        notify::opening(&app, &note.title, &format!("{}: {}", note.source, note.text), target);
+                    }
+                    continue;
+                }
                 // Connected again: what the bar shows from outside the log,
                 // such as questions from background work, may have changed
                 // meanwhile, and so may what waits on the user.

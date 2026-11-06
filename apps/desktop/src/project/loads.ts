@@ -178,7 +178,7 @@ async function copyHere(p: Project, m: WhereRow, key: string) {
   try {
     const copy = await invoke<{ folder: string; from: string | null } | null>("project_copy", { project: p.name, machineId: m.id });
     copies.delete(key);
-    if (!copy) importSheet(false, repoFromRemote(p.url), m.id);
+    if (!copy) importSheet(repoFromRemote(p.url), m.id);
     else if (!copy.from) copies.set(key, { state: "already" });
     refresh();
     await loadWhere(p.name);
@@ -323,7 +323,7 @@ export function whereRow(p: Project, m: WhereRow) {
     copy.disabled = !!copied;
     return [name, what, h("span", "acts", copy)];
   }
-  const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(false, repoFromRemote(p.url), m.id)) : null;
+  const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(repoFromRemote(p.url), m.id)) : null;
   if (clone) return [name, what, h("span", "acts", clone)];
   // Nothing to do there, so the note takes the buttons' room too.
   what.classList.add("wide");
@@ -456,7 +456,7 @@ export function elsewhereSection(rows: Project[]) {
   const body = repos.flatMap((r, i) => {
     // A checkout the machines found imports as it is; otherwise the sheet clones.
     const here = foundFor(state.found, r.repo);
-    const imp = rowButton(here && state.importing === here.name ? "Importing…" : "Import project", i ? "small" : "pri small", () => here ? importFromPage(here) : importSheet(false, r.repo));
+    const imp = rowButton(here && state.importing === here.name ? "Importing…" : "Import project", i ? "small" : "pri small", () => here ? importFromPage(here) : importSheet(r.repo));
     imp.disabled = !!here && state.importing != null;
     const failed = here && state.foundError?.name === here.name ? state.foundError.message : null;
     const sub = failed ?? (here ? `on ${here.places.map(p => p.machine_name).join(", ")}` : r.host);

@@ -10,7 +10,9 @@ use beep_mesh::{MeshError, PeerClient};
 use beep_node::link::reconnect::Backoff;
 use beep_proto::{
     AgentNoticeKey, ApiError, Notice,
-    node::agent::{Event, Request, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest, protocol},
+    node::agent::{
+        Event, Request, RunNews, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest, protocol,
+    },
 };
 use iroh::EndpointId;
 use std::{
@@ -42,6 +44,18 @@ pub(crate) enum Direct {
     /// have changed while it was closed.
     Connected,
     Notice(Box<Notice>),
+    /// A CI run the user started ended, told by the machine that watches
+    /// its project.
+    Run(Box<RunNews>),
+}
+
+/// Which stream a machine is followed on.
+#[derive(Clone, Copy)]
+enum Follows {
+    /// Coding agents' questions and turns: `FollowAlerts`.
+    Alerts,
+    /// CI runs: `FollowRuns`, which a machine from before it closes.
+    Runs,
 }
 
 /// What follows every machine of the mesh, now and as it changes, and the
@@ -124,20 +138,38 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
     }
 }
 
-/// Follows `id`'s alerts, again after each break, until the receiver goes.
+/// Follows `id`'s alerts and runs until the receiver goes.
 async fn machine(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
+    tokio::join!(
+        follow_one(&fleet, id, &out, Follows::Alerts),
+        follow_one(&fleet, id, &out, Follows::Runs),
+    );
+}
+
+/// Follows one of `id`'s streams, again after each break, until the
+/// receiver goes.
+async fn follow_one(fleet: &Fleet, id: EndpointId, out: &mpsc::Sender<Direct>, what: Follows) {
     let mut backoff = Backoff::eager();
     loop {
         let started = Instant::now();
         let mut replied = false;
-        match stream(&fleet, id, &out, &mut replied).await {
+        match stream(fleet, id, out, what, &mut replied).await {
             Ok(()) => return,
-            Err(e) => log::debug!("following alerts from {}: {e}", fleet.name_of(id)),
+            Err(e) => log::debug!("following {} from {}: {e}", what.name(), fleet.name_of(id)),
         }
         if held(replied, started.elapsed()) {
             backoff.reset();
         }
         sleep(backoff.pause()).await;
+    }
+}
+
+impl Follows {
+    fn name(self) -> &'static str {
+        match self {
+            Follows::Alerts => "alerts",
+            Follows::Runs => "runs",
+        }
     }
 }
 
@@ -154,14 +186,17 @@ async fn stream(
     fleet: &Fleet,
     id: EndpointId,
     out: &mpsc::Sender<Direct>,
+    what: Follows,
     replied: &mut bool,
 ) -> Result<()> {
     let client = fleet.client(id).await?;
     let (mut tx, mut rx) = client.open(SESSIONS_PROTOCOL).await?;
-    tx.send(&SessionsRequest::FollowAlerts {})
-        .await
-        .map_err(MeshError::Link)?;
-    if out.send(Direct::Connected).await.is_err() {
+    let request = match what {
+        Follows::Alerts => SessionsRequest::FollowAlerts {},
+        Follows::Runs => SessionsRequest::FollowRuns {},
+    };
+    tx.send(&request).await.map_err(MeshError::Link)?;
+    if matches!(what, Follows::Alerts) && out.send(Direct::Connected).await.is_err() {
         return Ok(());
     }
     // `tx` stays open: finishing it ends the stream.
@@ -171,8 +206,15 @@ async fn stream(
             return Err(MeshError::Link(anyhow::anyhow!("the machine ended the stream")).into());
         };
         *replied = true;
-        let SessionsReply::Alert { alert } = reply else {
-            continue;
+        let alert = match reply {
+            SessionsReply::Alert { alert } => alert,
+            SessionsReply::Run { news } => {
+                if out.send(Direct::Run(Box::new(news))).await.is_err() {
+                    return Ok(());
+                }
+                continue;
+            }
+            _ => continue,
         };
         let key = alert.key(&id.to_string(), &fleet.name_of(id));
         let notice = Notice {
@@ -367,7 +409,7 @@ cat > /dev/null
             loop {
                 match heard.recv().await.expect("the stream follows") {
                     Direct::Notice(notice) => return *notice,
-                    Direct::Connected => {}
+                    Direct::Connected | Direct::Run(_) => {}
                 }
             }
         })
