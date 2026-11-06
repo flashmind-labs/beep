@@ -12,6 +12,7 @@ pub(crate) mod instructions;
 pub(crate) mod local_file;
 pub(crate) mod media;
 pub(crate) mod moving;
+pub(crate) mod processes;
 pub(crate) mod review;
 pub(crate) mod sessions;
 pub(crate) mod steer;

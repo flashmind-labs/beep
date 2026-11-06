@@ -10,6 +10,7 @@ use super::{
     images::Images,
     known,
     live::Live,
+    processes::Processes,
     route, unix_now,
     usage::UsageHub,
 };
@@ -146,6 +147,7 @@ pub(super) struct Session {
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
     pub(super) reviewer: bool,
+    pub(super) processes: Arc<Processes>,
     /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
     /// What watches over its children, which stops with it.
@@ -296,6 +298,7 @@ impl Session {
         let child = own_group(&mut process)
             .spawn()
             .with_context(|| format!("starting {}", kind.program))?;
+        let processes = Processes::new(child.id().context("the agent has no pid")?);
         let info = SessionInfo {
             id: id.clone(),
             agent: kind.name.clone(),
@@ -349,13 +352,14 @@ impl Session {
         let guard = follows.map(|parent| {
             AbortOnDropHandle::new(tokio::spawn(follow_parent(parent, orders.clone())))
         });
-        let task = tokio::spawn(actor.run(child, orders_rx));
+        let task = tokio::spawn(actor.run(child, orders_rx, processes.clone()));
         Ok(Self {
             id,
             agent: kind.name.clone(),
             orders,
             live,
             reviewer: false,
+            processes,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
         })
