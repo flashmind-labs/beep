@@ -150,15 +150,29 @@ async fn machine(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
 /// receiver goes.
 async fn follow_one(fleet: &Fleet, id: EndpointId, out: &mpsc::Sender<Direct>, what: Follows) {
     let mut backoff = Backoff::eager();
+    // An offline machine fails the same way on every try: logged once,
+    // and again when the error changes or after a stream that worked.
+    let mut logged = None;
     loop {
         let started = Instant::now();
         let mut replied = false;
         match stream(fleet, id, out, what, &mut replied).await {
             Ok(()) => return,
-            Err(e) => log::debug!("following {} from {}: {e}", what.name(), fleet.name_of(id)),
+            Err(e) => {
+                let error = e.to_string();
+                if logged.as_ref() != Some(&error) {
+                    log::debug!(
+                        "following {} from {}: {error}",
+                        what.name(),
+                        fleet.name_of(id)
+                    );
+                    logged = Some(error);
+                }
+            }
         }
         if held(replied, started.elapsed()) {
             backoff.reset();
+            logged = None;
         }
         sleep(backoff.pause()).await;
     }

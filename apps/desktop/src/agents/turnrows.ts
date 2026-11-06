@@ -6,18 +6,20 @@ import { copy } from "../ui/parts.ts";
 import { endedHtml, liveHtml } from "./thoughtlive.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
+import { onShownChange, pageShown } from "../ui/active.ts";
 
 /// `word`, its letters lit one after another in a loop.
 const sweptLabel = (word: string) => `<span class="lb">${[...word].map((c, i) => `<i style="--i:${i}">${c}</i>`).join("")}</span>`;
 
-/// A running turn's one live line: what it is at, its letters sweeping, how
-/// long it has run, and what it does now. Waiting on the user does not sweep.
+/// A running turn's one live line: what it does now (its last thought line),
+/// or "Thinking" or "Working" until there is one, its letters sweeping, and
+/// how long it has run. Waiting on the user does not sweep.
 export function liveLineHtml(t: { state: TurnState; thinking: boolean; start?: number | null; doing?: string }) {
   const waiting = t.state === "waiting";
-  const word = waiting ? `<span class="lb">Waiting for you</span>` : sweptLabel(t.thinking ? "Thinking" : "Working");
+  const lead = t.doing || (t.thinking ? "Thinking" : "Working");
+  const word = waiting ? `<span class="lb">Waiting for you</span>` : sweptLabel(lead).replace('<span class="lb">', `<span class="lb" title="${esc(lead)}">`);
   return `<div class="dthink dlive${waiting ? "" : " live"}">${word}`
-    + (t.start != null ? `<span class="since" data-since="${t.start}">${esc(duration(Date.now() - t.start))}</span>` : "")
-    + (t.doing ? `<span class="doing" title="${esc(t.doing)}">${esc(t.doing)}</span>` : "") + "</div>";
+    + (t.start != null ? `<span class="since" data-since="${t.start}">${esc(duration(Date.now() - t.start))}</span>` : "") + "</div>";
 }
 
 /// A thought, as one line that opens to its text. `live` streams and follows
@@ -56,15 +58,20 @@ export function turnHeadHtml(t: { state: TurnState; start?: number | null; ms: n
 
 let turnTick: ReturnType<typeof setInterval> | undefined;
 
-/// Moves the running turns' clocks on each second, until none shows.
+/// Moves the running turns' clocks on each second, until none shows or
+/// the window hides.
 export function tickTurns() {
-  if (turnTick || !document.querySelector("[data-since]")) return;
+  if (turnTick || !pageShown() || !document.querySelector("[data-since]")) return;
   turnTick = setInterval(() => {
     const els = document.querySelectorAll<HTMLElement>("[data-since]");
-    if (!els.length) { clearInterval(turnTick); turnTick = undefined; return; }
-    for (const el of els) el.textContent = duration(Date.now() - Number(el.dataset.since));
+    if (!els.length || !pageShown()) { clearInterval(turnTick); turnTick = undefined; return; }
+    for (const el of els) {
+      const text = duration(Date.now() - Number(el.dataset.since));
+      if (el.textContent !== text) el.textContent = text;
+    }
   }, 1000);
 }
+onShownChange(shown => { if (shown) tickTurns(); });
 
 /// A step's mark: done, failed, running or did not finish.
 export function stepMark(status: string, running: boolean) {

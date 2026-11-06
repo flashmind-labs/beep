@@ -645,6 +645,24 @@ mod tests {
         assert!(matches!(report, Some(Report::Offers(_))), "{report:?}");
     }
 
+    /// Issue #408: a session moving here from a node waited forever, since
+    /// its source could not ask this Mac how the move stood.
+    #[tokio::test]
+    async fn a_node_reaches_the_session_reads_of_this_mac() {
+        let mac = start("Studio").await;
+        let host = mac.fleet.mesh().expect("the mesh is open");
+        let (_mesh, _router, node) = join(&mac.fleet, DeviceKind::Node, "Server").await;
+        until(&host, |mesh| online(mesh, node.id())).await;
+        let connection = timeout(
+            LIMIT,
+            node.connect(mac.endpoint.addr(), beep_node::agents::SESSIONS_ALPN),
+        )
+        .await
+        .expect("connects in time")
+        .expect("this Mac serves beep-sessions/1");
+        assert_eq!(connection.alpn(), beep_node::agents::SESSIONS_ALPN);
+    }
+
     /// Issue #390: a node runs commands on this Mac while Let Beep use this
     /// Mac is on, and is told so plainly, not "offline", while it is off.
     #[tokio::test]

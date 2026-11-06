@@ -164,6 +164,10 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     }
     // Decided before the source ends anything.
     let arriving = arriving(env, record, &folders).await?;
+    log::info!(
+        "session {}: it can move here, reading it from its source",
+        record.id
+    );
     let copy = env.state.copy(&record.id);
     let copied = conversation(env, record, tracker, &copy).await?;
     log::info!(
@@ -284,6 +288,9 @@ fn runs_in(env: &Env, folder: &Path) -> bool {
 /// there; anything else is the user's and stays, with a line in the log.
 pub(super) async fn take_back(env: &Env, id: &str) {
     // Sessions that run again after a restart are not running yet.
+    if !env.agents.reopened() {
+        log::info!("session {id}: waiting for the sessions open before the restart to resume");
+    }
     env.agents.until_reopened().await;
     let Some(mut saved) = env.state.load(id) else {
         return;
@@ -367,6 +374,9 @@ async fn conversation(
         tokio::fs::create_dir_all(dir).await?;
     }
     let mut wait = FIRST_WAIT;
+    // Whether the last read reached the source, so each change is logged
+    // once rather than on every try.
+    let mut reached = None;
     loop {
         show(tracker, |progress| {
             if progress.phase != MovePhase::Waiting {
@@ -376,6 +386,19 @@ async fn conversation(
         match pull_once(env, record, copy).await {
             Ok(pulled) => {
                 wait = FIRST_WAIT;
+                if reached != Some(true) {
+                    log::info!(
+                        "session {}: read {} bytes from its source, which {}",
+                        record.id,
+                        pulled.size,
+                        if pulled.live {
+                            "still runs it; the move is taken"
+                        } else {
+                            "ended it"
+                        }
+                    );
+                    reached = Some(true);
+                }
                 // The source let a read through: the session can move.
                 env.agents.moves.take(&record.id);
                 show(tracker, |progress| {
@@ -397,7 +420,12 @@ async fn conversation(
             // The source will not serve it, as it is: waiting changes nothing.
             Err(e) if e.is::<Refused>() => return Err(e),
             Err(e) => {
-                log::info!("session {} not read from its source yet: {e:#}", record.id);
+                if reached != Some(false) {
+                    log::info!("session {} not read from its source yet: {e:#}", record.id);
+                    reached = Some(false);
+                } else {
+                    log::debug!("session {} not read from its source yet: {e:#}", record.id);
+                }
                 show(tracker, |progress| progress.source_away = true);
                 wait = (wait * 2).min(LAST_WAIT);
             }

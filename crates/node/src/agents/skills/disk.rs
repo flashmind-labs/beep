@@ -8,10 +8,10 @@ use beep_proto::node::skills::{Listed, SkillFile};
 use serde_bytes::ByteBuf;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs, io,
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 /// The skills folders the agents Beep runs read, under the home folder:
@@ -48,9 +48,40 @@ pub(super) struct Scan {
     pub names: BTreeSet<String>,
 }
 
-/// Reads every skills folder under `home`.
-pub(super) fn scan(home: &Path) -> Scan {
+/// Each skill folder's hash as last read, kept between scans: a folder
+/// whose files have the same paths, sizes and modification times is not
+/// read again.
+#[derive(Default)]
+pub(super) struct Hashes(HashMap<PathBuf, Hashed>);
+
+/// A folder's files when it was last read, and what they came to.
+struct Hashed {
+    stamps: Vec<Stamp>,
+    /// `None` for Beep's own skill.
+    skill: Option<Summary>,
+}
+
+/// One file of a skill as its metadata tells it.
+#[derive(PartialEq)]
+struct Stamp {
+    path: String,
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
+/// What `scan` lists of one copy.
+#[derive(Clone)]
+struct Summary {
+    hash: String,
+    bytes: u64,
+    changed: u64,
+}
+
+/// Reads every skills folder under `home`; only folders whose files
+/// changed since `hashes` saw them are read and hashed.
+pub(super) fn scan(home: &Path, hashes: &mut Hashes) -> Scan {
     let mut names = BTreeSet::new();
+    let mut visited = HashSet::new();
     // Name and hash, to that copy.
     let mut copies: BTreeMap<(String, String), Listed> = BTreeMap::new();
     for rel in READ {
@@ -62,18 +93,18 @@ pub(super) fn scan(home: &Path) -> Scan {
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
-            if !valid_part(&name) || !entry.path().is_dir() {
+            let dir = entry.path();
+            if !valid_part(&name) || !dir.is_dir() {
                 continue;
             }
             names.insert(name.clone());
-            match read(&entry.path()) {
+            match summary(&dir, hashes) {
                 Ok(Some(found)) => {
-                    let hash = hash(&found.files);
                     let copy = copies
-                        .entry((name.clone(), hash.clone()))
+                        .entry((name.clone(), found.hash.clone()))
                         .or_insert_with(|| Listed {
                             name,
-                            hash,
+                            hash: found.hash,
                             folders: Vec::new(),
                             // The follow task fills these in from what it synced.
                             ver: 0,
@@ -88,12 +119,50 @@ pub(super) fn scan(home: &Path) -> Scan {
                 Ok(None) => {}
                 Err(e) => log::debug!("skill {name} in {} not read: {e:#}", label(rel)),
             }
+            visited.insert(dir);
         }
     }
+    hashes.0.retain(|dir, _| visited.contains(dir));
     Scan {
         listed: copies.into_values().collect(),
         names,
     }
+}
+
+/// The copy in `dir`, read and hashed only when its files changed since
+/// `hashes` saw them.
+fn summary(dir: &Path, hashes: &mut Hashes) -> Result<Option<Summary>> {
+    let Some(listing) = list(dir)? else {
+        hashes.0.remove(dir);
+        return Ok(None);
+    };
+    let stamps: Vec<Stamp> = listing
+        .entries
+        .iter()
+        .map(|entry| Stamp {
+            path: entry.rel.clone(),
+            len: entry.len,
+            modified: entry.modified,
+        })
+        .collect();
+    if let Some(hashed) = hashes.0.get(dir)
+        && hashed.stamps == stamps
+    {
+        return Ok(hashed.skill.clone());
+    }
+    let skill = load(&listing)?.map(|files| Summary {
+        hash: hash(&files),
+        bytes: listing.bytes,
+        changed: listing.changed,
+    });
+    hashes.0.insert(
+        dir.to_owned(),
+        Hashed {
+            stamps,
+            skill: skill.clone(),
+        },
+    );
+    Ok(skill)
 }
 
 /// `~/` and `rel`, as the user knows the folder on any system.
@@ -108,48 +177,80 @@ pub(super) fn files_of(home: &Path, name: &str, hash: &str) -> Vec<SkillFile> {
         return Vec::new();
     }
     for rel in READ {
-        if let Ok(Some(found)) = read(&home.join(rel).join(name))
-            && self::hash(&found.files) == hash
+        if let Ok(Some(files)) = read(&home.join(rel).join(name))
+            && self::hash(&files) == hash
         {
-            return found.files;
+            return files;
         }
     }
     Vec::new()
 }
 
-/// A skill's files as read from its folder.
+/// A skill's files as their metadata tells them, before any is read.
 #[derive(Default)]
-struct Found {
+struct Listing {
     /// Sorted by path.
-    files: Vec<SkillFile>,
+    entries: Vec<Entry>,
     bytes: u64,
     /// When the newest file changed, in milliseconds since the Unix epoch.
     changed: u64,
 }
 
+/// One file of a `Listing`.
+struct Entry {
+    /// The path in the skill, `/` between its parts.
+    rel: String,
+    path: PathBuf,
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
 /// A skill's files; `None` when the folder is no skill the user made: no
 /// `SKILL.md`, Beep's own, or too big to sync.
-fn read(dir: &Path) -> Result<Option<Found>> {
-    let skill = match fs::read(dir.join("SKILL.md")) {
-        Ok(text) => text,
+fn read(dir: &Path) -> Result<Option<Vec<SkillFile>>> {
+    match list(dir)? {
+        Some(listing) => load(&listing),
+        None => Ok(None),
+    }
+}
+
+/// The files under `dir` by their metadata; `None` with no `SKILL.md` or
+/// past a limit.
+fn list(dir: &Path) -> Result<Option<Listing>> {
+    match fs::metadata(dir.join("SKILL.md")) {
+        Ok(_) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e).context("reading SKILL.md"),
-    };
-    if installed_by_beep(&String::from_utf8_lossy(&skill)) {
-        return Ok(None);
     }
-    let mut found = Found::default();
-    if !walk(dir, "", 0, &mut found)? {
+    let mut listing = Listing::default();
+    if !walk(dir, "", 0, &mut listing)? {
         log::debug!("{} is too big to sync", dir.display());
         return Ok(None);
     }
-    found.files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(Some(found))
+    listing.entries.sort_by(|a, b| a.rel.cmp(&b.rel));
+    Ok(Some(listing))
+}
+
+/// Reads the files `listing` names; `None` for Beep's own skill.
+fn load(listing: &Listing) -> Result<Option<Vec<SkillFile>>> {
+    let mut files = Vec::with_capacity(listing.entries.len());
+    for entry in &listing.entries {
+        let data =
+            fs::read(&entry.path).with_context(|| format!("reading {}", entry.path.display()))?;
+        if entry.rel == "SKILL.md" && installed_by_beep(&String::from_utf8_lossy(&data)) {
+            return Ok(None);
+        }
+        files.push(SkillFile {
+            path: entry.rel.clone(),
+            data: ByteBuf::from(data),
+        });
+    }
+    Ok(Some(files))
 }
 
 /// Adds the files under `dir` to `found`; false once the skill is past a
 /// limit. Names starting with a dot (`.git`, `.DS_Store`) are left out.
-fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Found) -> Result<bool> {
+fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Listing) -> Result<bool> {
     if depth > MAX_DEPTH {
         return Ok(false);
     }
@@ -175,22 +276,22 @@ fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Found) -> Result<boo
             }
         } else if meta.is_file() {
             found.bytes += meta.len();
-            if found.files.len() >= MAX_FILES || found.bytes > MAX_BYTES {
+            if found.entries.len() >= MAX_FILES || found.bytes > MAX_BYTES {
                 return Ok(false);
             }
+            let modified = meta.modified().ok();
             // A clock before 1970 reads as no time.
-            if let Some(ms) = meta
-                .modified()
-                .ok()
+            if let Some(ms) = modified
                 .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
                 .and_then(|since| u64::try_from(since.as_millis()).ok())
             {
                 found.changed = found.changed.max(ms);
             }
-            let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-            found.files.push(SkillFile {
-                path: rel,
-                data: ByteBuf::from(data),
+            found.entries.push(Entry {
+                rel,
+                path,
+                len: meta.len(),
+                modified,
             });
         }
     }
@@ -312,7 +413,7 @@ pub(super) fn replace(
     for rel in READ.iter().filter(|rel| folders.contains(&label(rel))) {
         let dir = home.join(rel);
         let place = dir.join(name);
-        if !matches!(read(&place), Ok(Some(now)) if hash(&now.files) == old) {
+        if !matches!(read(&place), Ok(Some(now)) if hash(&now) == old) {
             continue;
         }
         let partial = stage(&dir, name, files)?;
@@ -499,7 +600,7 @@ mod tests {
         skill(home, ".claude/skills", "style", "C\n");
         let beeps = "---\nname: github\n---\n<!-- Installed by Beep. Beep keeps this file current until you edit it. sha256:00 -->\n";
         skill(home, ".claude/skills", "github", beeps);
-        let found = scan(home);
+        let found = scan(home, &mut Hashes::default());
         let notes: Vec<_> = found.listed.iter().filter(|l| l.name == "notes").collect();
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].folders, ["~/.claude/skills", "~/.agents/skills"]);
@@ -514,10 +615,36 @@ mod tests {
         fs::create_dir_all(other.path().join(".claude")).unwrap();
         fs::create_dir_all(other.path().join(".codex")).unwrap();
         assert!(install(other.path(), "notes", &files).unwrap());
-        let there = scan(other.path());
+        let there = scan(other.path(), &mut Hashes::default());
         assert_eq!(there.listed.len(), 1);
         assert_eq!(there.listed[0].hash, notes[0].hash);
         assert!(!install(other.path(), "notes", &files).unwrap());
+    }
+
+    #[test]
+    fn an_unchanged_folder_is_not_read_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        skill(home, ".claude/skills", "notes", "A\n");
+        let mut hashes = Hashes::default();
+        let first = scan(home, &mut hashes).listed[0].hash.clone();
+        // Same size and time: the hash kept is listed, nothing is read.
+        let file = home.join(".claude/skills/notes/SKILL.md");
+        let at = fs::metadata(&file).unwrap().modified().unwrap();
+        fs::write(&file, "B\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+        assert_eq!(scan(home, &mut hashes).listed[0].hash, first);
+        assert_ne!(scan(home, &mut Hashes::default()).listed[0].hash, first);
+        // A size that changed reads the folder again.
+        fs::write(&file, "edited\n").unwrap();
+        let edited = scan(home, &mut hashes).listed[0].hash.clone();
+        assert_ne!(edited, first);
+        assert_eq!(edited, scan(home, &mut Hashes::default()).listed[0].hash);
     }
 
     #[test]
@@ -527,7 +654,7 @@ mod tests {
         skill(home, ".claude/skills", "style", "kept\n");
         skill(home, ".pi/agent/skills", "style", "edited apart\n");
         skill(home, ".agents/skills", "style", "another\n");
-        let found = scan(home);
+        let found = scan(home, &mut Hashes::default());
         assert_eq!(found.listed.len(), 3);
         let kept = found
             .listed
@@ -542,7 +669,7 @@ mod tests {
             .cloned()
             .collect();
         keep(home, "style", &kept.hash, &old).unwrap();
-        let after = scan(home);
+        let after = scan(home, &mut Hashes::default());
         assert_eq!(after.listed.len(), 1);
         assert_eq!(after.listed[0].hash, kept.hash);
         assert_eq!(after.listed[0].folders.len(), 3);

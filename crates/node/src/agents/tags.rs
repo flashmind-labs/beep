@@ -1,17 +1,22 @@
 //! The tags Beep wraps its own words in when it writes into an agent's
 //! prompt, as Claude Code wraps its `<system-reminder>`s: what Beep tells the
 //! agent (its brief and the user's standing rules) in `<beep-context>`, and
-//! what another session sends in `<from-session id=".." name="..">`. A log
+//! what another session sends in `<from-session id=".." name="..">`, and what
+//! a child said or asks in `<beep-child id=".." name=".." state="..">`. A log
 //! keeps them in a user entry's text and the apps draw each part apart from
 //! the user's own words.
 //!
 //! Prompts from before the tags hold the brief bare; `bare_block` and
 //! `untagged` find it by the strings Beep wrote then.
 
-use super::{checkout::WORKTREE_BRIEF, cut, mcp};
+use super::{
+    checkout::{WORKTREE_BRIEF, WORKTREE_BRIEF_BEFORE},
+    cut, mcp,
+};
 
 const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
+const CHILD: &str = "beep-child";
 /// The most of a context a log entry keeps: the user's words come first.
 const MAX_CONTEXT: usize = 1024;
 
@@ -37,6 +42,14 @@ pub(crate) enum Part<'a> {
         name: String,
         text: &'a str,
     },
+    /// What a child the session started said: it finished a turn or waits
+    /// on the user (`state`).
+    Child {
+        id: String,
+        name: String,
+        state: String,
+        text: &'a str,
+    },
 }
 
 /// `text` as Beep's word to the agent.
@@ -53,12 +66,22 @@ pub(crate) fn from_session(id: &str, name: &str, text: &str) -> String {
     )
 }
 
+/// `text` about the child `id`, called `name`, which is in `state`.
+pub(crate) fn from_child(id: &str, name: &str, state: &str, text: &str) -> String {
+    format!(
+        "<{CHILD} id=\"{}\" name=\"{}\" state=\"{}\">\n{text}\n</{CHILD}>",
+        escape(id),
+        escape(name),
+        escape(state)
+    )
+}
+
 /// The parts of `text`, in order; empty user parts are left out.
 pub(crate) fn parts(text: &str) -> Vec<Part<'_>> {
     let mut parts = Vec::new();
     let mut rest = text;
     loop {
-        let next = [CONTEXT, FROM_SESSION]
+        let next = [CONTEXT, FROM_SESSION, CHILD]
             .into_iter()
             .filter_map(|tag| open_at(rest, tag).map(|at| (at, tag)))
             .min_by_key(|(at, _)| *at);
@@ -80,14 +103,19 @@ pub(crate) fn parts(text: &str) -> Vec<Part<'_>> {
             None => (body, ""),
         };
         let inner = inner.trim();
-        parts.push(if tag == CONTEXT {
-            Part::Context(inner)
-        } else {
-            Part::Session {
+        parts.push(match tag {
+            CONTEXT => Part::Context(inner),
+            CHILD => Part::Child {
+                id: attribute(head, "id"),
+                name: attribute(head, "name"),
+                state: attribute(head, "state"),
+                text: inner,
+            },
+            _ => Part::Session {
                 id: attribute(head, "id"),
                 name: attribute(head, "name"),
                 text: inner,
-            }
+            },
         });
         rest = next_rest;
     }
@@ -101,6 +129,12 @@ pub(crate) fn join(parts: &[Part<'_>]) -> String {
             Part::User(text) => (*text).to_owned(),
             Part::Context(text) => context(&cut(text, MAX_CONTEXT)),
             Part::Session { id, name, text } => from_session(id, name, text),
+            Part::Child {
+                id,
+                name,
+                state,
+                text,
+            } => from_child(id, name, state, text),
         })
         .collect();
     written.join("\n")
@@ -113,7 +147,7 @@ pub(crate) fn said(text: &str) -> String {
     let said: Vec<&str> = parts(&text)
         .into_iter()
         .filter_map(|part| match part {
-            Part::User(text) | Part::Session { text, .. } => Some(text),
+            Part::User(text) | Part::Session { text, .. } | Part::Child { text, .. } => Some(text),
             Part::Context(_) => None,
         })
         .map(|text| text.trim())
@@ -152,7 +186,7 @@ pub(crate) fn untagged(text: &str) -> String {
     if !is_bare(trimmed) {
         return text.to_owned();
     }
-    for end in [mcp::BRIEF, WORKTREE_BRIEF] {
+    for end in [mcp::BRIEF, WORKTREE_BRIEF, WORKTREE_BRIEF_BEFORE] {
         if let Some(at) = trimmed.rfind(end) {
             let (brief, rest) = trimmed.split_at(at + end.len());
             return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
@@ -235,6 +269,28 @@ mod tests {
         );
         let again = join(&parts(&text));
         assert_eq!(parts(&again), parts(&text));
+    }
+
+    #[test]
+    fn a_child_note_reads_back_as_written() {
+        let text = format!(
+            "{}\nand then",
+            from_child(
+                "k1@box",
+                "Fix <it>",
+                "finished",
+                "[child k1@box finished] Done."
+            )
+        );
+        let child = Part::Child {
+            id: "k1@box".into(),
+            name: "Fix <it>".into(),
+            state: "finished".into(),
+            text: "[child k1@box finished] Done.",
+        };
+        assert_eq!(parts(&text), [child.clone(), Part::User("and then")]);
+        assert_eq!(parts(&join(&parts(&text))), parts(&text));
+        assert_eq!(own_words(&text), "and then");
     }
 
     #[test]

@@ -15,6 +15,16 @@ test("each user message opens a turn; the agent text it ends with is its answer"
   ]);
 });
 
+test("the files a turn made after its answer leave the answer in view", () => {
+  const o = (text: string) => ({ kind: "other", text });
+  assert.deepEqual(splitTurns([u("clean up"), t("git pull [completed]"), a("Pulled main."), o("Made 3 files")]), [
+    { key: 0, user: 0, steps: [1], answer: [2, 3] },
+  ]);
+  assert.deepEqual(splitTurns([u("go"), t("ls [completed]"), o("Made a.md")]), [
+    { key: 0, user: 0, steps: [1, 2], answer: [] },
+  ]);
+});
+
 test("a log that starts mid-turn keys that turn by its first entry, in session places", () => {
   assert.deepEqual(splitTurns([t("ls [completed]"), a("ok"), u("next")], 40), [
     { key: 40, user: null, steps: [40], answer: [41] },

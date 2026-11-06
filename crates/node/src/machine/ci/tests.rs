@@ -1,9 +1,10 @@
 use super::{
     Ci,
-    book::Books,
+    book::{self, Books},
+    check::{Answer, CHECK},
     forge::{Forge, Host, Target},
     projects::Project,
-    watcher::{POLL, Watcher, World, watcher_of},
+    watcher::{POLL, QUIET, Watcher, World, watcher_of},
 };
 use anyhow::{Result, bail};
 use beep_proto::{
@@ -11,15 +12,22 @@ use beep_proto::{
     node::tools::{ForgeReach, HostReach},
 };
 use iroh::{EndpointId, SecretKey};
+use reqwest::{
+    StatusCode,
+    header::{HeaderMap, HeaderName, HeaderValue},
+};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     future::pending,
     path::Path,
     sync::{Arc, Mutex, PoisonError},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tempfile::TempDir;
-use tokio::{sync::Notify, time::timeout};
+use tokio::{
+    sync::Notify,
+    time::{sleep, timeout},
+};
 
 const ME: &str = "someone";
 
@@ -47,15 +55,23 @@ fn ids(n: usize) -> Vec<EndpointId> {
     ids
 }
 
+fn forgejo() -> Host {
+    Host::Forgejo {
+        url: "https://git.example.com".into(),
+        name: "git.example.com".into(),
+    }
+}
+
 fn project(machines: &[EndpointId]) -> Project {
+    project_on(machines, forgejo())
+}
+
+fn project_on(machines: &[EndpointId], host: Host) -> Project {
     Project {
         name: "acme/widget".into(),
         target: Target {
             repo: "acme/widget".into(),
-            host: Host::Forgejo {
-                url: "https://git.example.com".into(),
-                name: "git.example.com".into(),
-            },
+            host,
         },
         machines: machines.iter().copied().collect(),
     }
@@ -153,7 +169,8 @@ async fn a_run_seen_going_then_failed_is_told_once_even_after_a_restart() {
             .tell
             .is_empty()
     );
-    books.save(&file).await.expect("saved");
+    let bytes = books.encode().expect("encoded");
+    book::write(&file, &bytes).await.expect("saved");
     let mut again = Books::load(&file).await;
     assert_eq!(again, books);
     assert!(
@@ -193,9 +210,42 @@ struct StandIn {
     runs: Mutex<Vec<WorkflowRun>>,
     lists: Mutex<u32>,
     ended: Notify,
+    /// GitHub's next answers to checks; once they run out, 304s.
+    answers: Mutex<VecDeque<Answer>>,
+    /// The ETag each check sent.
+    checks: Mutex<Vec<Option<String>>>,
+}
+
+/// An answer to a check with `status` and `headers`.
+fn answer(status: u16, headers: &[(&'static str, String)]) -> Answer {
+    let mut map = HeaderMap::new();
+    for (name, value) in headers {
+        map.insert(
+            HeaderName::from_static(name),
+            HeaderValue::from_str(value).expect("a header value"),
+        );
+    }
+    Answer {
+        status: StatusCode::from_u16(status).expect("a status"),
+        headers: map,
+    }
 }
 
 impl StandIn {
+    fn answer(&self, answer: Answer) {
+        self.answers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push_back(answer);
+    }
+
+    fn checks(&self) -> Vec<Option<String>> {
+        self.checks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     fn set(&self, runs: Vec<WorkflowRun>) {
         *self.runs.lock().unwrap_or_else(PoisonError::into_inner) = runs;
     }
@@ -231,10 +281,23 @@ impl Forge for Arc<StandIn> {
         self.ended.notified().await;
         Ok(false)
     }
+
+    async fn check(&self, _: &Target, etag: Option<&str>) -> Result<Option<Answer>> {
+        self.checks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(etag.map(str::to_owned));
+        let next = self
+            .answers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop_front();
+        Ok(Some(next.unwrap_or_else(|| answer(304, &[]))))
+    }
 }
 
-/// A mesh of this machine alone, with the project's checkout.
-struct Alone(EndpointId);
+/// A mesh of this machine alone, with the project's checkout on `Host`.
+struct Alone(EndpointId, Host);
 
 impl World for Alone {
     fn me(&self) -> EndpointId {
@@ -242,7 +305,7 @@ impl World for Alone {
     }
 
     fn projects(&self) -> Vec<Project> {
-        vec![project(&[self.0])]
+        vec![project_on(&[self.0], self.1.clone())]
     }
 
     fn online(&self) -> BTreeSet<EndpointId> {
@@ -256,13 +319,23 @@ impl World for Alone {
     async fn changed(&mut self) -> bool {
         pending().await
     }
+
+    async fn pushed(&self, _: &Project) -> Option<SystemTime> {
+        None
+    }
 }
 
 /// Starts a watcher on `host` keeping `file`, and its hub.
 async fn watcher(host: &Arc<StandIn>, file: &Path) -> Arc<Ci> {
+    watcher_on(host, file, forgejo()).await
+}
+
+/// `watcher` with the project on `on`.
+async fn watcher_on(host: &Arc<StandIn>, file: &Path, on: Host) -> Arc<Ci> {
     let ci = Arc::new(Ci::default());
     let me = ids(1)[0];
-    let watcher = Watcher::start(host.clone(), Alone(me), ci.clone(), file.to_owned()).await;
+    let world = Alone(me, on);
+    let watcher = Watcher::start(host.clone(), world, ci.clone(), file.to_owned()).await;
     tokio::spawn(watcher.run());
     ci
 }
@@ -302,4 +375,90 @@ async fn the_watcher_tells_a_run_once_when_its_wait_ends_and_not_after_a_restart
     let ci = watcher(&host, &file).await;
     let follow = ci.runs.follow(follower);
     assert!(timeout(POLL * 3, follow.next()).await.is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quiet_project_is_listed_every_quiet_period_and_its_file_left_alone() {
+    let dir = TempDir::new().expect("a temp dir");
+    let file = dir.path().join("ci-runs.json");
+    let host = Arc::new(StandIn::default());
+    host.set(vec![run(8, RunState::Failed {}, "someone-else", "push")]);
+    let _ci = watcher(&host, &file).await;
+    polls(1).await;
+    assert_eq!(host.lists(), 1);
+    // Nothing goes: no list until the quiet period is over.
+    tokio::time::sleep(QUIET - POLL * 2).await;
+    assert_eq!(host.lists(), 1);
+    polls(2).await;
+    assert_eq!(host.lists(), 2);
+    // Nothing was told, so nothing was written.
+    assert!(!file.exists());
+    // A run going: listed every minute.
+    host.set(vec![run(9, RunState::Running {}, ME, "push")]);
+    tokio::time::sleep(QUIET).await;
+    let lists = host.lists();
+    polls(3).await;
+    assert!(host.lists() >= lists + 3, "{} lists", host.lists());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_304_lists_nothing_and_a_200_lists_once_and_keeps_its_etag() {
+    let dir = TempDir::new().expect("a temp dir");
+    let host = Arc::new(StandIn::default());
+    host.set(vec![run(8, RunState::Failed {}, "someone-else", "push")]);
+    host.answer(answer(200, &[("etag", "\"a\"".into())]));
+    let _ci = watcher_on(&host, &dir.path().join("ci-runs.json"), Host::GitHub).await;
+    // The first list comes at once, the first check after `CHECK`: it has
+    // no ETag, gets one with a 200, and lists.
+    sleep(CHECK + Duration::from_secs(1)).await;
+    assert_eq!(host.lists(), 2);
+    // 304s list nothing, and each check sends the ETag.
+    sleep(CHECK * 4).await;
+    assert_eq!(host.lists(), 2);
+    let a = Some("\"a\"".to_owned());
+    assert_eq!(
+        host.checks(),
+        [None, a.clone(), a.clone(), a.clone(), a.clone()]
+    );
+    // The runs change: one list, and the new ETag from then on.
+    host.answer(answer(200, &[("etag", "\"b\"".into())]));
+    sleep(CHECK * 2).await;
+    assert_eq!(host.lists(), 3);
+    assert_eq!(host.checks().last(), Some(&Some("\"b\"".into())));
+}
+
+#[tokio::test(start_paused = true)]
+async fn rate_limit_headers_put_the_next_check_off() {
+    let dir = TempDir::new().expect("a temp dir");
+    let host = Arc::new(StandIn::default());
+    host.set(vec![run(8, RunState::Failed {}, "someone-else", "push")]);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("after 1970")
+        .as_secs();
+    host.answer(answer(
+        403,
+        &[
+            ("x-ratelimit-remaining", "0".into()),
+            // Between two ticks of `CHECK`, so the check after is clear.
+            ("x-ratelimit-reset", (now + 30 * 60 + 20).to_string()),
+        ],
+    ));
+    let _ci = watcher_on(&host, &dir.path().join("ci-runs.json"), Host::GitHub).await;
+    sleep(CHECK + Duration::from_secs(1)).await;
+    assert_eq!(host.checks().len(), 1);
+    assert_eq!(host.lists(), 1);
+    // Nothing is asked until the limit resets.
+    sleep(Duration::from_secs(27 * 60)).await;
+    assert_eq!(host.checks().len(), 1);
+    sleep(Duration::from_secs(4 * 60)).await;
+    assert_eq!(host.checks().len(), 2);
+    // Retry-After puts it off too.
+    host.answer(answer(429, &[("retry-after", "300".into())]));
+    sleep(CHECK).await;
+    assert_eq!(host.checks().len(), 3);
+    sleep(Duration::from_secs(240)).await;
+    assert_eq!(host.checks().len(), 3);
+    sleep(Duration::from_secs(90)).await;
+    assert_eq!(host.checks().len(), 4);
 }

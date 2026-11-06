@@ -1,18 +1,24 @@
 //! Where a session works: the git checkout of the folder its agent records,
 //! and whether that is a linked worktree. Asked of git once per folder and
-//! kept for a short while, so a session's updates do not each start git.
+//! kept while its `HEAD` and config files keep their times, so a session's
+//! updates do not each start git.
 
 use super::found::place;
 use beep_proto::node::agent::WorkPlace;
 use std::{
     collections::HashMap,
+    fs,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex, MutexGuard},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
-/// How long an answer is kept: a branch can change under the same folder.
-const KEPT: Duration = Duration::from_secs(20);
+/// How long an answer is kept while its files say nothing changed: a folder
+/// can still move under the same name.
+const KEPT: Duration = Duration::from_secs(10 * 60);
+/// How long a folder in no checkout is taken to be in none: `git init` or
+/// a clone there writes no file this looks at.
+const KEPT_NONE: Duration = Duration::from_secs(60);
 /// The most folders kept; a full cache is emptied.
 const MAX_KEPT: usize = 256;
 
@@ -20,6 +26,8 @@ const MAX_KEPT: usize = 256;
 struct Answer {
     at: Instant,
     place: Option<WorkPlace>,
+    /// The times of the files a branch switch or a new remote writes.
+    stamp: Vec<Option<SystemTime>>,
 }
 
 static CACHE: LazyLock<Mutex<HashMap<PathBuf, Answer>>> = LazyLock::new(Mutex::default);
@@ -30,12 +38,19 @@ static CACHE: LazyLock<Mutex<HashMap<PathBuf, Answer>>> = LazyLock::new(Mutex::d
 pub(crate) fn of_folder(dir: &Path) -> Option<WorkPlace> {
     let dir = existing(dir)?;
     let now = Instant::now();
-    if let Some(answer) = lock().get(&dir)
-        && now.duration_since(answer.at) < KEPT
-    {
-        return answer.place.clone();
+    let kept = lock().get(&dir).and_then(|answer| {
+        let age = now.duration_since(answer.at);
+        let fresh = match &answer.place {
+            Some(place) => age < KEPT && stamp(place) == answer.stamp,
+            None => age < KEPT_NONE,
+        };
+        fresh.then(|| answer.place.clone())
+    });
+    if let Some(place) = kept {
+        return place;
     }
     let found = place(&dir);
+    let stamp = found.as_ref().map(stamp).unwrap_or_default();
     let mut cache = lock();
     if cache.len() >= MAX_KEPT {
         cache.clear();
@@ -45,9 +60,30 @@ pub(crate) fn of_folder(dir: &Path) -> Option<WorkPlace> {
         Answer {
             at: now,
             place: found.clone(),
+            stamp,
         },
     );
     found
+}
+
+/// The modification times of the checkout's `HEAD` and config files, which
+/// git rewrites when the branch or a remote changes. A linked worktree or a
+/// submodule keeps its `HEAD` in the folder its `.git` file names.
+fn stamp(place: &WorkPlace) -> Vec<Option<SystemTime>> {
+    let top = Path::new(&place.folder).join(".git");
+    let git = match fs::read_to_string(&top) {
+        Ok(text) => text
+            .trim()
+            .strip_prefix("gitdir:")
+            .map(|dir| Path::new(&place.folder).join(dir.trim()))
+            .unwrap_or(top),
+        Err(_) => top,
+    };
+    let common = Path::new(&place.main).join(".git");
+    [git.join("HEAD"), git.join("config"), common.join("config")]
+        .iter()
+        .map(|file| fs::metadata(file).and_then(|meta| meta.modified()).ok())
+        .collect()
 }
 
 fn lock() -> MutexGuard<'static, HashMap<PathBuf, Answer>> {
@@ -133,6 +169,11 @@ mod tests {
         assert_eq!(linked.main, repo.to_string_lossy());
         assert_eq!(linked.origin, "https://example.com/org/proj.git");
         assert_eq!(linked.folder, tree.to_string_lossy());
+
+        // A branch switch shows at once, though the answer is kept.
+        run(&tree, &["switch", "-q", "-c", "next"]);
+        let switched = of_folder(&tree).expect("a place");
+        assert_eq!(switched.branch.as_deref(), Some("next"));
     }
 
     #[test]

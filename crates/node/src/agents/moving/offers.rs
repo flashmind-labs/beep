@@ -33,7 +33,7 @@ pub(crate) struct Project {
 /// The folder `project` has on `machine`: from its `sync/<name>` record when
 /// that names the machine, else from the machine's place record. A project
 /// imported on one machine at a time has only the place records.
-pub(super) fn project_folder(mesh: &Mesh, project: &str, machine: &EndpointId) -> Option<String> {
+pub(crate) fn project_folder(mesh: &Mesh, project: &str, machine: &EndpointId) -> Option<String> {
     mesh.get(&Key::Sync(project.to_owned()))
         .and_then(|bytes| SyncSpec::from_bytes(&bytes).ok())
         .and_then(|mut spec| spec.folders.remove(machine))

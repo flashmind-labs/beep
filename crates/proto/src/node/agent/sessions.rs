@@ -273,6 +273,15 @@ pub enum SessionsRequest {
     Reviews {
         session: String,
     },
+    /// Live commands owned by this session, answered with `Processes`.
+    Processes {
+        session: String,
+    },
+    /// Stops only a process still owned by this session, answered with `ProcessStopped`.
+    StopProcess {
+        session: String,
+        pid: u32,
+    },
 }
 
 /// The most paths one `Present` asks about.
@@ -307,6 +316,7 @@ impl SessionsRequest {
             | Self::Present { .. }
             | Self::Review { .. }
             | Self::Reviews { .. }
+            | Self::Processes { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -320,6 +330,7 @@ impl SessionsRequest {
             | Self::DiscardCopy { .. }
             | Self::FollowAlerts {}
             | Self::FollowRuns {}
+            | Self::StopProcess { .. }
             | Self::StartReview { .. } => false,
         }
     }
@@ -482,6 +493,10 @@ pub enum SessionsReply {
     Reviews {
         runs: Vec<ReviewRun>,
     },
+    Processes {
+        processes: Vec<RunningProcess>,
+    },
+    ProcessStopped {},
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by
@@ -628,4 +643,16 @@ pub struct CopyView {
     pub size: u64,
     /// Set for a version that lost: when it was set aside.
     pub lost: Option<u64>,
+}
+
+/// A live command in a coding agent session. Times are Unix seconds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunningProcess {
+    pub pid: u32,
+    pub command: String,
+    pub started_at: u64,
+    #[serde(default)]
+    pub ports: Vec<u16>,
+    #[serde(default)]
+    pub left_group: bool,
 }

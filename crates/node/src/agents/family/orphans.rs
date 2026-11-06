@@ -45,9 +45,10 @@ pub(super) fn orphaned(answer: Parent, silent: &mut Option<Instant>, now: Instan
 }
 
 impl Agents {
-    /// Has `session`, started by a session on another machine, check on its
-    /// parent for as long as it runs.
+    /// Has `session`, a child, tell its parent how it stands, and when the
+    /// parent is on another machine check on it, for as long as it runs.
     pub(in crate::agents) fn watch_parent(&self, session: &Arc<Session>) {
+        self.tell_parent(session);
         let Some(link) = session.info().parent else {
             return;
         };

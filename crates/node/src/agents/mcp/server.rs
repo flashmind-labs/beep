@@ -188,6 +188,7 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
             Tool::Unknown
             | Tool::MachineLog
             | Tool::StandingRules
+            | Tool::AgentNote
             | Tool::Remember
             | Tool::Recall
             | Tool::UpdateMemory
