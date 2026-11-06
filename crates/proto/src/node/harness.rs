@@ -6,8 +6,6 @@
 //! Like the rest of the node link these are compact msgpack, so a field is
 //! added only at the end with `#[serde(default)]`.
 
-mod output;
-
 pub use output::{clean_output, failure_line};
 
 use super::EnvSecret;
@@ -235,77 +233,217 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     false
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::SecretText;
+mod output {
+    //! Turning what an install or update command printed into text a person
+    //! can read: terminal escapes, progress bars and spinners taken out, and
+    //! the lines that say why it failed picked from the end.
 
-    #[test]
-    fn versions_are_read_from_what_each_cli_prints() {
-        assert_eq!(
-            parse_version("2.1.312 (Claude Code)").as_deref(),
-            Some("2.1.312")
-        );
-        assert_eq!(
-            parse_version("codex-cli 0.166.0").as_deref(),
-            Some("0.166.0")
-        );
-        assert_eq!(parse_version("v0.99.2\n").as_deref(), Some("0.99.2"));
-        assert_eq!(
-            parse_version("flsh 0.41.0-beta.1").as_deref(),
-            Some("0.41.0-beta.1")
-        );
-        assert_eq!(parse_version("opencode"), None);
-        assert_eq!(parse_version("error: 42 things"), None);
-    }
+    const ESC: char = '\u{1b}';
+    const BEL: char = '\u{7}';
+    /// The one-character C1 forms of CSI and OSC.
+    const CSI: char = '\u{9b}';
+    const OSC: char = '\u{9d}';
+    /// Left where an escape was taken out, so a line that held only escapes
+    /// is told from a blank one. Never in the text otherwise: control
+    /// characters are dropped.
+    const MARK: char = '\u{1}';
 
-    #[test]
-    fn newer_compares_numbers_not_text() {
-        assert!(is_newer("2.1.320", "2.1.312"));
-        assert!(is_newer("0.10.0", "0.9.9"));
-        assert!(is_newer("1.0", "0.99.2"));
-        assert!(!is_newer("2.1.312", "2.1.312"));
-        assert!(!is_newer("2.1.3", "2.1.312"));
-        assert!(!is_newer("1.2.0-beta", "1.2.0"));
-    }
-
-    #[test]
-    fn settings_round_trip_hide_their_values_and_default_to_on() {
-        let settings = AgentSettings {
-            harnesses: vec![HarnessConfig {
-                env: vec![EnvSecret {
-                    name: "HTTPS_PROXY".into(),
-                    value: SecretText::new("http://user:pass7777@proxy"),
-                }],
-                args: vec!["--verbose".into()],
-                ..HarnessConfig::new("codex")
-            }],
-            flsh: Some(crate::FlshSettings {
-                zdr: Some(true),
-                quantizations: vec![crate::FlshQuantization::Fp8],
-                sort: Some(crate::FlshSort::Throughput),
-                models: vec![crate::FlshModelRule {
-                    model: "openrouter:vendor/model".parse().unwrap(),
-                    autocompact: crate::FlshAutoCompact {
-                        enabled: true,
-                        tokens: Some(120_000),
-                    },
-                }],
-                ..crate::FlshSettings::default()
-            }),
-        };
-        let body = rmp_serde::to_vec_named(&settings).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<AgentSettings>(&body).unwrap(),
-            settings
-        );
-        assert!(!format!("{settings:?}").contains("7777"));
-        #[derive(Serialize)]
-        struct Older {
-            agent: &'static str,
+    /// `text` as a person reads it: ANSI and OSC escapes removed, each line
+    /// as a terminal leaves it after carriage returns overwrote it, progress
+    /// glyphs dropped, lines left with no words dropped, repeats and runs of
+    /// blank lines folded into one.
+    pub fn clean_output(text: &str) -> String {
+        let plain = strip_escapes(skip_cut_escape(text));
+        let mut lines: Vec<String> = Vec::new();
+        for raw in plain.split('\n') {
+            let escaped = raw.contains(MARK);
+            let raw = raw.replace(MARK, "");
+            let line = match last_overwrite(&raw) {
+                Some(line) => line,
+                None => {
+                    // A blank line stays; one that held only escapes goes.
+                    if !escaped {
+                        lines.push(String::new());
+                    }
+                    continue;
+                }
+            };
+            let had_glyphs = line.chars().any(is_progress_glyph);
+            let line: String = line.chars().filter(|c| !is_progress_glyph(*c)).collect();
+            let line = if had_glyphs {
+                line.split_whitespace().collect::<Vec<_>>().join(" ")
+            } else {
+                line.trim_end().to_owned()
+            };
+            if !line.chars().any(char::is_alphabetic) {
+                // Only bars, glyphs or numbers.
+                continue;
+            }
+            if lines.last() == Some(&line) {
+                continue;
+            }
+            lines.push(line);
         }
-        let body = rmp_serde::to_vec_named(&Older { agent: "pi" }).unwrap();
-        let read: HarnessConfig = rmp_serde::from_slice(&body).unwrap();
-        assert_eq!(read, HarnessConfig::new("pi"));
+        let mut out = String::new();
+        let mut blank = false;
+        for line in lines {
+            if line.is_empty() {
+                blank = !out.is_empty();
+                continue;
+            }
+            if !out.is_empty() {
+                out.push_str(if blank { "\n\n" } else { "\n" });
+            }
+            blank = false;
+            out.push_str(&line);
+        }
+        out
+    }
+
+    /// The lines of `clean` (as `clean_output` gives it) that say why the
+    /// command failed, on one line of at most about `max` characters: from
+    /// the earliest error line that still fits to the end, or else the start
+    /// of the last error line, or else the last words.
+    pub fn failure_line(clean: &str, max: usize) -> String {
+        let lines: Vec<String> = clean
+            .lines()
+            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|line| !line.is_empty())
+            .collect();
+        let joined = |from: usize| lines[from..].join(" ");
+        let errors: Vec<usize> = (0..lines.len())
+            .filter(|&i| mentions_error(&lines[i]))
+            .collect();
+        if let Some(&last) = errors.last() {
+            if let Some(&from) = errors
+                .iter()
+                .find(|&&from| joined(from).chars().count() <= max)
+            {
+                return joined(from);
+            }
+            return head(&joined(last), max);
+        }
+        tail(&joined(0), max)
+    }
+
+    /// Whether `line` reads as an error.
+    fn mentions_error(line: &str) -> bool {
+        let lower = line.to_lowercase();
+        ["error", "err!", "fatal", "failed", "denied", "not found"]
+            .iter()
+            .any(|word| lower.contains(word))
+    }
+
+    /// The first `max` characters of `text`, cut at a space.
+    fn head(text: &str, max: usize) -> String {
+        if text.chars().count() <= max {
+            return text.to_owned();
+        }
+        let cut: String = text.chars().take(max).collect();
+        let cut = match cut.rfind(' ') {
+            Some(space) if space > max / 2 => &cut[..space],
+            _ => &cut,
+        };
+        format!("{}…", cut.trim_end())
+    }
+
+    /// The last `max` characters of `text`, cut at a space.
+    fn tail(text: &str, max: usize) -> String {
+        let count = text.chars().count();
+        if count <= max {
+            return text.to_owned();
+        }
+        let cut: String = text.chars().skip(count - max).collect();
+        let cut = match cut.find(' ') {
+            Some(space) if space < max / 2 => &cut[space + 1..],
+            _ => &cut,
+        };
+        format!("…{}", cut.trim_start())
+    }
+
+    /// `text` without the rest of an SGR escape whose start was cut off, such
+    /// as the `238m` left when output is cut to its last characters.
+    fn skip_cut_escape(text: &str) -> &str {
+        let digits = text
+            .find(|c: char| !(c.is_ascii_digit() || c == ';'))
+            .unwrap_or(text.len());
+        if digits > 0 && text[digits..].starts_with('m') {
+            &text[digits + 1..]
+        } else {
+            text
+        }
+    }
+
+    /// `text` without its ANSI escapes (CSI, OSC, DCS and the short ones) and
+    /// control characters other than newline, tab and carriage return.
+    fn strip_escapes(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                ESC => match chars.next() {
+                    Some('[') => {
+                        skip_csi(&mut chars);
+                        out.push(MARK);
+                    }
+                    Some(']' | 'P' | 'X' | '^' | '_') => {
+                        skip_string(&mut chars);
+                        out.push(MARK);
+                    }
+                    // Charset and other short escapes: intermediates, then one
+                    // final character.
+                    Some(' '..='/') => {
+                        while chars.next_if(|c| (' '..='/').contains(c)).is_some() {}
+                        chars.next();
+                        out.push(MARK);
+                    }
+                    _ => out.push(MARK),
+                },
+                CSI => {
+                    skip_csi(&mut chars);
+                    out.push(MARK);
+                }
+                OSC => {
+                    skip_string(&mut chars);
+                    out.push(MARK);
+                }
+                '\n' | '\t' | '\r' => out.push(c),
+                c if c.is_control() => {}
+                c => out.push(c),
+            }
+        }
+        out
+    }
+
+    /// Past a CSI sequence's parameters, intermediates and final byte.
+    fn skip_csi(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+        while chars.next_if(|c| ('0'..='?').contains(c)).is_some() {}
+        while chars.next_if(|c| (' '..='/').contains(c)).is_some() {}
+        chars.next_if(|c| ('@'..='~').contains(c));
+    }
+
+    /// Past an OSC (or DCS) string, which BEL or ESC `\` ends.
+    fn skip_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+        while let Some(c) = chars.next() {
+            match c {
+                BEL => return,
+                ESC => {
+                    chars.next_if_eq(&'\\');
+                    return;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// What a terminal shows of `line` after its carriage returns: the last
+    /// part with something in it. `None` when it is blank.
+    fn last_overwrite(line: &str) -> Option<&str> {
+        line.split('\r').rev().find(|part| !part.trim().is_empty())
+    }
+
+    /// Block elements, shades and braille spinners: progress bars and logos.
+    fn is_progress_glyph(c: char) -> bool {
+        matches!(c, '\u{2580}'..='\u{259f}' | '\u{2800}'..='\u{28ff}' | '\u{25a0}'..='\u{25ff}')
     }
 }

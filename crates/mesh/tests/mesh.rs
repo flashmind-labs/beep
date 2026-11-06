@@ -980,3 +980,257 @@ async fn forgetting_also_removes_a_mesh_folder_from_before_the_move() {
         .expect("the mesh is forgotten");
     assert!(!old.exists());
 }
+
+/// Ticket text, with no network.
+mod tickets {
+    use beep_mesh::{DeviceKind, JoinSecret, JoinTicket, TicketError};
+    use iroh::{EndpointAddr, SecretKey};
+    use iroh_tickets::Ticket;
+
+    fn ticket() -> JoinTicket {
+        let key = SecretKey::generate();
+        JoinTicket {
+            mesh: key.public(),
+            addr: EndpointAddr::new(key.public()),
+            kind: DeviceKind::Node,
+            secret: JoinSecret::generate(),
+            expires_ms: 1_700_000_000_000,
+        }
+    }
+
+    #[test]
+    fn a_ticket_reads_back_from_its_text() {
+        let t = ticket();
+        let text = t.encode_string();
+        assert!(text.starts_with("beepjoin"));
+        let back = JoinTicket::decode_string(&text).unwrap();
+        assert_eq!(back.mesh, t.mesh);
+        assert_eq!(back.addr, t.addr);
+        assert_eq!(back.kind, t.kind);
+        assert_eq!(back.expires_ms, t.expires_ms);
+        assert!(back.secret.verify(&t.secret));
+    }
+
+    #[test]
+    fn an_old_ticket_says_so() {
+        // Postcard-era tickets are `beepjoin` followed by base32.
+        assert_eq!(
+            JoinTicket::parse("beepjoinabcdefghijklmnop").unwrap_err(),
+            TicketError::Old
+        );
+        assert_eq!(
+            JoinTicket::parse("beepjoin2abcdefg").unwrap_err(),
+            TicketError::Old
+        );
+        assert_eq!(
+            JoinTicket::parse("hello").unwrap_err(),
+            TicketError::Unreadable
+        );
+        let text = ticket().encode_string();
+        assert!(JoinTicket::parse(&format!(" {text}\n")).is_ok());
+    }
+
+    #[test]
+    fn a_secret_verifies_only_itself() {
+        let (a, b) = (JoinSecret::generate(), JoinSecret::generate());
+        assert!(a.verify(&a.clone()));
+        assert!(!a.verify(&b));
+    }
+
+    #[test]
+    fn a_ticket_expires_at_its_deadline() {
+        let t = ticket();
+        assert!(!t.expired(t.expires_ms - 1));
+        assert!(t.expired(t.expires_ms));
+    }
+
+    #[test]
+    fn a_tickets_debug_hides_the_secret() {
+        let t = ticket();
+        // The secret is written as `bin`: two header bytes, then the 32 bytes.
+        let encoded = rmp_serde::to_vec(&t.secret).expect("encodes");
+        let secret = &encoded[2..];
+        assert_eq!(secret.len(), 32);
+        let hex: String = secret.iter().map(|b| format!("{b:02x}")).collect();
+        let shown = format!("{t:?} {:?}", t.secret);
+        assert!(!shown.contains(&hex));
+        assert!(!shown.contains(&format!("{secret:?}")));
+    }
+}
+
+/// `PeerClient::local`: the node in this process, no network.
+mod local_client {
+    use beep_mesh::{MeshError, PeerClient, SessionFn};
+    use beep_proto::node::{LinkRx, LinkTx, Open, Opened};
+    use futures::StreamExt;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+    use tokio::time::timeout as within;
+
+    async fn serve(mut tx: LinkTx, mut rx: LinkRx) {
+        let Ok(Some(open)) = rx.recv::<Open>().await else {
+            return;
+        };
+        match open.protocol.as_str() {
+            "echo/1" => {
+                tx.send(&Opened::Ready {}).await.ok();
+                while let Ok(Some(n)) = rx.recv::<u32>().await {
+                    if tx.send(&(n + 1)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            "count/1" => {
+                tx.send(&Opened::Ready {}).await.ok();
+                if let Ok(Some(n)) = rx.recv::<u32>().await {
+                    for i in 0..n {
+                        tx.send(&i).await.ok();
+                    }
+                }
+            }
+            "stall/1" => {
+                tx.send(&Opened::Ready {}).await.ok();
+                rx.recv::<u32>().await.ok();
+                std::future::pending::<()>().await;
+            }
+            other => {
+                let reason = format!("this node does not offer {other}");
+                tx.send(&Opened::Refused { reason }).await.ok();
+            }
+        }
+    }
+
+    /// Sends until the caller is gone, then says so.
+    async fn tick(mut tx: LinkTx, mut rx: LinkRx, gone: UnboundedSender<()>) {
+        if rx.recv::<Open>().await.is_err() {
+            return;
+        }
+        tx.send(&Opened::Ready {}).await.ok();
+        rx.recv::<u32>().await.ok();
+        let mut i = 0u32;
+        while tx.send(&i).await.is_ok() {
+            i = i.wrapping_add(1);
+        }
+        gone.send(()).ok();
+    }
+
+    fn session() -> SessionFn {
+        Arc::new(|tx, rx| Box::pin(serve(tx, rx)))
+    }
+
+    #[tokio::test]
+    async fn dropping_a_local_follow_reaches_the_session() {
+        let (gone, mut gone_rx) = unbounded_channel();
+        let session: SessionFn = Arc::new(move |tx, rx| Box::pin(tick(tx, rx, gone.clone())));
+        let client = PeerClient::local(session);
+        let mut items = Box::pin(
+            client
+                .follow::<u32, u32>("tick/1", &0)
+                .await
+                .expect("opened"),
+        );
+        items.next().await.expect("an item").expect("ok");
+        drop(items);
+        within(Duration::from_secs(60), gone_rx.recv())
+            .await
+            .expect("the session noticed")
+            .expect("signal");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_to_a_stalled_node_gives_up_at_its_limit() {
+        let client = PeerClient::local(session());
+        let start = tokio::time::Instant::now();
+        let limit = Duration::from_secs(5);
+        let reply = within(
+            Duration::from_secs(600),
+            client.call_within::<u32, u32>(limit, "stall/1", &0),
+        )
+        .await
+        .expect("returned by itself");
+        assert!(matches!(reply, Err(MeshError::Link(_))), "{reply:?}");
+        assert!(start.elapsed() >= limit);
+        assert!(start.elapsed() <= limit + Duration::from_millis(2));
+    }
+
+    #[tokio::test]
+    async fn a_local_call_is_answered_without_a_network() {
+        let client = PeerClient::local(session());
+        let reply: u32 = client.call("echo/1", &41u32).await.expect("answered");
+        assert_eq!(reply, 42);
+    }
+
+    #[tokio::test]
+    async fn a_local_follow_yields_every_item_then_ends() {
+        let client = PeerClient::local(session());
+        let items: Vec<u32> = client
+            .follow::<u32, u32>("count/1", &3)
+            .await
+            .expect("opened")
+            .map(|item| item.expect("item"))
+            .collect()
+            .await;
+        assert_eq!(items, [0, 1, 2]);
+    }
+
+    #[tokio::test]
+    async fn a_local_refusal_reads_like_the_nodes() {
+        let client = PeerClient::local(session());
+        let err = client.open("nope/1").await.err().expect("refused");
+        assert_eq!(
+            err.to_string(),
+            "the node refused nope/1: this node does not offer nope/1"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_local_call_costs_under_five_milliseconds() {
+        let client = PeerClient::local(session());
+        let mut fastest = Duration::MAX;
+        for _ in 0..200 {
+            let start = Instant::now();
+            let _: u32 = client.call("echo/1", &1u32).await.expect("answered");
+            fastest = fastest.min(start.elapsed());
+        }
+        eprintln!("fastest local call: {fastest:?}");
+        // The fastest of 200 is steady on a loaded box; 5 ms is far above it.
+        assert!(fastest < Duration::from_millis(5), "{fastest:?}");
+    }
+
+    /// A node that answers `Open` only after it read the request, as a slow
+    /// link makes it look: a call that waits for the answer before sending
+    /// the request never finishes.
+    async fn eager(mut tx: LinkTx, mut rx: LinkRx) {
+        let Ok(Some(_)) = rx.recv::<Open>().await else {
+            return;
+        };
+        let Ok(Some(n)) = rx.recv::<u32>().await else {
+            return;
+        };
+        tx.send(&Opened::Ready {}).await.ok();
+        tx.send(&(n + 1)).await.ok();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_sends_its_request_right_behind_open() {
+        let client = PeerClient::local(Arc::new(|tx, rx| Box::pin(eager(tx, rx))));
+        let reply = client
+            .call_within::<u32, u32>(Duration::from_secs(5), "eager/1", &41)
+            .await;
+        assert_eq!(reply.expect("answered"), 42);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_call_says_why() {
+        let client = PeerClient::local(session());
+        let err = client
+            .call_within::<u32, u32>(Duration::from_secs(5), "nope/1", &1)
+            .await
+            .expect_err("refused");
+        assert_eq!(
+            err.to_string(),
+            "the node refused nope/1: this node does not offer nope/1"
+        );
+    }
+}
