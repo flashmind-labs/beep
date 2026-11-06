@@ -16,4 +16,7 @@ pub mod repo_watch;
 mod shell;
 
 pub use owner_var::github_owner_var;
-pub use shell::{Clip, Shell, ShellOutput, quote};
+pub use shell::{
+    Clip, NO_GIT_SH, NO_GIT_SH_TEXT, Shell, ShellOutput, for_machine, is_windows, posix_on_windows,
+    quote,
+};

@@ -41,12 +41,9 @@ async fn row(fleet: &Fleet, place: &Place) -> GitRow {
         error: None,
     };
     let read = async {
-        let shell = PeerShell(
-            fleet
-                .client(place.machine)
-                .await
-                .map_err(|e| e.to_string())?,
-        );
+        let shell = PeerShell::on(fleet, place.machine)
+            .await
+            .map_err(|e| e.to_string())?;
         read_state(&shell, &place.folder)
             .await
             .map_err(|e| format!("{e:#}"))
@@ -99,7 +96,7 @@ pub async fn project_git_move(
         Placed::Server => None,
     }
     .ok_or_else(|| DesktopError::BadRequest(format!("{name} has no checkout of {project}.")))?;
-    let shell = PeerShell(fleet.client(machine).await?);
+    let shell = PeerShell::on(&fleet, machine).await?;
     run_move(&shell, &place.folder, branch, direction)
         .await
         .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))?;

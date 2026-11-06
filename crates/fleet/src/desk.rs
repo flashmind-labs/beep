@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use beep_mesh::{DeviceStatus, Mesh};
 use beep_projects::{
     imports::{hosts::Hosts, machine::Machine},
+    is_windows,
     model::ForgejoUrl,
     repo_watch::http::HostCalls,
 };
@@ -138,7 +139,8 @@ impl Desk {
         match said {
             Ok((client, said)) => {
                 if said.offers(shell::PROTOCOL) {
-                    machine.shell = Some(Arc::new(PeerShell::new(client.clone())));
+                    let windows = said.env.as_ref().is_some_and(|env| is_windows(&env.os));
+                    machine.shell = Some(Arc::new(PeerShell::new(client.clone(), windows)));
                 }
                 if said.offers(SESSIONS_PROTOCOL) {
                     machine.sessions = Some(Arc::new(PeerFound::new(client)));

@@ -9,6 +9,7 @@ import { noAgentImages, redrawAgentHints } from "./session.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
+import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 
 let pastedCount = 0;
@@ -71,6 +72,11 @@ export function drawAgentAttached() {
   if (S.view === "agent") redrawAgentHints();
 }
 
+/// The thumbnails that failed for a reason other than being gone: failures
+/// in a row, and when to ask again. Not asked again on every poll: each ask
+/// crosses the network, and asking all the time starves the session's reads.
+const failedThumbs = new Map<string, { fails: number; until: number }>();
+
 /// The picture `key` of session `o` as `command` gives it, read from its
 /// machine the first time and kept in `cache`. Only one the machine no longer
 /// has stays gone; anything else tries again.
@@ -79,10 +85,15 @@ function loadOnce(cache: typeof agentImages, command: string, o: OpenAgent, key:
   if (got === undefined) {
     got = invoke<string>(command, { machineId: o.machine_id, session: o.session, key }).then(url => {
       cache.set(key, url);
+      if (cache === agentThumbs) failedThumbs.delete(key);
       return url;
     }, e => {
       if (String(e) === GONE) cache.set(key, null);
       else cache.delete(key);
+      if (cache === agentThumbs && String(e) !== GONE) {
+        const fails = (failedThumbs.get(key)?.fails ?? 0) + 1;
+        failedThumbs.set(key, { fails, until: Date.now() + retryIn(fails) });
+      }
       return null;
     });
     cache.set(key, got);
@@ -96,20 +107,45 @@ export const loadAgentImage = (o: OpenAgent, key: string) => loadOnce(agentImage
 /// copies, as the tile itself may show a thumbnail. Null when it cannot be read.
 export const fullPic = (o: OpenAgent, img: HTMLImageElement) => img.dataset.key ? loadAgentImage(o, img.dataset.key) : Promise.resolve(img.src);
 
-/// Fills the session pictures drawn before their bytes were here.
+/// A picture of `key` already here: whole, or its thumbnail.
+function picHere(key: string) {
+  const whole = agentImages.get(key), thumb = agentThumbs.get(key);
+  return typeof whole === "string" ? whole : typeof thumb === "string" ? thumb : null;
+}
+
+let refill: ReturnType<typeof setTimeout> | undefined;
+
+/// Fills the session pictures drawn without their bytes (all those read by
+/// key): from what is here at once, else read from the machine. One that
+/// failed is asked for again once its wait is over, not on every draw.
 export function fillAgentPics(b: HTMLElement) {
   const o = AG.open;
   if (!o) return;
+  let wait = Infinity;
   for (const img of b.querySelectorAll<HTMLImageElement>("img.pic[data-key]:not([src])")) {
-    loadOnce(agentThumbs, "agent_thumb", o, img.dataset.key!).then(url => {
-      if (url) img.src = url;
-      else if (img.isConnected && agentThumbs.get(img.dataset.key!) === null) img.replaceWith(h(gonePic(img.alt)));
+    const key = img.dataset.key!, here = picHere(key);
+    if (here) { img.src = here; continue; }
+    const until = failedThumbs.get(key)?.until ?? 0;
+    if (until > Date.now()) { wait = Math.min(wait, until - Date.now()); continue; }
+    loadOnce(agentThumbs, "agent_thumb", o, key).then(url => {
+      if (!b.isConnected || AG.open !== o) return;
+      // The row may have been drawn again meanwhile: fill the tiles there now.
+      for (const tile of b.querySelectorAll<HTMLImageElement>(`img.pic[data-key="${key}"]:not([src])`)) {
+        if (url) tile.src = url;
+        else if (agentThumbs.get(key) === null) tile.replaceWith(h(gonePic(tile.alt)));
+      }
+      const failed = failedThumbs.get(key);
+      if (!url && failed) fillLater(b, failed.until - Date.now());
     });
   }
+  if (wait < Infinity) fillLater(b, wait);
 }
 
-/// A session picture that is not here: its icon and name.
-export const gonePic = (label: string) => `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
+/// Fills the pictures again in `ms`, for those that failed.
+function fillLater(b: HTMLElement, ms: number) {
+  clearTimeout(refill);
+  refill = setTimeout(() => { if (b.isConnected && AG.open) fillAgentPics(b); }, Math.max(0, ms));
+}
 
 /// The images a message sent from here carried, under the keys the log
 /// will name them by, so they show without asking the machine.

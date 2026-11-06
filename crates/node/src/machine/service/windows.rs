@@ -255,7 +255,7 @@ fn task_xml(launch: &Launch, user: &str, conhost: &Path, log: &Path) -> String {
 
 /// `path` without the `\\?\` prefix `canonicalize` adds, which some
 /// programs do not take.
-fn plain(path: &Path) -> String {
+pub(crate) fn plain(path: &Path) -> String {
     let text = path.display().to_string();
     match text.strip_prefix(r"\\?\") {
         Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest.to_owned(),

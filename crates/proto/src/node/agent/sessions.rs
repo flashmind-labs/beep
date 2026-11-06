@@ -236,6 +236,13 @@ pub enum SessionsRequest {
         session: String,
         lost: Option<u64>,
     },
+    /// `Image` made small on the node, so a remote log's picture does not
+    /// cross the network whole. Answered as `Image` is; a node from before
+    /// it closes the stream.
+    Thumb {
+        session: String,
+        key: String,
+    },
 }
 
 impl SessionsRequest {
@@ -251,6 +258,7 @@ impl SessionsRequest {
             | Self::Folders { .. }
             | Self::InFolders { .. }
             | Self::Image { .. }
+            | Self::Thumb { .. }
             | Self::Models { .. }
             | Self::Harnesses { .. }
             | Self::File { .. }

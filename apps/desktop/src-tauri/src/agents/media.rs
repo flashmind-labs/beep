@@ -52,18 +52,23 @@ pub async fn agent_thumb(
     session: String,
     key: String,
 ) -> Result<String> {
-    // A remote picture crosses the network whole and is made small here.
+    // The machine makes it small; one from before that sends it whole, and
+    // it is made small here.
     if let Some(machine) = fleet.member(&machine_id) {
         let request = GetAgentImage {
             machine_id,
             session,
             key,
         };
-        let image = direct::image(&fleet, machine, &request).await;
-        return picture_url(match image {
-            Ok(image) => Ok(small(image).await),
+        let image = match direct::thumb(&fleet, machine, &request).await {
+            Ok(None) => match direct::image(&fleet, machine, &request).await {
+                Ok(image) => Ok(small(image).await),
+                Err(e) => Err(e),
+            },
+            Ok(Some(thumb)) => Ok(thumb),
             Err(e) => Err(e),
-        });
+        };
+        return picture_url(image);
     }
     let thumb = beep
         .call(GetAgentThumb {

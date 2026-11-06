@@ -7,6 +7,7 @@ use super::{
 };
 use crate::agents::claude::Excerpt;
 use anyhow::{Context, Result};
+use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, SessionsReply, SessionsRequest},
@@ -159,20 +160,17 @@ pub async fn serve_sessions(
         SessionsRequest::FollowUsage { history } => {
             return send_usage(tx, rx, &agents, history).await;
         }
-        SessionsRequest::Image { session, key } => match agents.image(&session, &key).await {
-            Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
-                mime: picture.mime.clone(),
-                data: picture.data.clone(),
-            },
-            Ok(Some(_)) => SessionsReply::Error {
-                message: format!("image {key} is too large to send"),
-            },
-            Ok(None) => SessionsReply::Error {
-                message: format!("session {session} has no image {key}"),
-            },
-            Err(e) => SessionsReply::Error {
-                message: format!("could not read session {session}: {e:#}"),
-            },
+        SessionsRequest::Image { session, key } => image_reply(&agents, &session, &key).await,
+        SessionsRequest::Thumb { session, key } => match image_reply(&agents, &session, &key).await
+        {
+            SessionsReply::Image { mime, data } => {
+                let small = thumb_of(Picture { mime, data }).await;
+                SessionsReply::Image {
+                    mime: small.mime,
+                    data: small.data,
+                }
+            }
+            other => other,
         },
         SessionsRequest::File { path, offset } => {
             match agents.reachable(&path, reach::Access::Read).await {
@@ -494,6 +492,25 @@ async fn send_usage(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents, history: bo
                 _ => return Ok(()),
             },
         }
+    }
+}
+
+/// The picture `key` of `session` as `Image` answers it.
+async fn image_reply(agents: &Agents, session: &str, key: &str) -> SessionsReply {
+    match agents.image(session, key).await {
+        Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
+            mime: picture.mime.clone(),
+            data: picture.data.clone(),
+        },
+        Ok(Some(_)) => SessionsReply::Error {
+            message: format!("image {key} is too large to send"),
+        },
+        Ok(None) => SessionsReply::Error {
+            message: format!("session {session} has no image {key}"),
+        },
+        Err(e) => SessionsReply::Error {
+            message: format!("could not read session {session}: {e:#}"),
+        },
     }
 }
 

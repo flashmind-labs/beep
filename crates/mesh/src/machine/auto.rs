@@ -328,7 +328,12 @@ pub async fn pick(
 /// Whether `folder` is on the machine. Unasked, a folder under another system's home root is missing.
 async fn has_folder(at: usize, auto: &AutoHost, folder: &str) -> (usize, bool) {
     let home = auto.host.home.as_deref();
-    let Some(command) = folder_test(folder) else {
+    let command = if home.is_some_and(windows_home) {
+        Some(windows_folder_test(folder))
+    } else {
+        folder_test(folder)
+    };
+    let Some(command) = command else {
         return (at, plausible(folder, home));
     };
     let asked = timeout(NODE_LIMIT, exec(&auto.client, &command, NODE_LIMIT)).await;
@@ -357,6 +362,38 @@ pub fn folder_test(folder: &str) -> Option<String> {
         quoted(folder)?
     };
     Some(format!("test -d {path}"))
+}
+
+/// Whether `home` is a Windows folder, whose node runs commands in PowerShell.
+fn windows_home(home: &str) -> bool {
+    home.as_bytes().get(1) == Some(&b':') || home.starts_with(r"\\")
+}
+
+/// The PowerShell form of [`folder_test`]: fails when `folder` is no folder. It sets the code
+/// rather than calling `exit`, which would end the node's shell.
+fn windows_folder_test(folder: &str) -> String {
+    // Every quote that ends a single-quoted PowerShell string is doubled.
+    let literal = |text: &str| {
+        let mut quoted = String::from("'");
+        for c in text.chars() {
+            if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
+                quoted.push(c);
+            }
+            quoted.push(c);
+        }
+        quoted.push('\'');
+        quoted
+    };
+    let path = if folder == "~" {
+        "$HOME".to_owned()
+    } else if let Some(rest) = folder.strip_prefix("~/") {
+        format!("(Join-Path $HOME {})", literal(rest))
+    } else {
+        literal(folder)
+    };
+    format!(
+        "if (-not (Test-Path -LiteralPath {path} -PathType Container)) {{ $global:LASTEXITCODE = 1 }}"
+    )
 }
 
 /// Whether `folder` could be on a machine whose home is `home`.
@@ -488,6 +525,16 @@ mod tests {
             Some("test -d \"$HOME\"/code/app")
         );
         assert_eq!(folder_test("~").as_deref(), Some("test -d \"$HOME\""));
+    }
+
+    #[test]
+    fn windows_folder_tests_run_in_powershell() {
+        assert!(windows_home(r"C:\Users\me") && !windows_home("/Users/me"));
+        assert_eq!(
+            windows_folder_test(r"C:\it's"),
+            r"if (-not (Test-Path -LiteralPath 'C:\it''s' -PathType Container)) { $global:LASTEXITCODE = 1 }"
+        );
+        assert!(windows_folder_test("~/code").contains("(Join-Path $HOME 'code')"));
     }
 
     #[test]
