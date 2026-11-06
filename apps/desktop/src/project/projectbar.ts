@@ -10,31 +10,35 @@ export interface BarHost {
   agents: readonly string[];
 }
 
-/// Where a start from the bar runs: the machine and the project's folder
-/// there; `auto` when the bar picked the machine itself.
+/// Where a start from the bar runs: the machine and the project's folder there.
 export interface BarPlace {
   machine_id: string;
   machine_name: string;
   cwd: string;
-  auto: boolean;
 }
 
-/// Where the bar starts: on `machine` (a machine id, or "auto") at the
-/// project's checkout there.
+const byName = (a: BarHost, b: BarHost) => a.machine_name.localeCompare(b.machine_name);
+
+/// Where the bar starts: on `machine` while it has a checkout and an agent,
+/// else on the first such machine by name; null when none has.
 export function barPlace(places: readonly { machine: string; cwd: string }[], hosts: readonly BarHost[], machine: string): BarPlace | null {
-  const able = hosts.filter(h => h.agents.length && places.some(p => p.machine === h.machine_id));
-  const host = machine === "auto"
-    ? [...able].sort((a, b) => a.machine_name.localeCompare(b.machine_name))[0]
-    : able.find(h => h.machine_id === machine);
+  const able = hosts.filter(h => h.agents.length && places.some(p => p.machine === h.machine_id)).sort(byName);
+  const host = able.find(h => h.machine_id === machine) ?? able[0];
   const cwd = host && places.find(p => p.machine === host.machine_id)?.cwd;
   if (!host || !cwd) return null;
-  return { machine_id: host.machine_id, machine_name: host.machine_name, cwd, auto: machine === "auto" };
+  return { machine_id: host.machine_id, machine_name: host.machine_name, cwd };
 }
 
-/// What the bar's field asks for: a task, or a machine and folder first
-/// when the project has no checkout an agent can run in.
+/// The machines a project with no checkout an agent can run in can be added
+/// to: those with a coding agent, by name.
+export function addHosts<T extends BarHost>(hosts: readonly T[]): T[] {
+  return hosts.filter(h => h.agents.length).sort(byName);
+}
+
+/// What the bar's field asks for: a task, or adding the project to a machine
+/// first when it has no checkout an agent can run in.
 export function barPrompt(name: string, ready: boolean) {
-  return ready ? `Describe a task for a coding agent in ${name}` : `Pick a machine and folder for ${name}`;
+  return ready ? `Describe a task for a coding agent in ${name}` : `Add ${name} to a machine to start an agent`;
 }
 
 /// The Folder pill: what the start works on, and what it starts from.

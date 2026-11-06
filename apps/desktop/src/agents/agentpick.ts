@@ -17,7 +17,7 @@ export interface RailItem {
 }
 
 /// The rail for `offered`, the harnesses the picked machine has (any
-/// machine's on Auto), with `everywhere` the harnesses any machine has.
+/// machine's before one is picked), with `everywhere` the harnesses any machine has.
 export function railOf(offered: readonly string[], everywhere: readonly string[]): RailItem[] {
   const extra = everywhere.filter(a => !RAIL.includes(a));
   return [...RAIL, ...extra].map(agent => ({ agent, enabled: offered.includes(agent) }));
@@ -117,7 +117,7 @@ export interface MachineRow {
   enabled: boolean;
 }
 
-/// The Machine menu after Auto: each machine that can run an agent, then online
+/// The Machine menu: each machine that can run an agent, then online
 /// ones without any, then offline ones, each by name.
 export function machineRows(
   hosts: readonly { machine_id: string; machine_name: string; agents: string[] }[],
@@ -270,8 +270,8 @@ export interface ProjectFolder {
   shown: string;
 }
 
-/// The projects checked out on `machine`, each at its folder there; on
-/// Auto (`machine` null) each at its first folder written under `~`, which
+/// The projects checked out on `machine`, each at its folder there; with
+/// none picked (`machine` null) each at its first folder written under `~`, which
 /// each machine reads as its own home.
 export function projectFolders(projects: readonly FormProject[], machine: string | null, home: string | null | undefined): ProjectFolder[] {
   return projects.flatMap(p => {
@@ -282,8 +282,8 @@ export function projectFolders(projects: readonly FormProject[], machine: string
   });
 }
 
-/// The project whose checkout `cwd` is on `machine` (any machine on
-/// Auto), if any.
+/// The project whose checkout `cwd` is on `machine` (any machine with
+/// none picked), if any.
 export function projectAt(projects: readonly FormProject[], machine: string | null, cwd: string): FormProject | null {
   const at = trimmed(cwd.trim());
   if (!at) return null;
