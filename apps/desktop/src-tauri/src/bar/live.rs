@@ -60,10 +60,12 @@ pub fn hold_notice(voice: Live<'_>, id: u64, held: bool) {
     voice.hold_card(id, held);
 }
 
-/// Puts the orb's window at `width` by `height`, kept in the top right.
+/// Puts the orb's window at `width` by `height` of its page, zoomed, kept
+/// in the top right.
 #[tauri::command]
-pub fn fit_orb(app: AppHandle, width: f64, height: f64) -> Result<()> {
-    Ok(orb::fit(&app, width, height)?)
+pub fn fit_orb(app: AppHandle, beep: Service<'_>, width: f64, height: f64) -> Result<()> {
+    let zoom = beep.zoom().factor();
+    Ok(orb::fit(&app, width * zoom, height * zoom)?)
 }
 
 /// A tap in the live view: interrupts Beep, or leaves while listening.

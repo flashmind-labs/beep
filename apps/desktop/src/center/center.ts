@@ -1,6 +1,7 @@
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/loopclock.ts";
+import "../ui/zoom.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";

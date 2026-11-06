@@ -30,6 +30,10 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "tap ⌥", does: "Start live mode, in the open bar", needs: "live" },
     { keys: "hold ⌥", does: "Talk while held", needs: "live" },
   ] },
+  { title: "General", rows: [
+    { keys: "⌘= ⌘-", does: "Zoom in, out" },
+    { keys: "⌘0", does: "Actual size" },
+  ] },
   { title: "Window", rows: [
     { keys: "⌘K", does: "Search" },
     { keys: "⌘,", does: "Settings" },

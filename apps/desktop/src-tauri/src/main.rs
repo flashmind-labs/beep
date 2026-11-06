@@ -83,6 +83,7 @@ fn main() {
             }
         })
         .setup(|app| Ok(setup(app)?))
+        .on_page_load(|webview, _| bar::zoom::on_load(webview))
         .on_window_event(|window, event| match event {
             // Only the bar is a popover; the other windows stay put. Live
             // mode goes on in the orb, so the microphone never runs unseen.
@@ -214,6 +215,8 @@ fn main() {
             bar::window::hide_bar,
             bar::window::resize_bar,
             bar::window::show_bar,
+            bar::zoom::set_zoom_level,
+            bar::zoom::zoom_level,
             beep::devices::invite_phone,
             beep::devices::join_account,
             beep::devices::list_devices,
@@ -546,6 +549,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         chats,
     );
     app.manage(beep.clone());
+    bar::zoom::apply_saved(&handle, &beep);
     // This Mac's node, and the mesh it is in, which opens in the background.
     let machine = machines::this_mac::Machine::new(&dir.join("node"), beep.linked());
     let fleet = Arc::new(Fleet::new(
