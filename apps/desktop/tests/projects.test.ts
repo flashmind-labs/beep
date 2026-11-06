@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { awaitsView, foundFor, mergeProjects, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy } from "../src/project/projects-state.ts";
+import { awaitsView, foundFor, mergeProjects, plainPath, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy } from "../src/project/projects-state.ts";
 import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
 
 const imported = [
@@ -211,4 +211,10 @@ test("a repository's found checkout matches whatever the case of its name", () =
   assert.equal(foundFor([row], "org/app"), row);
   assert.equal(foundFor([row], "org/other"), null);
   assert.equal(foundFor(null, "org/app"), null);
+});
+
+test("a Windows folder shows without its verbatim prefix", () => {
+  assert.equal(plainPath("\\\\?\\C:\\Users\\me\\games"), "C:\\Users\\me\\games");
+  assert.equal(plainPath("\\\\?\\UNC\\nas\\share"), "\\\\nas\\share");
+  assert.equal(plainPath("/Users/me/code"), "/Users/me/code");
 });

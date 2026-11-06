@@ -7,7 +7,7 @@ import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectlo
 import { invoke } from "../ui/tauri.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
 import { foundRow } from "../addproject/addproject.ts";
-import { foundFor, withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { foundFor, plainPath, withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
@@ -266,8 +266,9 @@ export function whereRow(p: Project, m: WhereRow) {
     const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }));
     const copy = copyButton(path, "Copy path", "dbtn quiet small");
     const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path }).catch(e => console.warn("open folder:", e))) : null;
-    const folder = h("span", "nm", h("span", "os", path));
-    folder.title = path;
+    const shown = plainPath(path);
+    const folder = h("span", "nm", h("span", "os", shown));
+    folder.title = shown;
     const moving = machineSync(m.id, state.sync.filter(s => s.project === p.name));
     const said = moving ? (moving.pct == null ? "Scanning" : `Syncing ${moving.pct}%`) : copies.get(`${p.name}\n${m.id}`)?.state === "already" ? "Already here" : "";
     if (said) folder.append(" ", h("small", "", said));
