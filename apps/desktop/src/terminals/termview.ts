@@ -3,6 +3,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { leavesTerminal } from "../agentpane/media-state.ts";
+import { wordKeyBytes } from "./keys-state.ts";
 import type { Screen } from "./terminals.ts";
 
 /// The terminal's colours, as the mock's terminal pane.
@@ -33,6 +34,13 @@ export function makeScreen(): Screen {
   // Set by a pane's terminal: Esc leaves it instead of reaching the shell.
   let escape: (() => void) | null = null;
   term.attachCustomKeyEventHandler(e => {
+    if (e.type === "keydown" && !e.isComposing) {
+      const bytes = wordKeyBytes(e);
+      if (bytes) {
+        term.input(bytes, true);
+        return false;
+      }
+    }
     if (e.type !== "keydown" || !escape || !leavesTerminal(e, term.buffer.active.type)) return true;
     escape();
     return false;
