@@ -850,4 +850,45 @@ pub(super) mod tests {
             ]
         );
     }
+
+    #[test]
+    fn a_long_transcript_reads_its_newest_page_first_then_pages_back() {
+        let folder = tempfile::tempdir().expect("a temp folder");
+        let path = folder.path().join("b7e2d4.jsonl");
+        let turns = 500;
+        let lines: Vec<String> = (0..turns)
+            .flat_map(|turn| {
+                let id = format!("t{turn}");
+                [
+                    serde_json::json!({"type": "user", "message": {"role": "user", "content": format!("prompt {turn}")}}),
+                    serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": id, "name": "Bash", "input": {"command": "cargo test"}}]}}),
+                    serde_json::json!({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id, "content": "ok", "is_error": false}]}}),
+                    serde_json::json!({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": format!("done {turn}")}]}}),
+                ]
+            })
+            .map(|line| line.to_string())
+            .collect();
+        fs::write(&path, lines.join("\n") + "\n").expect("a transcript");
+        let kept = Memo::new(2);
+
+        let newest = entries(&path, 200, None, &kept).expect("read");
+        assert_eq!(newest.entries.len(), 200);
+        let total = newest.earlier + 200;
+        assert_eq!(
+            newest.entries.last().map(|e| e.text.as_str()),
+            Some(format!("done {}", turns - 1).as_str())
+        );
+
+        let mut before = newest.earlier;
+        let mut pages = 1;
+        while before > 0 {
+            let page = entries(&path, 200, Some(before), &kept).expect("read");
+            assert_eq!(page.earlier + page.entries.len() as u64, before);
+            before = page.earlier;
+            pages += 1;
+        }
+        assert_eq!(pages, total.div_ceil(200));
+        let first = entries(&path, 1, Some(1), &kept).expect("read");
+        assert_eq!(first.entries[0].text, "prompt 0");
+    }
 }
