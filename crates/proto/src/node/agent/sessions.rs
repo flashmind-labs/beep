@@ -1,9 +1,11 @@
-//! The `agents/1` protocol: one request, one reply, about all the sessions.
+//! The `agents/1` protocol: one request, one reply, about all the sessions,
+//! and the names of the protocols each agent speaks.
 
 use super::{
-    Activity, CopyView, Entry, ExternalSession, LiveStatus, ModelList, MoveProgress, Question,
-    SessionFolder, SessionInfo, Steer, StopReason,
+    Activity, Entry, ExternalSession, LiveStatus, ModelList, Question, SessionFolder, SessionInfo,
+    Steer, StopReason,
 };
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 
 /// What the server sends on an `agents/1` stream: one request, one reply.
@@ -489,6 +491,82 @@ pub enum AlertKind {
     Failed { reason: String },
 }
 
+/// The version every agent protocol shares.
+const VERSION: &str = "1";
+
+/// Lists sessions and reads transcripts.
+pub const SESSIONS_PROTOCOL: &str = "agents/1";
+
+/// The protocol for the agent `name`, such as `claude/1`.
+pub fn protocol(name: &str) -> String {
+    format!("{name}/{VERSION}")
+}
+
+/// The agent a protocol name serves, such as `claude` for `claude/1`.
+pub fn agent_of(protocol: &str) -> Option<&str> {
+    let (name, version) = protocol.split_once('/')?;
+    (version == VERSION && crate::node::harness::harness(name).is_some()).then_some(name)
+}
+
+/// A step of a move, in order.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MovePhase {
+    /// The source still runs the turn, or cannot be reached.
+    #[default]
+    Waiting,
+    /// The conversation is being copied.
+    Conversation,
+    /// The project's files are being brought in line.
+    Files,
+    /// The session is starting here.
+    Resuming,
+    /// The session runs here.
+    Done,
+    /// The move failed; the session stays where it was.
+    Failed,
+    /// The record was deleted before the session resumed here.
+    Cancelled,
+}
+
+/// What `SessionsRequest::MoveProgress` answers.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MoveProgress {
+    pub phase: MovePhase,
+    /// Bytes of the conversation copied, and the source's size when known.
+    pub copied: u64,
+    pub total: u64,
+    /// Files of the project not here yet.
+    pub files_left: u64,
+    /// The source cannot be reached now.
+    pub source_away: bool,
+    /// Why it failed, when it did.
+    pub reason: Option<String>,
+}
+
+/// A session of another machine that this node keeps a copy of
+/// (`SessionsRequest::Copies`), or a version of a session that lost to
+/// another machine's after both were continued.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopyView {
+    pub agent: String,
+    /// The agent's own id for the session.
+    pub id: String,
+    /// The machine that ran it (this one, for a version that lost).
+    pub from: EndpointId,
+    /// The project, by the name `sync/<name>` has.
+    pub project: String,
+    /// The folder it ran in, relative to the project's checkout.
+    pub path: String,
+    /// Unix seconds: its last activity, and when the copy was last brought
+    /// up to date.
+    pub last_activity: u64,
+    pub fetched_at: u64,
+    pub size: u64,
+    /// Set for a version that lost: when it was set aside.
+    pub lost: Option<u64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;
@@ -883,5 +961,21 @@ mod tests {
             rmp_serde::from_slice::<Entry>(&body).unwrap(),
             Entry::new(EntryKind::User, "hi".into())
         );
+    }
+
+    #[test]
+    fn protocols_name_their_agent() {
+        assert_eq!(protocol("claude"), "claude/1");
+        assert_eq!(agent_of("codex/1"), Some("codex"));
+        assert_eq!(agent_of("shell/1"), None);
+        assert_eq!(agent_of("files/1"), None);
+        assert_eq!(agent_of("process/1"), None);
+        assert_eq!(agent_of(crate::node::sync::PROTOCOL), None);
+        assert_eq!(agent_of(crate::node::terminal::PROTOCOL), None);
+        assert_eq!(agent_of(crate::node::transfer::PROTOCOL), None);
+        assert_eq!(agent_of(crate::node::tool_update::PROTOCOL), None);
+        assert_eq!(agent_of(crate::node::update::PROTOCOL), None);
+        assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
+        assert_eq!(agent_of("claude/2"), None);
     }
 }

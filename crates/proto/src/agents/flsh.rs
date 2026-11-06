@@ -17,14 +17,14 @@ pub use flashmind_types::Model as FlshModel;
 
 /// The fewest tokens a compaction threshold may be: below it flsh would
 /// compact on every turn.
-pub const MIN_COMPACT_TOKENS: u32 = 1_000;
+const MIN_COMPACT_TOKENS: u32 = 1_000;
 /// The most tokens a compaction threshold may be; no model's window is
 /// larger.
-pub const MAX_COMPACT_TOKENS: u32 = 10_000_000;
+const MAX_COMPACT_TOKENS: u32 = 10_000_000;
 /// The most per-model compaction rules.
-pub const MAX_MODEL_RULES: usize = 64;
+const MAX_MODEL_RULES: usize = 64;
 /// The longest model name in a rule.
-pub const MAX_MODEL_LEN: usize = 200;
+const MAX_MODEL_LEN: usize = 200;
 
 wire_structs! {
     /// flsh's settings as the user set them in Beep.

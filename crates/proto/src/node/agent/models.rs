@@ -16,7 +16,7 @@ pub struct ModelList {
 }
 
 /// The longest model id a start may name.
-pub const MAX_MODEL: usize = 200;
+const MAX_MODEL: usize = 200;
 
 /// How hard a coding agent thinks. Its name is the value each agent's ACP
 /// adapter takes on its config option of category `thought_level`.
