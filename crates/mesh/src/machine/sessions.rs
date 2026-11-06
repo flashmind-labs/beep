@@ -320,6 +320,19 @@ fn file_reply(reply: SessionsReply) -> Result<NodeFile, MeshError> {
     }
 }
 
+/// Whether each of `paths` is on the node, in order; `None` from a node
+/// from before the question.
+pub async fn present<S: Sessions + ?Sized>(
+    node: &S,
+    paths: Vec<String>,
+) -> Result<Option<Vec<bool>>, MeshError> {
+    match ask(node, SessionsRequest::Present { paths }).await? {
+        SessionsReply::Present { present } => Ok(Some(present)),
+        SessionsReply::Error { .. } => Ok(None),
+        other => Err(unexpected(&other)),
+    }
+}
+
 /// The folder `path` inside the session folder `root` on the node.
 pub async fn folder<S: Sessions + ?Sized>(
     node: &S,

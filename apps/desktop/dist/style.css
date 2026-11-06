@@ -720,6 +720,8 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agart .t small { font: 11px var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .agart .r { flex: none; display: grid; justify-items: end; font-size: 11px; color: var(--muted) } .agart .r small { color: var(--dim) }
 .agart .pub { font-size: 10.5px; color: var(--accent) }
+.agart .k.pdf { color: var(--err) }
+.agart.gone .k, .agart.gone .t, .agart.gone .r > span:not(.pub) { opacity: .5 }
 .agartshow { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto }
 .agartframe-box { flex: 1; min-height: 0; display: flex; background: #fff }
 .agartframe { flex: 1; border: 0; background: #fff }

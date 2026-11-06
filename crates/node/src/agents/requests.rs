@@ -328,6 +328,15 @@ pub async fn serve_sessions(
                 Err(e) => failed(e),
             }
         }
+        SessionsRequest::Present { mut paths } => {
+            paths.truncate(agent::MAX_PRESENT_PATHS);
+            match spawn_blocking(move || media_file::present(&paths, dirs::home_dir().as_deref()))
+                .await
+            {
+                Ok(present) => SessionsReply::Present { present },
+                Err(e) => failed(e),
+            }
+        }
         other => SessionsReply::Error {
             message: format!("this node does not serve {other:?}"),
         },

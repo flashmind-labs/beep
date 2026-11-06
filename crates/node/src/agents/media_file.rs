@@ -5,6 +5,7 @@
 use anyhow::{Context, Result, bail};
 use beep_proto::{AGENT_FILE_CHUNK, MAX_AGENT_FILE, media_mime};
 use std::{
+    fs,
     io::{ErrorKind, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
@@ -68,6 +69,22 @@ pub(super) fn resolve(path: &str, home: Option<&Path>) -> Result<PathBuf> {
         bail!("{path} is not an absolute path or one starting ~/");
     }
     Ok(full.to_path_buf())
+}
+
+/// Whether each of `paths` is there. Only a path known to be missing
+/// counts as gone: one that cannot be looked at, or named wrongly, does
+/// not. Blocks.
+pub(super) fn present(paths: &[String], home: Option<&Path>) -> Vec<bool> {
+    paths
+        .iter()
+        .map(|path| match resolve(path, home) {
+            Ok(full) => match fs::symlink_metadata(full) {
+                Ok(_) => true,
+                Err(e) => e.kind() != ErrorKind::NotFound,
+            },
+            Err(_) => true,
+        })
+        .collect()
 }
 
 #[cfg(test)]

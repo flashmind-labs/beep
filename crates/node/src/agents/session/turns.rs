@@ -8,7 +8,8 @@ use crate::agents::{
     acp::{self, Prompt},
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd},
     image_files,
-    live::{TurnFiles, TurnTokens, cut},
+    live::{TurnFiles, TurnMade, TurnTokens, cut},
+    made_files,
 };
 use agent_client_protocol::{
     Agent, ConnectionTo,
@@ -134,6 +135,7 @@ impl Actor {
             });
         }
         let mut files = None;
+        let mut made = None;
         self.live.send_modify(|live| {
             live.end_thought(Instant::now());
             live.info.turns += 1;
@@ -144,9 +146,13 @@ impl Actor {
             state.summary.clear();
             state.error = error;
             files = live.turn_files();
+            made = live.turn_made();
         });
         if let Some(files) = files {
             self.read_files(files);
+        }
+        if let Some(made) = made {
+            self.find_made(made);
         }
         let live = self.live.borrow();
         self.compactor.turn_ended(TurnEnd {
@@ -179,6 +185,27 @@ impl Actor {
                     Vec::new()
                 });
                 Reply::FilesRead { entry, pictures }
+            }
+            .boxed(),
+        );
+    }
+
+    /// Looks for the files a turn's commands made off the async workers;
+    /// the turn's note names them once found.
+    fn find_made(&mut self, made: TurnMade) {
+        let TurnMade {
+            cwd,
+            since,
+            written,
+        } = made;
+        let found = spawn_blocking(move || made_files::find(&cwd, since, &written));
+        self.replies.push(
+            async move {
+                let paths = found.await.unwrap_or_else(|e| {
+                    log::warn!("looking for a turn's made files failed: {e}");
+                    Vec::new()
+                });
+                Reply::Made(paths)
             }
             .boxed(),
         );

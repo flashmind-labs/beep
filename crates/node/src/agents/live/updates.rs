@@ -1,8 +1,8 @@
 //! Applying the agent's `session/update` notifications.
 
 use super::{
-    EDIT_KINDS, Live, MAX_COMMANDS, MAX_COMPACTIONS, MAX_DESCRIPTION, MAX_ENTRY, MAX_LAST_MESSAGE,
-    MAX_LINE, MAX_PLAN, MAX_THOUGHT, OpenThought, TurnFiles,
+    ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_COMMANDS, MAX_COMPACTIONS, MAX_DESCRIPTION, MAX_ENTRY,
+    MAX_LAST_MESSAGE, MAX_LINE, MAX_PLAN, MAX_THOUGHT, OpenThought, TurnFiles, TurnMade,
     content::{cut, image_picture, push_cut, replayed, thought_line},
     tools::ToolCall,
 };
@@ -324,15 +324,44 @@ impl Live {
                 made.push(path);
             }
         }
-        // Some file systems stamp to the second.
-        let began = self.turn_began.unwrap_or_else(SystemTime::now);
-        let since = began.checked_sub(Duration::from_secs(2)).unwrap_or(began);
         (!paths.is_empty() || !made.is_empty()).then_some(TurnFiles {
             cwd,
             paths,
             made,
-            since,
+            since: self.turn_since(),
             entry,
+        })
+    }
+
+    /// When the running turn began, a little early: some file systems
+    /// stamp to the second.
+    fn turn_since(&self) -> SystemTime {
+        let began = self.turn_began.unwrap_or_else(SystemTime::now);
+        began.checked_sub(Duration::from_secs(2)).unwrap_or(began)
+    }
+
+    /// Where to look for the files the turn that just ended made with its
+    /// commands; `None` when it ran none.
+    pub(crate) fn turn_made(&self) -> Option<TurnMade> {
+        let start = self.turn_start;
+        let turn: Vec<&ToolCall> = self
+            .tools
+            .values()
+            .filter(|tool| tool.entry > start)
+            .collect();
+        if !turn.iter().any(|tool| tool.kind == ToolKind::Execute) {
+            return None;
+        }
+        let written = turn
+            .iter()
+            .filter(|tool| tool.status == ToolCallStatus::Completed)
+            .filter(|tool| EDIT_KINDS.contains(&tool.kind) || tool.title == ARTIFACT_TOOL)
+            .flat_map(|tool| tool.paths.iter().map(PathBuf::from))
+            .collect();
+        Some(TurnMade {
+            cwd: PathBuf::from(&self.info.cwd),
+            since: self.turn_since(),
+            written,
         })
     }
 

@@ -6,7 +6,7 @@ import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import { followAgent } from "../agentpane/worktree.ts";
-import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts";
+import { collectArtifacts, madeNote, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
@@ -265,7 +265,7 @@ export function entryRow(en: AgentEntry, at: number) {
   const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
   if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
-  return `<div class="dcoderen other" data-row="${at}">${text}</div>`;
+  return `<div class="dcoderen other" data-row="${at}">${esc(madeNote(en.text) ?? en.text)}</div>`;
 }
 
 /// What this window knows of a session's turns: the ones it has seen, when it

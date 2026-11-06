@@ -11,7 +11,7 @@ use crate::agents::{
     images::Picture,
     known,
     live::{Live, TurnTokens, cut},
-    mcp,
+    made_files, mcp,
     place::of_folder,
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
@@ -117,6 +117,8 @@ pub(super) enum Reply {
     },
     /// The checkout the session's working folder is in.
     Placed(Option<WorkPlace>),
+    /// The files a finished turn's commands made, relative to its folder.
+    Made(Vec<String>),
 }
 
 /// A permission question waiting for its answer.
@@ -647,6 +649,13 @@ impl Actor {
                 if !pictures.is_empty() {
                     self.live
                         .send_modify(|live| live.show_files(entry, pictures));
+                }
+            }
+            Reply::Made(paths) => {
+                if !paths.is_empty() {
+                    let note = made_files::note(&paths);
+                    self.live
+                        .send_modify(|live| live.push(EntryKind::Other, &note));
                 }
             }
         }

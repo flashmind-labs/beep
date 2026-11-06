@@ -122,6 +122,17 @@ pub(crate) async fn read(
     chunk(sessions::read_file(&client, part).await?, fleet, machine)
 }
 
+/// Whether each of `paths` is on `machine`, in order; `None` from a node from before the
+/// question.
+pub(crate) async fn present(
+    fleet: &Fleet,
+    machine: EndpointId,
+    paths: Vec<String>,
+) -> Result<Option<Vec<bool>>> {
+    let client = fleet.client(machine).await?;
+    Ok(sessions::present(&client, paths).await?)
+}
+
 /// Writes one part of a file into a session's folder; gives the path it went to.
 pub(crate) async fn write(
     fleet: &Fleet,

@@ -7,7 +7,7 @@ import { baseName, type Dock, DOCKS, type ImageView, type MediaKind, mediaKind, 
 import { terminalName } from "./files-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
-import { artifactCount, artifactsView, pickArtifact, setArtifacts } from "./artifacts.ts";
+import { artifactCount, artifactsView, checkArtifacts, pickArtifact, setArtifacts } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
@@ -455,6 +455,7 @@ function drawDock(d: Dock, ids: string[]) {
   else if (ids.includes(ARTS)) {
     if (artsEl.parentElement !== views) views.append(artsEl);
     artsEl.hidden = on !== ARTS;
+    if (on === ARTS) checkArtifacts();
   }
   // Subagents redraw each time; a file's view is drawn once and kept.
   let subView = document.querySelector<HTMLElement>(".agpviews > .agpview.subs");
