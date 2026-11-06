@@ -37,7 +37,10 @@ export function patchChildren(container: Element, next: Element[]) {
     drawn.set(container, { nodes: [...next], sigs });
     return;
   }
-  const steps = patchSteps(was.sigs, sigs, i => !!was.nodes[i].querySelector("button:disabled"));
+  // A button drawn disabled (New terminal on an offline machine) is not a request in flight:
+  // only one disabled since, which changed the node's markup, keeps it on screen.
+  const busy = (i: number) => !!was.nodes[i].querySelector("button:disabled") && was.nodes[i].outerHTML !== was.sigs[i];
+  const steps = patchSteps(was.sigs, sigs, busy);
   const focus = document.activeElement;
   const nodes: Element[] = [];
   steps.forEach((step, i) => {
