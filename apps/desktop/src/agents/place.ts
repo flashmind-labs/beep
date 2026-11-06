@@ -44,11 +44,13 @@ function pump() {
     waiting.delete(key);
     asking.add(key);
     invoke<WorkPlace | null>("agent_place", { machineId: ask.machine_id, agent: ask.agent, session: ask.id, external: !!ask.external })
-      .catch(() => null)
-      .then(place => {
+      .then(place => ({ place, failed: false }), () => ({ place: null, failed: true }))
+      .then(({ place: read, failed }) => {
         asking.delete(key);
-        if (known.size >= KEPT) known.clear();
         const before = known.get(key);
+        // A read that failed keeps the place known, so views do not switch away and back.
+        const place = failed ? before?.place ?? null : read;
+        if (known.size >= KEPT) known.clear();
         known.set(key, { place, at: Date.now() });
         if (JSON.stringify(before?.place ?? null) !== JSON.stringify(place)) changed();
         pump();
