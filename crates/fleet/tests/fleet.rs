@@ -1757,6 +1757,143 @@ async fn a_projects_runs_read_with_the_hosts_token() {
     assert!(one.run.progress.is_some(), "a running run shows its step");
 }
 
+/// A GitHub with five running runs and failed run 90, whose failed job 9 has a log. It answers
+/// each request and keeps the repository paths it was asked for.
+async fn actions_host() -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
+    let base = format!("http://{}", listener.local_addr().expect("an address"));
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let log = asked.clone();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let log = log.clone();
+            tokio::spawn(async move {
+                let mut head = vec![0; 2048];
+                let read = socket.read(&mut head).await.unwrap_or(0);
+                let head = String::from_utf8_lossy(&head[..read]).into_owned();
+                let path = head.split(' ').nth(1).unwrap_or("").to_owned();
+                if path.starts_with("/repos/") {
+                    log.lock().expect("log").push(path.clone());
+                }
+                let body = actions_reply(&path);
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(reply.as_bytes()).await.ok();
+            });
+        }
+    });
+    (base, asked)
+}
+
+fn actions_reply(path: &str) -> String {
+    let run = |id: u64| {
+        if id == 90 {
+            r#"{"id":90,"name":"CI","run_number":9,"event":"push","status":"completed","conclusion":"failure","head_branch":"main","actor":{"login":"octo"}}"#.to_owned()
+        } else {
+            format!(
+                r#"{{"id":{id},"name":"CI","run_number":{id},"event":"push","status":"in_progress","head_branch":"main","actor":{{"login":"octo"}}}}"#
+            )
+        }
+    };
+    let id = path
+        .strip_prefix("/repos/acme/widget/actions/runs/")
+        .and_then(|rest| rest.split(['/', '?']).next())
+        .and_then(|id| id.parse::<u64>().ok());
+    if path.starts_with("/user/orgs") {
+        r#"[{"login":"acme"}]"#.to_owned()
+    } else if path == "/repos/acme/widget/actions/jobs/9/logs" {
+        "##[group]Run tests\nok\n##[error]boom\n".to_owned()
+    } else if let Some(id) = id {
+        if path.contains("/jobs") && id == 90 {
+            r#"{"jobs":[{"id":9,"name":"Build","status":"completed","conclusion":"failure","steps":[{"name":"Run tests","status":"completed","conclusion":"failure","number":1}]}]}"#.to_owned()
+        } else if path.contains("/jobs") {
+            r#"{"jobs":[{"id":3,"name":"Build","status":"in_progress","steps":[{"name":"Run tests","status":"in_progress","number":1}]}]}"#.to_owned()
+        } else {
+            run(id)
+        }
+    } else if path.starts_with("/repos/acme/widget/actions/runs") {
+        let runs: Vec<String> = [71, 72, 73, 74, 75, 90].into_iter().map(run).collect();
+        format!(
+            r#"{{"total_count":6,"workflow_runs":[{}]}}"#,
+            runs.join(",")
+        )
+    } else {
+        r#"{"login":"octo"}"#.to_owned()
+    }
+}
+
+/// The project `acme/widget` on the build machine with a GitHub token for `api`, and a session
+/// reading it.
+async fn session_on_actions(f: &Fleet, api: &str) -> Arc<Session> {
+    let node = Arc::new(FakeNode::default());
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(api);
+    studio
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .await
+        .expect("the token is saved");
+    studio
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("the import works");
+    Session::new(
+        peering(&f.studio, &[(&f.build, &node)], &[]),
+        Options {
+            github_api: Some(api.to_owned()),
+            ..Options::default()
+        },
+        |_| {},
+    )
+    .expect("a session")
+}
+
+#[tokio::test]
+async fn a_finished_run_opened_again_asks_the_host_nothing() {
+    let f = fleet().await;
+    let (api, asked) = actions_host().await;
+    let session = session_on_actions(&f, &api).await;
+    let taken = || std::mem::take(&mut *asked.lock().expect("log"));
+    let runs = session.runs("acme/widget", false).await.expect("the runs");
+    assert_eq!(runs.runs.len(), 6);
+    // The list, and the jobs of the five running runs for their progress.
+    assert_eq!(taken().len(), 6);
+    let first = session
+        .run("acme/widget", 90, false)
+        .await
+        .expect("the run");
+    assert_eq!(first.log.expect("a failed run's log").job, "Build");
+    let mut read = taken();
+    read.sort();
+    assert_eq!(
+        read,
+        [
+            "/repos/acme/widget/actions/jobs/9/logs",
+            "/repos/acme/widget/actions/runs/90",
+            "/repos/acme/widget/actions/runs/90/jobs?per_page=50",
+        ]
+    );
+    session
+        .run("acme/widget", 90, false)
+        .await
+        .expect("the run");
+    assert!(taken().is_empty(), "a finished run is given as read");
+    session.run("acme/widget", 90, true).await.expect("the run");
+    assert_eq!(taken().len(), 3, "refresh reads the host");
+    session.forget();
+    session
+        .run("acme/widget", 90, false)
+        .await
+        .expect("the run");
+    assert_eq!(taken().len(), 3, "forgotten, it reads the host");
+}
+
 /// The project `acme/widget` checked out on this Mac, whose host answers from `node`, and a
 /// session on it that cannot reach the other machines at all.
 async fn local_project(
