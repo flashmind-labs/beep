@@ -15,3 +15,8 @@ test("a project's own window stops at its page", () => {
   assert.equal(escUp(at({ alone: true })), null);
   assert.deepEqual(escUp(at({ alone: true, tile: true })), { to: "tile" });
 });
+
+test("Esc on a Home tab goes back to Overview, then stops", () => {
+  assert.deepEqual(escUp(at({ page: "home", picked: null, homeTab: true })), { to: "overview" });
+  assert.equal(escUp(at({ page: "home", picked: null, homeTab: false })), null);
+});

@@ -22,7 +22,7 @@ import { viewHidden, keyHidden } from "../settings/subscription.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
-import { dismissedUpdates, draw, jump } from "./home.ts";
+import { dismissedUpdates, draw, homeTab, jump } from "./home.ts";
 import { shown, shownArg, windowProject, toMain, go, goHistory, setWindowProject, openResearch } from "./views.ts";
 import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addProject } from "./sidebar.ts";
 import "../research/page.ts";
@@ -67,11 +67,12 @@ const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "sk
 document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W or ⌘N.
   if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e) && !isNewKey(e)) return;
-  // Esc goes up one page: a project's open tile closes, then the Projects page, then Home.
+  // Esc goes up one page: a project's open tile closes, then the Projects page, then Home, then its Overview tab.
   if (e.key === "Escape" && !e.defaultPrevented) {
-    const up = escUp({ page: shown, picked: state.picked, tile: !!pa.tile, alone: !!windowProject });
+    const up = escUp({ page: shown, picked: state.picked, tile: !!pa.tile, alone: !!windowProject, homeTab: homeTab !== "overview" });
     if (up) {
       e.preventDefault();
+      if (up.to === "overview") return jump();
       if (up.to === "tile") return openTile(null);
       return up.to === "home" ? go("home") : void openProjects();
     }
