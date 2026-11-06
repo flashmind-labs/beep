@@ -94,6 +94,8 @@ class FakeElement extends FakeNode {
     });
   }
   get content() { return this; }
+  get disabled() { return this.attrs.has("disabled"); }
+  set disabled(v: boolean) { v ? this.attrs.set("disabled", "") : this.attrs.delete("disabled"); }
   get id() { return this.attrs.get("id") ?? ""; }
   get className() { return this.attrs.get("class") ?? ""; }
   set className(v: string) { this.attrs.set("class", v); }
@@ -179,7 +181,7 @@ function parse(html: string): FakeNode[] {
 }
 
 /// Whether `el` matches selector list `sel`. Supports tags, `#id`,
-/// `.class`, `[attr]`, `[attr="v"]`, `:scope`, descendant and `>`.
+/// `.class`, `[attr]`, `[attr="v"]`, `:scope`, `:disabled`, descendant and `>`.
 function matches(el: FakeElement, sel: string, scope: FakeElement | null): boolean {
   return sel.split(",").some(part => matchChain(el, part.trim().replace(/\s*>\s*/g, " > ").split(/\s+/), scope));
 }
@@ -196,8 +198,9 @@ function matchChain(el: FakeElement, parts: string[], scope: FakeElement | null)
   return false;
 }
 function matchCompound(el: FakeElement, sel: string, scope: FakeElement | null): boolean {
-  for (const [tok] of sel.matchAll(/:scope|#[\w-]+|\.[\w-]+|\[[^\]]+\]|[\w-]+|\*/g)) {
+  for (const [tok] of sel.matchAll(/:scope|:disabled|#[\w-]+|\.[\w-]+|\[[^\]]+\]|[\w-]+|\*/g)) {
     if (tok === ":scope") { if (el !== scope) return false; }
+    else if (tok === ":disabled") { if (!el.hasAttribute("disabled")) return false; }
     else if (tok === "*") continue;
     else if (tok[0] === "#") { if (el.id !== tok.slice(1)) return false; }
     else if (tok[0] === ".") { if (!el.classList.contains(tok.slice(1))) return false; }
