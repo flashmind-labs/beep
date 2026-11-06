@@ -21,12 +21,7 @@ use std::{
 /// The harnesses whose plans show first, in this order.
 const PLAN_ORDER: &[AgentSlug] = &[AgentSlug::CLAUDE, AgentSlug::CODEX];
 
-pub(super) async fn get_usage(cx: Cx, GetUsage { refresh }: GetUsage) -> Reply<UsageView> {
-    if refresh {
-        for node in cx.app.nodes.of_user(cx.user.id()) {
-            node.refresh_usage();
-        }
-    }
+pub(super) async fn get_usage(cx: Cx, _: GetUsage) -> Reply<UsageView> {
     let (spend, models, plans, imports, nodes) = tokio::try_join!(
         cx.user.week_spend(),
         cx.user.today_models(),
@@ -47,15 +42,7 @@ pub(super) async fn get_usage(cx: Cx, GetUsage { refresh }: GetUsage) -> Reply<U
     })
 }
 
-pub(super) async fn get_usage_report(
-    cx: Cx,
-    GetUsageReport { refresh }: GetUsageReport,
-) -> Reply<UsageReport> {
-    if refresh {
-        for node in cx.app.nodes.of_user(cx.user.id()) {
-            node.refresh_usage();
-        }
-    }
+pub(super) async fn get_usage_report(cx: Cx, _: GetUsageReport) -> Reply<UsageReport> {
     let periods = cx.user.usage_periods().await?;
     let (days, models, plans, imports, nodes) = tokio::try_join!(
         cx.user.day_spend(&periods),

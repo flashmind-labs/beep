@@ -4,7 +4,7 @@ use super::{Admission, App, SignedIn};
 use crate::{
     account::{instance::Instance, login::LoginConfig},
     protocol::DeviceKind,
-    store::{Account, LinkKey, NewKey, SignIn},
+    store::{Account, SignIn},
 };
 use anyhow::Result;
 use iroh::EndpointId;
@@ -58,35 +58,6 @@ impl App {
                 Admission::SignedIn(self.signed_in(&account, device, primary))
             }
             SignIn::Revoked => Admission::Revoked,
-        })
-    }
-
-    /// Who an already-linked key signs in as; `None` for a revoked or unlinked key.
-    pub async fn sign_in_linked(
-        self: &Arc<Self>,
-        endpoint: &EndpointId,
-    ) -> Result<Option<SignedIn>> {
-        let mut sign_in = self.store.linked_sign_in(endpoint).await?;
-        if let Some(instance) = &self.instance
-            && sign_in.is_none()
-            && self.link_local_node(instance, endpoint).await?
-        {
-            sign_in = self.store.linked_sign_in(endpoint).await?;
-        }
-        Ok(match sign_in {
-            Some(SignIn::Account {
-                account,
-                device,
-                primary,
-            }) => {
-                if let Some(instance) = &self.instance
-                    && !self.owns(instance, &account, endpoint).await?
-                {
-                    return Ok(None);
-                }
-                Some(self.signed_in(&account, device, primary))
-            }
-            Some(SignIn::Revoked) | None => None,
         })
     }
 
@@ -168,40 +139,5 @@ impl App {
         }
         // Another key claimed it a moment ago.
         Ok(self.instance_owner().await?.as_deref() == Some(account.id.as_str()))
-    }
-
-    /// Links `endpoint` to the owner when it is the bundled node's key; `false` otherwise.
-    pub(super) async fn link_local_node(
-        self: &Arc<Self>,
-        instance: &Instance,
-        endpoint: &EndpointId,
-    ) -> Result<bool> {
-        let Some(node) = instance.local_node()? else {
-            return Ok(false);
-        };
-        if node.endpoint != *endpoint {
-            return Ok(false);
-        }
-        let Some(owner) = self.instance_owner().await? else {
-            log::info!("the bundled node waits for the instance to have an owner");
-            return Ok(false);
-        };
-        let Some(account) = self.store.account(&owner).await? else {
-            return Ok(false);
-        };
-        let key = NewKey {
-            endpoint: node.endpoint,
-            name: &node.name,
-            kind: DeviceKind::Desktop {},
-        };
-        let user = self.start_user(&account);
-        match user.link_key(key).await? {
-            LinkKey::Linked(_) => {
-                log::info!("bundled node linked; user={owner} key={endpoint}");
-                user.changed("");
-                Ok(true)
-            }
-            LinkKey::Taken => Ok(false),
-        }
     }
 }

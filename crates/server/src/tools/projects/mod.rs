@@ -2,7 +2,7 @@
 
 mod load;
 mod render;
-use load::{Live, Place, Project, in_project, items_of, live, load, sessions_of, waits_on_user};
+use load::{Live, Place, Project, items_of, live, load, waits_on_user};
 use render::{render_list, render_show};
 
 use crate::{account::user::User, app::App};
@@ -17,7 +17,7 @@ pub(crate) const NAME: &str = "projects";
 
 /// The projects section's first line, also how a chat finds the last one it got.
 pub(crate) const HEADER: &str = "The user's projects (`projects` gives their machines, open PRs, \
-    issues, tasks and coding sessions):";
+    issues and tasks):";
 
 /// Projects named in the context and listed by `list`.
 const MAX_PROJECTS: usize = 30;
@@ -50,9 +50,9 @@ impl Tool for ProjectsTool {
     fn description(&self) -> &str {
         "The user's projects (git repositories they imported into Beep). `list` gives each \
          project with its URL, the machines and folders it is checked out in, how many open \
-         pull requests and issues it has, the PRs waiting on the user, open tasks and the \
-         coding-agent sessions running in it. `show` with `project` gives that project's open \
-         PRs with review state and checks, issues, tasks and sessions. PRs and issues are the \
+         pull requests and issues it has, the PRs waiting on the user and open tasks. `show` \
+         with `project` gives that project's open PRs with review state and checks, issues and \
+         tasks. PRs and issues are the \
          ones that involve the user: opened by them, assigned to them or asking their review. \
          Use it first for questions about the user's projects, priorities, PRs or issues."
     }
@@ -94,7 +94,7 @@ impl Tool for ProjectsTool {
                     ));
                 }
                 let live = live(&self.app, &self.user).await;
-                render_list(&projects, &live, now)
+                render_list(&projects, &live)
             }
             Action::Show => {
                 let Some(wanted) = args.project.as_deref().map(str::trim) else {

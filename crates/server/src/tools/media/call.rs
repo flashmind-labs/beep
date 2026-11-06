@@ -12,15 +12,6 @@ const MAX_SHOWN: usize = 600;
 /// Longest video asked for, in seconds.
 const MAX_SECONDS: u64 = 30;
 
-/// Where an input image comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ImageSource {
-    /// A public https URL the service fetches itself.
-    Url(String),
-    /// A file in the user's home folder.
-    Path(String),
-}
-
 /// One call, checked.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Call {
@@ -29,8 +20,9 @@ pub(super) struct Call {
     pub(super) model: String,
     /// Empty only for a 3D model made from an image alone.
     pub(super) prompt: String,
-    /// The image to edit, the video's first frame, or the picture to model.
-    pub(super) image: Option<ImageSource>,
+    /// The image to edit, the video's first frame, or the picture to model: a public https URL
+    /// the service fetches itself.
+    pub(super) image: Option<String>,
     /// An image's pixel size, such as `1024x1536`.
     pub(super) size: Option<String>,
     pub(super) aspect_ratio: Option<String>,
@@ -66,11 +58,8 @@ impl Call {
                 .ok_or("The user has no key for a service that makes this.")?,
         };
         let image = match text(args, "image") {
-            Some(url) if url.starts_with("https://") => Some(ImageSource::Url(url.to_owned())),
-            Some(url) if url.contains("://") => {
-                return Err("`image` must be an https URL or a file in the home folder.".into());
-            }
-            Some(path) => Some(ImageSource::Path(path.to_owned())),
+            Some(url) if url.starts_with("https://") => Some(url.to_owned()),
+            Some(_) => return Err("`image` must be an https URL.".into()),
             None => None,
         };
         let prompt = text(args, "prompt").unwrap_or_default();
@@ -145,14 +134,14 @@ pub(super) fn schema(kind: MediaKind, available: &[MediaProvider]) -> Value {
         "image": {
             "type": "string",
             "description": match kind {
-                MediaKind::Image => "An image to edit or work from: an https URL, or a PNG, JPEG or WebP in the user's home folder",
-                MediaKind::Video => "The video's first frame: an https URL, or a PNG, JPEG or WebP in the user's home folder",
-                MediaKind::Model3d => "A picture of the object: an https URL, or a PNG, JPEG or WebP in the user's home folder",
+                MediaKind::Image => "An image to edit or work from: an https URL",
+                MediaKind::Video => "The video's first frame: an https URL",
+                MediaKind::Model3d => "A picture of the object: an https URL",
             }
         },
         "filename": {
             "type": "string",
-            "description": "Name to save it as in the home folder, without extension; taken from the prompt when left out"
+            "description": "Name to give it, without extension; taken from the prompt when left out"
         }
     });
     match kind {

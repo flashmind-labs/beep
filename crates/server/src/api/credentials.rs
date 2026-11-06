@@ -4,7 +4,6 @@ use super::Reply;
 use crate::{
     account::credentials::{host_client, is_public},
     api::router::Cx,
-    nodes::SHELL,
     protocol::{
         ApiError, ApiProvider, CheckCredential, Credential, CredentialCheck, CredentialKind,
         GITHUB_ENV_VAR, GitHubAccount, ListCredentials, ListGitHubAccounts, RemoveCredential,
@@ -13,14 +12,11 @@ use crate::{
     store::{CredentialRow, GitHubAccountRow, NewCredential, NewGitHubAccount},
 };
 use beep_projects::{
-    credential_check::{
-        Checked, Checker,
-        machines::{MAX_MACHINES, Reach, check_from},
-    },
+    credential_check::{Checked, Checker},
     credentials::{Slot, last4},
 };
 use secrecy::{ExposeSecret, SecretString};
-use std::{sync::Arc, time::SystemTime};
+use std::time::SystemTime;
 
 /// The longest secret taken.
 const MAX_SECRET: usize = 4096;
@@ -65,7 +61,6 @@ pub(super) async fn save_credential(
             },
         )
         .await?;
-    cx.app.nodes.credentials_changed(cx.user.id());
     Ok(credential(row))
 }
 
@@ -76,7 +71,6 @@ pub(super) async fn remove_credential(
     if !cx.user.remove_credential(&id).await? {
         return Err(ApiError::NotFound {});
     }
-    cx.app.nodes.credentials_changed(cx.user.id());
     Ok(())
 }
 
@@ -120,7 +114,9 @@ pub(super) async fn check_credential(
             machine: None,
             message,
         },
-        Checked::Unreachable => check_from(&reaches(&cx).await?, url).await,
+        Checked::Unreachable => CredentialCheck::Unreachable {
+            message: format!("{} is not reachable from the server.", url.host()),
+        },
     };
     if let CredentialCheck::Valid { account, .. } = &checked
         && login.account.as_deref() != Some(account.as_str())
@@ -128,36 +124,6 @@ pub(super) async fn check_credential(
         cx.user.set_forgejo_account(&id, account).await?;
     }
     Ok(checked)
-}
-
-/// The caller's online machines that run commands and report teacli, at most [`MAX_MACHINES`].
-async fn reaches(cx: &Cx) -> Reply<Vec<Reach>> {
-    let mut out = Vec::new();
-    for row in cx.user.nodes().await? {
-        let has_teacli = row
-            .env
-            .as_ref()
-            .is_some_and(|env| env.tools.iter().any(|tool| tool.name == "teacli"));
-        if !has_teacli {
-            continue;
-        }
-        let Some(online) = cx
-            .app
-            .nodes
-            .online(&row.endpoint)
-            .filter(|online| online.user == cx.user.id() && online.offers(SHELL))
-        else {
-            continue;
-        };
-        out.push(Reach {
-            name: row.name,
-            shell: Arc::new(online),
-        });
-        if out.len() == MAX_MACHINES {
-            break;
-        }
-    }
-    Ok(out)
 }
 
 pub(super) async fn list_github_accounts(
@@ -188,7 +154,6 @@ pub(super) async fn set_default_github_account(
     if !cx.user.set_default_github(&id).await? {
         return Err(ApiError::NotFound {});
     }
-    cx.app.nodes.credentials_changed(cx.user.id());
     Ok(())
 }
 
@@ -237,7 +202,6 @@ async fn save_github(
             },
         )
         .await?;
-    cx.app.nodes.credentials_changed(cx.user.id());
     Ok(saved)
 }
 

@@ -98,12 +98,10 @@ pub struct App {
     draining: AtomicBool,
     /// Research teams at work, by research id.
     teams: AsyncMutex<HashMap<Uuid, CancellationToken>>,
-    /// The nodes connected now.
-    pub nodes: crate::nodes::Nodes,
+    /// The desktops that can run machine work, by their open events streams.
+    pub desktops: crate::tools::machines::relay::Desktops,
     /// The project workers' sessions and the issue mirroring in flight.
     pub projects: crate::projects::Projects,
-    /// Looks through the users' machines for checkouts of their projects.
-    pub checkouts: crate::projects::imports::Checkouts,
     /// Speaks voice notes and transcribes spoken replies.
     voice: Voice,
     /// Transcribes speech live, for `Transcribe`.
@@ -124,8 +122,6 @@ pub struct App {
     pub credential_key: CredentialKey,
     /// Each user's open PRs and issues on their git hosts, cached a few minutes.
     pub git_items: crate::projects::git_items::GitBoard,
-    /// Each user's repositories on their git hosts, cached a few minutes.
-    pub host_repos: crate::projects::imports::HostRepoCache,
     /// Each project's PRs, issues and workflow runs, refreshed while someone looks.
     pub repo_watch: crate::projects::repo_watch::RepoWatch,
 }
@@ -217,11 +213,7 @@ impl App {
             decision: decision.clone(),
         };
         let voice = Voice::new(provider.clone(), mistral, voice);
-        let subagents = crate::agent::subagents::Subagents::new(
-            provider.clone(),
-            llm.clone(),
-            notifications.clone(),
-        );
+        let subagents = crate::agent::subagents::Subagents::new(provider.clone(), llm.clone());
         Arc::new(Self {
             store,
             notifications,
@@ -244,9 +236,8 @@ impl App {
             shutting_down: AtomicBool::new(false),
             draining: AtomicBool::new(false),
             teams: AsyncMutex::new(HashMap::new()),
-            nodes: crate::nodes::Nodes::default(),
+            desktops: crate::tools::machines::relay::Desktops::default(),
             projects: crate::projects::Projects::default(),
-            checkouts: crate::projects::imports::Checkouts::default(),
             voice,
             realtime: realtime.unwrap_or_else(|| Arc::new(Unavailable)),
             live_transcriptions: voice::LiveSlots::default(),
@@ -257,7 +248,6 @@ impl App {
             watchers: crate::memory::watchers::Hub::default(),
             credential_key: credential_key.unwrap_or_else(CredentialKey::random),
             git_items: crate::projects::git_items::GitBoard::new(),
-            host_repos: crate::projects::imports::HostRepoCache::default(),
             repo_watch: crate::projects::repo_watch::RepoWatch::default(),
         })
     }

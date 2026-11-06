@@ -5,14 +5,11 @@ use crate::{
     store::Scope,
 };
 use beep_projects::model::RepoName;
-use beep_proto::node::agent;
 use serde::{Deserialize, Serialize};
 use std::{fmt, time::Duration};
 use strum::{Display, EnumString, IntoStaticStr, VariantNames};
 use uuid::Uuid;
 
-/// Most live workers in one project.
-pub(crate) const MAX_PROJECT_WORKERS: i64 = 3;
 /// Most live workers on one machine, across projects.
 pub(crate) const MAX_MACHINE_WORKERS: i64 = 2;
 /// Most live workers one user has.
@@ -188,12 +185,7 @@ pub(crate) enum WorkerAgent {
     OpenCode,
 }
 
-impl WorkerAgent {
-    /// The protocol name a node serves this agent on.
-    pub(crate) fn protocol(self) -> String {
-        agent::protocol(self.into())
-    }
-}
+impl WorkerAgent {}
 
 #[cfg(test)]
 mod tests {

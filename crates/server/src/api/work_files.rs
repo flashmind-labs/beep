@@ -1,104 +1,26 @@
-//! A session's working folder for the Files tab; the node checks paths, the server keeps nothing.
+//! A session's working folder for the Files tab: a desktop reads it over its mesh now.
 
-use super::{Reply, agent_control::live_host_back};
+use super::{Reply, own_nodes::retired};
 use crate::{
     api::router::Cx,
-    nodes::{NodeFile, NodeWork, WorkRead, WorkWrite},
     protocol::{
-        AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkFolder, ListWorkTree, MAX_WORK_UPLOAD,
-        ReadWorkFile, WorkFolder, WorkTree, WriteWorkFile,
+        AgentFileChunk, ListWorkFolder, ListWorkTree, ReadWorkFile, WorkFolder, WorkTree,
+        WriteWorkFile,
     },
 };
 
-/// What the caller sees when the node could not be asked.
-fn unreachable_node(machine: &str, e: &anyhow::Error) -> ApiError {
-    ApiError::bad_request(format!(
-        "Could not reach the session's folder on {machine}: {e:#}. Updating beep-node there may help."
-    ))
+pub(super) async fn list_work_folder(_: Cx, _: ListWorkFolder) -> Reply<WorkFolder> {
+    retired()
 }
 
-fn refused(machine: &str, message: &str) -> ApiError {
-    ApiError::bad_request(format!("{machine}: {message}"))
+pub(super) async fn list_work_tree(_: Cx, _: ListWorkTree) -> Reply<WorkTree> {
+    retired()
 }
 
-pub(super) async fn list_work_folder(cx: Cx, list: ListWorkFolder) -> Reply<WorkFolder> {
-    let live = live_host_back(&cx, &list.machine_id).await?;
-    let machine = &live.host.machine_name;
-    match live
-        .online
-        .work_folder(&list.root, &list.path, list.ignored)
-        .await
-        .map_err(|e| unreachable_node(machine, &e))?
-    {
-        NodeWork::Done(folder) => Ok(folder),
-        NodeWork::Refused(message) => Err(refused(machine, &message)),
-    }
+pub(super) async fn read_work_file(_: Cx, _: ReadWorkFile) -> Reply<AgentFileChunk> {
+    retired()
 }
 
-pub(super) async fn list_work_tree(cx: Cx, list: ListWorkTree) -> Reply<WorkTree> {
-    let live = live_host_back(&cx, &list.machine_id).await?;
-    let machine = &live.host.machine_name;
-    match live
-        .online
-        .work_tree(&list)
-        .await
-        .map_err(|e| unreachable_node(machine, &e))?
-    {
-        NodeWork::Done(tree) => Ok(tree),
-        NodeWork::Refused(message) => Err(refused(machine, &message)),
-    }
-}
-
-pub(super) async fn read_work_file(cx: Cx, read: ReadWorkFile) -> Reply<AgentFileChunk> {
-    let live = live_host_back(&cx, &read.machine_id).await?;
-    let machine = &live.host.machine_name;
-    let len = read
-        .len
-        .min(u32::try_from(AGENT_FILE_CHUNK).unwrap_or(u32::MAX));
-    let part = WorkRead {
-        root: &read.root,
-        path: &read.path,
-        offset: read.offset,
-        len,
-    };
-    match live
-        .online
-        .read_work_file(part)
-        .await
-        .map_err(|e| unreachable_node(machine, &e))?
-    {
-        NodeFile::Chunk { size, mime, data } => Ok(AgentFileChunk { size, mime, data }),
-        NodeFile::Missing => Err(ApiError::NotFound {}),
-        NodeFile::Refused(message) => Err(refused(machine, &message)),
-    }
-}
-
-pub(super) async fn write_work_file(cx: Cx, write: WriteWorkFile) -> Reply<String> {
-    if write.size > MAX_WORK_UPLOAD {
-        return Err(ApiError::bad_request(format!(
-            "Files up to {} MB can be dropped on a session.",
-            MAX_WORK_UPLOAD / (1024 * 1024)
-        )));
-    }
-    if write.data.len() > AGENT_FILE_CHUNK {
-        return Err(ApiError::bad_request("A part of the file is too large."));
-    }
-    let live = live_host_back(&cx, &write.machine_id).await?;
-    let machine = &live.host.machine_name;
-    let part = WorkWrite {
-        root: write.root,
-        path: write.path,
-        offset: write.offset,
-        size: write.size,
-        data: write.data,
-    };
-    match live
-        .online
-        .write_work_file(part)
-        .await
-        .map_err(|e| unreachable_node(machine, &e))?
-    {
-        NodeWork::Done(path) => Ok(path),
-        NodeWork::Refused(message) => Err(refused(machine, &message)),
-    }
+pub(super) async fn write_work_file(_: Cx, _: WriteWorkFile) -> Reply<String> {
+    retired()
 }

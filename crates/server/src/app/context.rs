@@ -5,7 +5,6 @@ use crate::{
     account::user::User,
     memory::memories::PROFILE_HEADER,
     memory::skills::{self, INDEX_HEADER},
-    nodes::{self, MACHINES_HEADER},
     protocol::{AppIntegration, DeviceKind},
     routines::cron,
     routines::wake,
@@ -111,15 +110,6 @@ impl App {
             Err(error) => log::warn!("unable to list skills: {error}; user={user}"),
         }
 
-        // Ends in a blank line, which is where `last_block` stops reading.
-        match self.machines(user).await {
-            Ok(Some(machines)) if last_block(chat, MACHINES_HEADER) != Some(machines.as_str()) => {
-                let _ = writeln!(ctx, "{machines}\n");
-            }
-            Ok(_) => {}
-            Err(error) => log::warn!("unable to list machines: {error:#}; user={user}"),
-        }
-
         // Names only, so "my projects" resolves without a call. Ends in a
         // blank line, which is where `last_block` stops reading.
         match user.projects().await {
@@ -144,16 +134,6 @@ impl App {
         }
 
         (!ctx.is_empty()).then_some(ctx)
-    }
-}
-
-impl App {
-    async fn machines(&self, user: &User) -> anyhow::Result<Option<String>> {
-        let nodes = user.nodes().await?;
-        if nodes.is_empty() {
-            return Ok(None);
-        }
-        Ok(nodes::machines(&nodes, &self.nodes))
     }
 }
 

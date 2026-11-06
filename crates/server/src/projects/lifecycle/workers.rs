@@ -2,19 +2,16 @@
 
 use super::{
     super::{
-        fleet::{self, Fleet, NodeFleet},
+        fleet::{self, Fleet},
         model::{IDLE_CLOSE, TaskState, WorkerId, WorkerState},
         schedule::Due,
         turn::{REPLAN_LABEL, WORKER_LABEL},
         worker::Started,
     },
-    MAX_FILLS, REATTACH_AT_ONCE, Working, after, block, catch_up, working,
+    MAX_FILLS, Working, after, block, working,
 };
 use crate::{
     account::user::User,
-    app::App,
-    nodes::READ_TIMEOUT,
-    nodes::SessionRefused,
     protocol::node::agent::Status,
     store::{ProjectRow, StartRefused, TaskRow, WorkerRow},
 };
@@ -24,97 +21,7 @@ use beep_projects::{
     issues::run_host,
 };
 use chrono::{DateTime, Utc};
-use futures::StreamExt;
 use std::sync::Arc;
-use tokio::time::timeout;
-
-/// `machine` reconnected: re-attaches its live workers, failing those whose session is gone.
-pub(crate) async fn reconnected(
-    app: &Arc<App>,
-    user: &Arc<User>,
-    machine: iroh::EndpointId,
-) -> Result<()> {
-    let fleet = NodeFleet::new(app, user);
-    reattach_all(&fleet, user, machine).await
-}
-
-pub(crate) async fn reattach_all(
-    fleet: &dyn Fleet,
-    user: &Arc<User>,
-    machine: iroh::EndpointId,
-) -> Result<()> {
-    let workers = user.live_workers_on(&machine).await?;
-    futures::stream::iter(workers)
-        .for_each_concurrent(REATTACH_AT_ONCE, |worker| async move {
-            if let Err(error) = reattach(fleet, user, &worker).await {
-                log::warn!("projects: unable to re-attach a worker: {error:#}");
-            }
-        })
-        .await;
-    Ok(())
-}
-
-pub(super) async fn reattach(
-    fleet: &dyn Fleet,
-    user: &Arc<User>,
-    worker: &WorkerRow,
-) -> Result<()> {
-    // One still starting gets its session from the start under way.
-    let Some(session) = &worker.session else {
-        return Ok(());
-    };
-    let chat = user.ensure_project_agent(worker.project).await?;
-    // Tracked first, so what it reports from now on reaches the project.
-    fleet.projects().track(worker.machine, session, worker.id);
-    match timeout(READ_TIMEOUT, fleet.attach(worker, chat)).await {
-        Ok(Ok(info)) => catch_up(fleet, user, worker.id, info).await,
-        Ok(Err(why)) if why.downcast_ref::<SessionRefused>().is_some() => {
-            log::info!("projects: a worker's session is gone: {why:#}");
-            gone(fleet, user, worker.id).await
-        }
-        // A stream that would not open or closed early, as a machine that
-        // flaps does: the worker stays as it was and the next reconnect tries
-        // again.
-        Ok(Err(why)) => {
-            log::warn!("projects: unable to re-attach a worker; it stays as it was: {why:#}");
-            Ok(())
-        }
-        Err(_) => {
-            log::warn!("projects: the machine did not answer for a worker; it stays as it was");
-            Ok(())
-        }
-    }
-}
-
-/// The machine no longer has the worker's session.
-pub(super) async fn gone(fleet: &dyn Fleet, user: &Arc<User>, worker: WorkerId) -> Result<()> {
-    let Some(Working {
-        worker,
-        task,
-        project,
-        chat,
-        machine,
-    }) = working(fleet, user, worker).await?
-    else {
-        return Ok(());
-    };
-    fleet.projects().untrack(worker.id);
-    if !worker.state.is_live() {
-        return Ok(());
-    }
-    user.set_worker_state(worker.id, WorkerState::Failed)
-        .await?;
-    block(fleet, user, &project, &task).await?;
-    fleet.post(
-        chat,
-        REPLAN_LABEL,
-        format!(
-            "The worker for {} on {machine} is gone; the machine no longer has its session.",
-            task.slug
-        ),
-    );
-    Ok(())
-}
 
 /// `worker`'s machine was removed, its row with it; nothing to do when its project went too.
 pub(crate) async fn machine_removed(
@@ -348,17 +255,6 @@ pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()
             continue;
         };
         match fleet.start_task(&project, &task, &request).await {
-            Ok(Started::Running(worker)) => {
-                let chat = user.ensure_project_agent(project.id).await?;
-                fleet.post(
-                    chat,
-                    WORKER_LABEL,
-                    format!(
-                        "A slot freed, so {} started with {} in {}.",
-                        task.slug, worker.agent, worker.folder
-                    ),
-                );
-            }
             Ok(Started::Queued(why)) if why == full => break,
             Ok(Started::Queued(_)) => {}
             Err(error) => {

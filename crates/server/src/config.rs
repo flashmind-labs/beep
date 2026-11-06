@@ -28,8 +28,7 @@ use serde::{Deserialize, de::IgnoredAny};
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub secret_key: Option<PathBuf>,
-    /// The UDP port iroh binds, for a firewall rule: `SERVER_PORT` unset,
-    /// random at 0.
+    /// Unused, kept so old configs load: the server binds no iroh port.
     pub port: Option<u16>,
     /// Where the apps' plain HTTP listens, for Cloudflare or another proxy in
     /// front that holds TLS: `127.0.0.1:SERVER_HTTP_PORT` unset.

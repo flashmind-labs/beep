@@ -1,6 +1,6 @@
 //! Images attached to a user message, described once by a vision model for models and turns that cannot see them.
 
-use crate::nodes::attachments;
+use crate::agent::attachments;
 use anyhow::{Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -123,12 +123,6 @@ impl Describer {
             }
         }))
         .await
-    }
-
-    /// Describes the image file `name` a tool read.
-    pub(crate) async fn describe_file(&self, image: &ContentPart, name: &str) -> Result<String> {
-        let prompt = format!("This image is the file {name}. Describe the whole image.");
-        self.describe(image, prompt).await
     }
 
     async fn describe(&self, image: &ContentPart, prompt: String) -> Result<String> {

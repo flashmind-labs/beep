@@ -12,7 +12,6 @@ use beep_server::{
     apps::ComposioSettings,
     config::{self, Config},
     memory::memories,
-    nodes,
     push::Pulse,
     push::apns::Apns,
     push::fcm::Firebase,
@@ -27,7 +26,6 @@ use flashmind::{
     llm::{MistralProvider, OpenRouterProvider},
     types::{AgentLlmConfig, LlmProvider, Model},
 };
-use iroh::{Endpoint, endpoint::presets, protocol::Router};
 use reqwest::Client;
 use secrecy::SecretString;
 use std::{
@@ -107,6 +105,11 @@ async fn main() -> Result<()> {
              node started with --workspace; remove it from the config"
         );
     }
+    if config.port.is_some() {
+        log::warn!(
+            "port is no longer used: the server binds no iroh port; remove it from the config"
+        );
+    }
     let mistral = config
         .mistral_key
         .clone()
@@ -160,17 +163,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let builder = || {
-        Endpoint::builder(presets::N0)
-            .secret_key(secret_key.clone())
-            .transport_config(beep_proto::port::transport().build())
-    };
-    let port = config.port.unwrap_or(beep_proto::port::SERVER_PORT);
-    let endpoint = beep_proto::port::bind_on(builder, port).await?;
-
-    log::info!("iroh endpoint bound; node_id={}", endpoint.id());
     if let Some(instance) = app.instance() {
-        instance.announce(endpoint.id())?;
         // First run: nobody owns it yet, so show how to connect.
         if app.instance_owner().await?.is_none() {
             println!(
@@ -202,10 +195,6 @@ async fn main() -> Result<()> {
         fallback,
         beep_server::push::notices::ACK_WAIT,
     );
-    let node_handler = nodes::NodeHandler::new(app.clone(), endpoint.id());
-    let router = nodes::accept_nodes(Router::builder(endpoint), node_handler).spawn();
-    log::info!("listening for nodes; addr={:?}", router.endpoint().addr());
-
     let service = http::service(app.clone(), &secret_key, Pulse::every(HEARTBEAT))
         .await?
         .merge(reports::routes(Reports::new(
@@ -224,8 +213,7 @@ async fn main() -> Result<()> {
     }));
 
     stop_signal().await?;
-    // Nodes and apps stay connected while turns finish, so their tool calls
-    // still reach the machines and the replies still reach the apps.
+    // Apps stay connected while turns finish, so the replies still reach them.
     app.drain(DRAIN).await;
     // Turns still going end as interrupted and are saved before the
     // connections close, so the apps hear how they ended.
@@ -235,7 +223,6 @@ async fn main() -> Result<()> {
         Ok(served) => served?,
         Err(e) => log::warn!("the apps' HTTP ended badly: {e}"),
     }
-    router.shutdown().await?;
     Ok(())
 }
 

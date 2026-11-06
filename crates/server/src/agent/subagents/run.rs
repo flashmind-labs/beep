@@ -366,12 +366,7 @@ mod tests {
 
     fn subagents(script: Script) -> Subagents {
         let model = "openai:test".parse().expect("a model id");
-        let (notifications, _) = tokio::sync::broadcast::channel(4);
-        Subagents::new(
-            Arc::new(Fake(script)),
-            AgentLlmConfig::new(model),
-            notifications,
-        )
+        Subagents::new(Arc::new(Fake(script)), AgentLlmConfig::new(model))
     }
 
     fn spec() -> Spec<Colour> {

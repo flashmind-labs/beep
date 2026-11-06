@@ -16,7 +16,7 @@ use super::{
 use crate::{
     account::{credentials::host_client, user::User},
     app::App,
-    projects::fleet::NodeFleet,
+    projects::fleet::RecordedFleet,
     protocol::{HostedRuns, ProjectRuns},
     store::ProjectRow,
 };
@@ -147,7 +147,7 @@ impl RepoWatch {
         copy: &mut RunsCopy,
     ) -> Result<Found, String> {
         let opened = credentials(app, user).await?;
-        let fleet = NodeFleet {
+        let fleet = RecordedFleet {
             app: app.clone(),
             user: user.clone(),
         };
