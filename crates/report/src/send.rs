@@ -8,7 +8,8 @@ use beep_proto::report::{
 use iroh::SecretKey;
 use reqwest::Client;
 use reqwest::header::CONTENT_TYPE;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::env::{self, VarError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use url::{ParseError, Url};
 
@@ -21,15 +22,22 @@ pub enum SendError {
     Net(#[from] reqwest::Error),
     #[error("the server's reply did not read: {0}")]
     Reply(String),
+    #[error("BEEP_REPORT_URL is not a URL: {0}")]
+    Url(String),
 }
+
+/// How long a report may take to post, the server's answer included.
+const SEND_LIMIT: Duration = Duration::from_secs(60);
 
 /// Where reports go: `BEEP_REPORT_URL` when set, else the Beep server.
 // Moves to the #337 server URL when that lands.
-pub fn server_url() -> Result<Url, ParseError> {
-    match std::env::var("BEEP_REPORT_URL") {
-        Ok(url) => Url::parse(&url),
-        Err(_) => Url::parse(&format!("https://{LINK_HOST}")),
-    }
+pub fn server_url() -> Result<Url, SendError> {
+    let url = match env::var("BEEP_REPORT_URL") {
+        Ok(url) => url,
+        Err(VarError::NotPresent) => format!("https://{LINK_HOST}"),
+        Err(e) => return Err(SendError::Url(e.to_string())),
+    };
+    Url::parse(&url).map_err(|e: ParseError| SendError::Url(e.to_string()))
 }
 
 /// Posts `body` to `base` + `/v1/reports`, signed by `key`.
@@ -41,7 +49,9 @@ pub async fn send(base: &Url, body: Vec<u8>, key: &SecretKey) -> Result<Receipt,
         .unwrap_or(0);
     let signature = key.sign(&signed_message(&body, at_ms));
     let url = format!("{}{PATH}", base.as_str().trim_end_matches('/'));
-    let reply = Client::new()
+    let reply = Client::builder()
+        .timeout(SEND_LIMIT)
+        .build()?
         .post(url)
         .header(CONTENT_TYPE, "application/zip")
         .header(KEY_HEADER, key.public().to_string())
@@ -68,9 +78,11 @@ mod tests {
     use super::*;
     use iroh::{PublicKey, Signature};
     use std::collections::HashMap;
+    use std::future::pending;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::task::JoinHandle;
+    use tokio::time::Instant;
 
     /// One request as the stand-in server read it.
     struct Seen {
@@ -189,6 +201,28 @@ mod tests {
         match got {
             Err(SendError::Refused(text)) => assert_eq!(text, "503 Service Unavailable"),
             other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_server_that_never_answers_gives_up_after_the_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a free local port binds");
+        let addr = listener
+            .local_addr()
+            .expect("a bound listener has an address");
+        let _server = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.expect("send connects");
+            pending::<()>().await;
+        });
+        let base = Url::parse(&format!("http://{addr}")).expect("a local address is a URL");
+        let start = Instant::now();
+        let got = send(&base, b"zip".to_vec(), &SecretKey::generate()).await;
+        assert!(start.elapsed() >= SEND_LIMIT, "{:?}", start.elapsed());
+        match got {
+            Err(SendError::Net(e)) => assert!(e.is_timeout(), "{e}"),
+            other => panic!("expected a timeout, got {other:?}"),
         }
     }
 }
