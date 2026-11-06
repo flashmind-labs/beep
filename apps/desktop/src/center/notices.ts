@@ -7,12 +7,12 @@
 import { type PaneTarget, pane } from "../bar/pane.ts";
 import type { ProjectsArg } from "./state.ts";
 import { el as h } from "../ui/dom.ts";
-import { ago } from "../ui/format.ts";
+import { ago, reason } from "../ui/format.ts";
 import { dbtn as button, svgEl } from "../ui/parts.ts";
 import { IC } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { openSettings } from "../settings/sheet.ts";
-import { type Alerts, type Item, type Note, asks, badge, bellLabel, bySide, copies, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, skillName, subLine, unreadCount, unreadIds, without } from "./notices-state.ts";
+import { type Alerts, type Held, type Item, type Note, asks, badge, bellLabel, bySide, copies, copyLine, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, skillName, subLine, unreadCount, unreadIds, without } from "./notices-state.ts";
 import { go } from "./views.ts";
 
 const BELL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg>';
@@ -37,7 +37,11 @@ export function mountNotices(host: HTMLElement) {
   /// Asks being answered, and why an answer failed, by id.
   const answering = new Set<string>();
   const failed = new Map<string, string>();
+  /// Skill conflicts with a copy being kept, by id: the copy's hash and the note as it was.
+  const keeping = new Map<string, { hash: string; was: string }>();
   host.classList.add("nt");
+  /// What a note says, read or not.
+  const told = (i: Item | null) => JSON.stringify(i && { ...i, read: true });
 
   const items = () => merge(alerts, notes);
 
@@ -57,6 +61,8 @@ export function mountNotices(host: HTMLElement) {
 
   const setNotes = (next: Note[]) => {
     notes = next.map(fromNote);
+    // A conflict being kept waits until the node tells it again.
+    for (const [id, k] of keeping) if (told(find(notes, id)) !== k.was) keeping.delete(id);
     // The list is redrawn unless an alert is open, with a reply maybe typed in it.
     if (open && opened && find(alerts ?? [], opened)) drawBell(); else draw();
   };
@@ -173,7 +179,7 @@ export function mountNotices(host: HTMLElement) {
     const close = button(svgEl(IC.x)!, "quiet", e => { e.stopPropagation(); dismiss([i.id]); });
     close.setAttribute("aria-label", "Dismiss");
     close.title = "Dismiss";
-    const over = doneLabel(i);
+    const over = keeping.has(i.id) && !i.done ? "Keeping" : doneLabel(i);
     const sub = h("span", "", subLine(i, ago(i.at)), over ? h("i", "nt-done", over) : null);
     const why = failed.get(i.id);
     const acts = asks(i)
@@ -199,10 +205,37 @@ export function mountNotices(host: HTMLElement) {
   const skillView = (i: Item) => {
     const back = button("Notifications", "small quiet", () => { opened = null; draw(); });
     const head = h("div", "nt-h", back, h("span", "", subLine(i, ago(i.at))), button("Dismiss", "small", () => dismiss([i.id])));
-    const lines = copies(i).map(c => h("div", "nt-copy", h("span", "", c.machine, c.folder ? h("i", "", c.folder) : null),
-      c.here ? button("Show in Finder", "small quiet", () => invoke("skill_reveal", { folder: c.folder, name: skillName(i) }).catch(e => console.warn("showing a skill:", e))) : null));
-    const body = h("div", "nt-list nt-note", h("b", "", i.title), ...lines, h("p", "nt-hint", "Beep changes neither copy. Make them the same, or delete one, and this row settles."));
+    const pending = keeping.get(i.id);
+    const why = failed.get(i.id);
+    const lines = copies(i).map(c => {
+      const held = c.held;
+      const keep = held && !i.done
+        ? button(pending?.hash === held.hash ? "Keeping" : "Keep this one", c.newest ? "pri small" : "small", () => keepCopy(i, held))
+        : null;
+      if (keep && pending) keep.disabled = true;
+      return h("div", "nt-copy",
+        h("span", "", h("span", "", c.machine, c.folder ? h("i", "", c.folder) : null), held ? h("small", "", copyLine(c)) : null),
+        h("span", "nt-acts",
+          c.here ? button("Show in Finder", "small quiet", () => invoke("skill_reveal", { folder: c.folder, name: skillName(i) }).catch(e => console.warn("showing a skill:", e))) : null,
+          keep));
+    });
+    const hint = i.held?.length
+      ? "Keep one copy and it replaces the others on every machine and in every agent's folder."
+      : "Beep changes neither copy. Make them the same, or delete one, and this row settles.";
+    const body = h("div", "nt-list nt-note", h("b", "", i.title), ...lines, why ? h("span", "nt-err", why) : null, h("p", "nt-hint", hint));
     return h("div", "nt-pop", head, body);
+  };
+
+  /// Asks the machine holding `held` to keep it; the row waits until the conflict is told again.
+  const keepCopy = (i: Item, held: Held) => {
+    keeping.set(i.id, { hash: held.hash, was: told(i) });
+    failed.delete(i.id);
+    draw();
+    invoke("skill_keep", { machine: held.machine, name: skillName(i), hash: held.hash }).catch(e => {
+      keeping.delete(i.id);
+      failed.set(i.id, reason(e));
+      draw();
+    });
   };
 
   const openedView = (i: Item) => {

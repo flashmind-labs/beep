@@ -2,8 +2,9 @@
 //! Each node lists its skills on `skills/1` (`disk`), reads every other
 //! node's list, and takes a skill it never held, or a newer edit of one it
 //! synced (`compare`). Copies edited apart are a conflict: it is logged and
-//! told to the desktop, and no file changes. Deletes never spread, and
-//! Beep's own installed skills stay out of it.
+//! told to the desktop, and no file changes until the user keeps one copy
+//! (`Request::Keep`, sent to the machine holding it). Deletes never spread,
+//! and Beep's own installed skills stay out of it.
 
 mod compare;
 mod disk;
@@ -12,7 +13,7 @@ mod follow;
 pub(crate) use follow::{follow, serve};
 
 use beep_proto::node::skills::{Conflict, Listed};
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::sync::{Notify, watch};
 
 /// Whether the node syncs skills, what it lists and the conflicts it last
@@ -26,6 +27,8 @@ pub struct Skills {
     /// first.
     listed: Arc<watch::Sender<Option<Vec<Listed>>>>,
     conflicts: Arc<watch::Sender<Vec<Conflict>>>,
+    /// The copies the user kept here, by name to hash, for the next pass.
+    picks: Arc<watch::Sender<BTreeMap<String, String>>>,
     /// Rung when another machine says its skills changed.
     nudge: Arc<Notify>,
 }
@@ -36,6 +39,7 @@ impl Default for Skills {
             home: None,
             listed: Arc::new(watch::Sender::new(None)),
             conflicts: Arc::new(watch::Sender::new(Vec::new())),
+            picks: Arc::new(watch::Sender::new(BTreeMap::new())),
             nudge: Arc::new(Notify::new()),
         }
     }

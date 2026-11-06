@@ -3,6 +3,7 @@
 //! `Request` and its `Reply`. A node from before it declines the protocol,
 //! which reads as a node with no skills.
 
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
@@ -21,6 +22,11 @@ pub enum Request {
     /// The caller's skills changed: the node compares again soon.
     /// `Reply::Skills`, empty.
     Changed {},
+    /// The user keeps this node's copy of `name` that hashes to `hash`: it
+    /// becomes a picked version above every other and replaces the other
+    /// copies on every machine, edited or not. Only a desktop may ask.
+    /// `Reply::Skills`, empty.
+    Keep { name: String, hash: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +53,17 @@ pub struct Listed {
     /// then one edit past `ver`.
     #[serde(default)]
     pub edited: bool,
+    /// The user picked this copy, at `ver`, to end a conflict: it replaces
+    /// every copy from an older version, edited or not.
+    #[serde(default)]
+    pub kept: bool,
+    /// When a file of the copy last changed, in milliseconds since the Unix
+    /// epoch: the newest of its folders.
+    #[serde(default)]
+    pub changed: u64,
+    /// The bytes of its files.
+    #[serde(default)]
+    pub bytes: u64,
 }
 
 /// A file of a skill, at its path in the skill's folder, `/` between parts.
@@ -69,6 +86,23 @@ pub struct Conflict {
     /// The lines of `copies` that are on the machine asking.
     #[serde(default)]
     pub here: Vec<String>,
+    /// Every copy with its machine, for the user to keep one.
+    #[serde(default)]
+    pub held: Vec<Held>,
+}
+
+/// One copy of a conflicting skill, in one folder of one machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Held {
+    pub machine: EndpointId,
+    /// The machine's name.
+    pub label: String,
+    /// The skills folder, such as `~/.claude/skills`.
+    pub folder: String,
+    pub hash: String,
+    /// As in `Listed`.
+    pub changed: u64,
+    pub bytes: u64,
 }
 
 impl Conflict {

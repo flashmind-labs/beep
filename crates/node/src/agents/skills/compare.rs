@@ -7,13 +7,18 @@
 //! and nothing changes for the name, when both were edited, when one was
 //! edited from a version older than the other's, or when neither was edited
 //! and they differ at the same version (made apart).
+//!
+//! A copy the user kept to end a conflict is a version of its own: every
+//! copy from an older version, edited or not, takes it with no clash.
 
 use super::disk::Base;
-use beep_proto::node::skills::{Conflict, Listed};
+use beep_proto::node::skills::{Conflict, Held, Listed};
+use iroh::EndpointId;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One machine's list.
 pub(super) struct Holder<'a> {
+    pub id: EndpointId,
     pub machine: &'a str,
     /// This machine's own.
     pub here: bool,
@@ -47,6 +52,7 @@ pub(super) struct Synced {
 
 /// One copy with where it is.
 struct Copy<'a> {
+    id: EndpointId,
     machine: &'a str,
     here: bool,
     listed: &'a Listed,
@@ -77,6 +83,7 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
     for holder in holders {
         for listed in holder.listed {
             by_name.entry(&listed.name).or_default().push(Copy {
+                id: holder.id,
                 machine: holder.machine,
                 here: holder.here,
                 listed,
@@ -85,20 +92,31 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
     }
     let mut outcome = Outcome::default();
     for (name, copies) in by_name {
-        let clashes = copies
+        // Copies from before the latest pick take it, whatever they are.
+        let picked = copies
+            .iter()
+            .filter(|copy| copy.listed.kept)
+            .map(|copy| copy.listed.ver)
+            .max();
+        let live: Vec<&Copy<'_>> = copies
+            .iter()
+            .filter(|copy| picked.is_none_or(|ver| copy.listed.ver >= ver))
+            .collect();
+        let clashes = live
             .iter()
             .enumerate()
-            .any(|(i, x)| copies[i + 1..].iter().any(|y| clash(x.listed, y.listed)));
+            .any(|(i, x)| live[i + 1..].iter().any(|y| clash(x.listed, y.listed)));
         if clashes {
             outcome.conflicts.push(conflict(name, &copies));
             continue;
         }
-        let Some(winner) = copies.iter().max_by_key(|copy| copy.edits()) else {
+        let Some(winner) = live.iter().max_by_key(|copy| copy.edits()) else {
             continue;
         };
         let base = Base {
             hash: winner.listed.hash.clone(),
             ver: winner.edits(),
+            kept: winner.listed.kept,
         };
         let old: Vec<Listed> = copies
             .iter()
@@ -126,6 +144,7 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
                 base: Base {
                     hash: base.hash,
                     ver,
+                    kept: base.kept,
                 },
             });
         }
@@ -178,11 +197,26 @@ fn conflict(name: &str, copies: &[Copy<'_>]) -> Conflict {
     places.dedup();
     lines.sort();
     here.sort();
+    let mut held: Vec<Held> = copies
+        .iter()
+        .flat_map(|copy| {
+            copy.listed.folders.iter().map(|folder| Held {
+                machine: copy.id,
+                label: copy.machine.to_owned(),
+                folder: folder.clone(),
+                hash: copy.listed.hash.clone(),
+                changed: copy.listed.changed,
+                bytes: copy.listed.bytes,
+            })
+        })
+        .collect();
+    held.sort_by(|a, b| (&a.label, &a.folder).cmp(&(&b.label, &b.folder)));
     Conflict {
         name: name.to_owned(),
         copies: lines,
         places,
         here,
+        held,
     }
 }
 
@@ -197,17 +231,22 @@ mod tests {
             folders: vec!["~/.claude/skills".to_owned()],
             ver,
             edited,
+            kept: false,
+            changed: 0,
+            bytes: 0,
         }
     }
 
     fn two(a: &[Listed], b: &[Listed]) -> Outcome {
         let holders = [
             Holder {
+                id: iroh::SecretKey::generate().public(),
                 machine: "box-a",
                 here: true,
                 listed: a,
             },
             Holder {
+                id: iroh::SecretKey::generate().public(),
                 machine: "box-b",
                 here: false,
                 listed: b,
@@ -227,7 +266,8 @@ mod tests {
             out.takes[0].base,
             Base {
                 hash: "new".into(),
-                ver: 1
+                ver: 1,
+                kept: false
             }
         );
         assert!(out.conflicts.is_empty());
@@ -246,7 +286,8 @@ mod tests {
             out.synced[0].base,
             Base {
                 hash: "new".into(),
-                ver: 1
+                ver: 1,
+                kept: false
             }
         );
         // A lagged behind a later version: it catches up.
@@ -263,6 +304,33 @@ mod tests {
                 out.conflicts[0].title(),
                 "Skill n differs on box-a and box-b"
             );
+            assert_eq!(out.conflicts[0].held.len(), 2);
         }
+    }
+
+    #[test]
+    fn a_kept_copy_replaces_older_copies_even_edited_ones() {
+        let picked = Listed {
+            kept: true,
+            ..listed("n", "k", 1, false)
+        };
+        // Two copies here edited apart, both from before the pick.
+        let out = two(
+            &[listed("n", "a", 0, true), listed("n", "c", 0, true)],
+            std::slice::from_ref(&picked),
+        );
+        assert!(out.conflicts.is_empty());
+        assert_eq!(
+            out.takes[0].base,
+            Base {
+                hash: "k".into(),
+                ver: 1,
+                kept: true
+            }
+        );
+        assert_eq!(out.takes[0].old.len(), 2);
+        // An edit made after the pick spreads as any edit does.
+        let out = two(&[listed("n", "e", 1, true)], &[picked]);
+        assert!(out.takes.is_empty() && out.conflicts.is_empty());
     }
 }
