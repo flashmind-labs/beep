@@ -391,6 +391,16 @@ aside to `beep-node.exe.old`, removed by the next update.
 
 `send_files` works like scp and needs no shared folders: any path here, any folder there (made if missing), and always directly over the mesh when the target is in it. Other file access (`files/1`, project sync, session moves) keeps to `files` in `node.toml`.
 
+## Signing agents in on another machine
+
+`sign-in/1` (`crates/node/src/machine/sign_in.rs`): a desktop has a node run
+an agent's own sign-in on pipes (`claude auth login`, `codex login
+--device-auth`, `opencode auth login` with ChatGPT's headless method), one per
+tool, ended after 10 minutes. The desktop's Sign-ins table shows its link and
+device code, and sends back the code Claude Code's page shows. Gemini CLI and
+pi have no link to pass on: their row says how to sign in there. On a Mac,
+Claude Code's Keychain item counts as signed in (checked without its secret).
+
 ## Temporary machines
 
 Add a machine's Container option mints a ticket with `temporary` set

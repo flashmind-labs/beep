@@ -23,6 +23,7 @@ use beep_proto::node::{
     process::{Reply as ProcessReply, Request as ProcessRequest},
     report::PROTOCOL as REPORT,
     shell::{Event as ShellEvent, PROTOCOL as SHELL, Request as ShellRequest},
+    sign_in::{self, State as SignInState},
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
 };
@@ -503,6 +504,33 @@ async fn a_peer_runs_a_command_on_a_node_with_no_server() {
     assert!(output.contains("from-the-peer"), "{output:?}");
 }
 
+#[tokio::test]
+async fn a_desktop_asks_a_node_about_its_sign_ins() {
+    let desktop = desktop().await;
+    let node = Node::start(Config::default()).await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let conn = desktop.reach(node.id).await;
+    let mut stream = ready(&conn, sign_in::PROTOCOL).await;
+    let mut ask = async |request: sign_in::Request| {
+        stream.tx.send(&request).await.expect("the request is sent");
+        timeout(LIMIT, stream.rx.recv::<SignInState>())
+            .await
+            .expect("the node answered in time")
+            .expect("the answer reads")
+            .expect("the node answered")
+    };
+    let idle = ask(sign_in::Request::State {
+        tool: "codex".into(),
+    })
+    .await;
+    assert_eq!(idle, SignInState::Idle {});
+    let refused = ask(sign_in::Request::Start {
+        tool: "gemini".into(),
+    })
+    .await;
+    assert!(matches!(refused, SignInState::Failed { .. }), "{refused:?}");
+}
+
 const ADAPTER: &str = r#"
 log() { printf '%s\n' "$line" >> "$1"; }
 id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
@@ -627,6 +655,7 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
         "terminal/1",
         "codex/1",
         "desktop/1",
+        sign_in::PROTOCOL,
     ];
     for protocol in refused {
         match open(&conn, protocol).await {

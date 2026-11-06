@@ -26,7 +26,8 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, skills, status, tool_update, tools, version,
+    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, skills, status, tool_update, tools,
+    version,
 };
 use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 use std::{
@@ -374,6 +375,7 @@ impl Offers {
             shell::PROTOCOL.to_owned(),
             tasks::PROTOCOL.to_owned(),
             terminal::PROTOCOL.to_owned(),
+            sign_in::PROTOCOL.to_owned(),
         ]
         .into_iter()
         .chain(self.agents.offers())
@@ -428,6 +430,7 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         terminal::PROTOCOL,
         tasks::PROTOCOL,
         desktop::PROTOCOL,
+        sign_in::PROTOCOL,
     ];
     let agent = protocol == agent::SESSIONS_PROTOCOL || agent::agent_of(protocol).is_some();
     (!lent && (shared.contains(&protocol) || agent))
@@ -521,6 +524,10 @@ pub(crate) async fn serve_open(
             tx.send(&Opened::Ready {}).await?;
             terminal::serve(tx, rx).await
         }
+        sign_in::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::machine::sign_in::serve(tx, rx).await
+        }
         tool_update::PROTOCOL | tool_update::FLSH if let Some(provision) = &offers.provision => {
             tx.send(&Opened::Ready {}).await?;
             provision.serve_updates(tx, rx).await
@@ -571,6 +578,7 @@ mod tests {
             "terminal/1",
             "process/1",
             "desktop/1",
+            "sign-in/1",
             "agents/1",
             "claude/1",
             "codex/1",
