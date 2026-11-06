@@ -118,6 +118,13 @@ export function next(state: ReportState, event: ReportEvent): ReportState {
   }
 }
 
+/// The line under a failure when the issue timed out: it may have opened anyway.
+export function issueHint(state: ReportState) {
+  return state.step === "failed" && !!state.reference && /did not finish in time/.test(state.error ?? "")
+    ? "Check GitHub before trying again: the issue may have opened."
+    : null;
+}
+
 /// How a machine's row reads its answer.
 export function answerLabel(answer: Answer) {
   if (answer === "Answered") return "answered";

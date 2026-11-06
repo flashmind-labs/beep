@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, answerLabel, canSend, next, sizeLabel, type Draft, type ReportState } from "../src/report/report-state.ts";
+import { START, answerLabel, canSend, issueHint, next, sizeLabel, type Draft, type ReportState } from "../src/report/report-state.ts";
 
 const manifest = {
   version: 1, sender: "3f9a2c", mesh: null, app: "desktop", app_version: "0.2.0", text: "", period: "today", since: 0, made_at: 0,
@@ -48,6 +48,15 @@ test("a refusal shows the server's words", () => {
   assert.equal(back.error, undefined);
   // A collection that failed goes back to the form.
   assert.equal(next(run([{ type: "collect" }, { type: "failed", error: "offline" }]), { type: "back" }).step, "form");
+});
+
+test("an issue that timed out says to check GitHub first", () => {
+  const sent = run([{ type: "collect" }, { type: "collected", draft }, { type: "send" }, { type: "sent", reference: "R-1", gh: true }]);
+  const timedOut = next(sent, { type: "failed", error: "the report was sent, but the GitHub issue did not open: gh did not finish in time" });
+  assert.equal(issueHint(timedOut), "Check GitHub before trying again: the issue may have opened.");
+  assert.equal(issueHint(next(sent, { type: "failed", error: "gh failed: auth required" })), null);
+  // A send that timed out has no issue to check.
+  assert.equal(issueHint(run([{ type: "collect" }, { type: "collected", draft }, { type: "send" }, { type: "failed", error: "did not finish in time" }])), null);
 });
 
 test("labels", () => {

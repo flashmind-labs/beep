@@ -3,7 +3,7 @@
 import { invoke } from "../ui/tauri.ts";
 import { button, el, present } from "../ui/dom.ts";
 import { copyButton, openSheet } from "../ui/parts.ts";
-import { PERIODS, START, answerLabel, canSend, next, sizeLabel, type Draft, type ReportEvent, type ReportState, type Sent } from "./report-state.ts";
+import { PERIODS, START, answerLabel, canSend, issueHint, next, sizeLabel, type Draft, type ReportEvent, type ReportState, type Sent } from "./report-state.ts";
 
 let state = START, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
 /// The file whose text shows under the list, and the issue body before Yes.
@@ -153,7 +153,9 @@ function body(): HTMLElement[] {
     case "failed": {
       const err = el("div", "rp-err", state.error ?? "");
       err.setAttribute("role", "alert");
-      return [err, foot(button("Back", "dbtn quiet", back), button("Try again", "dbtn pri", retry))];
+      const hint = issueHint(state);
+      const actions = foot(button("Back", "dbtn quiet", back), button("Try again", "dbtn pri", retry));
+      return hint ? [err, el("div", "rp-hint", hint), actions] : [err, actions];
     }
   }
 }
@@ -214,7 +216,7 @@ function files() {
     el("div", "rp-box", ...machines),
     el("div", "am-label", "Files"),
     el("div", "rp-box", ...rows),
-    shown ? el("div", "rp-pane-head", el("b", "", el("code", "", shown.path)), el("small", "", "Read only, secrets and paths removed")) : null,
+    shown ? el("div", "rp-pane-head", el("b", "", el("code", "", shown.path)), el("small", "", "Read only, secrets removed")) : null,
     shown ? pane(shown.path, shown.text) : null,
     el("div", "rp-total", el("span", "", "Total"), el("span", "", sizeLabel(total))),
     draft.files.length ? null : el("div", "am-msg rp-none", "No machine sent anything to report."),
