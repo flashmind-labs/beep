@@ -174,8 +174,14 @@ impl Inner {
         if open.protocol == report::PROTOCOL {
             let mut tx = tx;
             tx.send(&Opened::Ready {}).await?;
-            let status = self.local_status().await?;
-            return serve_report(tx, rx, status, offers.log).await;
+            return match self.local_status().await {
+                Ok(status) => serve_report(tx, rx, status, offers.log).await,
+                Err(e) => {
+                    let reason = format!("this machine's status could not be read: {e:#}");
+                    tx.send(&report::Reply::Failed { reason }).await?;
+                    tx.finish().await
+                }
+            };
         }
         // The person at this machine is not held to the setting; a device of the mesh is.
         if who.id() != self.endpoint.id()
