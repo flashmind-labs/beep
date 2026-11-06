@@ -8,10 +8,14 @@ import { PERIODS, START, answerLabel, canSend, next, sizeLabel, type Draft, type
 let state = START, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
 /// The file whose text shows under the list, and the issue body before Yes.
 let opened: string | null = null, issueText: string | null = null;
+/// Which opening of the sheet an answer belongs to; one that arrives after
+/// the sheet closed is dropped.
+let opening = 0;
 
 /// Opens the sheet over `host`; a second call while it is open does nothing.
 export function openReport(host: HTMLElement) {
   if (sheet) return;
+  opening++;
   state = START;
   opened = issueText = null;
   let root: HTMLDivElement;
@@ -22,6 +26,7 @@ export function openReport(host: HTMLElement) {
 }
 
 function closed() {
+  opening++;
   sheet = close = null;
 }
 
@@ -34,14 +39,20 @@ function update(event: ReportEvent) {
   if (sheet) draw();
 }
 
+/// `event` for an answer asked for in opening `asked`, unless the sheet closed since.
+function answer(asked: number, event: ReportEvent) {
+  if (asked === opening) update(event);
+}
+
 async function collect() {
   update({ type: "collect" });
   if (state.step !== "collecting") return;
+  const asked = opening;
   try {
     const draft = await invoke<Draft>("report_collect", { period: state.period });
-    update({ type: "collected", draft });
+    answer(asked, { type: "collected", draft });
   } catch (e) {
-    update({ type: "failed", error: String(e) });
+    answer(asked, { type: "failed", error: String(e) });
   }
 }
 
@@ -49,13 +60,15 @@ async function send() {
   const draft = state.draft;
   update({ type: "send" });
   if (!draft || state.step !== "sending") return;
+  const asked = opening;
   try {
     const sent = await invoke<Sent>("report_send", { draft, text: state.text });
+    if (asked !== opening) return;
     issueText = null;
     update({ type: "sent", reference: sent.reference, gh: sent.gh });
     if (sent.gh) loadIssueText();
   } catch (e) {
-    update({ type: "failed", error: String(e) });
+    answer(asked, { type: "failed", error: String(e) });
   }
 }
 
@@ -65,29 +78,37 @@ function issueArgs() {
 }
 
 async function loadIssueText() {
+  const asked = opening;
   try {
-    issueText = await invoke<string>("report_issue_text", issueArgs());
-    if (sheet && state.step === "sent") draw();
+    const text = await invoke<string>("report_issue_text", issueArgs());
+    if (asked !== opening) return;
+    issueText = text;
+    if (state.step === "sent") draw();
   } catch (e) {
-    update({ type: "failed", error: String(e) });
+    answer(asked, { type: "failed", error: String(e) });
   }
 }
 
 async function openIssue(b: HTMLButtonElement) {
   b.disabled = true;
+  const asked = opening;
   try {
-    update({ type: "issued", url: await invoke<string>("report_issue", issueArgs()) });
+    answer(asked, { type: "issued", url: await invoke<string>("report_issue", issueArgs()) });
   } catch (e) {
-    update({ type: "failed", error: String(e) });
+    answer(asked, { type: "failed", error: String(e) });
   }
+}
+
+/// Back from a failure; on the sent step it asks for the issue text again
+/// when that was what failed.
+function back() {
+  update({ type: "back" });
+  if (state.step === "sent" && state.gh && issueText == null) loadIssueText();
 }
 
 /// Try again on a failure: the step that failed, once more.
 function retry(e: MouseEvent) {
-  if (state.reference && issueText == null) {
-    update({ type: "back" });
-    return void loadIssueText();
-  }
+  if (state.reference && issueText == null) return back();
   if (state.reference) return void openIssue(e.currentTarget as HTMLButtonElement);
   if (state.draft) return void send();
   collect();
@@ -106,8 +127,11 @@ function foot(...kids: (HTMLElement | null)[]) {
   return el("div", "rp-foot", ...kids);
 }
 
+/// Cancel, which waits while collecting or sending so a reference is never lost.
 function cancel() {
-  return button("Cancel", "dbtn quiet", () => close?.());
+  const b = button("Cancel", "dbtn quiet", () => { if (!busy()) close?.(); });
+  b.disabled = busy();
+  return b;
 }
 
 function body(): HTMLElement[] {
@@ -129,7 +153,7 @@ function body(): HTMLElement[] {
     case "failed": {
       const err = el("div", "rp-err", state.error ?? "");
       err.setAttribute("role", "alert");
-      return [err, foot(button("Back", "dbtn quiet", () => update({ type: "back" })), button("Try again", "dbtn pri", retry))];
+      return [err, foot(button("Back", "dbtn quiet", back), button("Try again", "dbtn pri", retry))];
     }
   }
 }
@@ -193,6 +217,7 @@ function files() {
     shown ? el("div", "rp-pane-head", el("b", "", el("code", "", shown.path)), el("small", "", "Read only, secrets and paths removed")) : null,
     shown ? pane(shown.path, shown.text) : null,
     el("div", "rp-total", el("span", "", "Total"), el("span", "", sizeLabel(total))),
+    draft.files.length ? null : el("div", "am-msg rp-none", "No machine sent anything to report."),
     sending ? el("div", "am-wait rp-wait", el("span", "dspin"), "Sending") : null,
     foot(cancel(), go),
   ]);
