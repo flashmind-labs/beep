@@ -158,7 +158,7 @@ function drawBox(s: AgentRow) {
   if (turn) {
     box.innerHTML = `<div class="mvs bar" role="status"><span>Moving to ${esc(to)} after this turn</span><span class="sp"></span><button class="dbtn small" data-mvact="stop">Stop and move</button><button class="dbtn quiet small" data-mvact="cancel">Cancel</button></div>`;
   } else {
-    const rows = moveRows(p, s.machine_name, to).map(row => `<div class="r ${row.state}"><span class="mk">${row.state === "done" ? OK : row.state === "run" ? '<span class="dspin"></span>' : ""}</span><span>${esc(row.text)}</span></div>`).join("");
+    const rows = moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true).map(row => `<div class="r ${row.state}"><span class="mk">${row.state === "done" ? OK : row.state === "run" ? '<span class="dspin"></span>' : ""}</span><span>${esc(row.text)}</span></div>`).join("");
     const cancelable = p.phase !== "resuming";
     box.innerHTML = `<div class="mvs" role="status"><div class="h"><b>Moving to ${esc(to)}</b><span class="sp"></span>${cancelable ? '<button class="dbtn quiet small" data-mvact="cancel">Cancel move</button>' : ""}</div>${rows}</div>`;
   }
