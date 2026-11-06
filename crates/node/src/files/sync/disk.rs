@@ -193,12 +193,13 @@ pub(super) fn rename(root: &Folder, from: &str, to: &str, expected: &Stat) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::paths;
     use crate::{files::Folders, files::transfer::place::open_target};
     use std::{fs, io::Write};
     use tempfile::TempDir;
 
     fn root(dir: &TempDir) -> Folder {
-        let path = dir.path().canonicalize().unwrap();
+        let path = paths::canonicalize(dir.path()).unwrap();
         let folders = Folders::new(std::slice::from_ref(&path));
         open_target(&folders, path.to_str().unwrap()).unwrap()
     }

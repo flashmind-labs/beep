@@ -2,6 +2,7 @@
 //! (`Manager::install`): a systemd user unit on Linux, a LaunchAgent on
 //! macOS, a scheduled task on Windows.
 
+use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use std::{
     env, fmt,
@@ -17,7 +18,6 @@ pub mod logs;
 mod parent;
 mod systemd;
 mod windows;
-pub(crate) use windows::plain as plain_path;
 
 /// How the service starts the node: the same command `setup` would serve.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,10 +37,9 @@ impl Launch {
     /// The launch for this binary, `dir` and `workspace`, with this shell's `PATH`.
     pub fn new(dir: &Path, workspace: Option<&Path>) -> Result<Self> {
         let exe = env::current_exe().context("finding this binary")?;
-        let exe = exe
-            .canonicalize()
-            .with_context(|| format!("resolving {}", exe.display()))?;
-        let dir = dir.canonicalize().with_context(|| {
+        let exe =
+            paths::canonicalize(&exe).with_context(|| format!("resolving {}", exe.display()))?;
+        let dir = paths::canonicalize(dir).with_context(|| {
             format!(
                 "{} does not exist; run `beep-node setup` first",
                 dir.display()

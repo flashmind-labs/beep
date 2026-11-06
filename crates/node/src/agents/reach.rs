@@ -3,11 +3,11 @@
 //! `..` resolved.
 
 use super::{Agents, SIGHTING_WAIT, media_file::resolve, worktrees};
+use crate::files::paths;
 use crate::{agents::claude, agents::found::LogRoots};
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
 use std::{
-    fs,
     io::ErrorKind,
     path::{Component, Path, PathBuf},
 };
@@ -63,7 +63,7 @@ impl Reach {
         let inside = |folders: &[PathBuf]| {
             folders
                 .iter()
-                .filter_map(|folder| fs::canonicalize(folder).ok())
+                .filter_map(|folder| paths::canonicalize(folder).ok())
                 // A session in `/` would open the whole disk.
                 .filter(|folder| folder.parent().is_some())
                 .any(|folder| real.starts_with(folder))
@@ -97,7 +97,7 @@ pub(super) fn real(path: &Path) -> Result<PathBuf> {
     let mut missing = Vec::new();
     let mut at = path;
     loop {
-        match fs::canonicalize(at) {
+        match paths::canonicalize(at) {
             Ok(mut found) => {
                 for name in missing.iter().rev() {
                     found.push(name);
@@ -256,12 +256,13 @@ fn claude_temp_in(set: Option<&std::ffi::OsStr>, uid: u32) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::TempDir;
 
     #[test]
     fn a_missing_path_resolves_through_its_folder() {
         let dir = TempDir::new().unwrap();
-        let base = fs::canonicalize(dir.path()).unwrap();
+        let base = paths::canonicalize(dir.path()).unwrap();
         let asked = dir.path().join("new/deeper/file.mp4");
         assert_eq!(real(&asked).unwrap(), base.join("new/deeper/file.mp4"));
         let up = dir.path().join("a/../../x.png");
@@ -416,7 +417,7 @@ mod tests {
             .reachable(asked.to_str().unwrap(), Access::Write)
             .await
             .unwrap();
-        assert_eq!(real, fs::canonicalize(&asked).unwrap());
+        assert_eq!(real, paths::canonicalize(&asked).unwrap());
     }
 
     #[test]

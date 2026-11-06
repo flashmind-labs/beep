@@ -4705,3 +4705,148 @@ async fn a_slow_claude_code_neither_holds_back_codex_nor_the_next_look() {
         "the Codex plan read before did not come at once"
     );
 }
+
+impl Node {
+    /// Like `logged`, for a line that may have come before the last one
+    /// waited for.
+    async fn has_logged(&mut self, text: &str) {
+        if !self.log.iter().any(|line| line.contains(text)) {
+            self.logged(text).await;
+        }
+    }
+}
+
+/// Writes the skill `name` with `body` as its `SKILL.md` into the skills
+/// folder `rel` under `home`.
+fn put_skill(home: &Path, rel: &str, name: &str, body: &str) {
+    let dir = home.join(rel).join(name);
+    fs::create_dir_all(dir.join("refs")).expect("a skill folder");
+    fs::write(
+        dir.join("SKILL.md"),
+        format!("---\nname: {name}\n---\n{body}\n"),
+    )
+    .expect("the skill is written");
+    fs::write(dir.join("refs/notes.md"), format!("{name} notes\n")).expect("a skill file");
+}
+
+/// Everything under `dir`, by path, for comparing folders.
+fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(at) = stack.pop() {
+        for entry in fs::read_dir(&at).expect("a folder").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                let data = fs::read(&path).expect("a file");
+                out.push((path.strip_prefix(dir).expect("inside").to_path_buf(), data));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[tokio::test]
+async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
+    let desktop = desktop(None).await;
+    let a = Node::start(Config::default()).await;
+    let mut b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    // On A: one skill in two agents' folders alike, one Beep installed.
+    put_skill(a.home.path(), ".claude/skills", "notes", "Write notes.");
+    put_skill(a.home.path(), ".agents/skills", "notes", "Write notes.");
+    put_skill(
+        a.home.path(),
+        ".claude/skills",
+        "beep-made",
+        "<!-- Installed by Beep. Beep keeps this file current until you edit it. sha256:00 -->",
+    );
+    // On both: one alike, one that differs.
+    for home in [a.home.path(), b.home.path()] {
+        put_skill(home, ".claude/skills", "shared", "Same everywhere.");
+    }
+    put_skill(a.home.path(), ".claude/skills", "style", "Short lines.");
+    put_skill(b.home.path(), ".claude/skills", "style", "Long lines.");
+    let style_a = tree(&a.home.path().join(".claude/skills/style"));
+    let style_b = tree(&b.home.path().join(".claude/skills/style"));
+
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let mut a = a;
+    let differs = "Skill style differs on box-a and box-b; nothing changed";
+    b.has_logged("skills: got notes from box-a").await;
+    b.has_logged(differs).await;
+    a.has_logged(differs).await;
+    a.has_logged("1 other machines compared, 1 differ").await;
+
+    let notes = tree(&a.home.path().join(".claude/skills/notes"));
+    for rel in [".claude/skills/notes", ".agents/skills/notes"] {
+        assert_eq!(tree(&b.home.path().join(rel)), notes, "{rel} on box-b");
+    }
+    assert!(!b.home.path().join(".claude/skills/beep-made").exists());
+    assert!(!b.home.path().join(".agents/skills/beep-made").exists());
+    assert_eq!(tree(&a.home.path().join(".claude/skills/style")), style_a);
+    assert_eq!(tree(&b.home.path().join(".claude/skills/style")), style_b);
+    assert!(!b.home.path().join(".agents/skills/style").exists());
+
+    // Deleted on A: it stays on B, and A does not take it back.
+    for rel in [".claude/skills/notes", ".agents/skills/notes"] {
+        fs::remove_dir_all(a.home.path().join(rel)).expect("the skill is deleted");
+    }
+    let mut a = a.restart().await;
+    a.logged("skills: 2 here, 1 other machines compared, 1 differ")
+        .await;
+    assert!(!a.home.path().join(".claude/skills/notes").exists());
+    assert!(!a.home.path().join(".agents/skills/notes").exists());
+    assert_eq!(tree(&b.home.path().join(".claude/skills/notes")), notes);
+
+    // Told once each, and never for the copies alike.
+    while let Ok(line) = b.lines.try_recv() {
+        b.log.push(line);
+    }
+    for node in [&a, &b] {
+        let told = |text: &str| node.log.iter().filter(|l| l.contains(text)).count();
+        assert_eq!(told("Skill style differs"), 1, "{:#?}", node.log);
+        assert_eq!(told("Skill shared"), 0);
+        assert_eq!(told("Skill notes"), 0);
+        assert_eq!(told("got notes"), usize::from(node.id == b.id));
+    }
+
+    // An edit on A reaches B, whole.
+    put_skill(a.home.path(), ".claude/skills", "shared", "Edited on A.");
+    let mut a = a.restart().await;
+    b.has_logged("skills: updated shared from box-a").await;
+    let shared = tree(&a.home.path().join(".claude/skills/shared"));
+    assert_eq!(tree(&b.home.path().join(".claude/skills/shared")), shared);
+    a.has_logged("1 other machines compared").await;
+
+    // Edits on both: one conflict on each, and no file changes.
+    put_skill(a.home.path(), ".claude/skills", "shared", "Again on A.");
+    put_skill(b.home.path(), ".claude/skills", "shared", "Again on B.");
+    let shared_a = tree(&a.home.path().join(".claude/skills/shared"));
+    let shared_b = tree(&b.home.path().join(".claude/skills/shared"));
+    let mut a = a.restart().await;
+    let differs = "Skill shared differs on box-a and box-b; nothing changed";
+    a.has_logged(differs).await;
+    b.has_logged(differs).await;
+    assert_eq!(tree(&a.home.path().join(".claude/skills/shared")), shared_a);
+    assert_eq!(tree(&b.home.path().join(".claude/skills/shared")), shared_b);
+    while let Ok(line) = b.lines.try_recv() {
+        b.log.push(line);
+    }
+    for node in [&a, &b] {
+        let told = node.log.iter().filter(|l| l.contains(differs)).count();
+        assert_eq!(told, 1, "{:#?}", node.log);
+    }
+    let updates = b
+        .log
+        .iter()
+        .filter(|l| l.contains("updated shared"))
+        .count();
+    assert_eq!(updates, 1, "B took only the first edit");
+}

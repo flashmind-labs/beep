@@ -2,6 +2,7 @@
 //! user's session with no window and without administrator rights.
 
 use super::{Launch, Manager, Restart, escape, run};
+use crate::files::paths;
 use anyhow::{Context, Result};
 use std::{
     env, fs,
@@ -255,13 +256,8 @@ fn task_xml(launch: &Launch, user: &str, conhost: &Path, log: &Path) -> String {
 
 /// `path` without the `\\?\` prefix `canonicalize` adds, which some
 /// programs do not take.
-pub(crate) fn plain(path: &Path) -> String {
-    let text = path.display().to_string();
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest.to_owned(),
-        Some(rest) if rest.starts_with(r"UNC\") => format!(r"\\{}", &rest[4..]),
-        _ => text,
-    }
+fn plain(path: &Path) -> String {
+    paths::plain(path).display().to_string()
 }
 
 /// One argument quoted for a Windows command line, as the C runtime and
