@@ -9,7 +9,7 @@
 use super::machines::{Machine, command_name, machines};
 use crate::agents::{
     Agents, Command, Session,
-    family::{ChildStart, RemoteKid, WAIT_LIMIT, WAIT_POLL, Who},
+    family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, WAIT_POLL, Who},
 };
 use crate::link::Offers;
 use beep_mesh::{Key, Mesh};
@@ -28,7 +28,9 @@ use tokio::time::{Instant, sleep};
 mod peer;
 
 use peer::{Answer, Call, GONE, KEPT, REMOTE_LIMIT, fetch_view};
-pub(crate) use peer::{CountCall, Views, ask_parent, count_on, stop_remote, stop_remote_retrying};
+pub(crate) use peer::{
+    CountCall, Views, ask_parent, count_on, note_parent, stop_remote, stop_remote_retrying,
+};
 
 /// The longest title or message the agent reads back.
 const MAX_TEXT: usize = 2000;
@@ -106,9 +108,7 @@ impl ChildView {
 
     fn named(mut self, machine: &str) -> Self {
         self.machine = machine.to_owned();
-        if !machine.is_empty() && !self.id.contains('@') {
-            self.id = format!("{}@{machine}", self.id);
-        }
+        self.id = full_id(&self.id, machine);
         self
     }
 
@@ -140,6 +140,28 @@ struct IdArgs {
 struct SendArgs {
     id: String,
     text: String,
+}
+
+/// The id the other tools take for the child `id` on `machine`:
+/// `<session>@<machine>`, or the bare id without a machine name.
+pub(crate) fn full_id(id: &str, machine: &str) -> String {
+    if machine.is_empty() || id.contains('@') {
+        id.to_owned()
+    } else {
+        format!("{id}@{machine}")
+    }
+}
+
+/// This machine's name in `mesh`, as agents say it; empty without one.
+pub(crate) fn machine_name(mesh: Option<&Mesh>) -> String {
+    let Some(mesh) = mesh else {
+        return String::new();
+    };
+    machines(mesh)
+        .into_iter()
+        .find(|machine| machine.id == mesh.me())
+        .map(|machine| machine.name)
+        .unwrap_or_default()
 }
 
 /// What `start_agent` sends the machine that starts the child.
@@ -252,14 +274,7 @@ impl<'a> ChildId<'a> {
 impl Reach<'_> {
     /// This machine's name in the mesh, as agents say it; empty without one.
     fn my_name(&self) -> String {
-        let Some(mesh) = &self.mesh else {
-            return String::new();
-        };
-        machines(mesh)
-            .into_iter()
-            .find(|machine| machine.id == mesh.me())
-            .map(|machine| machine.name)
-            .unwrap_or_default()
+        machine_name(self.mesh.as_ref())
     }
 
     /// `text` as the caller `parent` sends it to a child, tagged with who
@@ -611,6 +626,8 @@ impl Reach<'_> {
     /// call must come back before its client gives up, so a long job is
     /// polled instead.
     async fn waited(&self, mut view: ChildView) -> ChildView {
+        // What this wait answers goes in no note.
+        let _waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
         let deadline = Instant::now() + WAIT_LIMIT;
         while !view.settled() {
             if Instant::now() >= deadline {
@@ -776,6 +793,15 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
                 let keeps = agents.keeps_child(peer, &request.session, &call.id, &key);
                 ok(if keeps { KEPT } else { GONE })
             }
+            Err(e) => fail(e),
+        },
+        // A child on `peer` finished a turn or asks the user: the call's
+        // session is its parent here.
+        Tool::AgentNote => match parse::<ChildNote>(&request.args) {
+            Ok(note) => match agents.note_from(peer, &request.session, &note).await {
+                Ok(()) => ok("Told."),
+                Err(e) => fail(e),
+            },
             Err(e) => fail(e),
         },
         // How many live agents under a root run here.

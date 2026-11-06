@@ -3,6 +3,7 @@
 
 use beep_mesh::{JOIN_ALPN, Mesh, MeshError, PEER_ALPN};
 use beep_node::{
+    agents::SESSIONS_ALPN,
     files::{
         Folders,
         transfer::{Late, Transfers, stop_for_exit},
@@ -76,12 +77,14 @@ impl Drop for Settle<'_> {
 }
 
 impl Serving {
-    /// Serves the mesh and joins on `endpoint` at once. Connections for
-    /// blobs and sync wait for `start_services`.
+    /// Serves the mesh, joins and session reads (moves, background copies)
+    /// on `endpoint` at once. Connections for blobs and sync wait for
+    /// `start_services`.
     pub(super) fn spawn(endpoint: &Endpoint, peers: &Peers) -> Self {
         let router = Router::builder(endpoint.clone())
             .accept(PEER_ALPN, peers.peer_handler())
-            .accept(JOIN_ALPN, peers.join_handler());
+            .accept(JOIN_ALPN, peers.join_handler())
+            .accept(SESSIONS_ALPN, peers.sessions_handler());
         let late = Late::default();
         Self {
             router: late.add_to(router).spawn(),

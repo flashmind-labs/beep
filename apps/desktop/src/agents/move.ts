@@ -18,7 +18,15 @@ const POLL_MS = 1500;
 const CHEV = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const OK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg>';
 
-const UI = { targets: [] as MoveTarget[], open: false, error: "", timer: 0 };
+const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", timer: 0 };
+
+/// How long a machine may take to say whether it takes the move.
+const PROBE_MS = 3000;
+
+/// `ask`, or `fallback` when it fails or takes longer than `PROBE_MS`.
+function probe<T>(ask: Promise<T>, fallback: T): Promise<T> {
+  return Promise.race([ask.catch(() => fallback), new Promise<T>(done => setTimeout(() => done(fallback), PROBE_MS))]);
+}
 
 const here = (s: AgentRow) => MV.records.get(s.id);
 
@@ -51,10 +59,16 @@ function drawHead(s: AgentRow) {
 
 async function toggle(s: AgentRow) {
   UI.open = !UI.open;
-  if (UI.open) {
-    UI.targets = await targets(s);
-    document.addEventListener("click", () => { UI.open = false; drawMove(); }, { once: true });
-  }
+  if (!UI.open) return drawMove();
+  // The menu opens at once and fills in when the machines answered.
+  UI.targets = [];
+  UI.loading = true;
+  document.addEventListener("click", () => { UI.open = false; drawMove(); }, { once: true });
+  drawMove();
+  const found = await targets(s);
+  UI.loading = false;
+  if (!UI.open) return;
+  UI.targets = found;
   drawMove();
 }
 
@@ -71,12 +85,13 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
   const others = (rows ?? []).filter(m => m.id !== s.machine_id);
   // A node from before moves would ignore the move, so it is not offered. One
   // that cannot be asked (offline) is offered: it answers when it returns.
-  const takes = await Promise.all(others.map(m => invoke<boolean>("session_move_probe", { machineId: m.id }).catch(() => true)));
+  // An offline one is not asked: the dial would only time out.
+  const takes = await Promise.all(others.map(m => m.online ? probe(invoke<boolean>("session_move_probe", { machineId: m.id }), true) : Promise.resolve(true)));
   // A session in a worktree also needs a node that makes the worktree, and a
   // Syncthing that does not leave it out.
   const tree = placeOf(s);
-  const trees = await Promise.all(others.map(m => tree?.linked && tree.branch
-    ? invoke<"takes" | "ignored" | "update">("session_move_worktree_probe", { machineId: m.id, project, branch: tree.branch }).catch(() => "takes" as const)
+  const trees = await Promise.all(others.map(m => m.online && tree?.linked && tree.branch
+    ? probe(invoke<"takes" | "ignored" | "update">("session_move_worktree_probe", { machineId: m.id, project, branch: tree.branch }), "takes" as const)
     : Promise.resolve("takes" as const)));
   return others.map((m, i) => ({
     id: m.id,
@@ -93,7 +108,7 @@ function menu(s: AgentRow) {
   const box = document.createElement("div");
   box.className = "agwtm mvm";
   box.setAttribute("role", "menu");
-  box.innerHTML = `<div class="mvh">Move to</div>` + UI.targets.map((t, i) => {
+  box.innerHTML = `<div class="mvh">Move to</div>` + (UI.loading ? `<div class="mvh">Checking machines…</div>` : "") + UI.targets.map((t, i) => {
     const n = targetNote(t, s.agent);
     return `<button role="menuitem" data-mv="${i}" ${n.enabled ? "" : "disabled"}><b>${esc(t.name)}</b><small>${esc(n.note)}</small></button>`;
   }).join("");
@@ -158,7 +173,7 @@ function drawBox(s: AgentRow) {
   if (turn) {
     box.innerHTML = `<div class="mvs bar" role="status"><span>Moving to ${esc(to)} after this turn</span><span class="sp"></span><button class="dbtn small" data-mvact="stop">Stop and move</button><button class="dbtn quiet small" data-mvact="cancel">Cancel</button></div>`;
   } else {
-    const rows = moveRows(p, s.machine_name, to).map(row => `<div class="r ${row.state}"><span class="mk">${row.state === "done" ? OK : row.state === "run" ? '<span class="dspin"></span>' : ""}</span><span>${esc(row.text)}</span></div>`).join("");
+    const rows = moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true).map(row => `<div class="r ${row.state}"><span class="mk">${row.state === "done" ? OK : row.state === "run" ? '<span class="dspin"></span>' : ""}</span><span>${esc(row.text)}</span></div>`).join("");
     const cancelable = p.phase !== "resuming";
     box.innerHTML = `<div class="mvs" role="status"><div class="h"><b>Moving to ${esc(to)}</b><span class="sp"></span>${cancelable ? '<button class="dbtn quiet small" data-mvact="cancel">Cancel move</button>' : ""}</div>${rows}</div>`;
   }

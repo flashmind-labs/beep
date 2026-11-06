@@ -224,7 +224,7 @@ impl Digest {
             .collect();
         let said = prompt.as_deref().or_else(|| {
             others.iter().find_map(|part| match part {
-                Part::Session { text, .. } => Some(*text),
+                Part::Session { text, .. } | Part::Child { text, .. } => Some(*text),
                 _ => None,
             })
         });

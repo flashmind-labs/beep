@@ -844,6 +844,7 @@ mod tools {
             (Tool::AgentCount, "agent_count"),
             (Tool::Review, "review"),
             (Tool::SubmitReview, "submit_review"),
+            (Tool::AgentNote, "agent_note"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));
@@ -1527,6 +1528,61 @@ mod agent {
             );
             assert!(!SessionsRequest::FollowAlerts {}.is_read());
             assert!(!SessionsRequest::Watch { sessions: vec![] }.is_read());
+        }
+
+        #[test]
+        fn process_requests_are_new_and_only_the_list_is_retryable() {
+            let read = SessionsRequest::Processes {
+                session: "s1".into(),
+            };
+            let stop = SessionsRequest::StopProcess {
+                session: "s1".into(),
+                pid: 42,
+            };
+            assert!(read.is_read());
+            assert!(!stop.is_read());
+            for request in [read, stop] {
+                let bytes = rmp_serde::to_vec(&request).unwrap();
+                assert_eq!(
+                    beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).unwrap(),
+                    request
+                );
+                assert!(beep_proto::lenient::from_slice::<BeforeMoves>(&bytes).is_err());
+            }
+            let reply = SessionsReply::Processes {
+                processes: vec![RunningProcess {
+                    pid: 42,
+                    command: "npm run dev".into(),
+                    started_at: 1_700_000_000,
+                    ports: vec![3000],
+                    left_group: true,
+                }],
+            };
+            let bytes = rmp_serde::to_vec(&reply).unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsReply>(&bytes).unwrap(),
+                reply
+            );
+            let stopped = SessionsReply::ProcessStopped {};
+            let bytes = rmp_serde::to_vec(&stopped).unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsReply>(&bytes).unwrap(),
+                stopped
+            );
+        }
+
+        #[test]
+        fn running_processes_default_missing_fields_and_skip_newer_fields() {
+            let bytes = rmp_serde::to_vec(&(42, "watch", 1_700_000_000_u64)).unwrap();
+            let process: RunningProcess = beep_proto::lenient::from_slice(&bytes).unwrap();
+            assert!(process.ports.is_empty());
+            assert!(!process.left_group);
+            let bytes =
+                rmp_serde::to_vec(&(42, "watch", 1_700_000_000_u64, vec![3000], true, "extra"))
+                    .unwrap();
+            let process: RunningProcess = beep_proto::lenient::from_slice(&bytes).unwrap();
+            assert_eq!(process.ports, [3000]);
+            assert!(process.left_group);
         }
 
         #[test]

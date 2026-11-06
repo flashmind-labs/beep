@@ -244,12 +244,16 @@ export function entryRow(en: AgentEntry, at: number) {
   const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
   if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
   if (en.kind === "user") {
-    // Beep's context and what another session sent get rows of their own,
-    // never the user's box.
+    // Beep's context, what another session sent and what a child came to
+    // get rows of their own, never the user's box.
     const parts = promptParts(en.text);
-    const others = parts.filter(p => p.kind !== "user").map(p => p.kind === "context"
+    const others = parts.map(p => p.kind === "context"
       ? `<details class="dcoderen beepctx"><summary>Beep context</summary><pre>${esc(p.text)}</pre></details>`
-      : `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`).join("");
+      : p.kind === "session"
+        ? `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`
+        : p.kind === "child"
+          ? `<div class="dcoderen fromsession"><b>${esc(p.name || "Child")} ${p.state === "asking" ? "waiting on you" : "finished"}</b><span>${linkified(p.text)}</span></div>`
+          : "").join("");
     const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
     if (!own && others) return others;
     const { names } = userImages(own);

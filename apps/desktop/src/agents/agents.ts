@@ -239,7 +239,6 @@ interface AgentState {
   changed: number;
   paused: boolean;
   answering: number | null;
-  barHidden: boolean;
   /// Images pasted or dropped into the session's field, the error from the last
   /// one and when it goes, and the session the server turned images down for.
   att: Attached[];
@@ -282,7 +281,7 @@ export const AG: AgentState = {
   hosts: null, error: "", busy: false,
   form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
   open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
-  sig: "", rest: "", changed: 0, paused: false, answering: null, barHidden: false,
+  sig: "", rest: "", changed: 0, paused: false, answering: null,
   att: [], attError: "", attTimer: undefined, noImages: null,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
@@ -425,8 +424,10 @@ export function drawAgents(loading: boolean) {
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
     ${AG.error ? `<div class="derr dpadx">${esc(AG.error)}</div>` : ""}
+    <div class="dagscroll">
     ${list.length ? `<div class="dlist top" role="listbox">${shown.map(sessionRow).join("")}</div>` : ""}
     ${copies}
+    </div>
     ${list.length || copies || loading ? "" : emptyPage(AGENT_ICON, "No sessions running.", "Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.")}
     ${hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`;
   bar.onclick = e => {

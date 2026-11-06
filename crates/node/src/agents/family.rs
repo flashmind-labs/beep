@@ -21,9 +21,11 @@ use std::{
 use tokio::{sync::watch, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
 
+mod notes;
 mod orphans;
 mod remote;
 
+pub(crate) use notes::{ChildNote, Waits};
 pub(crate) use orphans::Parent;
 pub(crate) use remote::RemoteKid;
 
@@ -52,6 +54,9 @@ pub(super) struct Family {
     starting: AsyncMutex<()>,
     /// What transcripts show of children on other machines.
     pub(crate) views: children::Views,
+    /// The children parents wait on in `start_agent`, which send no note
+    /// meanwhile.
+    pub(crate) waits: Waits,
 }
 
 /// Who calls a family tool: a session of some machine.

@@ -27,7 +27,7 @@ use std::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -70,6 +70,8 @@ impl From<Machine> for MachineView {
 pub struct Held<T> {
     list: Mutex<Vec<T>>,
     refreshing: AtomicBool,
+    /// When the list was last read, for `refreshed_after`.
+    read_at: Mutex<Option<Instant>>,
 }
 
 impl<T> Default for Held<T> {
@@ -77,6 +79,7 @@ impl<T> Default for Held<T> {
         Self {
             list: Mutex::default(),
             refreshing: AtomicBool::new(false),
+            read_at: Mutex::default(),
         }
     }
 }
@@ -116,6 +119,7 @@ impl<T: Clone + Send + 'static> Held<T> {
     fn finish(&self, listed: Result<Vec<T>>, same: impl Fn(&T, &T) -> bool) -> bool {
         match listed {
             Ok(listed) => {
+                *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
                 let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
                 let changed = held.len() != listed.len()
                     || held.iter().zip(&listed).any(|(old, new)| !same(old, new));
@@ -163,6 +167,31 @@ impl<T: Clone + Send + 'static> Held<T> {
     ) -> Vec<T> {
         self.refresh_with(app, ask, same);
         self.last()
+    }
+
+    /// As `refreshed`, but `ask` runs only once the last read is `fresh`
+    /// old, so the callers in between share it.
+    pub(crate) fn refreshed_after(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        same: fn(&T, &T) -> bool,
+        fresh: Duration,
+    ) -> Vec<T> {
+        let due = self
+            .read_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_none_or(|at| at.elapsed() >= fresh);
+        if due {
+            self.refresh_with(app, ask, same);
+        }
+        self.last()
+    }
+
+    /// The next `refreshed_after` reads again, however recent the last read.
+    pub(crate) fn stale(&self) {
+        *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
     /// `mesh` and the machines the server last listed that it lacks, at

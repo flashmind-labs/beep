@@ -30,8 +30,11 @@ pub const MORE: &str = "wait-more";
 pub const SHOWN: usize = 8;
 /// The longest label, in characters, so the menu keeps its width.
 const LABEL_MAX: usize = 60;
-/// How often the list is fetched when nothing poked.
+/// How often the list is fetched when nothing poked, at first and after
+/// a change; each fetch that changes nothing doubles the wait up to
+/// `QUIET`.
 const EVERY: Duration = Duration::from_secs(60);
+const QUIET: Duration = Duration::from_secs(5 * 60);
 /// The least time between two fetches, so a burst of notices makes one.
 const GAP: Duration = Duration::from_secs(2);
 
@@ -165,7 +168,8 @@ pub fn tooltip(count: usize) -> String {
     }
 }
 
-/// Keeps the list current while Beep runs: on each poke, and every `EVERY`.
+/// Keeps the list current while Beep runs: on each poke, and every `EVERY`
+/// to `QUIET`.
 /// Machines poke on every question or finished turn they send, and when
 /// they connect; the slow look catches an entry answered elsewhere and a
 /// session that ended with no alert.
@@ -173,9 +177,11 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
     let list = app.state::<WaitingList>();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     list.poke();
+    let mut wait = EVERY;
     loop {
         // Timing out is the usual way round: nothing poked.
-        let _ = timeout(EVERY, list.wake.notified()).await;
+        let _ = timeout(wait, list.wake.notified()).await;
+        wait = (wait * 2).min(QUIET);
         {
             match fetch(&app, &beep, &fleet).await {
                 Ok(entries) => {
@@ -186,6 +192,7 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
                         .filter(|id| !entries.iter().any(|e| &e.id == id))
                         .collect();
                     if list.set(entries) {
+                        wait = EVERY;
                         crate::tray::refresh(&app);
                         history::no_longer_waiting(&app, &gone);
                     }

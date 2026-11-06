@@ -15,7 +15,7 @@ use std::{
     process::Stdio,
     time::Duration,
 };
-use tokio::time::timeout;
+use tokio::{sync::OnceCell, time::timeout};
 
 /// How long one probe command may take.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -250,8 +250,24 @@ fn gh_account(status: &str) -> Option<String> {
     Some(account.to_owned())
 }
 
-/// The OS release, such as "Ubuntu 24.04" or "macOS 26.3".
+/// The OS release, such as "Ubuntu 24.04" or "macOS 26.3". Read once: an
+/// upgrade restarts the machine.
 pub async fn os_version() -> String {
+    static READ: OnceCell<String> = OnceCell::const_new();
+    let read = READ
+        .get_or_try_init(|| async {
+            let version = read_os_version().await;
+            if version.is_empty() {
+                Err(())
+            } else {
+                Ok(version)
+            }
+        })
+        .await;
+    read.cloned().unwrap_or_default()
+}
+
+async fn read_os_version() -> String {
     match env::consts::OS {
         "macos" => match output("sw_vers", &["-productVersion"])
             .await
@@ -277,7 +293,16 @@ fn pretty_name(os_release: &str) -> Option<String> {
     Some(line["PRETTY_NAME=".len()..].trim_matches('"').to_owned())
 }
 
+/// The machine's memory. Read once, as it cannot change while it runs.
 pub(crate) async fn memory_mb() -> Option<u64> {
+    static READ: OnceCell<u64> = OnceCell::const_new();
+    READ.get_or_try_init(|| async { read_memory_mb().await.ok_or(()) })
+        .await
+        .ok()
+        .copied()
+}
+
+async fn read_memory_mb() -> Option<u64> {
     match env::consts::OS {
         "macos" => {
             let bytes: u64 = output("sysctl", &["-n", "hw.memsize"])

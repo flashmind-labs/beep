@@ -7,6 +7,7 @@
 //! mesh, so `join` takes effect without a restart.
 
 use crate::{
+    agents::SessionsAlpn,
     files::transfer::Transfers,
     link::from_mesh,
     link::local_socket::{Listener, Stream},
@@ -287,6 +288,13 @@ impl Peers {
     /// The `beep-join/2` handler.
     pub fn join_handler(&self) -> JoinAlpn {
         JoinAlpn(self.clone())
+    }
+
+    /// The `beep-sessions/1` handler: the other machine of a move, and
+    /// background copies, read this node's sessions through it.
+    pub fn sessions_handler(&self) -> SessionsAlpn {
+        let offers = self.inner.offers();
+        SessionsAlpn::new(offers.agents.clone(), offers.mesh.clone())
     }
 
     /// Takes the mesh the node's folder holds, if it holds one.

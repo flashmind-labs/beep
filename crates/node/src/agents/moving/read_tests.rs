@@ -487,3 +487,49 @@ async fn a_live_read_refuses_what_the_snapshot_cannot_read_before_the_source_sto
     .expect_err("refused on the live read");
     assert!(err.is::<super::read::Refused>(), "{err:#}");
 }
+
+/// Takes the request and never answers, as a source whose stream stalled.
+#[derive(Debug, Clone)]
+struct Mute;
+
+impl ProtocolHandler for Mute {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let (_tx, mut rx) = link(send, recv);
+        let _ = rx.recv::<super::read::Request>().await;
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_read_the_source_stops_answering_fails_instead_of_waiting_forever() {
+    let server = Router::builder(endpoint().await).accept(ALPN, Mute).spawn();
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+    let ask = super::read::Ask {
+        agent: AgentSlug::CODEX,
+        id: ID,
+        copy: &copy,
+        kind: super::read::Kind::Move { worktree: false },
+    };
+    let quiet = std::time::Duration::from_millis(300);
+    let err = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        super::read::pull_within(tx, rx, ask, quiet),
+    )
+    .await
+    .expect("the read gives up on its own")
+    .expect_err("a stalled read fails");
+    assert!(format!("{err:#}").contains("sent nothing"), "{err:#}");
+    assert!(!err.is::<super::read::Refused>(), "it is tried again");
+}

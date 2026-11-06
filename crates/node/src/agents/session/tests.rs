@@ -114,6 +114,7 @@ async fn a_takeover_resumes_without_permission_prompts() {
     let session = Session::start(Start {
         prompt: Some("carry on".into()),
         resume: Some(id.into()),
+        earlier: Vec::new(),
         ..start_on(&fake("claude", &log), dir, None)
     })
     .unwrap();
@@ -777,6 +778,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         cwd: dir,
         prompt: Some("go".into()),
         resume: None,
+        earlier: Vec::new(),
         model: model.map(ModelId::new),
         effort: None,
         mode: None,
@@ -1621,4 +1623,90 @@ async fn an_agent_with_its_own_compaction_starts_with_the_setting() {
         compaction_env("codex", tokens).await,
         r#"|||{"model_auto_compact_token_limit":350000}"#
     );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn closing_a_session_stops_a_child_that_left_its_group() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("sent");
+    let kind = script(
+        "test",
+        r#"
+setsid sh -c 'echo $$ > "$1.pid"; trap "" TERM; exec sleep 300' worker "$1" </dev/null >/dev/null 2>&1 &
+sleep 301 </dev/null >/dev/null 2>&1 &
+echo $! > "$1.group"
+handshake "$1"
+read -r line
+reply '{"stopReason":"end_turn"}'
+cat >/dev/null
+"#,
+        &log,
+    );
+    let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
+    settle(&session).await;
+    let escaped = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Ok(pid) = std::fs::read_to_string(log.with_extension("pid"))
+                && let Ok(pid) = pid.trim().parse::<u32>()
+                && let Some(row) = session
+                    .processes
+                    .list()
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .find(|p| p.pid == pid && p.command.contains("sleep 300"))
+            {
+                break row;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the escaped child is listed");
+    assert!(escaped.left_group);
+    assert!(escaped.command.contains("sleep 300"));
+    assert!(escaped.started_at > 0);
+    let group_pid = std::fs::read_to_string(log.with_extension("group"))
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
+    let rows = session.processes.list().await.unwrap();
+    assert!(rows.iter().any(|p| p.pid == group_pid && !p.left_group));
+    assert!(rows.iter().all(|p| p.pid != session.processes.root()));
+    session.processes.stop(group_pid).await.unwrap();
+    assert!(
+        session
+            .processes
+            .list()
+            .await
+            .unwrap()
+            .iter()
+            .all(|p| p.pid != group_pid)
+    );
+    assert!(session.processes.stop(std::process::id()).await.is_err());
+    assert!(
+        session
+            .processes
+            .stop(session.processes.root())
+            .await
+            .is_err()
+    );
+    tokio::time::timeout(Duration::from_secs(10), session.close())
+        .await
+        .expect("close finishes");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let stat = std::fs::read_to_string(format!("/proc/{}/stat", escaped.pid));
+            if stat.is_err()
+                || stat.is_ok_and(|s| s.rsplit_once(") ").is_some_and(|(_, f)| f.starts_with('Z')))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the escaped child stopped, including one ignoring TERM");
 }

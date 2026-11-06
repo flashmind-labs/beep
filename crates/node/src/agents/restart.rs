@@ -8,7 +8,7 @@ use super::{
     session::{NODE_STOPPED, Session},
 };
 use anyhow::{Context, Result};
-use beep_proto::node::agent::{ParentLink, Status};
+use beep_proto::node::agent::{Entry, ParentLink, Status};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
@@ -19,6 +19,10 @@ pub(super) const SETTINGS_WAIT: Duration = Duration::from_secs(60);
 
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";
+
+/// The most transcript entries kept across a restart for an agent that
+/// does not replay its sessions.
+const KEPT_ENTRIES: usize = 1000;
 
 /// Why a session is read to start again.
 #[derive(Clone, Copy, PartialEq)]
@@ -49,6 +53,10 @@ pub(crate) struct OpenSession {
     /// The children it started on other machines.
     #[serde(default)]
     pub(super) kids: Vec<RemoteKid>,
+    /// Its last transcript entries, kept when the node stopped, for an
+    /// agent that resumes with `session/resume`, which replays nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    transcript: Vec<Entry>,
 }
 
 impl OpenSession {
@@ -150,12 +158,18 @@ impl Agents {
     /// agent's id, which is what `name_of` gives once there is one.
     fn as_it_runs(session: &Session, keep: Keep) -> Option<OpenSession> {
         let live = session.live.borrow();
-        if keep == Keep::Open
-            && live.status() == Status::Ended
-            && live.info.state.error.as_deref() != Some(NODE_STOPPED)
-        {
+        let stopped = live.status() == Status::Ended
+            && live.info.state.error.as_deref() == Some(NODE_STOPPED);
+        if keep == Keep::Open && live.status() == Status::Ended && !stopped {
             return None;
         }
+        // Kept once the node stopped, so the note is not rewritten with it
+        // on every change while the session runs.
+        let transcript = if keep == Keep::Open && stopped && !live.replays {
+            live.transcript_before(KEPT_ENTRIES, None).0
+        } else {
+            Vec::new()
+        };
         Some(OpenSession {
             agent: session.agent.clone(),
             session: live.agent_session.clone()?,
@@ -167,6 +181,7 @@ impl Agents {
             mode: live.info.mode.clone(),
             parent: live.info.parent.clone(),
             kids: Vec::new(),
+            transcript,
         })
     }
 
@@ -206,8 +221,14 @@ impl Agents {
     /// Whether the sessions open before the last stop run again, or there
     /// were none. Until then a session may be about to come back, so one
     /// that does not run is not yet one that ended.
-    pub(crate) fn reopened(&self) -> bool {
+    pub fn reopened(&self) -> bool {
         *self.reopened.borrow()
+    }
+
+    /// For a host that resumes no sessions after a restart, as the Mac app:
+    /// moves and reads stop waiting for them at once.
+    pub fn nothing_to_reopen(&self) {
+        self.reopened.send_replace(true);
     }
 
     /// What it takes to start session `id` again, as it runs now.
@@ -233,6 +254,7 @@ impl Agents {
             Some(&cwd),
             Begin {
                 resume: Some(open.session),
+                earlier: open.transcript,
                 mode: open.mode,
                 parent: open.parent,
                 follows,
@@ -261,6 +283,7 @@ mod tests {
         agents::{AgentKind, Session, live::Live},
         link::restart::{self, Reopen},
     };
+    use beep_proto::node::agent::EntryKind;
     use std::{collections::BTreeMap, path::Path, sync::Arc};
 
     /// An ACP adapter in shell that logs each line it reads to `$1`. It
@@ -298,6 +321,17 @@ done
             env: BTreeMap::new(),
             compact: None,
         }
+    }
+
+    /// `ADAPTER` as an agent that resumes sessions with `session/resume`,
+    /// which replays nothing, as flsh before 0.2.8 does.
+    fn resuming_adapter(log: &Path) -> AgentKind {
+        let mut kind = adapter(log);
+        kind.args[1] = ADAPTER.replace(
+            r#""agentCapabilities":{"loadSession":true}"#,
+            r#""agentCapabilities":{"sessionCapabilities":{"resume":{}}}"#,
+        );
+        kind
     }
 
     fn begin(prompt: &str) -> Begin {
@@ -428,6 +462,63 @@ done
         assert!(read.contains("session/load"), "{read}");
         assert!(read.contains(r#""text":"after""#), "{read}");
         after.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let log = dir.path().join("log");
+        let kind = resuming_adapter(&log);
+        let before = Agents::new(vec![kind.clone()]);
+        let session = before
+            .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        until(&mut live, |live| live.info.turns == 1).await;
+        before.shutdown().await;
+        let stopped = before.open_sessions();
+        assert_eq!(stopped.len(), 1);
+
+        let after = Agents::new(vec![kind]);
+        after.settings_arrived();
+        after.reopen(stopped).await;
+        let resumed = after.get("held-1").expect("resumed under the agent's id");
+        let mut live = resumed.live.clone();
+        until(&mut live, |live| live.status() == Status::Idle).await;
+        let read = std::fs::read_to_string(&log).expect("the adapter's log");
+        assert!(read.contains("session/resume"), "{read}");
+        let shown: Vec<(EntryKind, String)> = live
+            .borrow()
+            .transcript(100)
+            .0
+            .into_iter()
+            .map(|entry| (entry.kind, entry.text))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (EntryKind::Other, RESUMED.to_owned()),
+                (EntryKind::User, "hello".to_owned()),
+            ]
+        );
+        after.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_session_the_agent_replays_keeps_no_transcript() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let log = dir.path().join("log");
+        let kind = adapter(&log);
+        let before = Agents::new(vec![kind.clone()]);
+        let session = before
+            .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        until(&mut live, |live| live.info.turns == 1).await;
+        before.shutdown().await;
+        let stopped = before.open_sessions();
+        assert_eq!(stopped.len(), 1);
+        assert!(stopped[0].transcript.is_empty(), "{stopped:?}");
     }
 
     /// The note of the first session, once `ready` holds for what it keeps.

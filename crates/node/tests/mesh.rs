@@ -3675,9 +3675,7 @@ async fn the_cache_stays_under_its_cap_and_keeps_the_newest_sessions() {
         ["s2", "s3"].iter().all(|id| c.iter().any(|v| v.id == *id))
     })
     .await;
-    pair.b
-        .logged("not copying session s1: the cache is full")
-        .await;
+    pair.b.logged("sessions: the cache is full").await;
     let copies = copies_on(&conn_b).await;
     let mut ids: Vec<_> = copies.iter().map(|v| v.id.as_str()).collect();
     ids.sort_unstable();

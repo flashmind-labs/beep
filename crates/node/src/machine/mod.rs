@@ -8,6 +8,7 @@ pub mod host;
 pub mod provision;
 pub mod service;
 pub(crate) mod stats;
+pub(crate) mod tls;
 #[cfg(feature = "cli")]
 pub mod update;
 

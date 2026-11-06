@@ -1,6 +1,7 @@
-//! Watches project folders for changes with one `Watcher` per node. Every
-//! folder is also rescanned every `RESCAN`, which is all a folder it cannot
-//! watch gets.
+//! Watches project folders for changes with one `Watcher` per node. A
+//! folder it cannot watch is rescanned every `RESCAN`; a watched one is
+//! rescanned too, far less often (`rescan_every`), for a change the
+//! watcher missed.
 
 use super::{gitdir, rules::Rules};
 use crate::{lock, read_lock};
@@ -16,8 +17,12 @@ use std::{
 };
 use tokio::{sync::mpsc, task::spawn_blocking};
 
-/// How often a project is rescanned, for changes no watcher reported.
+/// How often a project the watcher cannot follow is rescanned.
 pub(super) const RESCAN: Duration = Duration::from_secs(5 * 60);
+/// How often a watched project is rescanned at least, for a change the
+/// watcher missed. Each project adds its own share of it again, so the
+/// projects of one node do not all walk their trees at once.
+const SAFETY_RESCAN: Duration = Duration::from_secs(30 * 60);
 /// The share of the watch limit left to other programs, in percent, and
 /// at least `MIN_RESERVE` watches.
 const RESERVE_PERCENT: u64 = 10;
@@ -42,6 +47,14 @@ pub(super) enum Mode {
     Rescan {
         hint: &'static str,
     },
+}
+
+/// How long project `key` goes without a scan when nothing changed.
+pub(super) fn rescan_every(mode: &Mode, key: Key) -> Duration {
+    match mode {
+        Mode::Rescan { .. } => RESCAN,
+        Mode::Watching => SAFETY_RESCAN + Duration::from_secs(key % SAFETY_RESCAN.as_secs()),
+    }
 }
 
 /// The watches one node may still add. On Linux each watched folder costs
@@ -191,10 +204,18 @@ fn is_change(kind: &EventKind) -> bool {
 }
 
 fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
+    let routes = lock(routes);
+    // The system dropped events (a full inotify queue, an FSEvents
+    // overflow): any folder may have changed, so every project scans.
+    if event.need_rescan() {
+        for route in routes.values() {
+            let _ = route.wake.try_send(());
+        }
+        return;
+    }
     if !is_change(&event.kind) {
         return;
     }
-    let routes = lock(routes);
     for path in &event.paths {
         let Some(route) = routes
             .values()
@@ -440,6 +461,32 @@ mod tests {
         ))));
         assert!(is_change(&EventKind::Create(CreateKind::File)));
         assert!(is_change(&EventKind::Modify(ModifyKind::Any)));
+    }
+
+    #[test]
+    fn dropped_events_wake_every_project() {
+        use notify::event::Flag;
+        let dir = tempfile::TempDir::new().unwrap();
+        let routes: Mutex<HashMap<Key, Route>> = Mutex::default();
+        let mut woken = Vec::new();
+        for (key, root) in [(1, "/a"), (2, "/b")] {
+            let (wake, rx) = mpsc::channel(1);
+            let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
+            lock(&routes).insert(
+                key,
+                Route {
+                    root: PathBuf::from(root),
+                    rules,
+                    wake,
+                },
+            );
+            woken.push(rx);
+        }
+        let event = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+        route(&routes, &event);
+        for rx in &mut woken {
+            assert_eq!(rx.try_recv(), Ok(()));
+        }
     }
 
     #[tokio::test]

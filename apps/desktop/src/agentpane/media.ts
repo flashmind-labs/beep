@@ -7,7 +7,7 @@ import { baseName, type Dock, DOCKS, type ImageView, type MediaKind, mediaKind, 
 import { terminalName } from "./files-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
-import { artifactCount, artifactsView, checkArtifacts, pickArtifact, setArtifacts } from "./artifacts.ts";
+import { artifactCount, artifactsView, checkArtifacts, pickArtifact, setArtifacts, showFrames } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
 import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
 import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
@@ -22,6 +22,8 @@ import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { runningCount, runningView } from "./running.ts";
+import { onShownChange } from "../ui/active.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { dragHandle } from "../ui/drag.ts";
@@ -101,6 +103,7 @@ const SUBS = "subagents";
 const FILES = "files";
 const CHANGES = "changes";
 const ARTS = "artifacts";
+const RUNNING = "running";
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 const ARROW_STEP = 24;
 /// How far a tab moves under the pointer before it drags.
@@ -133,7 +136,7 @@ export function saveLayout() {
   try { localStorage.setItem(KEY, JSON.stringify(P.layout)); } catch { /* kept while the window is open */ }
 }
 
-type Fixed = "subagents" | "files" | "changes" | "artifacts";
+type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running";
 
 const ICONS: Record<TabKind | Fixed, string> = {
   // files.ts imports this module, so its folder icon is repeated here
@@ -147,6 +150,7 @@ const ICONS: Record<TabKind | Fixed, string> = {
   video: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>',
   pdf: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>',
   artifacts: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
+  running: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg>',
   subagents: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>',
 };
 export const DOCK_RIGHT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
@@ -244,7 +248,7 @@ changeListeners.push(() => { if (S.view !== "agent") { closeAll(); dropChanges()
 
 /// Every tab's id, in the order the tab strips show them.
 function tabIds() {
-  return [FILES, CHANGES, ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
+  return [FILES, CHANGES, ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
 }
 
 /// The tabs in each dock, as the shell's width lets them sit.
@@ -259,6 +263,8 @@ export function dockOf(id: string): Dock {
 
 /// Lays the docks out for the shell's size: which show, their size,
 /// folded or not. A dock with no tabs goes.
+let paneWasShown = false;
+
 function place() {
   const el = shell(), box = main();
   if (!el || !box) return;
@@ -277,6 +283,9 @@ function place() {
     pane.style.flexBasis = `${paneSize(d, P.layout[d], total)}px`;
     div.setAttribute("aria-orientation", d === "right" ? "vertical" : "horizontal");
   }
+  const shown = DOCKS.some(d => paneOf(d)?.hidden === false);
+  if (shown && !paneWasShown) queueMicrotask(() => window.dispatchEvent(new Event("agent-pane-shown")));
+  paneWasShown = shown;
   // A zoomed dock that folded, emptied or moved away ends the zoom.
   if (P.zoom && paneOf(P.zoom)?.hidden !== false) P.zoom = null;
   el.classList.toggle("zoomed", !!P.zoom);
@@ -423,6 +432,7 @@ function drawDock(d: Dock, ids: string[]) {
     if (id === FILES) return tab(FILES, FILES, "Files", "");
     if (id === CHANGES) return tab(CHANGES, CHANGES, "Changes", "");
     if (id === SUBS) return tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`);
+    if (id === RUNNING) return tab(RUNNING, RUNNING, "Running", `<small>${runningCount()}</small>`);
     if (id === ARTS) return tab(ARTS, ARTS, "Artifacts", `<small>${artifactCount()}</small>`);
     const t = P.tabs.find(x => x.id === id)!;
     return tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close (⌘W)">${ICON.x}</em>`);
@@ -434,8 +444,8 @@ function drawDock(d: Dock, ids: string[]) {
   pane.querySelector('[data-pact="fold"]')!.innerHTML = bottom ? FOLD_DOWN : FOLD_RIGHT;
   const strip = document.getElementById(`agpstrip-${d}`)!;
   const shown = P.tabs.find(t => t.id === on);
-  const fixed = on === SUBS ? SUBS : on === ARTS ? ARTS : on === CHANGES ? CHANGES : FILES;
-  const label = shown ? shown.name : { [SUBS]: "Subagents", [ARTS]: "Artifacts", [CHANGES]: "Changes", [FILES]: "Files" }[fixed];
+  const fixed = on === RUNNING ? RUNNING : on === SUBS ? SUBS : on === ARTS ? ARTS : on === CHANGES ? CHANGES : FILES;
+  const label = shown ? shown.name : { [RUNNING]: "Running", [SUBS]: "Subagents", [ARTS]: "Artifacts", [CHANGES]: "Changes", [FILES]: "Files" }[fixed];
   strip.innerHTML = `${ICONS[shown?.kind ?? fixed]}<span>${esc(label)}</span><small>${ids.length}</small>`;
   // The Files view is made once per session, wherever it sits.
   const made = filesView();
@@ -458,7 +468,13 @@ function drawDock(d: Dock, ids: string[]) {
   else if (ids.includes(ARTS)) {
     if (artsEl.parentElement !== views) views.append(artsEl);
     artsEl.hidden = on !== ARTS;
+    showFrames(on === ARTS && !P.layout.hidden[d]);
     if (on === ARTS) checkArtifacts();
+  }
+  const runningEl = runningView();
+  if (runningEl && ids.includes(RUNNING)) {
+    if (runningEl.parentElement !== views) views.append(runningEl);
+    runningEl.hidden = on !== RUNNING;
   }
   // Subagents redraw each time; a file's view is drawn once and kept.
   let subView = document.querySelector<HTMLElement>(".agpviews > .agpview.subs");
@@ -474,15 +490,22 @@ function drawDock(d: Dock, ids: string[]) {
     if (!t.el) t.el = viewOf(t);
     if (t.el.parentElement !== views) views.append(t.el);
     const hide = t.id !== on || P.layout.hidden[d];
-    if (hide && !t.el.hidden) {
-      t.el.querySelector("video")?.pause();
-      t.model?.anim?.play(false);
-    }
+    if (hide && !t.el.hidden) stopPlaying(t);
     t.el.hidden = t.id !== on;
     if (!hide) t.model?.resize();
     if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); if (t.id === P.on[d]) t.term?.screen.focus(); });
   }
 }
+
+/// Pauses a tab's video and its model's animation, whose frames would
+/// otherwise keep drawing out of sight.
+function stopPlaying(t: MediaTab) {
+  t.el?.querySelector("video")?.pause();
+  t.model?.anim?.play(false);
+}
+
+// The window hid or the pane went: nothing plays on.
+onShownChange(shown => { if (!shown) for (const t of P.tabs) stopPlaying(t); }, true);
 
 function showTab(d: Dock, id: string) {
   // Shown again, the changes are read again.

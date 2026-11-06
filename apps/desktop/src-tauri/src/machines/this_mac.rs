@@ -66,6 +66,9 @@ impl Machine {
     pub fn new(dir: &Path) -> Self {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone());
+        // The app resumes no sessions after a restart: a move or a read of
+        // one need not wait for any.
+        offers.agents.nothing_to_reopen();
         offers.extra.push(Arc::new(desktop::Desktop));
         // The user's coding agent skills reach the mesh's other machines.
         if let Some(home) = std::env::var_os("HOME") {
@@ -143,4 +146,15 @@ impl Machine {
 /// Asks macOS for `permission`, opening its page in System Settings.
 pub fn allow(permission: Permission) {
     desktop::request(permission);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mac_has_no_sessions_to_resume_that_moves_wait_for() {
+        let dir = std::env::temp_dir().join(format!("beep-this-mac-reopen-{}", std::process::id()));
+        assert!(Machine::new(&dir).offers().agents.reopened());
+    }
 }

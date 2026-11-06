@@ -11,6 +11,7 @@ import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
 import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { reason } from "../ui/format.ts";
+import { pageShown } from "../ui/active.ts";
 import { newTermLike } from "./newkey-state.ts";
 
 /// A terminal (TerminalRow).
@@ -349,7 +350,7 @@ export function makeTerminals(deps: TerminalDeps) {
     polling = name;
     if (!name) return;
     timer = setInterval(() => {
-      if (document.visibilityState === "visible") readOutput(name);
+      if (pageShown()) readOutput(name);
     }, POLL_MS);
   }
 

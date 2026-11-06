@@ -4,54 +4,97 @@
 
 use crate::files::paths;
 use beep_proto::node::agent::Presence;
-use std::path::Path;
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
-/// Whether some process has `file` open; `None` when that cannot be told
-/// here. Blocks: run it with `spawn_blocking`.
-#[cfg(target_os = "linux")]
-pub(super) fn held_open(file: &Path) -> Option<bool> {
-    /// The most processes looked at.
-    const MAX_PROCESSES: usize = 8192;
-    let file = paths::canonicalize(file).ok()?;
-    let processes = std::fs::read_dir("/proc").ok()?;
-    let held = processes
-        .flatten()
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.bytes().all(|b| b.is_ascii_digit()))
-        })
-        .take(MAX_PROCESSES)
-        .any(|process| {
-            // Another user's processes cannot be read, and do not count.
-            let Ok(fds) = std::fs::read_dir(process.path().join("fd")) else {
-                return false;
-            };
-            fds.flatten()
-                .any(|fd| std::fs::read_link(fd.path()).is_ok_and(|to| to == file))
-        });
-    Some(held)
+/// Which of `files` some process has open, all looked up at once; `None`
+/// when that cannot be told here.
+pub(super) async fn held_open(files: Vec<PathBuf>) -> Option<HashSet<PathBuf>> {
+    if files.is_empty() {
+        return Some(HashSet::new());
+    }
+    // By the path the system reports, to the path asked about.
+    let real: HashMap<PathBuf, PathBuf> = files
+        .into_iter()
+        .filter_map(|file| Some((paths::canonicalize(&file).ok()?, file)))
+        .collect();
+    let open = open_among(&real).await?;
+    Some(
+        real.into_iter()
+            .filter(|(real, _)| open.contains(real))
+            .map(|(_, file)| file)
+            .collect(),
+    )
 }
 
-/// Whether some process has `file` open, through `lsof`; `None` when that
-/// cannot be told here. Blocks: run it with `spawn_blocking`.
+/// The paths among `real`'s keys some process has open, read from `/proc`
+/// in one pass.
+#[cfg(target_os = "linux")]
+async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>> {
+    /// The most processes looked at.
+    const MAX_PROCESSES: usize = 8192;
+    let wanted: HashSet<PathBuf> = real.keys().cloned().collect();
+    let scan = move || {
+        let processes = std::fs::read_dir("/proc").ok()?;
+        let mut open = HashSet::new();
+        for process in processes
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.bytes().all(|b| b.is_ascii_digit()))
+            })
+            .take(MAX_PROCESSES)
+        {
+            // Another user's processes cannot be read, and do not count.
+            let Ok(fds) = std::fs::read_dir(process.path().join("fd")) else {
+                continue;
+            };
+            for fd in fds.flatten() {
+                if let Ok(to) = std::fs::read_link(fd.path())
+                    && wanted.contains(&to)
+                {
+                    open.insert(to);
+                }
+            }
+            if open.len() == wanted.len() {
+                break;
+            }
+        }
+        Some(open)
+    };
+    tokio::task::spawn_blocking(scan).await.ok()?
+}
+
+/// The paths among `real`'s keys some process has open, through one `lsof`
+/// given `LIMIT`.
 #[cfg(all(unix, not(target_os = "linux")))]
-pub(super) fn held_open(file: &Path) -> Option<bool> {
-    use std::process::{Command, Stdio};
-    let out = Command::new("lsof")
-        .args(["-t", "-w", "--"])
-        .arg(file)
+async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>> {
+    use std::{process::Stdio, time::Duration};
+    use tokio::{process::Command, time::timeout};
+    /// How long `lsof` may take.
+    const LIMIT: Duration = Duration::from_secs(10);
+    let mut lsof = Command::new("lsof");
+    lsof.args(["-F", "n", "-w", "--"])
+        .args(real.keys())
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    // lsof exits 1 with nothing printed when nothing has it open.
-    Some(out.status.success() && !out.stdout.is_empty())
+        .kill_on_drop(true);
+    let out = timeout(LIMIT, lsof.output()).await.ok()?.ok()?;
+    // lsof exits 1 when any file is not open; what it printed still counts.
+    let open = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix('n'))
+        .map(PathBuf::from)
+        .collect();
+    Some(open)
 }
 
 #[cfg(not(unix))]
-pub(super) fn held_open(_file: &Path) -> Option<bool> {
+async fn open_among(_real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>> {
     None
 }
 
@@ -89,15 +132,17 @@ mod tests {
     }
 
     #[cfg(target_os = "linux")]
-    #[test]
-    fn a_file_this_process_holds_is_held() {
+    #[tokio::test]
+    async fn a_file_this_process_holds_is_held() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("rollout.jsonl");
         std::fs::write(&path, "{}\n").unwrap();
+        let other = dir.path().join("other.jsonl");
+        std::fs::write(&other, "{}\n").unwrap();
         let _open = std::fs::File::open(&path).unwrap();
-        assert_eq!(held_open(&path), Some(true));
-        // A path nothing opened. (A file closed again may still be held for
-        // a moment by a child another test forks before it execs.)
-        assert_eq!(held_open(dir.path()), Some(false));
+        // A path nothing opened beside it. (A file closed again may still be
+        // held for a moment by a child another test forks before it execs.)
+        let held = held_open(vec![path.clone(), other]).await;
+        assert_eq!(held, Some(HashSet::from([path])));
     }
 }

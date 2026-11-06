@@ -14,6 +14,7 @@ import { arrowFocus } from "../ui/menu.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
+import { onShownChange, paneShown } from "../ui/active.ts";
 
 /// The type a row of the tree drags as, its path relative to the session's folder.
 export const PATH_TYPE = "application/x-beep-path";
@@ -69,7 +70,7 @@ export function filesView() {
   clearInterval(F.timer);
   Object.assign(F, {
     key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, reveal: null,
-    timer: setInterval(() => { if (F.el?.isConnected && !document.hidden) refresh(); }, REFRESH_MS),
+    timer: setInterval(() => { if (filesShown()) refresh(); }, REFRESH_MS),
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
@@ -138,6 +139,13 @@ export function reloadFolder(dir: string) {
 function refresh() {
   for (const dir of F.roots) load(dir);
 }
+
+/// Whether the tree can be seen: its tab is picked in a dock not folded
+/// (`offsetParent` is null under a hidden one), and the pane shows.
+const filesShown = () => !!F.el?.offsetParent && paneShown();
+
+// Back on screen, the tree is read once at once.
+onShownChange(shown => { if (shown && filesShown()) refresh(); }, true);
 
 /// Reads the rest of the tree while a filter is typed, so it finds what no
 /// folder opened yet shows.

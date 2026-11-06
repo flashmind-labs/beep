@@ -5,10 +5,12 @@
 //! every minute through `gh` or `teacli`, keeps the ones the signed-in user
 //! started by a push or a pull request, waits on each going one with the
 //! CLI's watch command, and tells the desktops once each ends (`book`), over
-//! their `FollowRuns` streams. Entry point: `watch`, run by the node while it
-//! is in a mesh.
+//! their `FollowRuns` streams. Between lists, a GitHub project is checked
+//! cheaply over HTTPS (`check`). Entry point: `watch`, run by the node while
+//! it is in a mesh.
 
 mod book;
+mod check;
 mod elect;
 mod forge;
 mod github;

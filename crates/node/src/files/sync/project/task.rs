@@ -6,7 +6,7 @@ use crate::files::sync::{
     map::is_conflict,
     peer,
     progress::Meter,
-    watch::{Key, Mode, RESCAN, Watcher},
+    watch::{Key, Mode, RESCAN, Watcher, rescan_every},
 };
 use anyhow::Result;
 use beep_proto::node::sync::State as SyncState;
@@ -36,6 +36,9 @@ const SETTLE: Duration = Duration::from_millis(300);
 pub(super) const DELETE_SETTLE: Duration = Duration::from_secs(5);
 /// How soon files that could not be fetched are tried again.
 pub(super) const RETRY: Duration = Duration::from_secs(30);
+/// The longest wait before trying failed files again: each retry that
+/// leaves files failing doubles the wait from `RETRY` up to this.
+const MAX_RETRY: Duration = Duration::from_secs(10 * 60);
 /// How often a changing state is saved; it is saved on stop as well.
 const SAVE_EVERY: Duration = Duration::from_secs(2);
 
@@ -117,6 +120,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
     let mut deletes = DeleteTimer::default();
     deletes.scanned(!task.held.is_empty(), Instant::now());
     let mut last_scan = Instant::now();
+    let mut retry = RETRY;
     loop {
         if *paused.borrow_and_update() {
             // Nothing moves: the pulls stop, and changes on disk wait for
@@ -183,7 +187,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 }
                 apply = true;
             }
-            () = sleep_until(last_scan + RESCAN) => {
+            () = sleep_until(last_scan + rescan_every(&task.mode, shared.key)) => {
                 task.scan().await;
                 last_scan = Instant::now();
                 apply = true;
@@ -195,8 +199,14 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 apply = true;
                 forced = true;
             }
-            () = shared.merged.notified() => apply = true,
-            () = sleep(RETRY), if task.pending > 0 => apply = true,
+            () = shared.merged.notified() => {
+                retry = RETRY;
+                apply = true;
+            }
+            () = sleep(retry), if task.pending > 0 => {
+                retry = (retry * 2).min(MAX_RETRY);
+                apply = true;
+            }
             () = sleep_until(task.saved_at + SAVE_EVERY), if unsaved => {}
             changed = peers.changed() => {
                 if changed.is_err() {
@@ -205,6 +215,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 pulls = JoinSet::new();
                 shared.listen_again();
                 start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+                retry = RETRY;
                 apply = true;
             }
             Some(ended) = pulls.join_next() => if let Err(e) = ended {
@@ -214,6 +225,9 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
         deletes.scanned(!task.held.is_empty(), Instant::now());
         if apply && settle.is_none() {
             task.apply().await;
+            if task.pending == 0 {
+                retry = RETRY;
+            }
         }
         task.save(false).await;
         if forced {

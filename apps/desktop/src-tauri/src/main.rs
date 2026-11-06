@@ -138,6 +138,8 @@ fn main() {
             agents::diff::agent_place,
             agents::diff::agent_worktrees,
             agents::diff::agent_commands,
+            agents::processes::agent_processes,
+            agents::processes::agent_stop_process,
             agents::moving::session_move,
             agents::moving::session_move_cancel,
             agents::moving::session_copies,
