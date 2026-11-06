@@ -113,8 +113,15 @@ fn window_from(files: &[PathBuf], cutoff: Option<i64>, max_bytes: usize) -> Resu
     if files.is_empty() {
         read(&options, &mut printer)?;
     } else {
-        for file in files {
-            read_file(file, &mut printer)?;
+        for path in files {
+            // A file not written yet, or rolled away mid-read, holds nothing here.
+            let file = match File::open(path) {
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                file => file.with_context(|| format!("opening {}", path.display()))?,
+            };
+            for line in BufReader::new(file).split(b'\n') {
+                printer.bytes(&line?)?;
+            }
         }
         printer.caught_up()?;
     }
@@ -585,6 +592,15 @@ mod tests {
         let new = log_file(dir.path(), "beep.log", &[at(300, "c")]);
         let text = window(&[old, new], 150, 1 << 20).expect("the files read");
         assert_eq!(text, format!("{}\n{}\n", at(200, "b"), at(300, "c")));
+    }
+
+    #[test]
+    fn window_skips_a_listed_file_that_is_missing() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let missing = dir.path().join("beep.2.log");
+        let new = log_file(dir.path(), "beep.log", &[at(300, "c")]);
+        let text = window(&[missing, new], 150, 1 << 20).expect("the file reads");
+        assert_eq!(text, format!("{}\n", at(300, "c")));
     }
 
     #[test]
