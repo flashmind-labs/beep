@@ -27,7 +27,7 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AlertKind, Effort, EntryKind, ModeOption, Question, Status, StopReason, WorkPlace,
+    AlertKind, Effort, Entry, EntryKind, ModeOption, Question, Status, StopReason, WorkPlace,
 };
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use std::{
@@ -167,6 +167,9 @@ pub(super) struct Actor {
     pub(super) takes_images: Option<bool>,
     /// The agent's id of an earlier session to resume.
     pub(super) resume: Option<String>,
+    /// The transcript the resumed session had before the node restarted,
+    /// shown again when the agent resumes without replaying it.
+    pub(super) earlier: Vec<Entry>,
     /// The model a new session switches to before its first prompt.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, set before its first prompt.
@@ -681,6 +684,10 @@ impl Actor {
         // brief is said once, where the session starts or resumes.
         let tools = (!self.mcp_servers.is_empty()).then_some(mcp::BRIEF);
         let takes_system = acp::takes_system_prompt(initialized);
+        let method = acp::resume_method(initialized);
+        self.live.send_modify(|live| {
+            live.replays = method == Some(acp::ResumeMethod::Load);
+        });
         let Some(session) = self.resume.take() else {
             let brief = joined(self.brief.take(), tools);
             let system = if takes_system {
@@ -705,9 +712,13 @@ impl Actor {
             None
         };
         let session = SessionId::from(session);
-        let Some(method) = acp::resume_method(initialized) else {
+        let Some(method) = method else {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
+        let earlier = std::mem::take(&mut self.earlier);
+        if method == acp::ResumeMethod::Resume && !earlier.is_empty() {
+            self.live.send_modify(|live| live.restore(earlier));
+        }
         match acp::resume_session(
             method,
             session.clone(),

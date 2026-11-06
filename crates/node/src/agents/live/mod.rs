@@ -72,6 +72,9 @@ pub(crate) struct Live {
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,
+    /// The agent replays the conversation when it loads the session, so
+    /// the node need not keep the transcript across a restart.
+    pub(crate) replays: bool,
     /// The slash commands and skills the agent advertises, such as
     /// `compact`.
     pub(crate) commands: Vec<AgentCommand>,
