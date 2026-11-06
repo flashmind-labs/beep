@@ -5,7 +5,7 @@
 
 use crate::mesh::{AddrNote, Inner};
 use crate::wire::{self, FrameReader, MAX_FRAME, MAX_REQUEST};
-use crate::{DeviceKind, DeviceOp, Devices, JOIN_ALPN, MeshError};
+use crate::{DeviceKind, DeviceOp, Devices, JOIN_ALPN, Key, MeshError};
 use beep_proto::lenient;
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
@@ -52,6 +52,10 @@ pub struct JoinTicket {
     pub kind: DeviceKind,
     pub secret: JoinSecret,
     pub expires_ms: u64,
+    /// The device leaves the mesh when it stops: the desktop that spends the ticket writes
+    /// `temporary/<id>` for it. Last, so a node from before it reads the rest.
+    #[serde(default)]
+    pub temporary: bool,
 }
 
 /// Why ticket text could not be read. Neither case quotes the text.
@@ -194,6 +198,11 @@ pub(crate) async fn serve(inner: &Inner, conn: Connection) {
             .store
             .run(move |core| core.redeem(&request.secret, joiner, &clean(&request.name)))
             .await;
+        let temporary = Key::Temporary(joiner.to_string());
+        if outcome.is_ok() && inner.view().values.contains_key(&temporary) {
+            // No receiver is a normal state.
+            inner.changes.send(temporary).ok();
+        }
         let reply = match outcome {
             Ok(ops) => Reply::Welcome {
                 ops,

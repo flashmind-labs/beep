@@ -1,6 +1,7 @@
 //! What the bell learns by looking at the mesh: a machine offline for
-//! `AWAY` and back, sync conflicts on a machine, and a session move that
-//! failed. Each becomes a note in `history`.
+//! `AWAY` and back, a temporary machine removed once gone for `GONE_AFTER`,
+//! sync conflicts on a machine, and a session move that failed. Each becomes
+//! a note in `history`.
 
 use super::history::{self, Note, NoteKind, now_ms};
 use crate::{
@@ -8,7 +9,10 @@ use crate::{
     center::{AgentTarget, CenterTarget},
     fleet::Fleet,
 };
-use beep_fleet::{Desk, MoveState, Session};
+use beep_fleet::{
+    Desk, MoveState, Session,
+    temporary::{GONE_AFTER, Leftovers, sweep},
+};
 use beep_proto::{
     AgentNoticeKey, SyncStatus,
     node::{agent::MovePhase, mesh_state::SessionMove, skills},
@@ -36,11 +40,13 @@ const MOVES_FOR_MS: u64 = 24 * 3600 * 1000;
 /// Looks at the mesh while the app runs.
 pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Session>) {
     let mut away = Away::default();
+    let mut leftovers = Leftovers::default();
     let mut conflicts = Conflicts::default();
     let mut moves = HashSet::new();
     let mut tick: u32 = 0;
     loop {
         machines(&app, &fleet, &mut away);
+        temporaries(&app, &fleet, &mut leftovers).await;
         if tick.is_multiple_of(SLOW) {
             match session.desk().await {
                 Ok(desk) => {
@@ -58,10 +64,15 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
 
 fn machines(app: &AppHandle, fleet: &Fleet, away: &mut Away<EndpointId>) {
     let me = fleet.id();
+    // A temporary machine going offline is no news: it stopped, or it is removed in time.
+    let temporary = fleet
+        .mesh()
+        .map(|mesh| mesh.temporaries())
+        .unwrap_or_default();
     let online: HashMap<EndpointId, bool> = fleet
         .machines()
         .into_iter()
-        .filter(|status| status.device.id != me)
+        .filter(|status| status.device.id != me && !temporary.contains(&status.device.id))
         .map(|status| (status.device.id, status.online))
         .collect();
     for change in away.step(&online, Instant::now()) {
@@ -87,6 +98,34 @@ fn machines(app: &AppHandle, fleet: &Fleet, away: &mut Away<EndpointId>) {
                 history::finish(app, |n| n.id == note);
             }
         }
+    }
+}
+
+/// Removes the temporary machines offline for `GONE_AFTER`, with a note for each this Mac
+/// removed. Another desktop may have removed one first: then it says nothing.
+async fn temporaries(app: &AppHandle, fleet: &Fleet, leftovers: &mut Leftovers<EndpointId>) {
+    let Some(mesh) = fleet.mesh() else {
+        return;
+    };
+    let removed = match sweep(&mesh, leftovers, Instant::now()).await {
+        Ok(removed) => removed,
+        Err(e) => {
+            log::warn!("temporary machines not removed: {e}");
+            return;
+        }
+    };
+    let minutes = GONE_AFTER.as_secs() / 60;
+    for device in removed {
+        let note = Note::new(
+            NoteKind::Removed,
+            format!("removed:{}", device.id),
+            format!(
+                "{} was removed after {minutes} minutes offline",
+                device.name
+            ),
+            device.name,
+        );
+        history::record(app, note);
     }
 }
 

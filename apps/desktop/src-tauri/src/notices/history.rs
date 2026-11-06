@@ -45,6 +45,8 @@ pub enum NoteKind {
     SkillConflict,
     /// A CI run the user started ended.
     Run,
+    /// A temporary machine, such as a container, was offline so long that this Mac removed it.
+    Removed,
 }
 
 /// One row of the bell's pane from the mesh.

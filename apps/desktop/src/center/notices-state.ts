@@ -19,7 +19,7 @@ export interface Alert {
 /// `null` when there are no alerts to have.
 export type Alerts = Alert[] | null;
 
-export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run";
+export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run" | "removed";
 
 /// A build's note opens its project on the run.
 export type NoteTarget = PaneTarget | { projects: ProjectsArg };
@@ -126,7 +126,7 @@ export function opens(i: Item): "alert" | "session" | "project" | "sync" | "mach
   if (i.target && typeof i.target === "object" && "projects" in i.target) return "project";
   if (i.target) return "session";
   if (i.kind === "conflict") return "sync";
-  if (i.kind === "offline") return "machines";
+  if (i.kind === "offline" || i.kind === "removed") return "machines";
   return null;
 }
 

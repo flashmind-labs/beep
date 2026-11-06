@@ -170,6 +170,98 @@ async fn a_third_device_joins_through_one_member_and_reaches_the_other() {
     assert_eq!(key, project("p"));
 }
 
+async fn join_temporary(from: &Dev, name: &str) -> Dev {
+    let ticket = from
+        .mesh
+        .invite_temporary(Duration::from_secs(3600))
+        .await
+        .expect("ticket is minted");
+    assert!(ticket.temporary);
+    join_with(&ticket, name).await.expect("device joins")
+}
+
+#[tokio::test]
+async fn a_temporary_ticket_marks_the_device_on_every_member() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    let box_ = join_temporary(&a, "box").await;
+    let node = join(&a, DeviceKind::Node, "node").await;
+    assert!(a.mesh.is_temporary(box_.id()));
+    assert!(!a.mesh.is_temporary(node.id()));
+    until(&b.mesh, |m| m.is_temporary(box_.id())).await;
+    until(&box_.mesh, |m| m.is_temporary(box_.id())).await;
+    assert_eq!(
+        b.mesh.temporaries().into_iter().collect::<Vec<_>>(),
+        [box_.id()]
+    );
+}
+
+#[tokio::test]
+async fn a_temporary_device_may_remove_only_itself() {
+    let a = create("a").await;
+    let box_ = join_temporary(&a, "box").await;
+    let other = join_temporary(&a, "other").await;
+    let node = join(&a, DeviceKind::Node, "node").await;
+    let refused = |r: Result<bool, MeshError>| matches!(r, Err(MeshError::Refused(_)));
+    // About another device, temporary or not.
+    assert!(refused(
+        a.mesh.remove_on_request(box_.id(), other.id()).await
+    ));
+    assert!(refused(
+        a.mesh.remove_on_request(box_.id(), node.id()).await
+    ));
+    // A device that is not temporary, about itself.
+    assert!(refused(
+        a.mesh.remove_on_request(node.id(), node.id()).await
+    ));
+    assert!(refused(a.mesh.remove_temporary(node.id()).await));
+    assert!(a.mesh.is_member(other.id()) && a.mesh.is_member(node.id()));
+    // Itself: gone, and its mark with it.
+    assert!(
+        a.mesh
+            .remove_on_request(box_.id(), box_.id())
+            .await
+            .expect("removed")
+    );
+    assert!(a.mesh.is_removed(box_.id()));
+    assert!(!a.mesh.is_temporary(box_.id()));
+    // Asked again, it is done already.
+    assert!(
+        !a.mesh
+            .remove_on_request(box_.id(), box_.id())
+            .await
+            .expect("done")
+    );
+    // A node cannot remove anyone.
+    until(&node.mesh, |m| m.is_temporary(other.id())).await;
+    assert!(node.mesh.remove_temporary(other.id()).await.is_err());
+}
+
+#[tokio::test]
+async fn two_desktops_removing_one_temporary_device_both_succeed() {
+    let a = create("a").await;
+    let b = join(&a, DeviceKind::Desktop, "b").await;
+    let box_ = join_temporary(&a, "box").await;
+    until(&b.mesh, |m| m.is_temporary(box_.id())).await;
+    let (on_a, on_b) = tokio::join!(
+        a.mesh.remove_temporary(box_.id()),
+        b.mesh.remove_temporary(box_.id())
+    );
+    assert!(on_a.expect("a removes") || on_b.expect("b removes"));
+    for mesh in [&a.mesh, &b.mesh] {
+        until(mesh, |m| {
+            m.is_removed(box_.id()) && !m.is_temporary(box_.id())
+        })
+        .await;
+        assert!(
+            !mesh
+                .remove_temporary(box_.id())
+                .await
+                .expect("done already")
+        );
+    }
+}
+
 #[tokio::test]
 async fn a_lone_device_leaves_its_mesh_for_another() {
     let studio = create("Studio").await;
@@ -995,6 +1087,7 @@ mod tickets {
             kind: DeviceKind::Node,
             secret: JoinSecret::generate(),
             expires_ms: 1_700_000_000_000,
+            temporary: false,
         }
     }
 
@@ -1009,6 +1102,23 @@ mod tickets {
         assert_eq!(back.kind, t.kind);
         assert_eq!(back.expires_ms, t.expires_ms);
         assert!(back.secret.verify(&t.secret));
+    }
+
+    #[test]
+    fn a_temporary_ticket_reads_back_and_an_older_one_is_not_temporary() {
+        let t = JoinTicket {
+            temporary: true,
+            ..ticket()
+        };
+        let back = JoinTicket::decode_string(&t.encode_string()).unwrap();
+        assert!(back.temporary);
+        // A ticket from before the field: the same array without its last element.
+        let mut bytes = rmp_serde::to_vec(&ticket()).expect("encodes");
+        assert_eq!(bytes[0], 0x96, "six fields");
+        bytes[0] = 0x95;
+        bytes.pop();
+        let old: JoinTicket = beep_proto::lenient::from_slice(&bytes).expect("reads");
+        assert!(!old.temporary);
     }
 
     #[test]

@@ -35,6 +35,8 @@ export interface MachineView {
   version: string;
   /// Null until its first report.
   env: MachineEnv | null;
+  /// It leaves the mesh when it stops, such as a container. Missing from a server's list.
+  temporary?: boolean;
 }
 
 export interface MachineGpu {

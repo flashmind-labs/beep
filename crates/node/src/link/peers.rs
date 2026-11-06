@@ -21,10 +21,10 @@ use beep_mesh::{
     DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerClient,
     PeerStream, SessionFn, StreamHandler,
 };
-use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
+use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, leave, link, report, status::Report};
 use beep_report::{Share, Target, collect};
 use iroh::{
-    Endpoint,
+    Endpoint, EndpointId,
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
 };
@@ -62,6 +62,8 @@ const STATUS: &str = "status";
 const REPORT: &str = "report ";
 
 /// How often the machine is probed again for changes.
+/// How long one desktop has to remove a temporary device that stops.
+const LEAVE_LIMIT: Duration = Duration::from_secs(2);
 const REPROBE: Duration = Duration::from_secs(10 * 60);
 /// How often free disk and memory are sampled.
 const RESAMPLE: Duration = Duration::from_secs(60);
@@ -366,6 +368,47 @@ impl Peers {
             .is_some_and(|active| active.mesh.is_member(active.mesh.me()))
     }
 
+    /// Asks a desktop of the mesh to remove this device when it joined as temporary, such as a
+    /// container that stops. The first desktop that takes it is enough. With none online the
+    /// desktops remove it once it has been gone a while. Returns whether one removed it.
+    pub async fn leave_if_temporary(&self) -> bool {
+        let Some(active) = self.active() else {
+            return false;
+        };
+        let mesh = active.mesh;
+        let me = mesh.me();
+        if !mesh.is_member(me) || !mesh.is_temporary(me) {
+            return false;
+        }
+        let request = leave::Request::Remove { id: me };
+        for status in mesh.devices() {
+            let device = status.device;
+            if device.kind != DeviceKind::Desktop || device.id == me {
+                continue;
+            }
+            let Some(conn) = mesh.peer(device.id) else {
+                continue;
+            };
+            let asked = PeerClient::new(conn)
+                .call_within(LEAVE_LIMIT, leave::PROTOCOL, &request)
+                .await;
+            match asked {
+                Ok(leave::Reply::Removed {}) => {
+                    log::info!(
+                        "{} removed this temporary device from the mesh",
+                        device.name
+                    );
+                    return true;
+                }
+                Ok(leave::Reply::Refused { reason }) => {
+                    log::warn!("{} did not remove this device: {reason}", device.name);
+                }
+                Err(e) => log::debug!("{} did not take the leave: {e}", device.name),
+            }
+        }
+        false
+    }
+
     /// The mesh's devices, empty before the node joined.
     pub fn devices(&self) -> Vec<DeviceStatus> {
         self.active()
@@ -626,6 +669,39 @@ where
             _ = traffic.tick() => tx.send(&Report::Traffic(offers.traffic.report())).await?,
         }
     }
+}
+
+/// Serves `leave/1`: removes `caller` when it is a temporary device asking about itself. Only a
+/// desktop can; the mesh refuses the rest.
+pub(crate) async fn serve_leave(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    mesh: Option<Mesh>,
+    caller: EndpointId,
+) -> Result<()> {
+    let request: leave::Request = timeout(LEAVE_LIMIT, rx.recv())
+        .await
+        .context("the peer sent no request")??
+        .context("the stream closed before its request")?;
+    let leave::Request::Remove { id } = request;
+    let reply = match mesh {
+        None => leave::Reply::Refused {
+            reason: "not in a mesh".to_owned(),
+        },
+        Some(mesh) => match mesh.remove_on_request(caller, id).await {
+            Ok(removed) => {
+                if removed {
+                    log::info!("removed the temporary device {id}: it stopped");
+                }
+                leave::Reply::Removed {}
+            }
+            Err(e) => leave::Reply::Refused {
+                reason: e.to_string(),
+            },
+        },
+    };
+    tx.send(&reply).await?;
+    tx.finish().await
 }
 
 /// How long a close waits for the tasks that still hold the mesh to let go.
@@ -1294,5 +1370,122 @@ mod tests {
             .await
             .expect_err("no node");
         assert!(format!("{err}").contains("beep-node run"), "{err}");
+    }
+
+    /// A desktop's `Peers` and one node's, each with a real mesh and router, as the Mac app and
+    /// `beep-node run` hold them.
+    mod leaving {
+        use super::*;
+        use beep_mesh::{JOIN_ALPN, PEER_ALPN};
+        use iroh::{SecretKey, endpoint::presets, protocol::Router};
+        use tempfile::TempDir;
+
+        struct Member {
+            peers: Peers,
+            mesh: Mesh,
+            _router: Router,
+            _dir: TempDir,
+        }
+
+        async fn bind() -> Endpoint {
+            Endpoint::builder(presets::Minimal)
+                .secret_key(SecretKey::generate())
+                .transport_config(beep_mesh::transport_config())
+                .bind()
+                .await
+                .expect("the endpoint binds")
+        }
+
+        fn member(endpoint: Endpoint, dir: TempDir, mesh: Mesh) -> Member {
+            let peers = Peers::new(
+                endpoint.clone(),
+                dir.path().to_owned(),
+                "box".to_owned(),
+                Offers::default(),
+            );
+            peers.install(mesh.clone());
+            let router = Router::builder(endpoint)
+                .accept(PEER_ALPN, peers.peer_handler())
+                .accept(JOIN_ALPN, peers.join_handler())
+                .spawn();
+            Member {
+                peers,
+                mesh,
+                _router: router,
+                _dir: dir,
+            }
+        }
+
+        async fn desktop() -> Member {
+            let (endpoint, dir) = (bind().await, TempDir::new().expect("temp dir"));
+            let mesh = Mesh::create(dir.path(), endpoint.clone(), "desk")
+                .await
+                .expect("the mesh is created");
+            member(endpoint, dir, mesh)
+        }
+
+        async fn node(desk: &Member, temporary: bool) -> Member {
+            let ttl = Duration::from_secs(600);
+            let ticket = if temporary {
+                desk.mesh.invite_temporary(ttl).await
+            } else {
+                desk.mesh.invite(DeviceKind::Node, ttl).await
+            }
+            .expect("a ticket is minted");
+            let (endpoint, dir) = (bind().await, TempDir::new().expect("temp dir"));
+            let mesh = Mesh::join(dir.path(), endpoint.clone(), &ticket, "node")
+                .await
+                .expect("the node joins");
+            let node = member(endpoint, dir, mesh);
+            // Up once it holds the desktop's entries and reaches it.
+            let mut updates = node.mesh.updates();
+            timeout(Duration::from_secs(60), async {
+                loop {
+                    updates.borrow_and_update();
+                    let me = node.mesh.me();
+                    if node.mesh.peer(desk.mesh.me()).is_some()
+                        && node.mesh.is_temporary(me) == temporary
+                        && desk.mesh.is_temporary(me) == temporary
+                    {
+                        return;
+                    }
+                    updates.changed().await.expect("the mesh is alive");
+                }
+            })
+            .await
+            .expect("the node is up in time");
+            node
+        }
+
+        #[tokio::test]
+        async fn a_temporary_node_that_stops_is_removed_by_a_desktop() {
+            let desk = desktop().await;
+            let gone = node(&desk, true).await;
+            let stays = node(&desk, false).await;
+            assert!(gone.peers.leave_if_temporary().await);
+            assert!(desk.mesh.is_removed(gone.mesh.me()));
+            // A node that joined for good asks nothing and stays.
+            assert!(!stays.peers.leave_if_temporary().await);
+            assert!(desk.mesh.is_member(stays.mesh.me()));
+        }
+
+        #[tokio::test]
+        async fn a_desktop_refuses_to_remove_another_device_over_leave() {
+            let desk = desktop().await;
+            let asker = node(&desk, true).await;
+            let other = node(&desk, true).await;
+            let conn = asker.mesh.peer(desk.mesh.me()).expect("linked");
+            let reply: leave::Reply = PeerClient::new(conn)
+                .call(
+                    leave::PROTOCOL,
+                    &leave::Request::Remove {
+                        id: other.mesh.me(),
+                    },
+                )
+                .await
+                .expect("the desktop answers");
+            assert!(matches!(reply, leave::Reply::Refused { .. }), "{reply:?}");
+            assert!(desk.mesh.is_member(other.mesh.me()));
+        }
     }
 }

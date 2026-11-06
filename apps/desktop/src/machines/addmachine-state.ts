@@ -25,6 +25,27 @@ export function withSearch(command: string, typed: string) {
   return `${command} --search ${/^[\w~./-]+$/.test(dir) ? dir : `'${dir.replace(/'/g, `'\\''`)}'`}`;
 }
 
+/// What a ticket is for: a node, a container (a node that leaves the mesh when
+/// it stops), or another Mac.
+export type TicketKind = "node" | "container" | "desktop";
+
+/// The kinds the sheet offers, in order, with their one line.
+export const KINDS: readonly { kind: TicketKind; title: string; sub: string }[] = [
+  { kind: "node", title: "Node", sub: "A server or any always-on box" },
+  { kind: "container", title: "Container", sub: "Leaves when it stops" },
+  { kind: "desktop", title: "Desktop", sub: "Another Mac" },
+];
+
+/// What `mesh_invite` takes for a ticket of `kind`.
+export function inviteArgs(kind: TicketKind) {
+  return kind === "desktop" ? { kind: "Desktop", temporary: false } : { kind: "Node", temporary: kind === "container" };
+}
+
+/// What the sheet says once a machine of `kind` joined, after what it runs.
+export function joinedNote(kind: TicketKind) {
+  return kind === "container" ? "It shows under Machines until it stops." : "It shows under Machines and can run agents now.";
+}
+
 /// A machine the sheet names, as `list_machines` gives it.
 type Machine = Pick<MachineView, "id" | "name"> & { env?: Pick<MachineEnv, "os" | "tools"> | null };
 

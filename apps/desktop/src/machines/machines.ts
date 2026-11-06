@@ -2,7 +2,7 @@
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
-import { bareVersion, coderColumns, coders, errorText, isCoder, nodeBehind, offeredNode, type NodeUpdate, shownVersion, specLine, toolChips, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
+import { bareVersion, coderColumns, coders, errorText, isCoder, machineTag, nodeBehind, offeredNode, type NodeUpdate, shownVersion, specLine, toolChips, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
@@ -44,6 +44,8 @@ export interface Machine {
   version: string;
   /// Null until its first report.
   env: MachineEnv | null;
+  /// It leaves the mesh when it stops, such as a container.
+  temporary?: boolean;
 }
 
 // The machines running beep-node (ListMachines), from Settings. `mac` is
@@ -364,6 +366,12 @@ function removeParts(m: Machine) {
   };
 }
 
+/// "container" after the name of a machine that leaves when it stops.
+function tagChip(m: Machine) {
+  const tag = machineTag(m);
+  return tag ? `<span class="dtag" title="Leaves when it stops">${esc(tag)}</span>` : "";
+}
+
 const statusTag = (m: Machine) => m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
 const nodeVersion = (m: Machine) => /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
 /// The newest beep-node released or on the account's machines, which the
@@ -400,7 +408,7 @@ function machineCard(m: Machine, columns: string[]) {
   const spec = env ? specLine(env) : "No report yet";
   const clock = clockWarning(m.id, env?.os ?? null);
   const off = clock ? `<span class="clockoff" title="${esc(clock.title)}">${esc(clock.text)}</span>` : "";
-  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${seen}${off}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${nodeChip(m)}${button}</span>`;
+  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${tagChip(m)}${seen}${off}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${nodeChip(m)}${button}</span>`;
   const chev = opens ? `<span class="ch">${ICON.chev}</span>` : "";
   if (!env) return `<div class="dmach"${open}>${line1}${chev}${ask}</div>`;
   const agents = coders(env.tools);
@@ -420,7 +428,7 @@ function machinePage(m: Machine) {
   const env = m.env, { button, ask } = removeParts(m);
   const kv = (k: string, v: string) => `<span>${k}</span><span>${v}</span>`;
   const behind = nodeBehind(m.version, newest()) ? ` <span class="dtag ask">${esc(newest() ?? "")} is out</span>` : "";
-  const facts = kv("Status", statusTag(m)) + kv("beep-node", esc(nodeVersion(m)) + behind + updateControl(m))
+  const facts = kv("Status", statusTag(m) + (machineTag(m) ? ` ${tagChip(m)}` : "")) + kv("beep-node", esc(nodeVersion(m)) + behind + updateControl(m))
     + (env ? kv("System", esc(`${env.os_version}, ${env.arch}`)) + kv("Hardware", esc(`${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB`))
       + kv("Host name", `<span class="dmono">${esc(env.hostname)}</span>`) + kv("Home", `<span class="dmono">${esc(env.home)}</span>`) + searchRow(m)
       + (env.avds.length ? kv("Android emulators", esc(env.avds.join(", "))) : "")

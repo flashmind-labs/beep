@@ -23,6 +23,7 @@ pub mod agent;
 pub mod desktop;
 pub mod files;
 pub mod harness;
+pub mod leave;
 pub mod mesh_state;
 pub mod process;
 pub mod report;

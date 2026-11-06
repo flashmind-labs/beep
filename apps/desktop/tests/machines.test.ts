@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bareVersion, newestNode, nodeBehind } from "../src/machines/machines-state.ts";
+import { bareVersion, machineTag, newestNode, nodeBehind } from "../src/machines/machines-state.ts";
 
 test("versions are bare, without the tool's name or a leading v", () => {
   assert.equal(bareVersion("claude", "2.1.312 (Claude Code)"), "2.1.312");
@@ -37,4 +37,11 @@ test("a tool updated this session keeps its version and loses its button", async
   assert.deepEqual(updatedNotes(installed, "m1", stale), ["Updated flsh to 0.2.6"]);
   assert.deepEqual(updatedNotes(installed, "m1", [{ name: "flsh", version: "0.2.6" }]), []);
   assert.deepEqual(updatedNotes(installed, "m2", stale), []);
+});
+
+test("a container is tagged, other machines are not", () => {
+  assert.equal(machineTag({ temporary: true }), "container");
+  assert.equal(machineTag({ temporary: false }), null);
+  // A server's list says nothing of it.
+  assert.equal(machineTag({}), null);
 });

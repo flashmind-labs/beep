@@ -357,6 +357,16 @@ impl Fleet {
         Ok(self.ready().await?.invite(kind, DEFAULT_TICKET_TTL).await?)
     }
 
+    /// Mints a ticket for a temporary node, such as a container: it leaves the mesh when it
+    /// stops, and is removed once it has been gone a while.
+    pub async fn invite_temporary(&self) -> Result<JoinTicket> {
+        Ok(self
+            .ready()
+            .await?
+            .invite_temporary(DEFAULT_TICKET_TTL)
+            .await?)
+    }
+
     /// Removes `machine` from the mesh for good. Every other member drops it
     /// and its link.
     pub async fn remove(&self, machine: EndpointId) -> Result<()> {

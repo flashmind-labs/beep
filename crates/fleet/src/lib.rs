@@ -17,6 +17,7 @@ mod runs;
 mod session;
 mod settings;
 mod sync;
+pub mod temporary;
 mod usage;
 
 pub use beep_mesh::machine::sessions::{MoveState, WorktreeMove};
