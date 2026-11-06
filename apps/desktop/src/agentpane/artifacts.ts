@@ -1,11 +1,11 @@
 // The Artifacts tab of a coding agent session's pane: the pages and documents
 // the agent published or wrote, newest first, and the picked one rendered.
 
-import { type Artifact, artifactVersion, frameHtml, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
+import { type Artifact, artifactVersion, frameHtml, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { clock } from "../agents/agentturns.ts";
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.ts";
-import { paneSession } from "./media.ts";
+import { openPath, paneSession } from "./media.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -29,6 +29,12 @@ const A = {
   seen: new Map<string, number>(),
   /// The list came at least once, so versions after it were seen live.
   primed: false,
+  /// The listed ones the machine said it no longer has, and the paths and
+  /// time of the last ask, so showing the tab asks again only when the list
+  /// changed or a while passed.
+  gone: new Set<string>(),
+  asked: "",
+  askedAt: 0,
   /// When each turn started, by its message's place, as the log knows.
   turnStart: (_turn: number): number | undefined => undefined,
   el: null as HTMLElement | null,
@@ -45,7 +51,7 @@ function syncSession() {
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (A.key === key) return;
   A.el?.remove();
-  Object.assign(A, { el: null, key, list: [], drawn: "", picked: null, version: "", seen: new Map(), primed: false });
+  Object.assign(A, { el: null, key, list: [], drawn: "", picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0 });
 }
 
 /// The Artifacts view of the pane's session, made once per session.
@@ -60,7 +66,8 @@ export function artifactsView() {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-apath]");
     if (row) pick(row.dataset.apath!);
   });
-  el.querySelector(".agpacts")!.addEventListener("click", e => {
+  // The actions, and the button a PDF's message shows.
+  el.addEventListener("click", e => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-aact]")?.dataset.aact;
     if (act) action(act);
   });
@@ -103,6 +110,29 @@ export function setArtifacts(list: Artifact[], turnStart: (turn: number) => numb
   else if (!a) drawShown(null);
 }
 
+/// How long a check of which artifacts are gone holds while the list stays.
+const RECHECK_MS = 15_000;
+
+/// The tab is on screen: asks the machine, in one request, which of the
+/// listed files it still has. An offline machine says nothing, and nothing
+/// shows as removed.
+export function checkArtifacts() {
+  const s = paneSession();
+  if (!s || !A.list.length) return;
+  const paths = A.list.map(a => a.path), asked = paths.join("\n"), key = A.key;
+  if (asked === A.asked && Date.now() - A.askedAt < RECHECK_MS) return;
+  A.asked = asked;
+  A.askedAt = Date.now();
+  invoke<boolean[] | null>("agent_artifacts_present", { machineId: s.machine_id, paths }).then(present => {
+    if (A.key !== key || A.asked !== asked) return;
+    const was = A.gone;
+    A.gone = goneArtifacts(paths, present);
+    drawList();
+    const a = picked();
+    if (a && was.has(a.path) !== A.gone.has(a.path)) load(a);
+  }, () => {});
+}
+
 /// How many artifacts the tab lists.
 export function artifactCount() {
   return A.list.length;
@@ -137,10 +167,11 @@ function rowHtml(a: Artifact, cwd: string) {
   const at = when(a);
   const turn = a.turnNo ? `Turn ${a.turnNo}` : "";
   const meta = [turn, at != null ? clock(at) : ""].filter(Boolean).join(" · ");
-  const more = a.versions > 1 ? `<small>${a.versions} versions</small>` : "";
-  return `<button class="agart${a.path === A.picked ? " on" : ""}" role="option" aria-selected="${a.path === A.picked}" data-apath="${esc(a.path)}" title="${esc(a.path)}">`
+  const gone = A.gone.has(a.path);
+  const more = gone ? "" : a.versions > 1 ? `<small>${a.versions} versions</small>` : a.made ? "<small>Made by a command</small>" : "";
+  return `<button class="agart${a.path === A.picked ? " on" : ""}${gone ? " gone" : ""}" role="option" aria-selected="${a.path === A.picked}" data-apath="${esc(a.path)}" title="${esc(a.path)}">`
     + `<span class="k ${a.kind}">${KIND_NAMES[a.kind]}</span><span class="t"><b>${esc(a.name)}</b><small>${esc(rel)}</small></span>`
-    + `<span class="r">${a.url ? '<span class="pub">claude.ai</span>' : ""}<span>${esc(meta)}</span>${more}</span></button>`;
+    + `<span class="r">${a.url ? '<span class="pub">claude.ai</span>' : ""}<span>${gone ? "Removed" : esc(meta)}</span>${more}</span></button>`;
 }
 
 function drawList() {
@@ -148,13 +179,13 @@ function drawList() {
   const s = paneSession();
   if (!box || !s) return;
   const html = A.list.length ? A.list.map(a => rowHtml(a, s.cwd)).join("")
-    : '<div class="agpmsg">Pages the agent publishes, or writes outside its folder, show here. Repo files it edits are in Files.</div>';
+    : '<div class="agpmsg">Pages the agent publishes, writes outside its folder or makes with a command show here. Repo files it edits are in Files.</div>';
   if (html !== A.drawn) { box.innerHTML = html; A.drawn = html; }
   const a = picked();
   const acts = A.el!.querySelector<HTMLElement>(".agpacts")!;
   acts.hidden = !a;
   if (!a) return;
-  const inside = relativeTo(s.cwd, a.path) != null;
+  const inside = relativeTo(s.cwd, a.path) != null && !A.gone.has(a.path);
   const claude = acts.querySelector<HTMLButtonElement>('[data-aact="claude"]')!;
   claude.hidden = !a.url;
   claude.title = a.url ?? "";
@@ -187,7 +218,18 @@ async function load(a: Artifact) {
   const s = paneSession();
   if (!s) return;
   const version = artifactVersion(a), key = A.key;
+  if (A.gone.has(a.path)) {
+    A.version = `gone:${version}`;
+    drawShown(`<div class="agpmsg">${esc(goneMessage(a.name, s.machine_name))}</div>`);
+    note(about(a, null));
+    return;
+  }
   A.version = version;
+  if (a.kind === "pdf") {
+    drawShown(`<div class="agpmsg">PDFs open in a tab of their own. <button class="dbtn" data-aact="pdf">Open ${esc(a.name)}</button></div>`);
+    note(about(a, null));
+    return;
+  }
   const keep = A.el?.querySelector(".agartshow > :not(.agpmsg)");
   if (!keep) drawShown(`<div class="agpmsg"><span class="dspin"></span>Reading ${esc(a.name)} from ${esc(s.machine_name)}…</div>`);
   note(about(a, null));
@@ -222,7 +264,8 @@ function action(act: string) {
   }
   const a = picked(), s = paneSession();
   if (!a || !s) return;
-  if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => note(readError(e)));
+  if (act === "pdf") openPath(a.path);
+  else if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => note(readError(e)));
   else if (act === "file") {
     const rel = relativeTo(s.cwd, a.path);
     if (rel != null) revealPath(rel);

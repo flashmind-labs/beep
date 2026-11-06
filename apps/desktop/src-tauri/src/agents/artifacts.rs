@@ -20,7 +20,7 @@ use crate::{
     beep::Beep,
     chat::markdown,
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines},
+    fleet::{Fleet, Machines, files as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{AGENT_FILE_CHUNK, ReadWorkFile};
@@ -271,6 +271,27 @@ pub async fn agent_artifact(
             data: STANDARD.encode(&data),
         },
     })
+}
+
+/// Whether each of `paths` (absolute or `~/`) is still on `machine_id`, in
+/// order. `None` when the machine cannot say now: it is offline, outside the
+/// mesh or older, and then nothing shows as removed.
+#[tauri::command]
+pub async fn agent_artifacts_present(
+    fleet: Machines<'_>,
+    machine_id: String,
+    paths: Vec<String>,
+) -> Result<Option<Vec<bool>>> {
+    let Some(machine) = fleet.member(&machine_id) else {
+        return Ok(None);
+    };
+    match direct::present(&fleet, machine, paths).await {
+        Ok(present) => Ok(present),
+        Err(e) => {
+            log::debug!("{machine_id} did not say which artifacts it has: {e}");
+            Ok(None)
+        }
+    }
 }
 
 /// All of `path` in `root`, a part at a time, and its size; refused past

@@ -62,6 +62,7 @@ mod watch;
 
 pub(crate) use peer::{ALPN, PeerHandler};
 use project::{Shared, Start};
+pub(crate) use rules::Rules;
 use watch::{Key, Watcher};
 
 /// How long a scan `Request::Rescan` asks for may take.

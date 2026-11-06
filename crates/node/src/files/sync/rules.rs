@@ -256,7 +256,7 @@ struct Found {
 ///    is not read, as it would also leave out `.env` and other files worth
 ///    keeping.
 #[derive(Debug)]
-pub(super) struct Rules {
+pub(crate) struct Rules {
     /// What git tracks here, and the folders that hold it.
     tracked: HashSet<String>,
     /// Why the root's `.git` stays here: it is a file, or a rule says so.
@@ -292,7 +292,7 @@ impl Rules {
     /// marker files in it and its first-level folders, its `.beepignore`,
     /// and the `.stignore` files at or above it. Fails on a `.stignore` it
     /// cannot read, since syncing then could send what the user left out.
-    pub(super) fn load(root: &Path) -> Result<Self> {
+    pub(crate) fn load(root: &Path) -> Result<Self> {
         let mut rules = Self {
             tracked: tracked(root),
             git_stays: None,
@@ -393,6 +393,11 @@ impl Rules {
             gitdir::kind(&text).is_some()
         };
         (!keep).then_some(Skip::Own)
+    }
+
+    /// Whether `path`, relative to the project folder, is left out.
+    pub(crate) fn leaves_out(&self, path: &Path, is_dir: bool) -> bool {
+        self.skip(path, is_dir).is_some()
     }
 
     /// Whether `path` or a folder it lies in is left out; `is_dir` says

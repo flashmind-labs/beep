@@ -249,7 +249,16 @@ pub enum SessionsRequest {
     /// the caller closes the stream: on the node that watches each project. A
     /// node from before it closes the stream.
     FollowRuns {},
+    /// Whether each of `paths` (absolute or starting `~/`, at most
+    /// `MAX_PRESENT_PATHS`) is there, as the Artifacts tab asks. Answered
+    /// with `Present`; a node from before it answers `Error`.
+    Present {
+        paths: Vec<String>,
+    },
 }
+
+/// The most paths one `Present` asks about.
+pub const MAX_PRESENT_PATHS: usize = 200;
 
 impl SessionsRequest {
     /// A one-shot read that changes nothing on the node, so asking twice
@@ -277,6 +286,7 @@ impl SessionsRequest {
             | Self::MoveProgress { .. }
             | Self::MoveCheck { .. }
             | Self::Copies {}
+            | Self::Present { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
             | Self::Steer { .. }
@@ -438,6 +448,10 @@ pub enum SessionsReply {
     /// One run on a `FollowRuns` stream.
     Run {
         news: RunNews,
+    },
+    /// The answer to `Present`: one per path asked, in order.
+    Present {
+        present: Vec<bool>,
     },
 }
 

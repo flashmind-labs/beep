@@ -128,6 +128,7 @@ fn main() {
             agents::accounts::revoke_agent_token,
             agents::accounts::save_agent_token,
             agents::artifacts::agent_artifact,
+            agents::artifacts::agent_artifacts_present,
             agents::custom::custom_agents,
             agents::diff::work_diff,
             agents::diff::agent_place,

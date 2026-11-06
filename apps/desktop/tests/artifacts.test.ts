@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { artifactVersion, collectArtifacts, FRAME_SANDBOX, frameHtml, readPlace, relativeTo, toolArtifacts } from "../src/agentpane/artifacts-state.ts";
+import { artifactVersion, collectArtifacts, FRAME_SANDBOX, frameHtml, goneArtifacts, goneMessage, madeNote, readPlace, relativeTo, toolArtifacts } from "../src/agentpane/artifacts-state.ts";
 
 const CWD = "/srv/project";
 const LINK = "https://claude.ai/code/artifact/0000-placeholder";
@@ -55,6 +55,32 @@ test("a repo file the agent only edited is no artifact; a published one or one o
     { kind: "tool", text: "Write: /tmp/agent-out/chart.svg" },
   ];
   assert.deepEqual(collectArtifacts(entries, 0, CWD).map(a => a.path), ["/tmp/agent-out/chart.svg", "/srv/project/docs/plan.md"]);
+});
+
+test("files a turn's commands made are listed from the node's note, inside the folder too, once", () => {
+  const entries = [
+    { kind: "user", text: "run the coverage" },
+    { kind: "tool", text: "Bash: make coverage [completed]" },
+    { kind: "tool", text: "Write: /srv/project/notes.md" },
+    { kind: "other", text: "(made out/coverage.pdf)\n(made notes.md)\n(made flow.svg)" },
+    { kind: "other", text: "[conversation compacted]" },
+  ];
+  const all = collectArtifacts(entries, 0, CWD);
+  assert.deepEqual(all.map(a => [a.name, a.kind, a.made, a.versions]), [
+    ["coverage.pdf", "pdf", true, 1],
+    ["flow.svg", "svg", true, 1],
+  ]);
+  assert.equal(madeNote(entries[3].text), "Made coverage.pdf, notes.md, flow.svg");
+  assert.equal(madeNote("[conversation compacted]"), null);
+  assert.equal(madeNote("(made a.pdf)\nsomething else"), null);
+});
+
+test("a file the machine no longer has is gone; an offline machine marks none", () => {
+  const paths = ["/srv/project/out/coverage.pdf", "/srv/project/flow.svg"];
+  assert.deepEqual([...goneArtifacts(paths, [true, false])], ["/srv/project/flow.svg"]);
+  assert.equal(goneArtifacts(paths, null).size, 0);
+  assert.equal(goneArtifacts(paths, [false]).size, 0, "an answer for other paths says nothing");
+  assert.equal(goneMessage("flow.svg", "build-box"), "flow.svg is not on build-box any more.");
 });
 
 test("a file inside the session's folder is read from it; one outside from its own folder", () => {

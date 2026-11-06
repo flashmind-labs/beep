@@ -162,5 +162,16 @@ pub(crate) struct TurnFiles {
     pub(crate) entry: Option<u64>,
 }
 
+/// Where to look for the files a finished turn's commands made, for
+/// `made_files::find`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TurnMade {
+    pub(crate) cwd: PathBuf,
+    pub(crate) since: SystemTime,
+    /// The files its finished edits and `Artifact` calls named, which the
+    /// log shows already.
+    pub(crate) written: Vec<PathBuf>,
+}
+
 #[cfg(test)]
 mod tests;
