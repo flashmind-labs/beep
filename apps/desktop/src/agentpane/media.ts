@@ -491,6 +491,7 @@ function drawDock(d: Dock, ids: string[]) {
     if (t.el.parentElement !== views) views.append(t.el);
     const hide = t.id !== on || P.layout.hidden[d];
     if (hide && !t.el.hidden) stopPlaying(t);
+    if (!hide && t.el.hidden) showFrame(t);
     t.el.hidden = t.id !== on;
     if (!hide) t.model?.resize();
     if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); if (t.id === P.on[d]) t.term?.screen.focus(); });
@@ -504,8 +505,24 @@ function stopPlaying(t: MediaTab) {
   t.model?.anim?.play(false);
 }
 
-// The window hid or the pane went: nothing plays on.
-onShownChange(shown => { if (!shown) for (const t of P.tabs) stopPlaying(t); }, true);
+/// Loads a tab's video again where it stood: WebKit can lose its picture
+/// while it is out of sight and show it dark, sound and controls still there.
+function showFrame(t: MediaTab) {
+  const video = t.el?.querySelector("video");
+  if (!video || video.readyState === 0) return;
+  const at = video.currentTime;
+  video.addEventListener("loadedmetadata", () => { video.currentTime = at; }, { once: true });
+  video.load();
+}
+
+// The window hid or the pane went: nothing plays on. Shown again, the
+// video in view gets its picture back.
+onShownChange(shown => {
+  for (const t of P.tabs) {
+    if (!shown) stopPlaying(t);
+    else if (t.el && !t.el.hidden) showFrame(t);
+  }
+}, true);
 
 function showTab(d: Dock, id: string) {
   // Shown again, the changes are read again.
