@@ -11,6 +11,7 @@
 mod book;
 mod elect;
 mod forge;
+mod github;
 mod projects;
 mod watcher;
 
