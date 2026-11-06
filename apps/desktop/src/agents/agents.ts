@@ -14,6 +14,7 @@ import { harnessTile } from "../ui/harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, Waiting } from "./agentqueue.ts";
 import { renderChat } from "../chat/chat.ts";
+import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
 import { $, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
@@ -211,7 +212,9 @@ export type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer
   | { cancel: null } | { close: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } } | { stop_task: { task: string } };
 
 interface AgentState {
+  /// What the last failed read of the open session said, and how its link is.
   readError: string;
+  link: Link;
   hosts: AgentHost[] | null;
   error: string;
   busy: boolean;
@@ -275,7 +278,7 @@ interface AgentState {
 }
 
 export const AG: AgentState = {
-  readError: "",
+  readError: "", link: LINKED,
   hosts: null, error: "", busy: false,
   form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
   open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,

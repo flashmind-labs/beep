@@ -41,7 +41,7 @@ impl Tool {
     fn named(name: &str) -> Option<Self> {
         Some(match name {
             "list_machines" => Self::ListMachines,
-            "run_on" => Self::RunOn,
+            "remote_run" => Self::RunOn,
             "sync_project" => Self::SyncProject,
             "send_files" => Self::SendFiles,
             "job_status" => Self::JobStatus,
@@ -56,7 +56,7 @@ impl Tool {
         })
     }
 
-    /// The tool a Claude Code tool name calls: `mcp__beep__run_on`.
+    /// The tool a Claude Code tool name calls: `mcp__beep__remote_run`.
     pub(crate) fn of_name(name: &str) -> Option<Self> {
         let rest = name.strip_prefix("mcp__")?;
         let tool = rest.strip_prefix(SERVER_NAME)?.strip_prefix("__")?;
@@ -64,8 +64,8 @@ impl Tool {
     }
 
     /// The tool an ACP tool call runs, from Claude Code's `_meta`, its
-    /// title (`mcp__beep__run_on`, Codex's `beep/run_on`, Gemini's
-    /// `run_on (beep MCP Server)`) or an input that names the server, as
+    /// title (`mcp__beep__remote_run`, Codex's `beep/remote_run`, Gemini's
+    /// `remote_run (beep MCP Server)`) or an input that names the server, as
     /// Codex's does.
     pub(crate) fn of_call(
         title: &str,
@@ -177,9 +177,9 @@ mod tests {
 
     #[test]
     fn calls_are_found_however_the_agent_names_them() {
-        assert_eq!(Tool::of_name("mcp__beep__run_on"), Some(Tool::RunOn));
-        assert_eq!(Tool::of_name("mcp__beeper__run_on"), None);
-        assert_eq!(Tool::of_name("mcp__other__run_on"), None);
+        assert_eq!(Tool::of_name("mcp__beep__remote_run"), Some(Tool::RunOn));
+        assert_eq!(Tool::of_name("mcp__beeper__remote_run"), None);
+        assert_eq!(Tool::of_name("mcp__other__remote_run"), None);
         let meta = json!({"claudeCode": {"toolName": "mcp__beep__send_files"}});
         assert_eq!(
             Tool::of_call("Other", meta.as_object(), None),

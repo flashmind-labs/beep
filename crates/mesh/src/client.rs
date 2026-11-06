@@ -7,16 +7,22 @@ use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, link_on, local_link};
 use futures::Stream;
 use futures::stream::unfold;
 use iroh::EndpointId;
-use iroh::endpoint::Connection;
+use iroh::endpoint::{
+    ClosedStream, Connection, ConnectionError, ReadError, ReadExactError, ReadToEndError,
+    StoppedError, WriteError,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::error::Error as StdError;
 use std::fmt::{self, Debug, Formatter};
 use std::future::Future;
+use std::io::{self, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::task::spawn;
+use tokio::time::error::Elapsed;
 use tokio::time::timeout;
 
 /// How long `with_deadline` waits for a member to come online.
@@ -272,4 +278,100 @@ pub async fn with_deadline(machine: EndpointId, mesh: &Mesh) -> Result<PeerClien
     timeout(DEADLINE, wait)
         .await
         .unwrap_or(Err(Offline(machine)))
+}
+
+impl MeshError {
+    /// Whether the call failed on its way to or from the node (the stream
+    /// stopped or reset, the connection lost or closed, no answer in time,
+    /// the node not reachable) rather than in what the node said. Such a
+    /// call can be made again once the node is back.
+    pub fn is_transport(&self) -> bool {
+        match self {
+            Self::Net(_) | Self::Closed => true,
+            Self::Link(e) => e.chain().any(dropped),
+            _ => false,
+        }
+    }
+}
+
+/// Whether `cause` is the network failing: QUIC's own errors, the I/O
+/// errors the framed streams turn them into, a timeout, a peer offline.
+fn dropped(cause: &(dyn StdError + 'static)) -> bool {
+    if let Some(e) = cause.downcast_ref::<io::Error>() {
+        if let Some(inner) = e.get_ref() {
+            return dropped(inner);
+        }
+        return matches!(
+            e.kind(),
+            ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::NotConnected
+                | ErrorKind::BrokenPipe
+                | ErrorKind::UnexpectedEof
+                | ErrorKind::TimedOut
+        );
+    }
+    if let Some(e) = cause.downcast_ref::<MeshError>() {
+        return e.is_transport();
+    }
+    cause.is::<WriteError>()
+        || cause.is::<ReadError>()
+        || cause.is::<ReadExactError>()
+        || cause.is::<ReadToEndError>()
+        || cause.is::<StoppedError>()
+        || cause.is::<ClosedStream>()
+        || cause.is::<ConnectionError>()
+        || cause.is::<Elapsed>()
+        || cause.is::<Offline>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::machine::said;
+    use iroh::SecretKey;
+    use iroh::endpoint::VarInt;
+    use std::future::pending;
+
+    fn link(e: impl StdError + Send + Sync + 'static) -> MeshError {
+        MeshError::Link(anyhow::Error::new(e))
+    }
+
+    #[test]
+    fn a_stream_the_node_stopped_or_reset_is_transport() {
+        // What a framed write hands back: the QUIC error inside an I/O error.
+        let stopped = io::Error::from(WriteError::Stopped(VarInt::from_u32(0)));
+        assert_eq!(stopped.to_string(), "sending stopped by peer: error 0");
+        assert!(link(stopped).is_transport());
+        let reset = io::Error::from(ReadError::Reset(VarInt::from_u32(0)));
+        assert!(link(reset).is_transport());
+        let lost = anyhow::Error::new(ConnectionError::TimedOut).context("opening");
+        assert!(MeshError::Link(lost).is_transport());
+        assert!(link(Offline(SecretKey::generate().public())).is_transport());
+        assert!(MeshError::Net("not connected".into()).is_transport());
+        // `PeerClient::over` wraps the mesh's own error.
+        let wrapped = anyhow::Error::new(MeshError::Net("not connected".into()));
+        assert!(MeshError::Link(wrapped).is_transport());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_answer_in_time_is_transport() {
+        let elapsed = timeout(CALL_TIMEOUT, pending::<()>())
+            .await
+            .expect_err("a pending future times out");
+        let e = anyhow::Error::new(elapsed).context("the node did not answer");
+        assert!(MeshError::Link(e).is_transport());
+    }
+
+    #[test]
+    fn what_the_node_said_is_not_transport() {
+        assert!(!said("no such session").is_transport());
+        assert!(!link(io::Error::other("bad frame")).is_transport());
+        let declined = MeshError::Declined {
+            protocol: "sessions/1".into(),
+            reason: "not served".into(),
+        };
+        assert!(!declined.is_transport());
+        assert!(!MeshError::Unexpected("Pong".into()).is_transport());
+    }
 }

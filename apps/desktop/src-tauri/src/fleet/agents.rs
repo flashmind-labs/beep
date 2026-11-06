@@ -54,9 +54,9 @@ fn not_found() -> DesktopError {
 async fn limited<T>(call: impl Future<Output = std::result::Result<T, MeshError>>) -> Result<T> {
     match timeout(listing::NODE_LIMIT, call).await {
         Ok(done) => Ok(done?),
-        Err(_) => Err(DesktopError::BadRequest(
-            "the machine did not answer in time".into(),
-        )),
+        Err(e) => Err(DesktopError::Mesh(MeshError::Link(
+            anyhow::Error::new(e).context("the machine did not answer in time"),
+        ))),
     }
 }
 
@@ -452,12 +452,23 @@ pub(crate) async fn delete_session(
 }
 
 /// Orders a running session, and gives back its stream, still attached.
-/// Only sessions Beep runs take orders.
+/// Only sessions Beep runs take orders. A link that drops on the way says so
+/// in plain words.
 pub(crate) async fn steer(
     fleet: &Fleet,
     machine: EndpointId,
     steer: SteerAgentSession,
 ) -> Result<Attached> {
+    ordered(fleet, machine, steer).await.map_err(|e| {
+        if e.is_transport() {
+            DesktopError::Lost(fleet.name_of(machine))
+        } else {
+            e
+        }
+    })
+}
+
+async fn ordered(fleet: &Fleet, machine: EndpointId, steer: SteerAgentSession) -> Result<Attached> {
     // Refused before the machine is asked.
     let request = machine::node_request(steer.steer)?;
     let images = matches!(request, Request::PromptImages { .. });
@@ -470,7 +481,13 @@ pub(crate) async fn steer(
     };
     let mut opened = open_agent(&client, &steer.agent, attach)
         .await
-        .map_err(|e| DesktopError::BadRequest(format!("Could not reach the session: {e:#}")))?;
+        .map_err(|e| {
+            if e.is_transport() {
+                DesktopError::Mesh(e)
+            } else {
+                DesktopError::BadRequest(format!("Could not reach the session: {e:#}"))
+            }
+        })?;
     // A node from before steering takes the message for after the turn.
     let fallback = machine::queued_instead(&request);
     let sent = match (order(&mut opened, request, ORDER_WAIT).await, fallback) {
@@ -480,6 +497,9 @@ pub(crate) async fn steer(
         (sent, _) => sent,
     };
     sent.map(|()| opened).map_err(|e| {
+        if e.is_transport() {
+            return DesktopError::Mesh(e);
+        }
         let error = format!("{e:#}");
         let old = error.contains("unknown request");
         let said = if images && old {

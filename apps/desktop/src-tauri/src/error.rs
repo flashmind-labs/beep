@@ -22,10 +22,25 @@ pub enum DesktopError {
     /// A machine of the mesh that is not connected.
     #[error("{0} is offline")]
     Offline(String),
+    /// The link to a machine dropped in the middle of a call.
+    #[error("Lost the connection to {0}.")]
+    Lost(String),
     #[error("{0}")]
     BadRequest(String),
     #[error("{0:#}")]
     Other(anyhow::Error),
+}
+
+impl DesktopError {
+    /// Whether the machine could not be reached or the link to it dropped,
+    /// as opposed to an answer it gave: the call can be made again.
+    pub fn is_transport(&self) -> bool {
+        match self {
+            Self::Mesh(e) => e.is_transport(),
+            Self::Offline(_) | Self::Lost(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<anyhow::Error> for DesktopError {

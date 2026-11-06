@@ -1,8 +1,8 @@
 //! MCP over one connection: newline-delimited JSON-RPC, as the stdio
 //! transport speaks it. Calls run side by side, a few at a time, so a long
-//! `run_on` does not hold up the next call.
+//! `remote_run` does not hold up the next call.
 
-use super::catalog::{self, ASK_USER};
+use super::catalog::{self, ASK_USER, REMOTE_RUN};
 use crate::agents::{Answered, Asking, Line, LineReader};
 use anyhow::Result;
 use beep_proto::node::{
@@ -170,7 +170,13 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
     if name == ASK_USER {
         return ask_user(backend, session, args).await;
     }
-    let tool = match name.parse::<Tool>() {
+    // `remote_run` goes as `run_on`, its name in `tools/1`, which is no MCP name.
+    let parsed = match name {
+        REMOTE_RUN => Ok(Tool::RunOn),
+        "run_on" => Err(()),
+        _ => name.parse::<Tool>().map_err(drop),
+    };
+    let tool = match parsed {
         // Coding agents get no memories, which are the assistant's, and read no machine logs.
         Ok(
             Tool::Unknown
@@ -299,7 +305,7 @@ mod tests {
     use std::sync::Mutex;
     use tokio::io::{AsyncBufReadExt, BufReader, duplex};
 
-    /// A server that asks first for `run_on` and answers everything else,
+    /// A server that asks first for `remote_run` and answers everything else,
     /// and a user who answers with `answer`.
     struct Fake {
         calls: Mutex<Vec<Request>>,
@@ -423,7 +429,7 @@ mod tests {
             names,
             [
                 "list_machines",
-                "run_on",
+                "remote_run",
                 "sync_project",
                 "send_files",
                 "job_status",
@@ -443,8 +449,8 @@ mod tests {
         };
         // Codex asks unless a tool reads only, or is neither destructive nor open world.
         assert_eq!(hints("list_machines")["readOnlyHint"], true);
-        assert_eq!(hints("run_on")["destructiveHint"], false);
-        assert_eq!(hints("run_on")["openWorldHint"], false);
+        assert_eq!(hints("remote_run")["destructiveHint"], false);
+        assert_eq!(hints("remote_run")["openWorldHint"], false);
         assert_eq!(text(&out[2]), "- build-box: online");
         assert_eq!(out[2]["result"]["isError"], false);
         assert_eq!(text(&out[3]), "build-box is offline.");
@@ -461,7 +467,7 @@ mod tests {
         let run = request(
             1,
             "tools/call",
-            json!({ "name": "run_on", "arguments": { "machine": "build-box", "command": "cargo test" } }),
+            json!({ "name": "remote_run", "arguments": { "machine": "build-box", "command": "cargo test" } }),
         );
         let allowing = Fake::new(ALLOW);
         let out = exchange(&allowing, std::slice::from_ref(&run)).await;
@@ -482,17 +488,22 @@ mod tests {
         let denying = Fake::new(DENY);
         let out = exchange(&denying, &[run]).await;
         assert_eq!(out[0]["result"]["isError"], true);
-        assert!(text(&out[0]).contains("did not allow run_on"), "{out:?}");
+        assert!(
+            text(&out[0]).contains("did not allow remote_run"),
+            "{out:?}"
+        );
         assert_eq!(denying.calls.lock().unwrap().len(), 1, "it never ran");
     }
 
     #[tokio::test]
-    async fn machine_log_is_no_tool() {
+    async fn machine_log_and_run_on_are_no_tools() {
         let fake = Fake::new(ALLOW);
-        let read = json!({ "name": "machine_log", "arguments": { "machine": "build-box" } });
-        let out = exchange(&fake, &[request(1, "tools/call", read)]).await;
-        assert_eq!(out[0]["result"]["isError"], true);
-        assert_eq!(text(&out[0]), "There is no tool machine_log.");
+        for name in ["machine_log", "run_on"] {
+            let call = json!({ "name": name, "arguments": { "machine": "build-box" } });
+            let out = exchange(&fake, &[request(1, "tools/call", call)]).await;
+            assert_eq!(out[0]["result"]["isError"], true);
+            assert_eq!(text(&out[0]), format!("There is no tool {name}."));
+        }
         assert!(fake.calls.lock().unwrap().is_empty(), "nothing was sent");
     }
 

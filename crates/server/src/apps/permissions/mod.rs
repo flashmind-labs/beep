@@ -77,7 +77,7 @@ const CODE_AGENT: &str = "CODE_AGENT";
 const ADD_MACHINE: &str = "ADD_MACHINE";
 /// `import_project` as rules keep it: it clones with the user's tokens.
 const IMPORT_PROJECT: &str = "IMPORT_PROJECT";
-/// The Beep MCP server's `run_on` and `send_files` (`crate::tools::machines::mcp`).
+/// The Beep MCP server's `remote_run` and `send_files` (`crate::tools::machines::mcp`).
 pub(crate) const RUN_ON: &str = "RUN_ON";
 pub(crate) const SEND_FILES: &str = "SEND_FILES";
 
