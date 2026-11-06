@@ -10,8 +10,9 @@ use beep_proto::node::{
 };
 use std::{
     collections::{HashMap, HashSet},
+    ffi::OsString,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 use tokio::task::spawn_blocking;
 
@@ -34,9 +35,13 @@ const DEFAULT_LISTED: usize = 20;
 /// Claude Code's own folder: `~/.claude`, unless `CLAUDE_CONFIG_DIR` says
 /// otherwise. `None` without a home folder.
 pub(crate) fn config_dir() -> Option<PathBuf> {
-    match std::env::var_os("CLAUDE_CONFIG_DIR") {
+    config_dir_in(std::env::var_os("CLAUDE_CONFIG_DIR"), dirs::home_dir())
+}
+
+fn config_dir_in(set: Option<OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
+    match set {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
-        _ => dirs::home_dir().map(|home| home.join(".claude")),
+        _ => home.map(|home| home.join(".claude")),
     }
 }
 
@@ -49,7 +54,9 @@ pub(crate) fn projects_dir() -> Option<PathBuf> {
 
 /// Claude Code's sessions on this machine, and the hook events about them.
 pub struct External {
-    store: Option<discover::Store>,
+    /// Claude Code's folder, where the store is once its `projects` exists.
+    root: Option<PathBuf>,
+    store: OnceLock<discover::Store>,
     hub: watch::Hub,
     live: live::Live,
     /// The few transcripts read last, parsed.
@@ -62,7 +69,8 @@ const TRANSCRIPTS_KEPT: usize = 4;
 impl Default for External {
     fn default() -> Self {
         Self {
-            store: None,
+            root: None,
+            store: OnceLock::new(),
             hub: watch::Hub::default(),
             live: live::Live::default(),
             transcripts: Arc::new(Memo::new(TRANSCRIPTS_KEPT)),
@@ -74,7 +82,27 @@ impl External {
     /// Looks for Claude Code's folder; without one there is nothing to list.
     pub fn locate() -> Self {
         Self {
-            store: discover::Store::locate(),
+            root: config_dir(),
+            ..Self::default()
+        }
+    }
+
+    /// The store, looked for again while Claude Code has not made its
+    /// `projects` folder yet (one stat per call).
+    fn store(&self) -> Option<discover::Store> {
+        if let Some(store) = self.store.get() {
+            return Some(store.clone());
+        }
+        let found = discover::Store::in_root(self.root.as_deref()?)?;
+        Some(self.store.get_or_init(|| found).clone())
+    }
+
+    /// The sessions in the Claude Code folder `root`, which may not have its
+    /// `projects` folder yet.
+    #[cfg(test)]
+    pub(crate) fn locate_in(root: &Path) -> Self {
+        Self {
+            root: Some(root.to_owned()),
             ..Self::default()
         }
     }
@@ -83,7 +111,7 @@ impl External {
     #[cfg(all(test, unix))]
     pub(crate) fn at(root: &Path) -> Self {
         Self {
-            store: Some(discover::Store::at(root)),
+            store: OnceLock::from(discover::Store::at(root)),
             ..Self::default()
         }
     }
@@ -96,7 +124,7 @@ impl External {
         only: Option<String>,
         owned: HashMap<String, String>,
     ) -> Result<Vec<ExternalSession>> {
-        let Some(store) = self.store.clone() else {
+        let Some(store) = self.store() else {
             return Ok(Vec::new());
         };
         let processes = procs::claude_processes().await;
@@ -119,7 +147,7 @@ impl External {
 
     /// Every session with the folder it ran in, for `crate::agents::found`.
     pub(crate) async fn sightings(&self) -> Result<Vec<Sighting>> {
-        let Some(store) = self.store.clone() else {
+        let Some(store) = self.store() else {
             return Ok(Vec::new());
         };
         spawn_blocking(move || discover::sightings(&store))
@@ -134,7 +162,7 @@ impl External {
         ids: HashSet<String>,
         owned: HashMap<String, String>,
     ) -> Result<Vec<ExternalSession>> {
-        let Some(store) = self.store.clone() else {
+        let Some(store) = self.store() else {
             return Ok(Vec::new());
         };
         if ids.is_empty() {
@@ -180,7 +208,7 @@ impl External {
 
     /// Session `id`'s transcript file, when there is one.
     pub(crate) async fn file(&self, id: &str) -> Result<Option<PathBuf>> {
-        let Some(store) = self.store.clone() else {
+        let Some(store) = self.store() else {
             return Ok(None);
         };
         let id = id.to_owned();
@@ -191,7 +219,7 @@ impl External {
     /// there is no such transcript. Both are found through the store and
     /// must lie inside its projects folder.
     pub(crate) async fn delete(&self, id: &str) -> Result<bool> {
-        let Some(store) = self.store.clone() else {
+        let Some(store) = self.store() else {
             return Ok(false);
         };
         let id = id.to_owned();
@@ -242,7 +270,7 @@ impl External {
 
     /// Serves one `Watch` stream.
     pub(crate) async fn watch(&self, tx: LinkTx, rx: LinkRx, sessions: Vec<String>) -> Result<()> {
-        watch::serve(tx, rx, self.store.clone(), &self.hub, sessions).await
+        watch::serve(tx, rx, self.store(), &self.hub, sessions).await
     }
 }
 
@@ -296,5 +324,31 @@ mod tests {
         assert_eq!(refuse_takeover(&found), None);
         found.cwd = "/no/such/folder/here".into();
         assert!(refuse_takeover(&found).is_some());
+    }
+
+    #[test]
+    fn the_config_dir_follows_the_variable_then_home() {
+        let home = Some(PathBuf::from("/home/user"));
+        let usual = Some(PathBuf::from("/home/user/.claude"));
+        assert_eq!(config_dir_in(None, home.clone()), usual);
+        assert_eq!(config_dir_in(Some("".into()), home.clone()), usual);
+        let set = config_dir_in(Some("/srv/claude".into()), home);
+        assert_eq!(set, Some(PathBuf::from("/srv/claude")));
+    }
+
+    #[tokio::test]
+    async fn sessions_show_once_the_projects_folder_appears() {
+        let id = "0f3c2a9e-1111-4222-8333-944455556666";
+        let root = tempfile::tempdir().expect("a temp folder");
+        let external = External::locate_in(root.path());
+        let listed = external.list(10, None, HashMap::new()).await;
+        assert!(listed.expect("an empty list").is_empty());
+        let project = root.path().join("projects/-srv-project");
+        std::fs::create_dir_all(&project).expect("folders");
+        let line = r#"{"type":"user","cwd":"/srv/project","timestamp":"2026-11-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
+        std::fs::write(project.join(format!("{id}.jsonl")), format!("{line}\n"))
+            .expect("a transcript");
+        let listed = external.list(10, None, HashMap::new()).await;
+        assert_eq!(listed.expect("a list").len(), 1);
     }
 }

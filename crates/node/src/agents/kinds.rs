@@ -1,9 +1,9 @@
 //! The agents a node knows how to start, and how it starts them.
 
-use super::Route;
+use super::{Route, locate};
 use beep_proto::node::harness::AutoCompact;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -198,18 +198,51 @@ pub(super) const KNOWN: &[Known] = &[
 ];
 
 /// The agents installed here, from `KNOWN`, then `extra` from `node.toml`
-/// (which replace a known one of the same name).
+/// (which replace a known one of the same name). A program not on `PATH` is
+/// looked for in the usual install folders under home, and started from
+/// where it was found.
 pub fn detect(extra: &[AgentKind]) -> Vec<AgentKind> {
-    let found = |program: &str| which::which(program).is_ok();
+    let home = dirs::home_dir();
+    let found = |program: &str| locate::find(program, home.as_deref()).is_some();
     let mut kinds: Vec<AgentKind> = KNOWN
         .iter()
         .filter_map(|known| launch(known, &found))
+        .map(|kind| anchored(kind, home.as_deref()))
         .collect();
     for kind in extra {
         kinds.retain(|known| known.name != kind.name);
         kinds.push(kind.clone());
     }
+    let names: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
+    if names.is_empty() {
+        let missing: Vec<&str> = KNOWN.iter().map(|known| known.cli).collect();
+        log::warn!(
+            "no coding agent found ({} not on PATH or in the usual install folders)",
+            missing.join(", ")
+        );
+    } else {
+        log::info!("coding agents found: {}", names.join(", "));
+    }
     kinds
+}
+
+/// `kind` set to start the program where `locate` found it when `PATH` does
+/// not have it, with that folder in front of the agent's own `PATH` so what
+/// it starts (`node`, the agent's CLI) is found beside it.
+fn anchored(mut kind: AgentKind, home: Option<&Path>) -> AgentKind {
+    if which::which(&kind.program).is_ok() {
+        return kind;
+    }
+    let Some(path) = locate::find(&kind.program, home) else {
+        return kind;
+    };
+    log::info!("{} found at {}", kind.name, path.display());
+    if let Some(with) = locate::path_with(&path) {
+        kind.env
+            .insert("PATH".to_owned(), with.to_string_lossy().into_owned());
+    }
+    kind.program = path.to_string_lossy().into_owned();
+    kind
 }
 
 /// How the node starts `known`, when `found` says its CLI, and the adapter

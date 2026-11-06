@@ -10,7 +10,7 @@ use crate::{
     files::transfer::Transfers,
     link::reconnect::{self, Backoff},
     link::restart::{self, Reopen},
-    link::state::State,
+    link::state::{Search, State},
     link::traffic::Traffic,
     link::watchdog,
     link::{
@@ -167,8 +167,7 @@ pub async fn serve(
     offers.agents.share_folders(shared.clone());
     // The agents' logs read once ahead, so the first file request for a
     // session started outside Beep does not wait for them.
-    let searches = Searches::start(state.dir.clone(), offers.agents.clone(), &state.search);
-    offers.extra.push(Arc::new(searches));
+    offers.offer_searches(&state.dir, &state.search);
     // The plans read ahead too: Claude Code takes a while to start, and a
     // desktop opening its window would otherwise wait for it.
     let agents = offers.agents.clone();
@@ -238,9 +237,7 @@ pub async fn serve(
     let agents = offers.agents.clone();
     let hooks_dir = state.dir.clone();
     let _hooks = AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = agents.external().listen_hooks(&hooks_dir).await {
-            log::warn!("not taking Claude Code hooks: {e:#}");
-        }
+        listen_hooks(&agents, &hooks_dir).await;
     }));
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
@@ -518,6 +515,13 @@ impl Offers {
             withheld: Arc::default(),
             skills: Skills::default(),
         }
+    }
+
+    /// Offers `search/1`: the checkouts saved in the node's folder `dir`,
+    /// read ahead from the agents' logs. Needs a running Tokio runtime.
+    pub fn offer_searches(&mut self, dir: &Path, search: &Search) {
+        let searches = Searches::start(dir.to_owned(), self.agents.clone(), search);
+        self.extra.push(Arc::new(searches));
     }
 
     /// Whether the node has a server, which holds the memory tools.
@@ -952,7 +956,7 @@ pub(crate) async fn serve_open(
             tx.send(&Opened::Ready {}).await?;
             provision.serve_updates(tx, rx).await
         }
-        agent::SESSIONS_PROTOCOL if !offers.agents.offers().is_empty() => {
+        agent::SESSIONS_PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
         }
@@ -970,6 +974,14 @@ pub(crate) async fn serve_open(
                 tx.send(&Opened::Refused { reason }).await
             }
         },
+    }
+}
+
+/// Takes Claude Code's hook events on a socket in `dir` until the node
+/// stops, so terminal sessions have live state.
+pub async fn listen_hooks(agents: &Agents, dir: &Path) {
+    if let Err(e) = agents.external().listen_hooks(dir).await {
+        log::warn!("not taking Claude Code hooks: {e:#}");
     }
 }
 
