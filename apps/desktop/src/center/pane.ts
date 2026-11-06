@@ -98,7 +98,7 @@ export async function takePending(fallback: ViewName | null) {
   const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
   if (target == null) return fallback && go(fallback);
   if (target === "home" || target === "instructions" || target === "providers" || target === "terminals" || target === "research") return go(target);
-  // Report a Problem from the tray or the Help menu: the sheet over the page on screen.
+  // The report target: the Report a problem sheet over the page on screen.
   if (target === "report") {
     if (!shown) go("home");
     return openReport(document.body);
