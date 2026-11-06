@@ -1,4 +1,4 @@
-// Feedback from an agent, apart from the DOM: what a review asks, how its
+// Review with agent, apart from the DOM: what a review asks, how its
 // answer becomes draft comments, the harness mode that keeps it from
 // editing, and when the button cannot start one.
 import { type DiffFile, type ReviewComment, diffRows, lineKey } from "./diff-state.ts";
