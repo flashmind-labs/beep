@@ -13,6 +13,7 @@ use crate::{
     projects::{known, unknown_op},
 };
 use beep_mesh::Key;
+use beep_node::agents::tags::own_words;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask, ApiError,
@@ -109,8 +110,8 @@ struct EntryRow {
     kind: &'static str,
     text: String,
     /// What the agent said or thought, as the chat shows Beep's replies:
-    /// its Markdown as cleaned HTML. Only on the agent's own entries and
-    /// its thoughts.
+    /// its Markdown as cleaned HTML. On a user entry, the user's own words
+    /// as Markdown with raw HTML left as text. Not on tools and plans.
     #[serde(skip_serializing_if = "Option::is_none")]
     html: Option<String>,
     /// How long a thought took, in milliseconds, once it ended.
@@ -127,6 +128,12 @@ impl From<AgentEntry> for EntryRow {
                 None,
             ),
             AgentEntryKind::Thought { ms } => (Some(markdown::to_html(&entry.text)), ms),
+            AgentEntryKind::User {} => (
+                Some(markdown::user_html(&without_image_lines(&own_words(
+                    &entry.text,
+                )))),
+                None,
+            ),
             _ => (None, None),
         };
         Self {
@@ -762,6 +769,19 @@ mod tests {
             text: "Read file [completed]".into(),
         });
         assert_eq!(tool.html, None);
+    }
+
+    #[test]
+    fn what_the_user_wrote_comes_as_markdown_without_beeps_context() {
+        let said = EntryRow::from(AgentEntry {
+            kind: AgentEntryKind::User {},
+            text: "<beep-context>\nBeep: the tools.\n</beep-context>\n# Review on ~/app\n\n<b>hi</b>\n[image: image-0123456789abcdef]".into(),
+        });
+        let html = said.html.expect("a user entry carries its HTML");
+        assert!(html.contains("<h1>Review on ~/app</h1>"), "{html}");
+        assert!(html.contains("&lt;b&gt;hi&lt;/b&gt;"), "{html}");
+        assert!(!html.contains("Beep: the tools"), "{html}");
+        assert!(!html.contains("image-0123"), "{html}");
     }
 
     #[test]

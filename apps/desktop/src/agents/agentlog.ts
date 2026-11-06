@@ -35,23 +35,6 @@ function unfence(output: string) {
   return (m ? m[2] : output).replace(/\s+$/, "");
 }
 
-const PASTE = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
-
-/// A user message as HTML, with each block a terminal pasted in
-/// (`<pasted_content id="…">…</pasted_content id="…">`) folded into "Pasted
-/// text · 8 lines", opened on click.
-export function userHtml(text: string, esc: (s: string) => string, open: (i: number) => boolean = () => false) {
-  let html = "", last = 0, i = 0;
-  for (const m of text.matchAll(PASTE)) {
-    const body = m[2] ?? "";
-    html += esc(text.slice(last, m.index));
-    const lines = body.split("\n").length;
-    html += `<details class="paste" data-paste="${i}"${open(i++) ? " open" : ""}><summary>Pasted text · ${lines === 1 ? "1 line" : `${lines} lines`}</summary><pre>${esc(body)}</pre></details>`;
-    last = m.index + m[0].length;
-  }
-  return html + esc(text.slice(last));
-}
-
 const IMAGE_LINE = /^\[image: (.+)\]$/;
 
 /// An agent or tool entry's text without its image lines, which the node
