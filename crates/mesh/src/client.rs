@@ -208,20 +208,24 @@ impl PeerClient {
     }
 
     /// Sends one request and yields the replies until the node finishes the
-    /// stream. A broken stream yields its error once and then ends.
+    /// stream. A broken stream yields its error once, logged, and then ends.
     pub async fn follow<Q: Serialize, R: DeserializeOwned + Send + 'static>(
         &self,
         protocol: &str,
         request: &Q,
     ) -> Result<impl Stream<Item = Result<R, MeshError>> + use<Q, R>, MeshError> {
         let (tx, rx) = self.open_sending(protocol, request).await?;
+        let protocol = protocol.to_owned();
         // `tx` rides along: finishing our half would read as a cancel.
-        Ok(unfold(Some((tx, rx)), |state| async move {
-            let (tx, mut rx) = state?;
+        Ok(unfold(Some((tx, rx, protocol)), |state| async move {
+            let (tx, mut rx, protocol) = state?;
             match rx.recv::<R>().await {
-                Ok(Some(item)) => Some((Ok(item), Some((tx, rx)))),
+                Ok(Some(item)) => Some((Ok(item), Some((tx, rx, protocol)))),
                 Ok(None) => None,
-                Err(e) => Some((Err(MeshError::Link(e)), None)),
+                Err(e) => {
+                    tracing::warn!("a {protocol} stream broke: {e:#}");
+                    Some((Err(MeshError::Link(e)), None))
+                }
             }
         }))
     }
