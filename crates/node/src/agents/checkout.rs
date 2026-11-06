@@ -387,6 +387,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::files::paths;
 
     /// A temporary repository with one commit on `main`.
     pub(in crate::agents) fn repo(name: &str) -> (tempfile::TempDir, PathBuf) {
@@ -606,8 +607,8 @@ pub(super) mod tests {
         let found = make(&clone, &plan("login-copy"), "go").expect("the hand-made worktree");
         assert_eq!(found.start, Start::OwnWorktree);
         assert_eq!(
-            fs::canonicalize(&found.folder).expect("a folder"),
-            fs::canonicalize(&other).expect("a folder")
+            paths::canonicalize(&found.folder).expect("a folder"),
+            paths::canonicalize(&other).expect("a folder")
         );
         let error = make(&clone, &plan("nope"), "go").expect_err("no such branch");
         assert!(format!("{error:#}").contains("no branch nope"), "{error:#}");

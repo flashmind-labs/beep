@@ -291,6 +291,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::paths;
 
     /// A machine that joins a mesh before it ever ran has no folder: starting
     /// its state makes the folder and key a service launch needs.
@@ -300,7 +301,7 @@ mod tests {
         let dir = temp.path().join("not").join("yet");
         assert!(!dir.exists());
         let state = State::load_or_start(&dir, "box").unwrap();
-        assert!(dir.canonicalize().is_ok());
+        assert!(paths::canonicalize(&dir).is_ok());
         assert!(state.server.is_none());
         let again = State::load_or_start(&dir, "other name").unwrap();
         assert_eq!(again.key.public(), state.key.public());
