@@ -503,8 +503,10 @@ fn quit(app: &AppHandle) {
     // The router stops, and the sync and transfer services save their state,
     // while an update installs.
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    // What this Mac has open is noted for the next start.
+    let noting = app.state::<machines::this_mac::Machine>().quit();
     let stopping = tauri::async_runtime::spawn(async move {
-        tokio::join!(fleet.stop(), gh);
+        tokio::join!(noting, fleet.stop(), gh);
     });
     // However Beep quits, a downloaded update is installed for next time.
     // With none this returns at once.

@@ -81,6 +81,26 @@ pub(crate) async fn keep(dir: &Path, agents: &Agents) {
     }
 }
 
+/// For a host that embeds the node, as the Mac app: opens again what the
+/// node in `dir` had open when it last stopped, terminals now and sessions
+/// once the agent settings came (or `SETTINGS_WAIT` passed), then keeps the
+/// note to what is open. Moves stop waiting once the sessions are back.
+/// Until aborted.
+pub async fn reopen_and_keep(dir: &Path, agents: &Agents) {
+    let reopen = Reopen::read(dir);
+    terminal::reopen(dir, reopen.terminals).await;
+    agents.reopen(reopen.sessions).await;
+    keep(dir, agents).await;
+}
+
+/// For a host that embeds the node, as it quits, once `reopen_and_keep` is
+/// aborted: sessions that end from now on ended with it, and what is open
+/// is noted in `dir` for the next start.
+pub fn note_on_quit(dir: &Path, agents: &Agents) -> Result<()> {
+    agents.begin_stopping();
+    Reopen::now(agents).save(dir)
+}
+
 /// Answers updates asking the node to hold still, one at a time.
 pub(crate) async fn listen(dir: &Path, agents: Arc<Agents>) -> Result<()> {
     let mut listener = Listener::bind(&dir.join(SOCKET))?;
@@ -205,5 +225,28 @@ mod tests {
             .await
             .expect("the hold ends with the update's connection")
             .expect("the node is kept");
+    }
+
+    #[tokio::test]
+    async fn a_host_marks_sessions_reopened_and_notes_what_is_open() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let agents = Arc::new(Agents::new(Vec::new()));
+        let keeping = {
+            let (dir, agents) = (dir.path().to_path_buf(), agents.clone());
+            tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+                reopen_and_keep(&dir, &agents).await;
+            }))
+        };
+        // No note and no settings: moves stop waiting at once.
+        timeout(Duration::from_secs(20), agents.until_reopened())
+            .await
+            .expect("reopened without waiting for settings");
+        keeping.abort();
+        let _ = keeping.await;
+        std::fs::remove_file(dir.path().join(FILE)).ok();
+        note_on_quit(dir.path(), &agents).expect("the note is written");
+        let note = Reopen::read(dir.path());
+        assert!(dir.path().join(FILE).exists());
+        assert!(note.sessions.is_empty() && note.terminals.is_empty());
     }
 }

@@ -69,6 +69,9 @@ pub struct View {
 /// which closes the connection and every session with it.
 pub struct Machine {
     task: Mutex<Option<JoinHandle<()>>>,
+    /// Reopens what was open when the app last quit, then keeps the note of
+    /// what is open; `quit` stops it before the last word.
+    keeping: Mutex<Option<JoinHandle<()>>>,
     link: Arc<Mutex<Link>>,
     /// The computer name, read once.
     name: String,
@@ -96,9 +99,6 @@ impl Machine {
     pub fn new(dir: &Path, has_server: bool) -> Self {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone(), has_server);
-        // The app resumes no sessions after a restart: a move or a read of
-        // one need not wait for any.
-        offers.agents.nothing_to_reopen();
         offers.extra.push(Arc::new(desktop::Desktop));
         // The user's coding agent skills reach the mesh's other machines.
         if let Some(home) = std::env::var_os("HOME") {
@@ -113,6 +113,7 @@ impl Machine {
         async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
         Self {
             task: Mutex::default(),
+            keeping: Mutex::default(),
             link: Arc::default(),
             name: crate::beep::identity::computer_name(),
             home: Arc::new(NodeHome {
@@ -129,18 +130,46 @@ impl Machine {
     /// executable as the server's command (`mcp_command`), which pipes to
     /// the socket the node bound, named in the session's environment.
     pub fn start(&self) {
+        if let Err(e) = std::fs::create_dir_all(&self.home.dir) {
+            log::warn!("not serving the Beep MCP server or noting what is open: {e}");
+        }
+        self.reopen();
         let home = self.home.clone();
         async_runtime::spawn(async move {
             let _provision = home.provision.start();
-            if let Err(e) = std::fs::create_dir_all(&home.dir) {
-                log::warn!("not serving the Beep MCP server: {e}");
-            }
             let _mcp = mcp::start(&home.dir, &home.offers);
             // Terminal Claude Code sessions report their state here; the
             // MCP server stops when this task does, with the app.
             listen_hooks(&home.offers.agents, &home.dir).await;
             pending::<()>().await;
         });
+    }
+
+    /// Sessions and terminals open when the app last quit or crashed open
+    /// again, and the note of what is open is kept from then on.
+    fn reopen(&self) {
+        let home = self.home.clone();
+        *lock(&self.keeping) = Some(async_runtime::spawn(async move {
+            link::reopen_and_keep(&home.dir, &home.offers.agents).await;
+        }));
+    }
+
+    /// For the app quitting: stops keeping the note, then notes what is
+    /// open for the next start. Sessions that end from here on ended with
+    /// the app and stay in the note.
+    pub fn quit(&self) -> impl Future<Output = ()> + Send + 'static {
+        let keeping = lock(&self.keeping).take();
+        let home = self.home.clone();
+        async move {
+            if let Some(keeping) = keeping {
+                keeping.abort();
+                // Its write in flight lands before this one.
+                let _ = keeping.await;
+            }
+            if let Err(e) = link::note_on_quit(&home.dir, &home.offers.agents) {
+                log::warn!("what is open will not open again: {e:#}");
+            }
+        }
     }
 
     /// What this node serves.
@@ -215,8 +244,8 @@ pub fn allow(permission: Permission) {
     desktop::request(permission);
 }
 
-fn lock(link: &Mutex<Link>) -> MutexGuard<'_, Link> {
-    link.lock().unwrap_or_else(PoisonError::into_inner)
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Keeps the node link up, as `beep-node` does but never waiting long:
@@ -282,8 +311,27 @@ mod tests {
     }
 
     #[test]
-    fn a_mac_has_no_sessions_to_resume_that_moves_wait_for() {
+    fn a_mac_reopens_what_was_open_and_notes_it_on_quit() {
         let dir = std::env::temp_dir().join(format!("beep-this-mac-reopen-{}", std::process::id()));
-        assert!(Machine::new(&dir, false).offers().agents.reopened());
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the node's folder");
+        let machine = Machine::new(&dir, false);
+        machine.reopen();
+        // Nothing was open: moves stop waiting at once, settings or not.
+        let agents = machine.offers().agents;
+        async_runtime::block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                while !agents.reopened() {
+                    sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("reopened without waiting for settings");
+        });
+        let note = dir.join("reopen.json");
+        let _ = std::fs::remove_file(&note);
+        async_runtime::block_on(machine.quit());
+        assert!(note.exists(), "quitting notes what is open");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
