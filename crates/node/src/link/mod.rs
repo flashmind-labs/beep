@@ -12,6 +12,7 @@ pub(crate) mod note;
 pub(crate) mod peer_tools;
 pub mod peers;
 pub mod reconnect;
+mod report;
 pub(crate) mod restart;
 pub mod state;
 mod traffic;
