@@ -11,6 +11,13 @@ test("a tagged prompt splits into Beep's context, another session and the user",
   ]);
 });
 
+test("a child's note is a part of its own", () => {
+  const text = `<beep-child id="k1@box" name="Fix &lt;it&gt;" state="asking">\n[child k1@box is waiting on the user] Run it?\nOnly the user can answer this.\n</beep-child>`;
+  assert.deepEqual(promptParts(text), [
+    { kind: "child", id: "k1@box", name: "Fix <it>", state: "asking", text: "[child k1@box is waiting on the user] Run it?\nOnly the user can answer this." },
+  ]);
+});
+
 test("untagged text is the user's", () => {
   assert.deepEqual(promptParts("a <b> c <beep-contextual>"), [{ kind: "user", text: "a <b> c <beep-contextual>" }]);
 });

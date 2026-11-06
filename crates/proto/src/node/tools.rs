@@ -73,6 +73,10 @@ pub enum Tool {
     Review,
     /// A reviewer hands in its review. On the reviewer's own node only.
     SubmitReview,
+    /// A child's node tells the node of the session that started it that
+    /// the child finished a turn or waits on the user, for a note in the
+    /// parent's session. Between nodes only.
+    AgentNote,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,
