@@ -2,22 +2,34 @@
 //! machine: `gh` for GitHub, `teacli` for Forgejo and Gitea. Each is started
 //! as a program, with no shell between, so the same calls work on Windows.
 
-use crate::machine::provision::spawn_env::{self, Scope};
+use super::check::{self, Answer};
+use crate::{
+    lock,
+    machine::{
+        provision::spawn_env::{self, Scope},
+        tls,
+    },
+};
 use anyhow::{Context, Result, bail};
 use beep_projects::repo_watch::actions::{HostRun, RunsReply, state_of};
-use beep_proto::{RunState, WorkflowRun};
+use beep_proto::{GITHUB_ENV_VAR, RunState, SecretText, WorkflowRun};
 use futures::StreamExt;
+use reqwest::Client;
 use serde::Deserialize;
-use std::{future::Future, process::Stdio, time::Duration};
+use std::{future::Future, process::Stdio, sync::Mutex, time::Duration};
 use tokio::{
     io::AsyncRead,
     process::{Child, Command},
-    time::timeout,
+    time::{Instant, timeout},
 };
 use tokio_util::codec::{FramedRead, LinesCodec};
 
 /// How long a list or a read may take.
 const CALL_LIMIT: Duration = Duration::from_secs(30);
+/// How long a connection to GitHub may take to open.
+const CONNECT_LIMIT: Duration = Duration::from_secs(10);
+/// How long the token `gh` is signed in with is kept before it is read again.
+const GH_TOKEN_AGE: Duration = Duration::from_secs(10 * 60);
 /// How long one wait on a run may take; the run is listed again after.
 pub(super) const WAIT_LIMIT: Duration = Duration::from_secs(30 * 60);
 /// The runs a list reads, newest first.
@@ -69,12 +81,81 @@ pub(super) trait Forge: Send + Sync + 'static {
     /// Waits until run `id` ends; true when it passed. Dropping it stops the
     /// wait and the process behind it.
     fn wait(&self, at: &Target, id: u64) -> impl Future<Output = Result<bool>> + Send;
+    /// Asks a GitHub host whether the newest runs still match `etag`;
+    /// `None` for another host, or with no token to ask with.
+    fn check(
+        &self,
+        at: &Target,
+        etag: Option<&str>,
+    ) -> impl Future<Output = Result<Option<Answer>>> + Send;
 }
 
-/// The CLIs on this machine.
-pub(super) struct Cli;
+/// The CLIs on this machine, and an HTTPS client for GitHub's checks.
+pub(super) struct Cli {
+    /// `None` when it could not be built: no checks then.
+    client: Option<Client>,
+    /// The token `gh` is signed in with, as last read.
+    gh_token: Mutex<Option<GhToken>>,
+}
+
+struct GhToken {
+    read: Instant,
+    token: Option<SecretText>,
+}
 
 impl Cli {
+    pub(super) fn new() -> Self {
+        let client = tls::config().map_err(anyhow::Error::from).and_then(|tls| {
+            Ok(Client::builder()
+                .use_preconfigured_tls(tls)
+                .user_agent(concat!("beep-node/", env!("CARGO_PKG_VERSION")))
+                .connect_timeout(CONNECT_LIMIT)
+                .timeout(CALL_LIMIT)
+                .build()?)
+        });
+        let client = match client {
+            Ok(client) => Some(client),
+            Err(e) => {
+                // The lists still go on their own schedule.
+                log::warn!("CI watch: no HTTPS client, so no checks: {e:#}");
+                None
+            }
+        };
+        Self {
+            client,
+            gh_token: Mutex::new(None),
+        }
+    }
+
+    /// The GitHub token: the user's from the mesh, else the one `gh` is
+    /// signed in with, read again every `GH_TOKEN_AGE`.
+    async fn github_token(&self) -> Option<SecretText> {
+        if let Some(token) = spawn_env::secret(GITHUB_ENV_VAR) {
+            return Some(token);
+        }
+        if let Some(cached) = lock(&self.gh_token).as_ref()
+            && cached.read.elapsed() < GH_TOKEN_AGE
+        {
+            return cached.token.clone();
+        }
+        let args: Vec<String> = vec!["auth".into(), "token".into()];
+        let mut command = command("gh", &args);
+        command.stdout(Stdio::piped()).stderr(Stdio::null());
+        let token = match timeout(CALL_LIMIT, command.output()).await {
+            Ok(Ok(output)) if output.status.success() => {
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                (!text.is_empty()).then(|| SecretText::new(text))
+            }
+            // Not signed in, or no gh: no checks until it is read again.
+            _ => None,
+        };
+        *lock(&self.gh_token) = Some(GhToken {
+            read: Instant::now(),
+            token: token.clone(),
+        });
+        token
+    }
+
     /// The program and the arguments that read `path` of the host's API.
     fn api(at: &Target, path: &str) -> (&'static str, Vec<String>) {
         match &at.host {
@@ -165,6 +246,16 @@ impl Forge for Cli {
                 .context("teacli waited too long")?
             }
         }
+    }
+
+    async fn check(&self, at: &Target, etag: Option<&str>) -> Result<Option<Answer>> {
+        let (Host::GitHub, Some(client)) = (&at.host, &self.client) else {
+            return Ok(None);
+        };
+        let Some(token) = self.github_token().await else {
+            return Ok(None);
+        };
+        Ok(Some(check::ask(client, &token, &at.repo, etag).await?))
     }
 }
 

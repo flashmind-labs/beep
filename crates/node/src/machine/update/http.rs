@@ -1,9 +1,9 @@
 //! Downloads from the release folder.
 
 use super::Error;
+use crate::machine::tls;
 use reqwest::{Client, Url};
-use rustls::{ClientConfig, RootCertStore};
-use std::{env, sync::Arc, time::Duration};
+use std::{env, time::Duration};
 
 /// Where releases are published; `BEEP_NODE_BASE` replaces it, as for the
 /// installers.
@@ -27,15 +27,7 @@ pub(super) fn url(base: &str, path: &str) -> Result<Url, Error> {
 
 /// An HTTPS client with the same TLS setup iroh uses: ring, webpki roots.
 pub(super) fn client() -> Result<Client, Error> {
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let roots = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-    let tls = ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .map_err(Error::Tls)?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let tls = tls::config().map_err(Error::Tls)?;
     Client::builder()
         .use_preconfigured_tls(tls)
         .user_agent(concat!("beep-node/", env!("CARGO_PKG_VERSION")))
