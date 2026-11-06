@@ -70,7 +70,7 @@ export function filesView() {
   F.el?.remove();
   clearInterval(F.timer);
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, reveal: null,
+    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, reveal: null, drawn: "",
     timer: setInterval(() => { if (filesShown()) refresh(); }, REFRESH_MS),
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
@@ -95,9 +95,10 @@ export function closeFilesMenu() {
 /// and what git ignores stay as they are, the open file tabs are not touched.
 export function pointFilesAt() {
   const s = paneSession();
-  if (!F.el || !s) return;
+  const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
+  if (!F.el || !s || key === F.key) return;
   Object.assign(F, {
-    key: `${s.machine_id}\n${paneRoot()}`, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, reveal: null,
+    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, reveal: null,
   });
   const meta = F.el.querySelector(".agpacts .meta");
   if (meta) { meta.textContent = paneRoot(); meta.setAttribute("title", paneRoot()); }
@@ -218,6 +219,8 @@ function draw() {
   let html = rows.map(rowHtml).join("");
   // A failed refresh does not blank a tree that is shown.
   if (top?.error && !top.entries) html = `<div class="agpmsg derr">${esc(top.error)}</div>`;
+  // Pointed at another folder: the rows shown stay until its first read lands.
+  else if (!top?.entries && F.reading.has("") && tree.firstChild && !F.drawn.startsWith('<div class="agpmsg')) return;
   else if (!top?.entries) html = `<div class="agpmsg"><span class="dspin"></span>Reading the folder…</div>`;
   else if (!rows.length && F.walking && F.filter.trim()) html = `<div class="agpmsg"><span class="dspin"></span>Reading folders…</div>`;
   else if (!rows.length && !F.capped) html = `<div class="agpmsg">${F.filter ? "No files match." : "This folder is empty."}</div>`;
