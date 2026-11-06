@@ -136,8 +136,13 @@ function imageView(t: MediaTab) {
   };
   img.src = t.url!;
   new ResizeObserver(() => { if (t.image?.view.fit) fit(); }).observe(stage);
+  // The picture holds its own GPU layer only while it moves.
+  let still: ReturnType<typeof setTimeout> | undefined;
   const zoom = (factor: number, cx: number, cy: number) => {
     if (!t.image) return;
+    stage.classList.add("zooming");
+    clearTimeout(still);
+    still = setTimeout(() => stage.classList.remove("zooming"), 300);
     const r = stage.getBoundingClientRect();
     t.image.view = zoomAt(t.image.view, factor, cx - r.left, cy - r.top);
     apply();

@@ -79,7 +79,7 @@ pub async fn linked_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec
 /// The sessions started outside Beep that run now, from scanning what each
 /// agent keeps on the node. A scan takes seconds.
 pub async fn outside_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
-    join_all(EXTERNAL_AGENTS.map(|agent| outside(node, agent)))
+    join_all(EXTERNAL_AGENTS.map(|agent| outside(node, host, agent)))
         .await
         .into_iter()
         .flatten()
@@ -88,8 +88,9 @@ pub async fn outside_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Ve
         .collect()
 }
 
-/// The sessions of `agent` started outside Beep; none when the node cannot list them.
-async fn outside<S: Sessions + ?Sized>(node: &S, agent: &str) -> Vec<ExternalSession> {
+/// The sessions of `agent` started outside Beep; none, with a line in the
+/// log, when the node cannot list them in time.
+async fn outside<S: Sessions + ?Sized>(node: &S, host: &Host, agent: &str) -> Vec<ExternalSession> {
     match timeout(
         NODE_LIMIT,
         sessions::external(node, agent, EXTERNAL_LIMIT, None),
@@ -97,7 +98,20 @@ async fn outside<S: Sessions + ?Sized>(node: &S, agent: &str) -> Vec<ExternalSes
     .await
     {
         Ok(Ok(sessions)) => sessions,
-        _ => Vec::new(),
+        Ok(Err(e)) => {
+            tracing::debug!(
+                "{agent} sessions outside Beep not listed; node={} error={e:#}",
+                host.id
+            );
+            Vec::new()
+        }
+        Err(_) => {
+            tracing::debug!(
+                "{agent} sessions outside Beep not listed in time; node={}",
+                host.id
+            );
+            Vec::new()
+        }
     }
 }
 

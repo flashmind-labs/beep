@@ -83,6 +83,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             | Tool::StopAgent
             | Tool::AgentParent
             | Tool::AgentCount
+            | Tool::AgentNote
     ) {
         return agent_call(request, &caller).await;
     }

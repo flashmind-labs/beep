@@ -307,6 +307,31 @@ async fn closing_a_parent_closes_its_children_and_theirs() {
 }
 
 #[tokio::test]
+async fn a_parent_is_told_once_each_time_its_child_finishes() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    // The idle parent takes the note as a prompt, which runs a turn.
+    until(&parent, |live| live.info.turns == 2).await;
+    let id = Agents::name_of(&child);
+    let told = format!("[child {id} finished]");
+    let notes = |log: &str| log.matches("<beep-child ").count();
+    let log = rig.read("top.log");
+    assert_eq!(notes(&log), 1, "{log}");
+    assert!(log.contains(&told), "{log}");
+    assert!(log.contains("state=\\\"finished\\\""), "{log}");
+    // The next turn of the child is the next note, and the first is not
+    // sent again.
+    child
+        .order(Command::Prompt("more".to_owned().into()))
+        .await
+        .expect("the child takes a prompt");
+    until(&parent, |live| live.info.turns == 3).await;
+    assert_eq!(notes(&rig.read("top.log")), 2);
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_parent_that_ends_with_the_node_leaves_its_children_to_resume() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;

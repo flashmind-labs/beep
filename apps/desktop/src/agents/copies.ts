@@ -6,6 +6,7 @@
 import { type CopyRow, copyKey, copyLists, discardLabel, lostLine, offlineLine } from "./copy-state.ts";
 import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
+import { pageShown } from "../ui/active.ts";
 
 const CP = { rows: [] as CopyRow[], error: "", armed: "" };
 const listeners = new Set<() => void>();
@@ -26,7 +27,7 @@ let timer: ReturnType<typeof setInterval> | undefined;
 /// offers Continue without a reload. Started once, when the list first opens.
 export function keepCopiesFresh(isOpen: () => boolean) {
   showing = isOpen;
-  timer ??= setInterval(() => { if (showing() && document.visibilityState === "visible") void loadCopies(); }, 10_000);
+  timer ??= setInterval(() => { if (showing() && pageShown()) void loadCopies(); }, 10_000);
 }
 
 /// Reads the copies the node keeps.

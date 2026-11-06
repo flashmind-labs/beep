@@ -67,7 +67,7 @@ export type CredCheck =
 type CredEdit =
   | { kind: "github"; id?: string }
   | { kind: "forgejo"; id?: string; url?: string }
-  | { kind: "api_key"; provider: string; toMachines: boolean };
+  | { kind: "api_key"; provider: string };
 
 /// What `save_credential` takes (NewCredential).
 type NewCredential =
@@ -90,9 +90,6 @@ export interface CredState {
   ghAdd?: boolean;
   /// Checks of Forgejo tokens the server could not check when saved, by id.
   checks?: Record<string, CredCheck>;
-  /// Whether there is a server. Without one a key always goes to the machines, so the choice of
-  /// keeping it only on the server is not offered.
-  server?: boolean;
 }
 
 /// A machine as far as the tools it reports.
@@ -109,7 +106,7 @@ function hostOf(url: string | null | undefined) {
 type Draft = { error: string; credential?: undefined } | { credential: NewCredential; error?: undefined };
 
 /// What Save sends for the row being edited, or an error to show.
-export function draft(edit: CredEdit | null | undefined, url: string | undefined, secret: string | undefined, toMachines?: boolean): Draft {
+export function draft(edit: CredEdit | null | undefined, url: string | undefined, secret: string | undefined): Draft {
   secret = String(secret || "").trim();
   if (!edit) return { error: "Nothing to save." };
   if (!secret) return { error: "Paste the token first." };
@@ -119,7 +116,7 @@ export function draft(edit: CredEdit | null | undefined, url: string | undefined
     return { credential: { kind: "forgejo", url: u, secret, to_machines: true } };
   }
   if (edit.kind === "github") return { credential: { kind: "github", secret, to_machines: true } };
-  return { credential: { kind: "api_key", provider: edit.provider, secret, to_machines: !!toMachines } };
+  return { credential: { kind: "api_key", provider: edit.provider, secret, to_machines: true } };
 }
 
 /// GitHub's page for a new token with what gh and Beep need.
@@ -185,9 +182,7 @@ function form(state: CredState, esc: Esc, { title, noteHtml, env, url }: FormTex
   const urlField = e.kind === "forgejo" && !e.id
     ? `<input id="credUrl" class="url" type="url" placeholder="https://git.example.com" autocomplete="off" spellcheck="false" value="${esc(e.url ?? "")}" aria-label="Server URL">`
     : "";
-  const check = e.kind === "api_key" && env && state.server
-    ? `<label class="dline dfine"><input type="checkbox" id="credMachines"${e.toMachines !== false ? " checked" : ""}> Give it to my machines as ${esc(env)}</label>`
-    : "";
+  const check = e.kind === "api_key" && env ? `<div class="dline dfine">Your machines get it as ${esc(env)}</div>` : "";
   const label = e.kind === "api_key" && e.provider !== "openrouter" ? "Save" : "Check and save";
   return `<div class="dcred-form">
     <div class="dline"><b>${esc(title)}</b>${url ? `<span class="dfine">${esc(url)}</span>` : ""}</div>
@@ -518,7 +513,7 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
     + (addingForgejo ? "" : addButton(`data-cred-edit="forgejo"`, "+ Add a Forgejo server"));
   if (adds) html += `<div class="dline tight wrap dmt6">${adds}</div>`;
   html += head("API keys", 14);
-  html += `<div class="dlead">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and, when you choose, gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
+  html += `<div class="dlead">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
   for (const p of state.providers ?? []) {
     const cred = list.find(c => c.kind === "api_key" && c.provider === p.slug);
     html += e?.kind === "api_key" && e.provider === p.slug
@@ -539,9 +534,7 @@ export function editFor(key: string, list: Credential[] | null | undefined): Cre
     return c ? { kind: "forgejo", id, url: c.kind === "forgejo" ? c.url : undefined } : { kind: "forgejo" };
   }
   if (key.startsWith("api:")) {
-    const provider = key.slice(4);
-    const c = (list ?? []).find(x => x.kind === "api_key" && x.provider === provider);
-    return { kind: "api_key", provider, toMachines: c ? c.to_machines : true };
+    return { kind: "api_key", provider: key.slice(4) };
   }
   return null;
 }
