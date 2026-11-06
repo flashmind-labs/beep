@@ -371,6 +371,8 @@ in place and restarts the service. There is no Intel Mac build.
 `beep-node update` does the same from the node itself: it checks
 `latest.txt`, verifies the archive against `SHA256SUMS`, swaps its own binary
 and restarts the service `setup` installed (`--check` only reports).
+The release also pushes the `beep-node-slim` image from the same musl binaries
+(target `node-image`, `deploy/node-entrypoint.sh`; README, beep-node in Docker).
 
 `beep-node status` (`s`, `st`) asks the running node over its control socket
 (`mesh.sock`, `status` answers a `LocalStatus` in compact msgpack): version and
