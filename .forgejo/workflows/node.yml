@@ -71,7 +71,10 @@ jobs:
           set -euo pipefail
           IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-node'
           for arch in amd64 arm64; do
+            # One plain manifest per arch: no attestations, which would make
+            # each a list that docker manifest create refuses.
             docker build --platform "linux/$arch" --target node-image \
+              --provenance=false --sbom=false \
               --build-context "node-dist=$RUNNER_TEMP/node-bin" \
               -t "$IMAGE:$VERSION-$arch" .
             docker push "$IMAGE:$VERSION-$arch"
