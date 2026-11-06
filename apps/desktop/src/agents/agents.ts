@@ -424,8 +424,10 @@ export function drawAgents(loading: boolean) {
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
     ${AG.error ? `<div class="derr dpadx">${esc(AG.error)}</div>` : ""}
+    <div class="dagscroll">
     ${list.length ? `<div class="dlist top" role="listbox">${shown.map(sessionRow).join("")}</div>` : ""}
     ${copies}
+    </div>
     ${list.length || copies || loading ? "" : emptyPage(AGENT_ICON, "No sessions running.", "Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.")}
     ${hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`;
   bar.onclick = e => {

@@ -72,13 +72,15 @@ export interface MoveRow {
 
 /// The steps above the composer: the conversation, the project files, the
 /// resume, each done, running or still to come.
-export function moveRows(p: MoveProgress, from: string, to: string): MoveRow[] {
+export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true): MoveRow[] {
   const resume = `Resuming on ${to}`;
   const left = p.files_left > 0 ? ` ${p.files_left} left` : "";
   switch (p.phase) {
     case "waiting":
       return [
-        { state: "run", text: p.source_away ? `Waiting for ${from}` : "Waiting for the turn to end" },
+        // The caller shows a working turn on its own, so here the turn is
+        // over and the target has not taken the session yet.
+        { state: "run", text: p.source_away ? `Waiting for ${from}` : toOnline ? `Waiting for ${to}` : `${to} is offline; the move goes on when it is back` },
         { state: "todo", text: "Conversation" },
         { state: "todo", text: "Project files" },
         { state: "todo", text: resume },

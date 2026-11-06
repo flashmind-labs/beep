@@ -1257,6 +1257,11 @@ button.dachip:hover { border-color: var(--border-hi) }
 .mvs .r.todo .mk::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--dim) }
 .mvs .mk .dspin { width: 11px; height: 11px }
 .mvs.bar { display: flex; align-items: center; gap: 8px }
+/* The sessions and the copies scroll as one: two .dlist scrollers side by side
+   would split the height and squeeze the sessions to a row or two. */
+.dagscroll { flex: 1 1 auto; min-height: 0; overflow: auto; scrollbar-width: none; display: flex; flex-direction: column }
+.dagscroll::-webkit-scrollbar { display: none }
+.dagscroll > .dlist { flex: none; overflow: visible }
 .dcopies { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border) }
 .dchat.copy { cursor: default }
 .dchat.copy .t small { color: var(--muted) }
