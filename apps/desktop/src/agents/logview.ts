@@ -10,6 +10,7 @@ import { collectArtifacts, toolArtifacts } from "../agentpane/artifacts-state.ts
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
+import { fillLog, type Unit } from "./logwindow.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
@@ -218,6 +219,8 @@ function entryPic(n: string) {
 /// The thought still arriving, by its place, which shows "Thinking"; set
 /// by each draw of the turns.
 let liveAt: number | null = null;
+/// The thought that streamed at the draw before, which folds as it ends.
+let wasLive: number | null = null;
 /// The running turn thinks: a thought streams or is about to.
 export let thinking = false;
 
@@ -228,7 +231,7 @@ function thoughtRow(en: AgentEntry, at: number) {
   const live = at === liveAt, session = AG.open?.session ?? "";
   const m = AG.open ? turnsOf(AG.open.session) : null;
   const touched = !!m?.touched.has(at), opened = !!m?.thoughts.has(at);
-  const folding = !live && !touched && m?.wasLive === at;
+  const folding = !live && !touched && wasLive === at;
   const open = live ? !touched || opened : opened || folding;
   return thoughtHtml({ key: `${session}:${at}`, text: en.text, html: en.html, ms: en.ms, live, open, folding, row: at });
 }
@@ -344,8 +347,9 @@ function runRow(p: AgentPage, ats: number[]) {
 }
 
 /// The log in turns: each message, then a heading with how long the agent
-/// worked, then its work and its answer.
-function turnsHtml(p: AgentPage): string[] {
+/// worked, then its work and its answer. A turn's rows are worked out only
+/// when it is drawn (logwindow.ts).
+function turnUnits(p: AgentPage): Unit[] {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
   newestStep = null;
   thinking = false;
@@ -355,13 +359,17 @@ function turnsHtml(p: AgentPage): string[] {
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
+  wasLive = m.wasLive;
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  const html = turns.flatMap(t => {
+  m.wasLive = liveAt;
+  return turns.map(t => ({ key: `t${t.key}`, rows: turnRows(t) }));
+
+  function turnRows(t: Turn): () => string[] {
     // Notes before the first message are not a turn of work.
-    if (onlyNotes(p.entries, t, p.earlier)) return t.steps.map(row);
+    if (onlyNotes(p.entries, t, p.earlier)) return () => t.steps.map(row);
     const last = t === lastTurn, running = active && last;
-    const user = t.user == null ? "" : row(t.user);
-    if (!running && !t.steps.length && !t.answer.length) return [user];
+    const user = () => t.user == null ? "" : row(t.user);
+    if (!running && !t.steps.length && !t.answer.length) return () => [user()].filter(Boolean);
     const { start, end } = span({
       first: p.earlier === 0 && t.key === 0, last, running,
       seenStart: m.starts.get(t.key), seenEnd: m.ends.get(t.key),
@@ -370,45 +378,45 @@ function turnsHtml(p: AgentPage): string[] {
     if (start != null) turnStarts.set(t.key, start);
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
-    const opened = m.opened.has(t.key);
-    let work: string[], stats = turnStats(p.entries, t, p.earlier);
     // The newest step of a running turn, shown as it goes.
     const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
     if (newest != null) newestStep = newest;
-    if (opened) work = rowsOf(p, t.steps);
-    else {
-      const kept = new Set(keptSteps(p.entries, t, p.earlier, openedSteps()));
-      if (newest != null) kept.add(newest);
-      // While it runs, the thoughts since the newest step stay in view.
-      if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
-      // So do the thoughts just before it: one that ended folds to its
-      // line in place instead of going into the heading.
-      if (running && newest != null) {
-        for (let i = t.steps.indexOf(newest) - 1; i >= 0 && entry(t.steps[i]).kind === "thought"; i--) kept.add(t.steps[i]);
-      }
-      keptThoughts(p.entries, t, kept, p.earlier);
-      const folding = t.steps.filter(at => !kept.has(at));
-      // Pictures the folded steps looked at show small under the line.
-      const seen = folding.flatMap(at => entry(at).kind === "tool" && AG.log ? AG.log.imageLines(entry(at).text).names : []);
-      // The heading is the fold: what the folded steps did, on its line.
-      if (folding.some(at => entry(at).kind === "tool")) stats = summary(p.entries, t, p.earlier, folding);
-      const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
-      work = [pics, ...rowsOf(p, t.steps.filter(at => kept.has(at)))];
-    }
-    const head = turnHeadHtml({ state, start, ms, stats, key: t.steps.length ? t.key : null, opened });
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
     const doing = s.doing?.split("\n")[0].trim() ?? "";
     if (running) thinking = liveAt != null || doing === "Thinking";
-    const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
-    const live = running ? liveLineHtml({
-      state, thinking: thinking, start,
-      doing: state === "working" && doing !== "Thinking" && doing !== shownTitle && liveAt == null ? doing : "",
-    }) : "";
-    return [user, head, ...work, ...t.answer.map(row), live];
-  });
-  m.wasLive = liveAt;
-  return html.filter(Boolean);
+    return () => {
+      const opened = m.opened.has(t.key);
+      let work: string[], stats = turnStats(p.entries, t, p.earlier);
+      if (opened) work = rowsOf(p, t.steps);
+      else {
+        const kept = new Set(keptSteps(p.entries, t, p.earlier, openedSteps()));
+        if (newest != null) kept.add(newest);
+        // While it runs, the thoughts since the newest step stay in view.
+        if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
+        // So do the thoughts just before it: one that ended folds to its
+        // line in place instead of going into the heading.
+        if (running && newest != null) {
+          for (let i = t.steps.indexOf(newest) - 1; i >= 0 && entry(t.steps[i]).kind === "thought"; i--) kept.add(t.steps[i]);
+        }
+        keptThoughts(p.entries, t, kept, p.earlier);
+        const folding = t.steps.filter(at => !kept.has(at));
+        // Pictures the folded steps looked at show small under the line.
+        const seen = folding.flatMap(at => entry(at).kind === "tool" && AG.log ? AG.log.imageLines(entry(at).text).names : []);
+        // The heading is the fold: what the folded steps did, on its line.
+        if (folding.some(at => entry(at).kind === "tool")) stats = summary(p.entries, t, p.earlier, folding);
+        const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
+        work = [pics, ...rowsOf(p, t.steps.filter(at => kept.has(at)))];
+      }
+      const head = turnHeadHtml({ state, start, ms, stats, key: t.steps.length ? t.key : null, opened });
+      const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
+      const live = running ? liveLineHtml({
+        state, thinking: thinking, start,
+        doing: state === "working" && doing !== "Thinking" && doing !== shownTitle && liveAt == null ? doing : "",
+      }) : "";
+      return [user(), head, ...work, ...t.answer.map(row), live].filter(Boolean);
+    };
+  }
 }
 
 /// The question's answers; the first that allows and the first that does
@@ -490,9 +498,10 @@ export function drawAgentBody(keep?: string, polled = false) {
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
-  // The log's turns go in as chunks, so one that did not change is not parsed again.
-  const chunks = child != null ? [childHtml(p, child)] : p.entries.length && AG.log ? [upCrumb(p), earlier, ...turnsHtml(p)] : null;
-  const entries = chunks ? '<div class="dcoderlog"></div>'
+  // The log goes in by turns, and only those near the view are drawn.
+  const units = child != null ? [fixed("child", childHtml(p, child))]
+    : p.entries.length && AG.log ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
+  const entries = units ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
   const err = p.error ? (s.external ? `<div class="derr">${esc(p.error)}</div>` : errorCardHtml(p.error)) : "";
@@ -501,13 +510,11 @@ export function drawAgentBody(keep?: string, polled = false) {
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? paneSubs(p) : { html: "", count: 0 };
-  if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, chunks, polled)) { AG.rest = ""; return; }
+  if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, units, polled)) { AG.rest = ""; return; }
   // The pane follows the agent, or the subagent opened, into a worktree.
   followAgent(p.entries, p.earlier, child != null ? subOf(child).sub.steps.map(st => st.title) : null);
   const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
   drawPane(subs, arts);
-  fillAgentPics(b);
-  attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
   drawModelPill();
   drawModes();
   drawTasks();
@@ -532,13 +539,29 @@ export function drawAgentBody(keep?: string, polled = false) {
   // A row opened at the bottom pushes the bottom away: the log follows
   // new entries again once the reader scrolls back down.
   if (keep != null) b.stuck = atBottom(b);
+  fillLog(b, scroll === "bottom");
+  drawnRows(b);
   syncJump(b);
+}
+
+/// A part of the log that is not a turn, as one; an empty one is hidden.
+const fixed = (key: string, html: string): Unit => ({ key, rows: () => html ? [html] : [] });
+
+/// What rows just drawn need: their pictures and their live thoughts.
+function drawnRows(b: HTMLElement) {
+  fillAgentPics(b);
+  attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
+}
+
+/// The log scrolled: the turns it reaches are drawn. At the bottom it stays there.
+export function scrolledLog(b: ChatBody) {
+  if (fillLog(b, b.stuck !== false)) drawnRows(b);
 }
 
 /// Puts the log's html in the page, replacing only the rows that changed.
 /// A poll leaves a row the reader is selecting in place until it is
 /// unselected: false then, with that row as it was.
-function showLog(b: HTMLElement, html: string, chunks: string[] | null, polled: boolean) {
+function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boolean) {
   let main = b.querySelector<HTMLElement>(":scope > .dagmain");
   if (!main || !patchable(main)) {
     b.innerHTML = `<div class="dagmain"></div><button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
@@ -552,7 +575,7 @@ function showLog(b: HTMLElement, html: string, chunks: string[] | null, polled: 
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
-  return patchRows(main, next.content, chunks, held);
+  return patchRows(main, next.content, units, held);
 }
 
 const DOWN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
@@ -568,6 +591,8 @@ export function jumpToLatest() {
   const b = $<ChatBody>("#agbody");
   if (!b) return;
   b.stuck = true;
-  b.scrollTo({ top: b.scrollHeight, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  // From far up it goes at once: a glide would end short of turns measured on the way.
+  const far = b.scrollHeight - b.scrollTop - b.clientHeight > b.clientHeight;
+  b.scrollTo({ top: b.scrollHeight, behavior: far || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   syncJump(b);
 }
