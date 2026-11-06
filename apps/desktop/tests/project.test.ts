@@ -13,10 +13,14 @@ test("new chat starts in the project on screen or of the shown session, else gen
   // The project's page: this machine when it has a checkout, else the first.
   assert.deepEqual(to({ shown: "projects", picked: "acme/widget", mac: "mac" }), { project: "acme/widget", machine: "mac" });
   assert.deepEqual(to({ shown: "projects", picked: "acme/widget", mac: "laptop" }), { project: "acme/widget", machine: "box" });
-  // A session of a project, in a worktree under its folder: this machine first, else the session's.
+  // A session of a project, in a worktree under its folder: on the session's machine.
   const agent = { machine_id: "box", cwd: "/srv/widget/.worktrees/fix" };
-  assert.deepEqual(to({ shown: "pane", view: "agent", agent, mac: "mac" }), { project: "acme/widget", machine: "mac" });
+  assert.deepEqual(to({ shown: "pane", view: "agent", agent, mac: "mac" }), { project: "acme/widget", machine: "box" });
   assert.deepEqual(to({ shown: "pane", view: "agent", agent, mac: "laptop" }), { project: "acme/widget", machine: "box" });
+  // A moved session's folder ends in a slash; a worktree outside the folder names its main checkout.
+  assert.deepEqual(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget/" } }), { project: "acme/widget", machine: "mac" });
+  assert.deepEqual(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget-fix", main: "/w/widget" } }), { project: "acme/widget", machine: "mac" });
+  assert.equal(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget-fix" } }), null);
   assert.deepEqual(to({ shown: "pane", view: "chat", session: "c1" }), { project: "acme/widget", machine: "box" });
   // A session outside every project, a general chat, other pages and Home.
   assert.equal(to({ shown: "pane", view: "agent", agent: { machine_id: "box", cwd: "/tmp/x" } }), null);

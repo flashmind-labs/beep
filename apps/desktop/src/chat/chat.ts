@@ -7,7 +7,8 @@ import { type Chart, chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
 import { coderCard } from "./codercard.ts";
 import { composeField } from "./compose.ts";
-import { $, $$, bar, changed, entry, here, live, newId, queued, S, stopping } from "../bar/core.ts";
+import { $, $$, bar, changed, entry, here, live, newId, PANE, queued, S, stopping } from "../bar/core.ts";
+import { renderAgentNew } from "../agents/agentnew.ts";
 import { AnsweredIds } from "./approvals.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";
 import type { LiveEntry, PendingApproval } from "../bar/core.ts";
@@ -99,6 +100,8 @@ interface PromptMap extends HTMLElement {
 }
 
 export function renderChat() {
+  // The chat needs the server: without it every way here lands on the agent's start form.
+  if (S.link !== "linked") return renderAgentNew("", PANE ? "agents" : "chat");
   S.view = "chat";
   bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
     <div class="dbody" id="body"></div>${chatHints()}`;

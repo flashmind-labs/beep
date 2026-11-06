@@ -105,9 +105,16 @@ export function repoOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: re
   return remotePath(p.url) ?? p.name.split("/").pop();
 }
 
-/// The project whose folder holds a session: the deepest one.
-export function projectOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: readonly ProjectFolder[] = []) {
-  const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && (r.cwd === p.folder || r.cwd?.startsWith(p.folder + "/"));
+/// `path` without trailing slashes: a moved session's folder can end in one.
+const trimSlash = (path: string) => path.replace(/(.)\/+$/, "$1");
+
+/// The project whose folder holds a session: the deepest one. `main` is the
+/// repository's main checkout when the session works in a linked worktree,
+/// which may be outside the project's folder.
+export function projectOf(r: Pick<RunningAgent, "machine_id" | "cwd"> & { main?: string | null }, projects: readonly ProjectFolder[] = []) {
+  const paths = [r.cwd, r.main].filter((p): p is string => !!p).map(trimSlash);
+  const holds = (folder: string) => paths.some(p => p === folder || p.startsWith(folder + "/"));
+  const inside = (p: ProjectFolder) => p.machine_id === r.machine_id && holds(trimSlash(p.folder));
   return projects.filter(inside).sort((a, b) => b.folder.length - a.folder.length)[0];
 }
 
