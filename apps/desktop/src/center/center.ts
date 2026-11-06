@@ -36,6 +36,7 @@ import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
 import { openReport } from "../report/report.ts";
+import { toggleShortcuts } from "../ui/shortcutsheet.ts";
 import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
 import type { MacControl } from "../machines/machine-state.ts";
@@ -100,6 +101,7 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     if (key === "k") return openPalette();
     if (key === ",") return openSettings();
+    if (key === "/") return toggleShortcuts();
     // ⌘R opens the window's Research page, not the bar's list.
     if (key === "r") return go("research");
     const to = PANE_KEYS[key];
@@ -150,6 +152,10 @@ pane.connect({
   openProviders() {
     closeSettings();
     go("providers");
+  },
+  openShortcuts() {
+    closeSettings();
+    toggleShortcuts();
   },
   openReport() {
     closeSettings();

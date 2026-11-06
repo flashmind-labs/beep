@@ -19,6 +19,7 @@ import { signInWay } from "./subscription.ts";
 import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { toggleShortcuts } from "../ui/shortcutsheet.ts";
 
 /// What a new notice does while you are at this Mac (NoticeVoice).
 type NoticeVoice = "ask" | "aloud" | "off";
@@ -266,6 +267,7 @@ function bindSettings(el: Element) {
   // Instructions is a view of the window: the sheet closes onto it, and
   // the bar hands it over.
   $in("#openInstr")?.addEventListener("click", () => (windowHooks ? windowHooks.openInstructions() : toWindow("instructions")));
+  $in("#openShortcuts")?.addEventListener("click", () => (windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()));
   $in("#openReport")?.addEventListener("click", () => (windowHooks ? windowHooks.openReport() : toWindow("report")));
   $in("#openProviders")?.addEventListener("click", () => (windowHooks ? windowHooks.openProviders() : toWindow("providers")));
   each("data-remove", b => b.addEventListener("click", () => {
@@ -413,6 +415,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>
       ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}
+      <div class="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><button class="dbtn" id="openShortcuts">Show…</button></div>
       <div class="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><button class="dbtn" id="openReport">Report…</button></div></section>`]];
   out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];

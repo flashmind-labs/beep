@@ -33,16 +33,6 @@ export function keyHidden(key: string, subscribed: boolean) {
   return !subscribed && ASSISTANT_KEYS.includes(key);
 }
 
-/// The shortcut sheet's sections for a bar that is `linked` or not. Without a subscription there are
-/// no chats, live mode or assistant pages, so only the general keys and lists stay.
-export function shortcutSheet(sections: [string, readonly (readonly string[])[]][], linked: boolean): [string, readonly (readonly string[])[]][] {
-  if (linked) return sections;
-  return sections
-    .filter(([title]) => title === "Anywhere" || title === "In a list" || title === "In an agent or research")
-    .map(([title, rows]): [string, readonly (readonly string[])[]] => [title, title !== "Anywhere" ? rows : rows
-      .filter(([k]) => !(k.length === 2 && k[0] === "⌘" && keyHidden(k[1].toLowerCase(), linked)))]);
-}
-
 /// Pane pages that are the assistant's.
 const ASSISTANT_PAGES = ["chats", "memories", "routines", "rnew", "grants", "skills", "apps", "mcp", "appperms", "research", "model", "group", "ginfo", "gnew", "invite"];
 

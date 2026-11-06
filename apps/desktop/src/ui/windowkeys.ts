@@ -2,7 +2,7 @@
 // bar's views, inside the window) has focus: the palette, Settings and the
 // window's own pages.
 
-const WINDOW_KEYS = new Set(["k", ",", "m", "j", "l", "r"]);
+const WINDOW_KEYS = new Set(["k", ",", "/", "m", "j", "l", "r"]);
 
 /// Whether the window takes ⌘`key` while its pane shows `paneView`, rather
 /// than the pane: not ⌘M on the start form, which picks the model there,

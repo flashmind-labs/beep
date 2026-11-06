@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepViews, firstRunDue, groupShown, keyHidden, shortcutSheet, signInWay, viewHidden } from "../src/settings/subscription.ts";
+import { beepViews, firstRunDue, groupShown, keyHidden, signInWay, viewHidden } from "../src/settings/subscription.ts";
 
 test("no_server_hides_assistant_pages", () => {
   for (const name of ["chats", "research"]) {
@@ -52,17 +52,4 @@ test("the first-run window shows once, with no subscription", () => {
   assert.equal(firstRunDue(false, null), true);
   assert.equal(firstRunDue(false, "1"), false);
   assert.equal(firstRunDue(true, null), false);
-});
-
-test("the shortcut sheet drops dead keys without a subscription", () => {
-  const sheet: [string, string[][]][] = [
-    ["Anywhere", [["⌘N", "New agent"], ["⌘K", "Chats"], ["⌘M", "Memories"], ["⌘,", "Settings"], ["⌥ ⌥", "Open"]]],
-    ["Talking", [["tap ⌥", "Live"]]],
-    ["In a list", [["⌘R", "Rename"]]],
-  ];
-  assert.deepEqual(shortcutSheet(sheet, true), sheet);
-  assert.deepEqual(shortcutSheet(sheet, false), [
-    ["Anywhere", [["⌘N", "New agent"], ["⌘,", "Settings"], ["⌥ ⌥", "Open"]]],
-    ["In a list", [["⌘R", "Rename"]]],
-  ]);
 });
