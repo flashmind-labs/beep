@@ -6,6 +6,7 @@ import { paneShown } from "../ui/active.ts";
 import { h } from "../ui/dom.ts";
 import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
+import { AGENT_READ_WAIT_MS } from "../agents/agents.ts";
 import { readError } from "./read.ts";
 
 interface ProcessesView { processes: RunningProcess[]; local: boolean }
@@ -41,7 +42,7 @@ export async function readRunning() {
   const s = paneSession(), asked = key, count = list.length;
   if (!s || s.external || !visible()) return;
   try {
-    const view = await invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id });
+    const view = await invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS);
     syncSession();
     if (key !== asked || !visible()) return;
     list = view.processes;

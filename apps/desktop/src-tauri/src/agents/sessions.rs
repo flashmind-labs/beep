@@ -8,7 +8,11 @@ use crate::{
     center::{AgentsShown, home_sessions::AgentSessions},
     chat::markdown,
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, SessionParent, agents as direct, extra},
+    fleet::{
+        Fleet, Machines, SessionParent, agents as direct,
+        asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
+        extra,
+    },
     machines::list::Outside,
     projects::{known, unknown_op},
 };
@@ -502,7 +506,19 @@ pub async fn agent_resume(
         prompt,
     };
     let started = match fleet.member(&request.machine_id) {
-        Some(machine) => direct::resume(&fleet, machine, request).await?,
+        Some(machine) => {
+            let session = request.session.clone();
+            let resume = direct::resume(&fleet, machine, request);
+            fleet
+                .asked(
+                    machine,
+                    &session,
+                    "resuming the session",
+                    ORDER_LIMIT,
+                    resume,
+                )
+                .await?
+        }
         None => beep.call(request).await?,
     };
     Ok(Started {
@@ -598,7 +614,18 @@ pub async fn agent_view(
         before,
     };
     let view = match fleet.member(&request.machine_id) {
-        Some(machine) => direct::session(&fleet, machine, &request).await?,
+        Some(machine) => {
+            let read = direct::session(&fleet, machine, &request);
+            fleet
+                .asked(
+                    machine,
+                    &request.session,
+                    "reading the session",
+                    READ_LIMIT,
+                    read,
+                )
+                .await?
+        }
         None => beep.call(request).await?,
     };
     Ok(view.into())
@@ -633,7 +660,13 @@ pub async fn agent_usage(
         session,
     };
     known(match fleet.member(&request.machine_id) {
-        Some(machine) => direct::usage(&fleet, machine, &request).await,
+        Some(machine) => {
+            let read = direct::usage(&fleet, machine, &request);
+            let step = "reading the session's usage";
+            fleet
+                .asked(machine, &request.session, step, SMALL_LIMIT, read)
+                .await
+        }
         None => beep.call(request).await,
     })
 }
@@ -683,7 +716,13 @@ pub async fn agent_modes(
         session,
     };
     let modes = known(match fleet.member(&request.machine_id) {
-        Some(machine) => direct::modes(&fleet, machine, &request).await,
+        Some(machine) => {
+            let read = direct::modes(&fleet, machine, &request);
+            let step = "reading the session's modes";
+            fleet
+                .asked(machine, &request.session, step, SMALL_LIMIT, read)
+                .await
+        }
         None => beep.call(request).await,
     })?;
     Ok(modes.map(Into::into))
@@ -735,7 +774,13 @@ pub async fn agent_tasks(
         session,
     };
     let tasks = known(match fleet.member(&request.machine_id) {
-        Some(machine) => direct::tasks(&fleet, machine, &request).await,
+        Some(machine) => {
+            let read = direct::tasks(&fleet, machine, &request);
+            let step = "reading the session's background commands";
+            fleet
+                .asked(machine, &request.session, step, SMALL_LIMIT, read)
+                .await
+        }
         None => beep.call(request).await,
     })?;
     Ok(tasks

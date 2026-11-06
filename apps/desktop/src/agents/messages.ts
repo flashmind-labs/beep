@@ -6,7 +6,7 @@ import { $ } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
 import { queueRowHtml } from "./turnrows.ts";
-import { type Started, type Steer, AG, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL, AGENT_ACTIVE, where } from "./agents.ts";
+import { type Started, type Steer, AG, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL, AGENT_ACTIVE, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
@@ -222,7 +222,7 @@ export async function steerAgent(steer: Steer) {
   if (!o || AG.page?.session.external) return false;
   let ok = false;
   try {
-    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0] });
+    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0] }, AGENT_SEND_WAIT_MS);
     const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
     if (sent?.images) keepSentImages(keys, sent.images);
     AG.note = "";
@@ -309,7 +309,7 @@ export async function continueAgent(input: HTMLTextAreaElement, text: string, im
   AG.page!.entries.push({ kind: "user", text });
   drawAgentBody();
   try {
-    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: text });
+    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: text }, AGENT_SEND_WAIT_MS);
     if (!isOpen(o)) return true;
     // The same session goes on in the same field.
     input.disabled = false;

@@ -545,7 +545,10 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note && AG.note === AG.readError && AG.link.lost ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
-  const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
+  // A read that failed outright is not tried again by itself: Retry reads it.
+  const retry = AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone";
+  const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>'
+    : retry ? '<button class="dbtn quiet" id="agresume">Retry</button>' : "";
   const subs = child == null ? paneSubs(p) : { html: "", count: 0 };
   if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, units, polled)) { AG.rest = ""; return; }
   // The pane follows the agent, or the subagent opened, into a worktree.

@@ -27,6 +27,9 @@ pub enum DesktopError {
     Lost(String),
     #[error("{0}")]
     BadRequest(String),
+    /// A machine took longer than a request's limit; the text says which.
+    #[error("{0}")]
+    TimedOut(String),
     #[error("{0:#}")]
     Other(anyhow::Error),
 }
