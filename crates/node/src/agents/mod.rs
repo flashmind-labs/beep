@@ -67,6 +67,7 @@ pub(crate) use live::cut;
 pub(crate) use moving::SESSIONS_ALPN;
 pub use moving::SessionsAlpn;
 pub(crate) use moving::follow as follow_moves;
+pub(crate) use moving::project_folder;
 pub use requests::serve_sessions;
 pub(crate) use restart::OpenSession;
 pub(crate) use session::{Answered, Asking};

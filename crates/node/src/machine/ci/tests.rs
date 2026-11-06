@@ -1,9 +1,9 @@
 use super::{
     Ci,
-    book::Books,
+    book::{self, Books},
     forge::{Forge, Host, Target},
     projects::Project,
-    watcher::{POLL, Watcher, World, watcher_of},
+    watcher::{POLL, QUIET, Watcher, World, watcher_of},
 };
 use anyhow::{Result, bail};
 use beep_proto::{
@@ -153,7 +153,8 @@ async fn a_run_seen_going_then_failed_is_told_once_even_after_a_restart() {
             .tell
             .is_empty()
     );
-    books.save(&file).await.expect("saved");
+    let bytes = books.encode().expect("encoded");
+    book::write(&file, &bytes).await.expect("saved");
     let mut again = Books::load(&file).await;
     assert_eq!(again, books);
     assert!(
@@ -256,6 +257,10 @@ impl World for Alone {
     async fn changed(&mut self) -> bool {
         pending().await
     }
+
+    async fn pushed(&self, _: &Project) -> Option<SystemTime> {
+        None
+    }
 }
 
 /// Starts a watcher on `host` keeping `file`, and its hub.
@@ -302,4 +307,28 @@ async fn the_watcher_tells_a_run_once_when_its_wait_ends_and_not_after_a_restart
     let ci = watcher(&host, &file).await;
     let follow = ci.runs.follow(follower);
     assert!(timeout(POLL * 3, follow.next()).await.is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quiet_project_is_listed_every_quiet_period_and_its_file_left_alone() {
+    let dir = TempDir::new().expect("a temp dir");
+    let file = dir.path().join("ci-runs.json");
+    let host = Arc::new(StandIn::default());
+    host.set(vec![run(8, RunState::Failed {}, "someone-else", "push")]);
+    let _ci = watcher(&host, &file).await;
+    polls(1).await;
+    assert_eq!(host.lists(), 1);
+    // Nothing goes: no list until the quiet period is over.
+    tokio::time::sleep(QUIET - POLL * 2).await;
+    assert_eq!(host.lists(), 1);
+    polls(2).await;
+    assert_eq!(host.lists(), 2);
+    // Nothing was told, so nothing was written.
+    assert!(!file.exists());
+    // A run going: listed every minute.
+    host.set(vec![run(9, RunState::Running {}, ME, "push")]);
+    tokio::time::sleep(QUIET).await;
+    let lists = host.lists();
+    polls(3).await;
+    assert!(host.lists() >= lists + 3, "{} lists", host.lists());
 }
