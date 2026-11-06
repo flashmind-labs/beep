@@ -186,8 +186,8 @@ ffi_enum! {
         8 ReasoningDelta { delta: String }
         9 MemoryScore { probability: f64 }
         10 AutoPicked { pick: AutoPick }
-        11 Transcript { text: String } since VOICE
-        12 Sources { sources: Vec<WebSource> } since SOURCES
+        11 Transcript { text: String }
+        12 Sources { sources: Vec<WebSource> }
     }
 }
 
@@ -203,7 +203,7 @@ ffi_enum! {
         0 Contacts { name: String }
         1 Browser { command: BrowserCommand }
         3 Approve { approval: Approval }
-        4 MacFiles { command: MacFileCommand } since MAC_FILES
+        4 MacFiles { command: MacFileCommand }
     }
 }
 
