@@ -25,6 +25,7 @@ import { renderSettings, settingsBack } from "../settings/settings.ts";
 import { renderSkills } from "../lists/skills.ts";
 import type { Status } from "./views.ts";
 import { invoke } from "../ui/tauri.ts";
+import { setPaneShown } from "../ui/active.ts";
 
 /// What the window can open in the pane: a CenterTarget in its JSON form,
 /// a group, or an agent view.
@@ -188,6 +189,7 @@ export const pane = {
   /// Whether the pane is on screen and takes the keys.
   mounted(on: boolean) {
     mountPane(on);
+    setPaneShown(on);
     if (on && S.view === "chat") focusAsk();
   },
 };

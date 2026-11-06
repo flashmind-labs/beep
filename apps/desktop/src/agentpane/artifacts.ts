@@ -9,6 +9,7 @@ import { openPath, paneSession } from "./media.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
+import { onShownChange, paneShown } from "../ui/active.ts";
 
 /// An artifact made ready to show, as `agent_artifact` gives it.
 type Shown =
@@ -88,7 +89,35 @@ function drawFold() {
   const btn = el.querySelector<HTMLButtonElement>('[data-aact="fold"]')!;
   btn.textContent = fold ? "Show" : "Fold";
   btn.setAttribute("aria-expanded", String(!fold));
+  liveFrames();
 }
+
+/// Whether the tab shows in its dock, as the pane last drew it.
+let tabShown = false;
+
+/// The pane drew the tab, shown or not.
+export function showFrames(shown: boolean) {
+  tabShown = shown;
+  liveFrames();
+}
+
+/// A page runs its scripts only while it can be seen: out of sight its
+/// frame is emptied, its address kept to load it again.
+function liveFrames() {
+  const live = tabShown && paneShown() && !folded.has(A.key);
+  for (const frame of A.el?.querySelectorAll<HTMLIFrameElement>(".agartframe") ?? []) {
+    const kept = frame.dataset.src;
+    if (live && kept != null) {
+      frame.src = kept;
+      delete frame.dataset.src;
+    } else if (!live && kept == null) {
+      frame.dataset.src = frame.src;
+      frame.src = "about:blank";
+    }
+  }
+}
+
+onShownChange(liveFrames, true);
 
 /// Takes the artifacts the log has now; `turnStart` says when a turn began.
 /// The picked one is read again when the agent wrote it again.
@@ -254,6 +283,7 @@ function shownHtml(a: Artifact, got: Shown) {
 function drawShown(html: string | null) {
   const box = A.el?.querySelector<HTMLElement>(".agartshow");
   if (box) box.innerHTML = html ?? "";
+  liveFrames();
 }
 
 function action(act: string) {
