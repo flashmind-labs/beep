@@ -10,7 +10,6 @@ import { loadDraft, saveDraft } from "./draftstore.ts";
 import { feedbackButton } from "./feedback.ts";
 import { mergeComments } from "./feedback-state.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
-import type { AgentSession } from "../agents/agents.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import { button, el, type Kid } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
@@ -29,8 +28,9 @@ export interface DiffSource {
   /// storage, `send` delivers the review text and says why it did not ("" when it went).
   review: { key: string; send: (text: string) => Promise<string> };
   /// The machine the diff's checkout is on, for Review with agent; a diff
-  /// without one has the button disabled. `prefer` is the harness offered first.
-  agent?: { machine: { id: string; name: string }; prefer?: string; open: (session: AgentSession) => void };
+  /// without one has the button disabled. `prefer` is the harness offered first;
+  /// `session` is the session whose changes these are, whose child the reviewer is.
+  agent?: { machine: { id: string; name: string }; prefer?: string; session?: string };
 }
 
 export interface DiffViewHandle {
@@ -190,7 +190,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     key: src.review.key,
     machine: src.agent?.machine ?? null,
     prefer: src.agent?.prefer,
-    open: session => src.agent?.open(session),
+    session: src.agent?.session,
     view: () => st.view,
     uncommitted: () => st.uncommitted,
     load: async uncommitted => (await src.load([], false, uncommitted)).files,

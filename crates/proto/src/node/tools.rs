@@ -68,6 +68,11 @@ pub enum Tool {
     /// host went, to pick the machine that watches a project's CI runs.
     /// `Done` with a `ForgeReach` as JSON. Between nodes only.
     ForgeReach,
+    /// Starts a temporary reviewer of the calling session's changes and
+    /// gives its findings, or polls one. On the caller's own node only.
+    Review,
+    /// A reviewer hands in its review. On the reviewer's own node only.
+    SubmitReview,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,

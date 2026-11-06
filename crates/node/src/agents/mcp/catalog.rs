@@ -7,10 +7,11 @@ pub(super) const ASK_USER: &str = "ask_user";
 /// `tools/1` still calls it `run_on`.
 pub(super) const REMOTE_RUN: &str = "remote_run";
 
-/// Every tool, in the order agents see them.
-pub(super) fn tools() -> Value {
+/// Every tool, in the order agents see them. A reviewer gets
+/// `submit_review` in place of `review`.
+pub(super) fn tools(reviewer: bool) -> Value {
     let machine = |what: &str| json!({ "type": "string", "description": what });
-    json!([
+    let mut tools = json!([
         {
             "name": "list_machines",
             "description": "List the user's machines: whether each is online, its OS, CPU, \
@@ -191,5 +192,64 @@ pub(super) fn tools() -> Value {
             },
             "annotations": { "title": "Ask the user", "readOnlyHint": true }
         }
-    ])
+    ]);
+    if let Some(list) = tools.as_array_mut() {
+        list.push(if reviewer { submit_review() } else { review() });
+    }
+    tools
+}
+
+fn review() -> Value {
+    json!({
+        "name": "review",
+        "description": "Have your changes reviewed: starts a reviewer agent in your folder, \
+            linked to you, that only reads, and returns its verdict and findings (file, line, \
+            severity, summary, failure scenario). The changes are everything since the merge \
+            base with `base` (the default branch when left out; HEAD for the uncommitted \
+            changes only). It returns after about 45 seconds at the latest with the review's \
+            id while it still works: call review with that `id` to check again.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "base": { "type": "string", "description": "The branch or commit to compare against; HEAD for the uncommitted changes only" },
+                "focus": { "type": "string", "description": "What the reviewer should look at most" },
+                "harness": { "type": "string", "description": "The reviewer's coding agent, such as claude or codex; yours when left out" },
+                "model": { "type": "string", "description": "The reviewer's model, when not the agent's own" },
+                "id": { "type": "string", "description": "A review started before, to check on instead of starting one" }
+            },
+            "additionalProperties": false
+        },
+        "annotations": { "title": "Review changes", "destructiveHint": false, "openWorldHint": false }
+    })
+}
+
+fn submit_review() -> Value {
+    let finding = json!({
+        "type": "object",
+        "properties": {
+            "file": { "type": "string", "description": "Relative to the checkout's top" },
+            "line": { "type": ["integer", "null"], "minimum": 1, "description": "The line in the new version; null for the whole file" },
+            "severity": { "type": "string", "enum": ["high", "medium", "low"] },
+            "summary": { "type": "string", "description": "What is wrong, in a line" },
+            "scenario": { "type": "string", "description": "How it fails: the input or events and what goes wrong" }
+        },
+        "required": ["file", "severity", "summary", "scenario"],
+        "additionalProperties": false
+    });
+    json!({
+        "name": "submit_review",
+        "description": "Hand in your review, once, when you are done: your verdict, a short \
+            summary and your findings. An empty findings list says you found nothing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "verdict": { "type": "string", "enum": ["approve", "changes", "comment"] },
+                "summary": { "type": "string" },
+                "findings": { "type": "array", "items": finding, "maxItems": crate::agents::reviews::MAX_FINDINGS }
+            },
+            "required": ["verdict", "summary", "findings"],
+            "additionalProperties": false
+        },
+        "annotations": { "title": "Submit a review", "readOnlyHint": true }
+    })
 }

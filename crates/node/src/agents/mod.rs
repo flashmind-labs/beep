@@ -44,6 +44,7 @@ mod prices;
 mod reach;
 mod requests;
 mod restart;
+mod reviews;
 mod running;
 mod session;
 mod session_stream;
@@ -160,6 +161,8 @@ pub struct Agents {
     folders: OnceLock<Vec<PathBuf>>,
     /// The sessions that started sessions, and the children on other machines.
     family: family::Family,
+    /// The reviews reviewers handed in, and the reviewers running.
+    reviews: reviews::Reviews,
     /// How sessions start the Beep MCP server, once the node serves it.
     mcp: OnceLock<Arc<Launch>>,
     /// Set once the node is stopping.
@@ -209,6 +212,7 @@ impl Agents {
             latest: harnesses::Latest::default(),
             folders: OnceLock::new(),
             family: family::Family::default(),
+            reviews: reviews::Reviews::default(),
             mcp: OnceLock::new(),
             stopping: Arc::default(),
             holding: watch::Sender::new(false),
