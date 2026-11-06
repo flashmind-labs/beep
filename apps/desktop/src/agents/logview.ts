@@ -515,7 +515,7 @@ export function drawAgentBody(keep?: string, polled = false) {
   // What stopped an outside session's log from reading is not a failed turn.
   const err = p.error ? (s.external ? `<div class="derr">${esc(p.error)}</div>` : errorCardHtml(p.error)) : "";
   const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
-    : AG.note && AG.note === AG.readError && AG.note.startsWith("Reconnecting") ? `<div class="dmuted">${esc(AG.note)}</div>`
+    : AG.note && AG.note === AG.readError && AG.link.lost ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>' : "";
   const subs = child == null ? paneSubs(p) : { html: "", count: 0 };
