@@ -44,7 +44,7 @@ export interface Machine {
   version: string;
   /// Null until its first report.
   env: MachineEnv | null;
-  /// It leaves the mesh when it stops, such as a container.
+  /// Removed after a day offline, such as a container.
   temporary?: boolean;
 }
 
@@ -366,10 +366,10 @@ function removeParts(m: Machine) {
   };
 }
 
-/// "container" after the name of a machine that leaves when it stops.
+/// "container" after the name of a machine removed after a day offline.
 function tagChip(m: Machine) {
   const tag = machineTag(m);
-  return tag ? `<span class="dtag" title="Leaves when it stops">${esc(tag)}</span>` : "";
+  return tag ? `<span class="dtag" title="Removed after a day offline">${esc(tag)}</span>` : "";
 }
 
 const statusTag = (m: Machine) => m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(Date.now() - m.seen_at)} ago</span>`;

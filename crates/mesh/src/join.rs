@@ -52,7 +52,7 @@ pub struct JoinTicket {
     pub kind: DeviceKind,
     pub secret: JoinSecret,
     pub expires_ms: u64,
-    /// The device leaves the mesh when it stops: the desktop that spends the ticket writes
+    /// The device is temporary, such as a container: the desktop that spends the ticket writes
     /// `temporary/<id>` for it. Last, so a node from before it reads the rest.
     #[serde(default)]
     pub temporary: bool,

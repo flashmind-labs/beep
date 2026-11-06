@@ -1,5 +1,5 @@
 //! What the bell learns by looking at the mesh: a machine offline for
-//! `AWAY` and back, a temporary machine removed once gone for `GONE_AFTER`,
+//! `AWAY` and back, a temporary machine removed once gone for a day,
 //! sync conflicts on a machine, and a session move that failed. Each becomes
 //! a note in `history`.
 
@@ -11,7 +11,7 @@ use crate::{
 };
 use beep_fleet::{
     Desk, MoveState, Session,
-    temporary::{GONE_AFTER, Leftovers, sweep},
+    temporary::{Leftovers, sweep},
 };
 use beep_proto::{
     AgentNoticeKey, SyncStatus,
@@ -101,7 +101,7 @@ fn machines(app: &AppHandle, fleet: &Fleet, away: &mut Away<EndpointId>) {
     }
 }
 
-/// Removes the temporary machines offline for `GONE_AFTER`, with a note for each this Mac
+/// Removes the temporary machines offline for a day, with a note for each this Mac
 /// removed. Another desktop may have removed one first: then it says nothing.
 async fn temporaries(app: &AppHandle, fleet: &Fleet, leftovers: &mut Leftovers<EndpointId>) {
     let Some(mesh) = fleet.mesh() else {
@@ -114,15 +114,11 @@ async fn temporaries(app: &AppHandle, fleet: &Fleet, leftovers: &mut Leftovers<E
             return;
         }
     };
-    let minutes = GONE_AFTER.as_secs() / 60;
     for device in removed {
         let note = Note::new(
             NoteKind::Removed,
             format!("removed:{}", device.id),
-            format!(
-                "{} was removed after {minutes} minutes offline",
-                device.name
-            ),
+            format!("{} was removed after a day offline", device.name),
             device.name,
         );
         history::record(app, note);

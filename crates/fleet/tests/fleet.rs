@@ -2377,7 +2377,7 @@ async fn the_agent_accounts_list_this_mac_though_its_own_probe_says_nothing() {
 }
 
 #[tokio::test]
-async fn a_temporary_device_offline_for_ten_minutes_is_removed_and_a_normal_one_stays() {
+async fn a_temporary_device_offline_for_a_day_is_removed_and_a_normal_one_stays() {
     use beep_fleet::temporary::{GONE_AFTER, Leftovers, sweep};
     use std::time::Instant;
     let desk = create("desk").await;

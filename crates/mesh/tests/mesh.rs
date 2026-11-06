@@ -197,41 +197,22 @@ async fn a_temporary_ticket_marks_the_device_on_every_member() {
 }
 
 #[tokio::test]
-async fn a_temporary_device_may_remove_only_itself() {
+async fn a_desktop_removes_only_a_temporary_device() {
     let a = create("a").await;
     let box_ = join_temporary(&a, "box").await;
     let other = join_temporary(&a, "other").await;
     let node = join(&a, DeviceKind::Node, "node").await;
-    let refused = |r: Result<bool, MeshError>| matches!(r, Err(MeshError::Refused(_)));
-    // About another device, temporary or not.
-    assert!(refused(
-        a.mesh.remove_on_request(box_.id(), other.id()).await
+    assert!(matches!(
+        a.mesh.remove_temporary(node.id()).await,
+        Err(MeshError::Refused(_))
     ));
-    assert!(refused(
-        a.mesh.remove_on_request(box_.id(), node.id()).await
-    ));
-    // A device that is not temporary, about itself.
-    assert!(refused(
-        a.mesh.remove_on_request(node.id(), node.id()).await
-    ));
-    assert!(refused(a.mesh.remove_temporary(node.id()).await));
-    assert!(a.mesh.is_member(other.id()) && a.mesh.is_member(node.id()));
-    // Itself: gone, and its mark with it.
-    assert!(
-        a.mesh
-            .remove_on_request(box_.id(), box_.id())
-            .await
-            .expect("removed")
-    );
+    assert!(a.mesh.is_member(node.id()));
+    // Gone, and its mark with it.
+    assert!(a.mesh.remove_temporary(box_.id()).await.expect("removed"));
     assert!(a.mesh.is_removed(box_.id()));
     assert!(!a.mesh.is_temporary(box_.id()));
     // Asked again, it is done already.
-    assert!(
-        !a.mesh
-            .remove_on_request(box_.id(), box_.id())
-            .await
-            .expect("done")
-    );
+    assert!(!a.mesh.remove_temporary(box_.id()).await.expect("done"));
     // A node cannot remove anyone.
     until(&node.mesh, |m| m.is_temporary(other.id())).await;
     assert!(node.mesh.remove_temporary(other.id()).await.is_err());

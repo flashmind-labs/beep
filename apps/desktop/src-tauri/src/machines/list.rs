@@ -46,7 +46,7 @@ pub struct MachineView {
     version: String,
     /// `None` until its first report.
     env: Option<MachineEnv>,
-    /// It leaves the mesh when it stops, such as a container.
+    /// Removed after a day offline, such as a container.
     temporary: bool,
 }
 

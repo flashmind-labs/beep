@@ -34,7 +34,7 @@ use beep_proto::{
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
         NODE_ALPN_NAMED, NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
-        harness::AgentSettings, leave, link_on, skills, status, tool_update, tools, version,
+        harness::AgentSettings, link_on, skills, status, tool_update, tools, version,
     },
     port::CLOSE_REVOKED,
 };
@@ -79,8 +79,6 @@ const MAX_SESSIONS: usize = 32;
 const STOP_SESSIONS: Duration = Duration::from_secs(3);
 /// How long a stopping node gives each other step.
 const STOP_STEP: Duration = Duration::from_secs(1);
-/// How long a temporary device has to be removed from the mesh as it stops.
-const STOP_LEAVE: Duration = Duration::from_secs(3);
 
 /// A session protocol a host serves beside the node's own, such as the Mac
 /// app's `desktop/1`.
@@ -286,16 +284,6 @@ pub async fn serve(
     tokio::select! {
         () = stay => {}
         () = stop => {}
-    }
-    // A temporary device, such as a container, leaves the mesh as it stops, while its links are
-    // still up. Not when an update restarts it: an update holds prompts until then.
-    if !offers.agents.held() {
-        stop_step(
-            "leaving the mesh if temporary",
-            STOP_LEAVE,
-            peers.leave_if_temporary(),
-        )
-        .await;
     }
     // Agents that end from here on ended with the node, whatever their exit.
     offers.agents.begin_stopping();
@@ -908,7 +896,7 @@ pub(crate) async fn serve_open(
     if matches!(who, Who::Node { .. })
         && !matches!(
             open.protocol.as_str(),
-            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL | leave::PROTOCOL
+            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL
         )
     {
         let reason = format!("a node may not open {}", open.protocol);
@@ -947,10 +935,6 @@ pub(crate) async fn serve_open(
         shell::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             shell::serve(tx, rx).await
-        }
-        leave::PROTOCOL => {
-            tx.send(&Opened::Ready {}).await?;
-            peers::serve_leave(tx, rx, offers.mesh.get(), who.id()).await
         }
         skills::PROTOCOL if offers.skills.home().is_some() => {
             tx.send(&Opened::Ready {}).await?;

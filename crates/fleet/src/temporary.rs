@@ -1,7 +1,6 @@
-//! Temporary devices, such as containers, that went without saying so: every desktop removes
-//! one that has been offline for `GONE_AFTER`. A device that stops cleanly asks to be removed
-//! itself (`leave/1`); this is for the crash and the host that went away. Two desktops may both
-//! remove the same device: the second finds it done.
+//! Temporary devices, such as containers: every desktop removes one that has been offline for
+//! `GONE_AFTER`, long enough that a restart or a reboot comes back first. A removed key never
+//! rejoins. Two desktops may both remove the same device: the second finds it done.
 
 use crate::error::Result;
 use beep_mesh::{Device, Mesh};
@@ -13,7 +12,7 @@ use std::{
 };
 
 /// How long a temporary device is offline before a desktop removes it.
-pub const GONE_AFTER: Duration = Duration::from_secs(10 * 60);
+pub const GONE_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// When each temporary device was first seen offline, by this desktop in this run. One that
 /// was already off when the app started counts from then.
@@ -79,8 +78,10 @@ mod tests {
         list.iter().copied().collect()
     }
 
+    const DAY: u64 = 24 * 60 * 60;
+
     #[test]
-    fn a_temporary_device_offline_for_ten_minutes_is_due() {
+    fn a_temporary_device_offline_for_a_day_is_due() {
         let mut leftovers = Leftovers::default();
         let start = Instant::now();
         let at = |secs| start + Duration::from_secs(secs);
@@ -88,30 +89,34 @@ mod tests {
         assert!(leftovers.step(&temporary(&[(1, false)]), at(10)).is_empty());
         assert!(
             leftovers
-                .step(&temporary(&[(1, false)]), at(609))
+                .step(&temporary(&[(1, false)]), at(10 + DAY - 1))
                 .is_empty()
         );
-        assert_eq!(leftovers.step(&temporary(&[(1, false)]), at(610)), [1]);
+        assert_eq!(leftovers.step(&temporary(&[(1, false)]), at(10 + DAY)), [1]);
     }
 
     #[test]
-    fn coming_back_starts_the_ten_minutes_over() {
+    fn coming_back_starts_the_day_over() {
         let mut leftovers = Leftovers::default();
         let start = Instant::now();
         let at = |secs| start + Duration::from_secs(secs);
         leftovers.step(&temporary(&[(1, false)]), at(0));
-        assert!(leftovers.step(&temporary(&[(1, true)]), at(500)).is_empty());
         assert!(
             leftovers
-                .step(&temporary(&[(1, false)]), at(700))
+                .step(&temporary(&[(1, true)]), at(DAY - 100))
                 .is_empty()
         );
         assert!(
             leftovers
-                .step(&temporary(&[(1, false)]), at(1299))
+                .step(&temporary(&[(1, false)]), at(DAY))
                 .is_empty()
         );
-        assert_eq!(leftovers.step(&temporary(&[(1, false)]), at(1300)), [1]);
+        assert!(
+            leftovers
+                .step(&temporary(&[(1, false)]), at(2 * DAY - 1))
+                .is_empty()
+        );
+        assert_eq!(leftovers.step(&temporary(&[(1, false)]), at(2 * DAY)), [1]);
     }
 
     #[test]
@@ -128,6 +133,9 @@ mod tests {
                 .step(&temporary(&[(1, false)]), at(600))
                 .is_empty()
         );
-        assert_eq!(leftovers.step(&temporary(&[(1, false)]), at(1200)), [1]);
+        assert_eq!(
+            leftovers.step(&temporary(&[(1, false)]), at(600 + DAY)),
+            [1]
+        );
     }
 }

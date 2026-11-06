@@ -357,8 +357,8 @@ impl Fleet {
         Ok(self.ready().await?.invite(kind, DEFAULT_TICKET_TTL).await?)
     }
 
-    /// Mints a ticket for a temporary node, such as a container: it leaves the mesh when it
-    /// stops, and is removed once it has been gone a while.
+    /// Mints a ticket for a temporary node, such as a container: it is removed after a day
+    /// offline.
     pub async fn invite_temporary(&self) -> Result<JoinTicket> {
         Ok(self
             .ready()

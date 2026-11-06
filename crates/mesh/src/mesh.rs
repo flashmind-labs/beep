@@ -498,8 +498,8 @@ impl Mesh {
             .await
     }
 
-    /// Mints a single-use ticket for a temporary node, such as a container: it leaves the mesh
-    /// when it stops. A node cannot.
+    /// Mints a single-use ticket for a temporary node, such as a container: desktops remove it
+    /// once it has been offline a day. A node cannot.
     pub async fn invite_temporary(&self, ttl: Duration) -> Result<JoinTicket, MeshError> {
         let addr = self.inner.endpoint.addr();
         self.inner
@@ -532,28 +532,10 @@ impl Mesh {
     /// Removes the temporary device `id` for good. `Ok(false)` when it was removed already;
     /// a device that is not temporary is refused. A node cannot.
     pub async fn remove_temporary(&self, id: EndpointId) -> Result<bool, MeshError> {
-        self.removing_temporary(None, id).await
-    }
-
-    /// Removes the temporary device `id` because `asker` asked as it stops. Only a temporary
-    /// device asking about itself is taken. A node cannot.
-    pub async fn remove_on_request(
-        &self,
-        asker: EndpointId,
-        id: EndpointId,
-    ) -> Result<bool, MeshError> {
-        self.removing_temporary(Some(asker), id).await
-    }
-
-    async fn removing_temporary(
-        &self,
-        asker: Option<EndpointId>,
-        id: EndpointId,
-    ) -> Result<bool, MeshError> {
         let removed = self
             .inner
             .store
-            .run(move |core| core.remove_temporary(asker, id))
+            .run(move |core| core.remove_temporary(id))
             .await?;
         // No receiver is a normal state.
         self.inner.changes.send(Key::Temporary(id.to_string())).ok();
