@@ -5,8 +5,8 @@
 # uploaded to R2 with the archive installed apps update themselves from.
 #
 # Runs on a Mac registered with the `macos` label, with Rust, tauri-cli, Node
-# and uv installed for the runner's user. The server's node id is the repository
-# variable BEEP_NODE_ID, and its https:// address is BEEP_SERVER_URL.
+# and uv installed for the runner's user. The server's https:// address is the
+# repository variable BEEP_SERVER_URL.
 #
 # Every build requires the Developer ID certificate and App Store Connect API
 # secrets. The app and disk image are signed, notarized, and verified.
@@ -27,7 +27,6 @@ jobs:
   dmg:
     runs-on: macos
     env:
-      BEEP_NODE_ID: ${{ vars.BEEP_NODE_ID }}
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
       RELEASE: ${{ startsWith(github.ref, 'refs/tags/desktop-v') }}
     steps:

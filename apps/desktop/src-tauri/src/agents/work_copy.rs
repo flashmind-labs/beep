@@ -268,7 +268,7 @@ async fn look(
     let (mut imported, mut synced) = fleet.mesh().map(|mesh| recorded(&mesh)).unwrap_or_default();
     let here = |folder: &Path| folder.is_absolute() && folder.is_dir();
     let (machine, folder) = (machine_id.to_owned(), dir.to_owned());
-    if holder(&machine, &folder, &imported, &synced).is_none() && beep.server().is_some() {
+    if holder(&machine, &folder, &imported, &synced).is_none() && beep.has_server() {
         imported = beep.call(ListImportedProjects {}).await?;
         synced = match beep.call(ListProjectSync {}).await {
             Err(e) if unknown_op(&e) => Vec::new(),

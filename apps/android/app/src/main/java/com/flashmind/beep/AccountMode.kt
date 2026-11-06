@@ -18,10 +18,13 @@ internal data class WorkspaceSignals(val github: Boolean = false, val projects: 
 
 internal class AccountMode(private val context: Context, private val account: String) {
     private val prefs = context.getSharedPreferences("workspace-mode", Context.MODE_PRIVATE)
-    var showEverything by mutableStateOf(prefs.getBoolean("show-$account", false))
+    var showEverything by mutableStateOf(read("show"))
         private set
-    var unlocked by mutableStateOf(prefs.getBoolean("unlocked-$account", false))
+    var unlocked by mutableStateOf(read("unlocked"))
         private set
+    // Older builds keyed these "<server node id>/<account>"; those are still read.
+    private fun read(name: String): Boolean = prefs.getBoolean("$name-$account",
+        prefs.all.any { (key, value) -> value == true && key.startsWith("$name-") && key.endsWith("/$account") })
     val expanded get() = showEverything || unlocked
     fun show(value: Boolean) {
         showEverything = value
@@ -39,8 +42,7 @@ internal fun rememberAccountMode(repository: ChatRepository, refreshKey: Any): A
     val context = LocalContext.current.applicationContext
     val account by repository.accountName.collectAsState()
     val connected by repository.connected.collectAsState()
-    val settings by repository.settings.collectAsState()
-    val mode = remember(account, settings.nodeId) { AccountMode(context, "${settings.nodeId}/$account") }
+    val mode = remember(account) { AccountMode(context, account) }
     val owner = LocalLifecycleOwner.current
     LaunchedEffect(mode, connected, refreshKey, owner) {
         if (!connected || account.isEmpty()) return@LaunchedEffect

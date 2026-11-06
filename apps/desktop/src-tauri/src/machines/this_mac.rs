@@ -220,16 +220,20 @@ async fn stay_linked(beep: Arc<Beep>, shared: Arc<Mutex<Link>>, home: Arc<NodeHo
     loop {
         // A Mac removed from the account has nothing to sign in with, and
         // one with no server has nowhere to.
-        let Some(server) = beep.server().filter(|_| beep.linked()) else {
+        if !beep.linked() {
             set(Status::Unlinked);
             return;
-        };
+        }
         // After a failure, it says so until a try works.
         if lock(&shared).status != Status::Failed {
             set(Status::Connecting);
         }
         log::info!("opening this Mac's node link as {name:?}");
-        match link::open(beep.endpoint(), server.into(), &name, offers).await {
+        let opened = match beep.server_id().await {
+            Ok(server) => link::open(beep.endpoint(), server.into(), &name, offers).await,
+            Err(e) => Err(e.into()),
+        };
+        match opened {
             Ok(linked) => {
                 log::info!("this Mac's node link is open");
                 set(Status::Connected);

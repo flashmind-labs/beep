@@ -21,16 +21,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
         // The server this build talks to, so a new install needs no setup. `just bake-profile`
-        // writes both from the server log; -PbeepNodeId and -PbeepServerUrl override them.
+        // writes it; -PbeepServerUrl overrides it.
         val profile = rootProject.file("../../.dev/android-assets/testing-profile.json")
             .takeIf { it.exists() }?.readText()
-        val nodeId = providers.gradleProperty("beepNodeId").orNull
-            ?: profile?.let { Regex("\"node_id\"\\s*:\\s*\"([0-9a-f]{64})\"").find(it)?.groupValues?.get(1) }
-            ?: ""
         val serverUrl = providers.gradleProperty("beepServerUrl").orNull
             ?: profile?.let { Regex("\"server_url\"\\s*:\\s*\"([^\"]+)\"").find(it)?.groupValues?.get(1) }
             ?: ""
-        buildConfigField("String", "SERVER_NODE_ID", "\"$nodeId\"")
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
     }
     androidResources { localeFilters += "en" }

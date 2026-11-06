@@ -57,10 +57,10 @@ enum Identity {
         SecItemUpdate(query as CFDictionary, change as CFDictionary)
     }
 
-    /// The key file the Android app also reads and writes: the server's node ID and the key as hex.
+    /// The key file the Android app also reads and writes: the server's address and the key as hex.
     static func export(_ key: Data) -> String {
         let hex = key.map { String(format: "%02x", $0) }.joined()
-        return "{\"node_id\":\"\(BeepConfig.nodeId)\",\"identity\":\"\(hex)\"}"
+        return "{\"server_url\":\"\(BeepConfig.serverUrl)\",\"identity\":\"\(hex)\"}"
     }
 
     /// Reads a key file's key, or nil if it holds no 32 byte key.

@@ -27,7 +27,7 @@ cp config.example.toml config.toml   # set model and provider_key
 cargo run -p beep-server -- config.toml
 ```
 
-The server prints its node ID on startup. `just bake-profile` writes it to
+`just bake-profile` writes the server's address to
 `.dev/android-assets/testing-profile.json`, which the app builds pick up.
 
 Each client signs in with its own iroh key. A key the server has not seen
@@ -82,7 +82,7 @@ The `ios` Forgejo workflow uploads every push to `main` to TestFlight. The
 App Store Connect app uses bundle ID `com.flashmind.beep`. The Mac runner needs
 Xcode, Rust, Homebrew and access to the sibling Rust dependency repository.
 
-Set repository variables `BEEP_NODE_ID` (64 lowercase hex characters) and
+Set repository variables `BEEP_SERVER_URL` (the server's `https://` address) and
 `IOS_TEAM_ID` (Apple Developer team ID). The workflow uses these repository
 secrets. The Apple API key secrets are also used by the desktop workflow:
 

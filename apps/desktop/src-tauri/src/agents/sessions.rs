@@ -315,7 +315,7 @@ pub async fn agent_start(
         checkout: checkout.map(Into::into),
     };
     // A chat that hears the session is the server's: it follows the node.
-    let chat_on_server = request.chat.is_some() && beep.server().is_some();
+    let chat_on_server = request.chat.is_some() && beep.has_server();
     let started = if !chat_on_server && goes_direct(&fleet, request.machine_id.as_deref()).await {
         direct::start(&fleet, request).await?
     } else {

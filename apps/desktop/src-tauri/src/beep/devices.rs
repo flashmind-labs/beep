@@ -111,7 +111,7 @@ pub async fn list_devices(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Re
         })
         .collect();
     let mut server = ServerReach::None;
-    if beep.server().is_some() {
+    if beep.has_server() {
         match beep.call(ListDevices {}).await {
             Ok(linked) => {
                 server = ServerReach::Answered;

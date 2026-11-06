@@ -40,7 +40,7 @@ use beep_proto::{
     names::username,
     seal,
 };
-use iroh::{EndpointId, SecretKey};
+use iroh::SecretKey;
 use live::{HeardSink, Hearing, Speech, Spoken};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
@@ -51,12 +51,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock, PoisonError},
     time::Duration,
 };
-use tokio::{
-    fs,
-    io::AsyncWriteExt,
-    sync::{OnceCell, mpsc},
-    time::timeout,
-};
+use tokio::{fs, io::AsyncWriteExt, sync::mpsc, time::timeout};
 use uuid::Uuid;
 
 mod live;
@@ -79,7 +74,6 @@ const PLATFORM: Platform = Platform::Android {};
 uniffi::setup_scaffolding!();
 uniffi::use_remote_type!(beep_proto::ReasoningLevel);
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// Field names avoid `message`, which Kotlin exceptions already define.
@@ -396,32 +390,16 @@ type Listener = Arc<Mutex<Option<Arc<dyn NoticeListener>>>>;
 
 #[derive(uniffi::Object)]
 pub struct BeepClient {
-    /// The server's id from the profile; an address that serves another
-    /// server is refused.
-    server: EndpointId,
     client: Arc<Client>,
     listener: Listener,
     /// The events stream, followed from the first call on.
     follow: OnceLock<Follow>,
-    /// Set once the address was found to serve `server`.
-    checked: OnceCell<()>,
 }
 
 impl BeepClient {
-    async fn client(&self) -> Result<Arc<Client>, BeepError> {
-        self.checked
-            .get_or_try_init(|| async {
-                let id = timed(CONNECT_TIMEOUT, "connect", self.client.server_id()).await?;
-                if id != self.server {
-                    return Err(BeepError::Connection {
-                        reason: "this address serves another Beep server".into(),
-                    });
-                }
-                Ok(())
-            })
-            .await?;
+    fn client(&self) -> Arc<Client> {
         self.follow();
-        Ok(self.client.clone())
+        self.client.clone()
     }
 
     /// Starts following the events stream if it is not yet. Runs on the
@@ -445,12 +423,12 @@ impl BeepClient {
     }
 
     async fn call<R: Call>(&self, request: R) -> Result<R::Reply, BeepError> {
-        let client = self.client().await?;
+        let client = self.client();
         timed(CALL_TIMEOUT, "request", client.call(&request)).await
     }
 
     async fn stream<R: Stream>(&self, request: R) -> Result<Replies<R::Reply>, BeepError> {
-        let client = self.client().await?;
+        let client = self.client();
         timed(CALL_TIMEOUT, "request", client.stream(&request)).await
     }
 }
@@ -458,30 +436,22 @@ impl BeepClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl BeepClient {
     /// `server_url` is where the server answers, such as
-    /// `https://beep.example.com`. `node_id` is the server's id from the
-    /// profile, which the server at that address must have. `identity` is
+    /// `https://beep.example.com`. `identity` is
     /// this user's 32 byte secret key; see `new_identity`. `app_version` is
     /// the app's own version, such as "0.1.0 (142)", which the server logs.
     #[uniffi::constructor]
     pub fn new(
         server_url: String,
-        node_id: String,
         identity: Vec<u8>,
         app_version: String,
     ) -> Result<Arc<Self>, BeepError> {
-        let server: EndpointId = node_id
-            .trim()
-            .parse()
-            .map_err(|_| bad_request("invalid node ID"))?;
         let client = Client::new(server_url.trim(), secret_key(&identity)?)
             .map_err(|e| bad_request(format!("{e:#}")))?
             .with_app(PLATFORM, app_version);
         Ok(Arc::new(Self {
-            server,
             client: Arc::new(client),
             listener: Arc::default(),
             follow: OnceLock::new(),
-            checked: OnceCell::new(),
         }))
     }
 
@@ -1432,7 +1402,7 @@ impl reply_voice::Voice for BeepClient {
 impl Speech for BeepClient {
     async fn transcribe(&self, mut audio: mpsc::Receiver<Vec<u8>>, heard: HeardSink) {
         let opened = async {
-            let client = self.client().await?;
+            let client = self.client();
             let request = Transcribe {
                 sample_rate: TRANSCRIBE_RATE,
             };

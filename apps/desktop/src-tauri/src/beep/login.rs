@@ -86,6 +86,6 @@ pub async fn use_own_server(app: AppHandle, beep: Service<'_>, code: String) -> 
         }
         Err(e) => return Err(e.into()),
     };
-    beep.choose_server(server, link);
+    beep.set_link_state(link);
     app.restart()
 }
