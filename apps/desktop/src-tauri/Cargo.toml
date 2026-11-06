@@ -17,12 +17,14 @@ anyhow = "1"
 async-trait = "0.1"
 ammonia = "4"
 base64 = "0.22"
+chrono = "0.4"
 beep-fleet = { path = "../../../crates/fleet" }
 beep-live = { path = "../../../crates/live" }
 beep-mesh = { path = "../../../crates/mesh" }
 beep-node = { path = "../../../crates/node", default-features = false }
 beep-projects = { path = "../../../crates/projects" }
 beep-proto = { path = "../../../crates/proto" }
+beep-report = { path = "../../../crates/report" }
 futures = "0.3"
 iroh = "1.3"
 iroh-tickets = "1"

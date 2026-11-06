@@ -26,6 +26,8 @@ const TRAY: &str = "beep";
 const RECENT: usize = 5;
 /// Menu ids of Recent's items start with this, then the session id.
 const CHAT_ITEM: &str = "chat:";
+/// Report a Problem, in the tray menu and the app's Help menu.
+pub(crate) const REPORT: &str = "report-problem";
 
 /// The latest chats, kept so the tray menu can be built without waiting on
 /// the server.
@@ -128,6 +130,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         };
         item("link", title, true, None)?;
     }
+    item(REPORT, "Report a Problem…", true, None)?;
     item("settings", "Settings…", true, Some("cmd+,"))?;
     match update::ready(app) {
         Some(_) => item("restart-update", "Restart to Update Beep", true, None)?,
@@ -200,6 +203,7 @@ fn tray_target(id: &str) -> Option<CenterTarget> {
         "routines" => Some(CenterTarget::Routines),
         "skills" => Some(CenterTarget::Skills),
         "settings" | "link" => Some(CenterTarget::Settings),
+        REPORT => Some(CenterTarget::Report),
         waiting::MORE => Some(CenterTarget::Home),
         _ => None,
     }
@@ -224,10 +228,12 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
         bar::show(app, Some("open"));
         return;
     }
-    // Without a subscription only Settings opens, where it is signed in.
+    // Without a subscription only Settings, where it is signed in, and
+    // Report a Problem open. This handler hears every menu's events, so the
+    // Help menu's Report a Problem opens here too.
     if let Some(target) = tray_target(event.id().as_ref())
         && (app.state::<Arc<Beep>>().link_state() == LinkState::Linked
-            || matches!(target, CenterTarget::Settings))
+            || matches!(target, CenterTarget::Settings | CenterTarget::Report))
     {
         let pending = app.state::<center::Pending>();
         if let Err(e) = center::open_on(app, &pending, target) {
@@ -276,5 +282,6 @@ mod tests {
         assert_eq!(tray_target("research"), None);
         assert_eq!(tray_target("check-update"), None);
         assert_eq!(tray_target(waiting::MORE), Some(CenterTarget::Home));
+        assert_eq!(tray_target("report-problem"), Some(CenterTarget::Report));
     }
 }
