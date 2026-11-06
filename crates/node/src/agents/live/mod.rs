@@ -66,6 +66,8 @@ pub(crate) struct Live {
     pub(crate) info: SessionInfo,
     /// Why the last turn ended.
     pub(crate) last_stop: Option<StopReason>,
+    /// The user stopped the last turn, or closed the session.
+    pub(crate) stopped_by_user: bool,
     /// The agent's own id for the session, once it gave one: for Claude
     /// Code, the transcript's name.
     pub(crate) agent_session: Option<String>,

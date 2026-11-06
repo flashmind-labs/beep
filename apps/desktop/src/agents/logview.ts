@@ -133,7 +133,10 @@ function subRow(at: number, inPane = false) {
   const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : `data-sub="${at}"`;
   // A child that is done still holds its session on the machine; closing the row closes it.
   const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}"${st === "done" && kid ? " data-endkid" : ""} title="Close">${ICON.x}</em>` : "";
-  return `<button class="dsubrow" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}</button>`;
+  // A child that runs can be stopped from its row, as from its own log.
+  const stoppable = kid && (st === "working" || st === "needs you");
+  const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
+  return `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
 }
 
 /// Subagents closed in the pane, by session and the call's place. The log keeps them.
@@ -252,7 +255,7 @@ export function entryRow(en: AgentEntry, at: number) {
       : p.kind === "session"
         ? `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`
         : p.kind === "child"
-          ? `<div class="dcoderen fromsession"><b>${esc(p.name || "Child")} ${p.state === "asking" ? "waiting on you" : "finished"}</b><span>${linkified(p.text)}</span></div>`
+          ? `<div class="dcoderen fromsession"><b>${esc(p.name || "Child")} ${p.state === "asking" ? "waiting on you" : p.state === "stopped" || p.state === "closed" ? "stopped by you" : "finished"}</b><span>${linkified(p.text)}</span></div>`
           : "").join("");
     const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
     if (!own && others) return others;

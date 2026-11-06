@@ -131,9 +131,9 @@ pub async fn serve_session(
                         // Stop goes down to what the session started, on
                         // other machines too, after its own turn stops.
                         cascade = true;
-                        Command::Cancel { keep_steers: true }
+                        Command::Cancel { by_user: true }
                     }
-                    Ok(Some(Request::Close {})) => Command::Close,
+                    Ok(Some(Request::Close {})) => Command::Close { by_user: true },
                     Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },
                     Ok(Some(other)) => {
                         let error = Some(format!("{other:?} is not for an open session"));

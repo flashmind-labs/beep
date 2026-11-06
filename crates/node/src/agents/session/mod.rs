@@ -81,13 +81,17 @@ pub(super) enum Command {
         question: u32,
         reply: String,
     },
-    /// Stops the running turn and drops the prompts queued behind it. With
-    /// `keep_steers` the steers not yet sent go as the next prompt once the
-    /// turn stops: the app that steered sends them nowhere else (#378).
+    /// Stops the running turn and drops the prompts queued behind it. When
+    /// the user stopped it, the steers not yet sent go as the next prompt
+    /// once the turn stops: the app that steered sends them nowhere else
+    /// (#378). Otherwise its parent or the node stopped it.
     Cancel {
-        keep_steers: bool,
+        by_user: bool,
     },
-    Close,
+    /// Ends the session; `by_user` as for `Cancel`.
+    Close {
+        by_user: bool,
+    },
     /// Switches the model or thinking level from the next turn.
     Configure {
         model: Option<ModelId>,
@@ -212,7 +216,7 @@ async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<O
         // Refused when the child ended first.
         let _ = orders
             .send(Order {
-                command: Command::Close,
+                command: Command::Close { by_user: false },
                 done,
             })
             .await;
@@ -335,6 +339,7 @@ impl Session {
             sent: 0,
             turn: None,
             stopping: None,
+            by_user: false,
             stop_within,
             running: HashSet::new(),
             brief: brief.map(Cow::into_owned),
@@ -417,7 +422,7 @@ impl Session {
     /// Closes the session and waits until its agent has stopped.
     pub(super) async fn close(&self) {
         // Refused when it already ends; either way it is waited for.
-        let _ = self.order(Command::Close).await;
+        let _ = self.order(Command::Close { by_user: false }).await;
         let mut live = self.live.clone();
         // An error means the task is gone, which also ends the wait.
         let _ = live.wait_for(|live| live.status() == Status::Ended).await;
