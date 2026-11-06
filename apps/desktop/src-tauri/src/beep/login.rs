@@ -57,8 +57,8 @@ async fn finish(app: &AppHandle, beep: &Beep, token: String) -> Result<()> {
     let token = SecretText::new(token.trim());
     beep.guest_call(CompleteLogin { token }).await?;
     if beep.link_state() != LinkState::Linked {
-        // The guest connection is on its way out; the next call signs in.
-        beep.forget_connection().await;
+        // The key is on the account now; its events stream opens as it.
+        beep.restart_events();
         beep.set_link_state(LinkState::Linked);
         tray::became_linked(app);
     }
