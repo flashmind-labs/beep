@@ -37,25 +37,39 @@ pub struct SyncRow {
 
 /// The innermost imported project holding `cwd` on `endpoint`, else the folder's own name.
 pub fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
+    imported_project_of(endpoint, cwd, imports).unwrap_or_else(|| {
+        let cwd = cwd.trim_end_matches(is_separator);
+        match cwd.rsplit(is_separator).next() {
+            Some(name) if !name.is_empty() => name.to_owned(),
+            _ => cwd.to_owned(),
+        }
+    })
+}
+
+/// The innermost imported project holding `cwd` on `endpoint`, if any.
+pub fn imported_project_of(
+    endpoint: &EndpointId,
+    cwd: &str,
+    imports: &[ImportRow],
+) -> Option<String> {
     let endpoint = endpoint.to_string();
-    let separator = |c: char| c == '/' || c == '\\';
-    let cwd = cwd.trim_end_matches(separator);
+    let cwd = cwd.trim_end_matches(is_separator);
     let holds = |folder: &str| {
-        let folder = folder.trim_end_matches(separator);
+        let folder = folder.trim_end_matches(is_separator);
         !folder.is_empty()
             && cwd
                 .strip_prefix(folder)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with(separator))
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(is_separator))
     };
     imports
         .iter()
         .filter(|import| import.endpoint == endpoint && holds(&import.folder))
         .max_by_key(|import| import.folder.len())
         .map(|import| import.project.clone())
-        .unwrap_or_else(|| match cwd.rsplit(separator).next() {
-            Some(name) if !name.is_empty() => name.to_owned(),
-            _ => cwd.to_owned(),
-        })
+}
+
+fn is_separator(c: char) -> bool {
+    c == '/' || c == '\\'
 }
 
 #[cfg(test)]

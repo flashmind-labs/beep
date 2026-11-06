@@ -212,6 +212,11 @@ function spendRow(name: Node | string, cost: string, extra: string, strong = fal
   return h("div", "us-row", typeof name === "string" ? h(tag, "", name) : name, right);
 }
 
+/// How many projects a period lists before "Show more".
+const SHOWN_PROJECTS = 5;
+/// Whether the user asked to see every project, for the app's run.
+let allProjects = false;
+
 function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void) {
   const period = view[key] ?? view.today;
   const metered = !!view.metered;
@@ -226,7 +231,15 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
   const block = h("div", "", seg);
   if (period.projects.length) {
     block.append(h("h5", "", h("span", "", "By project"), metered ? null : h("span", "", "at API prices")));
-    for (const s of period.projects) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", projectExtra(s, metered)));
+    const shown = allProjects ? period.projects : period.projects.slice(0, SHOWN_PROJECTS);
+    for (const s of shown) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", projectExtra(s, metered)));
+    const more = period.projects.length - SHOWN_PROJECTS;
+    if (more > 0) {
+      const b = h("button", "us-more", allProjects ? "Show less" : `Show ${more} more`);
+      b.type = "button";
+      b.addEventListener("click", () => { allProjects = !allProjects; pick(key); });
+      block.append(b);
+    }
   } else if (key === "today") {
     block.append(h("div", "us-row", h("small", "", "Nothing yet today")));
   }
