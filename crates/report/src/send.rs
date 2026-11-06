@@ -1,9 +1,8 @@
 //! Posts a report zip to the server, signed by the device key.
 
 use beep_proto::ApiError;
-use beep_proto::LINK_HOST;
 use beep_proto::report::{
-    KEY_HEADER, PATH, Receipt, SIGNATURE_HEADER, TIME_HEADER, signed_message,
+    KEY_HEADER, PATH, Receipt, SIGNATURE_HEADER, TIME_HEADER, default_server, signed_message,
 };
 use iroh::SecretKey;
 use reqwest::Client;
@@ -34,7 +33,7 @@ const SEND_LIMIT: Duration = Duration::from_secs(60);
 pub fn server_url() -> Result<Url, SendError> {
     let url = match env::var("BEEP_REPORT_URL") {
         Ok(url) => url,
-        Err(VarError::NotPresent) => format!("https://{LINK_HOST}"),
+        Err(VarError::NotPresent) => default_server(),
         Err(e) => return Err(SendError::Url(e.to_string())),
     };
     Url::parse(&url).map_err(|e: ParseError| SendError::Url(e.to_string()))

@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
-use tauri::{State, async_runtime, ipc::Channel};
+use tauri::{State, ipc::Channel};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, ChildStderr, ChildStdout, Command},
@@ -31,8 +31,6 @@ use url::Url;
 
 /// How long the code may wait to be entered. GitHub's codes last 15 minutes.
 const LIMIT: Duration = Duration::from_secs(15 * 60);
-/// How long quitting waits for gh to be stopped.
-const QUIT_WAIT: Duration = Duration::from_secs(2);
 /// The longest error line from gh the bar shows.
 const REASON_CHARS: usize = 200;
 
@@ -101,18 +99,16 @@ impl GhSignIn {
         Some(running.ended)
     }
 
-    /// Stops the sign-in under way as Beep quits, and waits a moment for
-    /// gh to be killed so it does not outlive the app.
-    pub fn stop_on_quit(&self) {
-        let Some(ended) = self.stop() else {
-            return;
-        };
-        async_runtime::block_on(async {
+    /// Stops the sign-in under way as Beep quits. The future ends once gh
+    /// is killed, so it does not outlive the app; quitting bounds the wait.
+    pub fn stop_on_quit(&self) -> impl Future<Output = ()> + Send + 'static {
+        let ended = self.stop();
+        async move {
             // The sender is dropped, never sent on, once gh is gone.
-            if timeout(QUIT_WAIT, ended).await.is_err() {
-                log::warn!("gh was still signing in as Beep quit");
+            if let Some(ended) = ended {
+                ended.await.ok();
             }
-        });
+        }
     }
 }
 

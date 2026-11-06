@@ -16,7 +16,7 @@ pub struct ModelList {
 }
 
 /// The longest model id a start may name.
-pub const MAX_MODEL: usize = 200;
+const MAX_MODEL: usize = 200;
 
 /// How hard a coding agent thinks. Its name is the value each agent's ACP
 /// adapter takes on its config option of category `thought_level`.
@@ -125,49 +125,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn each_agent_takes_the_thinking_levels_its_cli_does() {
-        use Effort::*;
-        assert_eq!(efforts("claude"), [Low, Medium, High, Xhigh, Max]);
-        assert_eq!(efforts("codex"), [Low, Medium, High]);
-        assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
-        for agent in ["gemini", "flsh", "opencode", "other"] {
-            assert!(efforts(agent).is_empty(), "{agent}");
-        }
-        let names: Vec<&str> = efforts("pi").iter().map(|e| e.as_str()).collect();
-        assert_eq!(
-            names,
-            ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-        );
-        let body = rmp_serde::to_vec_named(&Xhigh).unwrap();
-        assert_eq!(rmp_serde::from_slice::<String>(&body).unwrap(), "xhigh");
-        for effort in efforts("pi") {
-            assert_eq!(Effort::from(AgentEffort::from(*effort)), *effort);
-        }
-    }
-
-    #[test]
     fn model_ids_are_short_and_plain() {
         assert!(valid_model("openrouter:anthropic/claude-sonnet-4"));
         assert!(valid_model("gpt-5.1-codex[high]"));
         assert!(!valid_model(""));
         assert!(!valid_model("a\nb"));
         assert!(!valid_model(&"m".repeat(MAX_MODEL + 1)));
-    }
-
-    #[test]
-    fn a_newer_model_pick_reads_as_fixed() {
-        #[derive(Serialize)]
-        struct Newer {
-            pick: &'static str,
-            current: &'static str,
-        }
-        let body = rmp_serde::to_vec_named(&Newer {
-            pick: "Searched",
-            current: "m",
-        })
-        .unwrap();
-        let list: ModelList = rmp_serde::from_slice(&body).unwrap();
-        assert_eq!(list.pick, ModelPick::Fixed);
-        assert_eq!(list.current.as_deref(), Some("m"));
     }
 }

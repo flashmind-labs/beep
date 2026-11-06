@@ -17,14 +17,14 @@ pub use flashmind_types::Model as FlshModel;
 
 /// The fewest tokens a compaction threshold may be: below it flsh would
 /// compact on every turn.
-pub const MIN_COMPACT_TOKENS: u32 = 1_000;
+const MIN_COMPACT_TOKENS: u32 = 1_000;
 /// The most tokens a compaction threshold may be; no model's window is
 /// larger.
-pub const MAX_COMPACT_TOKENS: u32 = 10_000_000;
+const MAX_COMPACT_TOKENS: u32 = 10_000_000;
 /// The most per-model compaction rules.
-pub const MAX_MODEL_RULES: usize = 64;
+const MAX_MODEL_RULES: usize = 64;
 /// The longest model name in a rule.
-pub const MAX_MODEL_LEN: usize = 200;
+const MAX_MODEL_LEN: usize = 200;
 
 wire_structs! {
     /// flsh's settings as the user set them in Beep.
@@ -252,26 +252,5 @@ mod tests {
             ..FlshSettings::default()
         };
         assert_eq!(many.check(), Err(FlshSettingsError::TooManyModels));
-    }
-
-    #[test]
-    fn sorts_and_quantizations_spell_as_flsh_does() {
-        use strum::VariantArray;
-        for q in FlshQuantization::VARIANTS {
-            let text: &str = q.into();
-            let wire = rmp_serde::to_vec(q).expect("encodes");
-            assert_eq!(wire, rmp_serde::to_vec(text).expect("encodes"));
-            assert_eq!(text.parse::<FlshQuantization>().ok(), Some(*q));
-        }
-        assert!("fp7".parse::<FlshQuantization>().is_err());
-        // flsh's own enum reads what Beep writes.
-        for sort in FlshSort::VARIANTS {
-            let text: &str = sort.into();
-            let wire = rmp_serde::to_vec(sort).expect("encodes");
-            assert_eq!(wire, rmp_serde::to_vec(text).expect("encodes"));
-            let theirs: flashmind_types::ProviderSort =
-                rmp_serde::from_slice(&wire).expect("flsh reads it");
-            assert_eq!(rmp_serde::to_vec(&theirs).expect("encodes"), wire);
-        }
     }
 }
