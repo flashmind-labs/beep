@@ -101,7 +101,7 @@ pub(crate) fn start(app: AppHandle) {
 async fn run(app: AppHandle) {
     let beep = app.state::<Arc<Beep>>().inner().clone();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    if beep.server().is_none() || beep.link_state() != LinkState::Linked {
+    if !beep.has_server() || beep.link_state() != LinkState::Linked {
         return;
     }
     let mesh = match fleet.ready().await {

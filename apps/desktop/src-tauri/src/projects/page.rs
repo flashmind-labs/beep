@@ -89,7 +89,7 @@ pub async fn project_machines(
 ) -> Result<Option<Vec<ProjectMachineRow>>> {
     // A project only the server has: until it is moved into the mesh, the server answers.
     let desk = match desk_or_server(&fleet, &beep).await? {
-        Some(desk) if desk.has_project(&project) || beep.server().is_none() => desk,
+        Some(desk) if desk.has_project(&project) || !beep.has_server() => desk,
         _ => {
             let machines = known(beep.call(ListProjectMachines { project }).await)?;
             return Ok(machines
@@ -215,7 +215,7 @@ pub async fn project_syncthing(
     project: String,
 ) -> Result<Vec<SyncthingPlace>> {
     match desk_or_server(&fleet, &beep).await? {
-        Some(desk) if desk.has_project(&project) || beep.server().is_none() => {
+        Some(desk) if desk.has_project(&project) || !beep.has_server() => {
             Ok(desk.syncthing(&project).await)
         }
         _ => Ok(known(beep.call(ListProjectSyncthing { project }).await)?.unwrap_or_default()),
@@ -232,7 +232,7 @@ pub async fn center_open_project(
 ) -> Result<ProjectAgent> {
     // With no server there is no project agent: the page still opens, on an id the name makes,
     // with no chat.
-    if beep.server().is_none() {
+    if !beep.has_server() {
         let found = desk(&fleet).await?.project_machines(&name).await;
         return found
             .map(|_| ProjectAgent {
@@ -317,7 +317,7 @@ pub async fn center_project(
     chat_id: Uuid,
 ) -> Result<ProjectView> {
     // No server, no project agent: nothing planned, nothing running, no chat.
-    if beep.server().is_none() {
+    if !beep.has_server() {
         return Ok(project_view(ProjectParts {
             chat_id,
             tasks: Vec::new(),

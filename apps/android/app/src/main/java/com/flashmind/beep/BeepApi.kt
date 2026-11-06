@@ -14,7 +14,7 @@ object BeepClients {
         // The old client's events stream would otherwise stay open until collected.
         cached?.client?.destroy()
         val version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
-        return BeepClient(BuildConfig.SERVER_URL, config.nodeId, identity, version).also {
+        return BeepClient(config.serverUrl, identity, version).also {
             it.setListener(Notices)
             cached = Cached(config, identity, it)
         }

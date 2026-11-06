@@ -170,7 +170,7 @@ impl<T: Clone + Send + 'static> Held<T> {
         R: Call<Reply = Vec<T>> + Sync,
     {
         let beep = app.state::<Arc<Beep>>().inner().clone();
-        if beep.server().is_none() {
+        if !beep.has_server() {
             return mesh;
         }
         self.refresh_with(app, async move { beep.call(request).await }, same);
@@ -336,7 +336,7 @@ pub async fn remove_machine(
             )
         });
     }
-    if beep.server().is_none() {
+    if !beep.has_server() {
         return Err(DesktopError::BadRequest("that is not a machine".into()));
     }
     match beep.call(RemoveMachine { machine_id: id }).await {

@@ -55,8 +55,8 @@ pub struct Beep {
     /// The one iroh endpoint of the app, which the mesh and the node link
     /// share.
     endpoint: Endpoint,
-    /// The server, if this app has one.
-    server: Option<Server>,
+    /// The server's client, if this app has a server.
+    server: Option<Arc<Client>>,
     pub(super) identity: Identity,
     /// The events stream, followed from the first call while linked until
     /// a sign-out.
@@ -73,33 +73,26 @@ pub struct Beep {
     copies: Copies,
 }
 
-/// A server this app talks to.
-struct Server {
-    id: EndpointId,
-    client: Arc<Client>,
-}
-
 impl Beep {
-    /// The app on `endpoint`, with a server or none. Reaches nothing: a
-    /// call reaches the server when it needs it.
+    /// The app on `endpoint`, with the server at its address or none.
+    /// Reaches nothing: a call reaches the server when it needs it.
     pub fn start(
         endpoint: Endpoint,
         identity: Identity,
-        server: Option<EndpointId>,
+        server: bool,
         file: StateFile,
         chats: Chats,
     ) -> (Arc<Self>, Notices) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let server = server.and_then(|id| match new_client(&identity) {
-            Ok(client) => Some(Server {
-                id,
-                client: Arc::new(client),
-            }),
-            Err(e) => {
-                log::warn!("the server's address is not valid: {e:#}");
-                None
-            }
-        });
+        let server = server
+            .then(|| new_client(&identity))
+            .and_then(|made| match made {
+                Ok(client) => Some(Arc::new(client)),
+                Err(e) => {
+                    log::warn!("the server's address is not valid: {e:#}");
+                    None
+                }
+            });
         let saved = file.load();
         (
             Arc::new(Self {
@@ -133,17 +126,20 @@ impl Beep {
         &self.endpoint
     }
 
-    /// The server this app talks to now, if it has one. None while signed
-    /// out, so what mirrors changes to the server leaves it alone.
-    pub fn server(&self) -> Option<EndpointId> {
-        self.server
-            .as_ref()
-            .filter(|_| !self.signed_out())
-            .map(|server| server.id)
+    /// Whether this app talks to a server now. Not while signed out, so
+    /// what mirrors changes to the server leaves it alone.
+    pub fn has_server(&self) -> bool {
+        self.server.is_some() && !self.signed_out()
     }
 
-    /// Whether this app is linked to a server: one is set and the link code
-    /// was used. The built-in server id alone is not a link.
+    /// The server's key, as the server at this app's address says.
+    pub(crate) async fn server_id(&self) -> Result<EndpointId> {
+        let client = self.reach()?;
+        connect_in_time(client.server_id(), CONNECT_TIMEOUT).await
+    }
+
+    /// Whether this app is linked to a server: it has one and the link code
+    /// was used. A server alone is not a link.
     pub fn linked(&self) -> bool {
         self.server.is_some() && self.link_state() == LinkState::Linked
     }
@@ -167,11 +163,11 @@ impl Beep {
     /// `Unlinked`, the answer of one with no account, so every path that
     /// works without a server works the same.
     fn reach(&self) -> Result<Arc<Client>> {
-        let server = self.server.as_ref().ok_or(DesktopError::NoServer)?;
+        let client = self.server.as_ref().ok_or(DesktopError::NoServer)?;
         if self.signed_out() {
             return Err(DesktopError::Unlinked);
         }
-        Ok(server.client.clone())
+        Ok(client.clone())
     }
 
     pub fn use_mac(&self) -> bool {
@@ -424,15 +420,6 @@ impl Beep {
         Ok(client)
     }
 
-    /// Makes `server` the one this app connects to from the next launch.
-    pub(super) fn choose_server(&self, server: EndpointId, link: LinkState) {
-        self.update_saved(|s| {
-            s.server = Some(server);
-            s.link = link;
-            s.signed_out = false;
-        });
-    }
-
     /// Maps a failed request, marking the key revoked when the server said so.
     pub(super) fn failed(&self, e: anyhow::Error) -> DesktopError {
         if refusal(&e) == Some(Refusal::Revoked) {
@@ -604,10 +591,10 @@ mod tests {
     /// The app on a loopback endpoint with no relay, so nothing reaches a
     /// network, and no server.
     async fn without_server(dir: &TempDir) -> Arc<Beep> {
-        app(dir, None).await
+        app(dir, false).await
     }
 
-    async fn app(dir: &TempDir, server: Option<EndpointId>) -> Arc<Beep> {
+    async fn app(dir: &TempDir, server: bool) -> Arc<Beep> {
         let identity = load_or_create(&dir.path().join("identity.key")).expect("a key is made");
         let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::generate())
@@ -630,7 +617,7 @@ mod tests {
     async fn a_request_only_a_server_answers_says_there_is_none() {
         let dir = TempDir::new().expect("a temp dir");
         let beep = without_server(&dir).await;
-        assert_eq!(beep.server(), None);
+        assert!(!beep.has_server());
         // Linked or not, there is nothing to connect to.
         for link in [LinkState::Unlinked, LinkState::Linked, LinkState::Revoked] {
             beep.set_link_state(link);
@@ -638,7 +625,7 @@ mod tests {
             assert!(matches!(error, DesktopError::NoServer), "{error:?}");
         }
         assert!(matches!(
-            beep.link_offer("Studio"),
+            beep.link_offer("Studio").await,
             Err(DesktopError::NoServer)
         ));
         assert!(!beep.has_login().await);
@@ -647,18 +634,17 @@ mod tests {
     #[tokio::test]
     async fn a_signed_out_mac_connects_to_nothing_and_signs_back_in_with_its_key() {
         let dir = TempDir::new().expect("a temp dir");
-        let server = SecretKey::generate().public();
         // A file as an earlier run left it: linked, then signed out.
         fs::write(
             dir.path().join("state.json"),
             r#"{"link":"linked","signed_out":true}"#,
         )
         .expect("the state is written");
-        let beep = app(&dir, Some(server)).await;
+        let beep = app(&dir, true).await;
         assert!(beep.signed_out());
         assert_eq!(beep.link_state(), LinkState::Unlinked);
         assert!(!beep.linked());
-        assert_eq!(beep.server(), None);
+        assert!(!beep.has_server());
         let error = beep.call(ListSessions {}).await.expect_err("signed out");
         assert!(matches!(error, DesktopError::Unlinked), "{error:?}");
         let error = beep
@@ -672,7 +658,7 @@ mod tests {
         beep.set_signed_out(false);
         assert!(!beep.signed_out());
         assert!(beep.linked());
-        assert_eq!(beep.server(), Some(server));
+        assert!(beep.has_server());
         // The link set while signed out ends the sign-out.
         beep.sign_out().await;
         assert!(beep.signed_out());
@@ -690,11 +676,10 @@ mod tests {
             format!(r#"{{"link":"linked","server":"{server}"}}"#),
         )
         .expect("the state is written");
-        let used = crate::beep::server_to_use(false, Some(server), "").expect("a choice");
-        let beep = app(&dir, used).await;
+        let beep = app(&dir, false).await;
         assert_eq!(beep.link_state(), LinkState::Unlinked);
         assert!(!beep.linked());
-        assert_eq!(beep.server(), None);
+        assert!(!beep.has_server());
         let error = beep.call(ListSessions {}).await.expect_err("no server");
         assert!(matches!(error, DesktopError::NoServer), "{error:?}");
         assert!(!beep.following(), "no events stream was opened");
@@ -704,15 +689,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_server_id_is_a_link_only_once_the_app_is_linked() {
+    async fn a_server_is_a_link_only_once_the_app_is_linked() {
         let dir = TempDir::new().expect("a temp dir");
         let none = without_server(&dir).await;
         none.set_link_state(LinkState::Linked);
         assert!(!none.linked(), "a link with no server is no link");
         let dir = TempDir::new().expect("a temp dir");
-        let built_in = SecretKey::generate().public();
-        let beep = app(&dir, Some(built_in)).await;
-        assert!(!beep.linked(), "a built-in id alone is no link");
+        let beep = app(&dir, true).await;
+        assert!(!beep.linked(), "a server alone is no link");
         beep.set_link_state(LinkState::Linked);
         assert!(beep.linked());
         beep.set_link_state(LinkState::Revoked);

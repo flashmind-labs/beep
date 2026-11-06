@@ -28,8 +28,6 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::time::timeout;
 use voice::Voice;
 
-/// The server's node id, baked in by build.rs.
-const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
 /// How long quitting waits for what saves state: the node's sync and
 /// transfer services, and gh being killed. The mesh writes each change to
 /// disk as it happens; goodbyes to peers still going at this point are cut.
@@ -510,9 +508,6 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let dir = beep::identity::data_dir(&handle)?;
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
     let file = StateFile::new(dir.join("state.json"));
-    // The server chosen with a link code, or the one built in; the app works without one, in the
-    // mesh, and with the switch off it never has one.
-    let server = beep::server_to_use(beep::SERVER_ENABLED, file.load().server, SERVER_NODE_ID)?;
     let chats = beep::sync::Chats::load(dir.join("sync"));
     let views = Arc::new(center::view_cache::ViewCache::load(
         dir.join("views.json"),
@@ -532,7 +527,13 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),
     ))?;
-    let (beep, notices) = Beep::start(endpoint.clone(), identity, server, file, chats);
+    let (beep, notices) = Beep::start(
+        endpoint.clone(),
+        identity,
+        beep::SERVER_ENABLED,
+        file,
+        chats,
+    );
     app.manage(beep.clone());
     // This Mac's node, and the mesh it is in, which opens in the background.
     let machine = machines::this_mac::Machine::new(&dir.join("node"), beep.linked());

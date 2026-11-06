@@ -55,9 +55,9 @@ there by default, and uploads, downloads and app attachments are saved there.
 Per-user nodes are set up by hand for now.
 
 The production server is deployed from the private ops repo, not from
-here. App builds pass its node id in `BEEP_NODE_ID` and its `https://`
-address in `BEEP_SERVER_URL` (repository variables in CI, `-PbeepNodeId` and
-`-PbeepServerUrl` for Gradle). Ask before deploying to it, and never stop or recreate it
+here. App builds pass its `https://` address in `BEEP_SERVER_URL` (a repository
+variable in CI, `-PbeepServerUrl` for Gradle); TLS vouches for the server, and its
+key comes from the server itself. Ask before deploying to it, and never stop or recreate it
 without asking. The on-prem bundle (`deploy/onprem/`) is retired.
 
 Moving an account: credentials are entered again on the desktop. A node in the mesh stops

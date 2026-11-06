@@ -242,7 +242,7 @@ pub async fn center_project_threads(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<ThreadRow>>> {
-    if beep.server().is_none() {
+    if !beep.has_server() {
         return Ok(None);
     }
     Ok(known(beep.call(ListProjectThreads { project_id }).await)?
@@ -325,7 +325,7 @@ pub async fn center_thread_chats(
     beep: Service<'_>,
     project_id: Uuid,
 ) -> Result<Option<Vec<ThreadChatRow>>> {
-    if beep.server().is_none() {
+    if !beep.has_server() {
         return Ok(None);
     }
     Ok(known(beep.call(ListThreadChats { project_id }).await)?

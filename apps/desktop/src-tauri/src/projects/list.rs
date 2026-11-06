@@ -95,7 +95,7 @@ pub async fn remove_project(
             mirror_remove(&beep, &project).await
         }
         // A project only the server has, until it is moved into the mesh.
-        Err(beep_fleet::FleetError::NotFound) if beep.server().is_some() => {
+        Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
             beep.call(RemoveProject { project }).await
         }
         Err(e) => Err(e.into()),

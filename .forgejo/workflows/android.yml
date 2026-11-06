@@ -7,9 +7,8 @@
 # repository variable PLAY_RELEASE_STATUS says `completed`, which Play only
 # accepts once the app has been published.
 #
-# The server's node id is the repository variable BEEP_NODE_ID, and where it
-# answers, an https:// address, is BEEP_SERVER_URL. Signing comes
-# from four secrets, ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# The server's https:// address is the repository variable BEEP_SERVER_URL.
+# Signing comes from four secrets, ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
 # ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD. Without them the APK is signed
 # with the runner's debug key and will not install over a build signed with
 # another one. GOOGLE_SERVICES_JSON, also a secret, turns on Firebase pushes.
@@ -82,7 +81,6 @@ jobs:
         working-directory: apps/android
         run: >-
           ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
-          -PbeepNodeId='${{ vars.BEEP_NODE_ID }}'
           -PbeepServerUrl='${{ vars.BEEP_SERVER_URL }}'
           -PbeepVersionCode=$((100 + ${{ github.run_number }}))
 

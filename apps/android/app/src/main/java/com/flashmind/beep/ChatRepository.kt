@@ -219,7 +219,7 @@ class ChatRepository(private val storage: LocalStorage) {
     }
 
     private fun backUp() {
-        scope.launch { backedUp.value = cloud.save(storage.identity(), settings.value.nodeId) }
+        scope.launch { backedUp.value = cloud.save(storage.identity(), settings.value.serverUrl) }
     }
 
     /** The server and this phone's identity, for a user to keep when the Google backup is not available. */

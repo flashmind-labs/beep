@@ -24,25 +24,23 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class ConnectionSettings(val nodeId: String = "") {
-    val configured get() = nodeId.isNotBlank()
-    companion object {
-        fun fromJson(raw: String): ConnectionSettings = ConnectionSettings(JSONObject(raw).getString("node_id"))
-    }
+data class ConnectionSettings(val serverUrl: String = "") {
+    val configured get() = serverUrl.isNotBlank()
 }
 
 /** A connection profile file: the server and, when exported from a phone, its identity. */
 class Profile(val settings: ConnectionSettings, val identity: ByteArray?) {
-    fun toJson(): String = JSONObject().put("node_id", settings.nodeId)
+    fun toJson(): String = JSONObject().put("server_url", settings.serverUrl)
         .apply { identity?.let { put("identity", it.joinToString("") { b -> "%02x".format(b) }) } }.toString()
     companion object {
         fun fromJson(raw: String): Profile {
-            val hex = JSONObject(raw).optString("identity")
+            val json = JSONObject(raw)
+            val hex = json.optString("identity")
             val identity = hex.takeIf { it.isNotEmpty() }?.let {
                 require(it.length == 64 && it.all { c -> c in "0123456789abcdefABCDEF" }) { "The profile's identity is not a key" }
                 it.chunked(2).map { b -> b.toInt(16).toByte() }.toByteArray()
             }
-            return Profile(ConnectionSettings.fromJson(raw), identity)
+            return Profile(ConnectionSettings(json.optString("server_url")), identity)
         }
     }
 }
@@ -165,7 +163,7 @@ class LocalStorage(internal val context: Context) {
         }.generateKey()
     }
     /** The server built into the app. */
-    fun loadSettings(): ConnectionSettings = ConnectionSettings(BuildConfig.SERVER_NODE_ID)
+    fun loadSettings(): ConnectionSettings = ConnectionSettings(BuildConfig.SERVER_URL)
     /** The saved iroh identity, or null if this phone has none yet. */
     fun storedIdentity(): ByteArray? = synchronized(identityLock) {
         cachedIdentity?.let { return it }
