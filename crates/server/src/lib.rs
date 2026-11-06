@@ -11,6 +11,7 @@ pub mod memory;
 pub mod nodes;
 pub mod projects;
 pub mod push;
+pub mod reports;
 pub mod research;
 pub mod routines;
 pub mod store;

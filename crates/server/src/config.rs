@@ -5,6 +5,7 @@ use std::{
     env,
     fs::{self, OpenOptions},
     io::{self, Write},
+    net::IpAddr,
     os::unix::fs::OpenOptionsExt,
     path::Path,
     path::PathBuf,
@@ -19,7 +20,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use flashmind::types::{Model, ProviderPreferences, ProviderSort, Quantization, ReasoningLevel};
-use iroh::SecretKey;
+use iroh::{EndpointId, SecretKey};
 use secrecy::SecretString;
 use serde::{Deserialize, de::IgnoredAny};
 
@@ -94,6 +95,44 @@ pub struct Config {
     /// The agents that read finished chats.
     #[serde(default)]
     pub watchers: WatchersConfig,
+    /// Where problem reports are kept, and who may send them.
+    #[serde(default)]
+    pub reports: ReportsConfig,
+}
+
+/// The config's `[reports]`. With neither `r2` nor `folder` the route
+/// refuses every report; `r2` wins when both are set.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReportsConfig {
+    /// A local folder to keep reports in, for dev and tests.
+    pub folder: Option<PathBuf>,
+    pub r2: Option<R2Config>,
+    pub per_key_per_day: u32,
+    pub blocked_keys: Vec<EndpointId>,
+    pub blocked_ips: Vec<IpAddr>,
+}
+
+impl Default for ReportsConfig {
+    fn default() -> Self {
+        Self {
+            folder: None,
+            r2: None,
+            per_key_per_day: 20,
+            blocked_keys: Vec::new(),
+            blocked_ips: Vec::new(),
+        }
+    }
+}
+
+/// The private R2 bucket reports go to.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct R2Config {
+    pub account_id: String,
+    pub bucket: String,
+    pub access_key_id: SecretString,
+    pub secret_access_key: SecretString,
 }
 
 /// The config's `[project]`.
@@ -242,6 +281,35 @@ mod tests {
         )
         .expect("old agent tables are ignored");
         assert_eq!(config.model_choices.len(), 1);
+    }
+
+    #[test]
+    fn reports_are_optional_and_read_keys_and_addresses() {
+        let model = r#"model = "openrouter:z-ai/glm-5.3-flash""#;
+        let config: Config = toml::from_str(model).expect("a config without [reports] loads");
+        assert_eq!(config.reports.per_key_per_day, 20);
+        assert!(config.reports.r2.is_none() && config.reports.folder.is_none());
+
+        let key = SecretKey::generate().public();
+        let config: Config = toml::from_str(&format!(
+            r#"
+            {model}
+            [reports]
+            per_key_per_day = 3
+            blocked_keys = ["{key}"]
+            blocked_ips = ["192.0.2.7", "2001:db8::1"]
+            [reports.r2]
+            account_id = "account"
+            bucket = "reports"
+            access_key_id = "id"
+            secret_access_key = "secret"
+            "#
+        ))
+        .expect("a [reports] section loads");
+        assert_eq!(config.reports.per_key_per_day, 3);
+        assert_eq!(config.reports.blocked_keys, [key]);
+        assert_eq!(config.reports.blocked_ips.len(), 2);
+        assert_eq!(config.reports.r2.expect("r2 is set").bucket, "reports");
     }
 
     #[test]
