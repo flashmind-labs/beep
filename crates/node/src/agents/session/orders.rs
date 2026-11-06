@@ -73,11 +73,12 @@ impl Actor {
                 self.show_queued();
                 Ok(Ok(()))
             }
-            Command::Cancel { keep_steers } => {
+            Command::Cancel { by_user } => {
                 self.queued.clear();
-                if !keep_steers {
+                if !by_user {
                     self.steers.clear();
                 }
+                self.by_user |= by_user && self.turn.is_some();
                 self.show_queued();
                 while let Some(asked) = self.asked.pop_front() {
                     asked.waiting.cancel()?;
@@ -91,7 +92,7 @@ impl Actor {
                 self.stop_due();
                 Ok(Ok(()))
             }
-            Command::Close => Ok(Ok(())),
+            Command::Close { .. } => Ok(Ok(())),
             Command::Moving { stop } => {
                 self.moving = true;
                 if stop {

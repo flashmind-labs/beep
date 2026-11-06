@@ -663,6 +663,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dsubrow .x { display: grid; place-items: center; height: 20px; color: var(--muted); font-style: normal; visibility: hidden }
 .dsubrow:hover .x { visibility: visible }
 .dsubrow .x:hover { color: var(--fg) }
+.dsubrow.stoppable, .agpview.subs .dsubrow.stoppable { grid-template-columns: 16px minmax(0, 1fr) auto }
+.dsubrow .kstop { align-self: center; font-style: normal; font-size: 12px; line-height: 18px; padding: 0 8px; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm) }
+.dsubrow .kstop:hover { color: var(--fg) }
 .agpstage { flex: 1; min-height: 0; position: relative; overflow: hidden; display: grid; place-items: center; background: var(--deep) }
 .agpstage.img { display: block; cursor: grab; touch-action: none } .agpstage.img.drag { cursor: grabbing }
 .agpstage.img img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; image-rendering: auto; user-select: none; -webkit-user-drag: none }
