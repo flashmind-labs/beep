@@ -13,8 +13,9 @@ struct OnboardingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Image(systemName: "bubble.left")
-                    .font(.display(18))
+                Image("flashmind_mark")
+                    .resizable()
+                    .frame(width: 24, height: 24)
                     .frame(width: 56, height: 56)
                     .chunky(Mint.user, radius: 18)
                 Text("Almost ready.".display).font(.display(24)).foregroundStyle(Mint.ink)
