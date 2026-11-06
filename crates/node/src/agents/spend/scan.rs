@@ -304,8 +304,10 @@ fn parse(agent: Agent, text: &str) -> Option<Line> {
     }
 }
 
-/// The databases of OpenCode and flsh.
-fn list_databases(roots: &Roots) -> Vec<(Agent, PathBuf)> {
+/// The databases of OpenCode and flsh, and flsh's session files written
+/// since `since`, each read whole like a database. A database flsh has
+/// imported into session files is left out, so nothing counts twice.
+fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
     let mut out: Vec<(Agent, PathBuf)> = Vec::new();
     if let Some(root) = &roots.opencode {
         out.extend(
@@ -318,11 +320,16 @@ fn list_databases(roots: &Roots) -> Vec<(Agent, PathBuf)> {
         out.extend(
             subfolders(root)
                 .into_iter()
+                .filter(|dir| !dir.join(".sqlite-imported").exists())
                 .map(|dir| dir.join("sessions.db"))
                 .filter(|path| path.is_file())
                 .take(MAX_DATABASES)
                 .map(|path| (Agent::Flsh, path)),
         );
+        let jsonl = |path: &Path| path.extension().is_some_and(|ext| ext == "jsonl");
+        let mut files = Vec::new();
+        collect(Agent::Flsh, root, 1, &jsonl, since, &mut files);
+        out.extend(files.into_iter().map(|file| (Agent::Flsh, file.path)));
     }
     out
 }
@@ -344,7 +351,7 @@ fn database_stamp(path: &Path) -> io::Result<Stamp> {
 
 /// Reads each database that changed again, whole from `since`.
 fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut Accounts) {
-    let listed = list_databases(roots);
+    let listed = list_databases(roots, since);
     let paths: HashSet<&Path> = listed.iter().map(|(_, path)| path.as_path()).collect();
     let before = ledger.databases.len();
     ledger
@@ -361,8 +368,14 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
             continue;
         }
         let read = match agent {
-            Agent::OpenCode => databases::opencode(path, since, accounts),
-            _ => databases::flsh(path, since, accounts),
+            Agent::OpenCode => {
+                databases::opencode(path, since, accounts).map_err(|e| e.to_string())
+            }
+            _ if path.extension().is_some_and(|ext| ext == "jsonl") => {
+                let counted = ledger.databases.get(path).and_then(|read| read.counted);
+                databases::flsh_file(path, counted.as_ref(), accounts).map_err(|e| e.to_string())
+            }
+            _ => databases::flsh(path, since, accounts).map_err(|e| e.to_string()),
         };
         let entry = ledger.databases.entry(path.clone()).or_insert(Database {
             agent: Some(*agent),
