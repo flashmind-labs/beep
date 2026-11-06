@@ -206,7 +206,7 @@ fn gh_account(status: &str) -> Option<String> {
 }
 
 /// The OS release, such as "Ubuntu 24.04" or "macOS 26.3".
-pub(crate) async fn os_version() -> String {
+pub async fn os_version() -> String {
     match env::consts::OS {
         "macos" => match output("sw_vers", &["-productVersion"])
             .await

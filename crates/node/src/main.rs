@@ -8,6 +8,7 @@ use beep_node::{
 
 use anyhow::{Context, Result};
 use beep_proto::logging::{self, RollingFile};
+use beep_report::Period;
 use clap::{FromArgMatches, Parser, Subcommand};
 use std::{
     path::{Path, PathBuf},
@@ -191,6 +192,24 @@ enum Command {
     /// Says so when no node is running.
     #[command(visible_aliases = ["s", "st"])]
     Status,
+    /// Sends a problem report with every machine's log to Beep.
+    ///
+    /// Collects the log, status, version and OS of every machine of the
+    /// mesh through the node running from `--dir` (this machine alone when
+    /// none runs), shows what it will send, and sends it once you agree.
+    /// Afterwards it can open a GitHub issue with your own `gh`, without
+    /// logs or machine names.
+    Report {
+        /// How far back the logs reach: hour, today or day.
+        #[arg(long, default_value = "today")]
+        period: Period,
+        /// Sends without asking, and opens no GitHub issue.
+        #[arg(long)]
+        yes: bool,
+        /// What happened; asked for when not given.
+        #[arg(long, value_name = "TEXT")]
+        message: Option<String>,
+    },
     /// Prints the version.
     Version,
 }
@@ -507,6 +526,11 @@ async fn main() -> Result<()> {
             print!("{text}");
             Ok(())
         }
+        Command::Report {
+            period,
+            yes,
+            message,
+        } => cli::report::run(&dir, period, yes, message).await,
         Command::Version => {
             println!("beep-node {}", cli::status::VERSION);
             Ok(())

@@ -36,7 +36,7 @@ impl Logs {
     }
 
     /// The log from Unix second `since` on, the newest `max_bytes` of it.
-    pub(crate) fn window(&self, since: i64, max_bytes: usize) -> Result<String> {
+    pub fn window(&self, since: i64, max_bytes: usize) -> Result<String> {
         window(&self.files, since, max_bytes)
     }
 }

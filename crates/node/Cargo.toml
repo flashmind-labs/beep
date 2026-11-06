@@ -10,6 +10,7 @@ default = ["cli"]
 # The command line; a host that embeds the node, such as the Mac app, leaves it out.
 # `beep-node update` comes with it, with what it downloads and unpacks with.
 cli = [
+    "dep:chrono",
     "dep:clap",
     "beep-proto/logging",
     "dep:reqwest",
@@ -33,7 +34,9 @@ bao-tree = "0.17"
 base64 = "0.22"
 beep-mesh = { path = "../mesh" }
 beep-proto = { path = "../proto" }
+beep-report = { path = "../report" }
 blake3 = "1"
+chrono = { version = "0.4", optional = true }
 clap = { version = "4", features = ["derive", "env"], optional = true }
 dirs = "7"
 fastrand = "2"
