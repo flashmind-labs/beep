@@ -844,6 +844,7 @@ mod tools {
             (Tool::AgentCount, "agent_count"),
             (Tool::Review, "review"),
             (Tool::SubmitReview, "submit_review"),
+            (Tool::AgentNote, "agent_note"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));

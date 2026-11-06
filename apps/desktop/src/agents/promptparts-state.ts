@@ -1,13 +1,16 @@
 // A prompt entry split as the node tags it (crates/node/src/agents/tags.rs):
 // what Beep told the agent in <beep-context>, what another session sent in
-// <from-session id=".." name="..">, and the user's own words around them.
+// <from-session id=".." name="..">, what a child it started came to in
+// <beep-child id=".." name=".." state="finished|asking">, and the user's own
+// words around them.
 
 export type PromptPart =
   | { kind: "user"; text: string }
   | { kind: "context"; text: string }
-  | { kind: "session"; id: string; name: string; text: string };
+  | { kind: "session"; id: string; name: string; text: string }
+  | { kind: "child"; id: string; name: string; state: string; text: string };
 
-const OPEN = /<(beep-context|from-session)([ >])/g;
+const OPEN = /<(beep-context|from-session|beep-child)([ >])/g;
 
 const unescape = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 
@@ -36,6 +39,8 @@ export function promptParts(text: string): PromptPart[] {
     rest = end < 0 ? "" : body.slice(end + close.length);
     parts.push(tag === "beep-context"
       ? { kind: "context", text: inner }
-      : { kind: "session", id: attribute(head, "id"), name: attribute(head, "name"), text: inner });
+      : tag === "beep-child"
+        ? { kind: "child", id: attribute(head, "id"), name: attribute(head, "name"), state: attribute(head, "state"), text: inner }
+        : { kind: "session", id: attribute(head, "id"), name: attribute(head, "name"), text: inner });
   }
 }
