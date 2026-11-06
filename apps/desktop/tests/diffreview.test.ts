@@ -16,25 +16,36 @@ test("the review names each line, removed line, whole file and rename, in diff o
     file("src/old.rs", { status: "deleted" }),
     file("src/new.rs", { status: "renamed", old_path: "src/old2.rs" }),
   ];
-  const text = reviewText(files, [
+  const text = reviewText("Review on worktree: ~/srv/app-side", files, [
     whole("src/new.rs", "Keep the old name."),
     line("src/login.rs", 50, "Why did this go?", "old"),
     whole("src/old.rs", "The iOS app still reads it."),
     line("src/login.rs", 42, "Use the shared limit here."),
   ]);
   assert.equal(text, [
-    "Review of your changes:",
+    "# Review on worktree: ~/srv/app-side",
     "",
-    "src/login.rs:42: Use the shared limit here.",
-    "src/login.rs:50 (removed line): Why did this go?",
-    "src/old.rs (whole file, deleted): The iOS app still reads it.",
-    "src/new.rs (whole file, renamed from src/old2.rs): Keep the old name.",
+    "### src/login.rs:42",
+    "",
+    "Use the shared limit here.",
+    "",
+    "### src/login.rs:50 (removed line)",
+    "",
+    "Why did this go?",
+    "",
+    "### src/old.rs (whole file, deleted)",
+    "",
+    "The iOS app still reads it.",
+    "",
+    "### src/new.rs (whole file, renamed from src/old2.rs)",
+    "",
+    "Keep the old name.",
   ].join("\n"));
 });
 
 test("within a file the whole-file comment comes first, then lines, old side before new", () => {
-  const text = reviewText([file("a.ts")], [line("a.ts", 9, "three"), line("a.ts", 9, "two", "old"), whole("a.ts", "one")]);
-  assert.deepEqual(text.split("\n").slice(2), ["a.ts (whole file): one", "a.ts:9 (removed line): two", "a.ts:9: three"]);
+  const text = reviewText("Review on ~/app", [file("a.ts")], [line("a.ts", 9, "three"), line("a.ts", 9, "two", "old"), whole("a.ts", "one")]);
+  assert.deepEqual(text.split("\n").filter(l => l.startsWith("#")), ["# Review on ~/app", "### a.ts (whole file)", "### a.ts:9 (removed line)", "### a.ts:9"]);
 });
 
 test("a comment whose line is gone moves to the top of its file, and one whose file is gone is kept apart", () => {

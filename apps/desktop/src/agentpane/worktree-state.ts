@@ -152,10 +152,10 @@ export function mentioned(root: string, cwd: string, rel: string) {
   return bare(root) === bare(cwd) ? rel : resolvePath(root, rel);
 }
 
-/// The first line of a review, led by the worktree it is of when that is
-/// not the session's folder.
-export function reviewIn(text: string, root: string, cwd: string) {
-  return bare(root) === bare(cwd) ? text : `In ${root}: ${text}`;
+/// The heading of a review of the changes in `folder` (as the user reads it,
+/// `~` for home), a linked worktree or a plain checkout.
+export function reviewHeading(folder: string, worktree: boolean) {
+  return worktree ? `Review on worktree: ${folder}` : `Review on ${folder}`;
 }
 
 /// Where Beep and Claude Code make worktrees, under a checkout.
