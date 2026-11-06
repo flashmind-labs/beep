@@ -569,56 +569,6 @@ mod read {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
-
-    /// A stand-in for `claude auth login`: prints a link, reads the code,
-    /// and signs in only with the right one.
-    const FAKE_CLAUDE: &str = "#!/bin/sh\n\
-        echo 'Opening browser to sign in'\n\
-        echo 'If the browser did not open, visit: https://claude.com/cai/oauth/authorize?code=true'\n\
-        printf 'Paste code here if prompted > '\n\
-        read code\n\
-        [ \"$code\" = right-code ] && echo 'Login successful.' && exit 0\n\
-        echo 'OAuth error: invalid code'; exit 1\n";
-
-    fn fake(dir: &std::path::Path) -> PathBuf {
-        let path = dir.join("claude");
-        std::fs::write(&path, FAKE_CLAUDE).expect("writes the script");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            .expect("makes it runnable");
-        path
-    }
-
-    async fn sign_in(code: &str) -> State {
-        let dir = tempfile::tempdir().expect("a temp folder");
-        let (state_tx, mut state) = watch::channel(State::Starting {});
-        let (orders, orders_rx) = mpsc::channel(4);
-        let running = tokio::spawn(run(
-            Tool::Claude,
-            Some(fake(dir.path())),
-            state_tx,
-            orders_rx,
-        ));
-        let waiting = state
-            .wait_for(|state| !matches!(state, State::Starting {}))
-            .await
-            .expect("the sign-in runs")
-            .clone();
-        assert_eq!(
-            waiting,
-            State::Waiting {
-                url: "https://claude.com/cai/oauth/authorize?code=true".into(),
-                code: None,
-                asks_code: true,
-            }
-        );
-        orders
-            .send(Order::Answer(format!("  {code}\n")))
-            .await
-            .expect("the sign-in takes the code");
-        running.await.expect("the sign-in ends");
-        state.borrow().clone()
-    }
 
     #[tokio::test]
     async fn unknown_tools_and_idle_ones_say_so() {
