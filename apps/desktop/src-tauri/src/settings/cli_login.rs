@@ -541,7 +541,7 @@ mod tests {
                    [work]\nurl   = https://git.example.com\ntoken = abc123\n\n\
                    [half]\nurl = https://code.example.org\n\n\
                    [bad]\nurl = not a url\ntoken = x\n\n\
-                   [last]\n; comment\ntoken=def456\nurl=http://git.example.net:8087\n";
+                   [last]\n; comment\ntoken=def456\nurl=http://git.example.net:3000\n";
         let logins = parse_tea(ini);
         let found: Vec<_> = logins
             .iter()
@@ -551,7 +551,7 @@ mod tests {
             found,
             [
                 ("https://git.example.com", "abc123"),
-                ("http://git.example.net:8087", "def456")
+                ("http://git.example.net:3000", "def456")
             ]
         );
     }

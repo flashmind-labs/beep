@@ -63,7 +63,10 @@ fn block(reason: &str) -> Value {
 }
 
 fn from_user(text: &str) -> String {
-    format!("The user sent this through Beep: {text}")
+    format!(
+        "{}\n{text}",
+        crate::agents::tags::context("The user sent this through Beep.")
+    )
 }
 
 fn deny(reason: &str) -> Value {

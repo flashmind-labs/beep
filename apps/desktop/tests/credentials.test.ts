@@ -42,8 +42,8 @@ test("drafts carry what the server takes", () => {
 });
 
 test("teacli servers not in Beep can be used", () => {
-  const cli: CliLogins = { github: { state: "missing" }, forgejo: [{ url: "https://git.example.com/" }, { url: "http://git.example.net:8087" }] };
-  assert.deepEqual(teaOffers(cli, list).map(s => s.url), ["http://git.example.net:8087"]);
+  const cli: CliLogins = { github: { state: "missing" }, forgejo: [{ url: "https://git.example.com/" }, { url: "http://git.example.net:3000" }] };
+  assert.deepEqual(teaOffers(cli, list).map(s => s.url), ["http://git.example.net:3000"]);
   assert.equal(teaHas(cli, "https://git.example.com"), true);
   assert.equal(teaHas(cli, "https://code.example.org"), false);
 });

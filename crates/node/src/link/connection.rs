@@ -72,6 +72,12 @@ const REPORT_TRAFFIC: Duration = Duration::from_secs(60);
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// The most sessions open at once; more are refused.
 const MAX_SESSIONS: usize = 32;
+/// How long a stopping node waits for its agent sessions to close. The stop
+/// steps add up to under the 10 s the command line gives a stop before it
+/// exits anyway.
+const STOP_SESSIONS: Duration = Duration::from_secs(3);
+/// How long a stopping node gives each other step.
+const STOP_STEP: Duration = Duration::from_secs(1);
 
 /// A session protocol a host serves beside the node's own, such as the Mac
 /// app's `desktop/1`.
@@ -274,17 +280,21 @@ pub async fn serve(
     // Stopped, the machine keeps no token: teacli's config, its shim and
     // the env vars go.
     if let Some(provision) = &offers.provision {
-        provision.forget().await;
+        stop_step("forgetting credentials", STOP_STEP, provision.forget()).await;
     }
     // Noted while they still run: the service manager ends them once the
     // node exits.
     let terminals = terminal::running();
-    log::info!("stopping the agent sessions");
-    offers.agents.shutdown().await;
+    stop_step(
+        "the agent sessions",
+        STOP_SESSIONS,
+        offers.agents.shutdown(),
+    )
+    .await;
     // The last word is the shutdown's: the keeper stops first, and its
     // write in flight lands before this one.
     keeping.abort();
-    if let Err(e) = (&mut keeping).await
+    if let Some(Err(e)) = stop_step("the note of what is open", STOP_STEP, &mut keeping).await
         && !e.is_cancelled()
     {
         log::warn!("the note of what is open was not kept: {e}");
@@ -296,15 +306,30 @@ pub async fn serve(
     if let Err(e) = reopen.save(&state.dir) {
         log::warn!("what was open will not open again: {e:#}");
     }
-    if let Err(e) = router.shutdown().await {
+    if let Some(Err(e)) = stop_step("the router", STOP_STEP, router.shutdown()).await {
         log::warn!("the router did not stop cleanly: {e:#}");
     }
     if let Some(transfers) = started
-        && let Err(e) = transfers.shutdown().await
+        && let Some(Err(e)) = stop_step("transfers", STOP_STEP, transfers.shutdown()).await
     {
         log::warn!("transfers did not stop cleanly: {e:#}");
     }
+    log::info!("stopped");
     Ok(())
+}
+
+/// Runs one step of stopping the node, logged, for at most `limit`; `None`
+/// when it took longer and was left.
+async fn stop_step<T>(name: &str, limit: Duration, step: impl Future<Output = T>) -> Option<T> {
+    log::info!("stopping: {name}");
+    let done = timeout(limit, step).await.ok();
+    if done.is_none() {
+        log::warn!(
+            "stopping: {name} took over {} s, going on without it",
+            limit.as_secs()
+        );
+    }
+    done
 }
 
 /// One connection to `server`, served until it closes: the hello, the
