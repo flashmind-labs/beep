@@ -13,7 +13,8 @@ use beep_projects::issues::{
 };
 use beep_projects::model::plain_path;
 use beep_proto::{
-    LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest, PullRequestHead,
+    GitItemKind, LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest,
+    PullRequestHead, ThreadDetail,
 };
 use std::future::Future;
 use uuid::Uuid;
@@ -101,6 +102,27 @@ impl Desk {
             })
         })
         .await
+    }
+
+    /// Pull request or issue `number` read in full: its text, comments, review and checks.
+    pub async fn thread_detail(&self, project: &str, number: u64) -> Result<ThreadDetail> {
+        self.host_first(project, |store, machines| async move {
+            Ok(beep_projects::thread_detail::read(&store, &machines, number).await?)
+        })
+        .await
+    }
+
+    /// Posts `body` as a comment on pull request or issue `number`, asking this Mac when the
+    /// project is checked out here, else another machine that has it. Never posted twice.
+    pub async fn comment_thread(
+        &self,
+        project: &str,
+        kind: GitItemKind,
+        number: u64,
+        body: &str,
+    ) -> Result<()> {
+        let (store, machines) = self.host_reads(project, true).await?;
+        Ok(beep_projects::thread_detail::comment(&store, &machines, kind, number, body).await?)
     }
 
     /// The project's open pull requests, with their labels, and its issues no task tracks. A list
