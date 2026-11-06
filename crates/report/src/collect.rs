@@ -169,11 +169,11 @@ async fn ask(client: &PeerClient, since: u64, share: &mut Share) -> Answer {
             }
             Err(MeshError::Declined { .. }) => Answer::OlderNode,
             Err(e) => Answer::Failed {
-                reason: e.to_string(),
+                reason: format!("{e:#}"),
             },
         },
         Err(e) => Answer::Failed {
-            reason: e.to_string(),
+            reason: format!("{e:#}"),
         },
     }
 }

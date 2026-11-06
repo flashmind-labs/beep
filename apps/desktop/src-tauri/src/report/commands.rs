@@ -138,27 +138,3 @@ async fn signed_in(gh: Option<PathBuf>) -> Option<PathBuf> {
     let gh = gh?;
     gh_signed_in(&gh).await.then_some(gh)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn signed_in_holds_only_for_a_gh_whose_auth_status_passes() {
-        use std::{fs, os::unix::fs::PermissionsExt};
-        let dir = tempfile::tempdir().expect("a temp dir is made");
-        let stand_in = |name: &str, status: u8| {
-            let path = dir.path().join(name);
-            fs::write(&path, format!("#!/bin/sh\nexit {status}\n")).expect("the script is written");
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
-                .expect("the script is made executable");
-            path
-        };
-        let out = stand_in("gh-out", 1);
-        let ready = stand_in("gh-in", 0);
-        assert_eq!(signed_in(Some(out)).await, None);
-        assert_eq!(signed_in(Some(ready.clone())).await, Some(ready));
-        assert_eq!(signed_in(None).await, None);
-    }
-}

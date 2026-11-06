@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 const MASK: &str = "[redacted]";
 
-const SECRET_KEY: &str = r"[A-Za-z0-9_.-]*(?:token|secret|password|passwd|api[_-]?key|private[_-]?key|credential|cookie)[A-Za-z0-9_.-]*";
+const SECRET_KEY: &str = r"[A-Za-z0-9_.-]*(?:token|secret|password|passwd|api[_-]?key|private[_-]?key|credential|cookie|[_-]key(?:[_-]?id)?\b|access[_-]?key)[A-Za-z0-9_.-]*";
 const SEP: &str = r#"["']?\s*[:=]\s*"#;
 const WRAPPER: &str = r"(?:[A-Za-z_][A-Za-z0-9_]*\()*";
 const OPEN: &str = r"(?:[A-Za-z_][A-Za-z0-9_]*)?\(";
@@ -127,6 +127,7 @@ impl Compiled {
             Skip::CounterOrOrdinary => {
                 (counter && numeric)
                     || ordinary_word(val)
+                    || key_path(&key, val)
                     || haystack[caps.name("val").map_or(0, |v| v.end())..].starts_with('(')
             }
             Skip::Flag => {
@@ -138,6 +139,12 @@ impl Compiled {
             }
         }
     }
+}
+
+/// A key file's path, as in `ssh_key=/path/to/key`.
+fn key_path(key: &str, val: &str) -> bool {
+    let key = key.trim_end_matches("id").trim_end_matches(['_', '-']);
+    key.ends_with("key") && val.starts_with('/')
 }
 
 /// A null or boolean, or a short plain word: not a secret.
@@ -270,6 +277,20 @@ mod tests {
                 "authorization: Bearer\nnext_line_value keep",
                 "authorization: [redacted]\nnext_line_value keep",
             ),
+            t("COMPOSIO_KEY=ak_abc123def456", "COMPOSIO_KEY=[redacted]"),
+            t(
+                "export STRIPE_KEY=rk_live_abc123def456",
+                "export STRIPE_KEY=[redacted]",
+            ),
+            t(
+                "website_key = \"wk_live_abc123def456\"",
+                "website_key = \"[redacted]\"",
+            ),
+            t(
+                "R2_ACCESS_KEY_ID=AKIAEXAMPLE1234",
+                "R2_ACCESS_KEY_ID=[redacted]",
+            ),
+            t("ssh_key=/path/to/key", "ssh_key=/path/to/key"),
             t(
                 "--token-file /path/to/work/tok --path-x",
                 "--token-file /path/to/work/tok --path-x",
