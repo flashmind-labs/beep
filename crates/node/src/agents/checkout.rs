@@ -18,7 +18,7 @@ use tokio::task::spawn_blocking;
 
 /// What a session Beep made no branch or worktree for is told ahead of its
 /// first prompt, so the agent makes its own when it changes files.
-const WORKTREE_BRIEF: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
+pub(super) const WORKTREE_BRIEF: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
 
 /// The most branch names tried, `beep/<slug>` then `-2` and on.
 const MAX_NAMES: u32 = 100;
