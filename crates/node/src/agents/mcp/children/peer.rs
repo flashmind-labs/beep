@@ -5,7 +5,7 @@
 
 use super::{ChildView, PeerCall};
 use crate::agents::{
-    family::{NO_AGENT, Parent, RemoteKid},
+    family::{ChildNote, NO_AGENT, Parent, RemoteKid},
     mcp::machines::over_the_mesh,
 };
 use beep_mesh::Mesh;
@@ -203,6 +203,27 @@ pub(crate) async fn ask_parent(
         // the question is too old to ask it of.
         Answer::Text(_) | Answer::Refused(_) => Parent::Keeps,
         Answer::Silent(_) => Parent::Silent,
+    }
+}
+
+/// Tells `peer`, the machine of the session `parent`, that its child here
+/// finished a turn or asks the user.
+pub(crate) async fn note_parent(
+    mesh: &Mesh,
+    peer: EndpointId,
+    parent: &str,
+    note: &ChildNote,
+) -> Result<(), String> {
+    let name = peer.fmt_short().to_string();
+    let call = Call {
+        mesh,
+        session: parent,
+        machine: peer,
+        name: &name,
+    };
+    match call.ask(Tool::AgentNote, &json!(note), REMOTE_LIMIT).await {
+        Answer::Text(_) => Ok(()),
+        Answer::Refused(why) | Answer::Silent(why) => Err(why),
     }
 }
 

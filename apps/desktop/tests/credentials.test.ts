@@ -31,13 +31,13 @@ test("a credential the server cannot open asks to be entered again", () => {
 });
 
 test("drafts carry what the server takes", () => {
-  assert.deepEqual(draft({ kind: "github" }, undefined, " ghp_x ", false).credential,
+  assert.deepEqual(draft({ kind: "github" }, undefined, " ghp_x ").credential,
     { kind: "github", secret: "ghp_x", to_machines: true });
   assert.ok(draft({ kind: "forgejo" }, "git.example.com", "t").error);
   assert.deepEqual(draft(editFor("forgejo:f1", list), undefined, "t").credential,
     { kind: "forgejo", url: "https://git.example.com", secret: "t", to_machines: true });
-  assert.deepEqual(draft(editFor("api:openrouter", list), undefined, "sk", false).credential,
-    { kind: "api_key", provider: "openrouter", secret: "sk", to_machines: false });
+  assert.deepEqual(draft(editFor("api:openrouter", list), undefined, "sk").credential,
+    { kind: "api_key", provider: "openrouter", secret: "sk", to_machines: true });
   assert.ok(draft({ kind: "github" }, undefined, "  ").error);
 });
 

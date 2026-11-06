@@ -2,6 +2,7 @@
 // makeReviews here.
 // A project's branches and the review of one before a merge.
 import { harnessEl } from "../ui/harnessicon.ts";
+import { pageShown } from "../ui/active.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
@@ -412,7 +413,7 @@ export function makeReviews(deps: ReviewDeps) {
     polling = name;
     if (!name) return;
     timer = setInterval(() => {
-      if (document.visibilityState === "visible") read(name);
+      if (pageShown()) read(name);
     }, POLL_MS);
   }
 
