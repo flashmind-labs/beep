@@ -13,6 +13,7 @@ testing = []
 anyhow = "1"
 bytes = "1"
 async-trait = "0.1"
+base64 = "0.22"
 beep-proto = { path = "../proto" }
 iroh = "1.3"
 futures = "0.3"

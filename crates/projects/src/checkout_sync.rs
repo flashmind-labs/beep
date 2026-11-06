@@ -1,7 +1,7 @@
 //! Pulling and pushing the branch a checkout has out, and reading how far it is from its
 //! upstream. The scripts run on the machine that holds the checkout, with its git sign-in.
 
-use crate::{Shell, branches::tail, quote};
+use crate::{NO_GIT_SH, Shell, branches::tail, quote};
 use anyhow::{Result, bail};
 use serde::Deserialize;
 use std::time::Duration;
@@ -141,6 +141,7 @@ pub async fn read_state(shell: &dyn Shell, folder: &str) -> Result<CheckoutState
     match ran.exit_code {
         Some(0) => parse_state(&ran.output),
         Some(3) => bail!("the project's folder is not there"),
+        Some(NO_GIT_SH) => bail!("{}", tail(&ran.output)),
         Some(code) => bail!("exited with {code}: {}", tail(&ran.output)),
         None => bail!("did not finish in time"),
     }

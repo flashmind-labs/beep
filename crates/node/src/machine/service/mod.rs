@@ -17,6 +17,7 @@ pub mod logs;
 mod parent;
 mod systemd;
 mod windows;
+pub(crate) use windows::plain as plain_path;
 
 /// How the service starts the node: the same command `setup` would serve.
 #[derive(Debug, Clone, PartialEq, Eq)]

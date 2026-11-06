@@ -7,6 +7,7 @@ use crate::{
     records::{WRITES, find_project, read, scan, write},
 };
 use beep_mesh::Key;
+use beep_projects::model::plain_path;
 use beep_proto::{
     ConflictKeep, MachineSync, MachineSyncDetail, ProjectMachine, ProjectSync, ProjectSyncDetail,
     SyncProgress, SyncStatus, SyncthingPlace,
@@ -260,7 +261,7 @@ impl Desk {
                 folder: record
                     .places
                     .get(&status.device.id)
-                    .map(|place| place.folder.clone()),
+                    .map(|place| plain_path(&place.folder).into_owned()),
                 checking: false,
                 checked_at: None,
             })

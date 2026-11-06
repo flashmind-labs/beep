@@ -19,6 +19,9 @@ use std::{future::Future, time::Duration};
 
 /// How long an ordinary read of the node's sessions may take.
 pub const READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a picture may take: a whole one is a few MiB, which a link
+/// through a busy relay carries in far more than `READ_TIMEOUT`.
+pub const IMAGE_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to list models: it may start the agent first.
 pub const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to read a diff: git may walk a large checkout.
@@ -252,7 +255,29 @@ pub async fn image<S: Sessions + ?Sized>(
         session: session.to_owned(),
         key: key.to_owned(),
     };
-    match ask(node, request).await? {
+    picture(node, request).await
+}
+
+/// `image` made small on the node, so only the thumbnail crosses the
+/// network. A node from before thumbnails closes the stream: the caller
+/// then asks for the whole picture.
+pub async fn thumb<S: Sessions + ?Sized>(
+    node: &S,
+    session: &str,
+    key: &str,
+) -> Result<Option<NodeImage>, MeshError> {
+    let request = SessionsRequest::Thumb {
+        session: session.to_owned(),
+        key: key.to_owned(),
+    };
+    picture(node, request).await
+}
+
+async fn picture<S: Sessions + ?Sized>(
+    node: &S,
+    request: SessionsRequest,
+) -> Result<Option<NodeImage>, MeshError> {
+    match node.sessions(request, IMAGE_TIMEOUT).await? {
         SessionsReply::Image { mime, data } => Ok(Some(NodeImage { mime, data })),
         SessionsReply::Error { .. } => Ok(None),
         other => Err(unexpected(&other)),
