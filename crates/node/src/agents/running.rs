@@ -2,7 +2,7 @@
 
 use super::{
     AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, MAX_RUNNING, NodeMode, Session, Start,
-    checkout, harnesses, live::Live, models, plans,
+    checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
 };
 use crate::{
     agents::mcp::{self, Launch, Upstream},
@@ -27,6 +27,7 @@ use std::{
 use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
+    time::timeout,
 };
 
 impl Agents {
@@ -169,7 +170,7 @@ impl Agents {
     /// outlives the stream that asked: a desktop listens only briefly, and a
     /// CLI that answers after it left still has its answer kept for the next
     /// look. A read ends within `plans::READ_TIMEOUT`.
-    pub(super) fn read_plans_soon(self: &Arc<Self>) {
+    pub(crate) fn read_plans_soon(self: &Arc<Self>) {
         if self.reading_plans.swap(true, Ordering::Relaxed) {
             return;
         }
@@ -178,6 +179,21 @@ impl Agents {
             agents.read_plans().await;
             agents.reading_plans.store(false, Ordering::Relaxed);
         });
+    }
+
+    /// Reads the plans once the node starts, so the first desktop to look
+    /// finds them read instead of waiting for Claude Code to start. It
+    /// waits for the user's agent settings, which say how each CLI signs in,
+    /// for `SETTINGS_WAIT` at most.
+    pub(crate) async fn read_plans_at_start(self: &Arc<Self>) {
+        let mut settled = self.settled.subscribe();
+        if timeout(SETTINGS_WAIT, settled.wait_for(|settled| *settled))
+            .await
+            .is_err()
+        {
+            log::debug!("reading the plans without the agent settings");
+        }
+        self.read_plans_soon();
     }
 
     /// Reads how much of each agent's plan is left from the CLIs of the
