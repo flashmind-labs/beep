@@ -871,7 +871,7 @@ async fn a_node_falls_back_to_maps_for_a_server_from_before_beep_node_2() {
     assert_eq!(hello.name, "box-a");
 }
 
-/// The job id a background `run_on` reports.
+/// The job id a background `remote_run` reports.
 fn job_id(text: &str) -> String {
     let rest = text.split("Job id: ").nth(1).expect("a job id is named");
     rest.chars().take_while(char::is_ascii_digit).collect()
@@ -2029,7 +2029,7 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
     );
     let (text, failed) = mcp
         .call(
-            "run_on",
+            "remote_run",
             json!({ "machine": "box-b", "command": "printenv HOME" }),
         )
         .await;
@@ -2039,7 +2039,7 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
     // The job it starts there is found again by the id the call gave.
     let (text, failed) = mcp
         .call(
-            "run_on",
+            "remote_run",
             json!({ "machine": "box-b", "command": "sleep 300", "background": true }),
         )
         .await;
@@ -2052,6 +2052,24 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
         .to_owned();
     let (text, failed) = mcp.call("cancel", json!({ "id": id })).await;
     assert!(!failed, "{text}");
+    // This machine, by name or id, is refused and nothing runs.
+    let marker = a.home.path().join("ran-here");
+    let command = format!("touch {}", marker.display());
+    for machine in ["box-a".to_owned(), a.id.to_string()] {
+        let (text, failed) = mcp
+            .call(
+                "remote_run",
+                json!({ "machine": machine, "command": command }),
+            )
+            .await;
+        assert!(failed, "{text}");
+        assert_eq!(
+            text,
+            "remote_run runs a command on another machine; box-a is this machine. Run the \
+             command here with your own shell tool."
+        );
+    }
+    assert!(!marker.exists());
 }
 
 #[cfg(unix)]
@@ -2068,7 +2086,7 @@ async fn coding_agents_get_no_memory_tools() {
     node.join(&desktop.ticket(DeviceKind::Node).await).await;
     let mut mcp = agent_mcp(&desktop, &node, work.path(), &sent).await;
     let tools = mcp.tools().await;
-    assert!(tools.iter().any(|tool| tool == "run_on"), "{tools:?}");
+    assert!(tools.iter().any(|tool| tool == "remote_run"), "{tools:?}");
     for memory in ["remember", "recall", "update_memory", "forget"] {
         assert!(!tools.iter().any(|tool| tool == memory), "{tools:?}");
     }

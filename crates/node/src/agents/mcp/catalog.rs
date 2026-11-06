@@ -4,6 +4,8 @@ use serde_json::{Value, json};
 
 /// The tool the node answers itself rather than the server.
 pub(super) const ASK_USER: &str = "ask_user";
+/// `tools/1` still calls it `run_on`.
+pub(super) const REMOTE_RUN: &str = "remote_run";
 
 /// Every tool, in the order agents see them.
 pub(super) fn tools() -> Value {
@@ -19,10 +21,11 @@ pub(super) fn tools() -> Value {
             "annotations": { "title": "List machines", "readOnlyHint": true }
         },
         {
-            "name": "run_on",
-            "description": "Run a shell command on one of the user's machines and return its \
-                exit code and the last 200 lines of output (stops after timeout_secs, default \
-                600, at most 1800), or with background=true start it there and return a job id \
+            "name": REMOTE_RUN,
+            "description": "Run a shell command on another of the user's machines, never the one \
+                you run on (use your own shell tool here), and return its exit code and the \
+                last 200 lines of output (stops after timeout_secs, default 600, at most \
+                1800), or with background=true start it there and return a job id \
                 at once. Follow a background command with job_status and cancel. It starts in \
                 the machine's home folder, or in `cwd`. To start a coding agent use start_agent.",
             "inputSchema": {
@@ -78,11 +81,11 @@ pub(super) fn tools() -> Value {
         },
         {
             "name": "job_status",
-            "description": "How a background command run_on started stands: its state and latest \
+            "description": "How a background command remote_run started stands: its state and latest \
                 output. For a coding agent use agent_status.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "id": { "type": "string", "description": "The job id run_on gave" } },
+                "properties": { "id": { "type": "string", "description": "The job id remote_run gave" } },
                 "required": ["id"],
                 "additionalProperties": false
             },
@@ -90,11 +93,11 @@ pub(super) fn tools() -> Value {
         },
         {
             "name": "cancel",
-            "description": "Stop a background command run_on started, with everything it \
+            "description": "Stop a background command remote_run started, with everything it \
                 started. For a coding agent use stop_agent.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "id": { "type": "string", "description": "The job id run_on gave" } },
+                "properties": { "id": { "type": "string", "description": "The job id remote_run gave" } },
                 "required": ["id"],
                 "additionalProperties": false
             },
