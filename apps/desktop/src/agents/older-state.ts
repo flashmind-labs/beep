@@ -19,6 +19,18 @@ export const OLDER_MAX = 5000;
 /// The most reads one search for a turn's prompt makes in a row.
 export const PROMPT_READS = 5;
 
+/// How many of the newest entries a poll asks for: a page when none are
+/// held, so a session opens with the view full at once, else `poll`.
+export const newestRead = (held: Run | null, poll: number) => held?.entries.length ? poll : OLDER_PAGE;
+
+/// What a run of older reads is for: the reader near the top, the oldest
+/// turn's prompt, or the whole log (Home).
+export type Reading = "near" | "prompt" | "all";
+
+/// Whether each page of a run is drawn as it comes: only for a reader
+/// scrolling up. The others draw once, so the log never fills in chunks.
+export const drawsEachPage = (mode: Reading) => mode === "near";
+
 /// Why no older entries will come: `old` when the machine's node does not
 /// read older entries, `gone` when it no longer has them, `full` when
 /// `OLDER_MAX` are held.
