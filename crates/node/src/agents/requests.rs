@@ -337,6 +337,19 @@ pub async fn serve_sessions(
                 Err(e) => failed(e),
             }
         }
+        SessionsRequest::StartReview { order } => match agents.start_review(order).await {
+            Ok(run) => SessionsReply::Review { run },
+            Err(message) => SessionsReply::Error { message },
+        },
+        SessionsRequest::Review { id } => match agents.review(&id) {
+            Some(run) => SessionsReply::Review { run },
+            None => SessionsReply::Error {
+                message: format!("there is no review {id}"),
+            },
+        },
+        SessionsRequest::Reviews { session } => SessionsReply::Reviews {
+            runs: agents.reviews_of(&session),
+        },
         other => SessionsReply::Error {
             message: format!("this node does not serve {other:?}"),
         },

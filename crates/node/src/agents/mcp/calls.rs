@@ -20,6 +20,8 @@ pub(crate) const PREFIX: &str = "Beep: ";
 /// - `Send <n> files to <machine>`
 /// - `Check job <id>`, `Cancel job <id>`
 /// - `Ask: <question>`
+/// - `Review changes`, `Review changes against <base>`, `Check review <id>`
+/// - `Submit review`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tool {
     ListMachines,
@@ -34,6 +36,8 @@ pub(crate) enum Tool {
     StopAgent,
     ListAgents,
     AskUser,
+    Review,
+    SubmitReview,
 }
 
 impl Tool {
@@ -52,6 +56,8 @@ impl Tool {
             "stop_agent" => Self::StopAgent,
             "list_agents" => Self::ListAgents,
             ASK_USER => Self::AskUser,
+            "review" => Self::Review,
+            "submit_review" => Self::SubmitReview,
             _ => return None,
         })
     }
@@ -156,6 +162,12 @@ impl Tool {
             Self::StopAgent => format!("{PREFIX}Stop agent {}", text("id").unwrap_or("")),
             Self::ListAgents => format!("{PREFIX}List agents"),
             Self::AskUser => with("Ask".to_owned(), text("question")),
+            Self::Review => match (text("id"), text("base")) {
+                (Some(id), _) => format!("{PREFIX}Check review {id}"),
+                (None, Some(base)) => format!("{PREFIX}Review changes against {base}"),
+                (None, None) => format!("{PREFIX}Review changes"),
+            },
+            Self::SubmitReview => format!("{PREFIX}Submit review"),
         }
         .trim_end()
         .to_owned()

@@ -1,21 +1,22 @@
 // Review with agent: the diff header's button, the start form's picker
-// under it, and what follows a pick. A pick starts a coding agent in the
-// diff's checkout on its machine, held until it is in a mode that does not
-// edit; it reads the diff with git and answers with a list of findings, which
-// become draft comments when its turn ends. A review is kept by diff id apart
-// from the view, so closing the diff does not lose it.
+// under it, and what follows a pick. A pick asks the node of the diff's
+// checkout to start a temporary reviewer there, a child of the session whose
+// changes the diff shows; it only reads, and hands its findings in with the
+// submit_review tool, which become draft comments. The reviewer never shows
+// as a session. A review is kept by diff id apart from the view, so closing
+// the diff does not lose it. Reviews the session asked for itself (its
+// `review` tool) become comments too, once.
 import {
-  type CanStart, type ReviewTarget, type Stage,
-  answerNote, answerOf, doneNote, holdPrompt, nextStep, parseFindings, readOnlyMode, reviewPrompt, reviewTarget, toComments, whyNot,
+  type CanStart, type ReviewRun, type ReviewTarget,
+  doneNote, findingsOf, reviewBase, reviewTarget, runState, toComments, whyNot,
 } from "./feedback-state.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
-import type { AgentHost, AgentModes, AgentPage, AgentSession, Started } from "../agents/agents.ts";
+import type { AgentHost } from "../agents/agents.ts";
 import type { Picked } from "../agents/agentpicker.ts";
 import { keepEffort } from "../agents/agentpick.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import { el } from "../ui/dom.ts";
 import { reason } from "../ui/format.ts";
-import { harnessEl } from "../ui/harnessicon.ts";
 /// Calls a Rust command; the Tauri binding loads on first use, so a diff view can be made where there is none.
 const invoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>) => (await import("../ui/tauri.ts")).invoke<T>(cmd, args);
 
@@ -26,31 +27,25 @@ const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" strok
 const agents = () => import("../agents/agents.ts");
 const picker = () => import("../agents/agentpicker.ts");
 
+/// How often a running review is read.
+const POLL_MS = 3000;
+
 /// A review in progress.
 interface Run {
   key: string;
-  session: AgentSession;
+  id: string;
+  machineId: string;
   agent: string;
-  target: ReviewTarget;
   root: string;
-  stage: Stage;
-  /// The read-only mode it was switched to, once asked for; "" when the harness has none.
-  mode: string | null;
   /// Reads the diff again, for when the view that started it is closed.
   load: () => Promise<DiffFile[]>;
-  /// Reads of the session that failed in a row.
+  /// Reads of the review that failed in a row.
   failed: number;
-  /// What the session last was, and since when.
-  status: string;
-  since: number;
 }
 
-/// A review's answer that could not be used, until it is dismissed.
-interface Note {
-  text: string;
-  session: AgentSession | null;
-}
-
+const runs = new Map<string, Run>();
+/// Why a review ended without one, until it is dismissed.
+const notes = new Map<string, string>();
 /// The diff last made for each id: what a finished review is handed to. It
 /// keeps the draft in storage as it changes, open or closed.
 interface Attached {
@@ -59,8 +54,6 @@ interface Attached {
   redraw: () => void;
 }
 
-const runs = new Map<string, Run>();
-const notes = new Map<string, Note>();
 const attached = new Map<string, Attached>();
 /// The harness, model and thinking last picked, for the next time.
 let lastPick: Pick<Picked, "agent" | "model" | "effort"> | null = null;
@@ -78,15 +71,40 @@ function readHosts(done: () => void) {
     .catch(e => { console.warn("agent hosts:", e); hosts ??= []; done(); });
 }
 
-const sessionRef = (s: AgentSession) => ({ machineId: s.machine_id, agent: s.agent, session: s.id });
+// ----- Reviews already taken -----
+
+const TAKEN_KEY = "beep.reviewsTaken";
+
+/// The reviews whose findings became comments, by diff id, so a deleted
+/// comment does not come back. Kept per viewer; lost storage only offers
+/// them again.
+function taken(): Record<string, string[]> {
+  try {
+    const got: unknown = JSON.parse(localStorage.getItem(TAKEN_KEY) || "{}");
+    return got && typeof got === "object" ? got as Record<string, string[]> : {};
+  } catch {
+    return {};
+  }
+}
+
+function wasTaken(key: string, id: string) {
+  return (taken()[key] ?? []).includes(id);
+}
+
+function markTaken(key: string, id: string) {
+  const all = taken();
+  all[key] = [...(all[key] ?? []).filter(x => x !== id), id].slice(-50);
+  try {
+    localStorage.setItem(TAKEN_KEY, JSON.stringify(all));
+  } catch {
+    // Without storage the review is only offered again.
+  }
+}
 
 // ----- Following a review -----
 
-/// Reads the session again after the session view's own wait, slower once it has been quiet.
-async function schedule(run: Run) {
-  const a = await agents();
-  const still = Date.now() - run.since;
-  window.setTimeout(() => tick(run), still >= a.AGENT_SLOW_AFTER ? a.AGENT_SLOW_MS : a.AGENT_POLL_MS);
+function schedule(run: Run) {
+  window.setTimeout(() => tick(run), POLL_MS);
 }
 
 function finish(run: Run) {
@@ -95,83 +113,42 @@ function finish(run: Run) {
 }
 
 function fail(run: Run, text: string) {
-  notes.set(run.key, { text, session: run.session });
+  notes.set(run.key, text);
   finish(run);
-}
-
-/// Closes a review session that could not be made read only.
-function closeSession(run: Run) {
-  invoke("agent_steer", { ...sessionRef(run.session), steer: "close" }).catch(e => console.warn("review session not closed:", e));
 }
 
 async function tick(run: Run) {
   if (runs.get(run.key) !== run) return;
-  let page: AgentPage;
+  let read: ReviewRun;
   try {
-    page = await invoke<AgentPage>("agent_view", { ...sessionRef(run.session), last: 8 });
+    read = await invoke<ReviewRun>("agent_review", { machineId: run.machineId, id: run.id });
     run.failed = 0;
   } catch (e) {
-    console.warn("review session not read:", e);
-    if (++run.failed >= 5) return finish(run);
+    console.warn("review not read:", e);
+    if (++run.failed >= 5) return fail(run, `The review could not be read: ${reason(e)}`);
     return schedule(run);
   }
   if (runs.get(run.key) !== run) return;
-  const status = page.session.status;
-  if (status !== run.status) { run.status = status; run.since = Date.now(); }
-  const step = nextStep(run.stage, { status, turns: page.turns, asking: !!page.session.question });
-  if (step === "gone") return finish(run);
-  if (step === "asked") return fail(run, "The agent asked a question instead of answering. Open the session to answer it.");
-  if (step === "wait") return schedule(run);
-  if (step === "send") {
-    try {
-      if (await sendReview(run)) run.stage = "review";
-    } catch (e) {
-      return fail(run, `Could not send the review request: ${reason(e)}`);
-    }
-    return schedule(run);
-  }
-  await deliver(run, answerOf(page));
-}
-
-/// The hold turn ended: puts the session in its read-only mode, checks it took,
-/// then sends the request. False until the mode shows.
-async function sendReview(run: Run) {
-  const at = sessionRef(run.session);
-  if (run.mode === null) {
-    const modes = await invoke<AgentModes | null>("agent_modes", at).catch(() => null);
-    const want = modes ? readOnlyMode(modes.modes) : null;
-    run.mode = want ?? "";
-    if (want) {
-      await invoke("agent_steer", { ...at, steer: { mode: { mode: want } } });
-      return false;
-    }
-  }
-  if (run.mode) {
-    const modes = await invoke<AgentModes | null>("agent_modes", at).catch(() => null);
-    if (modes?.current !== run.mode) {
-      closeSession(run);
-      throw new Error("the session did not go into its read-only mode, so it was closed");
-    }
-  }
-  await invoke("agent_steer", { ...at, steer: { prompt: { text: reviewPrompt(run.target, run.root, !!run.mode) } } });
-  return true;
-}
-
-/// The review's turn ended: its findings become draft comments, in the open
-/// diff or, with none open, in the stored draft.
-async function deliver(run: Run, answer: string) {
-  const name = agentLabel(run.agent);
-  const parsed = parseFindings(answer, run.root);
-  if (!parsed) return fail(run, answerNote(answer));
-  // The last diff that showed this review takes the comments, open or not: it keeps the draft.
-  const view = attached.get(run.key);
-  let files = view?.files() ?? null;
-  if (!files?.length) files = await run.load().catch(e => { console.warn("diff not read again:", e); return null; });
-  const comments = toComments(parsed.findings, files ?? [], run.agent);
-  const added = view ? view.add(comments) : 0;
-  const skipped = parsed.skipped ? `, ${parsed.skipped} unusable` : "";
-  say(run.key, `${doneNote(name, added, comments.length)}${skipped}`);
+  const state = runState(read);
+  if (state === "running") return schedule(run);
+  if (state === "failed") return fail(run, read.error || "The review failed.");
+  const n = await deliver(run.key, read, run.root, run.load);
+  say(run.key, n);
   finish(run);
+}
+
+/// A submitted review's findings become draft comments, in the open diff or,
+/// with none open, in the stored draft. Gives the line the header says.
+async function deliver(key: string, read: ReviewRun, root: string, load: () => Promise<DiffFile[]>) {
+  const review = read.review!;
+  markTaken(key, read.id);
+  // The last diff that showed this review takes the comments, open or not: it keeps the draft.
+  const view = attached.get(key);
+  let files = view?.files() ?? null;
+  if (!files?.length) files = await load().catch(e => { console.warn("diff not read again:", e); return null; });
+  const comments = toComments(findingsOf(review, root), files ?? [], read.agent);
+  const added = view ? view.add(comments) : 0;
+  return doneNote(agentLabel(read.agent), review.verdict, added, comments.length);
 }
 
 const saying = new Map<string, (text: string) => void>();
@@ -186,10 +163,10 @@ export interface FeedbackOpts {
   key: string;
   /// The machine the diff's checkout is on; null for a diff with none.
   machine: { id: string; name: string } | null;
+  /// The session whose changes the diff shows: the reviewer is its child.
+  session?: string;
   /// The harness to offer first.
   prefer?: string;
-  /// Opens a review's session.
-  open: (session: AgentSession) => void;
   /// The diff as read: its checkout and its files; null before it is.
   view: () => { root: string; base: string; merge_base: string; files: DiffFile[] } | null;
   /// Whether the diff shows the uncommitted changes only.
@@ -207,7 +184,7 @@ export interface FeedbackOpts {
 export interface Feedback {
   /// The button and its picker, for the header.
   el: HTMLElement;
-  /// A review's answer that could not be used, for under the header.
+  /// Why a review failed, for under the header.
   note: HTMLElement;
   /// Draws both again, as the diff changes.
   redraw: () => void;
@@ -223,6 +200,8 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   box.append(button, slot);
   let open = false;
   let starting = false;
+  /// When the session's own reviews were last read.
+  let tookAt = 0;
   const picked: Picked = { agent: "", model: "", effort: null, query: "" };
 
   const host = () => (o.machine ? hosts?.find(h => h.machine_id === o.machine!.id) ?? null : null);
@@ -251,7 +230,8 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     button.disabled = false;
     if (run) {
       button.append(el("span", "dspin"), "Reviewing ", el("small", "", agentLabel(run.agent)));
-      button.title = "Open the review session";
+      button.disabled = true;
+      button.title = "The reviewer only reads; its findings become comments here";
       return;
     }
     if (starting) {
@@ -272,24 +252,16 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   }
 
   function drawNote() {
-    const n = notes.get(o.key);
-    note.hidden = !n;
+    const text = notes.get(o.key);
+    note.hidden = !text;
     note.replaceChildren();
-    if (!n) return;
-    const pre = el("pre", "", n.text);
+    if (!text) return;
     const actions = el("div", "a");
-    if (n.session) {
-      const s = n.session;
-      const link = el("button", "dv-btn", "Open the session");
-      link.type = "button";
-      link.addEventListener("click", () => o.open(s));
-      actions.append(link);
-    }
     const dismiss = el("button", "dv-btn", "Dismiss");
     dismiss.type = "button";
     dismiss.addEventListener("click", () => { notes.delete(o.key); drawNote(); });
     actions.append(dismiss);
-    note.append(el("b", "", "The review did not end in a list of comments"), pre, actions);
+    note.append(el("b", "", "The review did not finish"), el("pre", "", text), actions);
     note.setAttribute("role", "status");
   }
 
@@ -342,18 +314,18 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const machine = o.machine;
     if (!v || !machine || starting || runs.has(o.key)) return;
     lastPick = { agent: picked.agent, model: picked.model, effort: picked.effort };
-    const target = reviewTarget(v, o.uncommitted());
+    const target: ReviewTarget = reviewTarget(v, o.uncommitted());
     const uncommitted = o.uncommitted();
     starting = true;
     drawButton();
     try {
-      const started = await invoke<Started>("agent_start", {
-        machineId: machine.id, agent: picked.agent, cwd: v.root, prompt: holdPrompt(target),
-        chat: null, model: picked.model.trim() || null, effort: picked.effort, checkout: null,
+      const started = await invoke<ReviewRun>("agent_review_start", {
+        machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(target),
+        parent: o.session ?? null, model: picked.model.trim() || null, effort: picked.effort,
       });
       const run: Run = {
-        key: o.key, session: started.session, agent: picked.agent, target, root: v.root, stage: "hold", mode: null,
-        load: () => o.load(uncommitted), failed: 0, status: started.session.status, since: Date.now(),
+        key: o.key, id: started.id, machineId: machine.id, agent: picked.agent, root: v.root,
+        load: () => o.load(uncommitted), failed: 0,
       };
       notes.delete(o.key);
       runs.set(o.key, run);
@@ -365,11 +337,24 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     redraw();
   }
 
+  /// The reviews the session asked for itself, not taken yet, become comments.
+  async function takeSessionReviews() {
+    const machine = o.machine;
+    if (!machine || !o.session) return;
+    const list = await invoke<ReviewRun[]>("agent_reviews", { machineId: machine.id, session: o.session })
+      .catch(e => { console.warn("session reviews not read:", e); return [] as ReviewRun[]; });
+    const root = o.view()?.root ?? "";
+    for (const read of list) {
+      if (runState(read) !== "done" || wasTaken(o.key, read.id)) continue;
+      // One the button started is delivered by its own run.
+      if (runs.get(o.key)?.id === read.id) continue;
+      o.say(await deliver(o.key, read, root, () => o.load(o.uncommitted())));
+    }
+  }
+
   button.addEventListener("click", async e => {
     e.stopPropagation();
-    const run = runs.get(o.key);
-    if (run) return o.open(run.session);
-    if (button.disabled) return;
+    if (button.disabled || runs.has(o.key)) return;
     if (open) { closePicker(); return drawButton(); }
     readHosts(redraw);
     const [a, p] = await Promise.all([agents(), picker()]);
@@ -384,6 +369,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   });
 
   function redraw() {
+    if (Date.now() - tookAt >= HOSTS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
     drawButton();
     drawNote();
     if (open && !runs.has(o.key)) void drawPickerNow();

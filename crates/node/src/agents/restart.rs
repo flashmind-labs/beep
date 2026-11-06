@@ -122,11 +122,17 @@ impl Agents {
 
     /// The sessions to resume when the node starts again: those that run
     /// or ended with the node, once the agent gave them its own id. One
-    /// the user closed or that failed stays ended.
+    /// the user closed or that failed stays ended. A reviewer is temporary:
+    /// its review ends with the node.
     pub(crate) fn open_sessions(&self) -> Vec<OpenSession> {
         // Copied out, so no request that lists the sessions waits on the
         // reads below.
-        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        let sessions: Vec<Arc<Session>> = self
+            .lock()
+            .values()
+            .filter(|session| !session.reviewer)
+            .cloned()
+            .collect();
         sessions
             .iter()
             .filter_map(|session| {

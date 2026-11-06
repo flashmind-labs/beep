@@ -11,7 +11,7 @@
 use super::{AGENT_ID_WAIT, Agents, Begin, Command, Session, known, live::Live, mcp::children};
 use crate::{AsyncMutex, link::Membership};
 use beep_proto::ModelId;
-use beep_proto::node::agent::{ParentLink, SessionInfo, Status};
+use beep_proto::node::agent::{Effort, ParentLink, SessionInfo, Status};
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
@@ -70,6 +70,14 @@ pub(crate) struct ChildStart {
     pub(crate) prompt: String,
     pub(crate) cwd: Option<String>,
     pub(crate) model: Option<ModelId>,
+    /// A temporary reviewer, started in its harness's read-only mode.
+    pub(crate) review: Option<Review>,
+}
+
+/// What a reviewer child starts with besides `ChildStart`'s.
+#[derive(Debug, Default)]
+pub(crate) struct Review {
+    pub(crate) effort: Option<Effort>,
 }
 
 impl Agents {
@@ -110,7 +118,7 @@ impl Agents {
     }
 
     /// Who `session` is to its children.
-    fn who_of(&self, session: &Session) -> Who {
+    pub(super) fn who_of(&self, session: &Session) -> Who {
         Who {
             machine: self.me(),
             session: Self::name_of(session),
@@ -239,15 +247,20 @@ impl Agents {
                 )
             })?
             .clone();
-        let mode = child_mode(&link, &kind.name)?;
+        let mode = match &start.review {
+            Some(_) => review_mode(&link, &kind.name)?,
+            None => child_mode(&link, &kind.name)?,
+        };
         let follows = self.parent_live_of(&link);
         let root = (link.root_machine, link.root.clone());
         let begin = Begin {
             prompt: Some(start.prompt),
             model: start.model,
+            effort: start.review.as_ref().and_then(|review| review.effort),
             mode,
             parent: Some(link),
             follows,
+            review: start.review.is_some(),
             ..Begin::default()
         };
         let session = {
@@ -374,6 +387,15 @@ fn child_mode(link: &ParentLink, harness: &str) -> Result<Option<String>, String
              access.",
             link.agent
         )),
+    }
+}
+
+/// The mode a reviewer child starts in: its harness's read-only mode, which
+/// is never above the parent's, else what any child of the parent gets.
+pub(super) fn review_mode(link: &ParentLink, harness: &str) -> Result<Option<String>, String> {
+    match known(harness).and_then(|known| known.read_only_mode) {
+        Some(mode) => Ok(Some(mode.to_owned())),
+        None => child_mode(link, harness),
     }
 }
 
