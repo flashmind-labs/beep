@@ -66,6 +66,12 @@ export function newestNode(versions: readonly string[]): string | null {
   return versions.filter(v => /^\d/.test(v)).reduce<string | null>((best, v) => (!best || isNewer(v, best) ? v : best), null);
 }
 
+/// The beep-node machines are offered: the newest release when it could be
+/// read, or the newest among the machines that update, whichever is newer.
+export function offeredNode(released: string | null, fleet: readonly string[]): string | null {
+  return newestNode(released ? [released, ...fleet] : fleet);
+}
+
 /// Whether beep-node `version` is behind `newest`.
 export function nodeBehind(version: string, newest: string | null) {
   return !!newest && /^\d/.test(version) && isNewer(newest, version);

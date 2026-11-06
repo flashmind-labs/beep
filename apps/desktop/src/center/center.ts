@@ -3,6 +3,8 @@
 import "../ui/loopclock.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey } from "../agentpane/media-state.ts";
+import { isNewKey } from "../terminals/newkey-state.ts";
+import { allTerms } from "../terminals/view.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
 import { initSideResize } from "./sidewidth.ts";
@@ -63,8 +65,8 @@ initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id =
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
 
 document.addEventListener("keydown", e => {
-  // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W.
-  if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e)) return;
+  // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W or ⌘N.
+  if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e) && !isNewKey(e)) return;
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home.
   if (e.key === "Escape" && !e.defaultPrevented) {
     const up = escUp({ page: shown, picked: state.picked, tile: !!pa.tile, alone: !!windowProject });
@@ -100,8 +102,13 @@ document.addEventListener("keydown", e => {
     const to = PANE_KEYS[key];
     if (to) return go("pane", to);
   }
-  // In the pane, the pane's own keys call newAgentHere.
-  if (key === "n" && shown !== "pane") { e.preventDefault(); return newAgentHere(); }
+  // In the pane, the pane's own keys call newAgentHere. On the Terminals page with
+  // a terminal open, a new terminal like it.
+  if (key === "n" && shown !== "pane") {
+    e.preventDefault();
+    if (shown === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
+    return newAgentHere();
+  }
   // ⌘T in a project: a terminal filling the empty view. In a session the pane has taken it.
   if (key === "t" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.defaultPrevented) {
     const to = projectHere();
