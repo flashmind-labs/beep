@@ -19,8 +19,9 @@ pub enum SendError {
     Refused(String),
     #[error("could not reach Beep: {0}")]
     Net(#[from] reqwest::Error),
-    #[error("the server's reply did not read: {0}")]
-    Reply(String),
+    /// A reply that is not Beep's: nothing answers reports at that address yet.
+    #[error("Problem reports are not available yet.")]
+    Unavailable,
     #[error("BEEP_REPORT_URL is not a URL: {0}")]
     Url(String),
 }
@@ -62,14 +63,15 @@ pub async fn send(base: &Url, body: Vec<u8>, key: &SecretKey) -> Result<Receipt,
     let status = reply.status();
     let bytes = reply.bytes().await?;
     if status.is_success() {
-        return rmp_serde::from_slice(&bytes).map_err(|e| SendError::Reply(e.to_string()));
+        return rmp_serde::from_slice(&bytes).map_err(|_| SendError::Unavailable);
     }
-    let text = match rmp_serde::from_slice::<ApiError>(&bytes) {
-        Ok(ApiError::BadRequest { message } | ApiError::Conflict { message }) => message,
-        Ok(other) => other.to_string(),
-        Err(_) => status.to_string(),
-    };
-    Err(SendError::Refused(text))
+    match rmp_serde::from_slice::<ApiError>(&bytes) {
+        Ok(ApiError::BadRequest { message } | ApiError::Conflict { message }) => {
+            Err(SendError::Refused(message))
+        }
+        Ok(other) => Err(SendError::Refused(other.to_string())),
+        Err(_) => Err(SendError::Unavailable),
+    }
 }
 
 #[cfg(test)]
@@ -93,6 +95,15 @@ mod tests {
     /// A server on a free port that answers one request with `status` and
     /// `reply`, and hands back what it read.
     async fn stand_in(status: &'static str, reply: Vec<u8>) -> (Url, JoinHandle<Seen>) {
+        stand_in_typed(status, "application/msgpack", reply).await
+    }
+
+    /// `stand_in` with the reply's content type given.
+    async fn stand_in_typed(
+        status: &'static str,
+        content_type: &'static str,
+        reply: Vec<u8>,
+    ) -> (Url, JoinHandle<Seen>) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("a free local port binds");
@@ -130,7 +141,7 @@ mod tests {
                 body.extend_from_slice(&chunk[..n]);
             }
             let answer = format!(
-                "HTTP/1.1 {status}\r\ncontent-type: application/msgpack\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                 reply.len()
             );
             stream
@@ -194,13 +205,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refusal_that_does_not_read_gives_the_status() {
-        let (base, _server) = stand_in("503 Service Unavailable", b"busy".to_vec()).await;
+    async fn a_reply_that_is_not_beeps_says_reports_are_not_available() {
+        let (base, _server) =
+            stand_in_typed("404 Not Found", "text/plain", b"404 Not Found".to_vec()).await;
         let got = send(&base, b"zip".to_vec(), &SecretKey::generate()).await;
-        match got {
-            Err(SendError::Refused(text)) => assert_eq!(text, "503 Service Unavailable"),
-            other => panic!("expected a refusal, got {other:?}"),
-        }
+        let error = got.expect_err("a plain 404 is no receipt");
+        assert!(matches!(error, SendError::Unavailable), "{error:?}");
+        assert_eq!(error.to_string(), "Problem reports are not available yet.");
+    }
+
+    #[tokio::test]
+    async fn a_success_that_is_not_a_receipt_says_reports_are_not_available() {
+        let (base, _server) =
+            stand_in_typed("200 OK", "text/html", b"<html></html>".to_vec()).await;
+        let got = send(&base, b"zip".to_vec(), &SecretKey::generate()).await;
+        let error = got.expect_err("a page is no receipt");
+        assert_eq!(error.to_string(), "Problem reports are not available yet.");
     }
 
     #[tokio::test(start_paused = true)]
