@@ -801,7 +801,7 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
                 },
                 _ if call.turn_only => {
                     // Refused when no turn runs.
-                    let _ = child.order(Command::Cancel).await;
+                    let _ = child.order(Command::Cancel { keep_steers: false }).await;
                     agents.cancel_family(&child).await;
                     ok("Its turn is stopped.")
                 }

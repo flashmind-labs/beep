@@ -116,7 +116,7 @@ pub async fn serve_session(
                         // Stop goes down to what the session started, on
                         // other machines too, after its own turn stops.
                         cascade = true;
-                        Command::Cancel
+                        Command::Cancel { keep_steers: true }
                     }
                     Ok(Some(Request::Close {})) => Command::Close,
                     Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },
