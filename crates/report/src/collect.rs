@@ -166,7 +166,7 @@ async fn ask(client: &PeerClient, since: u64, share: &mut Share) -> Answer {
 }
 
 /// The newest whole lines of `log` that fit in `max` bytes.
-fn newest_lines(log: String, max: usize) -> String {
+pub(crate) fn newest_lines(log: String, max: usize) -> String {
     if log.len() <= max {
         return log;
     }
