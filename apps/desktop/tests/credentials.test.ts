@@ -6,15 +6,10 @@ import {
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 const ago = () => "today";
-const providers = [
-  { slug: "openrouter", name: "OpenRouter", env_var: "OPENROUTER_API_KEY" },
-  { slug: "elevenlabs", name: "ElevenLabs", env_var: "ELEVENLABS_API_KEY" },
-];
 const list: Credential[] = [
-  { id: "g", kind: "github", last4: "4f2a", account: "you", env_var: "GH_TOKEN", to_machines: true, created_at: 0 },
-  { id: "f1", kind: "forgejo", url: "https://git.example.com", last4: "9c1d", account: "you", env_var: "", to_machines: true, created_at: 0 },
-  { id: "f2", kind: "forgejo", url: "https://code.example.org", last4: "02be", account: null, env_var: "", to_machines: true, created_at: 0 },
-  { id: "k", kind: "api_key", provider: "openrouter", last4: "a91f", account: null, env_var: "OPENROUTER_API_KEY", to_machines: true, created_at: 0 },
+  { id: "g", kind: "github", last4: "4f2a", account: "you", env_var: "GH_TOKEN", created_at: 0 },
+  { id: "f1", kind: "forgejo", url: "https://git.example.com", last4: "9c1d", account: "you", env_var: "", created_at: 0 },
+  { id: "f2", kind: "forgejo", url: "https://code.example.org", last4: "02be", account: null, env_var: "", created_at: 0 },
 ];
 const machines = [
   { name: "build-box", env: { tools: [{ name: "gh" }, { name: "teacli" }] } },
@@ -23,21 +18,20 @@ const machines = [
 ];
 
 test("a credential the server cannot open asks to be entered again", () => {
-  const unreadable = list.map((c) => (c.id === "g" || c.id === "k" ? { ...c, unreadable: true } : c));
-  const html = credentialsHtml({ list: unreadable, providers, edit: null }, machines, esc, ago);
+  const unreadable = list.map((c) => (c.id === "g" ? { ...c, unreadable: true } : c));
+  const html = credentialsHtml({ list: unreadable, edit: null }, machines, esc, ago);
   assert.match(html, /Re-enter this token/);
-  assert.match(html, /Re-enter this key/);
-  assert.doesNotMatch(html, /…a91f/);
+  assert.doesNotMatch(html, /…4f2a/);
+  assert.doesNotMatch(html, /API key/);
 });
 
 test("drafts carry what the server takes", () => {
   assert.deepEqual(draft({ kind: "github" }, undefined, " ghp_x ").credential,
-    { kind: "github", secret: "ghp_x", to_machines: true });
+    { kind: "github", secret: "ghp_x" });
   assert.ok(draft({ kind: "forgejo" }, "git.example.com", "t").error);
   assert.deepEqual(draft(editFor("forgejo:f1", list), undefined, "t").credential,
-    { kind: "forgejo", url: "https://git.example.com", secret: "t", to_machines: true });
-  assert.deepEqual(draft(editFor("api:openrouter", list), undefined, "sk").credential,
-    { kind: "api_key", provider: "openrouter", secret: "sk", to_machines: true });
+    { kind: "forgejo", url: "https://git.example.com", secret: "t" });
+  assert.equal(editFor("api:openrouter", list), null);
   assert.ok(draft({ kind: "github" }, undefined, "  ").error);
 });
 

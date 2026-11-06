@@ -1,6 +1,7 @@
-//! Settings, Credentials: the account's GitHub token, Forgejo servers and
-//! API keys. Secrets go into the mesh once, for every machine, and never
-//! come back; the bar sees only their last four characters.
+//! Settings, Credentials: the account's GitHub tokens and Forgejo servers.
+//! Secrets go into the mesh once, for every machine, and never come back; the
+//! bar sees only their last four characters. API keys are kept on the server
+//! only, never here.
 
 use crate::{
     beep::epoch_ms,
@@ -9,8 +10,8 @@ use crate::{
 };
 use beep_fleet::Session;
 use beep_proto::{
-    ApiError, ApiProvider, Credential, CredentialCheck, CredentialKind, GITHUB_ENV_VAR,
-    GitHubAccount, SecretText,
+    ApiError, Credential, CredentialCheck, CredentialKind, GITHUB_ENV_VAR, GitHubAccount,
+    SecretText,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -21,15 +22,15 @@ use std::sync::Arc;
 pub enum Kind {
     Github,
     Forgejo { url: String },
-    ApiKey { provider: String },
 }
 
-impl From<CredentialKind> for Kind {
-    fn from(kind: CredentialKind) -> Self {
+impl Kind {
+    /// The kind the bar shows; `None` for an API key, which it never lists.
+    fn shown(kind: CredentialKind) -> Option<Self> {
         match kind {
-            CredentialKind::GitHub {} => Self::Github,
-            CredentialKind::Forgejo { url } => Self::Forgejo { url },
-            CredentialKind::ApiKey { provider } => Self::ApiKey { provider },
+            CredentialKind::GitHub {} => Some(Self::Github),
+            CredentialKind::Forgejo { url } => Some(Self::Forgejo { url }),
+            CredentialKind::ApiKey { .. } => None,
         }
     }
 }
@@ -39,7 +40,6 @@ impl From<Kind> for CredentialKind {
         match kind {
             Kind::Github => Self::GitHub {},
             Kind::Forgejo { url } => Self::Forgejo { url },
-            Kind::ApiKey { provider } => Self::ApiKey { provider },
         }
     }
 }
@@ -53,25 +53,23 @@ pub struct CredentialView {
     last4: String,
     account: Option<String>,
     env_var: String,
-    to_machines: bool,
     /// Milliseconds since the Unix epoch.
     created_at: u64,
     /// The server can no longer open it: the bar asks for it again.
     unreadable: bool,
 }
 
-impl From<Credential> for CredentialView {
-    fn from(credential: Credential) -> Self {
-        Self {
+impl CredentialView {
+    fn shown(credential: Credential) -> Option<Self> {
+        Some(Self {
             id: credential.id,
-            kind: credential.kind.into(),
+            kind: Kind::shown(credential.kind)?,
             last4: credential.last4,
             account: credential.account,
             env_var: credential.env_var,
-            to_machines: credential.to_machines,
             created_at: epoch_ms(credential.created_at),
             unreadable: credential.unreadable,
-        }
+        })
     }
 }
 
@@ -83,7 +81,6 @@ impl From<GitHubAccount> for CredentialView {
             last4: account.last4,
             account: Some(account.login),
             env_var: GITHUB_ENV_VAR.to_owned(),
-            to_machines: true,
             created_at: epoch_ms(account.created_at),
             unreadable: account.unreadable,
         }
@@ -117,14 +114,6 @@ impl From<GitHubAccount> for GitHubAccountView {
     }
 }
 
-/// A provider an API key can be added for.
-#[derive(Debug, Serialize)]
-pub struct ProviderView {
-    slug: &'static str,
-    name: &'static str,
-    env_var: &'static str,
-}
-
 /// What the bar sends to save one.
 #[derive(Deserialize)]
 pub struct NewCredential {
@@ -133,22 +122,13 @@ pub struct NewCredential {
     secret: String,
 }
 
-/// Every provider, in the order Settings lists them.
-#[tauri::command]
-pub fn credential_providers() -> Vec<ProviderView> {
-    ApiProvider::all()
-        .map(|provider| ProviderView {
-            slug: provider.slug(),
-            name: provider.name(),
-            env_var: provider.env_var(),
-        })
-        .collect()
-}
-
 #[tauri::command]
 pub async fn list_credentials(fleet: FleetState<'_>) -> Result<Vec<CredentialView>> {
     let credentials = desk(&fleet).await?.credentials();
-    Ok(credentials.into_iter().map(CredentialView::from).collect())
+    Ok(credentials
+        .into_iter()
+        .filter_map(CredentialView::shown)
+        .collect())
 }
 
 /// Checks and saves one; a refusal comes back as the host's reason.
@@ -169,13 +149,10 @@ pub(crate) async fn save(
     secret: SecretText,
 ) -> Result<CredentialView> {
     let kind = CredentialKind::from(kind);
-    let saved = desk(fleet)
-        .await?
-        .save_credential(&kind, &secret, true)
-        .await?;
+    let saved = desk(fleet).await?.save_credential(&kind, &secret).await?;
     // What was read with the old tokens is not served to the new ones.
     fleet.forget();
-    Ok(saved.into())
+    CredentialView::shown(saved).ok_or(DesktopError::Api(ApiError::NotFound {}))
 }
 
 /// What checking a Forgejo token found, as the bar shows it.

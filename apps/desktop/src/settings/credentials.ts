@@ -1,5 +1,5 @@
-// Settings, Credentials: git hosts (GitHub, one row per Forgejo server) then
-// one API key per provider.
+// Settings, Credentials: git hosts (GitHub, one row per Forgejo server). API
+// keys are kept on the server only, never here.
 
 type Esc = (s: unknown) => string;
 /// "today", "3 days ago": how long ago a time in milliseconds was.
@@ -11,12 +11,11 @@ export type Credential = {
   last4: string;
   account: string | null;
   env_var: string;
-  to_machines: boolean;
   /// Milliseconds since the Unix epoch.
   created_at: number;
   /// The server can no longer open it: the row asks for it again.
   unreadable?: boolean;
-} & ({ kind: "github" } | { kind: "forgejo"; url: string } | { kind: "api_key"; provider: string });
+} & ({ kind: "github" } | { kind: "forgejo"; url: string });
 
 type Forgejo = Extract<Credential, { kind: "forgejo" }>;
 
@@ -29,13 +28,6 @@ export interface GitHubAccount {
   last4: string;
   created_at: number;
   unreadable: boolean;
-}
-
-/// A provider an API key can be added for (ProviderView).
-export interface Provider {
-  slug: string;
-  name: string;
-  env_var: string;
 }
 
 /// A CLI's sign-in on this Mac (LoginView).
@@ -66,20 +58,17 @@ export type CredCheck =
 /// The row whose token is being typed, as a `data-cred-edit` value names it.
 type CredEdit =
   | { kind: "github"; id?: string }
-  | { kind: "forgejo"; id?: string; url?: string }
-  | { kind: "api_key"; provider: string };
+  | { kind: "forgejo"; id?: string; url?: string };
 
 /// What `save_credential` takes (NewCredential).
 type NewCredential =
-  | { kind: "github"; secret: string; to_machines: boolean }
-  | { kind: "forgejo"; url: string; secret: string; to_machines: boolean }
-  | { kind: "api_key"; provider: string; secret: string; to_machines: boolean };
+  | { kind: "github"; secret: string }
+  | { kind: "forgejo"; url: string; secret: string };
 
 /// The section's state.
 export interface CredState {
   list?: Credential[] | null;
   github?: GitHubAccount[];
-  providers?: Provider[];
   edit?: CredEdit | null;
   busy?: boolean;
   error?: string;
@@ -113,10 +102,9 @@ export function draft(edit: CredEdit | null | undefined, url: string | undefined
   if (edit.kind === "forgejo") {
     const u = String(url || edit.url || "").trim();
     if (!/^https?:\/\/[^\s/]+/i.test(u)) return { error: "The server URL starts with https://, such as https://git.example.com." };
-    return { credential: { kind: "forgejo", url: u, secret, to_machines: true } };
+    return { credential: { kind: "forgejo", url: u, secret } };
   }
-  if (edit.kind === "github") return { credential: { kind: "github", secret, to_machines: true } };
-  return { credential: { kind: "api_key", provider: edit.provider, secret, to_machines: true } };
+  return { credential: { kind: "github", secret } };
 }
 
 /// GitHub's page for a new token with what gh and Beep need.
@@ -174,23 +162,20 @@ interface FormText {
   title: string;
   url?: string;
   noteHtml?: string;
-  env?: string;
 }
 
 /// The inline form for adding or replacing one credential.
-function form(state: CredState, esc: Esc, { title, noteHtml, env, url }: FormText) {
+function form(state: CredState, esc: Esc, { title, noteHtml, url }: FormText) {
   const e = state.edit!;
   const urlField = e.kind === "forgejo" && !e.id
     ? `<input id="credUrl" class="url" type="url" placeholder="https://git.example.com" autocomplete="off" spellcheck="false" value="${esc(e.url ?? "")}" aria-label="Server URL">`
     : "";
-  const check = e.kind === "api_key" && env ? `<div class="dline dfine">Your machines get it as ${esc(env)}</div>` : "";
-  const label = e.kind === "api_key" && e.provider !== "openrouter" ? "Save" : "Check and save";
   return `<div class="dcred-form">
     <div class="dline"><b>${esc(title)}</b>${url ? `<span class="dfine">${esc(url)}</span>` : ""}</div>
     <div class="dfield${state.error ? " err" : ""}">${urlField}
       <div class="dline"><input id="credSecret" type="password" class="dsecret" placeholder="Paste the token" autocomplete="off" spellcheck="false" aria-label="Token">
-      <button class="dbtn pri" id="credSave"${state.busy ? " disabled" : ""}>${state.busy ? "Checking…" : label}</button><button class="dbtn quiet" id="credCancel">Cancel</button></div></div>
-    ${check}${noteHtml ? note(noteHtml) : ""}
+      <button class="dbtn pri" id="credSave"${state.busy ? " disabled" : ""}>${state.busy ? "Checking…" : "Check and save"}</button><button class="dbtn quiet" id="credCancel">Cancel</button></div></div>
+    ${noteHtml ? note(noteHtml) : ""}
     <div class="derr" id="credErr">${esc(state.error || "")}</div></div>`;
 }
 
@@ -359,18 +344,6 @@ function checkChip(esc: Esc, host: string, known: boolean, check: CredCheck | un
   }
 }
 
-/// One provider's API key row.
-function keyRow(esc: Esc, ago: Ago, p: Provider, cred: Credential | undefined) {
-  const start = `<div class="dcred-row">`;
-  if (!cred) return `${start}
-    <span class="ddot off"></span><b>${esc(p.name)}</b><code class="dmut">${esc(p.env_var)}</code>
-    <span class="dpush"><button class="dbtn small" data-cred-edit="api:${esc(p.slug)}">Add key</button></span></div>`;
-  const use = !cred.unreadable && cred.to_machines ? `your machines as ${esc(p.env_var)}` : "not given to your machines";
-  return `${start}
-    <span class="ddot"></span><span class="dstack"><b>${esc(p.name)}</b><span class="dsub dell">${shown(esc, cred, "key")} · ${use} · added ${esc(ago(cred.created_at))}</span></span>
-    <span class="dacts"><button class="dbtn small" data-cred-edit="api:${esc(p.slug)}">Replace</button><button class="dbtn quiet warn small" data-cred-remove="${esc(cred.id)}" aria-label="Remove the ${esc(p.name)} key">Remove</button></span></div>`;
-}
-
 /// The GitHub accounts: from `ListGitHubAccounts` when the server answered
 /// it, else the one GitHub row of the credentials list, as the default.
 export function githubAccounts(state: CredState): GitHubAccount[] {
@@ -513,14 +486,6 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
   const adds = (github.canAdd ? addButton(`data-cred-gh-add="1"`, "+ Add another GitHub account") : "")
     + (addingForgejo ? "" : addButton(`data-cred-edit="forgejo"`, "+ Add a Forgejo/Gitea server"));
   if (adds) html += `<div class="dline tight wrap dmt6">${adds}</div>`;
-  html += head("API keys", 14);
-  html += `<div class="dlead">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
-  for (const p of state.providers ?? []) {
-    const cred = list.find(c => c.kind === "api_key" && c.provider === p.slug);
-    html += e?.kind === "api_key" && e.provider === p.slug
-      ? form(state, esc, { title: p.name, env: p.env_var, url: p.env_var })
-      : keyRow(esc, ago, p, cred);
-  }
   return `<div class="dcreds">${html}</div>`;
 }
 
@@ -533,9 +498,6 @@ export function editFor(key: string, list: Credential[] | null | undefined): Cre
     const id = key.slice("forgejo:".length);
     const c = (list ?? []).find(x => x.id === id);
     return c ? { kind: "forgejo", id, url: c.kind === "forgejo" ? c.url : undefined } : { kind: "forgejo" };
-  }
-  if (key.startsWith("api:")) {
-    return { kind: "api_key", provider: key.slice(4) };
   }
   return null;
 }

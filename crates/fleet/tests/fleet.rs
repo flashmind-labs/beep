@@ -10,7 +10,8 @@ use beep_mesh::{
 use beep_proto::{
     CredentialKind, SecretText, SyncStatus, WorkDiff,
     node::{
-        EnvReport, LinkRx, LinkTx, Open, Opened, SyncthingFolder, ToolInfo,
+        EnvReport, EnvSecret, ForgejoLogin, LinkRx, LinkTx, Open, Opened, SyncthingFolder,
+        ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         harness::{AutoCompact, HarnessConfig},
         mesh_state::{Credential, StateValue, SyncSpec},
@@ -471,7 +472,7 @@ async fn a_saved_github_token_reaches_every_node_and_no_log() {
     let api = github().await;
     let studio = desk(&f.studio, &[]).await.github_api(&api);
     let saved = studio
-        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET))
         .await
         .expect("the token is saved");
     assert_eq!(saved.account.as_deref(), Some("octo"));
@@ -1060,7 +1061,7 @@ async fn a_removed_token_leaves_every_node() {
     let api = github().await;
     let studio = desk(&f.studio, &[]).await.github_api(&api);
     let saved = studio
-        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET))
         .await
         .expect("the token is saved");
     until(&f.build.mesh, |m| m.scan("credential/").len() == 2).await;
@@ -1092,7 +1093,6 @@ async fn a_forgejo_token_is_checked_from_a_machine_that_reaches_the_server() {
                 url: "http://127.0.0.1:9".into(),
             },
             &SecretText::new("forge-token-5521"),
-            true,
         )
         .await
         .expect("an unreachable server is saved unchecked");
@@ -1733,7 +1733,7 @@ async fn a_projects_runs_read_with_the_hosts_token() {
     let node = Arc::new(FakeNode::default());
     let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(&api);
     studio
-        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET))
         .await
         .expect("the token is saved");
     studio
@@ -1819,14 +1819,13 @@ async fn a_repository_on_github_and_forgejo_lists_both_hosts_runs_as_one() {
     });
     let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(&api);
     studio
-        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET))
         .await
         .expect("the token is saved");
     studio
         .save_credential(
             &CredentialKind::Forgejo { url: forge.clone() },
             &SecretText::new("forge-token-5521"),
-            false,
         )
         .await
         .expect("the Forgejo token is saved");
@@ -1942,7 +1941,7 @@ async fn session_on_actions(f: &Fleet, api: &str) -> Arc<Session> {
     let node = Arc::new(FakeNode::default());
     let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(api);
     studio
-        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET))
         .await
         .expect("the token is saved");
     studio
@@ -2213,18 +2212,32 @@ impl beep_fleet::migrate::Source for LastFour {
         Ok(Vec::new())
     }
     async fn credentials(&self) -> beep_fleet::Result<Vec<beep_proto::Credential>> {
-        Ok(vec![beep_proto::Credential {
-            id: "7".into(),
-            kind: CredentialKind::ApiKey {
-                provider: "anthropic".into(),
-            },
-            last4: "9f3a".into(),
+        let credential = |id: &str, kind, last4: &str| beep_proto::Credential {
+            id: id.into(),
+            kind,
+            last4: last4.into(),
             account: None,
-            env_var: "ANTHROPIC_API_KEY".into(),
+            env_var: String::new(),
             to_machines: true,
             created_at: SystemTime::UNIX_EPOCH,
             unreadable: false,
-        }])
+        };
+        Ok(vec![
+            credential(
+                "7",
+                CredentialKind::ApiKey {
+                    provider: "anthropic".into(),
+                },
+                "9f3a",
+            ),
+            credential(
+                "8",
+                CredentialKind::Forgejo {
+                    url: "http://127.0.0.1:9".into(),
+                },
+                "5521",
+            ),
+        ])
     }
     async fn harness(
         &self,
@@ -2264,19 +2277,16 @@ async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
         .expect("the account moves");
     let desk = desk(&studio, &[]).await;
     let listed = desk.credentials();
+    // The API key stays on the server: no record asks for it.
     assert_eq!(listed.len(), 1);
     assert!(listed[0].unreadable);
-    assert_eq!(listed[0].last4, "9f3a");
-    assert!(matches!(listed[0].kind, CredentialKind::ApiKey { .. }));
+    assert_eq!(listed[0].last4, "5521");
+    assert!(matches!(listed[0].kind, CredentialKind::Forgejo { .. }));
     // Entering the token again drops its record, so nodes may take the mesh's value.
     assert_eq!(studio.mesh.scan("unmoved/credential/").len(), 1);
-    desk.save_credential(
-        &listed[0].kind,
-        &SecretText::new("sk-ant-newtokenvalue"),
-        true,
-    )
-    .await
-    .expect("saves");
+    desk.save_credential(&listed[0].kind, &SecretText::new("forge-token-5521"))
+        .await
+        .expect("saves");
     assert!(studio.mesh.scan("unmoved/credential/").is_empty());
     assert_eq!(desk.credentials().len(), 1);
     assert!(!desk.credentials()[0].unreadable);
@@ -2304,6 +2314,49 @@ async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
     let id = desk.credentials()[0].id.clone();
     desk.remove_credential(&id).await.expect("removes it");
     assert!(desk.credentials().is_empty());
+}
+
+#[tokio::test]
+async fn api_keys_stay_off_the_machines() {
+    let studio = create("Studio").await;
+    let desk = desk(&studio, &[]).await;
+    let refused = desk
+        .save_credential(
+            &CredentialKind::ApiKey {
+                provider: "openrouter".into(),
+            },
+            &SecretText::new("sk-or-placeholder"),
+        )
+        .await;
+    assert!(matches!(refused, Err(FleetError::Refused(_))));
+    // A key an older desktop gave to the machines goes, and nothing else.
+    let old = Credential::Env(EnvSecret {
+        name: "OPENROUTER_API_KEY".into(),
+        value: SecretText::new("sk-or-placeholder"),
+    });
+    let forge = Credential::Forgejo(ForgejoLogin {
+        url: "https://git.example.com".into(),
+        token: SecretText::new("forge-token-5521"),
+    });
+    for (id, value) in [
+        ("api.1.openrouter", &old),
+        ("forgejo.2.git.example.com", &forge),
+    ] {
+        studio
+            .mesh
+            .set(Key::Credential(id.into()), Some(value.to_bytes().unwrap()))
+            .await
+            .unwrap();
+    }
+    assert_eq!(beep_fleet::drop_api_keys(&studio.mesh).await.unwrap(), 1);
+    assert_eq!(beep_fleet::drop_api_keys(&studio.mesh).await.unwrap(), 0);
+    let left: Vec<String> = studio
+        .mesh
+        .scan("credential/")
+        .into_iter()
+        .map(|(key, _)| key.to_string())
+        .collect();
+    assert_eq!(left, ["credential/forgejo.2.git.example.com"]);
 }
 
 #[tokio::test]
@@ -2409,7 +2462,7 @@ async fn saving_one_github_token_releases_only_its_own_record() {
     let studio = desk(&f.studio, &[]).await.github_api(&api);
     // The fake GitHub says every token is octo's.
     studio
-        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET), true)
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET))
         .await
         .expect("saved");
     let left: Vec<String> = f

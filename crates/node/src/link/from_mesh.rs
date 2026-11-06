@@ -13,7 +13,7 @@ use crate::{
 };
 use beep_mesh::{Key, Mesh};
 use beep_proto::{
-    FlshSettings,
+    ApiProvider, FlshSettings,
     node::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
@@ -175,10 +175,14 @@ pub(crate) fn forgejo_servers(mesh: &Mesh) -> Vec<String> {
         .collect()
 }
 
+/// The credentials the node uses. An API key an older desktop put in the mesh is left out: API
+/// keys are kept on the server only.
 fn credentials(mesh: &Mesh) -> MachineCredentials {
     let mut out = MachineCredentials::default();
     for (_, credential) in read::<Credential>(mesh, "credential/") {
         match credential {
+            Credential::Env(secret)
+                if ApiProvider::all().any(|provider| provider.env_var() == secret.name) => {}
             Credential::Env(secret) => out.env.push(secret),
             Credential::Forgejo(login) => out.forgejo.push(login),
         }
@@ -326,6 +330,32 @@ mod tests {
             .await
             .expect("the mesh is made");
         (mesh, dir)
+    }
+
+    #[tokio::test]
+    async fn an_api_key_in_the_mesh_is_not_taken() {
+        let (mesh, _dir) = lone_mesh().await;
+        let env = |name: &str| {
+            Credential::Env(beep_proto::node::EnvSecret {
+                name: name.to_owned(),
+                value: beep_proto::SecretText::new("placeholder"),
+            })
+        };
+        for (id, value) in [
+            ("api.1.openrouter", env(ApiProvider::OpenRouter.env_var())),
+            ("gh.2.octo", env(beep_proto::GITHUB_ENV_VAR)),
+        ] {
+            let bytes = value.to_bytes().expect("a credential encodes");
+            mesh.set(Key::Credential(id.to_owned()), Some(bytes))
+                .await
+                .expect("the credential is set");
+        }
+        let names: Vec<String> = credentials(&mesh)
+            .env
+            .into_iter()
+            .map(|secret| secret.name)
+            .collect();
+        assert_eq!(names, [beep_proto::GITHUB_ENV_VAR]);
     }
 
     #[tokio::test]

@@ -1,6 +1,7 @@
 //! Moving an account that has a server into the mesh: the reads are the server's, the work is
 //! `beep_fleet::migrate`. It runs in the background once the mesh is open and a server is linked,
-//! and again on the next launch if the server did not answer; Home never waits for it.
+//! and again on the next launch if the server did not answer; Home never waits for it. Before
+//! that, on every launch, the API keys an older desktop put in the mesh are removed.
 
 use crate::{
     beep::{Beep, state::LinkState},
@@ -101,16 +102,22 @@ pub(crate) fn start(app: AppHandle) {
 async fn run(app: AppHandle) {
     let beep = app.state::<Arc<Beep>>().inner().clone();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    if !beep.has_server() || beep.link_state() != LinkState::Linked {
-        return;
-    }
     let mesh = match fleet.ready().await {
         Ok(mesh) => mesh,
         Err(e) => {
-            log::warn!("the account is not moved to the mesh: {e}");
+            log::warn!("the mesh is not open, so the account is not moved: {e}");
             return;
         }
     };
+    // API keys are kept on the server only; an older desktop gave them to the machines.
+    match beep_fleet::drop_api_keys(&mesh).await {
+        Ok(0) => {}
+        Ok(gone) => log::info!("removed {gone} API keys from the mesh"),
+        Err(e) => log::warn!("API keys not removed from the mesh: {e}"),
+    }
+    if !beep.has_server() || beep.link_state() != LinkState::Linked {
+        return;
+    }
     match migrate::run(&mesh, &Server { beep: &beep }).await {
         Ok(report) if report.already => {}
         Ok(report) => {
