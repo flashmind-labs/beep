@@ -417,7 +417,7 @@ const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.upd
 
 /// The beep-node chip, marked when an update is out.
 function nodeChip(m: Machine) {
-  const behind = nodeBehind(m.version, newest());
+  const behind = m.id !== MC.mac && nodeBehind(m.version, newest());
   const title = behind ? `beep-node ${m.version}; ${newest()} is out` : nodeVersion(m);
   return `<span class="dmnv" title="${esc(title)}">${esc(nodeVersion(m))}${behind ? '<span class="up">update</span>' : ""}</span>`;
 }
@@ -462,7 +462,7 @@ function machineCard(m: Machine, columns: string[]) {
 function machinePage(m: Machine) {
   const env = m.env, { button, ask } = removeParts(m);
   const kv = (k: string, v: string) => `<span>${k}</span><span>${v}</span>`;
-  const behind = nodeBehind(m.version, newest()) ? ` <span class="dtag ask">${esc(newest() ?? "")} is out</span>` : "";
+  const behind = m.id !== MC.mac && nodeBehind(m.version, newest()) ? ` <span class="dtag ask">${esc(newest() ?? "")} is out</span>` : "";
   const facts = kv("Status", statusTag(m) + (machineTag(m) ? ` ${tagChip(m)}` : "")) + kv("beep-node", esc(nodeVersion(m)) + behind + updateControl(m))
     + (env ? kv("System", esc(`${env.os_version}, ${env.arch}`)) + kv("Hardware", esc(`${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB`))
       + kv("Host name", `<span class="dmono">${esc(env.hostname)}</span>`) + kv("Home", `<span class="dmono">${esc(env.home)}</span>`) + searchRow(m)
