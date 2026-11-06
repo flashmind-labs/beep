@@ -7,10 +7,9 @@ use super::{
     worker::{StartError, Started},
 };
 use crate::{
-    nodes::SessionRefused,
     protocol::node::{
         Capability,
-        agent::{Question, Request as AgentRequest, SessionInfo, State as AgentState, Status},
+        agent::{SessionInfo, State as AgentState, Status},
         files::{FileEntry, FileKind, Reply, Request},
     },
     store::{ProjectRow, TaskRow, WorkerRow},
@@ -22,15 +21,10 @@ use beep_projects::{
     issues::{MachineName, Machines},
     model::TaskSlug,
 };
-use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use iroh::{EndpointId, SecretKey};
-use serde_json::{Value, json};
 use std::{
     collections::HashMap,
-    sync::{
-        Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
 use tokio::sync::Notify;
@@ -62,11 +56,6 @@ impl FakeShell {
             .unwrap_or_else(PoisonError::into_inner)
             .push((holds.to_owned(), signal.clone()));
         signal
-    }
-
-    /// Waits until a command waits for its signal.
-    pub(crate) async fn until_blocked(&self) {
-        self.blocked.notified().await;
     }
 
     pub(crate) fn answer(&self, holds: &str, code: i32, out: &str) {
@@ -126,60 +115,6 @@ impl Shell for FakeShell {
     }
 }
 
-/// A shell that runs `prefix` first, so a test can put fakes on `PATH` without touching env.
-pub(crate) struct Prefixed {
-    pub(crate) prefix: String,
-    pub(crate) shell: Arc<dyn Shell>,
-}
-
-#[async_trait]
-impl Shell for Prefixed {
-    async fn run(&self, command: &str, limit: Duration) -> Result<ShellOutput> {
-        self.shell
-            .run(&format!("{}\n{command}", self.prefix), limit)
-            .await
-    }
-}
-
-/// A tool that counts its calls and answers "ran".
-pub(crate) struct RecordingTool {
-    pub(crate) name: &'static str,
-    pub(crate) calls: AtomicUsize,
-}
-
-impl RecordingTool {
-    pub(crate) fn new(name: &'static str) -> Self {
-        Self {
-            name,
-            calls: AtomicUsize::new(0),
-        }
-    }
-
-    pub(crate) fn calls(&self) -> usize {
-        self.calls.load(Ordering::SeqCst)
-    }
-}
-
-#[async_trait]
-impl Tool for RecordingTool {
-    fn name(&self) -> &str {
-        self.name
-    }
-
-    fn description(&self) -> &str {
-        "records its calls"
-    }
-
-    fn parameters(&self) -> Value {
-        json!({"type": "object"})
-    }
-
-    async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        Ok(ToolResult::success(ctx.tool_call_id, "ran"))
-    }
-}
-
 /// Alice's `acme/widget`, set up with a home checkout on `home`.
 pub(crate) async fn widget_project(
     user: &crate::account::user::User,
@@ -227,26 +162,8 @@ pub(crate) struct FakeFleet {
     pub(crate) started: Mutex<Vec<TaskSlug>>,
     /// When set, every start fails saying this.
     pub(crate) start_fails: Mutex<Option<String>>,
-    /// What went to sessions.
-    pub(crate) sent: Mutex<Vec<AgentRequest>>,
-    /// When set, sends to sessions fail, as on a machine that dropped.
-    pub(crate) send_fails: AtomicBool,
-    /// The questions put to the user.
-    pub(crate) asked: Mutex<Vec<Question>>,
     /// The status [`Fleet::session_info`] gives; none fails it.
     pub(crate) live: Mutex<Option<Status>>,
-    /// What [`Fleet::attach`] answers.
-    pub(crate) attach: Mutex<FakeAttach>,
-}
-
-/// What the fake fleet's `attach` answers.
-#[derive(Default)]
-pub(crate) enum FakeAttach {
-    /// The stream fails, as on a machine that flaps.
-    #[default]
-    Fails,
-    /// The machine no longer has the session.
-    Refused,
 }
 
 fn take<T: Clone>(list: &Mutex<Vec<T>>) -> Vec<T> {
@@ -266,14 +183,6 @@ impl FakeFleet {
 
     pub(crate) fn starts(&self) -> Vec<TaskSlug> {
         take(&self.started)
-    }
-
-    pub(crate) fn sends(&self) -> Vec<AgentRequest> {
-        take(&self.sent)
-    }
-
-    pub(crate) fn questions(&self) -> Vec<Question> {
-        take(&self.asked)
     }
 
     pub(crate) fn closes(&self) -> Vec<(EndpointId, String)> {
@@ -402,25 +311,6 @@ impl Fleet for FakeFleet {
         }
     }
 
-    async fn send_session(&self, _worker: &WorkerRow, request: AgentRequest) -> Result<()> {
-        if self.send_fails.load(Ordering::Relaxed) {
-            bail!("the machine dropped");
-        }
-        push(&self.sent, request);
-        Ok(())
-    }
-
-    async fn ask_user(
-        &self,
-        _worker: &WorkerRow,
-        _task: &TaskRow,
-        _chat: Uuid,
-        question: Question,
-    ) -> Result<()> {
-        push(&self.asked, question);
-        Ok(())
-    }
-
     async fn session_info(&self, worker: &WorkerRow) -> Result<SessionInfo> {
         let Some(status) = *self.live.lock().unwrap_or_else(PoisonError::into_inner) else {
             bail!("the machine is offline");
@@ -433,15 +323,5 @@ impl Fleet for FakeFleet {
             },
             ..SessionInfo::default()
         })
-    }
-
-    async fn attach(&self, worker: &WorkerRow, _chat: Uuid) -> Result<SessionInfo> {
-        match &*self.attach.lock().unwrap_or_else(PoisonError::into_inner) {
-            FakeAttach::Fails => bail!("the node closed the session stream"),
-            FakeAttach::Refused => Err(SessionRefused {
-                reason: format!("there is no session {:?}", worker.session),
-            }
-            .into()),
-        }
     }
 }

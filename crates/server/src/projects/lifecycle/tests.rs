@@ -2,29 +2,26 @@ use super::{
     super::{
         model::{TaskState, WorkerState},
         schedule::Due,
-        turn::{CHECK_LABEL, REPLAN_LABEL, WORKER_LABEL},
+        turn::CHECK_LABEL,
     },
     *,
 };
 use crate::{
     account::user::User,
     projects::{
-        lifecycle::{
-            checks::check,
-            turns::{TurnDone, asked, ended, turn_done},
-            workers::reattach,
-        },
-        model::{StartRequest, WorkerAgent},
-        testing::{FakeAttach, FakeFleet, FakeShell},
+        lifecycle::checks::check,
+        model::StartRequest,
+        testing::{FakeFleet, FakeShell},
     },
-    protocol::node::agent::{OptionKind, Question, Request as AgentRequest, Status},
-    store::{CheckoutRow, NewTask, NewWorker, ProjectRow, TaskRow, TestDb, WorkerRow},
+    protocol::node::agent::Status,
+    store::{CheckoutRow, NewTask, ProjectRow, TaskRow, TestDb, WorkerRow},
 };
 use beep_projects::model::IssueHost;
 use beep_projects::model::{IssueRef, MachinePath, RepoName, Roles, Visibility};
 use chrono::{DateTime, TimeDelta, Utc};
 use iroh::EndpointId;
 use std::sync::Arc;
+use uuid::Uuid;
 
 const PR_URL: &str = "https://github.com/acme/widget/pull/7";
 
@@ -137,35 +134,42 @@ impl Harness {
         .await
         .expect("the issue");
         let checkout = MachinePath::parse("/srv/widget").expect("a path");
-        let worker = user
-            .start_worker(&NewWorker {
-                task: task.id,
-                machine: self.home,
-                agent: WorkerAgent::Claude,
-                folder: task.slug.worktree(&checkout),
-                persona: None,
-                persona_commit: None,
-            })
-            .await
-            .expect("the store answers")
-            .expect("the worker starts");
-        user.set_worker_session(worker.id, "s1")
-            .await
-            .expect("the session");
-        user.set_worker_state(worker.id, WorkerState::Running)
-            .await
-            .expect("running");
-        assert!(
-            user.worker_turn(worker.id, 1, "Done.", last_turn)
-                .await
-                .expect("a turn")
-        );
+        // Nothing starts workers now; a row as an older server left it.
+        let pool = self._db.raw_pool().await.expect("a pool");
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO project_workers
+                 (id, task_id, project_id, user_id, machine, agent, folder, session, state,
+                  turns_seen, last_output, last_turn_at)
+             VALUES ($1, $2, $3, $4, $5, 'claude', $6, 's1', $7, 1, 'Done.', $8)
+             RETURNING id",
+        )
+        .bind(Uuid::new_v4())
+        .bind(task.id.0)
+        .bind(self.project.id.0)
+        .bind(user.id())
+        .bind(self.home.to_string())
+        .bind(task.slug.worktree(&checkout).to_string())
+        .bind(<&str>::from(WorkerState::Waiting))
+        .bind(last_turn)
+        .fetch_one(&pool)
+        .await
+        .expect("the worker");
         user.set_task_state(task.id, state)
             .await
             .expect("the state");
         if state == TaskState::Review {
-            user.set_task_pr(task.id, PR_URL).await.expect("the PR");
+            sqlx::query("UPDATE project_tasks SET pr_url=$2 WHERE id=$1")
+                .bind(task.id.0)
+                .bind(PR_URL)
+                .execute(&pool)
+                .await
+                .expect("the PR");
         }
+        let worker = user
+            .project_worker(WorkerId(id))
+            .await
+            .expect("the worker")
+            .expect("it exists");
         (self.task(&task).await, self.worker(&worker).await)
     }
 
@@ -228,34 +232,6 @@ async fn idle_close_blocks_running_tasks() {
     let relabeled = h.shell.ran_with("issue edit 12");
     assert_eq!(relabeled.len(), 1, "{:?}", h.shell.ran());
     assert!(relabeled[0].contains("--add-label beep:blocked --remove-label beep:running"));
-}
-
-#[tokio::test]
-async fn asking_workers_are_not_idle() {
-    let h = harness().await;
-    let (task, worker) = h.working(TaskState::Running, minutes_ago(31)).await;
-    h.user
-        .set_worker_asking(worker.id, true)
-        .await
-        .expect("asking");
-    idle_close(&h.fleet, &h.user, worker.id, now())
-        .await
-        .expect("it looks");
-    assert_eq!(h.worker(&worker).await.state, WorkerState::Waiting);
-    assert_eq!(h.task(&task).await.state, TaskState::Running);
-    assert!(h.fleet.closes().is_empty());
-    // Not idle long enough: armed again for when it will be.
-    let fresh = h.working(TaskState::Running, minutes_ago(5)).await.1;
-    idle_close(&h.fleet, &h.user, fresh.id, now())
-        .await
-        .expect("it looks");
-    assert_eq!(h.worker(&fresh).await.state, WorkerState::Waiting);
-    let due = h
-        .fleet
-        .projects
-        .armed_at(&Due::Idle(fresh.id))
-        .expect("armed again");
-    assert!(due > now() + TimeDelta::minutes(20), "{due}");
 }
 
 #[tokio::test]
@@ -383,234 +359,4 @@ async fn unchanged_checks_post_nothing() {
         .armed_at(&Due::Check(h.project.id))
         .expect("armed");
     assert!(due > now() + TimeDelta::minutes(9), "{due}");
-}
-
-#[tokio::test]
-async fn a_pr_moves_a_running_task_to_review() {
-    let h = harness().await;
-    let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
-    h.shell.answer(
-        "gh pr list",
-        0,
-        r#"[{"number":7,"url":"https://github.com/acme/widget/pull/7","state":"OPEN",
-        "mergedAt":null,"reviewDecision":"","statusCheckRollup":[],
-        "title":"Spin it","body":"Built on build-box"}]"#,
-    );
-    let done = TurnDone {
-        turn: 2,
-        last_message: "Opened the pull request.",
-        report: true,
-    };
-    turn_done(&h.fleet, &h.user, worker.id, &done, now())
-        .await
-        .expect("it reports");
-    let task = h.task(&task).await;
-    assert_eq!(task.state, TaskState::Review);
-    assert_eq!(task.pr_url.as_deref(), Some(PR_URL));
-    let posts = h.fleet.posts();
-    assert_eq!(posts.len(), 1, "{posts:?}");
-    assert_eq!(posts[0].0, WORKER_LABEL);
-    assert!(
-        posts[0].1.contains(&format!("Pull request: {PR_URL}")),
-        "{posts:?}"
-    );
-    assert!(
-        posts[0].1.contains("names private details: build-box"),
-        "{posts:?}"
-    );
-    assert!(
-        h.fleet
-            .projects
-            .armed_at(&Due::Check(h.project.id))
-            .is_some()
-    );
-    // The same turn again is not news.
-    turn_done(&h.fleet, &h.user, worker.id, &done, now())
-        .await
-        .expect("it reports");
-    assert_eq!(h.fleet.posts().len(), 1);
-}
-
-#[tokio::test]
-async fn questions_inside_the_worktree_are_answered() {
-    use crate::protocol::node::agent::AnswerOption;
-    let h = harness().await;
-    let (_, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
-    let question = |id, text: &str, detail: &str| Question {
-        id,
-        text: text.to_owned(),
-        detail: Some(detail.to_owned()),
-        options: vec![
-            AnswerOption {
-                id: "allow".into(),
-                name: "Allow".into(),
-                kind: OptionKind::AllowOnce,
-            },
-            AnswerOption {
-                id: "reject".into(),
-                name: "Reject".into(),
-                kind: OptionKind::RejectOnce,
-            },
-        ],
-    };
-    let inside = question(
-        1,
-        "Edit notes.txt",
-        "/srv/widget/.worktrees/spin-it/notes.txt",
-    );
-    asked(&h.fleet, &h.user, worker.id, inside, true)
-        .await
-        .expect("it judges");
-    assert_eq!(
-        h.fleet.sends(),
-        vec![AgentRequest::Answer {
-            question: 1,
-            reply: "allow".into()
-        }]
-    );
-    assert!(h.fleet.posts().is_empty());
-    let force = question(2, "Run git push", "git push --force origin beep/spin-it");
-    asked(&h.fleet, &h.user, worker.id, force, true)
-        .await
-        .expect("it judges");
-    let sends = h.fleet.sends();
-    assert_eq!(
-        sends[1],
-        AgentRequest::Answer {
-            question: 2,
-            reply: "reject".into()
-        }
-    );
-    assert!(matches!(&sends[2], AgentRequest::Prompt { text } if text.contains("Force pushes")));
-    let outside = question(3, "Run rm", "rm -rf /srv/other");
-    asked(&h.fleet, &h.user, worker.id, outside.clone(), true)
-        .await
-        .expect("it judges");
-    assert_eq!(h.fleet.questions(), vec![outside.clone()]);
-    assert!(h.worker(&worker).await.asking);
-    // Seen again on a re-attach, it is not asked twice.
-    asked(&h.fleet, &h.user, worker.id, outside, true)
-        .await
-        .expect("it judges");
-    assert_eq!(h.fleet.questions().len(), 1);
-}
-
-#[tokio::test]
-async fn a_question_whose_answer_fails_to_send_is_answered_again() {
-    use crate::protocol::node::agent::AnswerOption;
-    use std::sync::atomic::Ordering;
-    let h = harness().await;
-    let (_, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
-    let question = Question {
-        id: 1,
-        text: "Edit notes.txt".to_owned(),
-        detail: Some("/srv/widget/.worktrees/spin-it/notes.txt".to_owned()),
-        options: vec![AnswerOption {
-            id: "allow".into(),
-            name: "Allow".into(),
-            kind: OptionKind::AllowOnce,
-        }],
-    };
-    h.fleet.send_fails.store(true, Ordering::Relaxed);
-    asked(&h.fleet, &h.user, worker.id, question.clone(), true)
-        .await
-        .expect_err("the send fails");
-    assert!(h.fleet.sends().is_empty());
-    h.fleet.send_fails.store(false, Ordering::Relaxed);
-    asked(&h.fleet, &h.user, worker.id, question, true)
-        .await
-        .expect("it judges");
-    assert_eq!(
-        h.fleet.sends(),
-        vec![AgentRequest::Answer {
-            question: 1,
-            reply: "allow".into()
-        }]
-    );
-}
-
-#[tokio::test]
-async fn a_failed_reattach_leaves_the_worker() {
-    let h = harness().await;
-    let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
-    reattach(&h.fleet, &h.user, &worker)
-        .await
-        .expect("it tries");
-    assert_eq!(h.worker(&worker).await.state, WorkerState::Waiting);
-    assert_eq!(h.task(&task).await.state, TaskState::Running);
-    assert!(h.fleet.posts().is_empty(), "{:?}", h.fleet.posts());
-    assert_eq!(h.fleet.projects.worker_of(&h.home, "s1"), Some(worker.id));
-    // Refused: the machine no longer has the session.
-    *h.fleet.attach.lock().expect("the fake") = FakeAttach::Refused;
-    reattach(&h.fleet, &h.user, &worker)
-        .await
-        .expect("it tries");
-    assert_eq!(h.worker(&worker).await.state, WorkerState::Failed);
-    assert_eq!(h.task(&task).await.state, TaskState::Blocked);
-    let posts = h.fleet.posts();
-    assert!(
-        posts
-            .iter()
-            .any(|(label, text)| label == REPLAN_LABEL && text.contains("is gone")),
-        "{posts:?}"
-    );
-}
-
-#[tokio::test]
-async fn a_late_turn_report_changes_nothing() {
-    let h = harness().await;
-    let (_, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
-    let user = &h.user;
-    assert!(
-        user.worker_turn(worker.id, 3, "Third.", now())
-            .await
-            .expect("a turn")
-    );
-    user.set_worker_asking(worker.id, true)
-        .await
-        .expect("asking");
-    // Turn 2's report, handled after turn 3's and the question.
-    let noted = user
-        .worker_turn(worker.id, 2, "Second.", now())
-        .await
-        .expect("a turn");
-    assert!(!noted);
-    let row = h.worker(&worker).await;
-    assert_eq!(row.turns_seen, 3);
-    assert!(row.asking);
-    assert_eq!(row.last_output.as_deref(), Some("Third."));
-}
-
-#[tokio::test]
-async fn a_worker_ending_while_its_turn_is_handled_keeps_the_task_blocked() {
-    let h = harness().await;
-    let (task, worker) = h.working(TaskState::Running, minutes_ago(5)).await;
-    h.shell.answer(
-        "gh pr list",
-        0,
-        r#"[{"number":7,"url":"https://github.com/acme/widget/pull/7","state":"OPEN",
-        "mergedAt":null,"reviewDecision":"","statusCheckRollup":[],
-        "title":"Spin it","body":""}]"#,
-    );
-    let release = h.shell.block_on("gh pr list");
-    let done = TurnDone {
-        turn: 2,
-        last_message: "Opened the pull request.",
-        report: true,
-    };
-    let report = turn_done(&h.fleet, &h.user, worker.id, &done, now());
-    // The worker ends while the report looks for its pull request.
-    let end = async {
-        h.shell.until_blocked().await;
-        ended(&h.fleet, &h.user, worker.id, "it crashed")
-            .await
-            .expect("it ends");
-        release.notify_one();
-    };
-    let (reported, ()) = tokio::join!(report, end);
-    reported.expect("it reports");
-    let task = h.task(&task).await;
-    assert_eq!(task.state, TaskState::Blocked);
-    assert_eq!(task.pr_url, None);
-    assert_eq!(h.fleet.projects.armed_at(&Due::Check(h.project.id)), None);
 }

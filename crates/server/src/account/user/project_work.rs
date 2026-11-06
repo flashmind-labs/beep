@@ -5,8 +5,8 @@ use crate::{
     projects::model::{ProjectId, StartRequest, TaskId, TaskState, WorkerId, WorkerState},
     protocol::PendingApproval,
     store::{
-        CheckoutRow, IssueAuthor, NewTask, NewThreadChat, NewWorker, OpenCounts, ProjectRow,
-        StartRefused, TaskRow, ThreadChatRow, TrackedIssue, WorkerRow,
+        CheckoutRow, IssueAuthor, NewTask, NewThreadChat, OpenCounts, ProjectRow, TaskRow,
+        ThreadChatRow, TrackedIssue, WorkerRow,
     },
 };
 use anyhow::Result;
@@ -68,17 +68,6 @@ impl User {
     /// Tasks waiting for a slot to start, oldest first.
     pub(crate) async fn queued_tasks(&self) -> Result<Vec<TaskRow>> {
         self.store.queued_tasks(&self.key).await
-    }
-
-    pub(crate) async fn start_worker(
-        &self,
-        worker: &NewWorker,
-    ) -> Result<Result<WorkerRow, StartRefused>> {
-        self.store.start_worker(&self.key, worker).await
-    }
-
-    pub(crate) async fn live_workers_on(&self, machine: &EndpointId) -> Result<Vec<WorkerRow>> {
-        self.store.live_workers_on(&self.key, machine).await
     }
 
     pub(crate) async fn live_workers(&self) -> Result<Vec<WorkerRow>> {
@@ -224,14 +213,6 @@ impl User {
         self.store.set_task_start(task, start).await
     }
 
-    pub(crate) async fn set_task_branch(&self, task: TaskId, branch: &str) -> Result<()> {
-        self.store.set_task_branch(task, branch).await
-    }
-
-    pub(crate) async fn set_task_pr(&self, task: TaskId, url: &str) -> Result<()> {
-        self.store.set_task_pr(task, url).await
-    }
-
     pub(crate) async fn set_task_after(&self, task: TaskId, after: Option<TaskId>) -> Result<()> {
         self.store.set_task_after(task, after).await
     }
@@ -253,20 +234,6 @@ impl User {
         self.store.set_worker_state(worker, state).await
     }
 
-    pub(crate) async fn worker_turn(
-        &self,
-        worker: WorkerId,
-        turns: u32,
-        last_output: &str,
-        at: DateTime<Utc>,
-    ) -> Result<bool> {
-        self.store.worker_turn(worker, turns, last_output, at).await
-    }
-
-    pub(crate) async fn set_worker_asking(&self, worker: WorkerId, asking: bool) -> Result<()> {
-        self.store.set_worker_asking(worker, asking).await
-    }
-
     pub(crate) async fn set_pr_seen(&self, task: TaskId, fingerprint: &str) -> Result<()> {
         self.store.set_pr_seen(task, fingerprint).await
     }
@@ -278,9 +245,5 @@ impl User {
         since: DateTime<Utc>,
     ) -> Result<Vec<WorkerRow>> {
         self.store.workers(project, since).await
-    }
-
-    pub(crate) async fn set_worker_session(&self, worker: WorkerId, session: &str) -> Result<()> {
-        self.store.set_worker_session(worker, session).await
     }
 }

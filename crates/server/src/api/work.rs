@@ -4,7 +4,6 @@ use super::Reply;
 use crate::{
     account::user::User,
     api::router::Cx,
-    app::App,
     protocol::{
         ApiError, CancelWork, ChatApproval, ListPendingApprovals, ListQuestions, ListWork,
         PendingApproval, WorkItem,
@@ -20,24 +19,21 @@ pub(super) async fn cancel_work(_: Cx, _: CancelWork) -> Reply<bool> {
     Err(ApiError::NotFound {})
 }
 
-pub(super) async fn list_questions(
-    cx: Cx,
-    ListQuestions { session_id }: ListQuestions,
-) -> Reply<Vec<PendingApproval>> {
-    Ok(cx.app.subagents.approvals.pending(cx.user.id(), session_id))
+/// Questions came from machines' coding agents, which the server no longer reaches.
+pub(super) async fn list_questions(_: Cx, _: ListQuestions) -> Reply<Vec<PendingApproval>> {
+    Ok(Vec::new())
 }
 
 pub(super) async fn list_pending_approvals(
     cx: Cx,
     _: ListPendingApprovals,
 ) -> Reply<Vec<ChatApproval>> {
-    pending_approvals(&cx.app, &cx.user).await
+    pending_approvals(&cx.user).await
 }
 
-/// What background work waits on, then the cards the project chats wait on.
-pub(super) async fn pending_approvals(app: &App, user: &User) -> Reply<Vec<ChatApproval>> {
-    let mut pending = app.subagents.approvals.pending_all(user.id());
-    pending.extend(super::projects::project_cards(user).await?);
+/// The cards the project chats wait on.
+pub(super) async fn pending_approvals(user: &User) -> Reply<Vec<ChatApproval>> {
+    let pending = super::projects::project_cards(user).await?;
     if pending.is_empty() {
         return Ok(Vec::new());
     }

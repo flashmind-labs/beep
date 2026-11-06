@@ -6,6 +6,7 @@ use crate::{
     protocol::{AppEvent, DeviceKind, http},
     push::hub::{Heard, Hub},
     store::Store,
+    tools::machines::relay::Desktops,
 };
 use bytes::Bytes;
 use futures::stream::BoxStream;
@@ -65,6 +66,8 @@ pub struct Events {
     store: Store,
     hub: Hub,
     pulse: Pulse,
+    /// Where a desktop's open stream is noted, so machine work can go to it.
+    desktops: Desktops,
 }
 
 /// The device a stream is for.
@@ -84,8 +87,13 @@ enum Stop {
 type Sent = Result<(), Stop>;
 
 impl Events {
-    pub fn new(store: Store, hub: Hub, pulse: Pulse) -> Self {
-        Self { store, hub, pulse }
+    pub fn new(store: Store, hub: Hub, pulse: Pulse, desktops: Desktops) -> Self {
+        Self {
+            store,
+            hub,
+            pulse,
+            desktops,
+        }
     }
 
     /// `device`'s stream, after notice `after` when given, else from now.
@@ -94,8 +102,12 @@ impl Events {
         let heard = self.hub.subscribe();
         let beats = self.pulse.beats.subscribe();
         let store = self.store.clone();
+        let desktops = self.desktops.clone();
         frames(move |tx| async move {
             let key = device.key;
+            // Held while the stream runs.
+            let _open = matches!(device.kind, DeviceKind::Desktop {})
+                .then(|| desktops.open(device.user.id(), key));
             match follow(store, device, after, heard, beats, &tx).await {
                 Ok(()) | Err(Stop::Gone) => {}
                 Err(Stop::Failed(e)) => log::warn!("events: stream ended; key={key} error={e:#}"),

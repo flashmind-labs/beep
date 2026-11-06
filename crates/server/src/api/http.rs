@@ -66,7 +66,7 @@ struct Service {
 pub async fn service(app: Arc<App>, key: &SecretKey, pulse: Pulse) -> Result<axum::Router> {
     let hub = Hub::start(app.store.clone()).await?;
     let service = Service {
-        events: Events::new(app.store.clone(), hub, pulse),
+        events: Events::new(app.store.clone(), hub, pulse, app.desktops.clone()),
         app,
         router: api::router(),
         ops: Op::ALL.iter().map(|op| (format!("{op:?}"), *op)).collect(),

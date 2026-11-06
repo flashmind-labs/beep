@@ -9,18 +9,17 @@ use tasks::{TasksTool, gated, on_home};
 pub(crate) use tasks::{drop_task, reopen_task};
 
 use super::{
-    fleet::{self, Fleet, Machine, NodeFleet},
-    gate::{self, Asks, GatedExec, GatedProcess, ProjectGate},
+    fleet::{self, Fleet, Machine, RecordedFleet},
+    gate::{Asks, ProjectGate},
     model::ProjectId,
 };
 use crate::{
     account::user::User,
     app::App,
     apps::permissions::PROJECT_APP,
-    nodes::SHELL,
     protocol::{Approval, ApprovalField},
     store::ProjectRow,
-    tools::machines::{Machines, command_name, exec::ExecTool, process::ProcessTool},
+    tools::machines::command_name,
 };
 use anyhow::Result;
 use beep_projects::leak::PublicText;
@@ -28,7 +27,6 @@ use beep_projects::model::Visibility;
 use flashmind::types::ToolRegistry;
 use serde_json::Value;
 use std::sync::Arc;
-use uuid::Uuid;
 
 const SETUP: &str = "project_setup";
 const PLAN: &str = "project_plan";
@@ -56,7 +54,6 @@ pub(crate) struct ProjectTools {
     pub(crate) fleet: Arc<dyn Fleet>,
     pub(crate) user: Arc<User>,
     pub(crate) project: ProjectId,
-    pub(crate) chat: Uuid,
     pub(crate) gate: Arc<ProjectGate>,
 }
 
@@ -95,8 +92,6 @@ pub(crate) fn saved_as(tool: &str, args: &Value, project: &ProjectRow) -> Option
             _ => None,
         },
         SETUP => (text("action") == Some("checkout")).then_some(CHECKOUT_SLUG),
-        "exec" => gate::exec_slug(text("command").unwrap_or_default(), &project.default_branch),
-        "process" => (text("action") == Some("stop")).then_some(gate::PROCESS_STOP_SLUG),
         _ => None,
     };
     slug.map(str::to_owned)
@@ -113,21 +108,19 @@ fn plan_asks(n: usize, project: &ProjectRow) -> Asks {
     }
 }
 
-/// Registers the project tools, gated `exec`, and `process` when a machine offers a shell.
+/// Registers the project tools.
 /// No `code_agent`: workers start through the project tools.
 pub(crate) fn register(
     registry: &mut ToolRegistry,
     app: &Arc<App>,
     user: &Arc<User>,
     project: &ProjectRow,
-    chat: Uuid,
     gate: Arc<ProjectGate>,
 ) {
     let tools = Arc::new(ProjectTools {
-        fleet: Arc::new(NodeFleet::new(app, user)),
+        fleet: Arc::new(RecordedFleet::new(app, user)),
         user: user.clone(),
         project: project.id,
-        chat,
         gate: gate.clone(),
     });
 
@@ -149,29 +142,7 @@ pub(crate) fn register(
     }));
     registry.register(Arc::new(review::ReviewTool {
         tools: tools.clone(),
-        app: app.clone(),
     }));
-    let machines = Machines {
-        app: app.clone(),
-        user: user.clone(),
-    };
-    if app
-        .nodes
-        .of_user(user.id())
-        .iter()
-        .any(|node| node.offers(SHELL))
-    {
-        registry.register(Arc::new(GatedExec {
-            exec: Arc::new(ExecTool {
-                machines: machines.clone(),
-            }),
-            tools,
-        }));
-        registry.register(Arc::new(GatedProcess {
-            process: Arc::new(ProcessTool { machines }),
-            gate,
-        }));
-    }
 }
 
 fn machine_list(machines: &[Machine]) -> String {

@@ -1,246 +1,44 @@
-//! A project's branches, and reviews of one before a merge (driven by `projects::review::drive`).
+//! Reviews of a project's branch before a merge, as the server kept them. New reviews and the
+//! steps that read a checkout need a machine, which the server does not reach.
 
 use super::{
     Reply,
-    agent_control::{Live, live_hosts},
-    own_nodes::{machine_names, online},
+    own_nodes::{machine_names, retired},
     projects::task_view,
 };
 use crate::{
     api::router::Cx,
-    nodes::{Online, StartOn},
     projects::{
         model::WorkerAgent,
-        review::{
-            Fix,
-            drive::{close_session, doing, running},
-            find_pr,
-            git::{add_review_worktree, head_script, parse_facts, parse_head, review_script},
-            report::{Subject, reviewer_prompt},
-            rules::{merge_blocked, open},
-            shard::shard,
-            start_fix,
-        },
+        review::{Fix, drive::running, rules::open, start_fix},
         turn::REVIEW_LABEL,
     },
     protocol::*,
     store::{ProjectRow, ReviewFindingRow, ReviewRow, ShardRow, ShardState, Verdict},
     tools::machines::command_name,
 };
-use anyhow::{Result, bail};
-use beep_projects::branches::{branches_script, parse_branches, tail};
 use beep_projects::model::RepoName;
-use chrono::{DateTime, Utc};
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write,
-    str::FromStr,
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Write, str::FromStr};
 use uuid::Uuid;
 
-/// How long listing the branches may take.
-const LIST_LIMIT: Duration = Duration::from_secs(20);
-/// How long fetching and reading a branch's diff may take.
-const REVIEW_LIMIT: Duration = Duration::from_secs(90);
-/// The most output a git script's answer keeps.
-const MAX_OUTPUT: usize = 512 * 1024;
 /// Reviews `ListBranchReviews` gives.
 const MAX_REVIEWS: u32 = 20;
-/// How long reading where a reviewed branch is now may take.
-const HEAD_LIMIT: Duration = Duration::from_secs(30);
-/// How long making a review's worktree may take.
-const WORKTREE_LIMIT: Duration = Duration::from_secs(60);
-/// The longest branch name taken.
-const MAX_BRANCH: usize = 250;
-
-pub(super) async fn list_project_branches(
-    cx: Cx,
-    request: ListProjectBranches,
-) -> Reply<ProjectBranches> {
-    let project = project_row(&cx, &request.project).await?;
-    let place = places(&cx, &project)
-        .await?
-        .into_iter()
-        .find_map(|place| online(&cx, &place.endpoint).map(|node| (node, place.folder)))
-        .ok_or_else(|| {
-            ApiError::bad_request("No machine with a checkout of the project is online.")
-        })?;
-    let (node, folder) = place;
-    let out = run(
-        &node,
-        &branches_script(&folder, &project.default_branch),
-        LIST_LIMIT,
-    )
-    .await
-    .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
-    let (default_branch, branches) =
-        parse_branches(&out).map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
-    Ok(ProjectBranches {
-        machine_id: node.connection.remote_id().to_string(),
-        machine_name: node.name.clone(),
-        default_branch,
-        branches,
-    })
+pub(super) async fn list_project_branches(_: Cx, _: ListProjectBranches) -> Reply<ProjectBranches> {
+    retired()
 }
 
-pub(super) async fn start_branch_review(cx: Cx, request: StartBranchReview) -> Reply<BranchReview> {
-    let branch = branch_name(&request.branch)?;
-    let project = project_row(&cx, &request.project).await?;
-    let (live, folder) = reviewer_host(&cx, &project).await?;
-    let node = &live.online;
-    let out = run(
-        node,
-        &review_script(&folder, branch, &project.default_branch),
-        REVIEW_LIMIT,
-    )
-    .await
-    .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
-    let facts = parse_facts(&out).map_err(|e| ApiError::bad_request(e.to_string()))?;
-    if facts.changed.is_empty() {
-        return Err(ApiError::bad_request(format!(
-            "{branch} has no changes against {}.",
-            facts.default
-        )));
-    }
-    // The review goes on without the pull request when the host cannot be read.
-    let pr = match find_pr(node, &cx.user, &project, branch, &facts.default).await {
-        Ok(pr) => pr,
-        Err(e) => {
-            log::info!("reviews: the pull request was not read: {e:#}");
-            None
-        }
-    };
-    let parts = shard(&facts.changed, &facts.attributes);
-    if parts.is_empty() {
-        return Err(ApiError::bad_request(format!(
-            "{branch} changes only lockfiles and generated files."
-        )));
-    }
-    let agent = live.agent(None)?;
-    let project_name = project.name.to_string();
-    let id = Uuid::new_v4();
-    let worktree = review_worktree(node, &folder, id, &facts.head).await;
-    let subject = Subject {
-        project: &project_name,
-        branch,
-        base: &facts.default,
-        head: &facts.head,
-        merge_base: &facts.merge_base,
-        at_head: worktree.is_some(),
-    };
-    let cwd = worktree.clone().unwrap_or_else(|| folder.clone());
-    let mut rows: Vec<ShardRow> = Vec::with_capacity(parts.len());
-    for (n, part) in parts.iter().enumerate() {
-        let prompt = reviewer_prompt(&subject, &facts.changed, part);
-        match node
-            .start_agent(&agent, Some(cwd.clone()), prompt, StartOn::default())
-            .await
-        {
-            Ok(link) => rows.push(ShardRow {
-                shard: u32::try_from(n).map_err(anyhow::Error::from)?,
-                area: part.area.clone(),
-                paths: part.paths.clone(),
-                files: u32::try_from(part.paths.len()).map_err(anyhow::Error::from)?,
-                lines: part.lines,
-                agent: agent.clone(),
-                session: link.now().info.id,
-                verifier: None,
-                state: ShardState::Reading,
-                error: None,
-            }),
-            Err(e) => {
-                for row in &rows {
-                    close_session(node, &row.agent, &row.session).await;
-                }
-                return Err(ApiError::bad_request(format!(
-                    "Could not start a reviewer on {}: {e:#}",
-                    node.name
-                )));
-            }
-        }
-    }
-    let review = ReviewRow {
-        id,
-        project: project_name.clone(),
-        branch: branch.to_owned(),
-        base: facts.default.clone(),
-        endpoint: live.host.machine_id.clone(),
-        folder,
-        head: facts.head.clone(),
-        merge_base: facts.merge_base.clone(),
-        head_at: DateTime::<Utc>::from(facts.head_at),
-        changed_lines: facts.changed.iter().map(|file| file.lines).sum(),
-        files: u32::try_from(facts.changed.len()).map_err(anyhow::Error::from)?,
-        conflicts: facts.conflicts.clone(),
-        pr,
-        started_at: Utc::now(),
-        worktree,
-    };
-    cx.user.add_review(&review, &rows).await?;
-    let names = HashMap::from([(review.endpoint.clone(), node.name.clone())]);
-    Ok(view(review, &names, rows, Vec::new(), &HashMap::new()))
-}
-
-/// Makes the review's detached worktree at `.worktrees/review-<id>`; `None` when git refuses.
-async fn review_worktree(node: &Online, folder: &str, id: Uuid, head: &str) -> Option<String> {
-    let simple = id.simple().to_string();
-    let path = format!(
-        "{}/.worktrees/review-{}",
-        folder.trim_end_matches('/'),
-        simple.get(..8).unwrap_or(&simple)
-    );
-    match run(
-        node,
-        &add_review_worktree(folder, &path, head),
-        WORKTREE_LIMIT,
-    )
-    .await
-    {
-        Ok(_) => Some(path),
-        Err(e) => {
-            log::info!("reviews: no worktree on {}: {e:#}", node.name);
-            None
-        }
-    }
+pub(super) async fn start_branch_review(_: Cx, _: StartBranchReview) -> Reply<BranchReview> {
+    retired()
 }
 
 pub(super) async fn get_branch_review(cx: Cx, request: GetBranchReview) -> Reply<BranchReview> {
     let review = review_of(&cx, request.id).await?;
-    let shards = cx.user.review_shards(&review).await?;
-    let doing = match online(&cx, &review.endpoint) {
-        Some(node) if running(&shards) => doing(&node, &shards).await,
-        _ => HashMap::new(),
-    };
-    shown(&cx, review, &doing).await
+    shown(&cx, review, &HashMap::new()).await
 }
 
-pub(super) async fn check_branch_review(cx: Cx, request: CheckBranchReview) -> Reply<ReviewHead> {
-    let review = review_of(&cx, request.id).await?;
-    head_now(&cx, &review).await
+pub(super) async fn check_branch_review(_: Cx, _: CheckBranchReview) -> Reply<ReviewHead> {
+    retired()
 }
-
-/// Where the reviewed branch is now, read on the review's machine.
-async fn head_now(cx: &Cx, review: &ReviewRow) -> Result<ReviewHead, ApiError> {
-    let Some(node) = online(cx, &review.endpoint) else {
-        return Err(ApiError::bad_request(
-            "The machine the review ran on is offline.",
-        ));
-    };
-    let out = run(
-        &node,
-        &head_script(&review.folder, &review.branch, &review.head),
-        HEAD_LIMIT,
-    )
-    .await
-    .map_err(|e| ApiError::bad_request(format!("{}: {e:#}", node.name)))?;
-    let now = parse_head(&out, &review.head);
-    Ok(ReviewHead {
-        head: now.head,
-        stale: now.stale,
-    })
-}
-
 pub(super) async fn list_branch_reviews(
     cx: Cx,
     request: ListBranchReviews,
@@ -313,37 +111,10 @@ pub(super) async fn post_branch_review(cx: Cx, request: PostBranchReview) -> Rep
     ask_project_agent(&cx, &review, text).await
 }
 
-pub(super) async fn merge_reviewed_branch(cx: Cx, request: MergeReviewedBranch) -> Reply<Uuid> {
-    let review = review_of(&cx, request.review).await?;
-    let shards = cx.user.review_shards(&review).await?;
-    let findings = cx.user.review_findings(&review).await?;
-    if let Some(why) = merge_blocked(&review, &shards, &findings) {
-        return Err(ApiError::bad_request(why));
-    }
-    if head_now(&cx, &review).await?.stale {
-        return Err(ApiError::bad_request(
-            "The branch moved since this review: review it again first.",
-        ));
-    }
-    let Some(pr) = &review.pr else {
-        return Err(ApiError::bad_request(
-            "The branch has no open pull request to merge.",
-        ));
-    };
-    let text = format!(
-        "The user reviewed {branch} at {head} and asks you to merge pull request #{number} \
-         ({url}) into {base}. Call branch_review with action merge and review {id}: it checks \
-         the pull request again and shows the user a card first. Never merge any other way.",
-        branch = review.branch,
-        head = short(&review.head),
-        number = pr.number,
-        url = pr.url,
-        base = review.base,
-        id = review.id,
-    );
-    ask_project_agent(&cx, &review, text).await
+/// Merging checks where the branch is now on a machine, which the server does not reach.
+pub(super) async fn merge_reviewed_branch(_: Cx, _: MergeReviewedBranch) -> Reply<Uuid> {
+    retired()
 }
-
 /// Posts `text` in the review's project chat and gives the chat's id.
 async fn ask_project_agent(cx: &Cx, review: &ReviewRow, text: String) -> Reply<Uuid> {
     let project = project_row(cx, &review.project).await?;
@@ -415,20 +186,6 @@ fn post_request(review: &ReviewRow, number: u64, url: &str, open: &[&ReviewFindi
     )
 }
 
-/// A branch name as git takes it: one line, not an option.
-fn branch_name(text: &str) -> Result<&str, ApiError> {
-    let text = text.trim();
-    let text = text.strip_prefix("origin/").unwrap_or(text);
-    if text.is_empty()
-        || text.len() > MAX_BRANCH
-        || text.starts_with('-')
-        || text.contains(|c: char| c.is_control() || c.is_whitespace())
-    {
-        return Err(ApiError::bad_request("That is not a branch name."));
-    }
-    Ok(text)
-}
-
 async fn review_of(cx: &Cx, id: Uuid) -> Result<ReviewRow, ApiError> {
     cx.user.review(id).await?.ok_or(ApiError::NotFound {})
 }
@@ -464,76 +221,6 @@ pub(super) async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiEr
         return Err(ApiError::NotFound {});
     }
     Ok(cx.user.ensure_project(&name).await?)
-}
-
-/// A machine and the project's folder there.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Place {
-    pub(super) endpoint: String,
-    pub(super) folder: String,
-}
-
-/// Where the project is, one per machine: home checkout, other checkouts, then imports.
-pub(super) async fn places(cx: &Cx, project: &ProjectRow) -> Result<Vec<Place>, ApiError> {
-    let mut checkouts = cx.user.checkouts(project.id).await?;
-    checkouts.sort_by_key(|checkout| !checkout.home);
-    let name = project.name.to_string();
-    let mut out: Vec<Place> = checkouts
-        .into_iter()
-        .map(|checkout| Place {
-            endpoint: checkout.machine.to_string(),
-            folder: checkout.path.as_str().to_owned(),
-        })
-        .collect();
-    out.extend(
-        cx.user
-            .imports()
-            .await?
-            .into_iter()
-            .filter(|import| import.project.eq_ignore_ascii_case(&name))
-            .map(|import| Place {
-                endpoint: import.endpoint,
-                folder: import.folder,
-            }),
-    );
-    let mut seen = HashSet::new();
-    out.retain(|place| seen.insert(place.endpoint.clone()));
-    Ok(out)
-}
-
-/// The first online machine with the project that offers a coding agent, and its folder.
-async fn reviewer_host(cx: &Cx, project: &ProjectRow) -> Result<(Live, String), ApiError> {
-    let places = places(cx, project).await?;
-    let mut hosts = live_hosts(cx).await?;
-    for place in places {
-        if let Some(at) = hosts
-            .iter()
-            .position(|live| live.host.machine_id == place.endpoint)
-        {
-            return Ok((hosts.swap_remove(at), place.folder));
-        }
-    }
-    Err(ApiError::bad_request(
-        "No online machine with a checkout of the project offers a coding agent.",
-    ))
-}
-
-/// Runs `script` in its own shell on `node` and gives its output, failing unless it exits 0.
-async fn run(node: &Online, script: &str, limit: Duration) -> Result<String> {
-    let mut out = String::new();
-    let ran = node
-        .exec(script, limit, &mut |text| {
-            if out.len() < MAX_OUTPUT {
-                out.push_str(text);
-            }
-        })
-        .await?;
-    match ran.exit_code {
-        Some(0) => Ok(out),
-        Some(3) => bail!("the project's folder is not there"),
-        Some(code) => bail!("git exited with {code}: {}", tail(&out)),
-        None => bail!("git did not finish in time"),
-    }
 }
 
 fn verdict(finding: &ReviewFindingRow) -> ReviewVerdict {
@@ -644,7 +331,8 @@ fn view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{projects::review::drive::SHARD_IDS, store::PrRow};
+    use crate::{projects::review::rules::merge_blocked, store::PrRow};
+    use chrono::Utc;
 
     fn review() -> ReviewRow {
         ReviewRow {
@@ -688,7 +376,7 @@ mod tests {
     fn finding(id: u32, severity: ReviewSeverity, verdict: Option<Verdict>) -> ReviewFindingRow {
         ReviewFindingRow {
             id,
-            shard: id / SHARD_IDS,
+            shard: id / 100,
             severity,
             title: format!("finding {id}"),
             file: "src/lib.rs".into(),
@@ -725,16 +413,5 @@ mod tests {
             pr.checks = ReviewChecks::Failing {};
         }
         assert!(merge_blocked(&failing, &done, &[]).is_some());
-    }
-
-    #[test]
-    fn branch_names_are_one_word_and_not_options() {
-        assert_eq!(branch_name(" login-copy ").unwrap(), "login-copy");
-        assert_eq!(branch_name("origin/login-copy").unwrap(), "login-copy");
-        assert!(branch_name("--upload-pack=x").is_err());
-        assert!(branch_name("a b").is_err());
-        assert!(branch_name("").is_err());
-        assert!(branch_name("origin/-x").is_err());
-        assert!(branch_name("origin/").is_err());
     }
 }

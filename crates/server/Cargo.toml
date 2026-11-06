@@ -53,7 +53,6 @@ tokio-util = { version = "0.7", features = ["codec", "io", "rt"] }
 # Composio trigger events arrive over a Pusher websocket.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 toml = "1"
-shlex = "1"
 log = "0.4"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 html2text = "0.17"
@@ -74,10 +73,6 @@ typst-kit = { version = "0.15", default-features = false, features = ["embedded-
 [dev-dependencies]
 beep-projects = { path = "../projects", features = ["testing"] }
 async-stream = "0.3"
-# The node tests run a real node against the server.
-beep-node = { path = "../node" }
-# Builds real MCP results to check how `send_file` reads them.
-rmcp = { version = "2.2", default-features = false }
 # The network tests make the TLS connections the server's endpoint sets up for.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tempfile = "3"

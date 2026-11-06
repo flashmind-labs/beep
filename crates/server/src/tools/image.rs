@@ -1,17 +1,12 @@
-use super::{args::text, file::clean_name};
-use crate::{
-    account::user::User,
-    nodes::workspace::Workspace,
-    tools::fetch::{content_type, follow_public},
-};
+use super::args::text;
+use crate::tools::fetch::{content_type, follow_public};
 use async_trait::async_trait;
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use imagesize::ImageType;
 use reqwest::{StatusCode, Url};
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use tokio::time::timeout;
-use uuid::Uuid;
 
 const MAX_IMAGES: usize = 6;
 /// How long checking one image may take, redirects included.
@@ -20,12 +15,8 @@ const CHECK_TIME: Duration = Duration::from_secs(10);
 /// The tool's name, which the apps and the routine notice look for.
 pub(crate) const NAME: &str = "send_image";
 
-/// Shows images in the chat from the web (checked to load) or the user's home folder.
-pub(crate) struct SendImageTool {
-    pub(crate) user: Arc<User>,
-    pub(crate) session_id: Uuid,
-    pub(crate) workspace: Option<Arc<Workspace>>,
-}
+/// Shows images in the chat from the web, each checked to load.
+pub(crate) struct SendImageTool;
 
 #[async_trait]
 impl Tool for SendImageTool {
@@ -33,7 +24,7 @@ impl Tool for SendImageTool {
         NAME
     }
     fn description(&self) -> &str {
-        "Send images to the user; they show in the chat as pictures. Give each one either `url`, an https image URL you got from a tool, a page or the user and never one you made up, or `path`, a PNG, JPEG, GIF or WebP in the user's home folder (relative to it, or absolute), such as a chart a command drew with exec. Use this rather than send_file for images. Each one is checked, and ones that are not images are reported back."
+        "Send images to the user; they show in the chat as pictures. Give each one `url`, an https image URL you got from a tool, a page or the user and never one you made up. Use this rather than send_file for images. Each one is checked, and ones that are not images are reported back."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -47,7 +38,6 @@ impl Tool for SendImageTool {
                         "type": "object",
                         "properties": {
                             "url": { "type": "string", "description": "https URL of the image file" },
-                            "path": { "type": "string", "description": "Image in the user's home folder, such as chart.png" },
                             "caption": { "type": "string", "maxLength": 200 }
                         },
                         "additionalProperties": false
@@ -98,41 +88,15 @@ impl Tool for SendImageTool {
 }
 
 impl SendImageTool {
-    /// Checks or saves one requested image, or says why it cannot be sent.
+    /// Checks one requested image, or says why it cannot be sent.
     async fn send_one(&self, image: &Value) -> Result<Value, String> {
         let field = |key| text(image, key);
         let caption: String = field("caption").unwrap_or("").chars().take(200).collect();
-        match (field("url"), field("path")) {
-            (Some(url), None) => match check(url).await {
-                Ok(()) => Ok(json!({ "url": url, "caption": caption })),
-                Err(reason) => Err(format!("{url}: {reason}")),
-            },
-            (None, Some(path)) => match self.save(path).await {
-                Ok(file) => Ok(json!({ "file": file, "caption": caption })),
-                Err(reason) => Err(format!("{path}: {reason}")),
-            },
-            _ => Err("give each image either url or path".to_owned()),
+        let url = field("url").ok_or("give each image a url")?;
+        match check(url).await {
+            Ok(()) => Ok(json!({ "url": url, "caption": caption })),
+            Err(reason) => Err(format!("{url}: {reason}")),
         }
-    }
-
-    /// Keeps the folder image at `path` with the chat as a sent file.
-    async fn save(&self, path: &str) -> Result<Value, String> {
-        let workspace = self
-            .workspace
-            .as_ref()
-            .ok_or("the user has no environment online to keep files in")?;
-        let file = workspace
-            .read(path)
-            .await
-            .map_err(|error| format!("{error:#}"))?;
-        let mime = image_mime(&file.data).ok_or("it is not a PNG, JPEG, GIF or WebP image")?;
-        let name = clean_name(&file.name);
-        let id = self
-            .user
-            .save_file(self.session_id, &name, mime, &file.data)
-            .await
-            .map_err(|error| format!("could not keep it: {error:#}"))?;
-        Ok(json!({ "id": id, "name": name, "mime": mime, "size": file.data.len() }))
     }
 }
 

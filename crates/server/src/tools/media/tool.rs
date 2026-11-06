@@ -1,20 +1,18 @@
 //! `image_gen`, `video_gen` and `3d_gen`, each offered only with a key for it.
 
 use super::{
-    call::{Call, ImageSource, schema},
+    call::{Call, schema},
     job::{JobError, Produced},
     produce::{self, Endpoints, Job},
     provider::{Keys, MediaKind, MediaProvider},
 };
 use crate::{
     account::user::User,
-    nodes::workspace::Workspace,
     tools::fetch,
     tools::{file::clean_name, image::image_mime},
 };
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
-use base64::{Engine, engine::general_purpose::STANDARD};
 use flashmind::types::tool::{Tool, ToolContext, ToolResult};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -29,7 +27,6 @@ const NAME_WORDS: usize = 6;
 pub(crate) struct Media {
     pub(crate) user: Arc<User>,
     pub(crate) chat: Uuid,
-    pub(crate) workspace: Option<Arc<Workspace>>,
     pub(crate) keys: Keys,
     pub(crate) endpoints: Endpoints,
 }
@@ -134,13 +131,9 @@ impl MediaTool {
             .keys
             .get(call.provider)
             .with_context(|| format!("the user has no {} key", call.provider.name()))?;
-        let image = match &call.image {
-            Some(source) => Some(self.image_input(source).await?),
-            None => None,
-        };
         let job = Job {
             call,
-            image,
+            image: call.image.clone(),
             key,
             endpoints: &self.media.endpoints,
         };
@@ -167,28 +160,7 @@ impl MediaTool {
         self.deliver(call, produced).await
     }
 
-    /// The input image as an https URL, or a home folder file as a data URI.
-    async fn image_input(&self, source: &ImageSource) -> Result<String> {
-        match source {
-            ImageSource::Url(url) => Ok(url.clone()),
-            ImageSource::Path(path) => {
-                let workspace = self
-                    .media
-                    .workspace
-                    .as_ref()
-                    .context("the user has no environment online to read the image from")?;
-                let file = workspace.read(path).await?;
-                let mime = image_mime(&file.data)
-                    .with_context(|| format!("{path} is not a PNG, JPEG, GIF or WebP image"))?;
-                Ok(format!(
-                    "data:{mime};base64,{}",
-                    STANDARD.encode(&file.data)
-                ))
-            }
-        }
-    }
-
-    /// Keeps the file with the chat and saves it in the home folder.
+    /// Keeps the file with the chat.
     async fn deliver(&self, call: &Call, produced: Produced) -> Result<Value> {
         let Produced { media_type, data } = produced;
         ensure!(!data.is_empty(), "the service sent an empty file");
@@ -213,14 +185,6 @@ impl MediaTool {
             .await
             .context("could not keep it with the chat")?;
         let file = json!({ "id": id, "name": name, "mime": mime, "size": data.len() });
-        let saved = match &self.media.workspace {
-            Some(workspace) => workspace
-                .save(&name, &data)
-                .await
-                .map(|saved| saved.path)
-                .map_err(|error| format!("{error:#}")),
-            None => Err("the user has no environment online".to_owned()),
-        };
         let mut output = match self.kind {
             MediaKind::Image => json!({
                 "action": "send_image",
@@ -230,14 +194,6 @@ impl MediaTool {
         };
         output["provider"] = json!(call.provider.name());
         output["model"] = json!(call.model);
-        match saved {
-            Ok(path) => output["path"] = json!(path),
-            Err(why) => {
-                output["note"] = json!(format!(
-                    "Shown to the user, but not saved in the home folder: {why}"
-                ));
-            }
-        }
         Ok(output)
     }
 }

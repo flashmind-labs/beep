@@ -1,4 +1,4 @@
-//! What the caller's machines moved over iroh.
+//! What the caller's machines moved: no machine reports to the server now.
 
 use super::Reply;
 use crate::{
@@ -7,8 +7,8 @@ use crate::{
 };
 
 pub(super) async fn list_machine_traffic(
-    cx: Cx,
+    _: Cx,
     _: ListMachineTraffic,
 ) -> Reply<Vec<MachineTraffic>> {
-    Ok(cx.user.machine_traffic().await?)
+    Ok(Vec::new())
 }

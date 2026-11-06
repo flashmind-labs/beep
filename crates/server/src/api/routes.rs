@@ -205,7 +205,7 @@ pub fn router() -> Router {
         .call(usage::get_usage)
         .call(usage::get_usage_report)
         .call(spend_report::get_spend_report)
-        .duplex(terminals::attach::attach_terminal)
+        .duplex(terminals::attach_terminal)
         .call(reviews::list_project_branches)
         .call(reviews::start_branch_review)
         .call(reviews::get_branch_review)

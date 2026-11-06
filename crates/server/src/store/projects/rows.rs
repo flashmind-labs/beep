@@ -2,8 +2,8 @@
 
 use crate::{
     projects::model::{
-        MAX_MACHINE_WORKERS, MAX_PROJECT_WORKERS, MAX_USER_WORKERS, ProjectId, StartRequest,
-        TaskId, TaskState, WorkerAgent, WorkerId, WorkerState,
+        MAX_USER_WORKERS, ProjectId, StartRequest, TaskId, TaskState, WorkerAgent, WorkerId,
+        WorkerState,
     },
     protocol::{TaskCounts, node::Capability},
 };
@@ -86,8 +86,6 @@ pub(crate) struct WorkerRow {
     pub(crate) asking: bool,
     pub(crate) last_output: Option<String>,
     pub(crate) persona: Option<String>,
-    /// How many of its session's turns the project chat has heard about.
-    pub(crate) turns_seen: u32,
     pub(crate) started_at: DateTime<Utc>,
     pub(crate) last_turn_at: Option<DateTime<Utc>>,
     pub(crate) ended_at: Option<DateTime<Utc>>,
@@ -112,29 +110,11 @@ pub(crate) enum After {
     Earlier(usize),
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct NewWorker {
-    pub(crate) task: TaskId,
-    pub(crate) machine: EndpointId,
-    pub(crate) agent: WorkerAgent,
-    pub(crate) folder: MachinePath,
-    pub(crate) persona: Option<String>,
-    pub(crate) persona_commit: Option<String>,
-}
-
 /// Why a worker did not start, told to the model as it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum StartRefused {
-    #[error("{MAX_PROJECT_WORKERS} workers already run in this project")]
-    ProjectFull,
-    #[error("{MAX_MACHINE_WORKERS} workers already run on this machine")]
-    MachineFull,
     #[error("{MAX_USER_WORKERS} workers already run across your projects")]
     UserFull,
-    #[error("another worker already writes in that folder on this machine")]
-    FolderTaken,
-    #[error("this task already has a worker")]
-    TaskHasWorker,
 }
 
 /// What is still open in a project.
@@ -250,7 +230,6 @@ pub(in crate::store) fn worker_from(row: &PgRow) -> Result<WorkerRow> {
     let agent: String = row.try_get(4)?;
     let folder: String = row.try_get(6)?;
     let state: String = row.try_get(7)?;
-    let turns_seen: i32 = row.try_get(12)?;
     Ok(WorkerRow {
         id: WorkerId(row.try_get(0)?),
         task: TaskId(row.try_get(1)?),
@@ -263,9 +242,8 @@ pub(in crate::store) fn worker_from(row: &PgRow) -> Result<WorkerRow> {
         asking: row.try_get(8)?,
         last_output: row.try_get(9)?,
         persona: row.try_get(10)?,
-        turns_seen: u32::try_from(turns_seen)?,
-        started_at: row.try_get(13)?,
-        last_turn_at: row.try_get(14)?,
-        ended_at: row.try_get(15)?,
+        started_at: row.try_get(12)?,
+        last_turn_at: row.try_get(13)?,
+        ended_at: row.try_get(14)?,
     })
 }

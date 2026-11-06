@@ -1,27 +1,23 @@
-//! Project folder sync across the caller's machines; the nodes sync, these edit their lists.
+//! Project folder sync records of released apps. The server reaches no machine, so each shows
+//! offline and edits stay in the records; desktops sync projects over their mesh.
 
 use super::{
     Reply,
-    own_nodes::{self, linked_keys},
+    own_nodes::{linked_keys, retired},
 };
 use crate::{
     api::router::Cx,
-    nodes::{Online, push_sync},
     protocol::{
-        node::sync::{Keep, Progress, ProjectStatus, Rule, SkippedPath, State},
+        node::sync::{Progress, ProjectStatus, State},
         *,
     },
     store::NodeRow,
 };
 use beep_projects::imports::records::{ImportRow, SyncRow};
-use futures::{StreamExt, stream};
-use iroh::EndpointId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The longest project name.
 pub(crate) const MAX_NAME: usize = 200;
-/// How many machines are asked how they stand at once.
-const ASKING: usize = 8;
 
 /// `name` trimmed, once it is a name a project may have.
 pub(crate) fn project_name(name: &str) -> Result<&str, ApiError> {
@@ -47,30 +43,6 @@ async fn machines(cx: &Cx) -> Result<HashMap<String, NodeRow>, ApiError> {
         .collect())
 }
 
-/// The caller's machine `machine_id` when it is online now.
-fn online(cx: &Cx, machine_id: &str) -> Option<Online> {
-    own_nodes::online(cx, machine_id).filter(Online::syncs)
-}
-
-/// How each of `endpoints` stands, for those online that answer.
-async fn statuses(cx: &Cx, endpoints: Vec<String>) -> HashMap<String, Vec<ProjectStatus>> {
-    stream::iter(endpoints.into_iter().filter_map(|id| online(cx, &id)))
-        .map(|node| async move {
-            let id = node.connection.remote_id().to_string();
-            match node.sync_status().await {
-                Ok(projects) => Some((id, projects)),
-                Err(e) => {
-                    log::debug!("sync status not read; node={id} error={e:#}");
-                    None
-                }
-            }
-        })
-        .buffer_unordered(ASKING)
-        .filter_map(|answer| async move { answer })
-        .collect()
-        .await
-}
-
 /// The caller's synced or pinned projects, or only `only`.
 async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiError> {
     let machines = machines(cx).await?;
@@ -82,10 +54,6 @@ async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiEr
         .filter(|row| machines.contains_key(&row.endpoint))
         .filter(|row| only.is_none_or(|only| row.project == only))
         .collect();
-    let mut endpoints: Vec<String> = rows.iter().map(|row| row.endpoint.clone()).collect();
-    endpoints.sort();
-    endpoints.dedup();
-    let statuses = statuses(cx, endpoints).await;
     let paused: HashSet<String> = cx.user.paused_syncs().await?.into_iter().collect();
     let mut out: BTreeMap<String, ProjectSync> = BTreeMap::new();
     for project in cx.user.pinned_projects().await? {
@@ -102,10 +70,7 @@ async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiEr
             .get(&row.endpoint)
             .map(|node| node.name.clone())
             .unwrap_or_default();
-        let status = statuses
-            .get(&row.endpoint)
-            .map(|projects| projects.iter().find(|status| status.name == row.project));
-        let machine = machine_sync(&row, name, status, paused.contains(&row.project));
+        let machine = machine_sync(&row, name, None, paused.contains(&row.project));
         out.entry(row.project.clone())
             .or_insert_with(|| empty(row.project, false))
             .machines
@@ -207,7 +172,6 @@ async fn detail(cx: &Cx, project: &str) -> Reply<ProjectSyncDetail> {
         .into_iter()
         .filter(|row| row.project == project && machines.contains_key(&row.endpoint))
         .collect();
-    let statuses = statuses(cx, rows.iter().map(|row| row.endpoint.clone()).collect()).await;
     let paused = cx.user.paused_syncs().await?.iter().any(|p| p == project);
     let pinned = cx
         .user
@@ -222,13 +186,7 @@ async fn detail(cx: &Cx, project: &str) -> Reply<ProjectSyncDetail> {
                 .get(&row.endpoint)
                 .map(|node| node.name.clone())
                 .unwrap_or_default();
-            let status = statuses
-                .get(&row.endpoint)
-                .map(|projects| projects.iter().find(|status| status.name == row.project));
-            let mut machine = machine_detail(row, name, status, paused);
-            machine.can_resolve =
-                online(cx, &row.endpoint).is_some_and(|node| node.sync_controls());
-            machine
+            machine_detail(row, name, None, paused)
         })
         .collect();
     Ok(ProjectSyncDetail {
@@ -264,44 +222,13 @@ pub(super) async fn pause_project_sync(
             "{name} is pinned to the machines it is on, so it does not sync."
         )));
     }
-    if cx.user.pause_sync(name, request.paused).await? {
-        push_sync(&cx.app.nodes, &cx.user, None).await?;
-    }
+    cx.user.pause_sync(name, request.paused).await?;
     detail(&cx, name).await
 }
 
-/// The connected node of `machine`, which must sync `project`.
-async fn synced_node(cx: &Cx, project: &str, machine: &str) -> Reply<Online> {
-    let synced = cx
-        .user
-        .project_syncs()
-        .await?
-        .iter()
-        .any(|row| row.project == project && row.endpoint == machine);
-    if !synced || !machines(cx).await?.contains_key(machine) {
-        return Err(ApiError::NotFound {});
-    }
-    online(cx, machine).ok_or(ApiError::NotFound {})
+pub(super) async fn resolve_sync_conflict(_: Cx, _: ResolveSyncConflict) -> Reply<()> {
+    retired()
 }
-
-pub(super) async fn resolve_sync_conflict(cx: Cx, request: ResolveSyncConflict) -> Reply<()> {
-    let name = project_name(&request.project)?;
-    let node = synced_node(&cx, name, &request.machine_id).await?;
-    if !node.sync_controls() {
-        return Err(ApiError::bad_request(format!(
-            "{}'s beep-node is too old to settle conflicts. Update it, or settle it in the folder.",
-            node.name
-        )));
-    }
-    let keep = match request.keep {
-        ConflictKeep::Original {} => Keep::Original,
-        ConflictKeep::Copy {} => Keep::Copy,
-    };
-    node.sync_resolve(name, &request.path, keep)
-        .await
-        .map_err(|e| ApiError::bad_request(format!("{e:#}")))
-}
-
 /// One project as `projects` lists it.
 async fn project(cx: &Cx, name: &str) -> Reply<ProjectSync> {
     projects(cx, Some(name))
@@ -311,86 +238,21 @@ async fn project(cx: &Cx, name: &str) -> Reply<ProjectSync> {
         .ok_or(ApiError::Internal {})
 }
 
+/// Turning a machine's sync off drops its record; turning it on needs the machine, which the
+/// server does not reach.
 pub(super) async fn set_project_sync(cx: Cx, request: SetProjectSync) -> Reply<ProjectSync> {
     let name = project_name(&request.project)?;
-    let machines = machines(&cx).await?;
-    let machine = machines
-        .get(&request.machine_id)
-        .ok_or(ApiError::NotFound {})?;
-    let id: EndpointId = request
-        .machine_id
-        .parse()
-        .map_err(|_| ApiError::NotFound {})?;
-    if !request.on {
-        if cx
-            .user
-            .remove_project_sync(name, &request.machine_id)
-            .await?
-        {
-            push_sync(&cx.app.nodes, &cx.user, None).await?;
-        }
-        return project(&cx, name).await;
+    if !machines(&cx).await?.contains_key(&request.machine_id) {
+        return Err(ApiError::NotFound {});
     }
-    let folder = request
-        .folder
-        .as_deref()
-        .map(str::trim)
-        .filter(|folder| !folder.is_empty())
-        .ok_or_else(|| {
-            ApiError::bad_request(format!("Name the project's folder on {}.", machine.name))
-        })?;
-    if cx
-        .user
-        .pinned_projects()
-        .await?
-        .iter()
-        .any(|pinned| pinned == name)
-    {
-        return Err(ApiError::bad_request(format!(
-            "{name} is pinned to the machines it is on. Unpin it to sync it."
-        )));
+    if request.on {
+        return retired();
     }
-    if online(&cx, &request.machine_id).is_none() {
-        return Err(ApiError::bad_request(format!(
-            "{} is offline, or its beep-node is too old or shares no folders.",
-            machine.name
-        )));
-    }
-    let row = SyncRow {
-        project: name.to_owned(),
-        endpoint: request.machine_id.clone(),
-        folder: folder.to_owned(),
-    };
-    let before = cx
-        .user
-        .project_syncs()
-        .await?
-        .into_iter()
-        .find(|old| old.project == row.project && old.endpoint == row.endpoint);
-    cx.user.set_project_sync(&row).await?;
-    let refused = push_sync(&cx.app.nodes, &cx.user, Some(id))
-        .await?
-        .into_iter()
-        .find(|refusal| refusal.node == id && refusal.refused.project == name);
-    if let Some(refusal) = refused {
-        // Back to the folder it synced before, if any.
-        match before {
-            Some(before) => cx.user.set_project_sync(&before).await?,
-            None => {
-                cx.user
-                    .remove_project_sync(name, &request.machine_id)
-                    .await?;
-            }
-        }
-        push_sync(&cx.app.nodes, &cx.user, None).await?;
-        return Err(ApiError::bad_request(format!(
-            "{} cannot sync {folder}: {}",
-            machine.name, refusal.refused.message
-        )));
-    }
+    cx.user
+        .remove_project_sync(name, &request.machine_id)
+        .await?;
     project(&cx, name).await
 }
-
 pub(super) async fn list_project_sync(cx: Cx, _: ListProjectSync) -> Reply<Vec<ProjectSync>> {
     projects(&cx, None).await
 }
@@ -444,48 +306,15 @@ fn syncthing_places(
     out
 }
 
-pub(super) async fn get_sync_skipped(cx: Cx, request: GetSyncSkipped) -> Reply<SyncSkipped> {
-    let name = project_name(&request.project)?;
-    let node = synced_node(&cx, name, &request.machine_id).await?;
-    let skipped = node
-        .sync_skipped(name)
-        .await
-        .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
-    Ok(SyncSkipped {
-        paths: skipped.paths.into_iter().filter_map(skipped_file).collect(),
-        through_git: skipped.through_git,
-        truncated: skipped.truncated,
-    })
-}
-
-/// A path left out as the app shows it; an unknown rule's is not shown.
-fn skipped_file(path: SkippedPath) -> Option<SkippedFile> {
-    let rule = match path.rule {
-        Rule::Git => SkipRule::Git {},
-        Rule::GitIgnore => SkipRule::GitIgnore {},
-        Rule::Default => SkipRule::Default {
-            marker: path.marker.unwrap_or_default(),
-        },
-        Rule::BeepIgnore => SkipRule::BeepIgnore {},
-        Rule::Link => SkipRule::Link {},
-        Rule::Other => return None,
-    };
-    Some(SkippedFile {
-        path: path.path,
-        folder: path.folder,
-        rule,
-    })
+pub(super) async fn get_sync_skipped(_: Cx, _: GetSyncSkipped) -> Reply<SyncSkipped> {
+    retired()
 }
 
 pub(super) async fn pin_project(cx: Cx, request: PinProject) -> Reply<ProjectSync> {
     let name = project_name(&request.project)?;
     cx.user.pin_project(name, request.pinned).await?;
-    if request.pinned {
-        push_sync(&cx.app.nodes, &cx.user, None).await?;
-    }
     project(&cx, name).await
 }
-
 pub(super) async fn pin_project_to_top(cx: Cx, request: PinProjectToTop) -> Reply<()> {
     let name = project_name(&request.project)?;
     cx.user.pin_project_to_top(name, request.pinned).await?;

@@ -1,6 +1,7 @@
 //! The machinery around one agent turn: models and metering, context compaction, checks on the
 //! reply (gates, repeats), titles, follow-ups and background sub-agents. `app::App` drives turns.
 
+pub mod attachments;
 pub mod cache_session;
 pub mod compaction;
 pub mod decision;

@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     memory::watchers::testing::{Harness, Scripted},
     projects::testing::machine_id,
-    protocol::{AgentStatus, GitItem, GitItemKind, GitReview, MachineSession},
+    protocol::{GitItem, GitItemKind, GitReview},
     store::{NewNode, NewTask},
 };
 use beep_projects::imports::records::NewImport;
@@ -60,23 +60,6 @@ fn item(repo: &str, number: u64, kind: GitItemKind) -> GitItem {
     }
 }
 
-fn session(endpoint: &str, machine: &str, agent: &str, cwd: &str) -> MachineSession {
-    MachineSession {
-        machine_id: endpoint.into(),
-        machine_name: machine.into(),
-        id: format!("{agent}-1"),
-        agent: agent.into(),
-        title: Some("Fix the login page".into()),
-        cwd: cwd.into(),
-        status: AgentStatus::Working {},
-        doing: None,
-        started_at: minutes_ago(30),
-        last_activity: minutes_ago(4),
-        external: false,
-        question: None,
-    }
-}
-
 /// Alice's two projects on two machines; gives the build box's and the mac's keys.
 async fn two_projects(alice: &User) -> (String, String) {
     let build = machine(alice, 1, "build-box").await;
@@ -122,41 +105,30 @@ fn widget_items() -> Vec<GitItem> {
 }
 
 #[tokio::test]
-async fn list_gives_each_project_with_machines_counts_and_sessions() {
+async fn list_gives_each_project_with_machines_and_counts() {
     let harness = Harness::new(Scripted::default()).await;
     let alice = &harness.alice;
-    let (build, mac) = two_projects(alice).await;
+    two_projects(alice).await;
     let live = Live {
         items: widget_items(),
-        sessions: vec![
-            session(&mac, "mac", "claude", "/Users/me/gadget/.worktrees/login"),
-            session(&build, "build-box", "codex", "/srv/elsewhere"),
-            // The same folder on another machine is not this project.
-            session(&build, "build-box", "codex", "/Users/me/gadget"),
-        ],
         notes: Vec::new(),
     };
     let projects = load(alice).await.expect("loaded");
-    let text = render_list(&projects, &live, now());
+    let text = render_list(&projects, &live);
 
     assert!(text.starts_with("2 projects."), "{text}");
     assert!(
         text.contains(
             "- acme/gadget (https://github.com/acme/gadget)\n  on: mac /Users/me/gadget\n  \
-             open: 0 PRs, 0 issues, 0 tasks\n  session: claude on mac \"Fix the login page\" \
-             (working, last activity 4 min ago) in /Users/me/gadget/.worktrees/login\n"
+             open: 0 PRs, 0 issues, 0 tasks\n"
         ),
         "{text}"
     );
     assert!(
         text.contains(
             "- acme/widget (https://github.com/acme/widget)\n  on: build-box /srv/widget; \
-             mac /Users/me/widget\n  open: 2 PRs (2 waiting on the user), 1 issue, 1 task\n"
+             mac /Users/me/widget\n  open: 2 PRs (2 waiting on the user), 1 issue, 1 task"
         ),
-        "{text}"
-    );
-    assert!(
-        text.ends_with("2 more coding sessions outside these projects' folders."),
         "{text}"
     );
 }

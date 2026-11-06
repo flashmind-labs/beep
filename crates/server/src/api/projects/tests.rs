@@ -3,13 +3,8 @@ use crate::{
     account::user::UserKey,
     api::work::pending_approvals,
     memory::watchers::testing::{Harness, Scripted},
-    projects::{
-        model::{WorkerAgent, WorkerState},
-        testing::machine_id,
-    },
-    store::{CreateRun, FinishedTurn, NewTask, NewWorker, RunStatus, Step, StepBody, TurnRecord},
+    store::{CreateRun, FinishedTurn, NewTask, RunStatus, Step, StepBody, TurnRecord},
 };
-use beep_projects::model::MachinePath;
 use flashmind::core::{Conversation, ConversationEntry};
 
 async fn harness() -> Harness {
@@ -120,45 +115,6 @@ async fn other_users_cannot_list_track_or_dismiss_issues() {
     assert!(is_bad_request(dismiss_issue(&h.alice, project, 12).await));
 }
 
-#[tokio::test]
-async fn stop_project_worker_is_idempotent() {
-    let h = harness().await;
-    let (agent, task) = one_task(&h).await;
-    let worker = h
-        .alice
-        .start_worker(&NewWorker {
-            task: task.id,
-            machine: machine_id(1),
-            agent: WorkerAgent::Claude,
-            folder: MachinePath::parse("/srv/widget/.worktrees/spin-it").unwrap(),
-            persona: None,
-            persona_commit: None,
-        })
-        .await
-        .unwrap()
-        .expect("a free slot");
-    h.alice
-        .set_task_state(task.id, TaskState::Running)
-        .await
-        .unwrap();
-    assert!(is_not_found(stop(&h.app, &h.bob, worker.id).await));
-    stop(&h.app, &h.alice, worker.id).await.unwrap();
-    stop(&h.app, &h.alice, worker.id).await.unwrap();
-    let workers = project_workers(&h.alice, ProjectId(agent.project_id))
-        .await
-        .unwrap();
-    assert_eq!(workers.len(), 1, "an ended worker shows for a day");
-    assert_eq!(workers[0].state, WorkerState::Ended.into());
-    assert_eq!(workers[0].machine_name, "", "the machine is not linked");
-    assert_eq!(
-        h.alice.project_task(task.id).await.unwrap().unwrap().state,
-        TaskState::Blocked
-    );
-    assert!(is_not_found(
-        stop(&h.app, &h.alice, WorkerId(Uuid::new_v4())).await
-    ));
-}
-
 /// Parks a turn of `chat` on a Project app card and returns the run's id.
 async fn park(h: &Harness, chat: Uuid, call: &str) -> String {
     let key = UserKey::for_test(h.alice.id());
@@ -216,14 +172,9 @@ async fn park(h: &Harness, chat: Uuid, call: &str) -> String {
 async fn project_cards_reach_needs_you() {
     let h = harness().await;
     let agent = project_agent(&h.alice, "acme/widget").await.unwrap();
-    assert!(
-        pending_approvals(&h.app, &h.alice)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(pending_approvals(&h.alice).await.unwrap().is_empty());
     let run = park(&h, agent.chat_id, "call-1").await;
-    let pending = pending_approvals(&h.app, &h.alice).await.unwrap();
+    let pending = pending_approvals(&h.alice).await.unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].session_id, agent.chat_id);
     assert_eq!(pending[0].session_title, "acme/widget");
@@ -231,7 +182,7 @@ async fn project_cards_reach_needs_you() {
     assert!(!run.is_empty());
     assert_eq!(pending[0].pending.query_id, "call-1");
     assert_eq!(pending[0].pending.approval.app, "Project");
-    assert!(pending_approvals(&h.app, &h.bob).await.unwrap().is_empty());
+    assert!(pending_approvals(&h.bob).await.unwrap().is_empty());
 
     // Once a later turn runs, as answering the card starts, it is gone.
     let key = UserKey::for_test(h.alice.id());
@@ -244,21 +195,11 @@ async fn project_cards_reach_needs_you() {
     else {
         panic!("the run was not created");
     };
-    assert!(
-        pending_approvals(&h.app, &h.alice)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(pending_approvals(&h.alice).await.unwrap().is_empty());
     h.app
         .store
         .finish(&key, &answered, None, RunStatus::Completed)
         .await
         .unwrap();
-    assert!(
-        pending_approvals(&h.app, &h.alice)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(pending_approvals(&h.alice).await.unwrap().is_empty());
 }

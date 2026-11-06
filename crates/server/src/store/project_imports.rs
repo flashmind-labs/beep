@@ -5,9 +5,7 @@ use crate::account::user::UserKey;
 use anyhow::Result;
 use beep_projects::imports::records::{ImportRow, NewImport};
 use beep_projects::model::RepoName;
-use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 impl Store {
@@ -89,40 +87,6 @@ impl Store {
         ensure_imported_project(&mut tx, user, import.project).await?;
         tx.commit().await?;
         Ok(done.rows_affected() == 1)
-    }
-
-    /// Notes that `endpoint` was scanned for checkouts at `at`.
-    pub(crate) async fn save_checkout_check(
-        &self,
-        user: &UserKey,
-        endpoint: &str,
-        at: DateTime<Utc>,
-    ) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO checkout_checks (user_id, endpoint_id, checked_at) VALUES ($1, $2, $3)
-             ON CONFLICT (user_id, endpoint_id) DO UPDATE SET checked_at=excluded.checked_at",
-        )
-        .bind(user.as_str())
-        .bind(endpoint)
-        .bind(at)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// When each of the user's machines was last looked through, by node key.
-    pub(crate) async fn checkout_checks(
-        &self,
-        user: &UserKey,
-    ) -> Result<HashMap<String, DateTime<Utc>>> {
-        let rows =
-            sqlx::query("SELECT endpoint_id, checked_at FROM checkout_checks WHERE user_id=$1")
-                .bind(user.as_str())
-                .fetch_all(&self.pool)
-                .await?;
-        rows.iter()
-            .map(|row| Ok((row.try_get(0)?, row.try_get(1)?)))
-            .collect()
     }
 }
 

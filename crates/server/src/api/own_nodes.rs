@@ -1,17 +1,18 @@
-//! The caller's machines, as the handlers look them up.
+//! The caller's machines, which the server no longer reaches: released apps still ask.
 
-use crate::{api::router::Cx, nodes::Online, protocol::ApiError};
+use super::Reply;
+use crate::{api::router::Cx, protocol::ApiError};
 use std::collections::{HashMap, HashSet};
 
-/// The caller's machine `endpoint`, while it is online as them.
-pub(super) fn online(cx: &Cx, endpoint: &str) -> Option<Online> {
-    cx.app
-        .nodes
-        .online(endpoint)
-        .filter(|node| node.user == cx.user.id())
+/// What a released app hears when it asks the server to act on a machine.
+pub(super) const RETIRED: &str = "Machines are reached through a desktop now.";
+
+/// The answer to a request that acted on a machine through the server.
+pub(super) fn retired<T>() -> Reply<T> {
+    Err(ApiError::bad_request(RETIRED))
 }
 
-/// The caller's machines' names, by key.
+/// The caller's machines' names, by key, as the account recorded them.
 pub(super) async fn machine_names(cx: &Cx) -> Result<HashMap<String, String>, ApiError> {
     Ok(cx
         .user

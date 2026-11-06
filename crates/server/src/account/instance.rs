@@ -1,4 +1,4 @@
-//! Single-user instance mode: one owner account; other keys need `LinkDevice`, except the bundled node.
+//! Single-user instance mode: one owner account; other keys need `LinkDevice`.
 
 use anyhow::{Context, Result};
 use beep_proto::link::LinkOffer;
@@ -6,20 +6,10 @@ use iroh::{EndpointId, SecretKey};
 use qrcode::{QrCode, render::unicode::Dense1x2};
 use serde::Deserialize;
 use std::{
-    fs::{self, Permissions},
-    io,
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{PoisonError, RwLock},
     time::SystemTime,
 };
-
-/// Where the server writes its key for the bundled node.
-pub const SERVER_FILE: &str = "server.id";
-/// Where the bundled node writes its key and name, one per line.
-pub const NODE_FILE: &str = "node.id";
-/// What the bundled node is called when its file names nothing.
-const NODE_NAME: &str = "Beep server";
 
 /// The config's `[instance]` table. Its presence turns instance mode on.
 #[derive(Debug, Clone, Deserialize)]
@@ -42,7 +32,7 @@ pub struct InstanceConfig {
     /// Unused, kept so old configs load.
     #[serde(default = "on")]
     pub agents: bool,
-    /// The folder shared with the bundled node.
+    /// Unused, kept so old configs load.
     pub local_node: Option<PathBuf>,
 }
 
@@ -52,13 +42,6 @@ fn on() -> bool {
 
 fn default_name() -> String {
     "Beep".to_owned()
-}
-
-/// The bundled node, as its file names it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalNode {
-    pub endpoint: EndpointId,
-    pub name: String,
 }
 
 /// A running instance: its settings and its owner once known.
@@ -96,29 +79,6 @@ impl Instance {
     pub(crate) fn set_owner(&self, account: &str) {
         *self.owner.write().unwrap_or_else(PoisonError::into_inner) = Some(account.to_owned());
     }
-
-    /// Writes the server's key where the bundled node reads it.
-    pub fn announce(&self, server: EndpointId) -> Result<()> {
-        let Some(dir) = &self.config.local_node else {
-            return Ok(());
-        };
-        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-        write_replacing(&dir.join(SERVER_FILE), &format!("{server}\n"))
-    }
-
-    /// The bundled node, once it wrote its file.
-    pub(crate) fn local_node(&self) -> Result<Option<LocalNode>> {
-        let Some(dir) = &self.config.local_node else {
-            return Ok(None);
-        };
-        let path = dir.join(NODE_FILE);
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
-        };
-        parse_node_file(&text).with_context(|| format!("reading {}", path.display()))
-    }
 }
 
 /// The server's offer of itself, as a QR code and as text.
@@ -138,29 +98,6 @@ pub fn link_code(key: &SecretKey, name: &str, now: SystemTime) -> Result<String>
         code = offer.code(),
         server = key.public(),
     ))
-}
-
-fn parse_node_file(text: &str) -> Result<Option<LocalNode>> {
-    let mut lines = text.lines().map(str::trim);
-    let Some(id) = lines.next().filter(|id| !id.is_empty()) else {
-        return Ok(None);
-    };
-    let endpoint = id.parse().context("not a node key")?;
-    let name = lines
-        .next()
-        .filter(|name| !name.is_empty() && name.len() <= beep_proto::link::MAX_NAME)
-        .unwrap_or(NODE_NAME)
-        .to_owned();
-    Ok(Some(LocalNode { endpoint, name }))
-}
-
-/// Writes `path` atomically, world-readable since the node runs as another user and it holds only a public key.
-fn write_replacing(path: &Path, text: &str) -> Result<()> {
-    let partial = path.with_extension("partial");
-    fs::write(&partial, text).with_context(|| format!("writing {}", partial.display()))?;
-    fs::set_permissions(&partial, Permissions::from_mode(0o644))
-        .with_context(|| format!("opening up {}", partial.display()))?;
-    fs::rename(&partial, path).with_context(|| format!("writing {}", path.display()))
 }
 
 #[cfg(test)]
@@ -191,42 +128,5 @@ mod tests {
         let offer = LinkOffer::parse(uri).expect("an offer");
         assert_eq!(offer.server(now), Some(key.public()));
         assert!(text.contains(&offer.code()));
-    }
-
-    #[test]
-    fn the_server_and_node_files_go_both_ways() {
-        let dir = tempfile::tempdir().expect("a temp dir");
-        let instance = Instance::new(InstanceConfig {
-            local_node: Some(dir.path().join("link")),
-            ..config("")
-        });
-        assert_eq!(instance.local_node().expect("no file is fine"), None);
-        let server = SecretKey::generate().public();
-        instance
-            .announce(server)
-            .expect("the server file is written");
-        let written =
-            fs::read_to_string(dir.path().join("link").join(SERVER_FILE)).expect("the server file");
-        assert_eq!(written.trim(), server.to_string());
-
-        let node = SecretKey::generate().public();
-        fs::write(
-            dir.path().join("link").join(NODE_FILE),
-            format!("{node}\nbuild box\n"),
-        )
-        .expect("the node file is written");
-        assert_eq!(
-            instance.local_node().expect("a node file"),
-            Some(LocalNode {
-                endpoint: node,
-                name: "build box".to_owned(),
-            })
-        );
-        fs::write(dir.path().join("link").join(NODE_FILE), format!("{node}\n"))
-            .expect("the node file is written");
-        assert_eq!(
-            instance.local_node().expect("a node file").map(|n| n.name),
-            Some(NODE_NAME.to_owned())
-        );
     }
 }
