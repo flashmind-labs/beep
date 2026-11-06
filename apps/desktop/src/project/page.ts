@@ -3,12 +3,12 @@
 // The Projects page: drawing it, and the project rows Home lists.
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, svgEl as icon } from "../ui/parts.ts";
-import { filterProjects, whereRows, openOnLabel, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
+import { filterProjects, whereRows, forgeLinks, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { editorTools } from "./editors.ts";
 import { NEW_WINDOW } from "./projectwindow.ts";
-import { agentFor } from "./agent.ts";
+import { agentFor, pageAgent } from "./agent.ts";
 import { type ProjectsArg, state, pages, warm } from "../center/state.ts";
 import { projectDot, section, line } from "../ui/pieces.ts";
 import { openUrl } from "../center/openitems.ts";
@@ -17,7 +17,7 @@ import { setProjectOnTop, openProjectWindow, newWindowOn, removeProject, project
 import { editGroup } from "./groups.ts";
 import { importButton, projectList, projectFilter, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile } from "./split.ts";
-import { liveMode, pa, redrawProjectsPage } from "./sections.ts";
+import { liveMode, pa, redrawProjectsPage, runs } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
@@ -87,11 +87,13 @@ registerView("projects", {
     }
     const p = filterProjects(projectRows() || [], state.picked)[0];
     const tools = [];
-    if (p?.url) {
-      const url = p.url, label = openOnLabel(url);
-      if (label) tools.push(button(label.replace(/^Open on /, ""), "small", () => openUrl(url)));
-    }
     if (p) {
+      const agent = pageAgent(state.agents, p.name, state.subscribed);
+      for (const f of forgeLinks(p.url, agent ? runs.hosts(agent.project_id) : null)) {
+        const b = button(f.label, "small", () => openUrl(f.url));
+        b.title = f.url;
+        tools.push(b);
+      }
       const here = whereRows(p, state.where.get(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
       tools.push(...editorTools(here?.folder, redrawProjectsPage));
       // The rest goes in one menu, so the header keeps to a line.
