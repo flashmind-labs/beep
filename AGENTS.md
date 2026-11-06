@@ -104,6 +104,11 @@ in the bell's pane and as a macOS notification, never as a chat opening on its o
 them from its local chat copy. Routines users make (`cron`) are not woken runs and stay chats.
 Before this, woken chats stay chats.
 
+The bell also lists what the mesh told this desktop, with no server (`notices/history.rs`, kept
+in `notes.json`, the last 200 for 30 days): coding agents finished or asking (Allow and Deny on
+the row), and from `notices/watch.rs` sync conflicts, failed session moves and a machine offline
+for two minutes.
+
 ## Hosted login
 
 A `[login]` config section (`website`, `website_key`) makes the server hosted:
@@ -283,7 +288,7 @@ and lists every Tauri command; each `mod.rs` only declares and re-exports.
 - `machines/`: the account's machines, terminals, and this Mac as a node.
 - `settings/`: apps, credentials, git sign-ins, grants, memories, routines, skills, models.
 - `research/`: research commands and what the team did.
-- `notices/`: routing server notices, macOS notifications, sub-agent questions.
+- `notices/`: routing server notices, macOS notifications, sub-agent questions, the bell's history from the mesh.
 - `tray/`: the tray menu and what waits on the user.
 - `platform/`: log file, login `PATH`, editors, app updates.
 
