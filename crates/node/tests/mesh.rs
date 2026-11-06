@@ -4512,6 +4512,97 @@ async fn a_machine_that_is_neither_end_of_an_old_move_still_settles_a_two_way_co
     .await;
 }
 
+/// `beep-node status` for the node running from `dir`.
+async fn status_text(dir: &Path) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_beep-node"))
+        .arg("status")
+        .arg("--dir")
+        .arg(dir)
+        .kill_on_drop(true)
+        .output();
+    let out = timeout(LIMIT, out)
+        .await
+        .expect("status finished in time")
+        .expect("status ran");
+    assert!(
+        out.status.success(),
+        "status failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).expect("status prints text")
+}
+
+/// The row of `status_text` that starts with `name`.
+fn row<'a>(text: &'a str, name: &str) -> &'a str {
+    text.lines()
+        .find(|line| line.trim_start().starts_with(&format!("{name} ")))
+        .unwrap_or("")
+}
+
+/// Asks `status` until `shown` holds of its text. A status has nothing to
+/// wait on from outside; the outer limit is the only clock.
+async fn until_status_shows(dir: &Path, shown: impl Fn(&str) -> bool) -> String {
+    let (send, last) = watch::channel(String::new());
+    let found = timeout(LIMIT, async {
+        loop {
+            let text = status_text(dir).await;
+            if shown(&text) {
+                return text;
+            }
+            send.send_replace(text);
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    found.unwrap_or_else(|_| panic!("status never showed it; it last said:\n{}", *last.borrow()))
+}
+
+#[tokio::test]
+async fn status_shows_the_devices_and_how_each_project_syncs() {
+    let (a, root, folder) = bare_node().await;
+    let mut pair = bare_nodes(a, root, folder).await;
+    pair.sync().await;
+    // A second project whose folder on a sits on a disk that is not there.
+    let unmounted = pair._roots[0].path().join("unmounted/gone");
+    let b_gone = pair.b_folder.with_file_name("gone");
+    fs::create_dir(&b_gone).expect("a project folder");
+    let spec = SyncSpec {
+        folders: [
+            (pair.a.id, unmounted.display().to_string()),
+            (pair.b.id, b_gone.display().to_string()),
+        ]
+        .into(),
+        paused: false,
+    };
+    pair.desktop
+        .mesh
+        .set(
+            Key::Sync("gone".to_owned()),
+            Some(spec.to_bytes().expect("a spec encodes")),
+        )
+        .await
+        .expect("the spec is written");
+
+    let dir = pair.a.dir.path().to_owned();
+    let text = until_status_shows(&dir, |text| {
+        row(text, "proj").contains("in sync")
+            && row(text, "gone").contains("folder missing")
+            && row(text, "box-b").contains("online")
+    })
+    .await;
+    assert!(text.contains("Node      running for"), "{text}");
+    assert!(row(&text, "desktop").contains("online"), "{text}");
+    assert!(row(&text, "box-a").contains("this machine"), "{text}");
+    assert!(text.contains("3 of 3 devices online"), "{text}");
+
+    // b stops: a says when it last saw it.
+    let _b = pair.b.stop().await;
+    until_status_shows(&dir, |text| {
+        row(text, "box-b").contains("offline, last seen")
+    })
+    .await;
+}
+
 /// Claude Code's answer to `get_usage` on a Max plan, as 2.1.318 gives it.
 const CLAUDE_USAGE: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"beep-usage","response":{"subscription_type":"max","rate_limits_available":true,"rate_limits":{"five_hour":null,"seven_day":{"utilization":73,"resets_at":"2026-11-10T01:00:00.022993+00:00","limit_dollars":null,"used_dollars":null},"seven_day_opus":null,"seven_day_sonnet":null,"extra_usage":{"is_enabled":false}},"limits":[{"kind":"weekly_all","group":"weekly","percent":73,"resets_at":"2026-11-10T01:00:00.022993+00:00","scope":null,"is_active":true}]},"behaviors":null}}"#;
 

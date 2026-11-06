@@ -353,6 +353,12 @@ in place and restarts the service. There is no Intel Mac build.
 `latest.txt`, verifies the archive against `SHA256SUMS`, swaps its own binary
 and restarts the service `setup` installed (`--check` only reports).
 
+`beep-node status` (`s`, `st`) asks the running node over its control socket
+(`mesh.sock`, `status` answers a `LocalStatus` in compact msgpack): version and
+uptime, the mesh's devices with when each was last seen, and each project's
+sync. `--help` groups the commands; the groups are in `src/cli/help.rs`, and a
+command's first doc paragraph is its one line there.
+
 On Windows, `crates/node/install.ps1` does the same from PowerShell
 (`irm https://releases.flashmind.com/beep/node/install.ps1 | iex`): it
 installs `beep-node-<version>-x86_64-pc-windows-msvc.zip` into
@@ -479,4 +485,5 @@ required) says the same with `harness` set to `claude` and the tools named
 - `machine/`: what the machine has (`env`, `stats`), setup, the service,
   self-update, provisioning and repository webhooks.
 - `run/`: process groups, shell sessions, background tasks and terminals.
-- `lib.rs` declares these; `main.rs` is the command line.
+- `lib.rs` declares these; `main.rs` is the command line, with its grouped
+  help and `status` output in `cli/`.

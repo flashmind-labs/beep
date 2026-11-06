@@ -2,11 +2,15 @@
 //! until no turn runs (`Hold`), and the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
-use super::{Agents, Begin, Command, Prompt, family::RemoteKid, session::NODE_STOPPED};
+use super::{
+    Agents, Begin, Command, Prompt,
+    family::RemoteKid,
+    session::{NODE_STOPPED, Session},
+};
 use anyhow::{Context, Result};
 use beep_proto::node::agent::{ParentLink, Status};
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
 /// How long resumed sessions wait for the user's agent settings before
@@ -15,6 +19,16 @@ const SETTINGS_WAIT: Duration = Duration::from_secs(60);
 
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";
+
+/// Why a session is read to start again.
+#[derive(Clone, Copy, PartialEq)]
+enum Keep {
+    /// For the note: one that ended for good is left out, and its held
+    /// prompts go along.
+    Open,
+    /// For a move to another machine, as it runs now.
+    Moving,
+}
 
 /// A session the node stopped, to resume when it starts again.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,26 +124,44 @@ impl Agents {
     /// or ended with the node, once the agent gave them its own id. One
     /// the user closed or that failed stays ended.
     pub(crate) fn open_sessions(&self) -> Vec<OpenSession> {
-        self.lock()
-            .values()
+        // Copied out, so no request that lists the sessions waits on the
+        // reads below.
+        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        sessions
+            .iter()
             .filter_map(|session| {
-                let live = session.live.borrow();
-                let open = live.status() != Status::Ended
-                    || live.info.state.error.as_deref() == Some(NODE_STOPPED);
-                if !open {
-                    return None;
-                }
-                Some(OpenSession {
-                    agent: session.agent.clone(),
-                    session: live.agent_session.clone()?,
-                    cwd: PathBuf::from(&live.info.cwd),
-                    held: live.held.clone(),
-                    mode: live.info.mode.clone(),
-                    parent: live.info.parent.clone(),
-                    kids: self.kids_to_keep(&Self::name_of(session)),
-                })
+                let mut open = Self::as_it_runs(session, Keep::Open)?;
+                open.kids = self.kids_to_keep(&open.session);
+                Some(open)
             })
             .collect()
+    }
+
+    /// What it takes to start `session` again, read from its state in one
+    /// go. The state is never read a second time while held: the second
+    /// read waits behind a write that came in between, which waits on the
+    /// first, and the node stops (#329). Its children come after, from the
+    /// agent's id, which is what `name_of` gives once there is one.
+    fn as_it_runs(session: &Session, keep: Keep) -> Option<OpenSession> {
+        let live = session.live.borrow();
+        if keep == Keep::Open
+            && live.status() == Status::Ended
+            && live.info.state.error.as_deref() != Some(NODE_STOPPED)
+        {
+            return None;
+        }
+        Some(OpenSession {
+            agent: session.agent.clone(),
+            session: live.agent_session.clone()?,
+            cwd: PathBuf::from(&live.info.cwd),
+            held: match keep {
+                Keep::Open => live.held.clone(),
+                Keep::Moving => Vec::new(),
+            },
+            mode: live.info.mode.clone(),
+            parent: live.info.parent.clone(),
+            kids: Vec::new(),
+        })
     }
 
     /// Resumes `sessions`, once the user's settings for the agents came or
@@ -175,16 +207,9 @@ impl Agents {
     /// What it takes to start session `id` again, as it runs now.
     pub(crate) fn open_session(&self, id: &str) -> Option<OpenSession> {
         let session = self.get(id)?;
-        let live = session.live.borrow();
-        Some(OpenSession {
-            agent: session.agent.clone(),
-            session: live.agent_session.clone()?,
-            cwd: PathBuf::from(&live.info.cwd),
-            held: Vec::new(),
-            mode: live.info.mode.clone(),
-            parent: live.info.parent.clone(),
-            kids: self.kids_to_keep(&Self::name_of(&session)),
-        })
+        let mut open = Self::as_it_runs(&session, Keep::Moving)?;
+        open.kids = self.kids_to_keep(&open.session);
+        Some(open)
     }
 
     pub(crate) async fn reopen_one(&self, open: OpenSession) -> Result<()> {

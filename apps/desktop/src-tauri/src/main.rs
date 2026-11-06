@@ -30,9 +30,10 @@ use voice::Voice;
 
 /// The server's node id, baked in by build.rs.
 const SERVER_NODE_ID: &str = env!("BEEP_SERVER_NODE_ID");
-/// How long quitting waits for the router and the node's sync and transfer
-/// services to stop. The mesh writes each change to disk as it happens.
-const FLEET_STOP: Duration = Duration::from_secs(3);
+/// How long quitting waits for what saves state: the node's sync and
+/// transfer services, and gh being killed. The mesh writes each change to
+/// disk as it happens; goodbyes to peers still going at this point are cut.
+const QUIT_LIMIT: Duration = Duration::from_millis(300);
 /// Passed to Beep when it starts as a login item, so it stays in the tray.
 const LOGIN_ARG: &str = "--login";
 
@@ -454,22 +455,9 @@ fn main() {
                 RunEvent::ExitRequested {
                     code: None, api, ..
                 } => api.prevent_exit(),
-                // However Beep quits, a downloaded update is installed for next time.
-                RunEvent::Exit => {
-                    platform::update::install(app);
-                    // gh, if it is still waiting for a GitHub code, goes too.
-                    app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
-                    app.state::<agents::accounts::ClaudeSignIn>().stop();
-                    // The router stops, and the sync and transfer services save their state.
-                    let fleet = app.state::<Arc<Fleet>>().inner().clone();
-                    tauri::async_runtime::block_on(async move {
-                        if timeout(FLEET_STOP, fleet.stop()).await.is_err() {
-                            log::warn!("the mesh did not stop in time");
-                        }
-                    });
-                    // Background tasks the agent started here end with the app.
-                    beep_node::kill_tasks();
-                }
+                // Quitting: the windows go at once, whatever stopping takes.
+                RunEvent::ExitRequested { code: Some(_), .. } => hide_windows(app),
+                RunEvent::Exit => quit(app),
                 // Opening Beep again while it runs shows the window.
                 #[cfg(target_os = "macos")]
                 RunEvent::Reopen { .. } => {
@@ -480,6 +468,39 @@ fn main() {
                 _ => {}
             }
         });
+}
+
+fn hide_windows(app: &AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if let Err(e) = window.hide() {
+            log::debug!("hiding {label} to quit: {e}");
+        }
+    }
+}
+
+/// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
+fn quit(app: &AppHandle) {
+    hide_windows(app);
+    app.state::<agents::accounts::ClaudeSignIn>().stop();
+    let gh = app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
+    // The router stops, and the sync and transfer services save their state,
+    // while an update installs.
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    let stopping = tauri::async_runtime::spawn(async move {
+        tokio::join!(fleet.stop(), gh);
+    });
+    // However Beep quits, a downloaded update is installed for next time.
+    // With none this returns at once.
+    platform::update::install(app);
+    tauri::async_runtime::block_on(async move {
+        match timeout(QUIT_LIMIT, stopping).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("stopping the mesh failed: {e}"),
+            Err(_) => log::warn!("quitting before the mesh stopped"),
+        }
+    });
+    // Background tasks the agent started here end with the app.
+    beep_node::kill_tasks();
 }
 
 fn setup(app: &mut App) -> anyhow::Result<()> {
