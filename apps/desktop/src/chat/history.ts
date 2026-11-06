@@ -47,7 +47,8 @@ export async function openSession(id: string) {
   $$<HTMLTextAreaElement>("#ask").placeholder = "Ask a follow-up…";
   if (running) {
     drawChatTop();
-    scrollDown();
+    // renderChat put the kept body back where the reader left it.
+    if (body()?.stuck !== false) scrollDown();
     invoke("open_session", { id }).catch(() => {});
     return;
   }

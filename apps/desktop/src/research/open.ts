@@ -3,7 +3,9 @@
 // team as the tabs of a side pane on the right. The page is drawn once and
 // each update patches only what changed, so spinners keep turning.
 import { copyCode } from "../agents/turnrows.ts";
-import { atBottom } from "../agents/logscroll.ts";
+import { atBottom, followsAfterScroll } from "../agents/logscroll.ts";
+import { followEnd } from "../ui/followend.ts";
+import type { ChatBody } from "../ui/turn.ts";
 import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
@@ -38,7 +40,7 @@ interface Page {
   root: HTMLElement;
   head: HTMLElement;
   shell: HTMLElement;
-  log: HTMLElement;
+  log: ChatBody;
   chat: HTMLElement;
   ask: HTMLTextAreaElement;
   pane: HTMLElement;
@@ -97,6 +99,11 @@ function build(el: HTMLElement, session: string) {
   root.addEventListener("click", onClick);
   page.ask.addEventListener("keydown", onAskKey);
   for (const part of [page.log, page.view]) part.addEventListener("scroll", () => document.getElementById("rquote")?.remove(), true);
+  // The lead's chat follows its end until the reader scrolls up, and stays there as it grows.
+  const log = page.log;
+  let top = 0;
+  log.addEventListener("scroll", () => { log.stuck = followsAfterScroll(log.stuck !== false, top, log); top = log.scrollTop; }, { passive: true });
+  followEnd(log, page.chat);
   wireDivider(page);
   watch?.disconnect();
   watch = new ResizeObserver(place);
@@ -156,9 +163,9 @@ function drawHead() {
 
 function drawChat() {
   if (!page) return;
-  const stuck = atBottom(page.log);
+  const log = page.log;
   patchHtml(page.chat, chatHtml(R));
-  if (stuck) page.log.scrollTop = page.log.scrollHeight;
+  if (log.stuck !== false) log.scrollTop = log.scrollHeight;
   page.ask.placeholder = placeholder(R);
 }
 
@@ -202,6 +209,7 @@ async function send(text: string, start = false) {
   R.error = "";
   R.turns.push({ role: "user", text });
   R.sending = "";
+  if (page) page.log.stuck = true;
   drawHead();
   drawChat();
   const channel = new Channel<SendEvent>();

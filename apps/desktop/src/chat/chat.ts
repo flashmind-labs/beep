@@ -22,7 +22,8 @@ import { replyActs, stoppedRow } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive } from "../agents/thoughtlive.ts";
-import { followsAfterScroll } from "../agents/logscroll.ts";
+import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
+import { followEnd } from "../ui/followend.ts";
 import { answerHtml, errorCardHtml, queueRowHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc, linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
@@ -104,8 +105,11 @@ export function renderChat() {
   const kept = here()?.body;
   if (kept) $$("#body").replaceWith(kept);
   const b = body()!;
+  // A chat put back goes where the reader left it if they had scrolled up, else to its end.
+  if (kept) b.scrollTop = returnScroll(b, b.top ?? 0);
   let top = b.scrollTop;
-  b.onscroll = () => { b.stuck = followsAfterScroll(b.stuck !== false, top, b); top = b.scrollTop; drawLatest(); markMap(); };
+  b.onscroll = () => { b.stuck = followsAfterScroll(b.stuck !== false, top, b); top = b.top = b.scrollTop; drawLatest(); markMap(); };
+  followEnd(b);
   drawLatest();
   drawQueue();
   drawAttached();
