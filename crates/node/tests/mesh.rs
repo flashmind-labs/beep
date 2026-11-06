@@ -1479,6 +1479,53 @@ async fn a_project_syncs_on_nodes_that_share_no_folders_and_after_a_restart() {
 }
 
 #[tokio::test]
+async fn a_node_the_record_drops_stops_syncing_and_keeps_its_files() {
+    let (a, root, folder) = bare_node().await;
+    let mut pair = bare_nodes(a, root, folder).await;
+    pair.sync().await;
+    fs::write(pair.a_folder.join("from-a.txt"), "made on a").expect("a file");
+    has_text(&pair.b_folder.join("from-a.txt"), "made on a").await;
+    fs::write(pair.b_folder.join("from-b.txt"), "made on b").expect("a file");
+    has_text(&pair.a_folder.join("from-b.txt"), "made on b").await;
+
+    // The project is taken off b: one machine is left, so the record goes.
+    pair.desktop
+        .mesh
+        .set(Key::Sync("proj".to_owned()), None)
+        .await
+        .expect("the record goes");
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    timeout(LIMIT, async {
+        while proj_status(&conn_b).await.is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("b stopped syncing in time");
+
+    // What a does now never reaches b, and b keeps every file it had.
+    fs::write(pair.a_folder.join("later.txt"), "after the removal").expect("a file");
+    fs::remove_file(pair.a_folder.join("from-b.txt")).expect("a file goes");
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    timeout(LIMIT, async {
+        while proj_status(&conn_a).await.is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("a stopped syncing in time");
+    assert_eq!(
+        fs::read_to_string(pair.b_folder.join("from-a.txt")).expect("kept"),
+        "made on a"
+    );
+    assert_eq!(
+        fs::read_to_string(pair.b_folder.join("from-b.txt")).expect("kept"),
+        "made on b"
+    );
+    assert!(!pair.b_folder.join("later.txt").exists());
+}
+
+#[tokio::test]
 async fn checkouts_at_other_commits_merge_when_the_mesh_names_them() {
     let (a, root, folder) = bare_node().await;
     let mut pair = bare_nodes(a, root, folder).await;

@@ -14,10 +14,11 @@ use crate::{
 };
 use beep_fleet::project_id;
 use beep_proto::{
-    ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals, ListProjectMachines,
-    ListProjectSessions, ListProjectSyncthing, ListProjectTasks, ListProjectWorkers,
-    PendingApproval, ProjectAgent, ProjectCopy, ProjectMachine, ProjectTask, ProjectTaskState,
-    ProjectWorker, ProjectWorkerState, StopProjectWorker, SyncthingPlace, UpdateProjectTask,
+    AgentStatus, ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals,
+    ListProjectMachines, ListProjectSessions, ListProjectSyncthing, ListProjectTasks,
+    ListProjectWorkers, PendingApproval, ProjectAgent, ProjectCopy, ProjectMachine, ProjectTask,
+    ProjectTaskState, ProjectWorker, ProjectWorkerState, StopProjectWorker, SyncthingPlace,
+    UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -123,6 +124,44 @@ pub async fn project_add_to_machine(
         .await?;
     mirror_import(&beep, &added).await;
     Ok(added.folder)
+}
+
+/// Takes `project` off `machine_id`: the machine stops syncing it and leaves its list, and the
+/// folder there stays as it is. Refused for the last machine, and while an agent session is open
+/// in the project there, so no agent is left working in a folder that no longer syncs.
+#[tauri::command]
+pub async fn project_remove_from_machine(
+    fleet: FleetState<'_>,
+    machines: Machines<'_>,
+    project: String,
+    machine_id: String,
+) -> Result<()> {
+    let id = machines
+        .member(&machine_id)
+        .ok_or_else(|| DesktopError::BadRequest("That machine is not known.".into()))?;
+    let places: Vec<direct::Place> = machines
+        .mesh()
+        .map(|mesh| beep_fleet::places(&mesh, &project))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(machine, _)| *machine == id)
+        .map(|(machine, folder)| direct::Place { machine, folder })
+        .collect();
+    let open = direct::project_sessions(&machines, &places)
+        .await
+        .into_iter()
+        .any(|session| !matches!(session.status, AgentStatus::Ended {}));
+    if open {
+        return Err(DesktopError::BadRequest(format!(
+            "An agent is working in {project} on {}. Stop it first.",
+            machines.name_of(id)
+        )));
+    }
+    desk(&fleet)
+        .await?
+        .remove_from_machine(&project, &machine_id)
+        .await?;
+    Ok(())
 }
 
 /// Copies `project` onto `machine_id` through the server, which brings it
