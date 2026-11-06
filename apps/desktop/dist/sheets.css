@@ -138,3 +138,4 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .rp-issue { margin: 0 0 14px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
 .rp-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
 .rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err); user-select: text }
+.rp-hint { font-size: 12px; line-height: 17px; margin: -8px 0 14px; color: var(--muted) }
