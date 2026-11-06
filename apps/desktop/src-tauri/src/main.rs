@@ -558,7 +558,10 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     // What the projects pages read, kept for the run of the app.
     app.manage(beep_fleet::Session::new(
         fleet.clone(),
-        beep_fleet::Options::default(),
+        beep_fleet::Options {
+            usage_file: Some(dir.join("usage.msgpack")),
+            ..beep_fleet::Options::default()
+        },
         projects::live::changed(handle.clone()),
     )?);
     let opening = fleet.clone();

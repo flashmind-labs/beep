@@ -45,4 +45,6 @@ export interface Turn extends HTMLDivElement {
 /// A chat's scrolling body, which knows whether it follows the newest turn.
 export interface ChatBody extends HTMLElement {
   stuck?: boolean;
+  /// When the reader last turned the wheel over it, by `performance.now()`.
+  wheel?: number;
 }

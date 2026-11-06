@@ -871,6 +871,50 @@ async fn a_plan_read_after_the_report_reaches_the_desktop_at_once() {
     assert_eq!(next.limits[0].windows[0].used_percent, 40.0);
 }
 
+/// The pill shows the last run's plans as the app opens, before any machine answers (#370).
+#[tokio::test]
+async fn the_usage_read_before_a_restart_shows_at_once() {
+    let f = fleet().await;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let build = Arc::new(FakeNode {
+        usage: vec![
+            plan_reply("claude", 40.0, now),
+            plan_reply("codex", 20.0, now),
+        ],
+        ..FakeNode::default()
+    });
+    let dir = TempDir::new().expect("a temp folder");
+    let options = Options {
+        settle: Duration::from_millis(300),
+        usage_file: Some(dir.path().join("usage.msgpack")),
+        ..Options::default()
+    };
+    let agents = |report: &beep_proto::SpendReport| -> Vec<String> {
+        report.limits.iter().map(|l| l.agent.to_string()).collect()
+    };
+    let before = Session::new(
+        peering(&f.studio, &[(&f.build, &build)], &[]),
+        options.clone(),
+        |_| {},
+    )
+    .expect("a session");
+    let read = before.spend(false).await.expect("the usage reads");
+    assert_eq!(agents(&read), ["claude", "codex"]);
+    before.settled().await;
+    drop(before);
+    // No machine answers now: what shows is what the last run kept.
+    let after = Session::new(peering(&f.studio, &[], &[]), options, |_| {}).expect("a session");
+    let shown = timeout(Duration::from_millis(500), after.spend(false))
+        .await
+        .expect("the kept report comes at once")
+        .expect("the usage reads");
+    assert_eq!(agents(&shown), ["claude", "codex"]);
+    assert_eq!(shown.limits[0].windows[0].used_percent, 40.0);
+}
+
 #[tokio::test]
 async fn groups_pins_and_settings_replicate_to_every_desktop() {
     let f = fleet().await;

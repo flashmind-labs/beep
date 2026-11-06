@@ -22,6 +22,7 @@ import { replyActs, stoppedRow } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive } from "../agents/thoughtlive.ts";
+import { followsAfterScroll } from "../agents/logscroll.ts";
 import { answerHtml, errorCardHtml, queueRowHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc, linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
@@ -103,7 +104,8 @@ export function renderChat() {
   const kept = here()?.body;
   if (kept) $$("#body").replaceWith(kept);
   const b = body()!;
-  b.onscroll = () => { b.stuck = b.scrollHeight - b.scrollTop - b.clientHeight < 40; drawLatest(); markMap(); };
+  let top = b.scrollTop;
+  b.onscroll = () => { b.stuck = followsAfterScroll(b.stuck !== false, top, b); top = b.scrollTop; drawLatest(); markMap(); };
   drawLatest();
   drawQueue();
   drawAttached();
