@@ -49,7 +49,9 @@ pub enum Request {
     /// number or name; anything else declines and goes to the agent as the
     /// next prompt.
     Answer { question: u32, reply: String },
-    /// Stops the running turn and drops waiting prompts.
+    /// Stops the running turn and drops waiting prompts. `Steer`s not yet
+    /// sent go as the next prompt once the turn stops; `DropSteers` first
+    /// takes them back.
     Cancel {},
     /// Ends the session and stops the agent.
     Close {},
