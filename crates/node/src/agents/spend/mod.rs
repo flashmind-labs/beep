@@ -151,6 +151,24 @@ impl Spend {
         path: &std::path::Path,
     ) -> std::io::Result<()> {
         let stamp = ledger::Stamp::of(path)?;
+        if agent == Agent::Flsh {
+            // flsh keeps totals, not a log: what they say now is held back.
+            let counted = databases::flsh_counted(path)?;
+            let mut guard = lock(&self.ledger);
+            let ledger = guard.get_or_insert_with(|| match &self.path {
+                Some(path) => Ledger::load(path),
+                None => Ledger::default(),
+            });
+            let entry = ledger.databases.entry(path.to_owned()).or_default();
+            entry.agent = Some(agent);
+            entry.stamp = stamp;
+            entry.counted = counted;
+            ledger.changed = true;
+            return match &self.path {
+                Some(saved) => ledger.save(saved),
+                None => Ok(()),
+            };
+        }
         // What the header says (the folder, the provider, the model) is
         // read from the log, so later requests are billed and filed as the
         // log's own would be.
