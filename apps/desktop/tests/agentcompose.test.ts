@@ -171,7 +171,7 @@ test("an image attached after a steer goes with the next message, not the steer"
   assert.deepEqual(AG.att.map(a => a.name), ["shot.png"]);
 });
 
-test("Esc stops at once and sends steers not delivered with the queue", async () => {
+test("Esc stops at once and sends the queue, leaving steers to the node (#378)", async () => {
   const page = openSession("working");
   show({ "#agmsg": field() });
   AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }, words("then this")];
@@ -180,12 +180,14 @@ test("Esc stops at once and sends steers not delivered with the queue", async ()
   assert.doesNotMatch(agentHints(), /interrupt/, "already stopping");
   await settle();
   assert.deepEqual(steers(), ["cancel"]);
-  assert.deepEqual(AG.queue.map(q => q.how), ["queue", "queue"]);
+  assert.deepEqual(AG.queue.map(q => q.how), ["steer", "queue"]);
 
+  // The node sends a steer it holds once the turn stops, or it had just
+  // delivered it: sent from here too, the agent would get it twice.
   calls.length = 0;
   await read({ ...page, session: { ...page.session, status: "idle" } });
   assert.equal(AG.stopping, null);
-  assert.deepEqual(steers(), [{ prompt: { text: "steer me\n\nthen this" } }], "in the order typed");
+  assert.deepEqual(steers(), [{ prompt: { text: "then this" } }]);
 });
 
 test("replacing the shared session list does not change what a drawn row opens", async () => {

@@ -70,11 +70,3 @@ export function markDelivered(items: Waiting[], waiting: number, read: number, n
 export function dropDelivered(items: Waiting[], now = Date.now()) {
   items.splice(0, items.length, ...items.filter(q => q.state !== "delivered" || now - (q.at ?? now) < DELIVERED_SHOWN_MS));
 }
-
-/// ⌘.: the steers not delivered yet go once the stop lands, with the
-/// queue, since stopping drops what the node holds.
-export function steersToQueue(items: Waiting[]) {
-  for (const q of items) {
-    if (q.how === "steer" && q.state !== "delivered") { q.how = "queue"; q.state = null; }
-  }
-}
