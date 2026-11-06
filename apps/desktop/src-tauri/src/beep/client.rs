@@ -365,6 +365,7 @@ impl Beep {
     }
 
     /// Whether the events stream is followed.
+    #[cfg(test)]
     fn following(&self) -> bool {
         self.follow
             .lock()
