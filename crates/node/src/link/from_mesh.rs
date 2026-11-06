@@ -14,7 +14,11 @@
 //! keeps what the server set and keeps taking the server's pushes for it, so a
 //! running node that joins a mesh with nothing in it loses nothing.
 
-use crate::{AsyncMutex, link::Offers};
+use crate::{
+    AsyncMutex,
+    link::Offers,
+    link::watchdog::{self, Step},
+};
 use beep_mesh::{Key, Mesh};
 use beep_proto::{
     FlshSettings,
@@ -29,6 +33,7 @@ use iroh::{EndpointAddr, EndpointId};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
+    time::Instant,
 };
 use tokio::sync::{MutexGuard, broadcast::error::RecvError, watch};
 
@@ -207,20 +212,33 @@ impl Applied {
         {
             let (projects, pending) = projects(mesh, me, &mut self.specs);
             if self.projects.as_ref() != Some(&projects) || self.pending != pending {
-                for refused in transfers
-                    .syncs()
-                    .configure_from_mesh(projects.clone(), pending.clone())
-                    .await
-                {
-                    log::warn!("not syncing {}: {}", refused.project, refused.message);
-                }
+                let started = Instant::now();
+                log::info!(
+                    "from the mesh: applying the sync set, {} projects, {} waiting for a machine",
+                    projects.len(),
+                    pending.len()
+                );
                 for project in &projects {
-                    log::info!(
+                    log::debug!(
                         "from the mesh: sync {} with {} peers",
                         project.name,
                         project.peers.len()
                     );
                 }
+                let applying = watchdog::enter(Step::SyncApply);
+                let refused = transfers
+                    .syncs()
+                    .configure_from_mesh(projects.clone(), pending.clone())
+                    .await;
+                drop(applying);
+                for refused in &refused {
+                    log::warn!("not syncing {}: {}", refused.project, refused.message);
+                }
+                log::info!(
+                    "from the mesh: applied the sync set in {} ms, {} refused",
+                    started.elapsed().as_millis(),
+                    refused.len()
+                );
                 self.projects = Some(projects);
                 self.pending = pending;
             }

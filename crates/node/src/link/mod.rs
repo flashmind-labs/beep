@@ -14,6 +14,7 @@ pub mod reconnect;
 pub(crate) mod restart;
 pub mod state;
 mod traffic;
+pub(crate) mod watchdog;
 
 pub use connection::{
     Claimed, Linked, Offers, Protocol, Session, claim, connect, open, print_offer, serve, stay,

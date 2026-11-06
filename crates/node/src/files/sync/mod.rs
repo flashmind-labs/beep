@@ -410,6 +410,7 @@ impl Syncs {
                     })
             };
             if let Some(shared) = same {
+                log::debug!("sync {}: keeps running, peers and pause set", project.name);
                 shared.set_peers(project.peers.clone());
                 shared.set_paused(project.paused);
                 kept.push(project);
@@ -419,8 +420,14 @@ impl Syncs {
             // another way has the same key, watches and state file.
             let old = lock(&self.inner.projects).remove(&project.name);
             if let Some(old) = old {
+                log::debug!("sync {}: stopping the run it replaces", project.name);
                 replaced.push(halt(old).await);
             }
+            log::debug!(
+                "sync {}: asking Syncthing about {}",
+                project.name,
+                project.folder
+            );
             let was_held = lock(&self.inner.held)
                 .remove(&project.name)
                 .is_some_and(|held| held.project.folder == project.folder);
@@ -444,6 +451,7 @@ impl Syncs {
                 }
                 continue;
             }
+            log::debug!("sync {}: starting", project.name);
             match self.run(&project, from).await {
                 Ok(running) => {
                     lock(&self.inner.projects).insert(project.name.clone(), running);
@@ -472,6 +480,7 @@ impl Syncs {
             }
         }
         for stopped in stopping {
+            log::debug!("sync {}: stopping", stopped.project.name);
             self.stop(stopped).await;
         }
         for old in replaced {
