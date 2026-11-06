@@ -70,7 +70,7 @@ Add a machine:
 
 ```sh
 docker run -d --restart unless-stopped --hostname build-box \
-  -e BEEP_TICKET=... -v beep-node:/data registry.example/beep-node-slim
+  -e BEEP_TICKET=... -v beep-node:/data registry.example/beep-node
 ```
 
 The ticket is used once, on the first start; later starts reuse `/data`. The
