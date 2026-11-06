@@ -23,8 +23,8 @@ use crate::{
 use async_trait::async_trait;
 use beep_mesh::{Key, Mesh};
 use beep_proto::{
-    Credential, FlshSettings, ImportedProject, InstructionsVersion, MachineHarnessSettings,
-    ProjectGroup, ProjectSync,
+    Credential, CredentialKind, FlshSettings, ImportedProject, InstructionsVersion,
+    MachineHarnessSettings, ProjectGroup, ProjectSync,
     node::{
         harness::{HARNESSES, HarnessConfig},
         mesh_state::{StateValue, SyncSpec},
@@ -250,10 +250,13 @@ async fn sync(out: &mut Writer<'_>, projects: &[ProjectSync]) -> Result<()> {
     Ok(())
 }
 
-/// A record for each credential the mesh has no saved one for.
+/// A record for each credential the mesh has no saved one for. API keys stay on the server.
 async fn unmoved(out: &mut Writer<'_>, credentials: &[Credential]) -> Result<usize> {
     let mut count = 0;
-    for credential in credentials {
+    let machines = credentials
+        .iter()
+        .filter(|credential| !matches!(credential.kind, CredentialKind::ApiKey { .. }));
+    for credential in machines {
         let mut shown = credential.clone();
         shown.unreadable = true;
         if out

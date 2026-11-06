@@ -2,7 +2,8 @@
 //! (`Credential::Env` and `Credential::Forgejo`), with everything else the desktop shows derived
 //! from the key and the value. An id is `<kind>.<saved_ms>.<name>`: `gh.<ms>.<login>` for a
 //! GitHub account, whose `~<owner>` siblings carry the same token for each owner it serves,
-//! `forgejo.<ms>.<host>`, `api.<ms>.<provider>` and `agent.<ms>.<agent>`.
+//! `forgejo.<ms>.<host>` and `agent.<ms>.<agent>`. API keys are kept on the server only; the
+//! `api.<ms>.<provider>` keys an older desktop wrote are deleted by [`drop_api_keys`].
 //!
 //! A secret never reaches a log: [`SecretText`] and [`SecretString`] print nothing.
 
@@ -13,7 +14,7 @@ use crate::{
     peer::probe,
     records::{WRITES, now_ms, time},
 };
-use beep_mesh::{DeviceStatus, Key};
+use beep_mesh::{DeviceStatus, Key, Mesh};
 use beep_projects::{
     credential_check::{
         Checked, Checker,
@@ -24,8 +25,8 @@ use beep_projects::{
     model::ForgejoUrl,
 };
 use beep_proto::{
-    AgentAccount, AgentAccounts, AgentMachine, AgentToken, ApiProvider, Credential,
-    CredentialCheck, CredentialKind, GITHUB_ENV_VAR, GitHubAccount, SecretText,
+    AgentAccount, AgentAccounts, AgentMachine, AgentToken, Credential, CredentialCheck,
+    CredentialKind, GITHUB_ENV_VAR, GitHubAccount, SecretText,
     node::{EnvReport, EnvSecret, ForgejoLogin, mesh_state::Credential as Value},
 };
 use futures::{StreamExt, stream};
@@ -44,6 +45,7 @@ const PREFIX: &str = "credential/";
 
 const GITHUB: &str = "gh";
 const FORGEJO: &str = "forgejo";
+/// API keys an older desktop gave to the machines.
 const API: &str = "api";
 const AGENT: &str = "agent";
 
@@ -157,18 +159,6 @@ impl Desk {
                         github: None,
                     }
                 }
-                (API, Value::Env(secret)) => {
-                    let Ok(provider) = ApiProvider::from_str(name) else {
-                        continue;
-                    };
-                    Saved {
-                        id: id.clone(),
-                        saved_ms,
-                        slot: Slot::ApiKey(provider),
-                        secret: text(&secret.value),
-                        github: None,
-                    }
-                }
                 (AGENT, Value::Env(secret)) => {
                     let Ok(agent) = AgentAccount::from_str(name) else {
                         continue;
@@ -247,14 +237,7 @@ impl Desk {
                     None,
                     String::new(),
                 ),
-                Slot::ApiKey(provider) => (
-                    CredentialKind::ApiKey {
-                        provider: provider.slug().to_owned(),
-                    },
-                    None,
-                    provider.env_var().to_owned(),
-                ),
-                Slot::AgentToken(_) => continue,
+                Slot::ApiKey(_) | Slot::AgentToken(_) => continue,
             };
             out.push(Credential {
                 id: saved.id,
@@ -334,16 +317,17 @@ impl Desk {
     }
 
     /// Checks `secret` with its host and saves it. A GitHub token is saved as the account it signs
-    /// in as. A key only the server uses (`to_machines` off) is [`FleetError::NeedsServer`].
+    /// in as. An API key is refused: those are kept on the server only.
     pub async fn save_credential(
         &self,
         kind: &CredentialKind,
         secret: &SecretText,
-        to_machines: bool,
     ) -> Result<Credential> {
         let slot = Slot::from_wire(kind).map_err(|e| FleetError::refused(e.to_string()))?;
-        if !to_machines && !slot.always_to_machines() {
-            return Err(FleetError::NeedsServer);
+        if !slot.always_to_machines() {
+            return Err(FleetError::refused(
+                "API keys are kept on the server, not on your machines.",
+            ));
         }
         let secret = trimmed(secret)?;
         if slot == Slot::GitHub {
@@ -365,15 +349,9 @@ impl Desk {
                     token: SecretText::new(secret.expose_secret()),
                 }),
             ),
-            Slot::ApiKey(provider) => (
-                make_id(API, saved_ms, provider.slug()),
-                env(provider.env_var(), &secret),
-            ),
-            Slot::AgentToken(agent) => (
-                make_id(AGENT, saved_ms, agent.slug()),
-                env(agent.env_var(), &secret),
-            ),
-            Slot::GitHub => return Err(FleetError::NotFound),
+            Slot::GitHub | Slot::ApiKey(_) | Slot::AgentToken(_) => {
+                return Err(FleetError::NotFound);
+            }
         };
         // One of each: a new token for the same slot replaces the old one.
         for old in self.saved().into_iter().filter(|old| old.slot == slot) {
@@ -587,8 +565,6 @@ impl Desk {
         let checked = match slot {
             Slot::GitHub => checker.github(secret).await,
             Slot::Forgejo(url) => checker.forgejo(url, secret).await,
-            Slot::ApiKey(ApiProvider::OpenRouter) => checker.openrouter(secret).await,
-            Slot::ApiKey(ApiProvider::Firecrawl) => checker.firecrawl(secret).await,
             Slot::ApiKey(_) | Slot::AgentToken(_) => return Ok(None),
         };
         match checked {
@@ -753,6 +729,30 @@ impl Desk {
             .ok_or(FleetError::NotFound)?;
         self.drop_keys(&old.id).await
     }
+}
+
+/// Deletes the API keys an older desktop gave to the machines, and the records of ones an account
+/// move left to enter again: API keys are kept on the server only. Gives how many went; with none
+/// left it writes nothing.
+pub async fn drop_api_keys(mesh: &Mesh) -> Result<usize> {
+    let _write = WRITES.lock().await;
+    let mut gone: Vec<Key> = mesh
+        .scan(&format!("{PREFIX}{API}."))
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    for (key, record) in crate::records::scan::<Unmoved>(mesh, UNMOVED_CREDENTIAL) {
+        if let Unmoved::Credential(credential) = record
+            && matches!(credential.kind, CredentialKind::ApiKey { .. })
+        {
+            gone.push(key);
+        }
+    }
+    let count = gone.len();
+    for key in gone {
+        mesh.set(key, None).await?;
+    }
+    Ok(count)
 }
 
 /// A machine's row, when it has Claude Code or Codex.
