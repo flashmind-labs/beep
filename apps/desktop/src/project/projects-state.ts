@@ -351,7 +351,8 @@ function homeRelative(path: string) {
 
 /// The folder a start form shows once `machine` is picked: the project's
 /// checkout there, else `cwd` under the home folder written `~/...`,
-/// which each machine reads as its own home. Auto is `machine` null.
+/// which each machine reads as its own home; `machine` null before one is
+/// picked.
 export function folderOn(cwd: string, machine: string | null, places: readonly { machine: string; cwd: string }[] | null | undefined) {
   const own = machine ? places?.find(p => p.machine === machine)?.cwd : null;
   return own || homeShort(cwd);

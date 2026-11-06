@@ -83,9 +83,9 @@ export type StartRow =
   | { entry: StartEntry; skip: string }
   | { entry: StartEntry; skip: null; machine_id: string; machine_name: string; cwd: string; agent: string };
 
-/// Each picked issue's machine, checkout and harness: the bar's machine for
-/// its own project and Auto for any other, the bar's harness where that
-/// machine has it, else the first it offers. An issue no machine has a
+/// Each picked issue's machine, checkout and harness: `machineFor` its
+/// project while it has a checkout and an agent, else the first such machine,
+/// the bar's harness where that machine has it, else the first it offers. An issue no machine has a
 /// checkout for is left out.
 export function planStarts(
   entries: readonly StartEntry[],
@@ -98,7 +98,7 @@ export function planStarts(
   return entries.map((entry): StartRow => {
     if (!entry.project) return { entry, skip: "not imported" };
     const here = places(entry.project);
-    const place = barPlace(here, hosts, machineFor(entry.project)) ?? barPlace(here, hosts, "auto");
+    const place = barPlace(here, hosts, machineFor(entry.project));
     if (!place) return { entry, skip: "no machine has a checkout" };
     const offered = hosts.find(h => h.machine_id === place.machine_id)?.agents ?? [];
     const agent = harnessFor(harness, offered, order);
