@@ -315,6 +315,11 @@ export const AGENT_SLOW_MS = 10_000;
 export const AGENT_PAUSE_AFTER = 5 * 60_000;
 export const AGENT_ACTIVE = new Set<string | undefined>(["asking", "working", "running", "starting"]);
 export const AGENT_LAST = 60;
+/// How long the page waits on a read of the session, and on a prompt or a
+/// resume to be taken, past the app's own limits (20 s and 30 s), so a call
+/// that never returns shows an error instead of holding the view (#427).
+export const AGENT_READ_WAIT_MS = 25_000;
+export const AGENT_SEND_WAIT_MS = 40_000;
 interface AgentKind {
   ini: string;
   name: string;

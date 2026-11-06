@@ -22,6 +22,17 @@ pub async fn serve_session(
         .await?
         .context("the stream closed before its first request")?;
     let new = matches!(first, Request::Start { .. });
+    // A start waits on its agent; a resume or attach should answer at once.
+    let slow = match &first {
+        Request::Resume { session, .. } => {
+            Some(format!("resuming {} session {session}", kind.name))
+        }
+        Request::Attach { session } => {
+            Some(format!("attaching to {} session {session}", kind.name))
+        }
+        _ => None,
+    }
+    .map(super::requests::warn_if_slow);
     let session = match first {
         Request::Start {
             model: Some(model), ..
@@ -55,9 +66,13 @@ pub async fn serve_session(
         },
         other => Err(format!("expected Start, Attach or Resume, got {other:?}")),
     };
+    drop(slow);
     let session = match session {
         Ok(session) => session,
-        Err(reason) => return tx.send(&Event::Refused { reason }).await,
+        Err(reason) => {
+            log::warn!("{} session refused: {reason}", kind.name);
+            return tx.send(&Event::Refused { reason }).await;
+        }
     };
     let mut live = session.live.clone();
     if new {

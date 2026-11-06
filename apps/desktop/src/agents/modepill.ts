@@ -2,7 +2,7 @@
 // for approval above the field.
 import { $ } from "../bar/core.ts";
 import { answerHtml } from "./turnrows.ts";
-import { type AgentModes, type OpenAgent, AG, agentKind, where } from "./agents.ts";
+import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { esc } from "../ui/format.ts";
 import { showHtml } from "../ui/patch.ts";
@@ -18,7 +18,7 @@ export async function readModes(o: OpenAgent) {
   const s = AG.page?.session;
   if (oldServer || !s || s.external || s.status === "ended") return null;
   try {
-    const modes = await invoke<AgentModes | null>("agent_modes", where(o));
+    const modes = await invoke<AgentModes | null>("agent_modes", where(o), AGENT_READ_WAIT_MS);
     if (!modes) oldServer = true;
     return modes;
   } catch (e) {
