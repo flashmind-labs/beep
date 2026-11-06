@@ -96,6 +96,13 @@ test("a machine that does not sync says why, and a missing folder says it comes 
   assert.equal(stateNote(machine()), null);
 });
 
+test("machines Syncthing keeps are not counted as not syncing", () => {
+  const st = (id: string) => machine({ machine_id: id, status: "syncthing" });
+  assert.equal(syncSummary(detail([st("m1"), st("m2"), st("m3")])), "Syncthing keeps it in step");
+  assert.equal(syncSummary(detail([st("m1"), machine({ machine_id: "m2", status: "offline" })])), "Syncthing keeps it in step · 1 offline");
+  assert.equal(syncSummary(detail([machine(), st("m2")])), "in sync · 1 by Syncthing");
+});
+
 test("the header says in sync only when every machine is", () => {
   const refused = machine({ machine_id: "m2", status: "failed", error: "no" });
   const away = machine({ machine_id: "m3", status: "offline" });
