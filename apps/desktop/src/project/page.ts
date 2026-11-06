@@ -18,7 +18,7 @@ import { editGroup } from "./groups.ts";
 import { importButton, projectList, projectFilter, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage } from "./sections.ts";
-import { projectComp, drawProjectComp } from "./composer.ts";
+import { projectComp, drawProjectComp, followSplit } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
@@ -70,6 +70,7 @@ export function drawProjects(el: HTMLElement) {
   if (one) {
     drawProjectComp(one.name);
     if (projectComp.form.parentNode !== el) el.append(projectComp.form);
+    followSplit();
   } else {
     projectComp.form.remove();
   }
