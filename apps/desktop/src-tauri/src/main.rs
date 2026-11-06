@@ -291,6 +291,7 @@ fn main() {
             machines::list::machine_traffic,
             machines::list::machine_clocks,
             machines::list::mesh_remove,
+            machines::list::node_release,
             machines::list::remove_machine,
             machines::list::save_machine_log,
             machines::list::updatable_machines,
