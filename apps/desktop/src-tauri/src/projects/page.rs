@@ -126,6 +126,25 @@ pub async fn project_add_to_machine(
     Ok(added.folder)
 }
 
+/// Points `project` on `machine_id` at `folder`, empty or missing (the others fill it) or a
+/// checkout of the same repository (it joins and merges). The old folder stays on disk as it is.
+/// Gives the folder as the machine spells it.
+#[tauri::command]
+pub async fn project_change_folder(
+    fleet: FleetState<'_>,
+    beep: Service<'_>,
+    project: String,
+    machine_id: String,
+    folder: String,
+) -> Result<String> {
+    let changed = desk(&fleet)
+        .await?
+        .change_folder(&project, &machine_id, &folder)
+        .await?;
+    mirror_import(&beep, &changed).await;
+    Ok(changed.folder)
+}
+
 /// Takes `project` off `machine_id`: the machine stops syncing it and leaves its list, and the
 /// folder there stays as it is. Refused for the last machine, and while an agent session is open
 /// in the project there, so no agent is left working in a folder that no longer syncs.

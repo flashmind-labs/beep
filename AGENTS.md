@@ -345,6 +345,12 @@ applies too; one it cannot read refuses the folder and says why.
 - Peers talk `beep-sync/3`. Nodes on `beep-sync/1` or `/2` do not sync with it.
 - Add on a project's machine row makes the folder there and joins sync: the empty
   folder takes the files and `.git` from the others (`Desk::add_to_machine`).
+- Change folder on a row points the machine at another folder, empty (filled as by Add)
+  or a checkout of the same repo (it merges); nothing moves and the old folder stays
+  (`Desk::change_folder`).
+- A member's folder that is deleted is made again and filled from the others, deleting
+  nothing elsewhere; with the folder above it gone too (a disk not mounted) it waits
+  (`Syncs::check_folders`). A project a node does not run is in its status with why.
 - Remove on a row takes the machine out of `sync/<name>` (the record goes below two)
   and deletes its place; the node stops and its folder stays untouched
   (`Desk::remove_from_machine`). The last machine and one with an open agent session

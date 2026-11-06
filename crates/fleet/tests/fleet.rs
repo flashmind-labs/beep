@@ -8,7 +8,7 @@ use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
 use beep_proto::{
-    CredentialKind, SecretText, WorkDiff,
+    CredentialKind, SecretText, SyncStatus, WorkDiff,
     node::{
         EnvReport, LinkRx, LinkTx, Open, Opened, SyncthingFolder, ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
@@ -16,6 +16,7 @@ use beep_proto::{
         mesh_state::{Credential, StateValue, SyncSpec},
         shell::{self, Event, Request},
         status::Report,
+        sync::{self, FOLDER_MISSING, ProjectStatus, State as SyncState},
         usage::{HourSpend, PlanUsage, SessionSpend},
     },
 };
@@ -133,6 +134,8 @@ struct FakeNode {
     moves: bool,
     /// The folders its Syncthing keeps in step.
     syncthing: Vec<SyncthingFolder>,
+    /// What its `sync/1` says of the projects it syncs.
+    synced: Vec<ProjectStatus>,
 }
 
 impl FakeNode {
@@ -199,6 +202,14 @@ impl FakeNode {
                     {
                         return;
                     }
+                }
+            }
+            "sync/1" => {
+                if let Ok(Some(sync::Request::Status {})) = rx.recv::<sync::Request>().await {
+                    let reply = sync::Reply::Status {
+                        projects: self.synced.clone(),
+                    };
+                    tx.send(&reply).await.ok();
                 }
             }
             "agents/1" => {
@@ -1230,6 +1241,160 @@ async fn adding_a_project_to_a_machine_makes_the_folder_and_joins_its_sync() {
         "acme/widget is pinned to where it is: it never syncs."
     );
     assert!(made(&at_full).is_empty());
+}
+
+#[tokio::test]
+async fn a_machine_points_at_an_empty_folder_or_a_checkout_and_the_old_one_stays() {
+    let f = fleet().await;
+    let mac = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, mac.id)).await;
+    let build = Arc::new(FakeNode::default());
+    let at_mac = Arc::new(FakeNode {
+        prints: vec![
+            ("/srv/empty", "BEEP_FOLDER: missing /srv/empty\n"),
+            (
+                "/srv/other",
+                "BEEP_FOLDER: path /srv/other\nBEEP_FOLDER: full\n",
+            ),
+            (
+                "/srv/clone",
+                "BEEP_FOLDER: path /srv/clone\nBEEP_FOLDER: git https://github.com/acme/widget.git\nBEEP_FOLDER: full\n",
+            ),
+        ],
+        ..FakeNode::default()
+    });
+    let studio = desk(&f.studio, &[(&f.build, &build), (&mac, &at_mac)]).await;
+    for dev in [&f.build, &mac] {
+        studio
+            .import(ImportJob {
+                repo: "acme/widget",
+                machine_id: Some(&dev.id.to_string()),
+                folder: None,
+                parent: None,
+                worktrees: &[],
+            })
+            .await
+            .expect("the import works");
+    }
+    let key = Key::Sync("acme/widget".to_owned());
+    let folder_on = |id: EndpointId| {
+        f.studio
+            .mesh
+            .get(&key)
+            .map(|bytes| SyncSpec::from_bytes(&bytes).expect("a spec reads"))
+            .and_then(|spec| spec.folders.get(&id).cloned())
+    };
+    let before = folder_on(f.build.id).expect("the build box syncs");
+    let ran = |node: &FakeNode, word: &str| {
+        node.ran
+            .lock()
+            .expect("log")
+            .iter()
+            .filter(|command| command.contains(word))
+            .count()
+    };
+    let refused = |said: Result<_, FleetError>| match said {
+        Err(FleetError::Refused(text)) => text,
+        Err(e) => panic!("another error: {e}"),
+        Ok(_) => panic!("it was not refused"),
+    };
+
+    let made = ran(&at_mac, "mkdir -p --");
+    // Another project's files are refused, and nothing is made or written.
+    let said = studio
+        .change_folder("acme/widget", &mac.id.to_string(), "/srv/other")
+        .await;
+    assert_eq!(
+        refused(said),
+        "/srv/other has other files. Choose an empty folder or a checkout of acme/widget."
+    );
+    assert_eq!(ran(&at_mac, "mkdir -p --"), made);
+
+    // A missing folder is made, and the others fill it.
+    let changed = studio
+        .change_folder("ACME/widget", &mac.id.to_string(), "/srv/empty")
+        .await
+        .expect("it changes");
+    assert_eq!(changed.folder, "/srv/empty");
+    assert_eq!(folder_on(mac.id).as_deref(), Some("/srv/empty"));
+    assert_eq!(ran(&at_mac, "mkdir -p --"), made + 1);
+
+    // A checkout of the same repository joins as it is.
+    studio
+        .change_folder("acme/widget", &mac.id.to_string(), "/srv/clone")
+        .await
+        .expect("it changes");
+    assert_eq!(folder_on(mac.id).as_deref(), Some("/srv/clone"));
+    assert_eq!(ran(&at_mac, "mkdir -p --"), made + 1);
+    assert_eq!(folder_on(f.build.id), Some(before));
+
+    let said = studio
+        .change_folder("acme/widget", &mac.id.to_string(), "/srv/clone")
+        .await;
+    assert_eq!(
+        refused(said),
+        "acme/widget is already in /srv/clone on mac-box."
+    );
+}
+
+#[tokio::test]
+async fn each_machine_says_how_it_syncs_and_only_an_unreachable_one_is_offline() {
+    let f = fleet().await;
+    let mut others = Vec::new();
+    for name in ["mac-box", "win-box"] {
+        let dev = join(&f.studio, DeviceKind::Node, name).await;
+        until(&f.studio.mesh, |m| online(m, dev.id)).await;
+        others.push(dev);
+    }
+    let status = |state: SyncState, error: Option<String>| ProjectStatus {
+        name: "acme/widget".into(),
+        folder: "/srv/widget".into(),
+        state,
+        error,
+        ..ProjectStatus::default()
+    };
+    let missing = format!("{FOLDER_MISSING}: /srv/widget");
+    let fakes = [
+        Arc::new(FakeNode {
+            synced: vec![status(SyncState::Idle, None)],
+            ..FakeNode::default()
+        }),
+        // A node from before it reported the projects it refused.
+        Arc::new(FakeNode::default()),
+        Arc::new(FakeNode {
+            synced: vec![status(SyncState::Failed, Some(missing.clone()))],
+            ..FakeNode::default()
+        }),
+    ];
+    let devs = [&f.build, &others[0], &others[1]];
+    let nodes: Vec<(&Dev, &Arc<FakeNode>)> = devs.iter().copied().zip(fakes.iter()).collect();
+    let studio = desk(&f.studio, &nodes).await;
+    for dev in devs {
+        studio
+            .import(ImportJob {
+                repo: "acme/widget",
+                machine_id: Some(&dev.id.to_string()),
+                folder: None,
+                parent: None,
+                worktrees: &[],
+            })
+            .await
+            .expect("the import works");
+    }
+    let detail = studio.sync_detail("acme/widget").await.expect("a detail");
+    let of = |dev: &Dev| {
+        detail
+            .machines
+            .iter()
+            .find(|m| m.sync.machine_id == dev.id.to_string())
+            .map(|m| (m.sync.status, m.sync.error.clone()))
+            .expect("its row")
+    };
+    assert_eq!(of(&f.build), (SyncStatus::InSync {}, None));
+    let (said, why) = of(&others[0]);
+    assert_eq!(said, SyncStatus::Failed {});
+    assert!(why.is_some_and(|why| why.contains("Update beep-node")));
+    assert_eq!(of(&others[1]), (SyncStatus::Failed {}, Some(missing)));
 }
 
 /// The machines a desk lists the project on, in order.

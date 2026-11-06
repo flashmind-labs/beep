@@ -8,6 +8,7 @@ use crate::{
     files::transfer::place::Folder,
 };
 use anyhow::{Context, Result, bail};
+use beep_proto::node::sync::FOLDER_MISSING;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -82,8 +83,15 @@ pub(super) fn restore(root: &Folder, saved: &RootId) -> Result<()> {
 
 /// Which folder is at `root`'s path, which must be the one held open.
 fn open_id(root: &Folder) -> Result<FileId> {
-    let at_path = fsat::id_of_path(root.path())
-        .with_context(|| format!("{CHANGED}: {} is missing", root.path().display()))?;
+    let at_path = match fsat::id_of_path(root.path()) {
+        Ok(id) => id,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            bail!("{FOLDER_MISSING}: {}", root.path().display())
+        }
+        Err(e) => {
+            return Err(e).with_context(|| format!("{CHANGED}: {}", root.path().display()));
+        }
+    };
     let open = root.dir().id().context("reading the open folder")?;
     if open != at_path {
         bail!("{CHANGED}: {} is another folder now", root.path().display());

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conflictList, conflictPrompt, conflictTotal, machineMeta, originalOf, stateChip, waitingList } from "../src/project/filesync.ts";
+import { conflictList, conflictPrompt, conflictTotal, fileSyncTile, machineMeta, originalOf, stateChip, stateNote, syncSummary, waitingList } from "../src/project/filesync.ts";
 import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
 
 function machine(over: Partial<MachineDetail> = {}): MachineDetail {
@@ -80,9 +80,34 @@ test("a git conflict is merged without rewriting history and the ref kept until 
   assert.match(text, /update-ref -d only if I ask/);
 });
 
-test("a folder Syncthing has reads as synced by it, not as failed", () => {
-  const held = machine({ status: "failed", files: 0, bytes: 0, error: "Already synced by Syncthing (Work)" });
-  assert.deepEqual(stateChip(held), { text: "Synced by Syncthing", wait: false });
+test("a folder Syncthing has reads as waiting for it, not as failed", () => {
+  const held = machine({ status: "syncthing", files: 0, bytes: 0, error: "Already synced by Syncthing (Work)" });
+  assert.deepEqual(stateChip(held), { text: "waiting for Syncthing", wait: false });
   assert.deepEqual(machineMeta(held), []);
-  assert.deepEqual(stateChip(machine({ status: "failed", error: "no room" })), { text: "failed", wait: true });
+  assert.deepEqual(stateChip(machine({ status: "failed", error: "no room" })), { text: "not syncing", wait: true });
+});
+
+test("a machine that does not sync says why, and a missing folder says it comes back", () => {
+  const refused = machine({ status: "failed", error: "/srv/.stignore has rules Beep cannot follow" });
+  assert.equal(stateNote(refused), "/srv/.stignore has rules Beep cannot follow");
+  assert.deepEqual(stateChip(machine({ status: "missing" })), { text: "folder missing", wait: true });
+  assert.match(stateNote(machine({ status: "missing" })) || "", /makes it again and fills it/);
+  assert.deepEqual(stateChip(machine({ status: "parent_missing" })), { text: "disk missing", wait: true });
+  assert.equal(stateNote(machine()), null);
+});
+
+test("the header says in sync only when every machine is", () => {
+  const refused = machine({ machine_id: "m2", status: "failed", error: "no" });
+  const away = machine({ machine_id: "m3", status: "offline" });
+  assert.equal(syncSummary(detail([machine(), machine({ machine_id: "m2" })])), "in sync");
+  assert.equal(syncSummary(detail([machine(), refused, away])), "1 of 3 in sync · 1 not syncing · 1 offline");
+  assert.equal(syncSummary(detail([refused])), "0 of 1 in sync · 1 not syncing");
+  assert.equal(syncSummary(detail([machine({ status: "syncing" }), refused])), "1 syncing");
+  assert.equal(syncSummary(detail([refused], { paused: true })), "paused on every machine");
+  assert.equal(fileSyncTile(detail([machine(), refused])).count, "1 of 2 in sync · 1 not syncing");
+});
+
+test("a Windows folder shows without its prefix", () => {
+  const tile = fileSyncTile(detail([machine({ machine_name: "win", folder: "\\\\?\\C:\\Users\\me\\widget" })]));
+  assert.equal(tile.rows[0].title, "win: C:\\Users\\me\\widget");
 });
