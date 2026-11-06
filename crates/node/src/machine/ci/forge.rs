@@ -157,14 +157,9 @@ impl Forge for Cli {
                 let mut child = command.spawn().context("starting teacli")?;
                 let stdout = child.stdout.take().context("teacli has no output")?;
                 timeout(WAIT_LIMIT, async {
-                    let last = last_state(stdout).await;
+                    let watched = read_watch(stdout).await;
                     let passed = exited(child).await;
-                    match last {
-                        Some(RunState::Passed {}) => Ok(true),
-                        Some(state) if ended(state) => Ok(false),
-                        // Ended without saying how: the exit says.
-                        _ => passed,
-                    }
+                    watched.outcome().unwrap_or(passed)
                 })
                 .await
                 .context("teacli waited too long")?
@@ -182,26 +177,76 @@ async fn exited(mut child: Child) -> Result<bool> {
         .success())
 }
 
-/// The run's state in the last line of teacli's watch that reads, once its
-/// output closes. A line too long or not JSON is passed over.
-async fn last_state(output: impl AsyncRead + Unpin) -> Option<RunState> {
+/// What teacli's watch printed: the last snapshot of the run, and the error
+/// line it ends with when the run did not pass or the watch failed.
+#[derive(Debug, Default, PartialEq)]
+struct Watched {
+    last: Option<RunState>,
+    error: Option<WatchError>,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+struct WatchError {
+    #[serde(default)]
+    code: u32,
+    #[serde(default)]
+    message: String,
+}
+
+impl Watched {
+    /// teacli's code for a run that finished without passing.
+    const FINISHED: u32 = 1;
+
+    /// True when the run passed, false when it finished otherwise, an
+    /// error when the watch failed, `None` when only the exit can say.
+    fn outcome(self) -> Option<Result<bool>> {
+        match (self.last, self.error) {
+            (Some(RunState::Passed {}), _) => Some(Ok(true)),
+            (Some(state), _) if ended(state) => Some(Ok(false)),
+            (_, Some(error)) if error.code == Self::FINISHED => Some(Ok(false)),
+            (_, Some(error)) => Some(Err(anyhow::anyhow!(
+                "teacli failed: {}",
+                tail(&error.message)
+            ))),
+            (_, None) => None,
+        }
+    }
+}
+
+/// Reads teacli's watch until its output closes: one JSON snapshot of the
+/// run per line, or an error line. A line too long or not JSON is passed
+/// over.
+async fn read_watch(output: impl AsyncRead + Unpin) -> Watched {
     #[derive(Deserialize)]
-    struct Progress {
-        status: String,
-        #[serde(default)]
-        conclusion: Option<String>,
+    #[serde(untagged)]
+    enum Line {
+        Error {
+            #[allow(dead_code)]
+            error: bool,
+            #[serde(flatten)]
+            said: WatchError,
+        },
+        Snapshot {
+            status: String,
+            #[serde(default)]
+            conclusion: Option<String>,
+        },
     }
     let mut lines = FramedRead::new(output, LinesCodec::new_with_max_length(MAX_LINE));
-    let mut last = None;
+    let mut watched = Watched::default();
     while let Some(line) = lines.next().await {
         let Ok(line) = line else {
             continue;
         };
-        if let Ok(progress) = serde_json::from_str::<Progress>(&line) {
-            last = Some(state_of(&progress.status, progress.conclusion.as_deref()));
+        match serde_json::from_str::<Line>(&line) {
+            Ok(Line::Snapshot { status, conclusion }) => {
+                watched.last = Some(state_of(&status, conclusion.as_deref()));
+            }
+            Ok(Line::Error { said, .. }) => watched.error = Some(said),
+            Err(_) => {}
         }
     }
-    last
+    watched
 }
 
 /// Whether a run in `state` has ended.
@@ -234,22 +279,46 @@ pub(super) fn tail(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::last_state;
+    use super::{WatchError, Watched, read_watch};
     use beep_proto::RunState;
 
+    const RUNNING: &str = r#"{"run_id":7,"status":"running","conclusion":null,"workflow":"CI","branch":"main","event":"push","actor":"someone","url":"","started_at":"","updated_at":"","jobs":[]}"#;
+
     #[tokio::test]
-    async fn the_watch_ends_on_its_last_progress_line() {
-        let output = concat!(
-            r#"{"run_id":7,"status":"running","conclusion":null,"jobs":[]}"#,
-            "\n",
-            "not json\n",
+    async fn the_last_snapshot_says_how_the_run_ended() {
+        let output = format!(
+            "{RUNNING}\nnot json\n{}\n{}\n",
             r#"{"run_id":7,"status":"completed","conclusion":"failure","jobs":[]}"#,
-            "\n",
+            r#"{"error":true,"code":1,"message":"workflow run 7 finished: failure"}"#,
         );
+        let watched = read_watch(output.as_bytes()).await;
+        assert_eq!(watched.last, Some(RunState::Failed {}));
+        assert!(matches!(watched.outcome(), Some(Ok(false))));
+        let passed = r#"{"run_id":7,"status":"success","conclusion":"success","jobs":[]}"#;
+        let watched = read_watch(passed.as_bytes()).await;
+        assert!(matches!(watched.outcome(), Some(Ok(true))));
+    }
+
+    #[tokio::test]
+    async fn an_error_line_is_a_finish_only_with_code_one() {
+        let finished = format!(
+            "{RUNNING}\n{}\n",
+            r#"{"error":true,"code":1,"message":"workflow run 7 finished: cancelled"}"#
+        );
+        let watched = read_watch(finished.as_bytes()).await;
         assert_eq!(
-            last_state(output.as_bytes()).await,
-            Some(RunState::Failed {})
+            watched.error,
+            Some(WatchError {
+                code: 1,
+                message: "workflow run 7 finished: cancelled".into()
+            })
         );
-        assert_eq!(last_state(&b""[..]).await, None);
+        assert!(matches!(watched.outcome(), Some(Ok(false))));
+        let failed = r#"{"error":true,"code":6,"message":"API error"}"#;
+        assert!(matches!(
+            read_watch(failed.as_bytes()).await.outcome(),
+            Some(Err(_))
+        ));
+        assert_eq!(read_watch(&b""[..]).await, Watched::default());
     }
 }
