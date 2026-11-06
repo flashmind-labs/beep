@@ -3,7 +3,7 @@
 
 use crate::{
     agents::mcp::{self, Upstream},
-    agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn},
+    agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn, skills::Skills},
     files::Folders,
     files::search::Searches,
     files::transfer::Transfers,
@@ -35,7 +35,7 @@ use beep_proto::{
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
         NODE_ALPN_NAMED, NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
-        harness::AgentSettings, link_on, status, tool_update, tools, version,
+        harness::AgentSettings, link_on, skills, status, tool_update, tools, version,
     },
 };
 use iroh::{
@@ -141,6 +141,9 @@ pub async fn serve(
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision, state.server.is_some());
     offers.traffic = traffic;
+    if let Some(home) = dirs::home_dir() {
+        offers.skills = Skills::under(home);
+    }
     offers.extra.push(Arc::new(Logs::service()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
@@ -466,6 +469,9 @@ pub struct Offers {
     /// Set while the host does not lend this machine to other devices: they
     /// get its status, but no shell, task or screen.
     pub(crate) withheld: Arc<AtomicBool>,
+    /// The user's coding agent skills, synced with the mesh when the host
+    /// names their home folder.
+    pub skills: Skills,
 }
 
 impl Offers {
@@ -495,6 +501,7 @@ impl Offers {
             mesh: Membership::default(),
             transfers: Sharing::default(),
             withheld: Arc::default(),
+            skills: Skills::default(),
         }
     }
 
@@ -872,7 +879,10 @@ pub(crate) async fn serve_open(
     who: Who,
 ) -> Result<()> {
     if matches!(who, Who::Node { .. })
-        && !matches!(open.protocol.as_str(), status::PROTOCOL | tools::PROTOCOL)
+        && !matches!(
+            open.protocol.as_str(),
+            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL
+        )
     {
         let reason = format!("a node may not open {}", open.protocol);
         return tx.send(&Opened::Refused { reason }).await;
@@ -910,6 +920,10 @@ pub(crate) async fn serve_open(
         shell::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             shell::serve(tx, rx).await
+        }
+        skills::PROTOCOL if offers.skills.home().is_some() => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::agents::skills::serve(tx, rx, offers.skills).await
         }
         tasks::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;

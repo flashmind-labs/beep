@@ -1,0 +1,371 @@
+//! The user's skills on this machine: the agents' skills folders under the
+//! home folder, each skill a folder with a `SKILL.md`, hashed over its files.
+//! Every function here blocks.
+
+use crate::machine::provision::installed_by_beep;
+use anyhow::{Context, Result, bail};
+use beep_proto::node::skills::{Listed, SkillFile};
+use serde_bytes::ByteBuf;
+use sha2::{Digest, Sha256};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs, io,
+    path::{Path, PathBuf},
+};
+
+/// The skills folders the agents Beep runs read, under the home folder:
+/// Claude Code's, the shared `~/.agents/skills` (Codex, pi, Gemini CLI and
+/// OpenCode read it), and each agent's own.
+const READ: [&str; 6] = [
+    ".claude/skills",
+    ".agents/skills",
+    ".codex/skills",
+    ".pi/agent/skills",
+    ".gemini/skills",
+    ".config/opencode/skills",
+];
+/// The agents' folders that make `~/.agents/skills` worth writing to.
+const AGENTS_READERS: [&str; 5] = [".agents", ".codex", ".pi", ".gemini", ".config/opencode"];
+
+/// The most files one skill may have and still sync.
+const MAX_FILES: usize = 256;
+/// The most bytes one skill may hold and still sync.
+const MAX_BYTES: u64 = 2 * 1024 * 1024;
+/// How deep a skill's folders may go.
+const MAX_DEPTH: usize = 8;
+
+/// The skills found on disk.
+#[derive(Debug, Default)]
+pub(super) struct Scan {
+    /// The user's own, one entry per content.
+    pub listed: Vec<Listed>,
+    /// Every name a skills folder holds, Beep's own and the ones too big
+    /// to sync among them: a name here is never written.
+    pub names: BTreeSet<String>,
+}
+
+/// Reads every skills folder under `home`.
+pub(super) fn scan(home: &Path) -> Scan {
+    let mut names = BTreeSet::new();
+    // Name and hash, to the folders holding that copy.
+    let mut copies: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for rel in READ {
+        let root = home.join(rel);
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if !valid_part(&name) || !entry.path().is_dir() {
+                continue;
+            }
+            names.insert(name.clone());
+            match read(&entry.path()) {
+                Ok(Some(files)) => copies
+                    .entry((name, hash(&files)))
+                    .or_default()
+                    .push(label(rel)),
+                Ok(None) => {}
+                Err(e) => log::debug!("skill {name} in {} not read: {e:#}", label(rel)),
+            }
+        }
+    }
+    Scan {
+        listed: copies
+            .into_iter()
+            .map(|((name, hash), folders)| Listed {
+                name,
+                hash,
+                folders,
+            })
+            .collect(),
+        names,
+    }
+}
+
+/// `~/` and `rel`, as the user knows the folder on any system.
+fn label(rel: &str) -> String {
+    format!("~/{rel}")
+}
+
+/// The files of the skill named `name` while its copy hashes to `hash`, from
+/// the first skills folder that holds one.
+pub(super) fn files_of(home: &Path, name: &str, hash: &str) -> Vec<SkillFile> {
+    if !valid_part(name) {
+        return Vec::new();
+    }
+    for rel in READ {
+        if let Ok(Some(files)) = read(&home.join(rel).join(name))
+            && self::hash(&files) == hash
+        {
+            return files;
+        }
+    }
+    Vec::new()
+}
+
+/// A skill's files, sorted by path; `None` when the folder is no skill the
+/// user made: no `SKILL.md`, Beep's own, or too big to sync.
+fn read(dir: &Path) -> Result<Option<Vec<SkillFile>>> {
+    let skill = match fs::read(dir.join("SKILL.md")) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e).context("reading SKILL.md"),
+    };
+    if installed_by_beep(&String::from_utf8_lossy(&skill)) {
+        return Ok(None);
+    }
+    let mut files = Vec::new();
+    let mut bytes = 0;
+    if !walk(dir, "", 0, &mut files, &mut bytes)? {
+        log::debug!("{} is too big to sync", dir.display());
+        return Ok(None);
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(Some(files))
+}
+
+/// Adds the files under `dir` to `files`; false once the skill is past a
+/// limit. Names starting with a dot (`.git`, `.DS_Store`) are left out.
+fn walk(
+    dir: &Path,
+    prefix: &str,
+    depth: usize,
+    files: &mut Vec<SkillFile>,
+    bytes: &mut u64,
+) -> Result<bool> {
+    if depth > MAX_DEPTH {
+        return Ok(false);
+    }
+    for entry in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !valid_part(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let rel = if prefix.is_empty() {
+            name
+        } else {
+            format!("{prefix}/{name}")
+        };
+        // Follows links, as the agents do.
+        let meta = fs::metadata(&path).with_context(|| format!("reading {}", path.display()))?;
+        if meta.is_dir() {
+            if !walk(&path, &rel, depth + 1, files, bytes)? {
+                return Ok(false);
+            }
+        } else if meta.is_file() {
+            *bytes += meta.len();
+            if files.len() >= MAX_FILES || *bytes > MAX_BYTES {
+                return Ok(false);
+            }
+            let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+            files.push(SkillFile {
+                path: rel,
+                data: ByteBuf::from(data),
+            });
+        }
+    }
+    Ok(true)
+}
+
+/// SHA-256 over each file's path, length and bytes, in path order.
+pub(super) fn hash(files: &[SkillFile]) -> String {
+    let mut sorted: Vec<&SkillFile> = files.iter().collect();
+    sorted.sort_by(|a, b| a.path.cmp(&b.path));
+    let mut digest = Sha256::new();
+    for file in sorted {
+        digest.update(file.path.as_bytes());
+        digest.update([0]);
+        digest.update((file.data.len() as u64).to_le_bytes());
+        digest.update(&file.data);
+    }
+    hex::encode(digest.finalize())
+}
+
+/// Whether `part` is a plain file or folder name, safe on every system: no
+/// separators, no `..`, nothing hidden.
+fn valid_part(part: &str) -> bool {
+    !part.is_empty()
+        && part.len() <= 255
+        && !part.starts_with('.')
+        && !part.chars().any(|c| {
+            c.is_control() || matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')
+        })
+}
+
+/// The skills folders a skill from another machine goes into: Claude Code's
+/// when `~/.claude` exists, `~/.agents/skills` when an agent that reads it is
+/// there.
+fn targets(home: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if home.join(".claude").is_dir() {
+        out.push(home.join(".claude/skills"));
+    }
+    if AGENTS_READERS.iter().any(|rel| home.join(rel).is_dir()) {
+        out.push(home.join(".agents/skills"));
+    }
+    out
+}
+
+/// Writes the skill `name` into each target folder that has nothing by that
+/// name. Each copy is written beside its place and renamed, so an agent never
+/// reads half a skill. Whether any was written.
+pub(super) fn install(home: &Path, name: &str, files: &[SkillFile]) -> Result<bool> {
+    if !valid_part(name) {
+        bail!("{name:?} is not a skill name");
+    }
+    for file in files {
+        if !file.path.split('/').all(valid_part) {
+            bail!("{:?} is not a path in a skill", file.path);
+        }
+    }
+    let mut wrote = false;
+    for dir in targets(home) {
+        let place = dir.join(name);
+        if fs::symlink_metadata(&place).is_ok() {
+            continue;
+        }
+        let partial = dir.join(format!(".{name}.beep"));
+        match fs::remove_dir_all(&partial) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                return Err(e).with_context(|| format!("removing {}", partial.display()));
+            }
+            _ => {}
+        }
+        for file in files {
+            let path = file
+                .path
+                .split('/')
+                .fold(partial.clone(), |p, part| p.join(part));
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            fs::write(&path, &file.data).with_context(|| format!("writing {}", path.display()))?;
+        }
+        fs::rename(&partial, &place).with_context(|| format!("writing {}", place.display()))?;
+        wrote = true;
+    }
+    Ok(wrote)
+}
+
+/// The skill names this machine has held, one per line in a file of the
+/// node's own. A name in it is never fetched again, so a skill the user
+/// deleted here stays deleted.
+#[derive(Default)]
+pub(super) struct Seen {
+    file: PathBuf,
+    names: BTreeSet<String>,
+}
+
+impl Seen {
+    pub(super) fn load(file: &Path) -> Result<Self> {
+        let names = match fs::read_to_string(file) {
+            Ok(text) => text.lines().map(str::to_owned).collect(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => BTreeSet::new(),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", file.display())),
+        };
+        Ok(Self {
+            file: file.to_owned(),
+            names,
+        })
+    }
+
+    pub(super) fn contains(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+
+    /// Adds `names`, writing the file when one is new.
+    pub(super) fn add<'a>(&mut self, names: impl IntoIterator<Item = &'a str>) -> Result<()> {
+        let mut grew = false;
+        for name in names {
+            grew |= self.names.insert(name.to_owned());
+        }
+        if !grew {
+            return Ok(());
+        }
+        let mut text = String::new();
+        for name in &self.names {
+            text.push_str(name);
+            text.push('\n');
+        }
+        if let Some(parent) = self.file.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        }
+        fs::write(&self.file, text).with_context(|| format!("writing {}", self.file.display()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn skill(home: &Path, rel: &str, name: &str, text: &str) {
+        let dir = home.join(rel).join(name);
+        fs::create_dir_all(dir.join("refs")).unwrap();
+        fs::write(dir.join("SKILL.md"), text).unwrap();
+        fs::write(dir.join("refs/more.md"), "more\n").unwrap();
+        fs::write(dir.join(".DS_Store"), "junk").unwrap();
+    }
+
+    #[test]
+    fn copies_alike_list_once_and_beeps_own_are_left_out() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        skill(
+            home,
+            ".claude/skills",
+            "notes",
+            "---\nname: notes\n---\nA\n",
+        );
+        skill(
+            home,
+            ".agents/skills",
+            "notes",
+            "---\nname: notes\n---\nA\n",
+        );
+        skill(home, ".pi/agent/skills", "style", "B\n");
+        skill(home, ".claude/skills", "style", "C\n");
+        let beeps = "---\nname: github\n---\n<!-- Installed by Beep. Beep keeps this file current until you edit it. sha256:00 -->\n";
+        skill(home, ".claude/skills", "github", beeps);
+        let found = scan(home);
+        let notes: Vec<_> = found.listed.iter().filter(|l| l.name == "notes").collect();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].folders, ["~/.claude/skills", "~/.agents/skills"]);
+        assert_eq!(found.listed.iter().filter(|l| l.name == "style").count(), 2);
+        assert!(!found.listed.iter().any(|l| l.name == "github"));
+        assert!(found.names.contains("github"));
+
+        // What is fetched installs into a home with nothing by that name.
+        let files = files_of(home, "notes", &notes[0].hash);
+        assert_eq!(files.len(), 2, "the hidden file is left out");
+        let other = tempfile::tempdir().unwrap();
+        fs::create_dir_all(other.path().join(".claude")).unwrap();
+        fs::create_dir_all(other.path().join(".codex")).unwrap();
+        assert!(install(other.path(), "notes", &files).unwrap());
+        let there = scan(other.path());
+        assert_eq!(there.listed.len(), 1);
+        assert_eq!(there.listed[0].hash, notes[0].hash);
+        assert!(!install(other.path(), "notes", &files).unwrap());
+    }
+
+    #[test]
+    fn unsafe_names_and_paths_are_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join(".claude")).unwrap();
+        let file = |path: &str| SkillFile {
+            path: path.to_owned(),
+            data: ByteBuf::from(b"x".to_vec()),
+        };
+        assert!(install(temp.path(), "../out", &[file("SKILL.md")]).is_err());
+        assert!(install(temp.path(), "ok", &[file("../SKILL.md")]).is_err());
+        assert!(install(temp.path(), "ok", &[file("a\\..\\b")]).is_err());
+        assert!(!temp.path().join("out").exists());
+    }
+}
