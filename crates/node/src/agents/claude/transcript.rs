@@ -815,7 +815,7 @@ pub(super) mod tests {
 
     #[test]
     fn a_bare_brief_block_is_not_the_users_text() {
-        let brief = crate::agents::mcp::brief(false);
+        let brief = crate::agents::mcp::BRIEF;
         let text = user_entry(serde_json::json!([
             {"type": "text", "text": brief},
             {"type": "text", "text": "ok, let's keep going"}
@@ -823,7 +823,7 @@ pub(super) mod tests {
         assert_eq!(tags::said(&text), "ok, let's keep going");
         assert_eq!(
             tags::parts(&text),
-            [Part::Context(&brief), Part::User("ok, let's keep going")]
+            [Part::Context(brief), Part::User("ok, let's keep going")]
         );
         // Glued into one string, as some harnesses keep it.
         let text = user_entry(serde_json::json!(format!("{brief}ok, let's keep going")));
