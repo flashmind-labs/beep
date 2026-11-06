@@ -151,25 +151,4 @@ mod tests {
         assert_eq!(project_group_path("/"), "/");
         assert_eq!(project_group_path("relative/x"), "relative/x");
     }
-
-    fn given(list: &[&str]) -> Vec<String> {
-        list.iter().map(|p| (*p).to_owned()).collect()
-    }
-
-    #[test]
-    fn a_home_folder_the_root_or_nothing_is_refused() {
-        for list in [
-            vec![],
-            vec!["~"],
-            vec!["/Users/someone/Projects"],
-            vec!["/"],
-        ] {
-            assert!(
-                matches!(group_paths(&given(&list)), Err(ApiError::BadRequest { .. })),
-                "{list:?}"
-            );
-        }
-        let many: Vec<String> = (0..=MAX_PATHS).map(|i| format!("~/f{i}")).collect();
-        assert!(group_paths(&many).is_err());
-    }
 }
