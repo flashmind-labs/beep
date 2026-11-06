@@ -1,5 +1,6 @@
 // "Remove from this machine" on a row of a project's "Where it lives": the
-// machine stops syncing the project and leaves its list; its folder stays.
+// machine stops syncing the project and leaves its list; its folder stays,
+// unless the user ticks to delete it there too.
 import { invoke } from "../ui/tauri.ts";
 import { el } from "../ui/dom.ts";
 import { dbtn, svgEl } from "../ui/parts.ts";
@@ -10,7 +11,7 @@ import { refresh } from "../center/refresh.ts";
 import { loadWhere } from "./loads.ts";
 import { removeBlock, workingIn } from "./removemachine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
-import type { WhereRow } from "./projects-state.ts";
+import { plainPath, type WhereRow } from "./projects-state.ts";
 
 /// Why `m` cannot leave `project` now, or null.
 function blocked(project: string, rows: readonly WhereRow[], m: WhereRow) {
@@ -18,17 +19,23 @@ function blocked(project: string, rows: readonly WhereRow[], m: WhereRow) {
   return removeBlock(project, rows, m, m.folder ? workingIn(running, m.id, m.folder) : 0);
 }
 
-/// Asks, then takes `project` off `m`.
+/// Asks, then takes `project` off `m`, and deletes its folder there when ticked.
 function confirmRemove(project: string, m: WhereRow) {
+  const folder = m.folder ? plainPath(m.folder) : "The folder";
   confirmSheet({
     title: `Remove ${project} from ${m.name}?`,
     text: `It stops syncing to ${m.name} and leaves the project's machines.`,
-    note: `The folder on ${m.name} stays on disk as it is.`,
+    note: `${folder} on ${m.name} stays on disk as it is.`,
+    tick: {
+      label: `Also delete the folder on ${m.name}`,
+      note: `${folder} is deleted on ${m.name} once it stops syncing there. The other machines keep their copies.`,
+    },
     action: "Remove",
-    run: async () => {
-      await invoke("project_remove_from_machine", { project, machineId: m.id });
+    run: async deleteFolder => {
+      const said = await invoke<string | null>("project_remove_from_machine", { project, machineId: m.id, deleteFolder });
       refresh();
       await loadWhere(project);
+      return said;
     },
   });
 }
