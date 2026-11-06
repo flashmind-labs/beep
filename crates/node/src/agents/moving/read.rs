@@ -24,20 +24,26 @@ use std::fmt;
 use std::{
     io::SeekFrom,
     path::{Path, PathBuf},
+    time::Duration,
 };
 use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     task::spawn_blocking,
+    time::timeout,
 };
 
-pub(crate) const ALPN: &[u8] = b"beep-sessions/1";
+pub const ALPN: &[u8] = b"beep-sessions/1";
 
 /// The most bytes of a transcript one stream carries per message, under
 /// the link's frame limit.
 const CHUNK: usize = 256 * 1024;
 /// The largest transcript served. A bigger one is not moved.
 pub(super) const MAX_TRANSCRIPT: u64 = 1024 * 1024 * 1024;
+/// How long a read waits for the source's next message before it gives up,
+/// so a stalled stream fails and is tried again. The source hashes the copy
+/// and may snapshot a worktree before it answers.
+const QUIET_FOR: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -453,7 +459,17 @@ pub(crate) enum Kind {
 
 /// Brings the copy at `ask.copy` up to date from the stream of a source.
 /// A copy that diverged is kept beside it as `<name>.diverged`.
-pub(crate) async fn pull(mut tx: LinkTx, mut rx: LinkRx, ask: Ask<'_>) -> Result<Pulled> {
+pub(crate) async fn pull(tx: LinkTx, rx: LinkRx, ask: Ask<'_>) -> Result<Pulled> {
+    pull_within(tx, rx, ask, QUIET_FOR).await
+}
+
+/// `pull`, failing when the source sends nothing for `quiet`.
+pub(super) async fn pull_within(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    ask: Ask<'_>,
+    quiet: Duration,
+) -> Result<Pulled> {
     let Ask {
         agent,
         id,
@@ -477,7 +493,7 @@ pub(crate) async fn pull(mut tx: LinkTx, mut rx: LinkRx, ask: Ask<'_>) -> Result
         },
     };
     tx.send(&request).await?;
-    let (start, file_name) = match rx.recv::<Reply>().await? {
+    let (start, file_name) = match next(&mut rx, quiet).await? {
         Some(Reply::Head { from, file_name }) => (from, file_name),
         Some(Reply::Refused { message }) => return Err(Refused(message).into()),
         _ => bail!("the source ended without answering"),
@@ -498,7 +514,7 @@ pub(crate) async fn pull(mut tx: LinkTx, mut rx: LinkRx, ask: Ask<'_>) -> Result
     let mut out = out.open(copy).await?;
     let mut work: Option<Work> = None;
     loop {
-        match rx.recv::<Reply>().await? {
+        match next(&mut rx, quiet).await? {
             Some(Reply::Chunk { data }) => {
                 out.write_all(&data).await?;
                 if let Kind::Background { rate } = kind {
@@ -542,6 +558,13 @@ pub(crate) async fn pull(mut tx: LinkTx, mut rx: LinkRx, ask: Ask<'_>) -> Result
             _ => bail!("the source stopped before the end"),
         }
     }
+}
+
+/// The source's next message, if it sends one within `quiet`.
+async fn next(rx: &mut LinkRx, quiet: Duration) -> Result<Option<Reply>> {
+    timeout(quiet, rx.recv::<Reply>())
+        .await
+        .with_context(|| format!("the source sent nothing for {}s", quiet.as_secs()))?
 }
 
 /// The size of `copy` and the hash of what it holds; empty when it does

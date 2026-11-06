@@ -25,6 +25,12 @@ pub(super) async fn run(
     if saved.as_ref().is_some_and(|saved| saved.is_over(record.at)) {
         return Ok(());
     }
+    if !env.agents.reopened() {
+        log::info!(
+            "session {}: waiting for the sessions open before the restart to resume",
+            record.id
+        );
+    }
     env.agents.until_reopened().await;
     if let Some(worktree) = &record.worktree {
         env.agents
