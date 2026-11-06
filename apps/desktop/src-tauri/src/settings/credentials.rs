@@ -1,17 +1,16 @@
 //! Settings, Credentials: the account's GitHub token, Forgejo servers and
 //! API keys. Secrets go into the mesh once, for every machine, and never
-//! come back; the bar sees only their last four characters. A key only the
-//! server uses is saved there.
+//! come back; the bar sees only their last four characters.
 
 use crate::{
-    beep::{Beep, Service, epoch_ms},
+    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
 };
-use beep_fleet::{FleetError, Session};
+use beep_fleet::Session;
 use beep_proto::{
     ApiError, ApiProvider, Credential, CredentialCheck, CredentialKind, GITHUB_ENV_VAR,
-    GitHubAccount, SaveCredential, SecretText,
+    GitHubAccount, SecretText,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -132,8 +131,6 @@ pub struct NewCredential {
     #[serde(flatten)]
     kind: Kind,
     secret: String,
-    #[serde(default)]
-    to_machines: bool,
 }
 
 /// Every provider, in the order Settings lists them.
@@ -158,51 +155,27 @@ pub async fn list_credentials(fleet: FleetState<'_>) -> Result<Vec<CredentialVie
 #[tauri::command]
 pub async fn save_credential(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     credential: NewCredential,
 ) -> Result<CredentialView> {
-    let NewCredential {
-        kind,
-        secret,
-        to_machines,
-    } = credential;
-    save(&fleet, &beep, kind, SecretText::new(secret), to_machines).await
+    let NewCredential { kind, secret } = credential;
+    save(&fleet, kind, SecretText::new(secret)).await
 }
 
 /// Checks one with its host, then keeps it for every machine. A GitHub token
-/// is saved as the account it signs in as, beside the others. A key that is
-/// not for the machines is the server's to keep, so it goes there.
+/// is saved as the account it signs in as, beside the others.
 pub(crate) async fn save(
     fleet: &Arc<Session>,
-    beep: &Beep,
     kind: Kind,
     secret: SecretText,
-    to_machines: bool,
 ) -> Result<CredentialView> {
     let kind = CredentialKind::from(kind);
-    match desk(fleet)
+    let saved = desk(fleet)
         .await?
-        .save_credential(&kind, &secret, to_machines)
-        .await
-    {
-        Ok(saved) => {
-            // What was read with the old tokens is not served to the new ones.
-            fleet.forget();
-            Ok(saved.into())
-        }
-        Err(FleetError::NeedsServer) => {
-            let saved = beep
-                .call(SaveCredential {
-                    kind,
-                    secret,
-                    to_machines,
-                })
-                .await
-                .map_err(plain)?;
-            Ok(saved.into())
-        }
-        Err(e) => Err(e.into()),
-    }
+        .save_credential(&kind, &secret, true)
+        .await?;
+    // What was read with the old tokens is not served to the new ones.
+    fleet.forget();
+    Ok(saved.into())
 }
 
 /// What checking a Forgejo token found, as the bar shows it.
