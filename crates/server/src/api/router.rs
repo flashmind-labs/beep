@@ -289,6 +289,11 @@ impl From<Closed> for ApiError {
 }
 
 impl<T: Serialize> Sink<T> {
+    /// Resolves once the client stops reading the stream.
+    pub async fn closed(&self) {
+        self.tx.closed().await
+    }
+
     pub async fn send(&self, reply: &T) -> Result<(), Closed> {
         let body = http::encode(reply).map_err(|e| {
             log::warn!("a streamed reply did not encode: {e}");

@@ -19,6 +19,7 @@ use tokio::{sync::watch, time::Instant};
 pub mod claude;
 pub(crate) mod found;
 pub mod mcp;
+pub mod skills;
 
 mod acp;
 mod alerts;
@@ -50,6 +51,7 @@ mod session;
 mod session_stream;
 mod spend;
 mod subagent;
+pub(crate) mod tags;
 mod tool_diff;
 mod usage;
 mod window;

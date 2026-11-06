@@ -209,7 +209,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
             Err(e) => fail(e),
         },
         Tool::SendToAgent => match parse::<SendArgs>(&request.args) {
-            Ok(args) => reach.send(&args.id, args.text).await,
+            Ok(args) => reach.send(&session, &args.id, args.text).await,
             Err(e) => fail(e),
         },
         Tool::StopAgent => match parse::<IdArgs>(&request.args) {
@@ -262,6 +262,14 @@ impl Reach<'_> {
             .unwrap_or_default()
     }
 
+    /// `text` as the caller `parent` sends it to a child, tagged with who
+    /// sent it so the child's log tells it from the user's words.
+    fn tagged_as_mine(&self, parent: &Session, text: &str) -> String {
+        let info = parent.info();
+        let name = info.title.unwrap_or(info.agent);
+        crate::agents::tags::from_session(&self.who.session, &name, text)
+    }
+
     /// The machine `name` names: `None` is this one.
     fn target(&self, name: Option<&str>) -> Result<Option<Machine>, String> {
         let Some(name) = name.map(command_name).filter(|name| !name.is_empty()) else {
@@ -305,6 +313,7 @@ impl Reach<'_> {
         if prompt.trim().is_empty() {
             return fail("Give a `prompt`.");
         }
+        let prompt = self.tagged_as_mine(parent, &prompt);
         if let Some(model) = &model
             && !beep_proto::node::agent::valid_model(model)
         {
@@ -499,10 +508,11 @@ impl Reach<'_> {
         Ok(view.named(&kid.name))
     }
 
-    async fn send(&self, id: &str, text: String) -> Reply {
+    async fn send(&self, parent: &Session, id: &str, text: String) -> Reply {
         if text.trim().is_empty() {
             return fail("Give the `text` to send.");
         }
+        let text = self.tagged_as_mine(parent, &text);
         match self.find(id) {
             Err(e) => fail(e),
             Ok(Found::Here(child)) => match child.order(Command::Prompt(text.into())).await {

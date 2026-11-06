@@ -492,7 +492,8 @@ fn head_lines(path: &Path) -> io::Result<impl Iterator<Item = String>> {
 /// A prompt as a title: trimmed, cut short, and none for text an agent
 /// wraps in tags, such as its own context.
 fn prompt_title(text: &str) -> Option<String> {
-    let text = text.trim();
+    let said = crate::agents::tags::said(text);
+    let text = said.trim();
     (!text.is_empty() && !text.starts_with('<')).then(|| cut(text, MAX_TITLE))
 }
 

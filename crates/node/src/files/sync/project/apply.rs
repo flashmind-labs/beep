@@ -250,7 +250,9 @@ impl Task {
         }
         self.waiting = mem::take(&mut round.lost);
         if let Some(partial) = round.partial.take() {
-            let finished = spawn_blocking(move || partial.finish()).await;
+            // A file that failed to go in place is still in it; it is fetched
+            // again, so the folder goes with what is left.
+            let finished = spawn_blocking(move || partial.remove()).await;
             if let Ok(Err(e)) | Err(e) = finished.map_err(anyhow::Error::from) {
                 log::warn!("a partial folder stays until the next start: {e:#}");
             }
