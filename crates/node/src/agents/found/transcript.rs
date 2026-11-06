@@ -1,4 +1,4 @@
-//! A transcript read from the files Codex and pi keep (`Stores::transcript`):
+//! A transcript read from the files Codex, pi and flsh keep (`Stores::transcript`):
 //! the last entries as the node answers a transcript request with them.
 
 use super::{Agent, Stores, codex_run};
@@ -41,6 +41,10 @@ impl Stores {
                 .memos
                 .transcripts
                 .read(file, || pi(file).map(Arc::new))?,
+            (Agent::Flsh, Some(file)) => self
+                .memos
+                .transcripts
+                .read(file, || flsh(file).map(Arc::new))?,
             (agent, _) => bail!(
                 "{}'s transcript cannot be read yet, only its title and folder",
                 agent.as_str()
@@ -194,11 +198,61 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
     Ok(entries)
 }
 
+/// A flsh session file: one line per message, `user`, `assistant` (its
+/// text, `metadata.reasoning` and `toolCalls`) or `tool`.
+fn flsh(path: &Path) -> io::Result<Vec<Entry>> {
+    let mut entries = Vec::new();
+    for value in lines(path)? {
+        let message = &value["message"];
+        let content = message["content"].as_str().unwrap_or_default();
+        match value["type"].as_str() {
+            Some("user") => entries.extend(entry(EntryKind::User, &tags::untagged(content))),
+            Some("assistant") => {
+                let reasoning = message["metadata"]["reasoning"].as_str();
+                entries.extend(entry(EntryKind::Thought, reasoning.unwrap_or_default()));
+                entries.extend(entry(EntryKind::Agent, content));
+                for call in message["toolCalls"].as_array().into_iter().flatten() {
+                    let name = call["name"].as_str().unwrap_or("tool");
+                    let title = match codex_run::detail(&call["arguments"]) {
+                        Some(detail) if !detail.is_empty() => format!("{name}: {detail}"),
+                        _ => name.to_owned(),
+                    };
+                    entries.extend(entry(EntryKind::Tool, &title));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
+
+    #[test]
+    fn a_flsh_session_reads_its_prompts_replies_and_calls() {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let path = dir.path().join("session.jsonl");
+        fs::write(&path, include_str!("fixtures/flsh.jsonl")).expect("a session file");
+        let read: Vec<(EntryKind, String)> = flsh(&path)
+            .expect("the session reads")
+            .into_iter()
+            .map(|entry| (entry.kind, entry.text))
+            .collect();
+        assert_eq!(
+            read,
+            [
+                (EntryKind::User, "Run the tests in /srv/laptop/app".into()),
+                (EntryKind::Thought, "The user wants the tests run.".into()),
+                (EntryKind::Agent, "Running them.".into()),
+                (EntryKind::Tool, "exec: cargo test".into()),
+                (EntryKind::Agent, "All tests pass.".into()),
+            ]
+        );
+    }
 
     /// The user entries the file of `lines` gives `read`.
     fn users(lines: &[Value], read: fn(&Path) -> io::Result<Vec<Entry>>) -> Vec<String> {

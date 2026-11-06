@@ -89,5 +89,23 @@ fn a_folder_that_only_shares_a_prefix_is_not_inside() {
 #[test]
 fn only_stores_in_files_have_a_harness() {
     assert_eq!(Harness::of(Agent::Pi), Some(Harness::Pi));
+    assert_eq!(Harness::of(Agent::Flsh), Some(Harness::Flsh));
     assert_eq!(Harness::of(Agent::OpenCode), None);
+}
+
+#[test]
+fn flsh_changes_the_header_folder_only_and_files_under_flshs_names() {
+    let input = include_str!("../found/fixtures/flsh.jsonl");
+    let out = move_with(Harness::Flsh, input, "ignored.jsonl");
+    let (header, rest) = input.split_once('\n').expect("a header");
+    let want = header.replace(
+        r#""working_dir":"/srv/laptop/app""#,
+        r#""working_dir":"/work/app""#,
+    );
+    assert_ne!(want, header);
+    assert_eq!(text(&out), format!("{want}\n{rest}"));
+    // flsh 0.2.10's folder for sessions run in `/work/app`, and its name
+    // for session `ID`'s file.
+    let name = "6d1024705c6059e7586a8d74fd797093cef21babfe58070e31ad35f6b58a86d7.jsonl";
+    assert_eq!(out.path, PathBuf::from("455e16743bf22d19").join(name));
 }

@@ -1,7 +1,10 @@
 //! Where this machine keeps a session's transcript, and writing one in.
 
 use super::{Harness, Stored};
-use crate::agents::{Agents, claude, found::Agent};
+use crate::agents::{
+    Agents, claude,
+    found::{self, Agent},
+};
 use anyhow::{Context, Result};
 use std::{
     env, fs,
@@ -18,12 +21,27 @@ impl Agents {
             Harness::Claude => return self.external.file(id).await.ok().flatten(),
             Harness::Codex => Agent::Codex,
             Harness::Pi => Agent::Pi,
+            Harness::Flsh => Agent::Flsh,
         };
         let (stores, id) = (self.stores.clone(), id.to_owned());
         spawn_blocking(move || stores.file(Some(agent), &id))
             .await
             .ok()
             .flatten()
+    }
+
+    /// Whether flsh session `id` is here only in the database of a flsh
+    /// from before 0.2.9.
+    pub(super) async fn flsh_in_database(&self, id: &str) -> bool {
+        let (stores, id) = (self.stores.clone(), id.to_owned());
+        spawn_blocking(move || {
+            stores
+                .sessions(Some(Agent::Flsh))
+                .iter()
+                .any(|seen| seen.id == id && seen.file.is_none())
+        })
+        .await
+        .unwrap_or(false)
     }
 }
 
@@ -37,6 +55,8 @@ pub(crate) struct StoreRoots {
     pub(crate) codex: PathBuf,
     /// pi's sessions folder.
     pub(crate) pi: PathBuf,
+    /// flsh's sessions folder.
+    pub(crate) flsh: PathBuf,
 }
 
 impl StoreRoots {
@@ -58,7 +78,13 @@ impl StoreRoots {
             (None, Some(dir)) => PathBuf::from(dir).join("sessions"),
             (None, None) => home?.join(".pi/agent/sessions"),
         };
-        Some(Self { claude, codex, pi })
+        let flsh = found::flsh_sessions_dir()?;
+        Some(Self {
+            claude,
+            codex,
+            pi,
+            flsh,
+        })
     }
 
     fn of(&self, harness: Harness) -> &Path {
@@ -66,6 +92,7 @@ impl StoreRoots {
             Harness::Claude => &self.claude,
             Harness::Codex => &self.codex,
             Harness::Pi => &self.pi,
+            Harness::Flsh => &self.flsh,
         }
     }
 
