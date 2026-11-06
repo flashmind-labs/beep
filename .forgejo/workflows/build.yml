@@ -1,6 +1,6 @@
 # Checks every push and pull request, then builds the server and node images
 # on pushes to main and puts them in the private registry, tagged with the
-# commit and `latest`. `just deploy-server` runs it.
+# commit and `latest`. The private ops repo deploys it.
 #
 # The registry host and account are repository variables and the token a
 # repository secret, so nothing about the box is written down here. `runs-on:
