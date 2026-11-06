@@ -30,6 +30,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt } from "./older-state.ts";
+import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { drawMove } from "./move.ts";
 import { refreshMoves } from "./move-store.ts";
@@ -57,7 +58,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   Object.assign(AG, {
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
-    why, back: from, note: "", sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
+    why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
@@ -105,14 +106,16 @@ export async function pollAgent() {
       const placed = !AG.page?.session.cwd && !!page.session.cwd;
       // The session closed or was taken over: the composer replaces the banner.
       const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
+      const news = hasNews(AG.page, page);
       // The older entries held stay while the newest are read again.
       AG.page = joinRuns(AG.page, page);
       // The frame around the log is drawn again; the log itself stays.
       if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));
       else if (field && $("#agconv")) drawAgentFrame(true, $<ChatBody>("#agbody"));
-      // What the last failed read said no longer holds.
-      if (AG.note === "gone" || AG.note === AG.readError) AG.note = "";
+      // Back after a lost link, or something new came: earlier errors no longer hold.
+      AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
       AG.readError = "";
+      AG.link = LINKED;
       if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
       markDelivered(AG.queue, page.queued, read);
       // Nothing the log shows changed: no draw.
@@ -125,9 +128,12 @@ export async function pollAgent() {
     }
   } catch (e) {
     if (isOpen(o)) {
-      // A dropped connection comes back by itself; the next read says so.
-      AG.readError = /not found/i.test(String(e)) ? "" : /connection lost|closed by peer|timed out/i.test(String(e)) ? "Reconnecting to Beep…" : String(e);
-      AG.note = AG.readError || "gone";
+      // A dropped link is read again with backoff; a session its machine
+      // came back without has ended, and no turn runs on.
+      const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
+      AG.link = failed.link;
+      AG.readError = AG.note = failed.note;
+      if (failed.link.ended && AG.page) AG.page = endedPage(AG.page);
       drawAgentBody();
     }
   } finally {
@@ -136,7 +142,7 @@ export async function pollAgent() {
   // Another session opened while this one was asked: follow that one.
   if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
   if (!isOpen(o) || !agentOnScreen()) return;
-  const delay = agentDelay();
+  const delay = AG.link.lost ? retryDelay(AG.link.lost) : agentDelay();
   const paused = delay === null && AG.page?.session.status !== "ended";
   if (paused !== AG.paused) { AG.paused = paused; drawAgentBody(); }
   if (delay !== null) AG.timer = setTimeout(pollAgent, delay);

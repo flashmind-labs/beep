@@ -37,7 +37,7 @@ function logError(message: string) {
 /// Calls a Rust command, logging it when it fails.
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return core.invoke<T>(cmd, args).catch((e: unknown) => {
-    logError(`${cmd} failed: ${e}`);
+    logError(`${cmd} failed: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);
     throw e;
   });
 }
