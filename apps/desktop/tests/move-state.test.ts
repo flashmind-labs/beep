@@ -39,7 +39,8 @@ test("the steps follow the phases", () => {
 });
 
 test("a move waits for the source's turn, or for the source itself", () => {
-  assert.equal(moveRows(progress(), "laptop", "studio")[0].text, "Waiting for the turn to end");
+  assert.equal(moveRows(progress(), "laptop", "studio")[0].text, "Waiting for studio");
+  assert.equal(moveRows(progress(), "laptop", "studio", false)[0].text, "studio is offline; the move goes on when it is back");
   assert.equal(moveRows(progress({ source_away: true }), "laptop", "studio")[0].text, "Waiting for laptop");
 });
 
