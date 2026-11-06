@@ -8,7 +8,7 @@ import { chatAction, chatMode, drawChats, openRow, renderChats } from "../chat/c
 import { $, $$, bar, G, here, PANE, queued, S, windowHooks } from "./core.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, renderGroup, renderGroupInfo, renderGroupNew, sendGroup } from "../chat/groups.ts";
-import { toggleKeys } from "./hints.ts";
+import { toggleShortcuts } from "../ui/shortcutsheet.ts";
 import { openSession } from "../chat/history.ts";
 import { LV, VN } from "./live.ts";
 import { closeFilesMenu } from "../agentpane/files.ts";
@@ -138,9 +138,8 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && closeFilesMenu()) { e.preventDefault(); return; }
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;
-  if (cmd && e.key === "/") { e.preventDefault(); return toggleKeys(); }
+  if (cmd && e.key === "/") { e.preventDefault(); return toggleShortcuts(); }
   if (e.key === "Escape" && LV.on) { e.preventDefault(); return invoke("cancel_live").catch(() => {}); }
-  if (e.key === "Escape" && $("#keys")) { e.preventDefault(); return toggleKeys(); }
   if (e.key === "Escape" && closeRerunMenu()) { e.preventDefault(); return; }
   if (e.key === "Escape") { e.preventDefault(); return back(); }
   if (S.view === "link" || S.view === "login" || S.view === "revoked") return;

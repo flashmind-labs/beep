@@ -162,6 +162,8 @@ export interface WindowHooks {
   openProviders(): void;
   /// Settings' Report a problem row: the sheet closes and the report sheet opens.
   openReport(): void;
+  /// Settings' Keyboard shortcuts row: the sheet closes and the shortcuts sheet opens.
+  openShortcuts(): void;
   /// A page Settings leads to, such as Apps: the sheet closes and the pane
   /// shows it; null only closes.
   settingsAway(view: string | null): void;

@@ -5,7 +5,6 @@ import { linkChip } from "../settings/server-state.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChip } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
-import { shortcutSheet } from "../settings/subscription.ts";
 import { stopFace } from "../agents/turnrows.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
@@ -71,33 +70,14 @@ export function drawStop() {
   row.insertBefore(stopBtn, $("#grip"));
 }
 
-// ---------- Shortcuts ----------
+// ---------- Live mode keys ----------
 
-/// What can be said in live mode, and its keys: in the shortcuts and in the
+/// What can be said in live mode, and its keys, in the
 /// sheet ⌘/ opens over live mode.
 export const LIVE_SAY: Hint[] = [["“send”", "Send now"], ["“stop”", "Send now, or stop Beep speaking"]];
 export const LIVE_TALK: Hint[] = [["tap ⌥", "Leave, or stop Beep"], ["hold ⌥", "Talk, or interrupt Beep"], ["esc", "Cancel the reply, or leave"], ["any key", "Leave and type instead"], ["⌥ ⌥", "Over the orb: bring Beep back. In Beep: leave"]];
-export const SHORTCUTS: [string, Hint[]][] = [
-  ["Anywhere", [["⌥ ⌥", "Open or hide Beep"], ["⌘N", "New agent"], ["⌘K", "Chats"], ["⌘G", "New group"], ["⌘M", "Memories"], ["⌘J", "Routines, then ⌘G for grants"], ["⌘L", "Skills"], ["⌘R", "Research"], ["⌘,", "Settings"], ["⌘Q", "Quit"]]],
-  ["Talking", [["tap ⌥", "Live mode, with Beep open"], ["hold ⌥", "Talk while held, with Beep open"], ...LIVE_TALK]],
-  ["Say in live mode", LIVE_SAY],
-  ["In a chat", [["⌘E", "Model, for admins"], [ICON.ret, "Send"], [`⇧${ICON.ret}`, "New line"], ["↑", "Chats, when empty"], ["⌘.", "Stop"], ["⌘R", "Research what is typed, or the offered question"], [`⌘${ICON.ret}`, "Allow"], [`⇧⌘${ICON.ret}`, "Allow for this session"], [`⌥⌘${ICON.ret}`, "Always allow"], ["⌘D", "Deny"]]],
-  ["In an agent or research", [["⇧esc", "Zoom the side pane over the conversation, again to put it back"], ["esc", "Pane to conversation, then up: project, Projects, Home (in the window)"], ["⌃tab", "Next tab in the side pane, ⌃⇧tab the one before"], ["⌘N", "In a project: a new session, empty, with the start input. With a terminal on screen: a new terminal on its machine, in its folder"], ["⌘T", "In a project: a new terminal in the side pane"], ["⌘1 ⌘2 ⌘3", "Files, Changes, Artifacts in the side pane"], ["⌘O", "Open the folder in the editor"], ["⌘U", "Open or fold every thought, in a session"], ["⌘Y", "Open or fold every command, in a session"], ["⇧⌘Y", "Open or fold the last command, in a session"]]],
-  ["In a list", [["↑↓", "Move"], [ICON.ret, "Open"], ["tab", "Actions"], ["⌘R", "Rename"], ["⌘P", "Pin"], ["⌘⌫", "Delete or forget"], ["esc", "Back"]]],
-];
 
 /// The sections of a key sheet: each title, then its keys and what they do.
 export const keyGroups = (sections: readonly (readonly [string, readonly Hint[]])[]) =>
   `<div class="dkeys">${sections.map(([sec, rows]) => `<div class="kg"><div class="dsec">${sec}</div>${rows.map(([k, t]) => `<div class="kr"><span>${t}</span><kbd>${k}</kbd></div>`).join("")}</div>`).join("")}</div>`;
-
-/// Opens or closes the sheet of every key, over whatever the bar shows.
-export function toggleKeys() {
-  const open = $("#keys");
-  if (open) { open.remove(); return focusAsk(); }
-  $("#viewer")?.remove();
-  bar.append(h(`<div class="dover" id="keys" role="dialog" aria-label="Keyboard shortcuts">
-    <div class="vt"><span class="tt"><b>Keyboard shortcuts</b></span></div>
-    ${keyGroups(shortcutSheet(S.live ? SHORTCUTS : SHORTCUTS.filter(([t]) => t !== "Talking" && t !== "Say in live mode"), S.link === "linked"))}
-    ${hints([["esc", "close"]])}</div>`));
-}
 

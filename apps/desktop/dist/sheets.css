@@ -140,3 +140,11 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .rp-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
 .rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err); user-select: text }
 .rp-hint { font-size: 12px; line-height: 17px; margin: -8px 0 14px; color: var(--muted) }
+/* Keyboard shortcuts: a filter, then sections of a description and its key caps. */
+.ks-sheet { max-height: calc(100vh - 120px); display: flex; flex-direction: column }
+.ks-filter { flex: none; width: 100%; box-sizing: border-box; margin-bottom: 8px }
+.ks-list { overflow: auto; min-height: 0; scrollbar-width: none }
+.ks-h { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: uppercase; color: var(--dim); padding: 12px 0 4px }
+.ks-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; line-height: 26px }
+.ks-keys { display: flex; align-items: center; gap: 4px; flex: none }
+.ks-keys i { font-style: normal; font-size: 11px; color: var(--dim); padding: 0 2px }
