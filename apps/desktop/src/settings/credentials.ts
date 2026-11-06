@@ -132,13 +132,14 @@ export function sameServer(a: string | undefined, b: string | undefined) {
   }
 }
 
-/// A Forgejo server's page for new access tokens, or null for a URL that
-/// is not one.
-function forgejoTokenPage(url: string) {
+/// A Forgejo or Gitea server's page for new access tokens, at the server's
+/// root whatever path the saved URL has (a repository's, say), or null for
+/// a URL that is not one.
+export function forgejoTokenPage(url: string) {
   try {
     const u = new URL(String(url || "").trim());
     if (!/^https?:$/.test(u.protocol)) return null;
-    return `${u.origin}${u.pathname.replace(/\/+$/, "")}/user/settings/applications`;
+    return `${u.origin}/user/settings/applications`;
   } catch {
     return null;
   }
@@ -508,9 +509,9 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
   // What is being added sits under the hosts, the add buttons side by side under that.
   html += github.adding;
   const addingForgejo = e?.kind === "forgejo" && !e.id;
-  if (addingForgejo) html += form(state, esc, { title: "New Forgejo server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login")} on this Mac and use that sign-in.` });
+  if (addingForgejo) html += form(state, esc, { title: "New Forgejo/Gitea server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login https://<server> --token <token>")} on this Mac and use that sign-in.` });
   const adds = (github.canAdd ? addButton(`data-cred-gh-add="1"`, "+ Add another GitHub account") : "")
-    + (addingForgejo ? "" : addButton(`data-cred-edit="forgejo"`, "+ Add a Forgejo server"));
+    + (addingForgejo ? "" : addButton(`data-cred-edit="forgejo"`, "+ Add a Forgejo/Gitea server"));
   if (adds) html += `<div class="dline tight wrap dmt6">${adds}</div>`;
   html += head("API keys", 14);
   html += `<div class="dlead">Your own keys, one per provider. Beep stores them encrypted, shows only the last 4 characters, and gives each to commands and terminals on your machines as its env var. Agents do not get API keys.</div>`;
