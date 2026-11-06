@@ -203,6 +203,8 @@ pub(super) struct Actor {
     pub(super) turn: Option<u64>,
     /// Why the running turn was asked to stop, once it was.
     pub(super) stopping: Option<Stopping>,
+    /// The user stopped the running turn, or closed the session.
+    pub(super) by_user: bool,
     /// How long the agent has to end its turn after Stop.
     pub(super) stop_within: Duration,
     /// The tool calls of the running turn that have not finished.
@@ -284,6 +286,7 @@ impl Actor {
             end => end,
         };
         let closed = matches!(end, Ok(End::Closed));
+        let by_user = self.by_user;
         // Stopped as the user asked, or with the node, so not a failure to
         // alert about.
         let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
@@ -329,6 +332,7 @@ impl Actor {
             live.info.state.queued = 0;
             live.end_tasks();
             live.held = waiting;
+            live.stopped(closed && by_user);
             if !closed {
                 live.info.state.error = Some(reason);
             }
@@ -457,7 +461,8 @@ impl Actor {
                     let Some(Order { command, done }) = order else {
                         return Ok(End::Closed);
                     };
-                    if matches!(command, Command::Close) {
+                    if let Command::Close { by_user } = command {
+                        self.by_user = by_user;
                         let _ = done.send(Ok(()));
                         return Ok(End::Closed);
                     }

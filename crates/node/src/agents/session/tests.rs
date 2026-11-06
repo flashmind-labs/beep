@@ -1208,7 +1208,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
 #[cfg(unix)]
 #[tokio::test]
 async fn a_steer_held_at_stop_goes_once_the_turn_stops() {
-    for keep_steers in [true, false] {
+    for by_user in [true, false] {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
         let log = dir.join("sent.jsonl");
@@ -1220,16 +1220,13 @@ async fn a_steer_held_at_stop_goes_once_the_turn_stops() {
         .await;
         let steer = Prompt::from("try again, it failed".to_owned());
         session.order(Command::Steer(steer)).await.unwrap();
-        session
-            .order(Command::Cancel { keep_steers })
-            .await
-            .unwrap();
-        let turns = if keep_steers { 2 } else { 1 };
+        session.order(Command::Cancel { by_user }).await.unwrap();
+        let turns = if by_user { 2 } else { 1 };
         until(&session, |live| {
             live.info.turns >= turns || live.status() == Status::Ended
         })
         .await;
-        let want: &[&str] = if keep_steers {
+        let want: &[&str] = if by_user {
             &["go", "try again, it failed"]
         } else {
             &["go"]
@@ -1278,7 +1275,7 @@ while read -r line; do log "$1"; done
     })
     .await;
     session
-        .order(Command::Cancel { keep_steers: true })
+        .order(Command::Cancel { by_user: true })
         .await
         .unwrap();
     // Before the agent says anything, the turn reads as stopping.

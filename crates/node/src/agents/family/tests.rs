@@ -332,6 +332,34 @@ async fn a_parent_is_told_once_each_time_its_child_finishes() {
 }
 
 #[tokio::test]
+async fn a_parent_is_told_when_the_user_stops_its_child() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "hang on", rig.dir.path()).await;
+    until(&child, |live| live.status() == Status::Working).await;
+    child
+        .order(Command::Cancel { by_user: true })
+        .await
+        .expect("the child takes the stop");
+    until(&child, |live| live.status() == Status::Idle).await;
+    let (entries, _) = child.live.borrow().transcript(usize::MAX);
+    assert!(
+        entries.iter().any(|en| en.text == "Stopped by you"),
+        "{entries:?}"
+    );
+    // The idle parent takes the note as a prompt.
+    until(&parent, |live| live.info.turns == 2).await;
+    let id = Agents::name_of(&child);
+    let log = rig.read("top.log");
+    assert!(
+        log.contains(&format!("[child {id} was stopped by the user]")),
+        "{log}"
+    );
+    assert!(log.contains("state=\\\"stopped\\\""), "{log}");
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_parent_that_ends_with_the_node_leaves_its_children_to_resume() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
@@ -355,6 +383,9 @@ async fn stopping_a_parent_stops_its_children_s_turns() {
     until(&child, |live| live.status() == Status::Idle).await;
     until(&grandchild, |live| live.status() == Status::Idle).await;
     assert!(rig.read("kid.log").contains("session/cancel"));
+    // The parent stopped them, so neither counts as stopped by the user.
+    assert!(!child.live.borrow().stopped_by_user);
+    assert!(!grandchild.live.borrow().stopped_by_user);
     // Stop only ends turns: the sessions stay.
     assert!(rig.agents.runs(&Agents::name_of(&child)));
     rig.agents.shutdown().await;

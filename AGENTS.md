@@ -519,12 +519,15 @@ requests (`Tool::StartAgent` and friends, which an older node reads as
 - `wait` returns after 45 seconds at the latest with the child's state:
   Codex gives an MCP tool call 60 seconds by default (`tool_timeout_sec`),
   and Claude Code far longer, so a long job is polled with `agent_status`.
-- A parent is told when a child finishes a turn or starts asking the user:
-  the child's node follows its state and puts a `<beep-child>` note into
-  the parent (a steer mid-turn, a prompt when idle), over `tools/1`
-  `AgentNote` when the parent is elsewhere (`family/notes.rs`). None for a
-  stopped turn, a stopped or ended parent, a parent inside `wait` on that
-  child, or a reviewer.
+- A parent is told when a child finishes a turn, starts asking the user, or
+  is stopped by the user (its turn or its session; the child's log says
+  "Stopped by you"): the child's node follows its state and puts a
+  `<beep-child>` note into the parent (a steer mid-turn, a prompt when
+  idle), over `tools/1` `AgentNote` when the parent is elsewhere
+  (`family/notes.rs`). None for a stop the parent made (`stop_agent`, or
+  its own Stop going down), a stopped or ended parent, a parent inside
+  `wait` on that child, or a reviewer. A running child's card in the
+  parent's log has Stop.
 - Spend is reported per session (`tokens`, `cost_usd` in the status) and never
   added to the parent's.
 - In the desktop a child is a card in the parent's log (the subagent card,

@@ -1,13 +1,14 @@
-//! Tells a parent when its child ends a turn or starts waiting on the user,
-//! so it need not poll: a note goes into the parent's session, as a steer
-//! while it works and as a prompt when it is idle.
+//! Tells a parent when its child ends a turn, starts waiting on the user or
+//! is stopped by the user, so it need not poll: a note goes into the
+//! parent's session, as a steer while it works and as a prompt when it is
+//! idle.
 //!
 //! The child's node follows the child's state. A parent here gets the note
 //! at once; one on another machine gets it over `tools/1` (`AgentNote`),
 //! and its node checks that it keeps that child. No note goes to a parent
-//! that ended or was stopped, for a turn that was stopped, or while the
-//! parent waits on that child in `start_agent` (`wait` gives the state).
-//! Reviewers report through `submit_review` and send none.
+//! that ended or was stopped, for a turn or session the parent stopped, or
+//! while the parent waits on that child in `start_agent` (`wait` gives the
+//! state). Reviewers report through `submit_review` and send none.
 
 use super::{Agents, Command, Live, Session, children};
 use crate::{agents::tags, link::Membership};
@@ -28,6 +29,10 @@ pub(crate) enum NoteState {
     Finished,
     /// It waits on the user.
     Asking,
+    /// The user stopped its turn.
+    Stopped,
+    /// The user closed its session.
+    Closed,
 }
 
 impl NoteState {
@@ -35,6 +40,8 @@ impl NoteState {
         match self {
             Self::Finished => "finished",
             Self::Asking => "asking",
+            Self::Stopped => "stopped",
+            Self::Closed => "closed",
         }
     }
 }
@@ -68,6 +75,14 @@ impl ChildNote {
             NoteState::Asking => format!(
                 "{}\nOnly the user can answer this.",
                 format!("[child {id} is waiting on the user] {}", self.text).trim_end()
+            ),
+            NoteState::Stopped => format!(
+                "{}\nReply with send_to_agent to continue it.",
+                format!("[child {id} was stopped by the user] {}", self.text).trim_end()
+            ),
+            NoteState::Closed => format!(
+                "{}\nIts session ended.",
+                format!("[child {id} was stopped by the user] {}", self.text).trim_end()
             ),
         };
         tags::from_child(id, &self.name, self.state.as_str(), &body)
@@ -164,18 +179,23 @@ impl Agents {
     }
 }
 
-/// Follows a child's state and sends a note for each turn it finishes and
-/// each time it starts to ask, until it ends.
+/// Follows a child's state and sends a note for each turn it finishes, each
+/// time it starts to ask and each stop by the user, until it ends.
 async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLock<Membership>>) {
     // A session counts its turns from its start, so one that ended before
     // this first look is told too.
     let (mut turns, mut asking) = (0, false);
     let mut first = true;
     while std::mem::take(&mut first) || live.changed().await.is_ok() {
+        let mut ended = false;
         let note = {
             let now = live.borrow_and_update();
             match now.status() {
-                Status::Ended => return,
+                Status::Ended => {
+                    ended = true;
+                    now.stopped_by_user
+                        .then(|| note_of(&now, NoteState::Closed))
+                }
                 Status::Asking if !asking => {
                     asking = true;
                     Some(note_of(&now, NoteState::Asking))
@@ -183,14 +203,18 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
                 Status::Asking => None,
                 Status::Idle => {
                     asking = false;
-                    let ended = now.info.turns > turns;
+                    let done = now.info.turns > turns;
                     turns = now.info.turns;
-                    // A turn with prompts behind it is not the end, and a
-                    // stopped one was stopped by the user or the parent.
-                    (ended
-                        && now.info.state.queued == 0
-                        && now.last_stop != Some(StopReason::Cancelled))
-                    .then(|| note_of(&now, NoteState::Finished))
+                    // A turn with prompts behind it is not the end, and the
+                    // parent knows of a stop it made itself.
+                    if !done {
+                        None
+                    } else if now.last_stop == Some(StopReason::Cancelled) {
+                        now.stopped_by_user
+                            .then(|| note_of(&now, NoteState::Stopped))
+                    } else {
+                        (now.info.state.queued == 0).then(|| note_of(&now, NoteState::Finished))
+                    }
                 }
                 _ => {
                     asking = false;
@@ -199,6 +223,9 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
             }
         };
         let Some(note) = note else {
+            if ended {
+                return;
+            }
             continue;
         };
         let mesh = membership.get().and_then(Membership::get);
@@ -218,6 +245,9 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
         if let Err(e) = sent {
             log::info!("the parent of child {} was not told: {e}", note.id);
         }
+        if ended {
+            return;
+        }
     }
 }
 
@@ -226,7 +256,7 @@ fn note_of(live: &Live, state: NoteState) -> ChildNote {
     let view = children::ChildView::of(&live.info, "");
     let text = match state {
         NoteState::Finished if view.last_message.is_empty() => view.error.unwrap_or_default(),
-        NoteState::Finished => view.last_message,
+        NoteState::Finished | NoteState::Stopped | NoteState::Closed => view.last_message,
         NoteState::Asking => view.question.unwrap_or_default(),
     };
     ChildNote {
