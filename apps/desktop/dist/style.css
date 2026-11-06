@@ -937,6 +937,21 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dcoderen.tool .pics { grid-column: 2 / -1 }
 .dcoderen.tool[data-at] { cursor: pointer } .dcoderen.tool[data-at]:hover .more { color: var(--fg) }
 .dcoderen.other { font-size: 12.5px; color: var(--muted) }
+/* The files a turn made: one name, or a folded row that opens to them by kind. */
+.dcoderen.mf { white-space: normal; margin: 6px 0 10px }
+.dcoderen.mf .mf-head { all: unset; cursor: pointer; display: inline-flex; align-items: baseline; gap: 6px; color: var(--muted) }
+.dcoderen.mf .mf-head:hover { color: var(--fg) }
+.dcoderen.mf .mf-head small { font-size: 12px; opacity: .75 }
+.dcoderen.mf .mf-car { width: 10px; display: inline-block; transition: transform .12s }
+.dcoderen.mf.open .mf-car { transform: rotate(90deg) }
+.dcoderen.mf .mf-grp { display: none; margin: 8px 0 0 16px }
+.dcoderen.mf.open .mf-grp { display: block }
+.dcoderen.mf .mf-grp > small { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px }
+.dcoderen.mf .mf-chips { display: flex; flex-wrap: wrap; gap: 4px }
+.dcoderen.mf .mf-chip { all: unset; cursor: pointer; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font: 11.5px var(--mono); color: var(--fg) }
+.dcoderen.mf .mf-chip:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
+.dcoderen.mf .mf-name { all: unset; cursor: pointer; font-family: var(--mono); color: var(--fg); text-decoration: underline dotted var(--dim); text-underline-offset: 3px }
+.dcoderen.mf .mf-name:hover { text-decoration-color: var(--fg) }
 .dcoderturn { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border) }
 /* The running turn's clock stays in view as its steps scroll. */
 .dcoderturn .hd { all: unset; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 20px; color: var(--muted); font-variant-numeric: tabular-nums }
