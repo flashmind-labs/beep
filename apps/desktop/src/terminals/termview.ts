@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { leavesTerminal } from "../agentpane/media-state.ts";
 import { wordKeyBytes } from "./keys-state.ts";
+import { ZOOMED } from "../ui/zoom-state.ts";
 import type { Screen } from "./terminals.ts";
 
 /// The terminal's colours, as the mock's terminal pane.
@@ -63,6 +64,8 @@ export function makeScreen(): Screen {
   };
   const resized = new ResizeObserver(fitNow);
   resized.observe(el);
+  // A zoom changes the size of a cell, not always of the element.
+  window.addEventListener(ZOOMED, fitNow);
   return {
     el,
     write: data => term.write(data),
@@ -80,6 +83,7 @@ export function makeScreen(): Screen {
     },
     dispose: () => {
       resized.disconnect();
+      window.removeEventListener(ZOOMED, fitNow);
       term.dispose();
     },
   };

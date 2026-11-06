@@ -331,7 +331,7 @@ impl Agents {
         });
         let local = local.iter().map(|kid| async {
             // Refused when the child has no turn running.
-            let _ = kid.order(Command::Cancel).await;
+            let _ = kid.order(Command::Cancel { keep_steers: false }).await;
         });
         futures::future::join(
             futures::future::join_all(remote),

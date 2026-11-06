@@ -6,7 +6,7 @@ import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import { followAgent } from "../agentpane/worktree.ts";
-import { collectArtifacts, madeNote, toolArtifacts } from "../agentpane/artifacts-state.ts";
+import { collectArtifacts, type MadeFile, type MadeFiles, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
@@ -267,7 +267,20 @@ export function entryRow(en: AgentEntry, at: number) {
   const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
   if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
-  return `<div class="dcoderen other" data-row="${at}">${esc(madeNote(en.text) ?? en.text)}</div>`;
+  const made = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
+  if (made) return madeRow(made, at);
+  return `<div class="dcoderen other" data-row="${at}">${esc(en.text)}</div>`;
+}
+
+/// The files a turn's commands made: one file as "Made x.md", several as a
+/// folded "Made 11 files" that opens to their names by kind. A name opens
+/// the file in the side pane.
+function madeRow(made: MadeFiles, at: number) {
+  const chip = (f: MadeFile, cls: string) => `<button class="${cls}" data-made="${esc(f.path)}" title="${esc(f.path)}">${esc(f.name)}</button>`;
+  if (made.files.length === 1) return `<div class="dcoderen other mf" data-row="${at}">Made ${chip(made.files[0], "mf-name")}</div>`;
+  const open = !!AG.open && turnsOf(AG.open.session).made.has(at);
+  const groups = made.groups.map(g => `<div class="mf-grp"><small>${esc(g.label)}</small><div class="mf-chips">${g.files.map(f => chip(f, "mf-chip")).join("")}</div></div>`).join("");
+  return `<div class="dcoderen other mf${open ? " open" : ""}" data-row="${at}"><button class="mf-head" data-madeat="${at}" aria-expanded="${open}"><span class="mf-car">›</span>Made ${made.files.length} files<small>${esc(made.counts)}</small></button>${groups}</div>`;
 }
 
 /// What this window knows of a session's turns: the ones it has seen, when it
@@ -288,13 +301,15 @@ interface TurnMemory {
   wasLive: number | null;
   /// The runs of calls opened, by their first call.
   runs: Set<number>;
+  /// The notes of made files opened, by their place in the session.
+  made: Set<number>;
 }
 
 const turnMemory = new Map<string, TurnMemory>();
 
 export function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, runs: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, runs: new Set(), made: new Set() });
   return m;
 }
 

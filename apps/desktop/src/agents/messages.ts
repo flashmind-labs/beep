@@ -1,6 +1,6 @@
 // Sending to a coding agent: messages queued while a turn runs, steers,
 // answers to its questions, and interrupting it.
-import { type Attached, batches, dropDelivered, steersToQueue, type Waiting } from "./agentqueue.ts";
+import { type Attached, batches, dropDelivered, type Waiting } from "./agentqueue.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { $ } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
@@ -116,9 +116,7 @@ async function sendSteer(q: Waiting, back = true) {
   if (q.images.length) keepAgentPics(o, q.images);
   const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
   if (!isOpen(o)) return ok;
-  if (q.how !== "steer") {
-    // Esc made it a queued message while it was on its way.
-  } else if (ok) {
+  if (ok) {
     q.state = "sent";
     q.after = AG.polls;
   } else {
@@ -175,10 +173,11 @@ export function flushQueue() {
 }
 
 /// ⌘. while the turn runs: stop it and keep the field, so a correction can be
-/// typed and sent.
+/// typed and sent. The node keeps the steers it holds or still gets and sends
+/// them once the turn stops, so they stay steers here: sent again from here,
+/// one the node had just delivered would reach the agent twice (#378).
 export function interruptAgent() {
   if (!turnRuns()) return false;
-  steersToQueue(AG.queue);
   AG.stopping = AG.page!.session.id;
   drawQueue();
   redrawAgentHints();

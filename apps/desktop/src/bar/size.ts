@@ -1,6 +1,7 @@
 import { drawMap } from "../chat/chat.ts";
 import { $, bar, PANE } from "./core.ts";
 import { invoke } from "../ui/tauri.ts";
+import { ZOOMED } from "../ui/zoom-state.ts";
 
 // ---------- Size ----------
 
@@ -34,6 +35,8 @@ export function fit() {
 }
 
 export const sizer = new ResizeObserver(fit);
+// The window's height is the page's zoomed, so a new zoom resizes it at the same page height.
+window.addEventListener(ZOOMED, () => { forgetHeight(); fit(); });
 new MutationObserver(() => {
   sizer.disconnect();
   for (const el of bar.querySelectorAll(":scope > *, .dbody > *")) sizer.observe(el);

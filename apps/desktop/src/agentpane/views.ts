@@ -110,13 +110,22 @@ function imageView(t: MediaTab) {
   const el = h(`<div class="agpview"><div class="agpstage img"><img alt="${esc(t.name)}" draggable="false"></div>
     <div class="agpacts"><button class="dbtn on" data-fit="1">Fit</button><button class="dbtn" data-fit="0">Actual size</button><span class="zoom"></span><span class="meta"></span><span class="sp"></span><span class="hint">Wheel or pinch to zoom, drag to pan</span>${t.path ? fileButtons(t, "Open in Preview") : '<button class="dbtn" data-full="1" title="Full size, to save or copy">Open full size</button>'}</div></div>`);
   const stage = el.querySelector<HTMLElement>(".agpstage")!, img = el.querySelector("img")!;
+  const zoomText = el.querySelector(".zoom")!, fitBtn = el.querySelector('[data-fit="1"]')!, actualBtn = el.querySelector('[data-fit="0"]')!;
+  // One write per frame, on the GPU layer only: a drag or a wheel sends far
+  // more events than frames.
+  let frame = 0;
   const apply = () => {
-    const im = t.image;
-    if (!im) return;
-    img.style.transform = `translate(${im.view.x}px, ${im.view.y}px) scale(${im.view.scale})`;
-    el.querySelector(".zoom")!.textContent = `${Math.round(im.view.scale * 100)}%`;
-    el.querySelector('[data-fit="1"]')!.classList.toggle("on", im.view.fit);
-    el.querySelector('[data-fit="0"]')!.classList.toggle("on", !im.view.fit && im.view.scale === 1);
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const im = t.image;
+      if (!im) return;
+      img.style.transform = `translate3d(${im.view.x}px, ${im.view.y}px, 0) scale(${im.view.scale})`;
+      const pct = `${Math.round(im.view.scale * 100)}%`;
+      if (zoomText.textContent !== pct) zoomText.textContent = pct;
+      fitBtn.classList.toggle("on", im.view.fit);
+      actualBtn.classList.toggle("on", !im.view.fit && im.view.scale === 1);
+    });
   };
   const fit = () => { if (t.image) { t.image.view = fitView(t.image.w, t.image.h, stage.clientWidth, stage.clientHeight); apply(); } };
   const actual = () => { if (t.image) { t.image.view = actualView(t.image.w, t.image.h, stage.clientWidth, stage.clientHeight); apply(); } };

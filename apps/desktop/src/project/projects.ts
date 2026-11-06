@@ -1,7 +1,12 @@
-// The Projects page's overview: the table, groups and cards of every
+// The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, headedTable, freshNote, svgEl as icon } from "../ui/parts.ts";
+import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
+import type { GitRow } from "./gitsync-state.ts";
+import type { RunsRow } from "./runs.ts";
+import type { SyncDetail } from "./filesync.ts";
+import { pageAgent } from "./agent.ts";
 import { invoke } from "../ui/tauri.ts";
 import { awaitsView, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -19,35 +24,65 @@ import { groupMenu, editGroup, startRename, renameGroup, removeGroup } from "./g
 import { splitOn, projectSplit } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
-import { whereRow, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection, hostOf } from "./loads.ts";
+import { whereRow, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
 import { IC } from "../ui/icons.ts";
 import { lazyRows } from "../ui/lazyrows.ts";
 import { byRecent, type RunningAgent } from "../agents/running-state.ts";
 
 export const importButton = (cls: string) => plusLabel("Add a project", cls, addProject);
 
-/// One project per row: its name and host, where it is on each machine,
-/// the agents running in it and when one last did something.
-export function projectTable(rows: Project[]) {
-  const table = headedTable("cc-pt", "Project", "Machine and folder", "Agents", "Last activity");
-  for (const p of rows) {
-    const open = h("button", "", h("span", "", p.name));
-    open.type = "button";
-    open.title = p.url || p.name;
-    open.addEventListener("click", () => openProjects(p.name));
-    const name = h("span", "nm", h("b", "", open), h("span", "os", p.imported ? hostOf(p.url) : "From running agents"));
-    name.id = `p-${p.name}`;
-    newWindowOn(open, name, p.name);
-    const where = h("span", "nm", ...p.machines.map(m => {
-      const one = h("span", "os", h("b", "", m.name), ` ${m.folder}`);
-      one.title = `${m.name}: ${m.folder}`;
-      return one;
-    }));
-    if (!p.machines.length) where.append(h("span", "os", "–"));
-    const last = h("span", "num", p.last ? ago(p.last) : "–");
-    table.append(name, where, h("span", "num", p.agents ? String(p.agents) : "–"), last);
-  }
-  return table;
+/// What the Projects list is filtered by; one field kept across draws, so
+/// typing keeps its focus.
+const filter = h("input", "pl-filter");
+filter.placeholder = "Filter projects";
+filter.setAttribute("aria-label", "Filter projects");
+filter.addEventListener("input", () => redrawProjects());
+
+/// The filter field, refocused after a draw that moved it while it had focus.
+export function projectFilter() {
+  if (document.activeElement === filter) queueMicrotask(() => filter.focus());
+  return filter;
+}
+
+/// One row per project, "Working now" above "Others": its name, branch,
+/// a chip per machine with its sync, agents running, CI and last activity.
+/// Only what is read already shows; the list reads nothing itself.
+export function projectList(rows: Project[]) {
+  const online = new Map((state.home?.machines || []).map(m => [m.id, m.online]));
+  const head = h("div", "pl-row pl-head", ...["Project", "Branch", "Machines", "Agents", "CI", "Activity"].map(t => h("span", "", t)));
+  const list = h("div", "pl", head);
+  const shown = filterByName(rows, filter.value);
+  for (const g of listGroups(shown)) list.append(h("div", "pl-grp", g.label), ...g.rows.map(p => projectListRow(p, online)));
+  if (!shown.length) list.append(h("div", "pl-none", "No project matches."));
+  return list;
+}
+
+function projectListRow(p: Project, online: ReadonlyMap<string, boolean>) {
+  const { owner, repo } = splitName(p.name);
+  const branch = projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null);
+  const runs = pages.get<RunsRow | null>("runs", pageAgent(state.agents, p.name, state.subscribed)?.project_id ?? "");
+  const ci = ciState(runs?.runs, branch);
+  const chips = machineChips(p, { online, sync: state.sync, detail: pages.get<SyncDetail | null>("filesync", p.name) }).map(c => {
+    const chip = h("span", "pl-chip", h("i", `pl-dot ${c.state}`), c.name);
+    chip.title = c.title;
+    return chip;
+  });
+  const dot = h("span", `pl-ci ${ci}`);
+  dot.title = CI_TITLES[ci];
+  const name = h("span", "pl-name", h("span", "pl-owner", owner), h("b", "", repo));
+  name.title = p.url || p.name;
+  const row = h("button", "pl-row",
+    name,
+    h("span", "pl-branch", branch || ""),
+    h("span", "pl-mach", ...chips),
+    h("span", "pl-ag", ...(p.agents ? [h("i", "pl-dot live"), String(p.agents)] : [])),
+    dot,
+    h("span", "pl-last", p.last ? ago(p.last) : ""));
+  row.type = "button";
+  row.id = `p-${p.name}`;
+  row.addEventListener("click", () => openProjects(p.name));
+  newWindowOn(row, row, p.name);
+  return row;
 }
 
 /// Every project as a card, grouped by org: its tasks per state, its

@@ -5,7 +5,7 @@
 use crate::{
     agents::work_copy::Copies,
     beep::identity::{Identity, secret_key},
-    beep::state::{LinkState, NoticeVoice, Saved, StateFile},
+    beep::state::{LinkState, NoticeVoice, Saved, StateFile, Zoom},
     beep::sync::Chats,
     error::{DesktopError, Result},
     projects::known,
@@ -295,6 +295,15 @@ impl Beep {
 
     pub fn set_agent_notices(&self, on: bool) {
         self.update_saved(|s| s.agent_notices = on);
+    }
+
+    /// The page zoom of every window.
+    pub fn zoom(&self) -> Zoom {
+        self.saved().zoom
+    }
+
+    pub fn set_zoom(&self, zoom: Zoom) {
+        self.update_saved(|s| s.zoom = zoom);
     }
 
     /// Chats live mode talked in, newest last.

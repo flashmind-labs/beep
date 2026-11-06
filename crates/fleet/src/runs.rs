@@ -24,7 +24,9 @@ use beep_proto::{
     GitHostKind, HostedChecks, HostedRun, HostedRuns, ProjectRunDetail, RunState, RunsHost,
     WorkflowRun,
 };
+use futures::future::{join, join_all};
 use secrecy::ExposeSecret;
+use std::time::SystemTime;
 
 /// What the host's rate limit is shared by: the desktop's calls to it.
 const WHO: &str = "desktop";
@@ -95,24 +97,36 @@ impl Desk {
         let calls = self.hosts.host_calls();
         let caller = place.target.caller(self.hosts.semaphore(), &client);
         let host = place.target.host.clone();
-        let listed = host_runs::list(calls, &caller, &place.target).await;
+        // The list and the open pull requests are asked at once.
+        let (listed, heads) = join(
+            host_runs::list(calls, &caller, &place.target),
+            self.open_heads(project),
+        )
+        .await;
         let (mut shown, error) = match listed {
             Ok(listed) => (listed, None),
             Err(e) => (Vec::new(), Some(e.to_string())),
         };
-        let mut reads = 0;
-        for listed in &mut shown {
-            if listed.run.state.going() && reads < PROGRESS_READS {
-                reads += 1;
+        // The running runs' jobs are read together, the host's calls bounded by the caller's
+        // semaphore; none while the rate limit is low, as they are only for live progress.
+        let low = calls
+            .limited_until(&place.target.who, SystemTime::now())
+            .is_some();
+        if !low {
+            let going = shown
+                .iter_mut()
+                .filter(|listed| listed.run.state.going())
+                .take(PROGRESS_READS);
+            join_all(going.map(|listed| async {
                 if let Ok(Some(jobs)) =
                     host_runs::jobs(calls, &caller, &place.target, listed.run.id).await
                 {
                     listed.run.progress = progress(&jobs);
                 }
-            }
+            }))
+            .await;
         }
         let runs: Vec<WorkflowRun> = shown.iter().map(|listed| listed.run.clone()).collect();
-        let heads = self.open_heads(project).await;
         let refs: Vec<PrHeadRef<'_>> = heads
             .iter()
             .map(|(number, head)| PrHeadRef {
@@ -127,8 +141,7 @@ impl Desk {
                 checks,
             })
             .collect();
-        let rate_limited_until =
-            calls.limited_until(&place.target.who, std::time::SystemTime::now());
+        let rate_limited_until = calls.limited_until(&place.target.who, SystemTime::now());
         Ok(HostedRuns {
             runs: runs
                 .into_iter()
@@ -175,11 +188,15 @@ impl Desk {
         let client = self.hosts.reqwest()?;
         let calls = self.hosts.host_calls();
         let caller = place.target.caller(self.hosts.semaphore(), &client);
-        let run = host_runs::one(calls, &caller, &place.target, id)
-            .await
-            .map_err(|e| FleetError::Refused(e.to_string()))?;
+        // The run and its jobs are asked at once; the log waits for the jobs, which name it.
+        let (run, jobs) = join(
+            host_runs::one(calls, &caller, &place.target, id),
+            host_runs::jobs(calls, &caller, &place.target, id),
+        )
+        .await;
+        let run = run.map_err(|e| FleetError::Refused(e.to_string()))?;
         let mut problems = Vec::new();
-        let jobs = match host_runs::jobs(calls, &caller, &place.target, id).await {
+        let jobs = match jobs {
             Ok(jobs) => jobs.unwrap_or_default(),
             Err(e) => {
                 problems.push(e.to_string());
@@ -210,8 +227,7 @@ impl Desk {
             jobs,
             log,
             error: (!problems.is_empty()).then(|| problems.join(" ")),
-            rate_limited_until: calls
-                .limited_until(&place.target.who, std::time::SystemTime::now()),
+            rate_limited_until: calls.limited_until(&place.target.who, SystemTime::now()),
         })
     }
 }

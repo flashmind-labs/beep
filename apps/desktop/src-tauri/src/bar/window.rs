@@ -1,7 +1,7 @@
 //! The bar's window: showing it on the screen under the mouse, sizing it to
 //! the page, and handing focus back when it hides.
 
-use crate::{error::Result, voice::orb};
+use crate::{beep::Service, error::Result, voice::orb};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Runtime, WebviewWindow};
 
 pub(crate) const LABEL: &str = "bar";
@@ -138,9 +138,10 @@ fn resize<R: Runtime>(app: &AppHandle<R>, height: f64) -> tauri::Result<()> {
     bar.set_size(LogicalSize::new(WIDTH, height.clamp(MIN_HEIGHT, max)))
 }
 
+/// `height` is the page's, so the window takes it zoomed.
 #[tauri::command]
-pub fn resize_bar(app: AppHandle, height: f64) -> Result<()> {
-    Ok(resize(&app, height)?)
+pub fn resize_bar(app: AppHandle, beep: Service<'_>, height: f64) -> Result<()> {
+    Ok(resize(&app, height * beep.zoom().factor())?)
 }
 
 #[tauri::command]
