@@ -1,7 +1,7 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, MAX_RUNNING, NodeMode, Prompt, Session,
+    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, NodeMode, Prompt, Session,
     Start, checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
 };
 use crate::{
@@ -302,12 +302,6 @@ impl Agents {
         find_session(&self.lock(), id)
     }
 
-    /// Whether another session could start here now, for a check made
-    /// before anything is changed on its account.
-    pub(super) fn check_room(&self) -> Result<()> {
-        ensure_room(&self.lock())
-    }
-
     /// Every session but the reviewers, oldest first.
     pub(super) fn list(&self) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self
@@ -334,7 +328,6 @@ impl Agents {
         if checkout.is_some() {
             // Refused starts must not leave a branch or worktree behind.
             self.settings.configured(kind)?;
-            ensure_room(&self.lock())?;
         }
         let prompt = begin.prompt.as_deref().unwrap_or_default();
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
@@ -369,7 +362,6 @@ impl Agents {
         {
             anyhow::bail!("session {resume} already runs here as {}", running.id);
         }
-        ensure_room(&sessions)?;
         if sessions.len() >= MAX_KEPT {
             let oldest = sessions
                 .values()
@@ -451,19 +443,6 @@ fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Ar
             (live.status() != Status::Ended, live.info.started_at)
         })
         .cloned()
-}
-
-/// Refuses a start once `MAX_RUNNING` of `sessions` run.
-fn ensure_room(sessions: &HashMap<String, Arc<Session>>) -> Result<()> {
-    let running = sessions
-        .values()
-        .filter(|session| session.live.borrow().status() != Status::Ended)
-        .count();
-    anyhow::ensure!(
-        running < MAX_RUNNING,
-        "{MAX_RUNNING} sessions already run here; close one first"
-    );
-    Ok(())
 }
 
 /// How a session begins: on a prompt, and as a new session (on a model

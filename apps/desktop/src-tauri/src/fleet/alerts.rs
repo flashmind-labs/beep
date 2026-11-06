@@ -457,6 +457,7 @@ cat > /dev/null
             model: None,
             effort: None,
             checkout: None,
+            images: Vec::new(),
         })
         .await
         .expect("the start is sent");

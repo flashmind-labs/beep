@@ -118,7 +118,6 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     let folders = folders(env, record)?;
     // What an earlier try, or an earlier move, made here and left goes first.
     take_back(env, &record.id).await;
-    env.agents.check_room()?;
     match &folders.worktree {
         Some(made) => {
             if !made.checkout.is_dir() {

@@ -59,7 +59,6 @@ pub(super) async fn resume(
 ) -> Result<()> {
     // Refused before a file is written: a full node would otherwise set the
     // session's transcript aside and then fail to start it.
-    env.agents.check_room()?;
     let agent = Agent::from_name(&kind.name);
     let harness = agent
         .and_then(Harness::of)
@@ -179,7 +178,6 @@ pub(super) async fn continue_here(
     // kept where the list shows it, as a version that lost: writing over it
     // would set it aside where nothing lists it. If the session still does
     // not start, it goes back.
-    env.agents.check_room()?;
     let mut aside = None;
     if let Some(harness) = harness_of(agent.as_str())
         && let Some(local) = env.agents.transcript_file(harness, id).await
