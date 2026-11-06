@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.2.15"
+version = "0.2.16"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -556,6 +556,7 @@ dependencies = [
  "beep-proto",
  "blake3",
  "dirs 7.0.0",
+ "dunce",
  "fastrand",
  "futures",
  "hex",

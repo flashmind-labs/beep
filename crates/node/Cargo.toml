@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.2.15"
+version = "0.2.16"
 edition = "2024"
 rust-version = "1.93"
 publish = false
@@ -36,6 +36,8 @@ beep-proto = { path = "../proto" }
 blake3 = "1"
 clap = { version = "4", features = ["derive", "env"], optional = true }
 dirs = "7"
+# `fs::canonicalize` without the verbatim prefix Windows programs refuse.
+dunce = "1"
 fastrand = "2"
 flate2 = { version = "1", optional = true }
 futures = "0.3"

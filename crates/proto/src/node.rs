@@ -25,6 +25,7 @@ pub mod files;
 pub mod harness;
 pub mod mesh_state;
 pub mod process;
+pub mod skills;
 pub mod sync;
 pub mod terminal;
 pub mod tools;

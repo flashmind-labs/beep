@@ -11,7 +11,7 @@ use crate::{
 use beep_fleet::{Desk, MoveState, Session};
 use beep_proto::{
     AgentNoticeKey, SyncStatus,
-    node::{agent::MovePhase, mesh_state::SessionMove},
+    node::{agent::MovePhase, mesh_state::SessionMove, skills},
 };
 use iroh::EndpointId;
 use std::{
@@ -45,6 +45,7 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
             match session.desk().await {
                 Ok(desk) => {
                     sync(&app, &desk, &mut conflicts).await;
+                    skill_conflicts(&app, &fleet, &mut conflicts).await;
                     failed_moves(&app, &fleet, &desk, &mut moves).await;
                 }
                 Err(e) => log::debug!("the bell does not read the mesh: {e}"),
@@ -126,6 +127,71 @@ async fn sync(app: &AppHandle, desk: &Desk, conflicts: &mut Conflicts) {
             }
         }
     }
+}
+
+/// The skills this Mac's node found differing across the mesh: one note per
+/// name, told again only when the copies change.
+async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflicts) {
+    let asked = match fleet.client(fleet.id()).await {
+        Ok(client) => {
+            client
+                .call::<_, skills::Reply>(skills::PROTOCOL, &skills::Request::Conflicts {})
+                .await
+        }
+        Err(e) => {
+            log::debug!("skill conflicts not read: {e}");
+            return;
+        }
+    };
+    let now = match asked {
+        Ok(skills::Reply::Conflicts { conflicts }) => conflicts,
+        Ok(_) => return,
+        Err(e) => {
+            log::debug!("skill conflicts not read: {e}");
+            return;
+        }
+    };
+    let mut ids: HashSet<String> = now.iter().map(|c| skill_note(&c.name)).collect();
+    // A note still open for a name that no longer differs is settled.
+    ids.extend(
+        history::open_of(app, NoteKind::SkillConflict)
+            .into_iter()
+            .map(|note| note.id),
+    );
+    for id in ids {
+        let conflict = now.iter().find(|c| skill_note(&c.name) == id);
+        let copies: BTreeSet<String> = conflict
+            .map(|c| c.copies.iter().cloned().collect())
+            .unwrap_or_default();
+        let kept = || {
+            history::get(app, &id)
+                .filter(|note| !note.done)
+                .map(|note| note.text.lines().map(str::to_owned).collect())
+                .unwrap_or_default()
+        };
+        match conflicts.step(&id, &copies, kept) {
+            Settle::Same => {}
+            Settle::Settled => history::finish(app, |note| note.id == id),
+            Settle::Raise => {
+                if let Some(conflict) = conflict {
+                    let note = Note {
+                        text: conflict.copies.join("\n"),
+                        ..Note::new(
+                            NoteKind::SkillConflict,
+                            id,
+                            conflict.title(),
+                            "Skills".to_owned(),
+                        )
+                    };
+                    history::record(app, note);
+                }
+            }
+        }
+    }
+}
+
+fn skill_note(name: &str) -> String {
+    format!("skill:{name}")
 }
 
 async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut HashSet<String>) {

@@ -2,6 +2,7 @@
 //! keeps its session's rollout open while it has the session loaded, so a
 //! process holding the file is the sign, not when the file was written.
 
+use crate::files::paths;
 use beep_proto::node::agent::Presence;
 use std::path::Path;
 
@@ -11,7 +12,7 @@ use std::path::Path;
 pub(super) fn held_open(file: &Path) -> Option<bool> {
     /// The most processes looked at.
     const MAX_PROCESSES: usize = 8192;
-    let file = std::fs::canonicalize(file).ok()?;
+    let file = paths::canonicalize(file).ok()?;
     let processes = std::fs::read_dir("/proc").ok()?;
     let held = processes
         .flatten()
