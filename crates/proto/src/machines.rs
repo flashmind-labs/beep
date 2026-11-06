@@ -138,15 +138,6 @@ wire_enum! {
 /// The most one `TerminalInput::Keys` may carry.
 pub const MAX_TERMINAL_INPUT: usize = node::terminal::MAX_INPUT;
 
-#[cfg(test)]
-impl crate::compat::Sample for serde_bytes::ByteBuf {
-    fn samples(_: u32) -> Vec<Self> {
-        vec![serde_bytes::ByteBuf::from(
-            b"$ ls\r\n\x1b[32mok\x1b[0m".to_vec(),
-        )]
-    }
-}
-
 ffi_structs! {
     /// A folder on one of the caller's machines, as `ListMachineFolder` reads it.
     pub struct MachineFolder {

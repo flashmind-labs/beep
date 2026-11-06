@@ -12,7 +12,7 @@ use tokio::time::{sleep, timeout};
 use url::Url;
 
 /// What the node runs for Codex's device sign-in.
-pub const CODEX_LOGIN: &str = "codex login --device-auth";
+const CODEX_LOGIN: &str = "codex login --device-auth";
 /// How long Codex may take to print its page and code.
 const CODE_LIMIT: Duration = Duration::from_secs(20);
 /// How often its output is read while waiting for the code.

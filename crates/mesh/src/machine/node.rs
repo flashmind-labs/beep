@@ -118,7 +118,11 @@ pub struct Tasks<'a>(pub &'a PeerClient);
 impl Tasks<'_> {
     /// Sends `request` and returns the node's reply.
     pub async fn ask(&self, request: &process::Request) -> Result<process::Reply, MeshError> {
-        task_request(self.0, request).await
+        let words = Words {
+            silent: "the node stopped answering",
+            closed: "the node closed the process session",
+        };
+        exchange(self.0, TASK_LIMIT, process::PROTOCOL, request, words).await
     }
 
     /// Starts `command`, giving its task.
@@ -148,18 +152,6 @@ impl Tasks<'_> {
             _ => Ok(()),
         }
     }
-}
-
-/// Sends one `process/1` request.
-pub async fn task_request(
-    client: &PeerClient,
-    request: &process::Request,
-) -> Result<process::Reply, MeshError> {
-    let words = Words {
-        silent: "the node stopped answering",
-        closed: "the node closed the process session",
-    };
-    exchange(client, TASK_LIMIT, process::PROTOCOL, request, words).await
 }
 
 /// Has the node install release `version` of `tool`.

@@ -2,7 +2,7 @@
 //! the last entries as the node answers a transcript request with them.
 
 use super::{Agent, Stores, codex_run};
-use crate::agents::{claude::Excerpt, cut, window::window};
+use crate::agents::{claude::Excerpt, cut, tags, window::window};
 use anyhow::{Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
@@ -90,6 +90,21 @@ fn text_of(content: &Value) -> String {
     }
 }
 
+/// A prompt's text from its `content`, a bare brief Beep sent ahead of it
+/// tagged as Beep's context (`tags`).
+fn prompt_of(content: &Value) -> String {
+    match content {
+        Value::String(text) => tags::untagged(text),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| part["text"].as_str())
+            .map(tags::bare_block)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
 /// A Codex rollout: prompts from `user_message` events (the `response_item`
 /// ones also hold the context Codex adds), its replies, reasoning summaries
 /// and calls, named as a subagent's steps are (`codex_run::call_title`).
@@ -101,12 +116,12 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
         let made = match (value["type"].as_str(), kind) {
             (Some("event_msg"), Some("user_message")) => entry(
                 EntryKind::User,
-                payload["message"].as_str().unwrap_or_default(),
+                &tags::untagged(payload["message"].as_str().unwrap_or_default()),
             ),
             (Some("event_msg"), Some("item_completed"))
                 if payload["item"]["type"] == "UserMessage" =>
             {
-                entry(EntryKind::User, &text_of(&payload["item"]["content"]))
+                entry(EntryKind::User, &prompt_of(&payload["item"]["content"]))
             }
             (Some("response_item"), Some("message")) if payload["role"] == "assistant" => {
                 entry(EntryKind::Agent, &text_of(&payload["content"]))
@@ -136,7 +151,7 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
         }
         let message = &value["message"];
         match message["role"].as_str() {
-            Some("user") => entries.extend(entry(EntryKind::User, &text_of(&message["content"]))),
+            Some("user") => entries.extend(entry(EntryKind::User, &prompt_of(&message["content"]))),
             Some("assistant") => {
                 let Value::Array(parts) = &message["content"] else {
                     continue;
@@ -177,4 +192,58 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
         }
     }
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::fs;
+
+    /// The user entries the file of `lines` gives `read`.
+    fn users(lines: &[Value], read: fn(&Path) -> io::Result<Vec<Entry>>) -> Vec<String> {
+        let dir = tempfile::tempdir().expect("a temp folder");
+        let path = dir.path().join("session.jsonl");
+        let text: Vec<String> = lines.iter().map(Value::to_string).collect();
+        fs::write(&path, text.join("\n") + "\n").expect("a session file");
+        read(&path)
+            .expect("the session reads")
+            .into_iter()
+            .filter(|entry| entry.kind == EntryKind::User)
+            .map(|entry| entry.text)
+            .collect()
+    }
+
+    #[test]
+    fn a_pi_prompt_keeps_the_brief_apart() {
+        let brief = crate::agents::mcp::brief(false);
+        let line = json!({"type": "message", "message": {"role": "user", "content": [
+            {"type": "text", "text": brief},
+            {"type": "text", "text": "ok, let's keep going"}
+        ]}});
+        let shown = users(&[line], pi);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(
+            tags::parts(&shown[0]),
+            [
+                tags::Part::Context(&brief),
+                tags::Part::User("ok, let's keep going")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_codex_prompt_keeps_the_brief_apart() {
+        let brief = crate::agents::mcp::brief(false);
+        let glued = json!({"type": "event_msg", "payload": {"type": "user_message",
+            "message": format!("{brief}\nok, let's keep going")}});
+        let item = json!({"type": "event_msg", "payload": {"type": "item_completed",
+        "item": {"type": "UserMessage", "content": [
+            {"type": "text", "text": brief},
+            {"type": "text", "text": "and then?"}
+        ]}}});
+        let shown = users(&[glued, item], codex);
+        let said: Vec<String> = shown.iter().map(|text| tags::said(text)).collect();
+        assert_eq!(said, ["ok, let's keep going", "and then?"]);
+    }
 }
