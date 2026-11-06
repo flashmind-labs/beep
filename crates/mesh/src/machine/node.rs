@@ -25,6 +25,8 @@ const GRACE: Duration = Duration::from_secs(15);
 const LOG_LIMIT: Duration = Duration::from_secs(30);
 /// How long the node has to answer about where it searches.
 const SEARCH_LIMIT: Duration = Duration::from_secs(10);
+/// How long a quick walk for checkouts may take: the node bounds it at 8 seconds.
+const RESCAN_LIMIT: Duration = Duration::from_secs(20);
 /// How long a request to the node's tasks or terminals may take; a stop
 /// waits for the process group to end.
 pub(super) const TASK_LIMIT: Duration = Duration::from_secs(20);
@@ -91,21 +93,30 @@ pub async fn log(client: &PeerClient, lines: u32) -> Result<String, MeshError> {
 
 /// The folder the node looks for checkouts in, as written.
 pub async fn search(client: &PeerClient) -> Result<String, MeshError> {
-    ask_search(client, search::Request::Get {}).await
+    ask_search(client, search::Request::Get {}, SEARCH_LIMIT).await
 }
 
 /// Has the node look in `folder` (empty for home) and walk it again.
 pub async fn set_search(client: &PeerClient, folder: &str) -> Result<String, MeshError> {
     let folder = folder.to_owned();
-    ask_search(client, search::Request::Set { folder }).await
+    ask_search(client, search::Request::Set { folder }, SEARCH_LIMIT).await
 }
 
-async fn ask_search(client: &PeerClient, request: search::Request) -> Result<String, MeshError> {
+/// Has the node walk its search folder again, quickly, so checkouts made since count.
+pub async fn rescan_search(client: &PeerClient) -> Result<String, MeshError> {
+    ask_search(client, search::Request::Rescan {}, RESCAN_LIMIT).await
+}
+
+async fn ask_search(
+    client: &PeerClient,
+    request: search::Request,
+    limit: Duration,
+) -> Result<String, MeshError> {
     let words = Words {
         silent: "the node took too long to answer",
         closed: "the node closed the stream without an answer",
     };
-    match exchange(client, SEARCH_LIMIT, search::PROTOCOL, &request, words).await? {
+    match exchange(client, limit, search::PROTOCOL, &request, words).await? {
         search::Reply::Folder { folder } => Ok(folder),
         search::Reply::Failed { reason } => Err(said(reason)),
         other => Err(unexpected(&other)),

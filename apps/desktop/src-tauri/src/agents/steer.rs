@@ -2,6 +2,7 @@
 //! message for the running turn, switching model, cancel and close.
 
 use crate::{
+    agents::sessions::closed,
     beep::Service,
     error::{DesktopError, Result},
     fleet::{Machines, agents as direct},
@@ -12,6 +13,7 @@ use beep_proto::{
     node::agent::Effort,
 };
 use serde::Deserialize;
+use tauri::AppHandle;
 
 /// What `agent_steer` does to a session, as the page sends it.
 #[derive(Debug, Deserialize)]
@@ -134,6 +136,7 @@ fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
 
 #[tauri::command]
 pub async fn agent_steer(
+    app: AppHandle,
     beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
@@ -150,13 +153,24 @@ pub async fn agent_steer(
         _ => Vec::new(),
     };
     if let Some(machine) = fleet.member(&machine_id) {
+        let close = matches!(steer, AgentSteer::Close {});
         let order = SteerAgentSession {
-            machine_id,
+            machine_id: machine_id.clone(),
             agent,
-            session,
+            session: session.clone(),
             steer,
         };
-        return direct::steer(&fleet, machine, order).await.map(|()| keys);
+        let opened = direct::steer(&fleet, machine, order).await?;
+        if close {
+            // The lists show it ended once the machine says so, about two
+            // seconds on; bounded by `until_ended`, nothing else owns it.
+            let fleet = fleet.inner().clone();
+            tauri::async_runtime::spawn(async move {
+                direct::until_ended(&fleet, machine, opened).await;
+                closed(&app, &machine_id, &session);
+            });
+        }
+        return Ok(keys);
     }
     let images = !keys.is_empty();
     let configure = matches!(steer, AgentSteer::Configure { .. });

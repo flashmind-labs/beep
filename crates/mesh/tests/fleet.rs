@@ -5,7 +5,7 @@
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Mesh, PEER_ALPN, PeerClient, PeerStream, StreamHandler,
     machine::{
-        self, NodeWork, open_agent, order, sessions,
+        self, NodeWork, ended, open_agent, order, sessions,
         terminals::{self, Heard, Kept},
     },
     transport_config, with_deadline,
@@ -27,7 +27,14 @@ use beep_proto::{
 };
 use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
 use serde_bytes::ByteBuf;
-use std::{collections::BTreeMap, fs, path::Path, process::Command, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::Path,
+    process::Command,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tempfile::TempDir;
 use tokio::time::timeout;
 
@@ -155,6 +162,39 @@ async fn a_session_keeps_running_while_the_desktop_is_gone_and_reattaches() {
     .expect("the session is still there");
     assert_eq!(attached.info.id, id);
     assert_eq!(attached.info.turns, 1);
+}
+
+/// Closing a session as the desktop does: a new stream attaches and sends
+/// `Close`. The node acknowledges before the agent has stopped, so a list read
+/// then may still show it running; the same stream says when it ended.
+#[tokio::test]
+async fn a_closed_session_reports_its_end_on_the_stream_it_was_closed_on() {
+    let node = machine(true).await;
+    let work = TempDir::new().expect("a temp dir");
+    let mut opened = start(&node.client, work.path()).await;
+    first_turn(&mut opened).await;
+    let id = opened.info.id.clone();
+    let mut attached = open_agent(
+        &node.client,
+        "codex",
+        Request::Attach {
+            session: id.clone(),
+        },
+    )
+    .await
+    .expect("the session attaches");
+    let asked = Instant::now();
+    order(&mut attached, Request::Close {}, LIMIT)
+        .await
+        .expect("the node takes the close");
+    ended(&mut attached, LIMIT)
+        .await
+        .expect("the stream says the session ended");
+    let gone = asked.elapsed();
+    let listed = sessions::list(&node.client).await.expect("the list reads");
+    let after = listed.iter().find(|info| info.id == id);
+    assert_eq!(after.map(|info| info.state.status), Some(Status::Ended));
+    assert!(gone < Duration::from_secs(3), "ended after {gone:?}");
 }
 
 #[tokio::test]

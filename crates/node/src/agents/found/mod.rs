@@ -33,7 +33,7 @@ mod pi;
 mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};
-pub(crate) use disk::{forget_checkouts, saved_checkouts, walk};
+pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
 pub(crate) use git::{Checkout, checkout, last_commit, place};
 pub(crate) use memo::Memo;
 

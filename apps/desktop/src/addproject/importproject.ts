@@ -26,8 +26,6 @@ export interface ImportProjectOptions {
   macId?: string | null;
   /// Runs once a project is in, as when the window selects it.
   onDone?: ((project: ProjectRow) => void) | null;
-  /// Goes straight to choosing a folder.
-  choose?: boolean;
   /// Fills in the repository, as Clone here on a project's page does.
   repo?: string | null;
   /// Picks the machine, as Clone here does.
@@ -77,15 +75,14 @@ let lookupTimer: ReturnType<typeof setTimeout> | undefined;
 /// The folders read while the sheet is open, by machine and folder.
 const listed = new Map<string, readonly string[]>();
 
-/// Opens the sheet. With `options.choose` it goes straight to choosing a
-/// folder.
+/// Opens the sheet. Choose… opens the folder picker, never the sheet itself.
 export function openImportProject(options: ImportProjectOptions = {}) {
   if (root) return;
   machines = options.machines || [];
   macId = options.macId || null;
   onDone = options.onDone || null;
   // Start on this Mac when it is one of the machines: Choose… then opens the
-  // macOS folder picker straight away.
+  // macOS folder picker.
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
   if (options.machine && machines.some(m => m.id === options.machine)) state = { ...state, machine: options.machine };
   if (options.repo) state = { ...state, repo: options.repo };
@@ -105,7 +102,6 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   draw();
   learnBase();
   schedulePreview();
-  if (options.choose) choose();
 }
 
 /// Reads the preview for the repository typed, once typing pauses.

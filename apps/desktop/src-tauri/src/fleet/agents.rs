@@ -8,9 +8,9 @@ use crate::error::{DesktopError, Result};
 use beep_mesh::{
     Key, MeshError, PeerClient,
     machine::{
-        self, Host, Makes, StartOn,
+        self, Host, Makes, Opened as Attached, StartOn,
         auto::AutoHost,
-        codex_login, listing, open_agent, order,
+        codex_login, ended, listing, open_agent, order,
         sessions::{self, NodeFile, NodeWork},
     },
 };
@@ -42,6 +42,9 @@ const MAX_ENTRIES: u32 = 200;
 const IN_FLIGHT: usize = 4;
 /// How long an order to a session may take.
 const ORDER_WAIT: Duration = Duration::from_secs(10);
+/// How long a closed session gets to stop: the node gives its agent two
+/// seconds before it kills it.
+const CLOSE_WAIT: Duration = Duration::from_secs(10);
 
 fn not_found() -> DesktopError {
     DesktopError::Api(ApiError::NotFound {})
@@ -448,12 +451,13 @@ pub(crate) async fn delete_session(
     work(fleet, machine, done)
 }
 
-/// Orders a running session. Only sessions Beep runs take orders.
+/// Orders a running session, and gives back its stream, still attached.
+/// Only sessions Beep runs take orders.
 pub(crate) async fn steer(
     fleet: &Fleet,
     machine: EndpointId,
     steer: SteerAgentSession,
-) -> Result<()> {
+) -> Result<Attached> {
     // Refused before the machine is asked.
     let request = machine::node_request(steer.steer)?;
     let images = matches!(request, Request::PromptImages { .. });
@@ -475,7 +479,7 @@ pub(crate) async fn steer(
         }
         (sent, _) => sent,
     };
-    sent.map_err(|e| {
+    sent.map(|()| opened).map_err(|e| {
         let error = format!("{e:#}");
         let old = error.contains("unknown request");
         let said = if images && old {
@@ -489,6 +493,14 @@ pub(crate) async fn steer(
         };
         DesktopError::BadRequest(said.into())
     })
+}
+
+/// Waits until a session `machine` took a close for has ended, on the stream
+/// the close went down: the node acknowledges it before the agent has stopped.
+pub(crate) async fn until_ended(fleet: &Fleet, machine: EndpointId, mut opened: Attached) {
+    if let Err(e) = ended(&mut opened, CLOSE_WAIT).await {
+        log::warn!("closing a session on {}: {e:#}", fleet.name_of(machine));
+    }
 }
 
 /// The models `list.agent` can run on a machine; a node too old to say gives `Fixed`.

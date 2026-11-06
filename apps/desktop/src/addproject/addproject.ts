@@ -1,15 +1,16 @@
-// addproject/: the Add a project, Import a project and New project sheets.
-// Entry: openAddProject here, openImportProject in importproject.ts,
-// openNewProject in newproject.ts.
+// addproject/: the Add a project, Add a folder, Import a project and New
+// project sheets. Entry: openAddProject here, openAddFolder in addfolder.ts,
+// openImportProject in importproject.ts, openNewProject in newproject.ts.
 // The "Add a project" sheet: the git checkouts your coding agents worked in
 // (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds),
 // each with Import, then the user's repositories on GitHub and Forgejo that no
-// machine has, each with Clone, then "Choose a folder…" and "Clone a
-// repository…", which open the Import a project sheet, and "New project…",
-// which opens the New project sheet.
+// machine has, each with Clone, then "Choose a folder…", which opens the Add
+// a folder sheet, "Clone a repository…", which opens the Import a project
+// sheet, and "New project…", which opens the New project sheet. It opens on
+// the list each machine named last while every online machine looks again.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
-import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown } from "./addproject-state.ts";
+import { IMPORTS_AT_ONCE, eachLimited, emptyText, foundMatches, lookingOn, tickable, toImport, toggleAllShown, unreadText } from "./addproject-state.ts";
 import type { ImportState } from "./addproject-state.ts";
 import { agentLabel, foundSessions, importPlan, lookingText } from "../project/projects-state.ts";
 import { button, el } from "../ui/dom.ts";
@@ -22,7 +23,7 @@ export interface AddProjectOptions {
   machines?: readonly { online: boolean }[];
   /// Runs once a found folder is in; after a batch, with the first that landed.
   onImported?: (project: ProjectRow) => void;
-  /// Opens the Import a project sheet for a folder.
+  /// Opens the Add a folder sheet.
   onChoose?: () => void;
   /// Opens the Import a project sheet, with `repo` filled in when given.
   onClone?: (repo?: string) => void;
@@ -36,6 +37,47 @@ interface HostRepos {
   github: boolean;
   repos: { name: string; url: string; updated_at: number }[];
   error: string | null;
+}
+
+/// A machine of the mesh to ask for its checkouts (FoundMachine).
+interface FoundMachine {
+  id: string;
+  name: string;
+}
+
+/// The found list after one machine looked again (FoundAfter): null rows
+/// when the ask itself failed.
+interface FoundAfter {
+  rows: FoundRow[] | null;
+  problem: string | null;
+}
+
+/// Each machine's look again while it runs, so a second open shares it.
+const scans = new Map<string, Promise<FoundAfter>>();
+
+/// Has `machine` look for checkouts again, once at a time.
+function rescan(machine: FoundMachine) {
+  let scan = scans.get(machine.id);
+  if (!scan) {
+    scan = invoke<FoundAfter>("rescan_found", { machineId: machine.id })
+      .catch(e => ({ rows: null, problem: reason(e) }))
+      .finally(() => scans.delete(machine.id));
+    scans.set(machine.id, scan);
+  }
+  return scan;
+}
+
+/// Has every online machine look for checkouts again. `start` gets them as
+/// the looks begin, and `each` the list after each machine answers.
+export async function rescanAll(start: (machines: FoundMachine[]) => void, each: (machine: FoundMachine, after: FoundAfter) => void) {
+  let machines: FoundMachine[] = [];
+  try {
+    machines = await invoke<FoundMachine[]>("found_machines");
+  } catch (e) {
+    console.warn("found machines:", e);
+  }
+  start(machines);
+  await Promise.all(machines.map(machine => rescan(machine).then(after => each(machine, after))));
 }
 
 /// The most repositories one host shows.
@@ -58,6 +100,12 @@ let found: FoundRow[] | null = null;
 /// null until the server lists the repositories to clone.
 let hosts: HostRepos[] | null = null;
 let error: string | null = null;
+/// The machines still looking again, and those that could not say, by id.
+const looking = new Map<string, string>();
+const unread = new Map<string, string>();
+/// Counts the opens, so an answer for a sheet since closed is dropped.
+let opened = 0;
+let hint: HTMLDivElement | null = null;
 /// The row being imported by its own button, by name, and why one failed.
 let importing: string | null = null;
 const failed = new Map<string, string>();
@@ -101,10 +149,26 @@ export function openAddProject(options: AddProjectOptions = {}) {
   ({ root, sheet, close } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
   build();
   draw();
+  looking.clear();
+  unread.clear();
+  const open = ++opened;
+  const live = () => open === opened && !!root;
   invoke<FoundRow[]>("found_projects")
-    .then(rows => { found = rows; })
-    .catch(e => { found = []; error = reason(e); })
-    .finally(() => { if (root) draw(); });
+    .then(rows => { if (live() && found === null) found = rows; })
+    .catch(e => { if (live() && found === null) { found = []; error = reason(e); } })
+    .finally(() => { if (live()) draw(); });
+  rescanAll(machines => {
+    if (!live()) return;
+    for (const m of machines) looking.set(m.id, m.name);
+    draw();
+  }, (machine, after) => {
+    if (!live()) return;
+    looking.delete(machine.id);
+    if (after.rows) found = after.rows;
+    if (after.problem) unread.set(machine.id, unreadText(machine.name, after.problem));
+    else unread.delete(machine.id);
+    draw();
+  });
   invoke<HostRepos[]>("host_repos")
     .then(got => { hosts = got; }, e => { console.warn("host repos:", e); hosts = []; })
     .finally(() => { if (root) draw(); });
@@ -115,7 +179,7 @@ export function closeAddProject() {
 }
 
 function closed() {
-  root = sheet = search = bar = listBox = remoteBox = close = null;
+  root = sheet = search = bar = listBox = remoteBox = hint = close = null;
 }
 
 const busy = () => !!importing || batch;
@@ -219,16 +283,21 @@ function build() {
   bar = el("div", "ap-bar");
   listBox = el("div", "ap-box");
   remoteBox = el("div", "ap-remote");
+  hint = el("div", "am-wait ap-look");
   const ways = el("div", "ap-ways",
-    way("Choose a folder…", "Anywhere on this Mac, or browse another machine", () => { closeAddProject(); opts.onChoose?.(); }),
+    way("Choose a folder…", "A checkout on this Mac or another machine, added in place", () => { closeAddProject(); opts.onChoose?.(); }),
     way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }),
     way("New project…", "Create a repository and put it on your machines", () => { closeAddProject(); opts.onNew?.(); }));
   sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),
-    el("div", "am-label", "Found on your machines"), search, bar, listBox, remoteBox, ways);
+    el("div", "am-label", "Found on your machines"), search, bar, hint, listBox, remoteBox, ways);
 }
 
 function draw() {
-  if (!search || !bar || !listBox) return;
+  if (!search || !bar || !listBox || !hint) return;
+  const still = lookingOn([...looking.values()]);
+  hint.hidden = !still || !found?.length;
+  hint.replaceChildren(el("span", "dspin"), still || "");
+  const notRead = [...unread.values()];
   const any = !!found?.length;
   const remote = drawRemote();
   bar.hidden = !any;
@@ -241,7 +310,8 @@ function draw() {
   if (found === null) {
     listBox.replaceChildren(el("div", "am-wait", el("span", "dspin"), lookingText(opts.machines)));
   } else if (!found.length) {
-    listBox.replaceChildren(el("div", "am-sub", error || "No other folders yet."));
+    const empty = emptyText([...looking.values()], notRead, error);
+    listBox.replaceChildren(empty ? el("div", "am-sub", empty) : el("div", "am-wait", el("span", "dspin"), still || ""));
   } else if (!shown.length) {
     listBox.replaceChildren(el("div", "am-sub", `Nothing found matches “${query.trim()}”.`));
   } else {
@@ -253,6 +323,7 @@ function draw() {
     }))));
     listBox.querySelector<HTMLElement>(".ap-list")!.scrollTop = scrolled;
   }
+  if (found?.length && notRead.length) listBox.append(el("div", "am-sub", notRead.join(" ")));
   if (keep) rowEls().find(r => r.dataset.name === keep)?.focus({ preventScroll: true });
   else if (!search.hidden && !sheet?.contains(document.activeElement)) search.focus();
   if (!any) return;
