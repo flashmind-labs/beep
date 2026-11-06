@@ -1,15 +1,15 @@
-//! Keeps the server readable by the apps already out there.
+//! Keeps the server reading what the apps already out there send.
 //!
-//! `tests/wire/<wire>/` holds, for every request, the msgpack of sample
-//! values of the request and of its reply, as clients reading that wire
-//! revision send and read them. The test checks that each request fixture
-//! still decodes, so a released app's requests keep working, and that the
-//! reply samples still encode to the same bytes, so a released app can still
-//! read what the server sends. Fixtures are append-only: run with
-//! `BEEP_WIRE_BLESS=1` to write the ones a new request or a new `WIRE` lacks.
-//! It never overwrites a fixture.
+//! `tests/wire/named/` holds, for every request, the msgpack (with field
+//! names, as the apps send it) of sample values of the request. The test
+//! checks that each still decodes, so a request only gains fields that
+//! default. Replies are not frozen: a reader skips fields it does not know,
+//! so a reply only must not lose or rename a field. Fixtures are
+//! append-only: run with `BEEP_WIRE_BLESS=1` to write the ones a new request
+//! lacks. It never overwrites a fixture. The numbered folders are the
+//! positional wire the apps spoke over iroh, kept as history and not read.
 
-use crate::{link::LinkOffer, requests::each_request, *};
+use crate::{http, link::LinkOffer, requests::each_request, *};
 use iroh::SecretKey;
 use serde::Serialize;
 use std::{
@@ -23,8 +23,8 @@ use uuid::Uuid;
 /// Values that cover a type's wire shapes: every variant of an enum, and
 /// every sample of each field somewhere.
 pub(crate) trait Sample: Sized {
-    /// What a client reading `wire` may be sent; never empty.
-    fn samples(wire: u32) -> Vec<Self>;
+    /// Values covering the type's shapes; never empty.
+    fn samples() -> Vec<Self>;
 }
 
 pub(crate) trait Visit {
@@ -33,8 +33,8 @@ pub(crate) trait Visit {
 
 /// The `k`th sample of `T`, wrapping around; sets `more` while `T` has
 /// samples past `k`.
-pub(crate) fn pick<T: Sample>(wire: u32, k: usize, more: &mut bool) -> T {
-    let mut samples = T::samples(wire);
+pub(crate) fn pick<T: Sample>(k: usize, more: &mut bool) -> T {
+    let mut samples = T::samples();
     assert!(!samples.is_empty(), "a type with no samples");
     if k + 1 < samples.len() {
         *more = true;
@@ -46,13 +46,12 @@ pub(crate) fn pick<T: Sample>(wire: u32, k: usize, more: &mut bool) -> T {
 /// Pushes onto `out` values of the struct or variant `ctor` until each field
 /// has taken every one of its samples.
 macro_rules! sample_each {
-    ($out:ident, $wire:ident, [$($ctor:tt)+] { $($field:ident),* }) => {{
-        let _ = $wire;
+    ($out:ident, [$($ctor:tt)+] { $($field:ident),* }) => {{
         for k in 0usize.. {
             let _ = k;
             #[allow(unused_mut)]
             let mut more = false;
-            $out.push($($ctor)+ { $($field: $crate::compat::pick($wire, k, &mut more)),* });
+            $out.push($($ctor)+ { $($field: $crate::compat::pick(k, &mut more)),* });
             if !more {
                 break;
             }
@@ -64,9 +63,9 @@ macro_rules! sample_each {
 macro_rules! sample_struct {
     ($name:ident { $($field:ident),* $(,)? }) => {
         impl $crate::compat::Sample for $name {
-            fn samples(wire: u32) -> Vec<Self> {
+            fn samples() -> Vec<Self> {
                 let mut out = Vec::new();
-                sample_each!(out, wire, [$name] { $($field),* });
+                sample_each!(out, [$name] { $($field),* });
                 out
             }
         }
@@ -76,7 +75,7 @@ macro_rules! sample_struct {
 macro_rules! sample_values {
     ($($ty:ty => [$($value:expr),+ $(,)?])*) => {$(
         impl Sample for $ty {
-            fn samples(_: u32) -> Vec<Self> {
+            fn samples() -> Vec<Self> {
                 vec![$($value),+]
             }
         }
@@ -131,27 +130,27 @@ sample_values! {
 }
 
 impl<T: Sample> Sample for Option<T> {
-    fn samples(wire: u32) -> Vec<Self> {
-        let mut out: Vec<Self> = T::samples(wire).into_iter().map(Some).collect();
+    fn samples() -> Vec<Self> {
+        let mut out: Vec<Self> = T::samples().into_iter().map(Some).collect();
         out.push(None);
         out
     }
 }
 
 impl<T: Sample> Sample for Vec<T> {
-    fn samples(wire: u32) -> Vec<Self> {
-        vec![T::samples(wire)]
+    fn samples() -> Vec<Self> {
+        vec![T::samples()]
     }
 }
 
 impl Sample for SecretText {
-    fn samples(_: u32) -> Vec<Self> {
+    fn samples() -> Vec<Self> {
         vec![SecretText::new("secret-1234")]
     }
 }
 
 impl Sample for LinkOffer {
-    fn samples(_: u32) -> Vec<Self> {
+    fn samples() -> Vec<Self> {
         let device = SecretKey::from_bytes(&[3; 32]);
         let server = SecretKey::from_bytes(&[4; 32]).public();
         let at = UNIX_EPOCH + Duration::from_secs(1_760_000_000);
@@ -160,19 +159,17 @@ impl Sample for LinkOffer {
 }
 
 const BLESS: &str = "BEEP_WIRE_BLESS";
-const ERRORS: &str = "error.reply";
 
 fn fixtures_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/wire")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/wire/named")
 }
 
 fn encode<T: Serialize>(value: &T) -> Vec<u8> {
-    rmp_serde::to_vec(value).expect("samples encode")
+    http::encode(value).expect("samples encode")
 }
 
-/// One wire revision's fixtures and what checking them found.
-struct Revision {
-    wire: u32,
+/// The fixtures and what checking them found.
+struct Fixtures {
     dir: PathBuf,
     files: BTreeMap<String, Vec<u8>>,
     used: BTreeSet<String>,
@@ -181,8 +178,8 @@ struct Revision {
     problems: Vec<String>,
 }
 
-impl Revision {
-    fn load(wire: u32, dir: PathBuf, bless: bool) -> Self {
+impl Fixtures {
+    fn load(dir: PathBuf, bless: bool) -> Self {
         let mut files = BTreeMap::new();
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
@@ -192,7 +189,6 @@ impl Revision {
             }
         }
         Self {
-            wire,
             dir,
             files,
             used: BTreeSet::new(),
@@ -202,14 +198,12 @@ impl Revision {
         }
     }
 
-    /// The fixture for `op` ending in `.ext`, matched by number so a renamed
-    /// request keeps its fixtures.
-    fn find(&self, op: u16, ext: &str) -> Option<String> {
+    /// The fixture for `op`, matched by number so a renamed request keeps it.
+    fn find(&self, op: u16) -> Option<String> {
         let prefix = format!("{op:03}-");
-        let suffix = format!(".{ext}");
         self.files
             .keys()
-            .find(|name| name.starts_with(&prefix) && name.ends_with(&suffix))
+            .find(|name| name.starts_with(&prefix) && name.ends_with(".request"))
             .cloned()
     }
 
@@ -223,140 +217,71 @@ impl Revision {
         self.written.push(name);
     }
 
-    /// Checks the reply `name` against what the server sends now.
-    fn check_reply(&mut self, name: &str, now: Vec<u8>) {
-        self.used.insert(name.to_owned());
-        if self.files[name] != now {
-            self.problems.push(format!(
-                "{}/{name}: the server's reply changed shape, and apps reading wire {} \
-                 cannot decode it. Put the new shape behind a new request, or behind a \
-                 `Feature` and `since` (see AGENTS.md).",
-                self.wire, self.wire
-            ));
-        }
-    }
-
-    fn check_errors(&mut self) {
-        let now = encode(&ApiError::samples(self.wire));
-        if self.files.contains_key(ERRORS) {
-            self.check_reply(ERRORS, now);
-        } else if self.bless && self.wire == WIRE {
-            self.write(ERRORS.to_owned(), now);
-        } else {
-            self.problems
-                .push(format!("{}/{ERRORS} is missing", self.wire));
-        }
-    }
-
     fn check_leftovers(&mut self) {
         for name in self.files.keys().filter(|name| !self.used.contains(*name)) {
             self.problems.push(format!(
-                "{}/{name} matches no request: requests are never removed and their \
-                 numbers never reused",
-                self.wire
+                "named/{name} matches no request: released apps still send it, so keep \
+                 serving it under its name"
             ));
         }
     }
 }
 
-impl Visit for Revision {
+impl Visit for Fixtures {
     fn request<R: Rpc + Sample, T: Serialize + Sample>(&mut self) {
         let op = R::OP as u16;
-        let request = self.find(op, "request");
-        let reply = self.find(op, "reply");
-        let (request, reply) = match (request, reply) {
-            (Some(request), Some(reply)) => (request, reply),
-            // Newer than this revision, so none of its clients send it.
-            (None, None) if self.wire < WIRE => return,
-            (None, None) if self.bless => {
-                let stem = format!("{op:03}-{:?}", R::OP);
-                self.write(format!("{stem}.request"), encode(&R::samples(self.wire)));
-                self.write(format!("{stem}.reply"), encode(&T::samples(self.wire)));
-                return;
-            }
-            (None, None) => {
+        let Some(name) = self.find(op) else {
+            if self.bless {
+                self.write(
+                    format!("{op:03}-{:?}.request", R::OP),
+                    encode(&R::samples()),
+                );
+            } else {
                 self.problems.push(format!(
-                    "{:?} has no fixtures in {}/: run `{BLESS}=1 cargo test -p beep-proto \
-                     compat` and commit them",
-                    R::OP,
-                    self.wire
+                    "{:?} has no fixture in named/: run `{BLESS}=1 cargo test -p beep-proto \
+                     compat` and commit it",
+                    R::OP
                 ));
-                return;
             }
-            _ => {
-                self.problems
-                    .push(format!("{:?} lacks a request or reply fixture", R::OP));
-                return;
-            }
+            return;
         };
-        self.used.insert(request.clone());
-        if let Err(e) = rmp_serde::from_slice::<Vec<R>>(&self.files[&request]) {
+        self.used.insert(name.clone());
+        if let Err(e) = http::decode::<Vec<R>>(&self.files[&name]) {
             self.problems.push(format!(
-                "{}/{request}: apps reading wire {} send this, and it no longer decodes \
-                 ({e}). Requests only gain trailing `#[serde(default)]` fields.",
-                self.wire, self.wire
+                "named/{name}: released apps send this, and it no longer decodes ({e}). \
+                 A request only gains fields that default."
             ));
         }
-        self.check_reply(&reply, encode(&T::samples(self.wire)));
     }
 }
 
 #[test]
-fn released_apps_still_read_the_wire() {
+fn released_apps_requests_still_decode() {
     let bless = env::var_os(BLESS).is_some();
-    let root = fixtures_dir();
-    let mut wires: BTreeSet<u32> = fs::read_dir(&root)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| entry.file_name().to_str()?.parse().ok())
-        .collect();
-    let mut problems = Vec::new();
-    if !wires.contains(&WIRE) {
-        if bless {
-            wires.insert(WIRE);
-        } else {
-            problems.push(format!(
-                "tests/wire/{WIRE} is missing: run `{BLESS}=1 cargo test -p beep-proto compat`"
-            ));
-        }
+    let mut fixtures = Fixtures::load(fixtures_dir(), bless);
+    each_request(&mut fixtures);
+    fixtures.check_leftovers();
+    for name in &fixtures.written {
+        println!("wrote tests/wire/named/{name}");
     }
-    for &wire in &wires {
-        if wire > WIRE {
-            problems.push(format!("tests/wire/{wire} is newer than WIRE ({WIRE})"));
-            continue;
-        }
-        let mut revision = Revision::load(wire, root.join(wire.to_string()), bless);
-        each_request(&mut revision);
-        revision.check_errors();
-        revision.check_leftovers();
-        for name in &revision.written {
-            println!("wrote tests/wire/{wire}/{name}");
-        }
-        problems.append(&mut revision.problems);
-    }
-    assert!(problems.is_empty(), "\n{}\n", problems.join("\n"));
+    assert!(
+        fixtures.problems.is_empty(),
+        "\n{}\n",
+        fixtures.problems.join("\n")
+    );
 }
 
 #[test]
-fn old_apps_refuse_an_extra_element() {
+fn a_reader_skips_a_field_it_does_not_know() {
     #[derive(Serialize)]
     struct Newer {
         a: u8,
         b: u8,
     }
-    #[derive(serde::Deserialize, Debug)]
+    #[derive(serde::Deserialize, Debug, PartialEq)]
     struct Older {
-        _a: u8,
+        a: u8,
     }
     let newer = encode(&Newer { a: 1, b: 2 });
-    assert!(rmp_serde::from_slice::<Older>(&newer).is_err());
-    // Inside a wire enum too: `[op, message, extra]`.
-    let extra = encode(&(0u8, "x", true));
-    assert!(rmp_serde::from_slice::<ApiError>(&extra).is_err());
-}
-
-#[test]
-fn old_apps_refuse_an_unknown_op() {
-    assert!(rmp_serde::from_slice::<ApiError>(&encode(&(9u8,))).is_err());
+    assert_eq!(http::decode::<Older>(&newer).unwrap(), Older { a: 1 });
 }

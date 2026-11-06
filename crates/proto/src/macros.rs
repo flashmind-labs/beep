@@ -7,11 +7,11 @@ macro_rules! one {
 }
 
 /// Enum serialized as `[op, field...]` instead of serde's `{"Variant": ...}`.
-/// A variant only newer clients read ends in `since X`, naming `Feature::X`,
-/// and the server sends it only where `ClientInfo::supports` says so.
+/// A variant's fields are read by position: a variant never gains one, and
+/// a new shape is a new variant.
 macro_rules! wire_enum {
     ($(#[$meta:meta])* pub enum $enum:ident {
-        $($op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? } $(since $since:ident)?)*
+        $($op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? })*
     }) => {
         $(#[$meta])*
         pub enum $enum {
@@ -59,13 +59,9 @@ macro_rules! wire_enum {
 
         #[cfg(test)]
         impl $crate::compat::Sample for $enum {
-            fn samples(wire: u32) -> Vec<Self> {
+            fn samples() -> Vec<Self> {
                 let mut out = Vec::new();
-                $(
-                    if true $(&& wire >= $crate::Feature::$since.wire())? {
-                        sample_each!(out, wire, [Self::$name] { $($field),* });
-                    }
-                )*
+                $(sample_each!(out, [Self::$name] { $($field),* });)*
                 out
             }
         }
@@ -85,7 +81,8 @@ macro_rules! ffi_enum {
 
 /// Plain structs on the wire: serde, the usual derives (`Debug`, `Clone`,
 /// `PartialEq`; a struct's own `#[derive]` adds to them), and the samples the
-/// compat test checks them with. They encode as their fields in order.
+/// compat test checks them with. The apps' wire encodes them with field
+/// names, the node link as their fields in order.
 macro_rules! wire_structs {
     ($($(#[$meta:meta])* pub struct $name:ident {
         $($(#[$fmeta:meta])* pub $field:ident: $ty:ty),* $(,)?
@@ -127,10 +124,6 @@ macro_rules! requests {
             pub const ALL: &[Op] = &[$(Op::$name),*];
         }
 
-        // A request frame's tag 255 says a wide op follows, so no request
-        // has that number.
-        const _: () = assert!($($op != wire::WIDE as u16 &&)* true, "op 255 is reserved");
-
         /// Hands `visit` every request type with its reply type, in op order.
         #[cfg(test)]
         pub(crate) fn each_request(visit: &mut impl $crate::compat::Visit) {
@@ -150,40 +143,9 @@ macro_rules! requests {
 
         $(
             $(#[$meta])*
-            #[derive(Debug, Clone, PartialEq, Serialize)]
+            #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
             pub struct $name {
                 $($(#[$fmeta])* pub $field: $ty,)*
-            }
-
-            /// Reads the fields this build knows and skips any a newer app
-            /// added after them, so a request only ever gains fields.
-            impl<'de> Deserialize<'de> for $name {
-                fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-                    #[derive(Deserialize)]
-                    #[serde(rename = "Request")]
-                    struct Known {
-                        $($(#[$fmeta])* $field: $ty,)*
-                    }
-
-                    struct Lenient;
-
-                    impl<'de> serde::de::Visitor<'de> for Lenient {
-                        type Value = Known;
-
-                        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                            f.write_str("a request as an array")
-                        }
-
-                        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Known, A::Error> {
-                            let known = Known::deserialize(serde::de::value::SeqAccessDeserializer::new(&mut seq))?;
-                            while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
-                            Ok(known)
-                        }
-                    }
-
-                    let Known { $($field),* } = d.deserialize_seq(Lenient)?;
-                    Ok(Self { $($field),* })
-                }
             }
 
             impl Rpc for $name {

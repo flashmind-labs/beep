@@ -299,8 +299,8 @@ ffi_enum! {
     pub enum AgentCheckoutPlan {
         0 NewBranch { base: Option<String> }
         1 NewWorktree { base: Option<String> }
-        2 NamedWorktree { base: Option<String>, branch: String } since BRANCH_WORKTREES
-        3 BranchWorktree { branch: String } since BRANCH_WORKTREES
+        2 NamedWorktree { base: Option<String>, branch: String }
+        3 BranchWorktree { branch: String }
     }
 }
 
