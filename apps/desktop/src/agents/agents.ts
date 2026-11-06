@@ -36,6 +36,7 @@ import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
+import { onClosing, shownStatus } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
 
 /// A question a session waits on, such as whether to run a command.
@@ -393,9 +394,11 @@ function sessionSub(s: AgentSession, harness: string, folder: string) {
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
 onCopies(() => { if (S.view === "agents") drawAgents(false); });
+onClosing(() => { if (S.view === "agents") drawAgents(false); });
 onCopyAction(() => void loadSessions().catch(() => []));
 
-function sessionRow({ row: s, depth }: { row: AgentSession; depth: number }, i: number) {
+function sessionRow({ row, depth }: { row: AgentSession; depth: number }, i: number) {
+  const s = { ...row, status: shownStatus(row) };
   const k = agentKind(s.agent), folder = folderName(s.cwd);
   const moving = moveLabel(s);
   const tail = moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`

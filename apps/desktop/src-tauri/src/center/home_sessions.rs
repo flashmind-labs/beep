@@ -67,6 +67,13 @@ impl AgentSessions {
         self.last.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Changes the last list, for what this app knows before the next read.
+    pub fn edit(&self, change: impl FnOnce(&mut [MachineSession])) {
+        if let Some(listed) = self.last().as_mut() {
+            change(listed.sessions.as_mut_slice());
+        }
+    }
+
     /// The sessions, as fresh as `WAIT` allows. Without an older list it
     /// waits for the server's answer.
     pub async fn list(
