@@ -7,7 +7,7 @@
 
 use crate::{desk::Desk, error::Result};
 use beep_mesh::MeshError;
-use beep_projects::imports::records::{ImportRow, project_of};
+use beep_projects::imports::records::{ImportRow, imported_project_of};
 use beep_proto::{
     AgentSlug, AgentTokens, HarnessBill, HarnessSpend, ModelId, ModelSpend, PeriodSpend,
     PlanLimits, PlanWindow, ProjectBill, ProjectSpend, SpendPeriod, SpendReport, UsageReport,
@@ -94,7 +94,8 @@ struct Said {
 struct Rows<'a>(Vec<Row<'a>>);
 
 struct Row<'a> {
-    project: String,
+    /// The imported project the session ran in; none for any other folder.
+    project: Option<String>,
     agent: &'a AgentSlug,
     hour: &'a HourSpend,
 }
@@ -281,7 +282,7 @@ impl<'a> Rows<'a> {
             said.sessions
                 .values()
                 .flat_map(|session| {
-                    let project = project_of(&session.machine, &session.cwd, imports);
+                    let project = imported_project_of(&session.machine, &session.cwd, imports);
                     session
                         .hours
                         .values()
@@ -402,8 +403,11 @@ fn models<'r>(rows: impl Iterator<Item = &'r Row<'r>>) -> Vec<ModelSpend> {
 
 fn by_project<'r>(rows: &'r Rows<'_>) -> BTreeMap<&'r str, Vec<&'r Row<'r>>> {
     let mut by: BTreeMap<&str, Vec<&Row<'_>>> = BTreeMap::new();
+    // Only imported projects are listed; the rest count in the totals.
     for row in &rows.0 {
-        by.entry(row.project.as_str()).or_default().push(row);
+        if let Some(project) = &row.project {
+            by.entry(project.as_str()).or_default().push(row);
+        }
     }
     by
 }
@@ -559,12 +563,12 @@ mod tests {
         let paid = hour(Billing::Metered);
         let rows = Rows(vec![
             Row {
-                project: "widget".to_owned(),
+                project: Some("widget".to_owned()),
                 agent: &AgentSlug::CLAUDE,
                 hour: &unknown,
             },
             Row {
-                project: "widget".to_owned(),
+                project: Some("widget".to_owned()),
                 agent: &AgentSlug::CLAUDE,
                 hour: &paid,
             },
