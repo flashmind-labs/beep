@@ -17,7 +17,7 @@ use beep_proto::node::{
     },
     link,
     process::{Reply as ProcessReply, Request as ProcessRequest},
-    report::{PROTOCOL as REPORT, Reply as ReportReply, Request as ReportRequest},
+    report::PROTOCOL as REPORT,
     shell::{Event as ShellEvent, PROTOCOL as SHELL, Request as ShellRequest},
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
@@ -696,7 +696,7 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
 }
 
 #[tokio::test]
-async fn another_node_gets_a_report_with_status_and_version() {
+async fn another_node_is_refused_a_report() {
     let desktop = desktop(None).await;
     let node = Node::start(Config {
         name: Some("build-box"),
@@ -706,37 +706,14 @@ async fn another_node_gets_a_report_with_status_and_version() {
     node.join(&desktop.ticket(DeviceKind::Node).await).await;
     let other = peer_node(&desktop).await;
     let conn = other.reach(node.id).await;
-    let mut stream = ready(&conn, REPORT).await;
-    stream
-        .tx
-        .send(&ReportRequest {
-            since: 0,
-            max_bytes: 1 << 16,
-        })
-        .await
-        .expect("the request is sent");
-    let reply = timeout(LIMIT, stream.rx.recv::<ReportReply>())
-        .await
-        .expect("the report came in time")
-        .expect("the report reads");
-    let Some(ReportReply::Share {
-        status,
-        version,
-        os,
-        ..
-    }) = reply
-    else {
-        panic!("not shared: {reply:?}");
-    };
-    assert_eq!(version, env!("CARGO_PKG_VERSION"));
-    assert!(status.contains("build-box"), "{status}");
-    assert!(!os.is_empty());
+    let (_, opened) = open(&conn, REPORT).await;
+    assert!(matches!(opened, Opened::Refused { .. }), "{opened:?}");
 }
 
 #[tokio::test]
-async fn the_node_collects_from_its_mesh_for_the_cli() {
+async fn a_node_in_a_mesh_reports_only_itself_for_the_cli() {
     let desktop = desktop(None).await;
-    let mut a = Node::start(Config {
+    let a = Node::start(Config {
         name: Some("box-a"),
         ..Config::default()
     })
@@ -748,38 +725,14 @@ async fn the_node_collects_from_its_mesh_for_the_cli() {
     .await;
     a.join(&desktop.ticket(DeviceKind::Node).await).await;
     b.join(&desktop.ticket(DeviceKind::Node).await).await;
-    // Until `a` has its link to `b`, `b` is offline in the report.
-    let shares = timeout(LIMIT, async {
-        loop {
-            let shares = beep_node::link::peers::collect_report(a.dir.path(), 0)
-                .await
-                .expect("the node collects")
-                .expect("the node runs");
-            if shares
-                .iter()
-                .any(|share| share.id == b.id && share.answer == Answer::Answered)
-            {
-                return shares;
-            }
-            // Not back to back: the next round waits for a's next log line, a second at most.
-            if let Ok(Some(line)) = timeout(Duration::from_secs(1), a.lines.recv()).await {
-                a.log.push(line);
-            }
-        }
-    })
-    .await
-    .expect("b answered in time");
-    let answered: Vec<_> = shares
-        .iter()
-        .filter(|share| share.answer == Answer::Answered)
-        .map(|share| share.id)
-        .collect();
-    assert_eq!(answered.len(), 2, "{shares:?}");
-    assert!(answered.contains(&a.id), "{shares:?}");
-    let own = shares
-        .iter()
-        .find(|share| share.id == a.id)
-        .expect("a's own share");
+    let shares = beep_node::link::peers::collect_report(a.dir.path(), 0)
+        .await
+        .expect("the node collects")
+        .expect("the node runs");
+    assert_eq!(shares.len(), 1, "{shares:?}");
+    let own = &shares[0];
+    assert_eq!(own.id, a.id);
+    assert_eq!(own.answer, Answer::Answered);
     assert!(own.status.contains("box-a"), "{}", own.status);
 }
 
