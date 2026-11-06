@@ -12,7 +12,7 @@ import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
+import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions, sessionsRead } from "./sessions.ts";
@@ -27,7 +27,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
-import { invoke, listen } from "../ui/tauri.ts";
+import { invoke, listen, logError } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
@@ -53,6 +53,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     Object.assign(AG, { sig: "", rest: "" });
     // A log the reader scrolled up in goes back where they left it; one at its end starts there again.
     drawAgentFrame(false, left?.key === sessionKey(s) && left.body.stuck === false ? left.body : null);
+    watchRead(AG.open!);
     return void pollAgent();
   }
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
@@ -67,7 +68,20 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     older: { stop: "", loading: false, gaveUp: false },
   });
   drawAgentFrame(inPlace);
+  watchRead(AG.open!);
   pollAgent();
+}
+
+/// A session opened that still has no read after this long leaves a line in the log.
+const READ_WATCH_MS = 30_000;
+
+/// Logs it when the session `o` opened still shows nothing read after
+/// `READ_WATCH_MS` with no error said: the view is stuck, and why (#427).
+function watchRead(o: OpenAgent) {
+  setTimeout(() => {
+    if (AG.open !== o || !isOpen(o) || AG.sig || AG.readError) return;
+    logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s (reading ${AG.inflight === o}, on screen ${agentOnScreen()})`);
+  }, READ_WATCH_MS);
 }
 
 // The open session moved and its new machine lists it: the page follows it there.
@@ -112,7 +126,7 @@ export async function pollAgent() {
   AG.inflight = o;
   const read = ++AG.polls;
   try {
-    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }), readModes(o), readTasks(o), readRunning()]);
+    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS), readModes(o), readTasks(o), readRunning()]);
     if (isOpen(o)) {
       AG.modes = modes;
       AG.tasks = tasks;

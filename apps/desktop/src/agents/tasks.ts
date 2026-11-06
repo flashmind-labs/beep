@@ -1,7 +1,7 @@
 // The commands the open session's agent runs in the background: a strip
 // above the field with each one's name and a Stop button.
 import { $ } from "../bar/core.ts";
-import { type AgentTask, type OpenAgent, AG, where } from "./agents.ts";
+import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { esc } from "../ui/format.ts";
 import { showHtml } from "../ui/patch.ts";
@@ -17,7 +17,7 @@ export async function readTasks(o: OpenAgent) {
   const s = AG.page?.session;
   if (oldServer || !s || s.external || s.status === "ended") return [];
   try {
-    return await invoke<AgentTask[]>("agent_tasks", where(o));
+    return await invoke<AgentTask[]>("agent_tasks", where(o), AGENT_READ_WAIT_MS);
   } catch (e) {
     console.warn("agent tasks not read", e);
     return AG.tasks;
