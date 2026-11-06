@@ -266,6 +266,7 @@ function bindSettings(el: Element) {
   // Instructions is a view of the window: the sheet closes onto it, and
   // the bar hands it over.
   $in("#openInstr")?.addEventListener("click", () => (windowHooks ? windowHooks.openInstructions() : toWindow("instructions")));
+  $in("#openReport")?.addEventListener("click", () => (windowHooks ? windowHooks.openReport() : toWindow("report")));
   $in("#openProviders")?.addEventListener("click", () => (windowHooks ? windowHooks.openProviders() : toWindow("providers")));
   each("data-remove", b => b.addEventListener("click", () => {
     b.disabled = true;
@@ -411,7 +412,8 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div>
       <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
         ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>
-      ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}</section>`]];
+      ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}
+      <div class="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><button class="dbtn" id="openReport">Report…</button></div></section>`]];
   out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];

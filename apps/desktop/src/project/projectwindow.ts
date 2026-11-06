@@ -74,7 +74,7 @@ export function route(scope: ProjectScope | null, view: ViewName, arg?: unknown)
 }
 
 /// What the main window is asked to show (`CenterTarget` in center.rs).
-export type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | "providers" | "terminals" | "research"
+export type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | "providers" | "terminals" | "research" | "report"
   | { chat: { session: string | null } } | { group: { id: string } } | { agent: AgentTarget }
   | { projects: { project: string | null } } | { ask: { prompt: string } } | { open_research: { session: string } } | { notice: { session: string | null } };
 
