@@ -30,7 +30,7 @@ pub unsafe fn adopt() {
     match login_path(&shell) {
         // SAFETY: the caller runs this before any other thread exists.
         Some(path) => unsafe { env::set_var("PATH", path) },
-        None => eprintln!("could not read the login shell's PATH; keeping {current}"),
+        None => log::warn!("could not read the login shell's PATH; keeping {current}"),
     }
 }
 

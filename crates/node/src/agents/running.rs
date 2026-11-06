@@ -248,16 +248,15 @@ impl Agents {
         crate::lock(&self.sessions)
     }
 
-    /// The protocols to offer: one per agent, and `agents/1` when there are any.
+    /// The protocols to offer: one per agent, and `agents/1` always, so the
+    /// sessions found on disk list even when no agent's program was found.
     pub fn offers(&self) -> Vec<String> {
         let mut offers: Vec<String> = self
             .kinds
             .iter()
             .map(|kind| agent::protocol(&kind.name))
             .collect();
-        if !offers.is_empty() {
-            offers.push(SESSIONS_PROTOCOL.to_owned());
-        }
+        offers.push(SESSIONS_PROTOCOL.to_owned());
         offers
     }
 
