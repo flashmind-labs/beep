@@ -845,6 +845,9 @@ mod tools {
             (Tool::Review, "review"),
             (Tool::SubmitReview, "submit_review"),
             (Tool::AgentNote, "agent_note"),
+            (Tool::BeepStatus, "beep_status"),
+            (Tool::BeepLogs, "beep_logs"),
+            (Tool::FileReport, "file_report"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));
