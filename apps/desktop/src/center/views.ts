@@ -85,8 +85,12 @@ export function goHistory(forward: boolean) {
 
 /// Shows view `name`, passing `arg` to its mount.
 export function go(name: ViewName, arg?: ViewArg): boolean {
-  // A link to a page only a subscription has lands on Home.
-  if (viewHidden(name, arg, state.subscribed, S.server)) return go("home");
+  // A link to a page only a subscription has lands on Home, and a new or old chat on the
+  // agent's start form.
+  if (viewHidden(name, arg, state.subscribed, S.server)) {
+    const chat = !!arg && typeof arg === "object" && "chat" in arg;
+    return chat ? go("pane", { agentnew: { prompt: "" } }) : go("home");
+  }
   if (route(windowScope(), name, arg) === "main") {
     toMain(mainTarget(name, arg));
     return false;
