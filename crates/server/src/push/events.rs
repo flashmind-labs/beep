@@ -13,14 +13,17 @@ use iroh::EndpointId;
 use std::{sync::Arc, time::Duration};
 use tokio::{
     sync::{broadcast, broadcast::error::RecvError, mpsc},
-    task::JoinHandle,
     time::interval,
 };
+use tokio_util::task::AbortOnDropHandle;
 
-/// When every open stream sends a heartbeat. Dropping it stops the beats.
+/// When every open stream sends a heartbeat. Clones share the beats; dropping
+/// the last stops them.
+#[derive(Clone)]
 pub struct Pulse {
     beats: broadcast::Sender<()>,
-    task: Option<JoinHandle<()>>,
+    /// Held for its drop, which stops the beats.
+    _task: Option<Arc<AbortOnDropHandle<()>>>,
 }
 
 impl Pulse {
@@ -40,27 +43,20 @@ impl Pulse {
         });
         Self {
             beats,
-            task: Some(task),
+            _task: Some(Arc::new(AbortOnDropHandle::new(task))),
         }
     }
 
     /// Beats only on `beat`, for tests.
     pub fn manual() -> Self {
         let (beats, _) = broadcast::channel(1);
-        Self { beats, task: None }
+        Self { beats, _task: None }
     }
 
     /// Sends every open stream a heartbeat now.
     pub fn beat(&self) {
+        // No stream open is no error.
         let _ = self.beats.send(());
-    }
-}
-
-impl Drop for Pulse {
-    fn drop(&mut self) {
-        if let Some(task) = &self.task {
-            task.abort();
-        }
     }
 }
 
@@ -155,7 +151,12 @@ async fn follow(
 }
 
 /// Sends the notices after `cursor` that are for this device.
-async fn catch_up(store: &Store, device: &Device, cursor: &mut i64, tx: &mpsc::Sender<Bytes>) -> Sent {
+async fn catch_up(
+    store: &Store,
+    device: &Device,
+    cursor: &mut i64,
+    tx: &mpsc::Sender<Bytes>,
+) -> Sent {
     loop {
         let page = store
             .notices_after(device.user.id(), *cursor)
@@ -168,7 +169,7 @@ async fn catch_up(store: &Store, device: &Device, cursor: &mut i64, tx: &mpsc::S
             if let Some(notice) = logged.notice.for_device(&device.key, &device.kind) {
                 let event = AppEvent::Notice {
                     id: logged.id,
-                    notice: notice.clone(),
+                    notice: Box::new(notice.clone()),
                 };
                 send(tx, &event).await?;
             }

@@ -2,23 +2,23 @@ use async_trait::async_trait;
 use beep_server::{
     account::user::User,
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, Reach, ServerTools, UserNotice},
-    client::{Client, Node, OnNotice, Replies},
     memory::starters,
     protocol::{
-        ActiveRun, ApiError, AppKind, CancelRun, CancelWork, Chat, ConnectApp, CreateCron,
-        DeletePlace, DeleteSkill, DeviceKind, DismissUpdates, Event, ExistingSessions, Filler,
-        GetAgents, GetEvents, GetRun, GetSession, GetSessionAgents, GetSessionFiles, GetUpdates,
-        Health, HistoryEntry, InviteDevice, LinkDevice, ListApps, ListCrons, ListDevices,
-        ListPendingApprovals, ListPlaces, ListQuestions, ListSessions, ListSkills, ListUpdates,
-        ListWork, MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite, RemoveDevice,
-        RunEvent, Say, Session, SetAgents, SpeakNotice, SpokenTurns, StartAppAuth, StreamUpdates,
+        ActiveRun, ApiError, AppEvent, AppKind, CancelRun, CancelWork, Chat, ConnectApp,
+        CreateCron, DeletePlace, DeleteSkill, DeviceKind, DismissUpdates, Event, ExistingSessions,
+        Filler, GetAgents, GetEvents, GetRun, GetSession, GetSessionAgents, GetSessionFiles,
+        GetUpdates, Health, HistoryEntry, InviteDevice, LinkDevice, ListApps, ListCrons,
+        ListDevices, ListPendingApprovals, ListPlaces, ListQuestions, ListSessions, ListSkills,
+        ListUpdates, ListWork, MAX_SAY_CHARS, MemorySource, MessageBody, Notice, PeekInvite,
+        RemoveDevice, RunEvent, Say, Session, SetAgents, SpeakNotice, SpokenTurns, StartAppAuth,
         SuggestPrompts, UndoSkill, Update, UpdateLocation, UpdatePlace, UpdateSkill, Upload,
+        client::{Client, Events, Replies},
+        follow::{Follow, OnEvent},
         link::{LinkOffer, OFFER_TTL},
-        wire::framed,
     },
-    push::Pusher,
+    push::Pulse,
     routines::cron,
     routines::wake::{self, Event as WakeEvent},
     store::{CreateRun, Fact, NewPlace, NewSkill, SignIn, TestDb},
@@ -29,20 +29,20 @@ use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Provider, Role,
     StreamEvent, SttRequest, TtsRequest,
 };
-use iroh::SecretKey;
-use iroh::address_lookup::MemoryLookup;
-use iroh::endpoint::presets;
-use iroh::protocol::Router;
+use iroh::{EndpointId, SecretKey};
 use serde_json::json;
 use std::{
     ops::Deref,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime},
 };
-use tokio::{sync::mpsc, time::timeout};
+use tokio::{
+    sync::{Notify, mpsc},
+    time::timeout,
+};
 use uuid::Uuid;
 
 /// Alice's key; the server knows her by its public half.
@@ -159,7 +159,9 @@ impl LlmProvider for ProviderStub {
 
 struct Harness {
     db: TestDb,
-    router: Router,
+    apps: http::Local,
+    /// The server's id, which link offers name.
+    server: EndpointId,
     app: Arc<App>,
     provider: Arc<ProviderStub>,
     /// The account alice's key signs into.
@@ -182,24 +184,10 @@ impl Harness {
             ServerTools::default(),
             ModelChoices::only("openai:test".parse().unwrap()),
         );
-        let endpoint = iroh::Endpoint::builder(presets::Minimal)
-            .secret_key(SecretKey::generate())
-            .bind()
+        let key = SecretKey::generate();
+        let apps = http::Local::start(app.clone(), &key, Pulse::manual())
             .await
             .unwrap();
-        let pusher = Pusher::with_retry_waits(
-            endpoint.clone(),
-            Arc::new(app.store.clone()),
-            None,
-            vec![Duration::from_millis(200)],
-        );
-        pusher.start(app.notifications.subscribe());
-        let router = Router::builder(endpoint)
-            .accept(
-                transport::ALPN,
-                transport::BeepHandler::new(app.clone(), pusher),
-            )
-            .spawn();
         let alice_id = app
             .sign_in(&alice().public())
             .await
@@ -210,30 +198,44 @@ impl Harness {
             .to_owned();
         Self {
             db,
-            router,
+            apps,
+            server: key.public(),
             app,
             provider,
             alice_id,
         }
     }
 
-    async fn client(&self) -> Phone {
+    async fn client(&self) -> Client {
         self.client_as(alice()).await
     }
 
-    async fn client_as(&self, identity: SecretKey) -> Phone {
-        let node = self.node(identity, Arc::new(|_| true)).await;
-        let client = node.connect().await.unwrap();
-        Phone {
-            _node: node,
-            client,
-        }
+    async fn client_as(&self, identity: SecretKey) -> Client {
+        Client::new(self.apps.url(), identity).unwrap()
     }
 
-    async fn node(&self, identity: SecretKey, on_notice: OnNotice) -> Node {
-        Node::bind(identity, self.router.endpoint().addr(), on_notice)
+    /// `identity`'s app following its events stream, which is open on return.
+    async fn listen(&self, identity: SecretKey, on_notice: OnNotice) -> Listener {
+        let client = Arc::new(self.client_as(identity).await);
+        let opened = Arc::new(Notify::new());
+        let open = opened.clone();
+        let on_event: OnEvent = Arc::new(move |event| match event {
+            AppEvent::Notice { notice, .. } => on_notice(*notice),
+            // Every stream opens with one.
+            AppEvent::Updated { .. } => {
+                open.notify_one();
+                false
+            }
+            _ => false,
+        });
+        let follow = Follow::start(client.clone(), on_event);
+        timeout(Duration::from_secs(20), opened.notified())
             .await
-            .unwrap()
+            .expect("the events stream opens");
+        Listener {
+            client,
+            _follow: follow,
+        }
     }
 
     /// Sends `notice` to Alice the way a finished run or cron does.
@@ -254,41 +256,29 @@ impl Harness {
         };
         self.app.notifications.send(notice).unwrap();
     }
-
-    /// Lets the server dial `node` without a relay or pkarr.
-    fn introduce(&self, node: &Node) {
-        let lookup = MemoryLookup::new();
-        lookup.add_endpoint_info(node.endpoint().addr());
-        self.router.endpoint().address_lookup().unwrap().add(lookup);
-    }
 }
 
-/// A phone's node and its connection, dropped together.
-struct Phone {
-    _node: Node,
-    client: Client,
+/// Takes a notice; true when the app showed it.
+type OnNotice = Arc<dyn Fn(Notice) -> bool + Send + Sync>;
+
+/// An app and the task following its events, dropped together.
+struct Listener {
+    client: Arc<Client>,
+    _follow: Follow,
 }
 
-impl Deref for Phone {
+impl Deref for Listener {
     type Target = Client;
     fn deref(&self) -> &Client {
         &self.client
     }
 }
 
-/// Collects the titles of the notices a node takes. While `refuse` is set
-/// it takes none, like a phone that cannot show them yet.
-fn inbox() -> (OnNotice, mpsc::UnboundedReceiver<String>, Arc<AtomicBool>) {
+/// Collects the titles of the notices an app takes.
+fn inbox() -> (OnNotice, mpsc::UnboundedReceiver<String>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    let refuse = Arc::new(AtomicBool::new(false));
-    let refusing = refuse.clone();
-    let on_notice: OnNotice = Arc::new(move |notice: Notice| {
-        if refusing.load(Ordering::SeqCst) {
-            return false;
-        }
-        tx.send(notice.title).is_ok()
-    });
-    (on_notice, rx, refuse)
+    let on_notice: OnNotice = Arc::new(move |notice: Notice| tx.send(notice.title).is_ok());
+    (on_notice, rx)
 }
 
 async fn next_title(rx: &mut mpsc::UnboundedReceiver<String>) -> String {
@@ -311,6 +301,17 @@ async fn drain(replies: &mut Replies<Event>) -> Vec<RunEvent> {
     events
 }
 
+/// The update id the next `Updated` event names, skipping the others.
+async fn next_updated(events: &mut Events) -> i64 {
+    loop {
+        match events.next().await.unwrap() {
+            Some(AppEvent::Updated { last }) => return last,
+            Some(_) => {}
+            None => panic!("the events stream ended"),
+        }
+    }
+}
+
 /// The run id from a stream's `RunStarted` event.
 async fn started(replies: &mut Replies<Event>) -> String {
     match replies.next().await.unwrap().map(|e| e.event) {
@@ -320,7 +321,7 @@ async fn started(replies: &mut Replies<Event>) -> String {
 }
 
 #[tokio::test]
-async fn real_quic_stream_tools_reconnect_idempotency_and_user_isolation() {
+async fn streams_tools_reconnects_idempotency_and_user_isolation() {
     let h = Harness::new().await;
     let c = h.client().await;
 
@@ -693,57 +694,10 @@ async fn a_key_signs_in_as_the_same_user_every_time() {
 }
 
 #[tokio::test]
-async fn notices_reach_the_phone_open_idle_retried_or_after_being_away() {
-    let h = Harness::new().await;
-    let (on_notice, mut titles, refuse) = inbox();
-    let node = h
-        .node(alice(), on_notice)
-        .await
-        .with_idle_timeout(Duration::from_millis(500));
-    h.introduce(&node);
-
-    // Over the connection the phone opened.
-    let c = node.connect().await.unwrap();
-    c.call(&Health {}).await.unwrap();
-    h.notify("open");
-    assert_eq!(next_title(&mut titles).await, "open");
-
-    // The connection closes once idle, and the server dials the phone.
-    timeout(Duration::from_secs(5), async {
-        while !c.is_closed() {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .expect("an idle connection closes");
-    h.notify("dialed");
-    assert_eq!(next_title(&mut titles).await, "dialed");
-
-    // A notice the phone can't take waits for its next connection.
-    refuse.store(true, Ordering::SeqCst);
-    h.notify("queued");
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    assert!(titles.try_recv().is_err());
-    refuse.store(false, Ordering::SeqCst);
-    let c = node.connect().await.unwrap();
-    assert_eq!(next_title(&mut titles).await, "queued");
-    drop(c);
-
-    // The server keeps trying without waiting for the phone to connect.
-    refuse.store(true, Ordering::SeqCst);
-    h.notify("retried");
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    refuse.store(false, Ordering::SeqCst);
-    assert_eq!(next_title(&mut titles).await, "retried");
-}
-
-#[tokio::test]
 async fn a_woken_agent_reaches_the_phone_only_when_it_asks_to() {
     let h = Harness::new().await;
-    let (on_notice, mut titles, _) = inbox();
-    let node = h.node(alice(), on_notice).await;
-    h.introduce(&node);
-    let c = node.connect().await.unwrap();
+    let (on_notice, mut titles) = inbox();
+    let c = h.listen(alice(), on_notice).await;
     c.call(&Health {}).await.unwrap();
     let user = h.app.user(&h.alice_id).unwrap();
     let event = |description: &str| WakeEvent {
@@ -1223,17 +1177,12 @@ async fn next_titled(rx: &mut mpsc::UnboundedReceiver<Notice>, title: &str) -> N
 #[tokio::test]
 async fn a_computer_gets_the_notice_meant_for_computers() {
     let h = Harness::new().await;
-    let server = h.router.endpoint().id();
     let (phone_notice, mut phone_notices) = notices();
-    let phone_node = h.node(alice(), phone_notice).await;
-    h.introduce(&phone_node);
-    let phone = phone_node.connect().await.unwrap();
-    let offer = LinkOffer::sign(&macbook(), server, "MacBook", SystemTime::now()).unwrap();
+    let phone = h.listen(alice(), phone_notice).await;
+    let offer = LinkOffer::sign(&macbook(), h.server, "MacBook", SystemTime::now()).unwrap();
     phone.call(&LinkDevice { offer }).await.unwrap();
     let (desk_notice, mut desk_notices) = notices();
-    let desk_node = h.node(macbook(), desk_notice).await;
-    h.introduce(&desk_node);
-    let _desk = desk_node.connect().await.unwrap();
+    let _desk = h.listen(macbook(), desk_notice).await;
 
     let title = "Claude Code on build-box finished";
     let plain = Notice {
@@ -1285,10 +1234,9 @@ async fn a_computer_gets_the_notice_meant_for_computers() {
 #[tokio::test]
 async fn a_linked_computer_shares_the_account_until_removed() {
     let h = Harness::new().await;
-    let server = h.router.endpoint().id();
-    let (phone_notice, mut phone_titles, _) = inbox();
-    let phone_node = h.node(alice(), phone_notice).await;
-    let phone = phone_node.connect().await.unwrap();
+    let server = h.server;
+    let (phone_notice, mut phone_titles) = inbox();
+    let phone = h.listen(alice(), phone_notice).await;
 
     let now = SystemTime::now();
     let refused = |offer: LinkOffer| {
@@ -1323,10 +1271,8 @@ async fn a_linked_computer_shares_the_account_until_removed() {
     assert!(matches!(refused(offer).await, ApiError::Conflict { .. }));
 
     // The computer signs into Alice's account and takes her notices too.
-    let (desk_notice, mut desk_titles, _) = inbox();
-    let desk_node = h.node(macbook(), desk_notice).await;
-    h.introduce(&desk_node);
-    let desk = desk_node.connect().await.unwrap();
+    let (desk_notice, mut desk_titles) = inbox();
+    let desk = h.listen(macbook(), desk_notice).await;
     let devices = desk.call(&ListDevices {}).await.unwrap();
     assert_eq!(devices.len(), 2);
     assert!(devices[0].primary && devices[0].id == alice().public().to_string());
@@ -1384,44 +1330,15 @@ async fn a_linked_computer_shares_the_account_until_removed() {
 
     phone.call(&RemoveDevice { id: linked.id }).await.unwrap();
     assert_eq!(phone.call(&ListDevices {}).await.unwrap().len(), 1);
-    let again = desk_node.connect().await.unwrap();
-    assert!(again.call(&Health {}).await.is_err());
-}
-
-#[tokio::test]
-async fn a_phone_from_before_hello_is_still_served() {
-    let h = Harness::new().await;
-    let endpoint = iroh::Endpoint::builder(presets::Minimal)
-        .secret_key(alice())
-        .bind()
-        .await
-        .unwrap();
-    let connection = endpoint
-        .connect(h.router.endpoint().addr(), transport::ALPN)
-        .await
-        .unwrap();
-    // A released app opens straight with a request: the server must take it
-    // as one, not as a malformed Hello.
-    for _ in 0..2 {
-        let (send, recv) = connection.open_bi().await.unwrap();
-        let (mut tx, mut rx) = framed(send, recv);
-        tx.request(&ListSessions {}).await.unwrap();
-        tx.finish().unwrap();
-        let sessions = timeout(Duration::from_secs(10), rx.reply::<Vec<Session>>())
-            .await
-            .expect("the server answers")
-            .unwrap()
-            .expect("a reply frame");
-        assert!(sessions.is_empty());
-    }
+    assert!(desk.call(&Health {}).await.is_err());
 }
 
 #[tokio::test]
 async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
     let h = Harness::new().await;
     let c = h.client().await;
-    let mut newest = c.stream(&StreamUpdates {}).await.unwrap();
-    let start = newest.next().await.unwrap().unwrap();
+    let mut newest = c.events(None).await.unwrap();
+    let start = next_updated(&mut newest).await;
     let empty = c.call(&GetUpdates { after: start }).await.unwrap();
     assert!(empty.updates.is_empty() && !empty.more);
 
@@ -1457,11 +1374,9 @@ async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
         if replied(&page.updates) {
             break page;
         }
-        timeout(Duration::from_secs(10), newest.next())
+        timeout(Duration::from_secs(10), next_updated(&mut newest))
             .await
-            .expect("the log moves")
-            .unwrap()
-            .expect("the stream stays open");
+            .expect("the log moves");
     };
     let last = page.last;
     let Some(Update::Chat { chat, .. }) = page.updates.first() else {
@@ -1510,16 +1425,11 @@ async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
 #[tokio::test]
 async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
     let h = Harness::new().await;
-    let server = h.router.endpoint().id();
-    let (phone_notice, mut phone_notices, _) = inbox();
-    let phone_node = h.node(alice(), phone_notice).await;
-    let phone = phone_node.connect().await.unwrap();
-    let offer = LinkOffer::sign(&macbook(), server, "MacBook", SystemTime::now()).unwrap();
+    let (phone_notice, mut phone_notices) = inbox();
+    let phone = h.listen(alice(), phone_notice).await;
+    let offer = LinkOffer::sign(&macbook(), h.server, "MacBook", SystemTime::now()).unwrap();
     phone.call(&LinkDevice { offer }).await.unwrap();
-    let (desk_notice, _, _) = inbox();
-    let desk_node = h.node(macbook(), desk_notice).await;
-    h.introduce(&desk_node);
-    let desk = desk_node.connect().await.unwrap();
+    let desk = h.client_as(macbook()).await;
 
     let session_id = Uuid::new_v4();
     let ask = Chat {

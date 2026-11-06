@@ -19,9 +19,8 @@ use beep_server::protocol::{
 use beep_server::{
     account::user::User,
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, Draws, Message, Reach, ServerTools},
-    client::{Client, Node},
     nodes::{self, Follower, Online, StartOn},
     protocol::{
         AddMachineOverSsh, AgentCheckoutPlan, AgentContext, AgentEffort, AgentFileChunk,
@@ -38,7 +37,9 @@ use beep_server::{
         MachineCapability, MemoryScope, MemorySource, PreviewAgentMachine, ReadWorkFile,
         RemoveDevice, RemoveMachine, RevokeNodeToken, RunEvent, SaveHarnessSettings,
         StartAgentSession, SteerAgentSession, Upload, WorkDiff, WorkEntry, WorkFolder, WorkTree,
-        WriteWorkFile, image_key,
+        WriteWorkFile,
+        client::Client,
+        image_key,
         link::LinkOffer,
         node::{
             EnvReport, NodeSetup,
@@ -54,7 +55,7 @@ use beep_server::{
         },
         setup::SetupToken,
     },
-    push::Pusher,
+    push::Pulse,
     store::{CreateRun, Fact, NewKey, NewNode, Scope, TestDb},
 };
 use flashmind::types::{
@@ -129,13 +130,16 @@ impl Protocol for FakeDesktop {
     }
 }
 
-/// An app on `key` connected to `router`'s server, with the node it runs on.
-async fn phone(key: SecretKey, router: &Router) -> (Node, Client) {
-    let node = Node::bind(key, router.endpoint().addr(), Arc::new(|_| true))
+/// An app on `key` calling the server behind `apps`.
+async fn phone(key: SecretKey, apps: &http::Local) -> Client {
+    Client::new(apps.url(), key).expect("a phone client")
+}
+
+/// The apps' side of a server that signs with `key`.
+async fn apps(app: &Arc<App>, key: &SecretKey) -> http::Local {
+    http::Local::start(app.clone(), key, Pulse::manual())
         .await
-        .expect("a phone binds");
-    let client = node.connect().await.expect("a phone connects");
-    (node, client)
+        .expect("the apps' HTTP starts")
 }
 
 fn memory(content: &str, scope: Scope) -> Fact<'_> {
@@ -731,24 +735,16 @@ async fn a_user_sees_their_machines_and_what_memories_are_about() {
         ServerTools::default(),
         models,
     );
-    let server_endpoint = endpoint(SecretKey::generate()).await;
-    let pusher = Pusher::with_retry_waits(
-        server_endpoint.clone(),
-        Arc::new(store),
-        None,
-        vec![Duration::from_millis(200)],
-    );
+    let server_key = SecretKey::generate();
+    let server_endpoint = endpoint(server_key.clone()).await;
     let server_id = server_endpoint.id();
     let router = Router::builder(server_endpoint)
         .accept(
             nodes::NODE_ALPN,
             nodes::NodeHandler::new(app.clone(), server_id),
         )
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
         .spawn();
+    let apps = apps(&app, &server_key).await;
     let server = router.endpoint().addr();
 
     let user = app
@@ -780,7 +776,7 @@ async fn a_user_sees_their_machines_and_what_memories_are_about() {
     .await
     .expect("the node reported");
 
-    let (_alice_node, alice_app) = phone(alice.clone(), &router).await;
+    let alice_app = phone(alice.clone(), &apps).await;
     let machines = alice_app.call(&ListMachines {}).await.unwrap();
     assert_eq!(machines.len(), 1);
     assert_eq!(machines[0].id, node_id);
@@ -857,7 +853,7 @@ async fn a_user_sees_their_machines_and_what_memories_are_about() {
     );
 
     // Someone else sees none of alice's machines.
-    let (_bob_node, bob_app) = phone(SecretKey::generate(), &router).await;
+    let bob_app = phone(SecretKey::generate(), &apps).await;
     assert!(bob_app.call(&ListMachines {}).await.unwrap().is_empty());
     assert!(bob_app.call(&ListMemoryScopes {}).await.unwrap().is_empty());
 
@@ -882,24 +878,16 @@ async fn any_app_of_the_account_removes_a_machine_online_or_not() {
         ServerTools::default(),
         models,
     );
-    let server_endpoint = endpoint(SecretKey::generate()).await;
-    let pusher = Pusher::with_retry_waits(
-        server_endpoint.clone(),
-        Arc::new(store),
-        None,
-        vec![Duration::from_millis(200)],
-    );
+    let server_key = SecretKey::generate();
+    let server_endpoint = endpoint(server_key.clone()).await;
     let server_id = server_endpoint.id();
     let router = Router::builder(server_endpoint)
         .accept(
             nodes::NODE_ALPN,
             nodes::NodeHandler::new(app.clone(), server_id),
         )
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
         .spawn();
+    let apps = apps(&app, &server_key).await;
     let server = router.endpoint().addr();
     let sign_in = async |key: &SecretKey| {
         app.sign_in(&key.public())
@@ -957,7 +945,7 @@ async fn any_app_of_the_account_removes_a_machine_online_or_not() {
     .await
     .unwrap();
 
-    let (_laptop_node, client) = phone(laptop.clone(), &router).await;
+    let client = phone(laptop.clone(), &apps).await;
     assert_eq!(client.call(&ListMachines {}).await.unwrap().len(), 2);
 
     // The offline machine goes at once and its key is refused from then on.
@@ -1219,8 +1207,8 @@ async fn removing_a_machine_removes_its_sessions_and_projects() {
     seed_worker(&pool, &bob, bobs_solo, &bobs).await;
     seed_session_rows(&pool, &bob, &bobs).await;
 
-    let (_node, client) = center.phone(0).await;
-    let (_bob_node, bob_client) = center.phone(1).await;
+    let client = center.phone(0).await;
+    let bob_client = center.phone(1).await;
     assert_eq!(client.call(&ListAgentSessions {}).await.unwrap().len(), 1);
     assert!(rows_of(&pool, &doomed).await >= 14);
     let kept_rows = rows_of(&pool, &kept).await;
@@ -1288,7 +1276,7 @@ async fn removing_a_machine_removes_its_sessions_and_projects() {
 async fn the_ssh_requests_answer_that_they_were_removed() {
     let mut center = CommandCenter::new(1).await;
     let machine = center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let hosts = client
         .call(&ListSshHosts {
             machine_id: machine.clone(),
@@ -1325,23 +1313,6 @@ fn gpu_report() -> EnvReport {
     }
 }
 
-/// A router with the app's own protocol on it, for phones to call.
-async fn phone_router(app: &Arc<App>, store: beep_server::store::Store) -> Router {
-    let server_endpoint = endpoint(SecretKey::generate()).await;
-    let pusher = Pusher::with_retry_waits(
-        server_endpoint.clone(),
-        Arc::new(store),
-        None,
-        vec![Duration::from_millis(200)],
-    );
-    Router::builder(server_endpoint)
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
-        .spawn()
-}
-
 #[tokio::test]
 async fn machine_details_lists_apps_gpus_and_capabilities() {
     let db = TestDb::new().await.unwrap();
@@ -1356,7 +1327,7 @@ async fn machine_details_lists_apps_gpus_and_capabilities() {
         ServerTools::default(),
         models,
     );
-    let router = phone_router(&app, store).await;
+    let apps = apps(&app, &SecretKey::generate()).await;
     let user = app
         .sign_in(&alice.public())
         .await
@@ -1387,7 +1358,7 @@ async fn machine_details_lists_apps_gpus_and_capabilities() {
     user.save_node_env(&linked[0], &gpu_report()).await.unwrap();
     user.save_node_env(&linked[2], &gpu_report()).await.unwrap();
 
-    let (_node, client) = phone(alice, &router).await;
+    let client = phone(alice, &apps).await;
     let mut details = client.call(&ListMachineDetails {}).await.unwrap();
     details.sort_by_key(|machine| machine.apps.len());
     // The machine without a report is listed, empty; the unlinked one is not.
@@ -1408,7 +1379,6 @@ async fn machine_details_lists_apps_gpus_and_capabilities() {
     assert_eq!(gpu.apps[0].version.as_deref(), Some("4.2"));
     assert_eq!(gpu.gpus[0].vendor, "NVIDIA");
     assert_eq!(gpu.gpus[0].vram_mb, Some(24564));
-    router.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -1554,7 +1524,7 @@ fn asking_alert(session: &str) -> Alert {
 #[tokio::test]
 async fn a_question_from_a_node_reaches_every_device_whoever_started_the_session() {
     let mut center = CommandCenter::new(1).await;
-    let (_node, phone) = center.phone(0).await;
+    let phone = center.phone(0).await;
     let reached = alert_reach_of(&mut center, &phone, asking_alert).await;
     assert_eq!(
         reached,
@@ -1570,7 +1540,7 @@ async fn a_question_from_a_node_reaches_every_device_whoever_started_the_session
 #[tokio::test]
 async fn a_session_started_on_the_phone_alerts_only_the_phone() {
     let mut center = CommandCenter::new(1).await;
-    let (_node, phone) = center.phone(0).await;
+    let phone = center.phone(0).await;
     let reached = alert_reach(&mut center, &phone).await;
     assert_eq!(
         reached,
@@ -1599,7 +1569,7 @@ async fn a_session_started_on_a_computer_alerts_only_that_computer() {
             .unwrap();
         macs.push(key);
     }
-    let (_node, macbook) = phone(macs[0].clone(), &center.router).await;
+    let macbook = phone(macs[0].clone(), &center.apps).await;
     let reached = alert_reach(&mut center, &macbook).await;
     assert_eq!(
         reached,
@@ -2011,6 +1981,7 @@ struct CommandCenter {
     _db: TestDb,
     app: Arc<App>,
     router: Router,
+    apps: http::Local,
     keys: Vec<SecretKey>,
     users: Vec<Arc<User>>,
     nodes: Vec<tokio::task::JoinHandle<anyhow::Result<()>>>,
@@ -2034,24 +2005,16 @@ impl CommandCenter {
             ServerTools::default(),
             models,
         );
-        let server_endpoint = endpoint(SecretKey::generate()).await;
-        let pusher = Pusher::with_retry_waits(
-            server_endpoint.clone(),
-            Arc::new(store),
-            None,
-            vec![Duration::from_millis(200)],
-        );
+        let server_key = SecretKey::generate();
+        let server_endpoint = endpoint(server_key.clone()).await;
         let server_id = server_endpoint.id();
         let router = Router::builder(server_endpoint)
             .accept(
                 nodes::NODE_ALPN,
                 nodes::NodeHandler::new(app.clone(), server_id),
             )
-            .accept(
-                transport::ALPN,
-                transport::BeepHandler::new(app.clone(), pusher),
-            )
             .spawn();
+        let apps = apps(&app, &server_key).await;
         let mut users = Vec::new();
         for key in &keys {
             let user = app
@@ -2066,6 +2029,7 @@ impl CommandCenter {
             _db: db,
             app,
             router,
+            apps,
             keys,
             users,
             nodes: Vec::new(),
@@ -2105,8 +2069,8 @@ impl CommandCenter {
         }));
     }
 
-    async fn phone(&self, user: usize) -> (Node, Client) {
-        phone(self.keys[user].clone(), &self.router).await
+    async fn phone(&self, user: usize) -> Client {
+        phone(self.keys[user].clone(), &self.apps).await
     }
 
     async fn shutdown(self) {
@@ -2121,7 +2085,7 @@ impl CommandCenter {
 async fn agent_sessions_list_none_of_another_users_machines() {
     let mut center = CommandCenter::new(1).await;
     center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
+    let bob = phone(SecretKey::generate(), &center.apps).await;
     assert!(bob.call(&ListAgentSessions {}).await.unwrap().is_empty());
     center.shutdown().await;
 }
@@ -2130,7 +2094,7 @@ async fn agent_sessions_list_none_of_another_users_machines() {
 async fn a_harness_turned_off_is_not_offered() {
     let mut center = CommandCenter::new(1).await;
     let build = center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let off = HarnessSettings {
         enabled: false,
         program: String::new(),
@@ -2171,7 +2135,7 @@ async fn harness_settings_save_to_every_machine_even_one_offline() {
     let gpu = center.node(0, "gpu-box", FakeAgents::default()).await;
     // gpu-box goes offline; it is still one of the user's machines.
     center.nodes[1].abort();
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let own = |program: &str| HarnessSettings {
         enabled: true,
         program: program.into(),
@@ -2237,7 +2201,7 @@ async fn harness_settings_save_to_every_machine_even_one_offline() {
 #[tokio::test]
 async fn flsh_settings_save_read_back_and_refuse_bad_values() {
     let center = CommandCenter::new(1).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     assert_eq!(
         client.call(&GetFlshSettings {}).await.unwrap(),
         FlshSettings::default()
@@ -2415,7 +2379,7 @@ async fn permissions_ask_before_a_chat_starts_a_coding_agent() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
 
     let chat = Uuid::new_v4();
     turn(&center, &go, chat).await;
@@ -2489,7 +2453,7 @@ async fn start_agent_session_on_a_named_machine() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let started = client
         .call(&start(Some(build.clone()), "Fix the tests"))
         .await
@@ -2534,7 +2498,7 @@ async fn auto_starts_on_the_least_busy_machine_and_refuses_what_none_has() {
         )
         .await;
     let idle = center.node(0, "idle-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     // Both fake nodes run here, so both have this folder.
     let here = std::env::temp_dir().to_string_lossy().into_owned();
     let auto = |prompt: &str, cwd: &str| StartAgentSession {
@@ -2605,7 +2569,7 @@ async fn auto_preview_names_the_machine_without_starting() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let here = std::env::temp_dir().to_string_lossy().into_owned();
     let preview = |needs: Vec<MachineCapability>| PreviewAgentMachine {
         agent: None,
@@ -2649,7 +2613,7 @@ async fn agent_images_pass_through_from_the_node() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let get = |session: &str, key: &str| GetAgentImage {
         machine_id: build.clone(),
         session: session.into(),
@@ -2735,7 +2699,7 @@ async fn agent_files_are_read_from_the_node_in_parts() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let get = |path: &str, offset: u64| GetAgentFile {
         machine_id: build.clone(),
         path: path.into(),
@@ -2794,7 +2758,7 @@ async fn a_sessions_folder_is_listed_read_and_written_through_its_node() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let folder = client
         .call(&ListWorkFolder {
             machine_id: build.clone(),
@@ -2883,7 +2847,7 @@ async fn a_folder_read_lost_with_a_replaced_connection_goes_again() {
         ..FakeAgents::default()
     };
     let key = center.node_key(0, "build-box", stale).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let list = ListWorkFolder {
         machine_id: key.public().to_string(),
         root: "/srv/project".into(),
@@ -2920,7 +2884,7 @@ async fn a_folder_read_lost_with_a_replaced_connection_goes_again() {
 async fn a_sessions_changes_are_read_through_its_node() {
     let mut center = CommandCenter::new(1).await;
     let build = center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let ask = |root: &str| GetWorkDiff {
         machine_id: build.clone(),
         root: root.into(),
@@ -2954,7 +2918,7 @@ async fn a_sessions_changes_are_read_through_its_node() {
 async fn a_projects_custom_agents_are_read_through_its_node() {
     let mut center = CommandCenter::new(1).await;
     let build = center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let agents = client
         .call(&ListCustomAgents {
             machine_id: build.clone(),
@@ -3004,7 +2968,7 @@ async fn a_thumb_is_small_and_the_full_picture_is_what_is_kept() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let key = image_key(&png);
     let thumb = client
         .call(&GetAgentThumb {
@@ -3054,7 +3018,7 @@ async fn pictures_a_node_sends_show_while_it_is_offline() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let get = GetAgentImage {
         machine_id: build.clone(),
         session: "a3f9c1".into(),
@@ -3075,7 +3039,7 @@ async fn pictures_a_node_sends_show_while_it_is_offline() {
     assert_eq!(got.data, png);
     assert_eq!(got.mime, "image/png");
     // Another user does not get it.
-    let (_other, theirs) = center.phone(1).await;
+    let theirs = center.phone(1).await;
     assert!(theirs.call(&get).await.is_err());
 
     for node in &center.nodes {
@@ -3108,7 +3072,7 @@ async fn agent_control_keeps_to_the_callers_machines_and_chats() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let not_found = |error: anyhow::Error| {
         matches!(error.downcast::<ApiError>().unwrap(), ApiError::NotFound {})
     };
@@ -3186,7 +3150,7 @@ async fn a_sessions_usage_and_modes_come_from_its_node() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let modes = GetAgentSessionModes {
         machine_id: machine.clone(),
         agent: "claude".into(),
@@ -3252,7 +3216,7 @@ async fn a_sessions_usage_and_modes_come_from_its_node() {
 async fn agent_control_never_reaches_another_users_machines() {
     let mut center = CommandCenter::new(1).await;
     center.node(0, "build-box", FakeAgents::default()).await;
-    let (_node, bob) = phone(SecretKey::generate(), &center.router).await;
+    let bob = phone(SecretKey::generate(), &center.apps).await;
     assert!(bob.call(&ListAgentHosts {}).await.unwrap().is_empty());
     let refused = bob.call(&start(None, "Fix the tests")).await.unwrap_err();
     assert!(matches!(
@@ -3262,12 +3226,13 @@ async fn agent_control_never_reaches_another_users_machines() {
     center.shutdown().await;
 }
 
-/// A server taking both phones and nodes on one endpoint, as the real one
-/// does, with alice as a user.
+/// A server taking nodes on its endpoint and phones over HTTP with the same
+/// key, as the real one does, with alice as a user.
 struct OneEndpoint {
     db: TestDb,
     app: Arc<App>,
     router: Router,
+    apps: http::Local,
     alice: SecretKey,
 }
 
@@ -3284,25 +3249,18 @@ async fn one_endpoint() -> OneEndpoint {
         ServerTools::default(),
         models,
     );
-    let server_endpoint = endpoint(SecretKey::generate()).await;
-    let pusher = Pusher::with_retry_waits(
-        server_endpoint.clone(),
-        Arc::new(store),
-        None,
-        vec![Duration::from_millis(200)],
-    );
+    let server_key = SecretKey::generate();
+    let server_endpoint = endpoint(server_key.clone()).await;
     let nodes_handler = nodes::NodeHandler::new(app.clone(), server_endpoint.id());
     let router = Router::builder(server_endpoint)
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
         .accept(nodes::NODE_ALPN, nodes_handler)
         .spawn();
+    let apps = apps(&app, &server_key).await;
     OneEndpoint {
         db,
         app,
         router,
+        apps,
         alice,
     }
 }
@@ -3318,7 +3276,7 @@ fn setup_of(token: &str) -> NodeSetup {
 async fn a_machine_sets_itself_up_with_a_token_once() {
     let server = one_endpoint().await;
     let addr = server.router.endpoint().addr();
-    let (_phone, client) = phone(server.alice.clone(), &server.router).await;
+    let client = phone(server.alice.clone(), &server.apps).await;
     let made = client
         .call(&CreateNodeToken {
             name: Some("build box".into()),
@@ -3428,9 +3386,9 @@ async fn a_machine_sets_itself_up_with_a_token_once() {
 async fn every_user_links_a_machine_that_only_they_see() {
     let server = one_endpoint().await;
     let addr = server.router.endpoint().addr();
-    let (_alice_phone, alice) = phone(server.alice.clone(), &server.router).await;
+    let alice = phone(server.alice.clone(), &server.apps).await;
     let bob_key = SecretKey::generate();
-    let (_bob_phone, bob) = phone(bob_key.clone(), &server.router).await;
+    let bob = phone(bob_key.clone(), &server.apps).await;
     let made = bob
         .call(&CreateNodeToken {
             name: Some("bobs box".into()),
@@ -3515,8 +3473,8 @@ async fn an_app_reads_the_recent_log_of_its_own_machines() {
     )
     .await;
     let old = log_node(&mut center, "old", Vec::new()).await;
-    let (_alice_node, alice) = center.phone(0).await;
-    let (_bob_node, bob) = center.phone(1).await;
+    let alice = center.phone(0).await;
+    let bob = center.phone(1).await;
     let ask = |machine_id: &str, lines| GetMachineLog {
         machine_id: machine_id.to_owned(),
         lines,
@@ -3557,7 +3515,7 @@ async fn an_app_reads_the_recent_log_of_its_own_machines() {
 async fn an_expired_unknown_or_foreign_token_is_refused() {
     let server = one_endpoint().await;
     let addr = server.router.endpoint().addr();
-    let (_phone, client) = phone(server.alice.clone(), &server.router).await;
+    let client = phone(server.alice.clone(), &server.apps).await;
     let made = client.call(&CreateNodeToken { name: None }).await.unwrap();
     let pool = server.db.raw_pool().await.unwrap();
     sqlx::query("UPDATE node_tokens SET expires_at = now() - interval '1 second'")
@@ -3640,8 +3598,8 @@ impl Protocol for BigName {
 async fn only_the_maker_revokes_a_token() {
     let server = one_endpoint().await;
     let addr = server.router.endpoint().addr();
-    let (_alice_phone, alice) = phone(server.alice.clone(), &server.router).await;
-    let (_bob_phone, bob) = phone(SecretKey::generate(), &server.router).await;
+    let alice = phone(server.alice.clone(), &server.apps).await;
+    let bob = phone(SecretKey::generate(), &server.apps).await;
     // Bob gets a token of his own too.
     bob.call(&CreateNodeToken { name: None }).await.unwrap();
 
@@ -3698,7 +3656,7 @@ async fn agent_models_come_from_the_node_and_reach_the_start() {
         )
         .await;
     let older = center.node(0, "old-box", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     let list = |machine_id: &str, agent: &str| ListAgentModels {
         machine_id: machine_id.into(),
         agent: agent.into(),
@@ -3878,7 +3836,7 @@ async fn what_agents_spend_and_their_plans_reach_the_pill() {
         .await;
     // A node from before `FollowUsage` closes the stream.
     center.node(0, "old", FakeAgents::default()).await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     // Polls: keeping the reports has no signal to wait on.
     let view = timeout(Duration::from_secs(20), async {
         loop {
@@ -3915,7 +3873,7 @@ async fn what_agents_spend_and_their_plans_reach_the_pill() {
     assert_eq!(view.limits[0].windows[0].used_percent, 38.0);
     assert_eq!(view.limits[0].machine_name, "build-box");
     // Another user sees none of it.
-    let (_other, theirs) = center.phone(1).await;
+    let theirs = center.phone(1).await;
     let none = theirs.call(&GetUsage { refresh: false }).await.unwrap();
     assert!(none.today.is_empty() && none.limits.is_empty() && none.harnesses.is_empty());
 
@@ -3981,7 +3939,7 @@ async fn sessions_read_from_the_logs_count_once() {
             },
         )
         .await;
-    let (_node, client) = center.phone(0).await;
+    let client = center.phone(0).await;
     // Polls: keeping the reports has no signal to wait on.
     let report = timeout(Duration::from_secs(20), async {
         loop {

@@ -1,17 +1,17 @@
-//! A research from the first message to the result, over QUIC, with every
+//! A research from the first message to the result, over HTTP, with every
 //! agent played by a scripted model.
 
 use async_trait::async_trait;
 use beep_server::{
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools},
-    client::{Client, Node, Replies},
     protocol::{
         Chat, Event, GetResearch, GetResearchPdf, GetSession, HistoryEntry, Research,
         ResearchEntryBody, ResearchStatus, RunEvent, StopResearch,
+        client::{Client, Replies},
     },
-    push::Pusher,
+    push::Pulse,
     research::{ResearchConfig, RoleModel},
     store::TestDb,
 };
@@ -19,7 +19,7 @@ use flashmind::types::{
     AgentLlmConfig, CompletionRequest, CompletionStream, FinishReason, LlmProvider, Message,
     Provider, ReasoningLevel, Role, StreamEvent,
 };
-use iroh::{SecretKey, endpoint::presets, protocol::Router};
+use iroh::SecretKey;
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use tokio::time::{sleep, timeout};
@@ -162,7 +162,7 @@ impl LlmProvider for TeamStub {
 
 struct Harness {
     _db: TestDb,
-    router: Router,
+    apps: http::Local,
     _app: Arc<App>,
 }
 
@@ -189,40 +189,18 @@ impl Harness {
             ServerTools::default(),
             ModelChoices::only(model).with_research(Some(research)),
         );
-        let endpoint = iroh::Endpoint::builder(presets::Minimal)
-            .secret_key(SecretKey::generate())
-            .bind()
+        let apps = http::Local::start(app.clone(), &SecretKey::generate(), Pulse::manual())
             .await
             .unwrap();
-        let pusher = Pusher::with_retry_waits(
-            endpoint.clone(),
-            Arc::new(app.store.clone()),
-            None,
-            vec![Duration::from_millis(200)],
-        );
-        let router = Router::builder(endpoint)
-            .accept(
-                transport::ALPN,
-                transport::BeepHandler::new(app.clone(), pusher),
-            )
-            .spawn();
         Self {
             _db: db,
-            router,
+            apps,
             _app: app,
         }
     }
 
-    async fn client(&self) -> (Node, Client) {
-        let node = Node::bind(
-            SecretKey::from_bytes(&[1; 32]),
-            self.router.endpoint().addr(),
-            Arc::new(|_| true),
-        )
-        .await
-        .unwrap();
-        let client = node.connect().await.unwrap();
-        (node, client)
+    fn client(&self) -> Client {
+        Client::new(self.apps.url(), SecretKey::from_bytes(&[1; 32])).unwrap()
     }
 }
 
@@ -312,7 +290,7 @@ async fn replied(client: &Client, session: Uuid, start: &str) -> Vec<HistoryEntr
 #[tokio::test]
 async fn a_research_plans_runs_its_team_and_reports_back() {
     let h = Harness::new().await;
-    let (_node, c) = h.client().await;
+    let c = h.client();
     let session = Uuid::new_v4();
 
     let plan = say(&c, &chat(session, "Does it work?", true)).await;

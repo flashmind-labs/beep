@@ -29,13 +29,13 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::{
-    client::CLOSE_REVOKED,
     link::LinkOffer,
     node::{
         CLOSE_SETUP_REFUSED, Down, EnvReport, LinkRx, LinkTx, MachineCredentials, NODE_ALPN,
         NODE_ALPN_NAMED, NodeHello, NodeSetup, Open, Opened, StatsReport, Up, agent, desktop,
         harness::AgentSettings, link_on, status, tool_update, tools, version,
     },
+    port::CLOSE_REVOKED,
 };
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,

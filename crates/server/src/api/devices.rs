@@ -119,10 +119,7 @@ pub(super) async fn invite_device(
             "the device name is empty or too long",
         ));
     }
-    let invite = cx
-        .user
-        .create_invite(&cx.key, name, INVITE_TTL)
-        .await?;
+    let invite = cx.user.create_invite(&cx.key, name, INVITE_TTL).await?;
     Ok(DeviceInvite {
         uri: link::join_uri(&invite.code),
         code: invite.code,

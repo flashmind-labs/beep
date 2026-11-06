@@ -15,10 +15,10 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 
 mod actions;
-mod app_notices;
 mod agent_images;
 mod agent_session_starts;
 mod alerts;
+mod app_notices;
 pub(crate) use agent_session_starts::SessionOn;
 mod agent_spend;
 mod agent_usage;

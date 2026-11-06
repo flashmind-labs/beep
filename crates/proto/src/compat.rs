@@ -143,6 +143,12 @@ impl<T: Sample> Sample for Vec<T> {
     }
 }
 
+impl<T: Sample> Sample for Box<T> {
+    fn samples() -> Vec<Self> {
+        T::samples().into_iter().map(Box::new).collect()
+    }
+}
+
 impl Sample for SecretText {
     fn samples() -> Vec<Self> {
         vec![SecretText::new("secret-1234")]

@@ -151,5 +151,4 @@ impl Store {
         .await?
         .rows_affected())
     }
-
 }

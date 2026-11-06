@@ -38,7 +38,10 @@ pub fn start(
             let id = match store.log_notice(&notice).await {
                 Ok(id) => id,
                 Err(e) => {
-                    log::warn!("push: logging a notice failed; user={} error={e:#}", notice.user);
+                    log::warn!(
+                        "push: logging a notice failed; user={} error={e:#}",
+                        notice.user
+                    );
                     continue;
                 }
             };

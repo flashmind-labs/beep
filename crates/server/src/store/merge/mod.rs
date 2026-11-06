@@ -91,6 +91,8 @@ const MOVED: &[(&str, &[&str])] = &[
     ("project_webhooks", &[]),
     // A website login stays on whichever account the person ends up with.
     ("user_logins", &[]),
+    // Notices go with the account, so its devices resume where they were.
+    ("app_notices", &[]),
 ];
 
 /// Tables `merge_into` handles specially; with the other lists, every user table (a test checks the schema).

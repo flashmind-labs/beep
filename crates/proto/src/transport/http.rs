@@ -21,8 +21,8 @@
 //! refused at once (403 with `REFUSED_HEADER`).
 //!
 //! `EVENTS_PATH` is one long `GET` of untagged `AppEvent` frames: what the
-//! user's devices are told, a `Heartbeat` every `HEARTBEAT` when nothing else
-//! went, and `?after=<id>` resumes after the last `AppEvent::Notice` read.
+//! user's devices are told, a `Heartbeat` every `HEARTBEAT` so proxies keep it
+//! open, and `?after=<id>` resumes after the last `AppEvent::Notice` read.
 
 use crate::{ApiError, Notice, Op, Platform, SecretText};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -205,11 +205,12 @@ wire_enum! {
     ///   from, for `?after=` on the next, even when no notice came.
     /// - `Updated`, second and whenever it moves: the user's newest update
     ///   id; call `GetUpdates` from the last one read.
-    /// - `Notice`, one for this device. `id` grows.
-    /// - `Heartbeat`: nothing happened for `HEARTBEAT`.
+    /// - `Notice`, one for this device. `id` grows. Boxed, as the other
+    ///   events are a few bytes.
+    /// - `Heartbeat`: every `HEARTBEAT`, so a proxy keeps the stream open.
     #[derive(Debug, Clone, PartialEq)]
     pub enum AppEvent {
-        0 Notice { id: i64, notice: Notice }
+        0 Notice { id: i64, notice: Box<Notice> }
         1 Updated { last: i64 }
         2 Heartbeat {}
         3 Resume { after: i64 }

@@ -29,7 +29,6 @@ use beep_mesh::{
     },
     transport_config,
 };
-use beep_proto::client::bind_endpoint;
 use beep_proto::node::{
     agent::{DiffAsk, Event, Request},
     mesh_state::{StateValue, SyncSpec},
@@ -38,6 +37,7 @@ use beep_proto::node::{
     sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
     terminal::{Reply as TermReply, Request as TermRequest, Size},
 };
+use beep_proto::port::bind_endpoint;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 use iroh_tickets::Ticket;
 use std::{
