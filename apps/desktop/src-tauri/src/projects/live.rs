@@ -1,10 +1,9 @@
 //! Follows the project pages that show (`WatchProject`): the server says
-//! whether a project is live through a webhook or polling, and when its
-//! pull requests, issues or runs were read again, and the page redraws
-//! them as `project-live` events. A project of the mesh has no server to
-//! say: the desktop polls the host itself, and tells the page to read
-//! again every [`POLL_EVERY`] while it shows. Repository webhooks wait
-//! for the server, so such a project is never live.
+//! when a project's pull requests, issues or runs were read again, and the
+//! page redraws them as `project-live` events. A project of the mesh has no
+//! server to say: the desktop polls the host itself, and tells the page to
+//! read again every [`POLL_EVERY`] while it shows. Both poll, so a project
+//! is never live (an older server may still say it is).
 
 use crate::{
     beep::{Beep, Service},

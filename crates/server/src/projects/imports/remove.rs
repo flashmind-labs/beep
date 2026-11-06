@@ -4,7 +4,6 @@ use crate::{
     account::user::User,
     app::App,
     nodes::{Online, SHELL, push_sync},
-    projects::repo_watch,
     projects::{
         fleet::{Fleet, NodeFleet},
         lifecycle::{self, fill_slots},
@@ -34,17 +33,13 @@ pub(crate) async fn remove_project(app: &Arc<App>, user: &Arc<User>, name: &str)
         removed.terminals.len()
     );
     wind_down(app, user, &removed).await;
-    // A node removes the webhooks Beep made on the repository; without one
-    // online they stay recorded until a node of the user connects.
-    app.repo_watch.forwards.stop(user.id(), &removed.projects);
-    repo_watch::sweep_any(app, user).await;
     if removed.synced {
         push_sync(&app.nodes, user, None).await?;
     }
     Ok(true)
 }
 
-/// Winds down after a removed machine: the tasks it left without a worker are blocked and what ran for its projects stops. Starts no webhook sweep, so this reaches no forge to delete.
+/// Winds down after a removed machine: the tasks it left without a worker are blocked and what ran for its projects stops.
 pub(crate) async fn machine_removed(app: &Arc<App>, user: &Arc<User>, removed: &RemovedProject) {
     let fleet = NodeFleet::new(app, user);
     for worker in &removed.workers {
@@ -53,7 +48,6 @@ pub(crate) async fn machine_removed(app: &Arc<App>, user: &Arc<User>, removed: &
         }
     }
     wind_down(app, user, removed).await;
-    app.repo_watch.forwards.stop(user.id(), &removed.projects);
 }
 
 /// Stops what ran for a removed project, each failure logged.
