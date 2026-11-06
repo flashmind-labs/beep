@@ -12,7 +12,7 @@ import { emptyPage, errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";
 import { bytes, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 import { clockWarning, loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.ts";
 import { signInOffer } from "./signin-state.ts";
@@ -138,6 +138,22 @@ export async function renderMachines(id: string | null = null) {
   if (log?.id !== id) log = null;
   if (id) void loadSearch(id);
   drawMachines();
+  await readList();
+  // Looking the newest releases up can take a while; the page shows first.
+  void loadNodeRelease();
+  try {
+    const tools = await invoke<ToolUpdate[]>("tool_updates");
+    // The page only changes when a newer release shows up.
+    const same = JSON.stringify(tools) === JSON.stringify(MC.tools);
+    MC.tools = tools;
+    if (shown() && !same) drawMachines();
+  } catch (e) {
+    console.warn("tool updates:", e);
+  }
+}
+
+/// Reads the machines and draws them while the page shows.
+async function readList() {
   try {
     const [list, mac, updatable, traffic] = await Promise.all([
       invoke<Machine[]>("list_machines"),
@@ -155,18 +171,10 @@ export async function renderMachines(id: string | null = null) {
     MC.error = String(e);
   }
   if (shown()) drawMachines();
-  // Looking the newest releases up can take a while; the page shows first.
-  void loadNodeRelease();
-  try {
-    const tools = await invoke<ToolUpdate[]>("tool_updates");
-    // The page only changes when a newer release shows up.
-    const same = JSON.stringify(tools) === JSON.stringify(MC.tools);
-    MC.tools = tools;
-    if (shown() && !same) drawMachines();
-  } catch (e) {
-    console.warn("tool updates:", e);
-  }
 }
+
+// Opened before the machines connected: the page follows them as they come.
+for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) void readList(); });
 
 async function loadNodeRelease() {
   const released = await invoke<string | null>("node_release").catch(e => { console.warn("beep-node release:", e); return null; });
