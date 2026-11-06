@@ -5,14 +5,19 @@ use std::env;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+use tokio::time::timeout;
 
 pub const REPO: &str = "flashmind-labs/beep";
 pub const LABEL: &str = "report";
 
 const SHORT_ID: usize = 8;
+const SIGNED_IN_LIMIT: Duration = Duration::from_secs(10);
+const OPEN_LIMIT: Duration = Duration::from_secs(60);
+const FIELD_MAX: usize = 40;
 
 /// The public issue: the user's text, the reference and versions. Never logs,
 /// machine names, paths or ids beyond the sender's short one.
@@ -30,6 +35,8 @@ pub enum IssueError {
     Failed(String),
     #[error("gh printed no issue URL")]
     NoUrl,
+    #[error("gh did not finish in time")]
+    TimedOut,
 }
 
 /// Redacts `manifest.text` itself and fails closed if it cannot.
@@ -51,8 +58,8 @@ pub fn issue(manifest: &Manifest, reference: &str) -> Result<Issue, RedactError>
     let _ = writeln!(
         body,
         "App: {} {}",
-        manifest.app,
-        or_unknown(&manifest.app_version)
+        plain(&manifest.app),
+        or_unknown(&plain(&manifest.app_version))
     );
     if !manifest.machines.is_empty() {
         body.push_str("\nMachines:\n");
@@ -75,8 +82,10 @@ fn quote_mentions(text: &str) -> String {
         out.push_str(&rest[..at]);
         let tail = &rest[at + 1..];
         let len = tail.find(|c| !word(c)).unwrap_or(tail.len());
-        if len == 0 {
+        let starts_word = out.chars().next_back().is_none_or(|c| !word(c));
+        if len == 0 || !starts_word {
             out.push('@');
+            out.push_str(&tail[..len]);
         } else {
             out.push('`');
             out.push('@');
@@ -93,11 +102,19 @@ fn machine_line(m: &MachineEntry) -> String {
     format!(
         "{}, {} {}, {}: {}",
         m.kind,
-        m.os,
-        m.os_version,
-        or_unknown(&m.version),
+        plain(&m.os),
+        plain(&m.os_version),
+        or_unknown(&plain(&m.version)),
         answer_word(&m.answer)
     )
+}
+
+/// Remote strings reach a public page: one line of plain characters, capped.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+' | ' '))
+        .take(FIELD_MAX)
+        .collect()
 }
 
 fn or_unknown(version: &str) -> &str {
@@ -128,24 +145,31 @@ pub fn find_gh() -> Option<PathBuf> {
 }
 
 pub async fn gh_signed_in(gh: &Path) -> bool {
-    Command::new(gh)
+    let mut command = Command::new(gh);
+    command
         .args(["auth", "status", "--hostname", "github.com"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .status()
+        .kill_on_drop(true);
+    timeout(SIGNED_IN_LIMIT, command.status())
         .await
-        .is_ok_and(|status| status.success())
+        .is_ok_and(|status| status.is_ok_and(|status| status.success()))
 }
 
 /// Opens the issue with the user's own `gh` and returns its URL. Runs again
 /// without the label when the repository has none.
 pub async fn open_issue(gh: &Path, issue: &Issue) -> Result<String, IssueError> {
-    match create(gh, issue, true).await {
-        Err(IssueError::Failed(stderr)) if label_missing(&stderr) => create(gh, issue, false).await,
-        other => other,
-    }
+    timeout(OPEN_LIMIT, async {
+        match create(gh, issue, true).await {
+            Err(IssueError::Failed(stderr)) if label_missing(&stderr) => {
+                create(gh, issue, false).await
+            }
+            other => other,
+        }
+    })
+    .await
+    .unwrap_or(Err(IssueError::TimedOut))
 }
 
 fn label_missing(stderr: &str) -> bool {
@@ -265,7 +289,43 @@ mod tests {
 
     #[test]
     fn mentions_are_quoted_and_lone_at_signs_kept() {
-        assert_eq!(quote_mentions("a @x/team, b@ c @"), "a `@x/team`, b@ c @");
+        assert_eq!(
+            quote_mentions("a @x/team, b@ c @ user@host.com"),
+            "a `@x/team`, b@ c @ user@host.com"
+        );
+    }
+
+    #[test]
+    fn remote_strings_stay_on_one_plain_line() {
+        let mut m = manifest("x");
+        m.machines[0].os_version = "6.8\n@x injected\n# heading".into();
+        m.machines[0].version = "9".repeat(100);
+        m.app = "desktop\n@y".into();
+        let got = issue(&m, "R-1").expect("redaction rules build");
+        assert!(!got.body.contains("@x"));
+        assert!(!got.body.contains("@y"));
+        assert!(!got.body.contains("\n# heading"));
+        assert!(!got.body.contains(&"9".repeat(41)));
+        assert!(got.body.contains("node, linux 6.8x injected heading, "));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(start_paused = true)]
+    async fn a_gh_that_never_exits_times_out() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let gh = dir.path().join("gh");
+        std::fs::write(&gh, "#!/bin/sh\nexec sleep 3600\n").expect("write script");
+        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        assert!(!gh_signed_in(&gh).await);
+        let issue = Issue {
+            title: "t".into(),
+            body: "b".into(),
+        };
+        assert!(matches!(
+            open_issue(&gh, &issue).await,
+            Err(IssueError::TimedOut)
+        ));
     }
 
     #[cfg(unix)]
