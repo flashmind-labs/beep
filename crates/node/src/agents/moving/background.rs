@@ -122,13 +122,17 @@ async fn pass(env: &Env) -> Result<()> {
         .map(|status| status.device.id)
         .collect();
     let mut fetched = 0;
+    let mut no_room = 0;
     for peer in peers {
         if busy(env) || fetched >= MAX_FETCHES {
             break;
         }
-        if let Err(e) = from_peer(env, &projects, &locals, peer, &mut fetched).await {
+        if let Err(e) = from_peer(env, &projects, &locals, peer, &mut fetched, &mut no_room).await {
             log::debug!("background copies from {peer}: {e:#}");
         }
+    }
+    if no_room > 0 {
+        log::info!("not copying {no_room} sessions: the cache is full");
     }
     Ok(())
 }
@@ -170,6 +174,7 @@ async fn from_peer(
     locals: &Locals,
     peer: EndpointId,
     fetched: &mut usize,
+    no_room: &mut usize,
 ) -> Result<()> {
     let connection = dial(env, peer).await?;
     let offers = {
@@ -198,8 +203,10 @@ async fn from_peer(
             Some(local) => settle(env, peer, &offer, local).await,
             None => fetch(env, &connection, peer, &offer, fetched).await,
         };
-        if let Err(e) = done {
-            log::debug!("session {} not copied from {peer}: {e:#}", offer.id);
+        match done {
+            Err(e) if e.is::<CacheFull>() => *no_room += 1,
+            Err(e) => log::debug!("session {} not copied from {peer}: {e:#}", offer.id),
+            Ok(()) => {}
         }
     }
     connection.close(0u32.into(), b"done");
@@ -306,6 +313,18 @@ async fn trim_after_restart(env: &Env, offer: &Offer) -> Result<()> {
     Ok(())
 }
 
+/// No room in the cache for a copy, even after taking away older ones.
+#[derive(Debug)]
+struct CacheFull;
+
+impl std::fmt::Display for CacheFull {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the cache is full")
+    }
+}
+
+impl std::error::Error for CacheFull {}
+
 /// The oldest copies to take away once the bytes `offer` adds are here; fails
 /// when they could not fit even then.
 async fn make_room(env: &Env, offer: &Offer, copy: &Path) -> Result<Vec<(AgentSlug, String)>> {
@@ -321,10 +340,7 @@ async fn make_room(env: &Env, offer: &Offer, copy: &Path) -> Result<Vec<(AgentSl
     .await?;
     match gone {
         Some(gone) => Ok(gone),
-        None => {
-            log::info!("not copying session {}: the cache is full", offer.id);
-            bail!("the cache is full")
-        }
+        None => Err(CacheFull.into()),
     }
 }
 
