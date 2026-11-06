@@ -15,7 +15,8 @@ use beep_proto::{
     AgentHost, ApiError, Call, GetMachineLog, ListMachineDetails, ListMachineStats,
     ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineDetails, MachineEnv,
     MachineSession, MachineStats, MachineTraffic, MachineUpdate, RemoveMachine, Terminal,
-    TrafficCounter, UpdatableMachine, UpdateMachine, node::logs::MAX_LINES,
+    TrafficCounter, UpdatableMachine, UpdateMachine,
+    node::{AdapterInstall, logs::MAX_LINES},
 };
 use iroh::EndpointId;
 use serde::Serialize;
@@ -48,6 +49,8 @@ pub struct MachineView {
     env: Option<MachineEnv>,
     /// Removed after a day offline, such as a container.
     temporary: bool,
+    /// The agents whose ACP adapter it is installing or could not install.
+    adapters: Vec<AdapterInstall>,
 }
 
 impl From<Machine> for MachineView {
@@ -60,6 +63,7 @@ impl From<Machine> for MachineView {
             version: machine.version,
             env: machine.env,
             temporary: false,
+            adapters: Vec::new(),
         }
     }
 }
@@ -325,12 +329,16 @@ pub async fn list_machines(
     Ok(machines
         .into_iter()
         .map(MachineView::from)
-        .map(|view| MachineView {
-            temporary: view
-                .id
-                .parse::<EndpointId>()
-                .is_ok_and(|id| temporary.contains(&id)),
-            ..view
+        .map(|view| {
+            let id = view.id.parse::<EndpointId>().ok();
+            MachineView {
+                temporary: id.is_some_and(|id| temporary.contains(&id)),
+                adapters: id
+                    .and_then(|id| fleet.status().last_env(id))
+                    .map(|env| env.adapters)
+                    .unwrap_or_default(),
+                ..view
+            }
         })
         .collect())
 }

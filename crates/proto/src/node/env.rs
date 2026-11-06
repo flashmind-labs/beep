@@ -33,6 +33,20 @@ pub struct EnvReport {
     /// lists them; empty when Syncthing is not running.
     #[serde(default)]
     pub syncthing: Vec<SyncthingFolder>,
+    /// The agents whose ACP adapter the node is installing or could not
+    /// install.
+    #[serde(default)]
+    pub adapters: Vec<AdapterInstall>,
+}
+
+/// An agent found on the machine whose ACP adapter the node installs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdapterInstall {
+    /// Its name, such as `codex`.
+    pub agent: String,
+    /// Why the last try failed; `None` while it installs.
+    pub failed: Option<String>,
 }
 
 /// A folder Syncthing keeps in step with the user's other devices.

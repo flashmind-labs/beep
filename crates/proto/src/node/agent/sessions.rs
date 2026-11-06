@@ -282,6 +282,10 @@ pub enum SessionsRequest {
         session: String,
         pid: u32,
     },
+    /// Installs the ACP adapters the agents here lack now, rather than at
+    /// the next hourly try. Answered with `AdaptersInstalling` at once; how
+    /// it goes comes in the node's `EnvReport::adapters`.
+    InstallAdapters {},
 }
 
 /// The most paths one `Present` asks about.
@@ -331,6 +335,7 @@ impl SessionsRequest {
             | Self::FollowAlerts {}
             | Self::FollowRuns {}
             | Self::StopProcess { .. }
+            | Self::InstallAdapters {}
             | Self::StartReview { .. } => false,
         }
     }
@@ -497,6 +502,8 @@ pub enum SessionsReply {
         processes: Vec<RunningProcess>,
     },
     ProcessStopped {},
+    /// The answer to `InstallAdapters`.
+    AdaptersInstalling {},
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by
