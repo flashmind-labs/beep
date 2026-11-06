@@ -218,13 +218,6 @@ impl Applied {
                     projects.len(),
                     pending.len()
                 );
-                for project in &projects {
-                    log::debug!(
-                        "from the mesh: sync {} with {} peers",
-                        project.name,
-                        project.peers.len()
-                    );
-                }
                 let applying = watchdog::enter(Step::SyncApply);
                 let refused = transfers
                     .syncs()
@@ -233,6 +226,13 @@ impl Applied {
                 drop(applying);
                 for refused in &refused {
                     log::warn!("not syncing {}: {}", refused.project, refused.message);
+                }
+                for project in &projects {
+                    log::info!(
+                        "from the mesh: sync {} with {} peers",
+                        project.name,
+                        project.peers.len()
+                    );
                 }
                 log::info!(
                     "from the mesh: applied the sync set in {} ms, {} refused",
