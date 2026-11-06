@@ -18,10 +18,12 @@ use beep_mesh::{
 use beep_projects::{
     Clip, Shell, ShellOutput,
     branches::{self, read_branches},
+    for_machine,
     imports::{
         folder::{FolderPath, look},
         found::MachineFound,
     },
+    is_windows,
 };
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MAX_WORK_UPLOAD, MachineAgentFiles,
@@ -44,17 +46,35 @@ pub(crate) const FALLBACK_DEFAULT: &str = "main";
 /// The most checkouts one machine names.
 const FOLDERS_PER_MACHINE: u32 = 100;
 
-/// A machine as a project's shell, running scripts through the node.
-pub(crate) struct PeerShell(pub PeerClient);
+/// A machine as a project's shell, running POSIX scripts through the node: on Windows, in the
+/// sh of Git for Windows.
+pub(crate) struct PeerShell {
+    client: PeerClient,
+    windows: bool,
+}
+
+impl PeerShell {
+    /// The shell of `machine`. Whether it is Windows comes from what it last reported, else
+    /// from asking it.
+    pub(crate) async fn on(fleet: &Fleet, machine: EndpointId) -> Result<Self> {
+        let client = fleet.client(machine).await?;
+        let windows = match fleet.status().last_env(machine) {
+            Some(env) => is_windows(&env.os),
+            None => agent_files::on_windows(&client).await?,
+        };
+        Ok(Self { client, windows })
+    }
+}
 
 #[async_trait]
 impl Shell for PeerShell {
     async fn run(&self, script: &str, limit: Duration) -> anyhow::Result<ShellOutput> {
+        let script = for_machine(script, self.windows);
         let Exec {
             exit_code,
             timed_out,
             output,
-        } = machine::exec(&self.0, script, limit).await?;
+        } = machine::exec(&self.client, &script, limit).await?;
         let mut clip = Clip::default();
         clip.push(&output);
         Ok(ShellOutput {
@@ -210,7 +230,7 @@ pub(crate) async fn folder(
         Ok(_) => FolderPath::Home(String::new()),
         Err(e) => return Err(DesktopError::BadRequest(e.to_string())),
     };
-    let shell = PeerShell(fleet.client(machine).await?);
+    let shell = PeerShell::on(fleet, machine).await?;
     look(&shell, &fleet.name_of(machine), &start)
         .await
         .map_err(|e| DesktopError::BadRequest(e.to_string()))
@@ -222,7 +242,7 @@ pub(crate) async fn branches(
     place: &Place,
     default_branch: &str,
 ) -> Result<(String, Vec<ProjectBranch>)> {
-    let shell = PeerShell(fleet.client(place.machine).await?);
+    let shell = PeerShell::on(fleet, place.machine).await?;
     read_branches(&shell, &place.folder, default_branch)
         .await
         .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(place.machine))))
@@ -238,7 +258,7 @@ pub(crate) async fn add_worktree(
     let branch = beep_projects::model::branch_name(branch)
         .ok_or_else(|| ApiError::bad_request("That is not a branch name."))?;
     let name = fleet.name_of(place.machine);
-    let shell = PeerShell(fleet.client(place.machine).await?);
+    let shell = PeerShell::on(fleet, place.machine).await?;
     branches::add_worktree(&shell, &name, &place.folder, branch, default_branch)
         .await
         .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))
