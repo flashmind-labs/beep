@@ -1421,7 +1421,10 @@ async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one
     let fakes = [
         Arc::new(FakeNode::default()),
         Arc::new(FakeNode::default()),
-        Arc::new(FakeNode::default()),
+        Arc::new(FakeNode {
+            prints: vec![("cygpath", "BEEP_RM: deleted\n")],
+            ..FakeNode::default()
+        }),
     ];
     let devs = [&f.build, &others[0], &others[1]];
     let nodes: Vec<(&Dev, &Arc<FakeNode>)> = devs.iter().copied().zip(fakes.iter()).collect();
@@ -1449,11 +1452,33 @@ async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one
     };
     assert_eq!(spec(&f.studio.mesh).expect("synced").folders.len(), 3);
 
-    // Off one of three: the other two keep syncing with each other.
-    studio
-        .remove_from_machine("ACME/widget", &others[1].id.to_string())
+    // Off one of three, deleting its folder there: the other two keep syncing with each other,
+    // and only that machine is asked to delete, once its node no longer syncs the project.
+    let folder = studio
+        .project_machines("acme/widget")
+        .await
+        .expect("the machines")
+        .into_iter()
+        .find(|row| row.machine_id == others[1].id.to_string())
+        .and_then(|row| row.folder)
+        .expect("its folder");
+    let said = studio
+        .remove_from_machine("ACME/widget", &others[1].id.to_string(), true)
         .await
         .expect("it is removed");
+    assert_eq!(said, Some(format!("Deleted {folder} on mini-box.")));
+    let deletes = |node: &FakeNode| {
+        node.ran
+            .lock()
+            .expect("log")
+            .iter()
+            .filter(|command| command.contains("cygpath"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(deletes(&fakes[2]).len(), 1);
+    assert!(deletes(&fakes[2])[0].contains(&folder));
+    assert!(deletes(&fakes[0]).is_empty() && deletes(&fakes[1]).is_empty());
     let left = spec(&f.studio.mesh).expect("still synced");
     assert_eq!(
         left.folders.keys().copied().collect::<Vec<_>>(),
@@ -1461,11 +1486,13 @@ async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one
     );
     assert_eq!(on(&studio).await, sorted(vec![f.build.id, others[0].id]));
 
-    // Off one of two: nothing left to sync with, so the record goes.
-    studio
-        .remove_from_machine("acme/widget", &others[0].id.to_string())
+    // Off one of two: nothing left to sync with, so the record goes. Its folder stays.
+    let said = studio
+        .remove_from_machine("acme/widget", &others[0].id.to_string(), false)
         .await
         .expect("it is removed");
+    assert_eq!(said, None);
+    assert!(deletes(&fakes[1]).is_empty());
     assert_eq!(spec(&f.studio.mesh), None);
     assert_eq!(on(&studio).await, vec![f.build.id]);
 
@@ -1477,17 +1504,18 @@ async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one
     assert_eq!(on(&again).await, vec![f.build.id]);
 
     // The last machine keeps it, and one without it has nothing to remove.
-    let refused = |said: Result<(), FleetError>| match said {
+    let refused = |said: Result<Option<String>, FleetError>| match said {
         Err(FleetError::Refused(text)) => text,
         Err(e) => panic!("another error: {e}"),
-        Ok(()) => panic!("it was not refused"),
+        Ok(_) => panic!("it was not refused"),
     };
     let said = studio
-        .remove_from_machine("acme/widget", &f.build.id.to_string())
+        .remove_from_machine("acme/widget", &f.build.id.to_string(), true)
         .await;
     assert_eq!(refused(said), "A project stays on at least one machine.");
+    assert!(deletes(&fakes[0]).is_empty());
     let said = studio
-        .remove_from_machine("acme/widget", &others[0].id.to_string())
+        .remove_from_machine("acme/widget", &others[0].id.to_string(), false)
         .await;
     assert_eq!(refused(said), "acme/widget is not on mac-box.");
     assert_eq!(on(&studio).await, vec![f.build.id]);

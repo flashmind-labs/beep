@@ -42,7 +42,7 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 
 impl Desk {
     /// What `machine` says of every project it syncs; `None` when it is offline or does not answer.
-    async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
+    pub(crate) async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
         let client = self.peers.client(machine).await.ok()?;
         let reply: Reply = client.call(PROTOCOL, &Request::Status {}).await.ok()?;
         match reply {
