@@ -413,7 +413,9 @@ function turnUnits(p: AgentPage): Unit[] {
     if (newest != null) newestStep = newest;
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
-    const doing = s.doing?.split("\n")[0].trim() ?? "";
+    // An agent that says nothing on its own (Codex) is doing what its last thought says.
+    const thought = running ? [...t.steps].reverse().find(at => entry(at).kind === "thought") : undefined;
+    const doing = s.doing?.split("\n")[0].trim() || (thought != null ? thoughtLine(entry(thought).text) : "");
     if (running) thinking = liveAt != null || doing === "Thinking";
     return () => {
       const opened = m.opened.has(t.key);
@@ -442,7 +444,7 @@ function turnUnits(p: AgentPage): Unit[] {
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
       const live = running ? liveLineHtml({
         state, thinking: thinking, start,
-        doing: state === "working" && doing !== "Thinking" && doing !== shownTitle && liveAt == null ? doing : "",
+        doing: state === "working" && doing !== "Thinking" && doing !== shownTitle ? doing : "",
       }) : "";
       return [user(), head, ...work, ...t.answer.map(row), live].filter(Boolean);
     };
@@ -628,4 +630,10 @@ export function jumpToLatest() {
   const far = b.scrollHeight - b.scrollTop - b.clientHeight > b.clientHeight;
   b.scrollTo({ top: b.scrollHeight, behavior: far || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   syncJump(b);
+}
+
+/// The first line of a thought, without its Markdown bold or heading marks.
+export function thoughtLine(text: string) {
+  const line = text.split("\n").map(l => l.trim()).find(Boolean) ?? "";
+  return line.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim();
 }
