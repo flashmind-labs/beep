@@ -355,6 +355,8 @@ applies too; one it cannot read refuses the folder and says why.
   and deletes its place; the node stops and its folder stays untouched
   (`Desk::remove_from_machine`). The last machine and one with an open agent session
   are refused. Only an import or Add writes a place, so it does not come back by itself.
+  Ticked, the folder there is deleted once its node no longer lists the project, never a
+  disk root, home, Syncthing share or a folder another project shares (`left_folder.rs`).
 
 A session also moves on a project Syncthing keeps in step: folders come from the place records when `sync/<name>` does not name the machine, and the target trusts Syncthing, waiting up to two minutes for its folder to be complete. A project neither keeps is refused before the source stops.
 

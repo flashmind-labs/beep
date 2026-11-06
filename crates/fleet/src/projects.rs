@@ -566,17 +566,35 @@ impl Desk {
     /// one machine left the sync record goes too. Only an import or Add writes a checkout record,
     /// so the machine comes back only when the user puts the project there again. The last
     /// machine is refused: a project stays on at least one.
-    pub async fn remove_from_machine(&self, project: &str, machine: &str) -> Result<()> {
+    ///
+    /// With `delete_folder`, the folder there is deleted too, once its node has stopped syncing
+    /// it, so the delete never reaches the others. Says what became of it then.
+    pub async fn remove_from_machine(
+        &self,
+        project: &str,
+        machine: &str,
+        delete_folder: bool,
+    ) -> Result<Option<String>> {
         let id: EndpointId = machine.parse().map_err(|_| ImportError::NoSuchMachine)?;
+        let (name, left) = self.leave(project, id).await?;
+        if !delete_folder {
+            return Ok(None);
+        }
+        Ok(Some(self.delete_left_folder(&name, id, &left).await))
+    }
+
+    /// Takes `project` off `machine` in the records; gives its name and the folder it had there.
+    async fn leave(&self, project: &str, id: EndpointId) -> Result<(String, String)> {
         let _write = WRITES.lock().await;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
-        if !stored.places.contains_key(&id) {
+        let Some(place) = stored.places.get(&id) else {
             return Err(FleetError::refused(format!(
                 "{} is not on {}.",
                 stored.name,
                 self.name_of(id)
             )));
-        }
+        };
+        let folder = place.folder.clone();
         // A machine gone from the mesh holds nothing, so only members count.
         let members = stored
             .places
@@ -600,7 +618,7 @@ impl Desk {
             }
         }
         write::<Place>(&self.mesh, place_key(&stored.name, id), None).await?;
-        Ok(())
+        Ok((stored.name, folder))
     }
 
     /// Makes the project `request` asks for.
