@@ -14,14 +14,14 @@ import { invoke } from "../ui/tauri.ts";
 
 let pastedCount = 0;
 
-/// A name for an image, unique among those waiting; a pasted one is
-/// named "Pasted image 1.png" and so on rather than "image.png".
-export function agentImageName(f: File) {
+/// A name for an image, unique among those waiting in `list`; a pasted one
+/// is named "Pasted image 1.png" and so on rather than "image.png".
+function agentImageName(f: File, list: Attached[]) {
   const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" } as Record<string, string>)[f.type] || "png";
   const base = f.name && f.name !== `image.${ext}` && f.name !== "image.png" ? f.name : `Pasted image ${++pastedCount}.${ext}`;
   const dot = base.lastIndexOf(".");
   let name = base;
-  for (let n = 2; AG.att.some(a => a.name === name); n++) name = dot > 0 ? `${base.slice(0, dot)} ${n}${base.slice(dot)}` : `${base} ${n}`;
+  for (let n = 2; list.some(a => a.name === name); n++) name = dot > 0 ? `${base.slice(0, dot)} ${n}${base.slice(dot)}` : `${base} ${n}`;
   return name;
 }
 
@@ -36,21 +36,31 @@ export function agentAttachError(text: string) {
 /// what the agent cannot take rather than shrinking or dropping it.
 export async function agentAttach(files: Iterable<File>) {
   if (noAgentImages()) return agentAttachError("This Beep server does not take images yet.");
-  for (const f of [...files]) {
-    if (!AGENT_IMAGE_TYPES.includes(f.type)) { agentAttachError(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image`); continue; }
-    if (AG.att.length >= AGENT_MAX_IMAGES) { agentAttachError(`Up to ${AGENT_MAX_IMAGES} images in one message`); break; }
-    if (f.size > AGENT_MAX_IMAGE) { agentAttachError(`${f.name || "That image"} is over ${AGENT_MAX_IMAGE >> 20} MB`); continue; }
-    const used = AG.att.reduce((n, a) => n + a.size, 0);
-    if (used + f.size > AGENT_MAX_IMAGES_TOTAL) { agentAttachError(`Images up to ${AGENT_MAX_IMAGES_TOTAL >> 20} MB in all in one message`); continue; }
-    try {
-      const data = await fileBase64(f);
-      AG.att.push({ name: agentImageName(f), mime: f.type, size: f.size, data, url: `data:${f.type};base64,${data}` });
-    } catch {
-      agentAttachError(`${f.name || "That image"} could not be read`);
-    }
-  }
+  await attachImages(AG.att, files, agentAttachError);
   drawAgentAttached();
 }
+
+/// Adds `files` to `list`, the images of one message, within what an agent
+/// takes; `error` says why one is refused.
+export async function attachImages(list: Attached[], files: Iterable<File>, error: (text: string) => void) {
+  for (const f of [...files]) {
+    if (!AGENT_IMAGE_TYPES.includes(f.type)) { error(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image`); continue; }
+    if (list.length >= AGENT_MAX_IMAGES) { error(`Up to ${AGENT_MAX_IMAGES} images in one message`); break; }
+    if (f.size > AGENT_MAX_IMAGE) { error(`${f.name || "That image"} is over ${AGENT_MAX_IMAGE >> 20} MB`); continue; }
+    const used = list.reduce((n, a) => n + a.size, 0);
+    if (used + f.size > AGENT_MAX_IMAGES_TOTAL) { error(`Images up to ${AGENT_MAX_IMAGES_TOTAL >> 20} MB in all in one message`); continue; }
+    try {
+      const data = await fileBase64(f);
+      list.push({ name: agentImageName(f, list), mime: f.type, size: f.size, data, url: `data:${f.type};base64,${data}` });
+    } catch {
+      error(`${f.name || "That image"} could not be read`);
+    }
+  }
+}
+
+/// The chips of `list`, each with a remove button marked `data-<attr>`.
+export const attachedChips = (list: Attached[], attr: string) => list.map((a, i) =>
+  `<span class="att"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button type="button" aria-label="Remove ${esc(a.name)}" data-${attr}="${i}">${ICON.x}</button></span>`).join("");
 
 /// The chips of waiting images above the field, as in the mock.
 export function drawAgentAttached() {
@@ -59,8 +69,7 @@ export function drawAgentAttached() {
   const old = $("#agatt");
   // Paths dragged in from the Files tab and files uploaded, after the images.
   const mentions = mentionChips();
-  const el = AG.att.length || AG.attError || mentions ? h(`<div class="ag-att" id="agatt">${AG.att.map((a, i) =>
-    `<span class="att"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button aria-label="Remove ${esc(a.name)}" data-agatt="${i}">${ICON.x}</button></span>`).join("")}${mentions}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
+  const el = AG.att.length || AG.attError || mentions ? h(`<div class="ag-att" id="agatt">${attachedChips(AG.att, "agatt")}${mentions}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
   el?.querySelectorAll<HTMLElement>("[data-agatt]").forEach(b => b.addEventListener("click", () => {
     AG.att.splice(Number(b.dataset.agatt), 1);
     drawAgentAttached();

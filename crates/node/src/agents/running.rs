@@ -1,8 +1,8 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, MAX_RUNNING, NodeMode, Session, Start,
-    checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
+    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, MAX_RUNNING, NodeMode, Prompt, Session,
+    Start, checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -15,7 +15,7 @@ use beep_proto::node::{
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
-use beep_proto::{AgentAccount, ModelId};
+use beep_proto::{AgentAccount, ModelId, Upload};
 use std::{
     borrow::Cow,
     collections::{HashMap, hash_map::RandomState},
@@ -406,7 +406,10 @@ impl Agents {
             id: id.clone(),
             kind,
             cwd: &cwd,
-            prompt: begin.prompt,
+            prompt: begin.prompt.map(|text| Prompt {
+                text,
+                images: begin.images,
+            }),
             resume: begin.resume,
             earlier: begin.earlier,
             model: begin.model,
@@ -469,6 +472,8 @@ fn ensure_room(sessions: &HashMap<String, Arc<Session>>) -> Result<()> {
 #[derive(Default)]
 pub(super) struct Begin {
     pub(super) prompt: Option<String>,
+    /// Images that go with `prompt`.
+    pub(super) images: Vec<Upload>,
     pub(super) resume: Option<String>,
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<agent::Entry>,

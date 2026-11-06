@@ -112,7 +112,7 @@ async fn a_takeover_resumes_without_permission_prompts() {
     let log = dir.join("sent.jsonl");
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let session = Session::start(Start {
-        prompt: Some("carry on".into()),
+        prompt: Some(String::from("carry on").into()),
         resume: Some(id.into()),
         earlier: Vec::new(),
         ..start_on(&fake("claude", &log), dir, None)
@@ -307,7 +307,7 @@ async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let session = Session::start(Start {
-        prompt: Some("hello".into()),
+        prompt: Some(String::from("hello").into()),
         ..start_on(&script("fake", PLAIN_ADAPTER, &log), dir, None)
     })
     .unwrap();
@@ -454,7 +454,7 @@ async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
     let dir = temp.path();
     let log = dir.join("unused");
     let session = Session::start(Start {
-        prompt: Some("y".repeat(4 * 1024 * 1024)),
+        prompt: Some("y".repeat(4 * 1024 * 1024).into()),
         ..start_on(&script("codex", BURSTING_ADAPTER, &log), dir, None)
     })
     .unwrap();
@@ -729,7 +729,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         id: "c0ffee".into(),
         kind,
         cwd: dir,
-        prompt: Some("go".into()),
+        prompt: Some(String::from("go").into()),
         resume: None,
         earlier: Vec::new(),
         model: model.map(ModelId::new),

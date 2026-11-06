@@ -3,7 +3,10 @@
 //! reading one in full. `steer` steers it, `media` reads its files.
 
 use crate::{
-    agents::work_copy,
+    agents::{
+        steer::{PastedImage, uploads},
+        work_copy,
+    },
     beep::{Beep, Service, epoch_ms},
     center::{AgentsShown, home_sessions::AgentSessions},
     chat::markdown,
@@ -331,7 +334,8 @@ pub(crate) async fn machine_sessions(
 /// Starts a session; no `machine_id` lets the server pick. `chat` hears
 /// its turn ends and questions; `model`, from `agent_models`, picks the
 /// agent's model, `effort` how hard it thinks and `checkout` the new
-/// branch or worktree it starts on.
+/// branch or worktree it starts on. `images` go with the prompt, only to a
+/// machine in the mesh.
 // The arguments are the fields of the window's `invoke` call.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -346,7 +350,9 @@ pub async fn agent_start(
     model: Option<String>,
     effort: Option<Effort>,
     checkout: Option<CheckoutPlan>,
+    images: Option<Vec<PastedImage>>,
 ) -> Result<Started> {
+    let images = uploads(images.unwrap_or_default())?;
     let request = StartAgentSession {
         machine_id,
         agent,
@@ -361,7 +367,11 @@ pub async fn agent_start(
     // A chat that hears the session is the server's: it follows the node.
     let chat_on_server = request.chat.is_some() && beep.has_server();
     let started = if !chat_on_server && goes_direct(&fleet, request.machine_id.as_deref()).await {
-        direct::start(&fleet, request).await?
+        direct::start(&fleet, request, images).await?
+    } else if !images.is_empty() {
+        return Err(DesktopError::BadRequest(
+            "This Beep server does not take images yet. Start without them.".into(),
+        ));
     } else {
         beep.call(request).await?
     };
