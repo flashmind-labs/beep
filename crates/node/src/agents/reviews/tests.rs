@@ -164,7 +164,10 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
         .submit_review(&run.id, found())
         .expect("the reviewer hands in");
     // Its turn ends once the tool call is answered.
-    reviewer.order(Command::Cancel).await.expect("cancelled");
+    reviewer
+        .order(Command::Cancel { keep_steers: false })
+        .await
+        .expect("cancelled");
     let done = rig.finished(&run.id).await;
     assert_eq!(done.review, Some(found()));
     assert_eq!(done.error, None);
