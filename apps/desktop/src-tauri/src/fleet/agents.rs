@@ -731,6 +731,16 @@ pub(crate) async fn update_harness(
     Ok(harnesses_view(fleet, machine, report))
 }
 
+/// Makes a machine install the ACP adapters its agents lack now.
+pub(crate) async fn install_adapters(fleet: &Fleet, machine: EndpointId) -> Result<()> {
+    let client = fleet.client(machine).await?;
+    if sessions::install_adapters(&client).await? {
+        Ok(())
+    } else {
+        Err(too_old(fleet, machine))
+    }
+}
+
 fn too_old(fleet: &Fleet, machine: EndpointId) -> DesktopError {
     DesktopError::BadRequest(format!(
         "Update beep-node on {} to manage its coding agents here.",

@@ -131,6 +131,8 @@ pub async fn probe() -> EnvReport {
         apps: apps::apps().await,
         gpus: gpu::gpus().await,
         syncthing: Syncthing::local().folders().await,
+        // Filled in by the status stream, which knows the installs.
+        adapters: Vec::new(),
     }
 }
 

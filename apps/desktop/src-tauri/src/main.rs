@@ -155,6 +155,7 @@ fn main() {
             agents::files::agent_tree_upload,
             agents::flsh_settings::flsh_settings_get,
             agents::flsh_settings::flsh_settings_save,
+            agents::harnesses::agent_adapters_install,
             agents::harnesses::agent_harness_update,
             agents::harnesses::agent_harnesses,
             agents::harnesses::harness_settings_all,

@@ -751,6 +751,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .hv-stat { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); padding: 6px 0 }
 .hv-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px }
 .hv-note { font-size: 12px; line-height: 17px; color: var(--muted); margin-top: 8px }
+.hv-note.bad { color: var(--err) }
 /* A field not the same on every machine, and the save bar: this machine or every machine. */
 .hv-diff { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); font-size: 10.5px; line-height: 15px; font-weight: 400; color: var(--muted); cursor: help; vertical-align: 1px }
 .hv-save { margin-top: 12px }

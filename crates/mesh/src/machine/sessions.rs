@@ -677,6 +677,25 @@ pub async fn update_harness<S: Sessions + ?Sized>(
     harness_reply(node.sessions(request, UPDATE_TIMEOUT).await)
 }
 
+/// Installs the ACP adapters the node's agents lack now; `false` from a
+/// node too old to.
+pub async fn install_adapters<S: Sessions + ?Sized>(node: &S) -> Result<bool, MeshError> {
+    match node
+        .sessions(SessionsRequest::InstallAdapters {}, READ_TIMEOUT)
+        .await
+    {
+        Ok(SessionsReply::AdaptersInstalling {}) => Ok(true),
+        Ok(SessionsReply::Error { message }) if message.starts_with("this node does not serve") => {
+            Ok(false)
+        }
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        // A node from before it cannot read the request and closes the stream.
+        Err(MeshError::Link(_)) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 fn harness_reply(
     reply: Result<SessionsReply, MeshError>,
 ) -> Result<Option<HarnessReport>, MeshError> {

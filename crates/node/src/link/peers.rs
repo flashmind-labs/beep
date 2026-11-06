@@ -601,6 +601,8 @@ where
     // An agent whose adapter the node installed later is offered then.
     let mut kinds = offers.agents.kinds_changed();
     kinds.mark_unchanged();
+    let mut adapters = offers.agents.adapters_changed();
+    adapters.mark_unchanged();
     tx.send(&Report::Offers(offers.names())).await?;
     let mut reprobe = interval(REPROBE);
     reprobe.tick().await;
@@ -626,12 +628,18 @@ where
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
                 probing = None;
                 match probed {
-                    Ok(now) if reported.as_ref().is_none_or(|before| *before != now) => {
-                        tx.send(&Report::Env(now.clone())).await?;
-                        reported = Some(now);
+                    Ok(now) => {
+                        let now = EnvReport { adapters: offers.agents.adapter_installs(), ..now };
+                        send_env(&mut tx, &mut reported, now).await?;
                     }
-                    Ok(_) => {}
                     Err(e) => log::warn!("probing the machine failed: {e}"),
+                }
+            }
+            // An adapter install started or ended: said with the last probe.
+            Ok(()) = adapters.changed() => {
+                if let Some(before) = reported.clone() {
+                    let now = EnvReport { adapters: offers.agents.adapter_installs(), ..before };
+                    send_env(&mut tx, &mut reported, now).await?;
                 }
             }
             _ = resample.tick() => {
@@ -641,6 +649,15 @@ where
             _ = traffic.tick() => tx.send(&Report::Traffic(offers.traffic.report())).await?,
         }
     }
+}
+
+/// Sends `now` when it differs from what was `reported`.
+async fn send_env(tx: &mut LinkTx, reported: &mut Option<EnvReport>, now: EnvReport) -> Result<()> {
+    if reported.as_ref() != Some(&now) {
+        tx.send(&Report::Env(now.clone())).await?;
+        *reported = Some(now);
+    }
+    Ok(())
 }
 
 /// How long a close waits for the tasks that still hold the mesh to let go.
