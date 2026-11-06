@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, answerLabel, canSend, issueHint, next, sizeLabel, type Draft, type ReportState } from "../src/report/report-state.ts";
+import { START, answerLabel, canSend, debugPrompt, issueHint, next, sizeLabel, type Draft, type ReportState } from "../src/report/report-state.ts";
+
+test("the debug prompt carries what the user saw, when they said", () => {
+  const typed = debugPrompt("  The sync stalls after a move ");
+  assert.ok(typed.startsWith("Something in Beep went wrong. What I saw: The sync stalls after a move\n\n"));
+  assert.match(typed, /beep_status.*beep_logs.*file_report/s);
+  assert.ok(debugPrompt(" ").startsWith("Something in Beep went wrong.\n\n"));
+});
 
 const manifest = {
   version: 1, sender: "3f9a2c", mesh: null, app: "desktop", app_version: "0.2.0", text: "", period: "today", since: 0, made_at: 0,
