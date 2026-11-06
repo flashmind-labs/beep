@@ -261,6 +261,15 @@ fn read<T: StateValue>(mesh: &Mesh, prefix: &str) -> Vec<(Key, T)> {
         .collect()
 }
 
+/// The base URLs of the Forgejo and Gitea servers the mesh holds logins for.
+pub(crate) fn forgejo_servers(mesh: &Mesh) -> Vec<String> {
+    credentials(mesh)
+        .forgejo
+        .into_iter()
+        .map(|login| login.url)
+        .collect()
+}
+
 fn credentials(mesh: &Mesh) -> MachineCredentials {
     let mut out = MachineCredentials::default();
     for (_, credential) in read::<Credential>(mesh, "credential/") {

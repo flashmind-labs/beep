@@ -226,10 +226,70 @@ pub async fn make(
     })
 }
 
+/// Prints the branch the checkout at `folder` is on, or its short commit when detached; nothing
+/// when it is no checkout.
+fn branch_script(folder: &FolderPath) -> String {
+    let word = folder.shell_word();
+    format!(
+        "git -C {word} symbolic-ref --short -q HEAD 2>/dev/null \
+         || git -C {word} rev-parse --short HEAD 2>/dev/null || true"
+    )
+}
+
+/// The branch the checkout at `folder` on the machine named `machine` is on; `None` when it is
+/// no checkout.
+pub async fn branch(
+    shell: &dyn Shell,
+    machine: &str,
+    folder: &FolderPath,
+) -> Result<Option<String>, ImportError> {
+    let ran = shell
+        .run(&branch_script(folder), LOOK_LIMIT)
+        .await
+        .map_err(|e| ImportError::Link {
+            machine: machine.to_owned(),
+            detail: format!("{e:#}"),
+        })?;
+    Ok(read_branch(&ran.output))
+}
+
+fn read_branch(out: &str) -> Option<String> {
+    out.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::{path::Path, process::Command};
+
+    #[test]
+    fn a_checkout_names_its_branch_and_a_plain_folder_none() {
+        if Command::new("git").arg("--version").output().is_err() {
+            eprintln!("skipped: no git");
+            return;
+        }
+        let root = tempfile::tempdir().expect("a temp folder");
+        let home = root.path();
+        let repo = home.join("code/app");
+        std::fs::create_dir_all(&repo).expect("folders");
+        let plain = FolderPath::Home("code".into());
+        assert_eq!(read_branch(&run(&branch_script(&plain), home)), None);
+        let ok = Command::new("git")
+            .args(["init", "-q", "-b", "work"])
+            .current_dir(&repo)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .status()
+            .expect("git runs");
+        assert!(ok.success());
+        let app = FolderPath::Home("code/app".into());
+        assert_eq!(
+            read_branch(&run(&branch_script(&app), home)).as_deref(),
+            Some("work")
+        );
+    }
 
     fn parse(input: &str) -> Result<Option<FolderPath>, ImportError> {
         FolderPath::parse(input)

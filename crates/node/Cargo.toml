@@ -32,6 +32,8 @@ anyhow = "1"
 bao-tree = "0.17"
 base64 = "0.22"
 beep-mesh = { path = "../mesh" }
+# Reads CI runs as the desktop does.
+beep-projects = { path = "../projects" }
 beep-proto = { path = "../proto" }
 blake3 = "1"
 clap = { version = "4", features = ["derive", "env"], optional = true }

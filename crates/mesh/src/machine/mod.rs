@@ -23,7 +23,8 @@ pub use listing::{
     past_session, session_tasks,
 };
 pub use node::{
-    Exec, Tasks, Updated, exec, files, install_tool, log, search, set_search, update_node,
+    Exec, Tasks, Updated, exec, files, install_tool, log, rescan_search, search, set_search,
+    update_node,
 };
 pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
 

@@ -553,6 +553,7 @@ dependencies = [
  "bao-tree",
  "base64 0.22.1",
  "beep-mesh",
+ "beep-projects",
  "beep-proto",
  "blake3",
  "dirs 7.0.0",

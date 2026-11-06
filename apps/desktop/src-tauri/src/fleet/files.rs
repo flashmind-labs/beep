@@ -20,7 +20,8 @@ use beep_projects::{
     branches::{self, read_branches},
     for_machine,
     imports::{
-        folder::{FolderPath, look},
+        ImportError,
+        folder::{self, FolderPath, look},
         found::MachineFound,
     },
     is_windows,
@@ -38,8 +39,8 @@ use tokio::time::timeout;
 
 /// Machines asked at once.
 const IN_FLIGHT: usize = 4;
-/// How long one machine gets to name its checkouts.
-const MACHINE_LIMIT: Duration = Duration::from_secs(8);
+/// How long one machine gets to look for checkouts again and name them.
+const MACHINE_LIMIT: Duration = Duration::from_secs(30);
 /// What a project's default branch is taken to be until its checkout says:
 /// the scripts read `origin`'s HEAD first and `branches` gives what they found.
 pub(crate) const FALLBACK_DEFAULT: &str = "main";
@@ -158,34 +159,34 @@ pub(crate) async fn work_diff(
     work(fleet, machine, sessions::diff(&client, ask).await?)
 }
 
-/// The checkouts coding agents worked in, per online machine; a machine
-/// that cannot say is left out.
-pub(crate) async fn found_folders(fleet: &Fleet) -> Vec<MachineFound> {
-    let asks: Vec<_> = fleet
-        .online()
-        .into_iter()
-        .map(|machine| async move {
-            let ask = async {
-                let client = fleet.client(machine).await.ok()?;
-                let folders = sessions::found_folders(&client, FOLDERS_PER_MACHINE)
-                    .await
-                    .ok()?;
-                let host = fleet.host_of(machine);
-                Some(MachineFound {
-                    machine_id: host.id,
-                    machine_name: host.name,
-                    folders,
-                })
-            };
-            // A machine that is slow or off is left out.
-            timeout(MACHINE_LIMIT, ask).await.ok().flatten()
+/// The checkouts `machine` has, after a quick walk of its search folder so one made since the
+/// last walk counts; `Err` says in words why it could not say.
+pub(crate) async fn found_on(
+    fleet: &Fleet,
+    machine: EndpointId,
+) -> std::result::Result<MachineFound, String> {
+    let ask = async {
+        let client = fleet.client(machine).await.map_err(|e| e.to_string())?;
+        // A node from before rescans closes the stream; the list it has still answers.
+        if let Err(e) = beep_mesh::machine::rescan_search(&client).await {
+            log::info!(
+                "{} did not look for checkouts again: {e}",
+                fleet.name_of(machine)
+            );
+        }
+        let folders = sessions::found_folders(&client, FOLDERS_PER_MACHINE)
+            .await
+            .map_err(|e| e.to_string())?;
+        let host = fleet.host_of(machine);
+        Ok(MachineFound {
+            machine_id: host.id,
+            machine_name: host.name,
+            folders,
         })
-        .collect();
-    stream::iter(asks)
-        .buffer_unordered(IN_FLIGHT)
-        .filter_map(|found| async move { found })
-        .collect()
+    };
+    timeout(MACHINE_LIMIT, ask)
         .await
+        .unwrap_or_else(|_| Err("it did not answer in time".to_owned()))
 }
 
 /// The sessions coding agents ran in a project's checkouts, newest first.
@@ -234,6 +235,22 @@ pub(crate) async fn folder(
     look(&shell, &fleet.name_of(machine), &start)
         .await
         .map_err(|e| DesktopError::BadRequest(e.to_string()))
+}
+
+/// The branch of the checkout at `path` on `machine`; `None` when it is no checkout.
+pub(crate) async fn folder_branch(
+    fleet: &Fleet,
+    machine: EndpointId,
+    path: &str,
+) -> Result<Option<String>> {
+    let bad = |e: ImportError| DesktopError::BadRequest(e.to_string());
+    let Some(folder) = FolderPath::parse(path).map_err(bad)? else {
+        return Ok(None);
+    };
+    let shell = PeerShell::on(fleet, machine).await?;
+    folder::branch(&shell, &fleet.name_of(machine), &folder)
+        .await
+        .map_err(bad)
 }
 
 /// The default branch and the branches of the checkout at `place`.
