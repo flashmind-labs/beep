@@ -25,6 +25,9 @@ pub enum DesktopError {
     /// The link to a machine dropped in the middle of a call.
     #[error("Lost the connection to {0}.")]
     Lost(String),
+    /// The link to a machine dropped after an order went: it may have taken it.
+    #[error("Lost the connection to {0} while sending.")]
+    Unsure(String),
     #[error("{0}")]
     BadRequest(String),
     /// A machine took longer than a request's limit; the text says which.

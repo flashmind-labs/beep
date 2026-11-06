@@ -25,6 +25,7 @@ import { drawModes } from "./modepill.ts";
 import { backgroundedEntry, drawTasks } from "./tasks.ts";
 import { drawQueue } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
+import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 
@@ -547,7 +548,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
   const err = p.error ? (s.external ? `<div class="derr">${esc(p.error)}</div>` : errorCardHtml(p.error)) : "";
-  const note = AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
+  const note = AG.held ? `<div class="dmuted">${esc(holdNote(s.machine_name))}</div>`
+    : AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
     : AG.note && AG.note === AG.readError && AG.link.lost ? `<div class="dmuted">${esc(AG.note)}</div>`
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   // A read that failed outright is not tried again by itself: Retry reads it.

@@ -6,7 +6,8 @@ import { $ } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
 import { queueRowHtml } from "./turnrows.ts";
-import { type Started, type Steer, AG, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL, AGENT_ACTIVE, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
+import { type AgentPage, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL, AGENT_ACTIVE, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
+import { HOLD_MS, type SendError, sendError, tookIt, viewError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
@@ -216,22 +217,57 @@ export function answerFirst(allow: boolean) {
   return i >= 0;
 }
 
-/// Sends `steer` to the open session; true when the node took it.
+/// Sends `steer` to the open session; true when the node took it. A message
+/// or steer waits up to `HOLD_MS` for its machine to come back. One that may
+/// have gone before the link dropped is sent again only once a read of the
+/// session shows the node does not have it.
 export async function steerAgent(steer: Steer) {
   const o = AG.open;
   if (!o || AG.page?.session.external) return false;
-  let ok = false;
+  const message = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
+  const until = Date.now() + HOLD_MS, queued = AG.page?.queued ?? 0;
+  let failed = await sendOnce(o, steer);
+  if (message && failed && failed.kind !== "failed") {
+    AG.held++;
+    if (isOpen(o)) drawAgentBody();
+    while (failed && failed.kind !== "failed" && Date.now() < until && AG.open === o) {
+      await new Promise(r => setTimeout(r, HOLD_RETRY_MS));
+      if (failed.kind === "lost") { failed = await sendOnce(o, steer); continue; }
+      const took = await takenAfterDrop(o, queued, message.text);
+      if (took === true) failed = null;
+      else if (took === false) failed = await sendOnce(o, steer);
+      else if (took.kind === "failed") failed = took;
+    }
+    if (AG.open === o) AG.held--;
+  }
+  AG.note = failed?.message ?? "";
+  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
+  return !failed;
+}
+
+const HOLD_RETRY_MS = 2000;
+
+/// One `agent_steer` call: null when the node took it, else why not.
+async function sendOnce(o: OpenAgent, steer: Steer): Promise<SendError | null> {
   try {
     const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0] }, AGENT_SEND_WAIT_MS);
     const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
     if (sent?.images) keepSentImages(keys, sent.images);
-    AG.note = "";
-    ok = true;
+    return null;
   } catch (e) {
-    AG.note = String(e).replace(/^bad request: /, "");
+    return sendError(e);
   }
-  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
-  return ok;
+}
+
+/// After a send the link dropped on: whether the session, read again, shows
+/// the node took `text`, or why it could not be read.
+async function takenAfterDrop(o: OpenAgent, queued: number, text: string): Promise<boolean | SendError> {
+  try {
+    return tookIt(await invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }, AGENT_READ_WAIT_MS), queued, text);
+  } catch (e) {
+    const v = viewError(e);
+    return v.kind === "lost" ? { kind: "lost", message: "" } : { kind: "failed", message: v.kind === "gone" ? "This session is no longer on the machine." : v.message };
+  }
 }
 
 export async function sendAgentMessage() {

@@ -507,7 +507,7 @@ async fn ordered(fleet: &Fleet, machine: EndpointId, steer: SteerAgentSession) -
     };
     sent.map(|()| opened).map_err(|e| {
         if e.is_transport() {
-            return DesktopError::Mesh(e);
+            return DesktopError::Unsure(fleet.name_of(machine));
         }
         let error = format!("{e:#}");
         let old = error.contains("unknown request");

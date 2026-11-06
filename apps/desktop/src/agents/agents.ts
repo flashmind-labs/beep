@@ -260,6 +260,8 @@ interface AgentState {
   /// delivered, and queued ones, sent when it stops or ends.
   queue: Waiting[];
   flushing: boolean;
+  /// Messages and steers waiting for the session's machine to come back.
+  held: number;
   /// Reads of the open session so far, which tell a read that left before
   /// a steer was sent from one after.
   polls: number;
@@ -283,7 +285,7 @@ export const AG: AgentState = {
   open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", rest: "", changed: 0, paused: false, answering: null,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, held: 0, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
