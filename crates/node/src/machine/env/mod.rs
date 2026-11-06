@@ -4,11 +4,17 @@
 mod apps;
 mod gpu;
 
+use crate::agents::locate;
 use crate::files::syncthing::Syncthing;
 use crate::machine::provision::spawn_env::{self, Scope};
 use beep_proto::node::harness::parse_version;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
-use std::{env, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 use tokio::time::timeout;
 
 /// How long one probe command may take.
@@ -44,9 +50,16 @@ pub async fn probe() -> EnvReport {
     // Found as the processes the node starts find them, with the tools it
     // installed.
     let path = spawn_env::search_path();
+    let home = dirs::home_dir();
+    let mut found: Vec<(&str, PathBuf)> = Vec::new();
     for (name, args) in KNOWN_TOOLS {
-        if which::which_in(name, path.as_ref(), "/").is_ok() {
-            let version = output(name, args)
+        // Also in the install folders the agents are started from, which a
+        // service's bare `PATH` leaves out.
+        let program = which::which_in(name, path.as_ref(), "/")
+            .ok()
+            .or_else(|| locate::fallback(name, home.as_deref()?));
+        if let Some(program) = program {
+            let version = output(&program, args)
                 .await
                 .as_deref()
                 .and_then(first_line)
@@ -55,14 +68,21 @@ pub async fn probe() -> EnvReport {
                 name: (*name).to_owned(),
                 version,
             });
+            found.push((name, program));
         }
     }
-    let has = |name: &str| tools.iter().any(|tool| tool.name == name);
+    let at = |name: &str| {
+        found
+            .iter()
+            .find(|(found, _)| *found == name)
+            .map(|(_, program)| program.clone())
+    };
     let mut logins = Vec::new();
-    if has("claude") {
+    if let Some(program) = at("claude") {
         logins.push(
             login(
                 "claude",
+                &program,
                 &["auth", "status"],
                 claude_logged_in,
                 claude_account,
@@ -70,14 +90,23 @@ pub async fn probe() -> EnvReport {
             .await,
         );
     }
-    if has("codex") {
-        logins.push(login("codex", &["login", "status"], |_| None, |_| None).await);
+    if let Some(program) = at("codex") {
+        logins.push(login("codex", &program, &["login", "status"], |_| None, |_| None).await);
     }
-    if has("opencode") {
-        logins.push(login("opencode", &["auth", "list"], opencode_logged_in, |_| None).await);
+    if let Some(program) = at("opencode") {
+        logins.push(
+            login(
+                "opencode",
+                &program,
+                &["auth", "list"],
+                opencode_logged_in,
+                |_| None,
+            )
+            .await,
+        );
     }
-    if has("gh") {
-        logins.push(login("gh", &["auth", "status"], |_| None, gh_account).await);
+    if let Some(program) = at("gh") {
+        logins.push(login("gh", &program, &["auth", "status"], |_| None, gh_account).await);
     }
     EnvReport {
         os: env::consts::OS.to_owned(),
@@ -105,8 +134,9 @@ pub async fn probe() -> EnvReport {
 
 /// What `program args` printed, stdout then stderr, when it ran in time.
 pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
-    let mut command = crate::run::process::command(program);
+    let mut command = crate::run::process::command(program.as_ref());
     spawn_env::apply(&mut command, Scope::Probe);
+    beside(&mut command, Path::new(program.as_ref()));
     let run = command
         .args(args)
         .stdin(Stdio::null())
@@ -116,6 +146,19 @@ pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) 
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
     Some(text)
+}
+
+/// `program`'s folder first on the `PATH` of `command`, when it was found
+/// outside `PATH`, so what it starts (`node` for an npm install) is found.
+fn beside(command: &mut tokio::process::Command, program: &Path) {
+    let Some(dir) = program.parent().filter(|_| program.is_absolute()) else {
+        return;
+    };
+    let inherited = spawn_env::search_path().unwrap_or_default();
+    let dirs = std::iter::once(dir.to_owned()).chain(env::split_paths(&inherited));
+    if let Ok(path) = env::join_paths(dirs) {
+        command.env("PATH", path);
+    }
 }
 
 fn first_line(text: &str) -> Option<String> {
@@ -144,13 +187,15 @@ fn tool_version(name: &str, line: &str) -> String {
 /// and `account` picks the account from it.
 async fn login(
     tool: &str,
+    program: &Path,
     args: &[&str],
     logged_in: fn(&str) -> Option<bool>,
     account: fn(&str) -> Option<String>,
 ) -> Login {
-    let mut command = crate::run::process::command(tool);
+    let mut command = crate::run::process::command(program);
     // With the GitHub token, so `gh auth status` sees the one Beep gave.
     spawn_env::apply(&mut command, Scope::Agent(None));
+    beside(&mut command, program);
     let run = command
         .args(args)
         .stdin(Stdio::null())
