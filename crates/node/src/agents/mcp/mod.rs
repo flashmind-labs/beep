@@ -42,7 +42,7 @@ mod socket;
 pub(crate) use machines::over_the_mesh;
 pub(crate) use server::Backend;
 
-/// The server's name, as agents prefix its tools: `mcp__beep__run_on`.
+/// The server's name, as agents prefix its tools: `mcp__beep__remote_run`.
 pub const SERVER_NAME: &str = "beep";
 /// The env var the token reaches `beep-node mcp` in.
 pub const TOKEN_ENV: &str = "BEEP_MCP_TOKEN";
@@ -65,7 +65,7 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     machines. list_machines says which machines there are, whether each is online, its OS, \
     what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
     machine whose OS and tools fit the work, such as a macOS machine with Xcode for iOS and \
-    Mac builds, or one with a GPU for heavy jobs. run_on runs a command there; job_status and \
+    Mac builds, or one with a GPU for heavy jobs. remote_run runs a command there, never on your own machine; job_status and \
     cancel follow a background command. \
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. ask_user asks the user a question and waits \
@@ -311,6 +311,9 @@ impl Backend for Node {
         // In a mesh the machines answer for themselves; the server still
         // takes what is not between machines, and machines the mesh lacks.
         if let Some(mesh) = self.offers.mesh.get() {
+            if let Some(refused) = machines::run_here(&mesh, request) {
+                return Ok(refused);
+            }
             let route = machines::route(
                 request.tool,
                 self.offers.tools.has_server(),

@@ -15,7 +15,7 @@ use crate::{
 use beep_mesh::Key;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
-    AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask,
+    AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask, ApiError,
     GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage,
     ListAgentHosts, ListAgentModels, ListAgentSessions, MachinePick, MachineSession,
     PreviewAgentMachine, ResumeAgentSession, StartAgentSession,
@@ -520,6 +520,33 @@ pub async fn agent_delete(
     Ok(())
 }
 
+/// Why a session could not be read, which the session view tells apart:
+/// `{ kind: "lost" }`, `{ kind: "gone" }` or `{ kind: "failed", message }`.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ViewError {
+    /// The machine could not be reached or the link dropped: read again.
+    Lost,
+    /// The machine has no such session.
+    Gone,
+    /// What the machine or the app said.
+    Failed { message: String },
+}
+
+impl From<DesktopError> for ViewError {
+    fn from(e: DesktopError) -> Self {
+        if e.is_transport() {
+            Self::Lost
+        } else if matches!(e, DesktopError::Api(ApiError::NotFound {})) {
+            Self::Gone
+        } else {
+            Self::Failed {
+                message: e.to_string(),
+            }
+        }
+    }
+}
+
 /// One session in full. The calling webview's session view shows it, so
 /// its notices stay quiet while the view keeps reading it. `before` reads
 /// the `last` entries before that entry, to load older ones.
@@ -536,7 +563,7 @@ pub async fn agent_view(
     session: String,
     last: u32,
     before: Option<u64>,
-) -> Result<SessionPage> {
+) -> Result<SessionPage, ViewError> {
     shown.read(
         window.label(),
         &machine_id,
@@ -700,6 +727,9 @@ pub async fn agent_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_mesh::MeshError;
+    use iroh::endpoint::WriteError;
+    use std::io;
 
     #[test]
     fn image_lines_stay_out_of_the_agents_html() {
@@ -744,5 +774,23 @@ mod tests {
         assert_eq!(thought.ms, Some(12_000));
         let html = thought.html.expect("a thought carries its HTML");
         assert!(html.contains("<strong>Reading</strong>"), "{html}");
+    }
+
+    #[test]
+    fn a_dropped_link_reads_as_lost_and_a_missing_session_as_gone() {
+        let stopped = io::Error::from(WriteError::Stopped(0u32.into()));
+        let dropped = DesktopError::Mesh(MeshError::Link(stopped.into()));
+        assert_eq!(ViewError::from(dropped), ViewError::Lost);
+        let offline = DesktopError::Offline("build-box".into());
+        assert_eq!(ViewError::from(offline), ViewError::Lost);
+        let gone = DesktopError::Api(ApiError::NotFound {});
+        assert_eq!(ViewError::from(gone), ViewError::Gone);
+        let said = DesktopError::BadRequest("no such agent".into());
+        assert_eq!(
+            ViewError::from(said),
+            ViewError::Failed {
+                message: "no such agent".into()
+            }
+        );
     }
 }

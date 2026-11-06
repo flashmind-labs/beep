@@ -4,7 +4,7 @@
 //! mesh does not hold go to the server when there is one. Between a user's
 //! own machines there are no rules to check first.
 
-use super::{Rule, permission};
+use super::{Rule, catalog::REMOTE_RUN, permission};
 use crate::{
     files::transfer::{Incoming, Transfers},
     link::{
@@ -66,6 +66,29 @@ fn done(text: impl Into<String>, failed: bool) -> Reply {
         text: text.into(),
         failed,
     }
+}
+
+/// The refusal for a `remote_run` that names, by name or id, the machine the
+/// agent runs on: it runs commands on other machines only.
+pub(super) fn run_here(mesh: &Mesh, request: &Request) -> Option<Reply> {
+    if request.tool != Tool::RunOn {
+        return None;
+    }
+    let args: Value = serde_json::from_str(&request.args).ok()?;
+    let named = args.get("machine")?.as_str()?.trim();
+    let me = mesh.me();
+    let here = machines(mesh).into_iter().find(|m| m.id == me)?;
+    if here.name != command_name(named) && named != me.to_string() {
+        return None;
+    }
+    Some(done(
+        format!(
+            "{REMOTE_RUN} runs a command on another machine; {} is this machine. Run the \
+             command here with your own shell tool.",
+            here.name
+        ),
+        true,
+    ))
 }
 
 /// Where a call goes, from what the node has of a server.
@@ -568,7 +591,7 @@ async fn peer_env(mesh: &Mesh, peer: EndpointId) -> Option<EnvReport> {
     timeout(STATUS_WAIT, read).await.ok().flatten()
 }
 
-/// A job `run_on` started on another machine: `task:<n>@<machine>`.
+/// A job `remote_run` started on another machine: `task:<n>@<machine>`.
 struct Job {
     id: u32,
     machine: String,

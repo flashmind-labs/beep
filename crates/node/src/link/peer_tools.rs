@@ -162,7 +162,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     // An older node sends `prompt` (and `agent`) to start an agent. That would
     // skip the parent link and every limit `start_agent` keeps, so it is refused.
     if args.prompt.is_some() || args.agent.is_some() {
-        return Err("run_on runs commands only. Start an agent with start_agent.".into());
+        return Err("remote_run runs commands only. Start an agent with start_agent.".into());
     }
     let command = match args.command {
         Some(command) if !command.trim().is_empty() => command,

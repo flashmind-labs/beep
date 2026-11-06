@@ -81,7 +81,7 @@ test("a Beep call reads as its machine, command, files and verb", () => {
   // Before its arguments come, no machine is named.
   assert.equal(beepCall("Beep: Run on a machine")?.machine, "");
   assert.equal(beepCall("Run cargo test"), null);
-  assert.equal(beepCall("mcp__beep__run_on"), null);
+  assert.equal(beepCall("mcp__beep__remote_run"), null);
   assert.equal(beepLine("Beep: Run on build-box: make"), "Ran on build-box: make");
   assert.equal(beepLine("Beep: Send 2 files to build-box", true), "Sending 2 files to build-box");
   assert.equal(stepLabel("Beep: Run on build-box: make [completed]"), "Ran on build-box: make");
