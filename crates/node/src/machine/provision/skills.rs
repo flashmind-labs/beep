@@ -16,6 +16,11 @@ const MARKER: &str =
     "<!-- Installed by Beep. Beep keeps this file current until you edit it. sha256:";
 const MARKER_END: &str = " -->";
 
+/// Whether `text` is a skill file Beep installed, edited since or not.
+pub(crate) fn installed_by_beep(text: &str) -> bool {
+    text.contains(MARKER)
+}
+
 /// A skill as Beep ships it.
 pub(super) struct Skill {
     pub(super) name: &'static str,

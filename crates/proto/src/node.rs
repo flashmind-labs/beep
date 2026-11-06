@@ -27,6 +27,7 @@ pub mod mesh_state;
 pub mod process;
 pub mod search;
 pub mod shell;
+pub mod skills;
 pub mod status;
 pub mod sync;
 pub mod terminal;
