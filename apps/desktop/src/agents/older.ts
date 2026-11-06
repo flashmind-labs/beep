@@ -7,15 +7,12 @@ import type { ChatBody } from "../ui/turn.ts";
 import { invoke } from "../ui/tauri.ts";
 import { type AgentPage, AG, where } from "./agents.ts";
 import { drawAgentBody, jumpToLatest, rowInView, syncJump } from "./logview.ts";
-import { OLDER_MAX, OLDER_PAGE, PROMPT_READS, lacksPrompt, olderBefore, takeOlder } from "./older-state.ts";
+import { OLDER_MAX, OLDER_PAGE, PROMPT_READS, type Reading, drawsEachPage, lacksPrompt, olderBefore, takeOlder } from "./older-state.ts";
 
 /// How far from the top of the log, in pixels, the reader asks for older entries.
 const NEAR_TOP = 900;
 /// The most reads one scroll makes before it waits for the next.
 const NEAR_READS = 10;
-
-/// What a run of reads is for.
-export type Reading = "near" | "prompt" | "all";
 
 export const nearTop = (b: HTMLElement) => b.scrollTop < NEAR_TOP;
 
@@ -49,7 +46,7 @@ export async function loadOlder(mode: Reading) {
       if (taken.run === AG.page) break;
       const keep = rowInView();
       AG.page = { ...AG.page, ...taken.run };
-      if (mode !== "all") drawAgentBody(keep, false, true);
+      if (drawsEachPage(mode)) drawAgentBody(keep, false, true);
     }
     if (mode === "prompt" && AG.page && lacksPrompt(AG.page) && !AG.older.stop) AG.older.gaveUp = true;
   } catch (e) {
@@ -57,7 +54,7 @@ export async function loadOlder(mode: Reading) {
   } finally {
     AG.older.loading = false;
   }
-  // One draw for the whole run of "all", and for what a run says at its end.
+  // One draw for a whole run not drawn page by page, and for what a run says at its end.
   if (reads && S.view === "agent" && AG.open === o) drawAgentBody(rowInView(), false, true);
 }
 

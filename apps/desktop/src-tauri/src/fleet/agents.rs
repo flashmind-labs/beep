@@ -179,8 +179,19 @@ pub(crate) async fn session(
 ) -> Result<AgentSessionView> {
     let client = fleet.client(machine).await?;
     let host = fleet.host_of(machine);
-    let listed = limited(sessions::list(&client)).await?;
-    let mut view = match listed
+    // The transcript is asked for alongside the list: one wait, not two.
+    let last = get.last.clamp(1, MAX_ENTRIES);
+    let (listed, read) = tokio::join!(
+        limited(sessions::list(&client)),
+        limited(sessions::transcript_before(
+            &client,
+            &get.session,
+            last,
+            true,
+            get.before
+        )),
+    );
+    let mut view = match listed?
         .into_iter()
         .find(|info| info.id == get.session && info.agent == get.agent)
     {
@@ -213,9 +224,7 @@ pub(crate) async fn session(
             }
         }
     };
-    let last = get.last.clamp(1, MAX_ENTRIES);
-    let read = sessions::transcript_before(&client, &get.session, last, true, get.before);
-    match limited(read).await {
+    match read {
         Ok((entries, earlier)) => {
             view.entries = machine::entries_for(entries, true);
             view.earlier = earlier;
