@@ -6,6 +6,7 @@ import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutLabel,
 import { $, $$, type BackTo, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../project/projects-state.ts";
+import { addHosts, barPlace } from "../project/projectbar.ts";
 import type { CachedViews } from "../center/cached.ts";
 import type { HomeView } from "../center/home-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
@@ -174,8 +175,12 @@ function drawFrame() {
 function drawParts() {
   if (S.view !== "agentnew" || !$("#agbox")) return;
   const f = AG.form, hosts = AG.hosts ?? [];
-  // A remembered machine that no longer runs agents is not picked.
-  if (AG.hosts && f.machine && !formHost()) f.machine = "";
+  // With no machine picked, or one that no longer runs agents: the project's
+  // first machine with a checkout and an agent, else the first with an agent.
+  if (AG.hosts && !formHost()) {
+    f.machine = (f.places && barPlace(f.places, AG.hosts, "")?.machine_id) || addHosts(AG.hosts)[0]?.machine_id || "";
+    if (f.machine) f.cwd = folderOn(f.cwd, f.machine, f.places);
+  }
   f.agent = harnessFor(f.agent, formAgents(), AGENT_ORDER);
   f.effort = keepEffort(f.agent, f.effort);
   syncModel();

@@ -6,7 +6,7 @@ import { filterProjects } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { pageAgent } from "./agent.ts";
-import { type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, reviewPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, reviewPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
@@ -22,10 +22,19 @@ import { type Started, state } from "../center/state.ts";
 import { shown, go } from "../center/views.ts";
 import { projectRows } from "../center/sidebar.ts";
 import { redrawProjects, pc } from "./sections.ts";
-import { projectPlaces } from "./loads.ts";
+import { loadWhere, projectPlaces } from "./loads.ts";
+import { copyLine, shortName } from "./addmachine-state.ts";
+import type { SyncDetail } from "./filesync.ts";
+import type { MachineFolder } from "./projects-state.ts";
+import { defaultParent } from "../addproject/importproject-state.ts";
+import { lastImport } from "../addproject/importproject.ts";
+import { refresh } from "../center/refresh.ts";
 
 /// The tallest the bar's field grows before it scrolls, in pixels.
 const BAR_FIELD_MAX = 200;
+
+/// How often the bar reads the sync while a project is added to a machine.
+const POLL_MS = 1000;
 
 export const projectComp = (() => {
   // A field that wraps and grows with what is typed, like a chat's:
@@ -76,13 +85,14 @@ export const projectComp = (() => {
   });
   input.addEventListener("input", () => growBarField(input));
   machine.addEventListener("click", e => {
-    const p = barProject();
-    if (!p) return;
-    const able = (pc.hosts ?? []).filter(m => m.agents.length && p.places.some(x => x.machine === m.machine_id));
-    openMenu(e, "Machine", [
-      { label: "Auto", on: () => { pc.machine = "auto"; redrawProjects(); } },
-      ...able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redrawProjects(); } })),
-    ]);
+    const p = barProject(), hosts = pc.hosts ?? [];
+    if (!p || pc.adding) return;
+    if (!barPlace(p.places, hosts, pc.machine)) {
+      openMenu(e, "Add to a machine", addHosts(hosts).map(m => ({ label: m.machine_name, on: () => addToMachine(p.name, m) })));
+      return;
+    }
+    const able = addHosts(hosts).filter(m => p.places.some(x => x.machine === m.machine_id));
+    openMenu(e, "Machine", able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redrawProjects(); } })));
   });
   folder.addEventListener("click", e => {
     const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
@@ -122,8 +132,9 @@ function closeBarPicker() {
   redrawProjects();
 }
 
-/// The machine the bar starts on, its harnesses, and the harness picked
-/// there, kept with the model when the machine or harness changes.
+/// The machine the bar starts on (or is adding the project to, or would add
+/// it to first), its harnesses, and the harness picked there, kept with the
+/// model when the machine or harness changes.
 function barHarness(place: { machine_id: string } | null) {
   const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
   const offered = host ? [...host.agents].sort(byPreference) : [];
@@ -197,21 +208,23 @@ export function drawProjectComp(name: string) {
   const c = projectComp;
   if (pc.project !== name) {
     pc.project = name;
-    pc.machine = lastMachine(name) || "auto";
+    pc.machine = lastMachine(name);
+    pc.adding = null;
     pc.checkout = DEFAULT_CHECKOUT;
     pc.target = null;
     c.err.textContent = "";
     loadProjectBar(name);
   }
   const p = barProject();
-  // The machine last picked, while it still has a checkout and an agent.
-  let place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  if (p && !place && pc.machine !== "auto" && pc.hosts) place = barPlace(p.places, pc.hosts, "auto");
-  const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
-  c.input.placeholder = barPrompt(name, !!place || pc.hosts === null);
+  // The machine last picked, while it still has a checkout and an agent,
+  // else the first such machine.
+  const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  c.input.placeholder = barPrompt(name, (!!place && !pc.adding) || pc.hosts === null);
   // Text set or cleared from code (Work on it, a start) fits once drawn.
   requestAnimationFrame(() => growBarField(c.input));
-  c.machine.replaceChildren(place ? place.machine_name : pc.machine === "auto" ? "Auto" : "No checkout", ...(place?.auto ? [" ", h("small", "", "Auto")] : []));
+  c.machine.replaceChildren(...(pc.adding ? [pc.adding.machine_name, " ", h("small", "", "adding")]
+    : [place ? place.machine_name : pc.hosts ? "Add to a machine" : "Machine"]));
+  c.machine.disabled = !!pc.adding;
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
   c.folder.replaceChildren(co.label, " ", h("small", "", co.sub));
@@ -219,7 +232,7 @@ export function drawProjectComp(name: string) {
   c.branch.hidden = t?.kind !== "issue";
   if (t?.kind === "issue" && document.activeElement !== c.branch) c.branch.value = t.branch;
   c.clear.hidden = !t;
-  const { offered, agent } = barHarness(place);
+  const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null);
   if (agent && host) {
     modelsOn(host.machine_id, agent, () => { if (barOn(name)) redrawProjects(); });
     c.harness.innerHTML = pillInner(agent, pc.picked.model, pc.picked.effort, host.machine_id);
@@ -230,7 +243,7 @@ export function drawProjectComp(name: string) {
   if (!agent) pc.open = false;
   c.harness.setAttribute("aria-expanded", String(pc.open));
   drawBarPicker(host, offered);
-  c.send.disabled = pc.starting || !place;
+  c.send.disabled = pc.starting || !place || !!pc.adding;
   c.send.firstChild!.textContent = pc.starting ? "Starting" : "Start";
   draftPlace(place);
 }
@@ -274,13 +287,13 @@ export function workOnIssue(name: string, issue: IssueRow) {
 }
 
 /// Where each picked issue starts, on the machine and harness the bar has
-/// picked (Auto and the first harness for another project); null until the
-/// machines are read.
+/// picked (the one last picked for another project, and the first harness);
+/// null until the machines are read.
 export function issueStartPlan(entries: readonly StartEntry[]) {
   if (!pc.hosts) return null;
   const projects = projectRows() || [];
   const places = (name: string) => { const p = projects.find(x => x.name === name); return p ? projectPlaces(p) : []; };
-  return planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : "auto"), pc.picked.agent || null, AGENT_ORDER);
+  return planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : lastMachine(name)), pc.picked.agent || null, AGENT_ORDER);
 }
 
 /// Reads the machines when no project's bar has.
@@ -379,9 +392,8 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 /// opens its session; Esc there comes back to the project.
 async function startFromBar() {
   const c = projectComp, p = barProject(), text = c.input.value.trim();
-  let place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  if (p && !place && pc.machine !== "auto") place = barPlace(p.places, pc.hosts ?? [], "auto");
-  if (!p || !place || !text || pc.starting) return;
+  const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  if (!p || !place || !text || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.err.textContent = "Name the branch first."; return; }
   const was = barExisting(p.name, place);
@@ -405,6 +417,41 @@ async function startFromBar() {
     c.err.textContent = reason(e);
   } finally {
     pc.starting = false;
+    redrawProjects();
+  }
+}
+
+/// Adds `project` to machine `m` as its machine row's Add does, in the folder
+/// that sheet offers first, with the copy's progress on the bar's line under
+/// it; then the bar is ready there.
+async function addToMachine(project: string, m: AgentHost) {
+  const err = projectComp.err, here = () => pc.project === project;
+  pc.adding = m;
+  pc.machine = m.machine_id;
+  keepMachine(project, m.machine_id);
+  err.textContent = `Adding ${shortName(project)} to ${m.machine_name}…`;
+  redrawProjects();
+  try {
+    const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: m.machine_id, path: null });
+    const os = state.home?.machines?.find(x => x.id === m.machine_id)?.env?.os;
+    const parent = defaultParent(m.machine_id, listing.path, os, lastImport());
+    if (!parent) throw new Error(`${m.machine_name} has no folder to add ${shortName(project)} to.`);
+    await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder: `${parent}/${shortName(project)}` });
+    refresh();
+    loadWhere(project);
+    while (here()) {
+      const detail = await invoke<SyncDetail | null>("project_sync_detail", { project }).catch(() => null);
+      const line = copyLine(detail, m.machine_id, m.machine_name);
+      if (line.done) break;
+      if (here()) err.textContent = line.note ? `${line.text}. ${line.note}` : line.text;
+      await new Promise(done => setTimeout(done, POLL_MS));
+    }
+    if (here()) err.textContent = "";
+  } catch (e) {
+    if (here()) err.textContent = reason(e);
+  } finally {
+    if (pc.adding === m) pc.adding = null;
+    refresh();
     redrawProjects();
   }
 }

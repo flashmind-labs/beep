@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { barPlace, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt } from "../src/project/projectbar.ts";
+import { addHosts, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -13,11 +13,19 @@ const PLACES = [
   { machine: "n", cwd: "/srv/acme/widget" },
 ];
 
-test("Auto starts on the first machine by name with a checkout and an agent", () => {
-  assert.deepEqual(barPlace(PLACES, HOSTS, "auto"), { machine_id: "b", machine_name: "build-box", cwd: "/home/user/acme/widget", auto: true });
-  assert.deepEqual(barPlace(PLACES, HOSTS, "m"), { machine_id: "m", machine_name: "mac-box", cwd: "/Users/user/acme/widget", auto: false });
-  assert.equal(barPlace(PLACES, HOSTS, "n"), null, "no coding agent there");
-  assert.equal(barPlace([], HOSTS, "auto"), null, "no checkout yet");
+test("the bar starts on the machine picked, else the first by name with a checkout and an agent", () => {
+  assert.deepEqual(barPlace(PLACES, HOSTS, "m"), { machine_id: "m", machine_name: "mac-box", cwd: "/Users/user/acme/widget" });
+  assert.deepEqual(barPlace(PLACES, HOSTS, ""), { machine_id: "b", machine_name: "build-box", cwd: "/home/user/acme/widget" }, "none picked yet");
+  assert.deepEqual(barPlace(PLACES, HOSTS, "n"), { machine_id: "b", machine_name: "build-box", cwd: "/home/user/acme/widget" }, "no coding agent on the one picked");
+  assert.deepEqual(barPlace(PLACES, HOSTS, "gone"), { machine_id: "b", machine_name: "build-box", cwd: "/home/user/acme/widget" }, "picked one no longer listed");
+  assert.equal(barPlace(PLACES.slice(2), HOSTS, "m"), null, "no checkout on a machine with an agent");
+  assert.equal(barPlace([], HOSTS, ""), null, "no checkout yet");
+});
+
+test("with no checkout an agent can run in, the bar offers the machines with an agent", () => {
+  assert.deepEqual(addHosts(HOSTS).map(h => h.machine_name), ["build-box", "mac-box"]);
+  assert.equal(barPrompt("acme/widget", false), "Add acme/widget to a machine to start an agent");
+  assert.equal(barPrompt("acme/widget", true), "Describe a task for a coding agent in acme/widget");
 });
 
 test("a target starts on its named or existing branch", () => {
