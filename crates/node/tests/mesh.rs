@@ -8,6 +8,7 @@
 //! each under a generous outer timeout; nothing sleeps.
 
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
+use beep_node::link::peers::ReportError;
 use beep_proto::node::{
     Down, LinkRx, LinkTx, NODE_ALPN, NODE_ALPN_NAMED, NodeHello, Open, Opened,
     agent::{
@@ -735,7 +736,7 @@ async fn another_node_gets_a_report_with_status_and_version() {
 #[tokio::test]
 async fn the_node_collects_from_its_mesh_for_the_cli() {
     let desktop = desktop(None).await;
-    let a = Node::start(Config {
+    let mut a = Node::start(Config {
         name: Some("box-a"),
         ..Config::default()
     })
@@ -759,6 +760,10 @@ async fn the_node_collects_from_its_mesh_for_the_cli() {
                 .any(|share| share.id == b.id && share.answer == Answer::Answered)
             {
                 return shares;
+            }
+            // Not back to back: the next round waits for a's next log line, a second at most.
+            if let Ok(Some(line)) = timeout(Duration::from_secs(1), a.lines.recv()).await {
+                a.log.push(line);
             }
         }
     })
@@ -794,7 +799,11 @@ async fn a_silent_node_on_the_socket_does_not_stop_the_report() {
     let started = tokio::time::Instant::now();
     let collected =
         beep_node::link::peers::collect_report_within(dir.path(), 0, Duration::from_secs(1)).await;
-    assert!(collected.is_err(), "{collected:?}");
+    let silent = collected
+        .expect_err("a silent node gives no report")
+        .downcast::<ReportError>()
+        .expect("the error says the node was silent");
+    assert!(matches!(silent, ReportError::Silent(1)), "{silent:?}");
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
