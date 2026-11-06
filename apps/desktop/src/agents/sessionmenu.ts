@@ -30,15 +30,9 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     items.push({ label: "Copy id", on: () => void writeClipboard(s.id) });
     if (offers.close) {
       items.push({
-        label: "Close session…",
+        label: "Close session",
         warn: true,
-        on: () => confirmSheet({
-          title: "Close this session?",
-          text: "The agent stops running.",
-          note: "Its transcript stays.",
-          action: "Close",
-          run: () => closeSession(s),
-        }),
+        on: () => void closeSession(s),
       });
     }
     if (offers.delete) {
