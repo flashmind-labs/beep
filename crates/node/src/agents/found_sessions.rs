@@ -245,8 +245,10 @@ impl Agents {
                 .collect::<Vec<_>>()
         })
         .await?;
+        let held = self.held(agent, &sessions).await;
         for found in &mut sessions {
-            found.presence = self.presence(agent, found).await;
+            let held = held.get(&found.id).copied();
+            found.presence = holders::settle(found.presence, found.pid, held);
             found.taken_over = owned.get(&found.id).cloned();
         }
         Ok(sessions)
@@ -360,25 +362,45 @@ impl Agents {
     /// recent write alone is checked: Codex keeps a session's rollout open
     /// while it runs, and a session Beep ran here ended with Beep.
     pub(super) async fn presence(&self, agent: Agent, found: &ExternalSession) -> Presence {
-        if found.pid.is_some() {
-            return found.presence;
+        let held = self.held(agent, std::slice::from_ref(found)).await;
+        holders::settle(found.presence, found.pid, held.get(&found.id).copied())
+    }
+
+    /// Whether a process holds the file of each of `found` that no process
+    /// was seen running, by session id, all looked up at once; a session
+    /// missing from it cannot be told.
+    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, bool> {
+        let ids: Vec<String> = found
+            .iter()
+            .filter(|found| found.pid.is_none())
+            .map(|found| found.id.clone())
+            .collect();
+        // Claude Code does not keep its transcript open, but its processes
+        // were looked at already and none runs these sessions.
+        if agent == Agent::Claude {
+            return ids.into_iter().map(|id| (id, false)).collect();
         }
-        let held = match agent {
-            // Claude Code does not keep its transcript open, but its
-            // processes were looked at already and none runs this session.
-            Agent::Claude => Some(false),
-            other => {
-                let stores = self.stores.clone();
-                let id = found.id.clone();
-                spawn_blocking(move || holders::held_open(&stores.file(Some(other), &id)?))
-                    .await
-                    .unwrap_or_else(|e| {
-                        log::warn!("could not tell whether session {} runs: {e}", found.id);
-                        None
-                    })
-            }
+        if ids.is_empty() {
+            return HashMap::new();
+        }
+        let stores = self.stores.clone();
+        let files = spawn_blocking(move || {
+            ids.into_iter()
+                .filter_map(|id| Some((stores.file(Some(agent), &id)?, id)))
+                .collect::<HashMap<PathBuf, String>>()
+        })
+        .await
+        .unwrap_or_else(|e| {
+            log::warn!("could not find the sessions' files: {e}");
+            HashMap::new()
+        });
+        let Some(open) = holders::held_open(files.keys().cloned().collect()).await else {
+            return HashMap::new();
         };
-        holders::settle(found.presence, found.pid, held)
+        files
+            .into_iter()
+            .map(|(file, id)| (id, open.contains(&file)))
+            .collect()
     }
 
     /// The picture `key` of `session`'s transcript: kept, or else found
