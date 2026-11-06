@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     account::user::User,
-    api::transport::READ_TIMEOUT,
+    nodes::READ_TIMEOUT,
     app::App,
     nodes::SessionRefused,
     protocol::node::agent::Status,

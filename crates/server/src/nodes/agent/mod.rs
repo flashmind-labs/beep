@@ -6,7 +6,7 @@ use follow::{Failed, Failure, Opening, Retry, follow};
 
 use super::{Ask, Follower};
 use crate::{
-    api::transport::READ_TIMEOUT,
+    nodes::READ_TIMEOUT,
     protocol::node::agent::{Question, Request, SessionInfo, Status, StopReason},
 };
 use anyhow::{Context, Result};

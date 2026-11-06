@@ -43,7 +43,7 @@ pub(super) async fn remove_machine(
     RemoveMachine { machine_id }: RemoveMachine,
 ) -> Reply<()> {
     let key: EndpointId = machine_id.parse().map_err(|_| ApiError::NotFound {})?;
-    if key == cx.connection.remote_id() {
+    if key == cx.key {
         return Err(ApiError::bad_request(
             "This is the machine you are on. Unlink it from Settings.",
         ));

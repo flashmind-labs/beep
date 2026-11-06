@@ -91,7 +91,6 @@ pub(super) async fn watch_project(
             }
         }
         tokio::select! {
-            _ = cx.connection.closed() => return Ok(()),
             changed = following.state.changed() => {
                 if changed.is_err() {
                     return Ok(());

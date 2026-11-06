@@ -37,7 +37,7 @@ app backs its key up to Google Block Store, or to a file from Settings.
 Check the endpoint with the probe:
 
 ```sh
-BEEP_IDENTITY=.dev/probe-key cargo run -q -p beep-server --bin beep-probe -- NODE_ID health
+BEEP_IDENTITY=.dev/probe-key cargo run -q -p beep-server --bin beep-probe -- http://127.0.0.1:47122 health
 ```
 
 ## Android

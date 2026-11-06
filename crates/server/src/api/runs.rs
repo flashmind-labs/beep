@@ -110,13 +110,13 @@ pub(super) async fn speak_notice(
     cx.app.speak_notice(&cx.user, &title, &body).await
 }
 
-/// What a run started on this connection can show; only the macOS app draws charts.
+/// What a run started by this caller can show; only the macOS app draws charts.
 pub(super) fn draws(cx: &Cx) -> Draws {
     let desktop = cx.device == (DeviceKind::Desktop {});
     Draws {
-        charts: desktop && cx.supports(Feature::CHARTS),
-        cards: cx.supports(Feature::CARDS),
-        sources: cx.supports(Feature::SOURCES),
+        charts: desktop,
+        cards: true,
+        sources: true,
     }
 }
 
@@ -223,14 +223,6 @@ pub(super) async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>
         }
 
         after = event.seq;
-        // Only an app that plays voice notes reads a transcript.
-        if matches!(event.event, RunEvent::Transcript { .. }) && !cx.supports(Feature::VOICE) {
-            continue;
-        }
-        // Nor does an app from before source chips read a reply's sources.
-        if matches!(event.event, RunEvent::Sources { .. }) && !cx.supports(Feature::SOURCES) {
-            continue;
-        }
         let finished = matches!(event.event, RunEvent::RunFinished { .. });
         sink.send(&event).await?;
         if finished {

@@ -6,7 +6,7 @@ use super::{
     wake::Reporter,
 };
 use crate::{
-    api::transport::READ_TIMEOUT,
+    nodes::READ_TIMEOUT,
     nodes::{
         AgentLink, NodeFile, NodeImage, NodeWork, SessionRefused, StartOn, Watched, WorkRead,
         WorkWrite,

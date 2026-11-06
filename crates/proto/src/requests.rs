@@ -1297,6 +1297,10 @@ requests! {
     /// Deletes alerts with their sessions, by `Alert::session_id`. A session
     /// that is a chat now is kept. Ids the caller does not have are skipped.
     424 DismissAlerts { ids: Vec<Uuid> } => Call<()>
+    /// Says the caller's app took `AppEvent::Notice` `id` off its events
+    /// stream. A phone that does not within a few seconds gets the notice
+    /// through FCM or APNs too. An id the caller does not have is skipped.
+    425 AckNotice { id: i64 } => Call<()>
 }
 
 #[cfg(test)]

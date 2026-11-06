@@ -17,7 +17,7 @@ pub mod store;
 pub mod tools;
 pub mod voice;
 
-pub use beep_proto::{self as protocol, client};
+pub use beep_proto as protocol;
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 

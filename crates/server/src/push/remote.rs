@@ -1,4 +1,4 @@
-//! Reaches phones iroh cannot through FCM or APNs, with notices sealed to the phone's key.
+//! Reaches phones not on their events stream through FCM or APNs, with notices sealed to the phone's key.
 
 use crate::{
     protocol::{Notice, seal},
@@ -10,13 +10,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 use iroh::EndpointId;
 
-/// Reaches a phone the server cannot reach over iroh.
+/// Reaches a phone that did not take a notice off its events stream.
 #[async_trait]
 pub trait Fallback: Send + Sync + 'static {
     /// Sends `notice` to the phone. True when a push service took it.
     async fn push(&self, phone: EndpointId, notice: &Notice) -> bool;
-    /// Wakes the phone to connect and take its queued notices.
-    async fn wake(&self, phone: EndpointId);
 }
 
 /// What a push to one token came to.
@@ -26,13 +24,6 @@ pub enum Delivery {
     /// The app was uninstalled or the token rotated: forget it.
     Gone,
     Failed,
-}
-
-/// What goes to a phone.
-#[derive(Clone, Copy)]
-enum Message<'a> {
-    Notice(&'a Notice),
-    Wake,
 }
 
 /// The push services the server has keys for.
@@ -51,8 +42,8 @@ impl RemotePush {
         }
     }
 
-    /// Sends `message` to each phone registered with `phone`'s key; true when one took it.
-    async fn send_all(&self, phone: EndpointId, message: Message<'_>) -> bool {
+    /// Sends `notice` to each phone registered with `phone`'s key; true when one took it.
+    async fn send_all(&self, phone: EndpointId, notice: &Notice) -> bool {
         let tokens = match self.store.push_tokens(&phone).await {
             Ok(tokens) => tokens,
             Err(e) => {
@@ -68,19 +59,14 @@ impl RemotePush {
         // to that phone.
         for token in tokens {
             let service: &str = token.service.into();
-            let Some(delivery) = self.send(&phone, &token, message).await else {
+            let Some(delivery) = self.send(&phone, &token, notice).await else {
                 log::debug!("push: no key for {service}; user={phone}");
                 continue;
             };
             match delivery {
                 Ok(Delivery::Sent) => {
                     sent = true;
-                    match message {
-                        Message::Notice(_) => {
-                            log::info!("{service}: pushed a notice; user={phone}")
-                        }
-                        Message::Wake => log::info!("{service}: woke phone; user={phone}"),
-                    }
+                    log::info!("{service}: pushed a notice; user={phone}");
                 }
                 Ok(Delivery::Gone) => {
                     if let Err(e) = self.store.forget_push_token(&phone, &token.token).await {
@@ -99,35 +85,25 @@ impl RemotePush {
         &self,
         phone: &EndpointId,
         token: &PushToken,
-        message: Message<'_>,
+        notice: &Notice,
     ) -> Option<Result<Delivery>> {
         let environment = match token.service {
             PushService::Fcm => {
                 let firebase = self.firebase.as_ref()?;
-                return Some(match message {
-                    Message::Notice(notice) => firebase.push(phone, &token.token, notice).await,
-                    Message::Wake => firebase.wake(&token.token).await,
-                });
+                return Some(firebase.push(phone, &token.token, notice).await);
             }
             PushService::ApnsSandbox => Environment::Sandbox,
             PushService::ApnsProduction => Environment::Production,
         };
         let apns = self.apns.as_ref()?;
-        Some(match message {
-            Message::Notice(notice) => apns.push(phone, &token.token, environment, notice).await,
-            Message::Wake => apns.wake(&token.token, environment).await,
-        })
+        Some(apns.push(phone, &token.token, environment, notice).await)
     }
 }
 
 #[async_trait]
 impl Fallback for RemotePush {
     async fn push(&self, phone: EndpointId, notice: &Notice) -> bool {
-        self.send_all(phone, Message::Notice(notice)).await
-    }
-
-    async fn wake(&self, phone: EndpointId) {
-        self.send_all(phone, Message::Wake).await;
+        self.send_all(phone, notice).await
     }
 }
 
