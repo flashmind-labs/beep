@@ -80,10 +80,15 @@ def list_reports(s3, bucket):
         mesh = key.split("/")[1][:8]
         ref = "R-" + key.rsplit("/", 1)[1].removesuffix(".json").upper()
         day = datetime.fromtimestamp(m["made_at"], timezone.utc).strftime("%Y-%m-%d")
-        text = " ".join(m["text"].split())[:60]
+        text = " ".join(printable(m["text"]).split())[:60]
         machines = m["machines"]
         answered = sum(1 for x in machines if x["answer"] in ("Answered", "OlderNode"))
         print(f"{mesh}  {ref}  {day}  {text}  {answered}/{len(machines)}")
+
+
+def printable(s):
+    """The text without control characters a terminal would act on."""
+    return "".join(c for c in s if c.isprintable() or c == "\n")
 
 
 def unsafe(name):

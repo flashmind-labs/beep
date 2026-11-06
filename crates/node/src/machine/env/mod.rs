@@ -216,6 +216,7 @@ pub async fn os_version() -> String {
             Some(version) => format!("macOS {version}"),
             None => "macOS".into(),
         },
+        "windows" => "Windows".into(),
         _ => tokio::fs::read_to_string("/etc/os-release")
             .await
             .ok()
