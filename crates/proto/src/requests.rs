@@ -1095,11 +1095,9 @@ requests! {
     310 GetSpendReport { refresh: bool } => Call<SpendReport>
     /// Follows `project_id` while its page is open: the first reply says
     /// whether its host's events reach Beep now, and each later one comes
-    /// when the server read its lists or runs again, or when that changed.
-    /// While someone follows a project whose repository the user is an
-    /// admin of, one of their machines forwards its webhook. The page
-    /// keeps reading the lists every few minutes as before. `NotFound`
-    /// when the caller has no such project.
+    /// when the server read its lists or runs again. Servers since #339
+    /// poll the host and never say live; older ones forwarded a webhook.
+    /// `NotFound` when the caller has no such project.
     340 WatchProject { project_id: Uuid } => Stream<ProjectChange>
     /// As `ListProjectRuns`, from every host `project_id`'s repository is
     /// on: its GitHub and Forgejo hosts, from its roles, its imports and

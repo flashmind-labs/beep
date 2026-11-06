@@ -5,6 +5,7 @@
 use super::subagents;
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
+    agents::tags::{self, Part},
     agents::{Picture, block_picture, cut, found::memo::Memo, window::window},
 };
 use beep_proto::node::agent::{Entry, EntryKind};
@@ -173,7 +174,7 @@ impl Digest {
         let content = &value["message"]["content"];
         let mut lines = String::new();
         let text = match content {
-            Value::String(text) => Some(text.clone()),
+            Value::String(text) => Some(tags::untagged(text)),
             Value::Array(blocks) => {
                 for block in blocks.iter().filter(|block| block["type"] == "tool_result") {
                     let id = block["tool_use_id"].as_str().unwrap_or("");
@@ -196,24 +197,49 @@ impl Digest {
                         pictures.push(picture);
                     }
                 }
-                let texts: Vec<&str> = blocks
+                let texts: Vec<String> = blocks
                     .iter()
                     .filter(|block| block["type"] == "text")
                     .filter_map(|block| block["text"].as_str())
+                    .map(tags::bare_block)
                     .collect();
                 (!texts.is_empty()).then(|| texts.join("\n"))
             }
             _ => None,
         };
-        let prompt = text.as_deref().and_then(prompt_text);
-        if let Some(prompt) = &prompt {
-            self.last_prompt = Some(cut(prompt.trim(), MAX_SHORT));
+        // Beep's context and what other sessions sent stay apart from the
+        // user's words, which Claude Code's own tags may wrap.
+        let parts = text.as_deref().map(tags::parts).unwrap_or_default();
+        let user: Vec<&str> = parts
+            .iter()
+            .filter_map(|part| match part {
+                Part::User(text) => Some(*text),
+                _ => None,
+            })
+            .collect();
+        let prompt = prompt_text(&user.join("\n"));
+        let others: Vec<Part> = parts
+            .into_iter()
+            .filter(|part| !matches!(part, Part::User(_)))
+            .collect();
+        let said = prompt.as_deref().or_else(|| {
+            others.iter().find_map(|part| match part {
+                Part::Session { text, .. } => Some(*text),
+                _ => None,
+            })
+        });
+        if let Some(said) = said {
+            self.last_prompt = Some(cut(said.trim(), MAX_SHORT));
         } else if lines.is_empty() {
             return;
         }
         // The image lines go whole after the text, cut to make room.
         let room = MAX_ENTRY.saturating_sub(lines.len());
-        let mut shown = cut(prompt.as_deref().unwrap_or("").trim(), room);
+        let mut kept = others;
+        if let Some(prompt) = &prompt {
+            kept.push(Part::User(prompt));
+        }
+        let mut shown = cut(tags::join(&kept).trim(), room);
         shown.push_str(&lines);
         self.push(EntryKind::User, shown.trim_start());
     }
@@ -775,5 +801,53 @@ pub(super) mod tests {
             digest.entries[0].text
         );
         assert_eq!(digest.pictures.unwrap()[0].data, png);
+    }
+
+    /// The user entry a single user line gives.
+    fn user_entry(content: serde_json::Value) -> String {
+        let line =
+            serde_json::json!({"type": "user", "message": {"role": "user", "content": content}});
+        let digest = Digest::with_pictures(&line.to_string());
+        assert_eq!(digest.entries.len(), 1, "{:?}", digest.entries);
+        assert_eq!(digest.entries[0].kind, EntryKind::User);
+        digest.entries[0].text.clone()
+    }
+
+    #[test]
+    fn a_bare_brief_block_is_not_the_users_text() {
+        let brief = crate::agents::mcp::brief(false);
+        let text = user_entry(serde_json::json!([
+            {"type": "text", "text": brief},
+            {"type": "text", "text": "ok, let's keep going"}
+        ]));
+        assert_eq!(tags::said(&text), "ok, let's keep going");
+        assert_eq!(
+            tags::parts(&text),
+            [Part::Context(&brief), Part::User("ok, let's keep going")]
+        );
+        // Glued into one string, as some harnesses keep it.
+        let text = user_entry(serde_json::json!(format!("{brief}ok, let's keep going")));
+        assert_eq!(tags::said(&text), "ok, let's keep going");
+    }
+
+    #[test]
+    fn a_tagged_line_splits_into_its_three_parts() {
+        let text = user_entry(serde_json::json!([
+            {"type": "text", "text": tags::context("Beep: the user's standing rules:\n- Be brief.")},
+            {"type": "text", "text": tags::from_session("p1", "Release prep", "Check the changelog.")},
+            {"type": "text", "text": "ok, let's keep going"}
+        ]));
+        assert_eq!(
+            tags::parts(&text),
+            [
+                Part::Context("Beep: the user's standing rules:\n- Be brief."),
+                Part::Session {
+                    id: "p1".into(),
+                    name: "Release prep".into(),
+                    text: "Check the changelog.",
+                },
+                Part::User("ok, let's keep going"),
+            ]
+        );
     }
 }

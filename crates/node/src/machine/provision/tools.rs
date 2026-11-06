@@ -71,43 +71,43 @@ const GH: Pinned = Pinned {
     ],
 };
 
-/// teacli 1.0.10, the Forgejo and Gitea command line.
+/// teacli 1.0.13, the Forgejo and Gitea command line.
 const TEACLI: Pinned = Pinned {
     name: "teacli",
     assets: &[
         Asset {
             os: "linux",
             arch: "x86_64",
-            url: "https://github.com/rayfish/teacli/releases/download/v1.0.10/teacli-linux-amd64",
-            sha256: "0902f68f5abbc0f0a87424564940c4420b8f88a1e0ce7b608dde0cd42c77fbee",
+            url: "https://github.com/rayfish/teacli/releases/download/v1.0.13/teacli-linux-amd64",
+            sha256: "6592bcb433b4d58227c8c93edfe1594412809f9f2a170ced723c21d50ba19af3",
             member: None,
         },
         Asset {
             os: "linux",
             arch: "aarch64",
-            url: "https://github.com/rayfish/teacli/releases/download/v1.0.10/teacli-linux-arm64",
-            sha256: "3a117493b53799d9808b112552f5e1f3669e3165a2a94a6b9173f7fbab7b0029",
+            url: "https://github.com/rayfish/teacli/releases/download/v1.0.13/teacli-linux-arm64",
+            sha256: "715078187efdefa9f9edebce95572f5ad254a611acfa4904b6966089c7387077",
             member: None,
         },
         Asset {
             os: "macos",
             arch: "x86_64",
-            url: "https://github.com/rayfish/teacli/releases/download/v1.0.10/teacli-darwin-amd64",
-            sha256: "24811dce44ab5da68e48de3d1f525d6e5ba9a5e0d810c53b802070e6ce0441b6",
+            url: "https://github.com/rayfish/teacli/releases/download/v1.0.13/teacli-darwin-amd64",
+            sha256: "9f8d3a5a58e7f59bed83c354dd958e2fb7f816675dea94a946868c6eb6013097",
             member: None,
         },
         Asset {
             os: "macos",
             arch: "aarch64",
-            url: "https://github.com/rayfish/teacli/releases/download/v1.0.10/teacli-darwin-arm64",
-            sha256: "7cf7947033be2a88191c6636c583768ec9ef6c96eb3bbb2fe1843ea4a9c1d754",
+            url: "https://github.com/rayfish/teacli/releases/download/v1.0.13/teacli-darwin-arm64",
+            sha256: "604d8f1ef3979bbdc92a4b361e108dd2f7a567505909f70ba551432d4463d2d0",
             member: None,
         },
         Asset {
             os: "windows",
             arch: "x86_64",
-            url: "https://github.com/rayfish/teacli/releases/download/v1.0.10/teacli-windows-amd64.exe",
-            sha256: "c85125b75da4a21e923fbd84ff5e0c4c6b471b6886c59eb746fa7a3c9c087701",
+            url: "https://github.com/rayfish/teacli/releases/download/v1.0.13/teacli-windows-amd64.exe",
+            sha256: "e252d66f8d5d946ce3934e7256077a6e1d188eb1f92df6fdbcfb8762192fcacd",
             member: None,
         },
     ],

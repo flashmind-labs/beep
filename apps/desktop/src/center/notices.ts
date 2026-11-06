@@ -4,7 +4,8 @@
 // told this Mac (a coding agent finished or asks, sync conflicts, a failed
 // move, a machine that went offline). Alerts are notifications, not chats,
 // until the user replies in one.
-import { pane } from "../bar/pane.ts";
+import { type PaneTarget, pane } from "../bar/pane.ts";
+import type { ProjectsArg } from "./state.ts";
 import { el as h } from "../ui/dom.ts";
 import { ago } from "../ui/format.ts";
 import { dbtn as button, svgEl } from "../ui/parts.ts";
@@ -133,7 +134,8 @@ export function mountNotices(host: HTMLElement) {
     }
     if (!to) return;
     toggle(false);
-    if (to === "session") go("pane", i.target);
+    if (to === "project") go("projects", (i.target as { projects: ProjectsArg }).projects);
+    else if (to === "session") go("pane", i.target as PaneTarget);
     else if (to === "sync") go("sync");
     else openSettings("machines");
   };

@@ -7,6 +7,8 @@ pub(crate) mod spawn_env;
 mod teacli;
 mod tools;
 
+pub(crate) use skills::installed_by_beep;
+
 use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result};
 use beep_proto::node::{

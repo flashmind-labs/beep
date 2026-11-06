@@ -10,8 +10,9 @@ use crate::{
     fleet::{ClockOff, Fleet, Machines, files as direct},
     projects::unknown_op,
 };
+use beep_projects::imports::found::MachineFound;
 use beep_proto::{
-    AgentHost, ApiError, Call, FoundProject, GetMachineLog, ListMachineDetails, ListMachineStats,
+    AgentHost, ApiError, Call, GetMachineLog, ListMachineDetails, ListMachineStats,
     ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineDetails, MachineEnv,
     MachineSession, MachineStats, MachineTraffic, MachineUpdate, RemoveMachine, Terminal,
     TrafficCounter, UpdatableMachine, UpdateMachine, node::logs::MAX_LINES,
@@ -212,8 +213,28 @@ pub struct Outside {
     pub(crate) terminals: Arc<Held<Terminal>>,
     /// The terminals the server keeps.
     pub(crate) server_terminals: Arc<Held<Terminal>>,
-    /// The checkouts agents worked in, on every machine and the server's.
-    pub(crate) found: Arc<Held<FoundProject>>,
+    /// The checkouts each machine of the mesh named last.
+    pub(crate) found: FoundOn,
+}
+
+/// What each machine named last when asked for its checkouts.
+#[derive(Default)]
+pub(crate) struct FoundOn(Mutex<Vec<MachineFound>>);
+
+impl FoundOn {
+    pub(crate) fn last(&self) -> Vec<MachineFound> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Keeps `found` in place of what its machine named before.
+    pub(crate) fn keep(&self, found: MachineFound) {
+        let mut all = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        all.retain(|known| known.machine_id != found.machine_id);
+        all.push(found);
+    }
 }
 
 /// The machines of the mesh, and those only the server lists. A machine

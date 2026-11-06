@@ -65,7 +65,8 @@ impl Live {
                         for picture in found {
                             self.keep(picture);
                         }
-                        self.user_chunk(&shown);
+                        // A brief from before the tags is Beep's context.
+                        self.user_chunk(&crate::agents::tags::bare_block(&shown));
                     }
                     ContentBlock::Image(image) => {
                         if let Ok(data) = STANDARD.decode(&image.data) {
@@ -191,8 +192,7 @@ impl Live {
         }
         if self.naming
             && let Some(prompt) = self.transcript.back()
-            && let Some(line) = prompt
-                .text
+            && let Some(line) = crate::agents::tags::said(&prompt.text)
                 .lines()
                 .map(str::trim)
                 .find(|line| !line.is_empty())

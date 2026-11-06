@@ -1,4 +1,5 @@
 use super::*;
+use crate::files::paths;
 use std::net::SocketAddr;
 use tempfile::TempDir;
 use tokio::{
@@ -36,7 +37,7 @@ impl Home {
     }
 
     fn path(&self) -> PathBuf {
-        self.dir.path().canonicalize().expect("the home exists")
+        paths::canonicalize(self.dir.path()).expect("the home exists")
     }
 
     fn config_dir(&self) -> PathBuf {

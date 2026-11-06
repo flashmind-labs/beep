@@ -33,7 +33,7 @@ mod pi;
 mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};
-pub(crate) use disk::{forget_checkouts, saved_checkouts, walk};
+pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
 pub(crate) use git::{Checkout, checkout, last_commit, place};
 pub(crate) use memo::Memo;
 
@@ -492,7 +492,8 @@ fn head_lines(path: &Path) -> io::Result<impl Iterator<Item = String>> {
 /// A prompt as a title: trimmed, cut short, and none for text an agent
 /// wraps in tags, such as its own context.
 fn prompt_title(text: &str) -> Option<String> {
-    let text = text.trim();
+    let said = crate::agents::tags::said(text);
+    let text = said.trim();
     (!text.is_empty() && !text.starts_with('<')).then(|| cut(text, MAX_TITLE))
 }
 
