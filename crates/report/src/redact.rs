@@ -141,10 +141,25 @@ impl Compiled {
     }
 }
 
-/// A key file's path, as in `ssh_key=/path/to/key`.
+/// A key file's path, as in `ssh_key=/path/to/key`. Not when the name says secret some other
+/// way, and not a value that could be base64 (which starts with `/` one time in 64).
 fn key_path(key: &str, val: &str) -> bool {
-    let key = key.trim_end_matches("id").trim_end_matches(['_', '-']);
-    key.ends_with("key") && val.starts_with('/')
+    const SECRET: [&str; 8] = [
+        "token",
+        "secret",
+        "passw",
+        "api",
+        "private",
+        "access",
+        "credential",
+        "cookie",
+    ];
+    let name = key.trim_end_matches("id").trim_end_matches(['_', '-']);
+    name.ends_with("key")
+        && !SECRET.iter().any(|s| key.contains(s))
+        && val.starts_with('/')
+        && val[1..].contains('/')
+        && !val.contains(['+', '='])
 }
 
 /// A null or boolean, or a short plain word: not a secret.
@@ -291,6 +306,13 @@ mod tests {
                 "R2_ACCESS_KEY_ID=[redacted]",
             ),
             t("ssh_key=/path/to/key", "ssh_key=/path/to/key"),
+            t(
+                "R2_SECRET_ACCESS_KEY=/aB3dE5fG7hJ9kL1mN3pQ5rS7",
+                "R2_SECRET_ACCESS_KEY=[redacted]",
+            ),
+            t("api_key=/aB3dE5fG7hJ9kL1", "api_key=[redacted]"),
+            t("STRIPE_KEY=/abc123+def456", "STRIPE_KEY=[redacted]"),
+            t("STRIPE_KEY=/abc/123+def456", "STRIPE_KEY=[redacted]"),
             t(
                 "--token-file /path/to/work/tok --path-x",
                 "--token-file /path/to/work/tok --path-x",
