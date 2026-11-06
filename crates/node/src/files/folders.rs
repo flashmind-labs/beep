@@ -1,6 +1,7 @@
 //! `files/1` (see `beep_proto::node::files`): reads and writes files in the
 //! folders shared in `node.toml`, through `Folders::answer`.
 
+use crate::files::paths;
 use crate::{
     files::fsat,
     link::{Protocol, Session},
@@ -33,7 +34,7 @@ impl Folders {
     pub fn new(folders: &[PathBuf]) -> Self {
         let roots = folders
             .iter()
-            .filter_map(|folder| match folder.canonicalize() {
+            .filter_map(|folder| match paths::canonicalize(folder) {
                 Ok(root) if root.is_dir() => Some(root),
                 Ok(_) => {
                     log::warn!("not sharing {}: not a folder", folder.display());
@@ -99,7 +100,7 @@ impl Folders {
         } else {
             first.join(path)
         };
-        let resolved = match path.canonicalize() {
+        let resolved = match paths::canonicalize(&path) {
             Ok(resolved) => resolved,
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 let name = match path.components().next_back() {
@@ -107,8 +108,7 @@ impl Folders {
                     _ => bail!("{} does not exist", path.display()),
                 };
                 let parent = path.parent().context("a path needs a folder")?;
-                let parent = parent
-                    .canonicalize()
+                let parent = paths::canonicalize(parent)
                     .with_context(|| format!("{} does not exist", parent.display()))?;
                 parent.join(name)
             }
@@ -314,8 +314,8 @@ mod tests {
         fs::write(shared.join("notes.txt"), "hello\nworld\n").expect("written");
         fs::write(outside.join("secret.txt"), "nope").expect("written");
         let folders = Folders::new(std::slice::from_ref(&shared));
-        let shared = shared.canonicalize().expect("exists");
-        let outside = outside.canonicalize().expect("exists");
+        let shared = paths::canonicalize(shared).expect("exists");
+        let outside = paths::canonicalize(outside).expect("exists");
         Fixture {
             dir,
             shared,

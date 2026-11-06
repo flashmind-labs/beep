@@ -1,6 +1,6 @@
 //! The machine itself: what it has (`env`, `stats`), installing and running
-//! the node (`setup`, `service`, `update`, `provision`), and repository
-//! webhooks (`webhook`), and the watch on the CI runs of pinned projects (`ci`).
+//! the node (`setup`, `service`, `update`, `provision`), and the watch on
+//! the CI runs of pinned projects (`ci`).
 
 pub(crate) mod ci;
 pub mod env;
@@ -10,7 +10,6 @@ pub mod setup;
 pub(crate) mod stats;
 #[cfg(feature = "cli")]
 pub mod update;
-pub mod webhook;
 
 /// The most open files the node asks for; the common soft limits, 256 on a
 /// Mac and 1024 on Linux, are low for a node that syncs folders.

@@ -56,9 +56,22 @@ impl Task {
                 Repo::open(&root)
                     .filter(|_| syncs_git)
                     .map(|repo| repo.refs())
-                    .transpose()
             })
-            .await??
+            .await?
+        };
+        // Refs git cannot read leave the files to sync all the same: the
+        // repository is then treated as not here, so none of its files is
+        // deleted and no ref is sent.
+        let repo = match repo {
+            Some(Err(e)) => {
+                log::warn!(
+                    "{}: the refs cannot be read, so they wait for the next scan: {e:#}",
+                    self.shared.name
+                );
+                None
+            }
+            Some(Ok(refs)) => Some(refs),
+            None => None,
         };
         // No repository to read: its files missing are not deletes.
         let repo_gone = repo.is_none();

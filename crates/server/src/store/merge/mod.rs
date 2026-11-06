@@ -86,8 +86,8 @@ const MOVED: &[(&str, &[&str])] = &[
     ("researches", &[]),
     ("chat_allows", &[]),
     ("finding_sightings", &[]),
-    // The webhooks Beep made, so they are removed later. Their secrets stay
-    // sealed to the old owner: the server never opens them again.
+    // Webhooks servers before #339 made; nothing reads them now, and the
+    // table stays for a rolled back server.
     ("project_webhooks", &[]),
     // A website login stays on whichever account the person ends up with.
     ("user_logins", &[]),

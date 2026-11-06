@@ -4,6 +4,7 @@
 
 mod parse;
 
+use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     CustomAgent, CustomAgentHarness, CustomAgentScope, MAX_CUSTOM_AGENT_PROMPT, MAX_CUSTOM_AGENTS,
@@ -133,7 +134,7 @@ impl Base {
 /// folder or file whose real path leads outside the folder it was found in
 /// is not read. Blocks on the file system.
 pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent>> {
-    let root = fs::canonicalize(folder)
+    let root = paths::canonicalize(folder)
         .with_context(|| format!("the folder {} is not there", folder.display()))?;
     if !root.is_dir() {
         bail!("{} is not a folder", folder.display());
@@ -147,11 +148,11 @@ pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent
     for place in PROJECT {
         reader.read(&project, place);
     }
-    let Some(home) = home.and_then(|home| fs::canonicalize(home).ok()) else {
+    let Some(home) = home.and_then(|home| paths::canonicalize(home).ok()) else {
         return Ok(reader.agents);
     };
     for at in USER {
-        let Ok(root) = fs::canonicalize(home.join(at.folder)) else {
+        let Ok(root) = paths::canonicalize(home.join(at.folder)) else {
             continue;
         };
         // A harness folder linked out of the home is not read.
@@ -237,7 +238,7 @@ impl Reader {
     }
 
     fn read_folder(&mut self, base: &Base, place: &Place, folder: &Path, ext: &str) {
-        match fs::canonicalize(folder) {
+        match paths::canonicalize(folder) {
             Ok(real) if !real.starts_with(&base.root) => {
                 let source = Source {
                     base,
@@ -368,7 +369,7 @@ struct Inside {
 /// when it is not a file. An error when it leads outside, is too large or
 /// is not UTF-8.
 fn read_inside(root: &Path, file: &Path) -> Result<Option<Inside>> {
-    let real = fs::canonicalize(file).context("it cannot be opened")?;
+    let real = paths::canonicalize(file).context("it cannot be opened")?;
     if !real.starts_with(root) {
         bail!("it leads outside its folder, so it is not read");
     }

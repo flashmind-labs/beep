@@ -3,7 +3,7 @@
 //! members of one mesh. Waits ride on `updates()` and outer timeouts; nothing sleeps.
 
 use async_trait::async_trait;
-use beep_fleet::{Desk, FleetError, ImportJob, Options, Peers, Session, project_id};
+use beep_fleet::{Changed, Desk, FleetError, ImportJob, Options, Peers, Session, project_id};
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
@@ -126,6 +126,9 @@ struct FakeNode {
     prints: Vec<(&'static str, &'static str)>,
     /// What `FollowUsage` says.
     usage: Vec<SessionsReply>,
+    /// What `FollowUsage` says after `release`, as a plan its CLI read late.
+    late: Vec<SessionsReply>,
+    release: tokio::sync::Notify,
     /// The tools its `status/1` reports.
     tools: Vec<&'static str>,
     /// The diffs it was asked for.
@@ -243,6 +246,14 @@ impl FakeNode {
                 for reply in &self.usage {
                     if tx.send(reply).await.is_err() {
                         return;
+                    }
+                }
+                if !self.late.is_empty() {
+                    self.release.notified().await;
+                    for reply in &self.late {
+                        if tx.send(reply).await.is_err() {
+                            return;
+                        }
                     }
                 }
                 while let Ok(Some(_)) = rx.recv::<Open>().await {}
@@ -799,6 +810,65 @@ async fn usage_sums_every_machine() {
     let bill = studio.spend().await.expect("the bill reads");
     assert_eq!(bill.today.cost_usd, 3.5);
     assert_eq!(bill.today.metered_tokens, 150);
+}
+
+fn plan_reply(agent: &str, used: f64, at: u64) -> SessionsReply {
+    SessionsReply::PlanUsage {
+        usage: PlanUsage {
+            agent: agent.into(),
+            plan: Some("max".into()),
+            windows: vec![beep_proto::node::usage::LimitWindow {
+                minutes: 300,
+                used_percent: used,
+                ..Default::default()
+            }],
+            at,
+        },
+    }
+}
+
+/// Claude Code takes a while to start, so a node often reads its plan after the desktop's read
+/// went quiet and ended: the plan reaches the desktop as soon as the node sends it (#348).
+#[tokio::test]
+async fn a_plan_read_after_the_report_reaches_the_desktop_at_once() {
+    let f = fleet().await;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let build = Arc::new(FakeNode {
+        usage: vec![plan_reply("codex", 20.0, now)],
+        late: vec![plan_reply("claude", 40.0, now)],
+        ..FakeNode::default()
+    });
+    let options = Options {
+        settle: Duration::from_millis(300),
+        ..Options::default()
+    };
+    let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
+    let session = Session::new(
+        peering(&f.studio, &[(&f.build, &build)], &[]),
+        options,
+        move |changed| {
+            told.send(changed).ok();
+        },
+    )
+    .expect("a session");
+    let agents = |report: &beep_proto::SpendReport| -> Vec<String> {
+        report.limits.iter().map(|l| l.agent.to_string()).collect()
+    };
+    let first = session.spend(false).await.expect("the usage reads");
+    assert_eq!(agents(&first), ["codex"]);
+    build.release.notify_one();
+    // The page hears of it, and the report it reads has it, with no new read.
+    timeout(LIMIT, async {
+        while heard.recv().await != Some(Changed::Usage) {}
+    })
+    .await
+    .expect("the page hears of the plan");
+    let next = session.spend(false).await.expect("the usage reads");
+    assert_eq!(agents(&next), ["claude", "codex"]);
+    assert_eq!(next.limits[0].windows[0].used_percent, 40.0);
 }
 
 #[tokio::test]

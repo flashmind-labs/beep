@@ -2,6 +2,7 @@
 //! `run`): Homebrew, a global npm package, else the harness's own updater.
 //! Nothing runs with sudo.
 
+use crate::files::paths;
 use crate::machine::provision::spawn_env::{self, Scope};
 use anyhow::{Result, bail};
 use beep_proto::node::harness::{clean_output, failure_line, harness};
@@ -83,7 +84,7 @@ fn own_updater(agent: &str) -> Option<&'static [&'static str]> {
 /// How `agent`'s CLI at `cli` was installed, when the node can tell and
 /// knows how to update it.
 pub(super) fn method(agent: &str, cli: &Path, npm: &Npm) -> Option<Method> {
-    let real = std::fs::canonicalize(cli).unwrap_or_else(|_| cli.to_path_buf());
+    let real = paths::canonicalize(cli).unwrap_or_else(|_| cli.to_path_buf());
     if let Some(brew) = brew_keg(&real) {
         return Some(brew);
     }
@@ -365,7 +366,7 @@ mod tests {
         let real = file(prefix.path(), "Cellar/opencode/1.3.13/bin/opencode");
         let cli = prefix.path().join("bin/opencode");
         link(&real, &cli);
-        let prefix = std::fs::canonicalize(prefix.path()).unwrap();
+        let prefix = paths::canonicalize(prefix.path()).unwrap();
         assert_eq!(
             method("opencode", &cli, &npm_none()),
             Some(Method::Brew {
