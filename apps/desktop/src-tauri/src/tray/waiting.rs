@@ -8,6 +8,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::Fleet,
     machines::list::Outside,
+    notices::history,
 };
 use beep_proto::ListPendingApprovals;
 use std::{
@@ -109,7 +110,7 @@ pub fn entries(needs: Vec<NeedsYou>) -> Vec<Entry> {
                 title,
                 question,
             } => Entry {
-                id: format!("{ITEM}agent:{machine_id}:{session}:{}", question.id),
+                id: agent_item(&machine_id, &session, question.id),
                 label: shorten(&question.text),
                 target: CenterTarget::Agent(AgentTarget::asking(
                     &machine_id,
@@ -121,6 +122,11 @@ pub fn entries(needs: Vec<NeedsYou>) -> Vec<Entry> {
             },
         })
         .collect()
+}
+
+/// The menu id of `question` of `session` on `machine_id`.
+pub(crate) fn agent_item(machine_id: &str, session: &str, question: u32) -> String {
+    format!("{ITEM}agent:{machine_id}:{session}:{question}")
 }
 
 /// "Allow Fastmail: send email?", as the approval card asks it.
@@ -173,8 +179,15 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
         {
             match fetch(&app, &beep, &fleet).await {
                 Ok(entries) => {
+                    let before = list.entries();
+                    let gone: Vec<String> = before
+                        .into_iter()
+                        .map(|e| e.id)
+                        .filter(|id| !entries.iter().any(|e| &e.id == id))
+                        .collect();
                     if list.set(entries) {
                         crate::tray::refresh(&app);
+                        history::no_longer_waiting(&app, &gone);
                     }
                 }
                 // The tray keeps what it showed until a fetch works.

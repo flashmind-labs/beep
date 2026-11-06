@@ -1,7 +1,7 @@
 //! What each notice the server pushes does to the tray, the windows and
 //! live mode, and when it shows as a macOS notification.
 
-use super::{alerts, notify, work};
+use super::{alerts, history, notify, work};
 use crate::{
     bar,
     beep::{
@@ -188,20 +188,20 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
 }
 
 /// A coding agent asked something or finished a turn. The tray looks at
-/// what waits again, and the notice shows unless agent notices are off or
-/// the session is on screen.
+/// what waits again, the bell keeps it, and the notice shows unless agent
+/// notices are off or the session is on screen.
 fn agent_notice(app: &AppHandle, beep: &Beep, key: &AgentNoticeKey, notice: &Notice) {
     app.state::<WaitingList>().poke();
-    if !beep.agent_notices() {
-        return;
-    }
     let focused = focused_center_label(app);
     let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();
     if bar::is_open(app) {
         on_screen.push(bar::LABEL);
     }
-    let shown = app.state::<center::AgentsShown>();
-    if shown.shows(&on_screen, key, Instant::now()) {
+    let shown = app
+        .state::<center::AgentsShown>()
+        .shows(&on_screen, key, Instant::now());
+    history::agent_notice(app, key, notice, shown);
+    if !beep.agent_notices() || shown {
         return;
     }
     notify::notice(app, notice);

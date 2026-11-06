@@ -10,7 +10,7 @@ use crate::{
     chat::approvals::{self, ChatAnswer},
     error::{DesktopError, Result},
     fleet::{Fleet, alerts},
-    notices::work,
+    notices::{history, work},
     tray::waiting::WaitingList,
 };
 use beep_proto::{AgentNoticeKey, AnswerAgentQuestion, AnswerGroupApproval, ApiError, Notice};
@@ -132,11 +132,22 @@ fn open(app: &AppHandle, target: CenterTarget) {
 /// notification, since nothing else is on screen; one already answered
 /// elsewhere only goes to the log.
 async fn answer(app: AppHandle, ask: Ask, allow: bool) {
+    let agent = match &ask {
+        Ask::Agent(key) => Some(key.clone()),
+        _ => None,
+    };
     let answered = send_answer(&app, ask, allow).await;
     app.state::<WaitingList>().poke();
     match answered {
-        Ok(()) => {}
+        Ok(()) => {
+            if let Some(key) = agent {
+                history::answered(&app, &key);
+            }
+        }
         Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) => {
+            if let Some(key) = agent {
+                history::answered(&app, &key);
+            }
             log::info!("a notification answered a question that no longer waits");
         }
         Err(e) => {
@@ -195,6 +206,14 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
             .await
         }
     }
+}
+
+/// Answers the question `key` names, as Allow or Deny on its notification
+/// do, from the bell's pane.
+pub(crate) async fn answer_agent(app: &AppHandle, key: AgentNoticeKey, allow: bool) -> Result<()> {
+    let answered = send_answer(app, Ask::Agent(key), allow).await;
+    app.state::<WaitingList>().poke();
+    answered
 }
 
 /// The reply that picks the agent's allow-once or reject-once option.

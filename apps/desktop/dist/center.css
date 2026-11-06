@@ -823,6 +823,10 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .nt-row.unread .nt-t b { font-weight: 600; color: var(--fg) }
 .nt-dot { width: 8px; height: 8px; border-radius: 50% }
 .nt-row.unread .nt-dot { background: var(--accent) }
+.nt-row.done .nt-t b { opacity: .55 }
+.nt-done { margin-left: 6px; padding: 0 6px; border: 1px solid var(--border); border-radius: 8px; font-size: 10.5px; font-style: normal }
+.nt-acts { display: flex; gap: 6px; align-items: center; margin-top: 6px }
+.nt-err { font-size: 11.5px; color: var(--err) }
 .nt-empty { padding: 26px 14px; text-align: center; color: var(--muted) }
 .nt-note { padding: 14px; display: grid; gap: 8px; align-content: start }
 .nt-note b { font-size: 14px; font-weight: 600; line-height: 20px }
