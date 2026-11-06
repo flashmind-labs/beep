@@ -3,6 +3,7 @@
 //! committed, the target makes a worktree on the same branch and applies it.
 //! Everything here blocks: call it from `spawn_blocking`.
 
+use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -215,7 +216,7 @@ fn listed(main: &Path) -> Result<Vec<(PathBuf, Option<String>)>> {
 }
 
 fn same_folder(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
+    match (paths::canonicalize(a), paths::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,
     }

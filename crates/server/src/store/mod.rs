@@ -65,8 +65,6 @@ mod project_groups;
 mod project_imports;
 mod project_removal;
 mod project_sync;
-mod project_webhooks;
-pub(crate) use project_webhooks::{NewWebhook, OrphanWebhooks};
 mod projects;
 mod research;
 mod reviews;

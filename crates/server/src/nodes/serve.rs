@@ -298,16 +298,6 @@ pub(super) async fn serve(
             }
         }))
     });
-    // Webhooks left on repositories of removed projects, while no node was
-    // online to remove them.
-    let _webhooks = online.forwards_webhooks().then(|| {
-        let (user, online) = (user.clone(), online.clone());
-        AbortOnDropHandle::new(tokio::spawn(async move {
-            if let Err(e) = crate::projects::repo_watch::sweep(&user, &online).await {
-                log::warn!("old webhooks not removed; node={endpoint} error={e:#}");
-            }
-        }))
-    });
     let _images = online.offers(SESSIONS_PROTOCOL).then(|| {
         let user = user.clone();
         AbortOnDropHandle::new(tokio::spawn(async move {

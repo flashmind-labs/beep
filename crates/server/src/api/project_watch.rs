@@ -8,7 +8,7 @@ use crate::{
     app::App,
     projects::{
         model::ProjectId,
-        repo_watch::{Changed, ListsCopy, LiveState},
+        repo_watch::{Changed, ListsCopy},
     },
     protocol::*,
     store::ProjectRow,
@@ -77,12 +77,7 @@ pub(super) async fn watch_project(
     let id = ProjectId(req.project_id);
     project_of(&cx.user, id).await?;
     let mut changes = cx.app.repo_watch.changes();
-    let mut following = cx.app.repo_watch.forwards.follow(&cx.app, cx.user.id(), id);
-    let mut next = Some(change_of(
-        &following.state.borrow_and_update(),
-        false,
-        false,
-    ));
+    let mut next = Some(change_of(false, false));
     loop {
         if let Some(change) = next.take() {
             match timeout(SEND_TIMEOUT, sink.send(&change)).await {
@@ -91,12 +86,7 @@ pub(super) async fn watch_project(
             }
         }
         tokio::select! {
-            changed = following.state.changed() => {
-                if changed.is_err() {
-                    return Ok(());
-                }
-                next = Some(change_of(&following.state.borrow_and_update(), false, false));
-            }
+            _ = sink.closed() => return Ok(()),
             changed = changes.recv() => {
                 let (lists, runs) = match changed {
                     Ok(Changed { user, project, lists, runs })
@@ -106,16 +96,19 @@ pub(super) async fn watch_project(
                     Err(RecvError::Lagged(_)) => (true, true),
                     Err(RecvError::Closed) => return Ok(()),
                 };
-                next = Some(change_of(&following.state.borrow(), lists, runs));
+                next = Some(change_of(lists, runs));
             }
         }
     }
 }
 
-fn change_of(state: &LiveState, lists: bool, runs: bool) -> ProjectChange {
+/// Why a project is never live: the server reads its host on a timer (see `repo_watch`).
+const POLLING_WHY: &str = "Beep reads the host every few minutes while the page is open.";
+
+fn change_of(lists: bool, runs: bool) -> ProjectChange {
     ProjectChange {
-        live: state.live,
-        polling_why: state.why.clone(),
+        live: false,
+        polling_why: Some(POLLING_WHY.to_owned()),
         lists,
         runs,
     }

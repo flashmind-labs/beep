@@ -1,4 +1,4 @@
-//! Updates from the release bucket, as Rayfish does them: checked shortly
+//! Updates from the release bucket: checked shortly
 //! after launch and then every few hours, downloaded quietly, and offered
 //! as "Restart to Update Beep" in the tray menu. Quitting installs a
 //! downloaded update too.

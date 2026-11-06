@@ -2,15 +2,8 @@ set dotenv-load
 
 server_config := ".dev/android-server.toml"
 apk := "apps/android/app/build/outputs/apk/debug/app-debug.apk"
-# The Docker host the server deploys to, as ssh://host. Set it in .env.
-remote_docker := env("BEEP_DOCKER_HOST", "")
-# The image Forgejo CI publishes, as registry/user/beep-server. Set it in .env.
-server_image := env("BEEP_IMAGE", "")
 # The local Postgres `test-db` starts, which the server tests use.
 test_db_url := "postgres://beep:beep@127.0.0.1:55432/beep"
-
-# Build and deploy everything: server on the remote host + Android APK
-deploy: deploy-server bake-profile build-android install-apk launch-app
 
 # Build the server
 build-server:
@@ -31,7 +24,6 @@ desktop-build:
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
-# `just deploy-server server-v<version>` goes back to it later.
 # Tag HEAD server-v<version> and push the tag
 server-release version:
     #!/usr/bin/env bash
@@ -190,72 +182,9 @@ install-apk:
 launch-app:
     adb shell am start -n com.flashmind.beep/.MainActivity
 
-# Server only: redeploy the CI-built image on the remote host
-server: deploy-server
-
 # Stop the local server
 stop-server:
     -pkill -f "beep-server {{server_config}}"
-
-# Run the image CI built for HEAD on the remote Docker host, with the local
-# config and iroh key. The Forgejo runner builds on that host, so the image
-# shows up in its daemon: push first, and this waits for it. Stops the local
-# server first: both would answer as the same node. A rolled back image must
-# still be on the host, and database migrations are not undone.
-# Deploy HEAD, or a server tag or commit to roll back to
-deploy-server ref="HEAD":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    test -n "{{remote_docker}}" || { echo "Set BEEP_DOCKER_HOST in .env"; exit 1; }
-    test -n "{{server_image}}" || { echo "Set BEEP_IMAGE in .env"; exit 1; }
-    export BEEP_TAG=$(git rev-parse "{{ref}}^{commit}")
-    export DOCKER_HOST={{remote_docker}}
-    echo "Waiting for {{server_image}}:$BEEP_TAG"
-    # Poll on the host over one ssh session rather than one per check.
-    ssh {{trim_start_match(remote_docker, "ssh://")}} \
-        "timeout 1800 sh -c 'until docker image inspect {{server_image}}:$BEEP_TAG > /dev/null 2>&1; do sleep 5; done'" \
-        || { echo "No image for $BEEP_TAG after 30 minutes"; exit 1; }
-    just stop-server
-    just push-server-config
-    docker compose up -d --force-recreate
-    docker compose ps
-
-# Copy the dev config and iroh key into the remote data volume
-push-server-config:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export DOCKER_HOST={{remote_docker}}
-    export BEEP_TAG=${BEEP_TAG:-latest}
-    docker volume create beep_data > /dev/null
-    write() {
-        docker run --rm -i --user beep --entrypoint sh -v beep_data:/data {{server_image}}:$BEEP_TAG \
-            -c "umask 077 && cat > /data/$1"
-    }
-    sed -e 's|^secret_key = .*|secret_key = "/data/iroh-key"|' \
-        -e 's|^log_dir = .*|log_dir = "/data/logs"|' -e '/^sandbox_dir = /d' \
-        -e 's|^fcm_credentials = .*|fcm_credentials = "/data/fcm-service-account.json"|' \
-        -e 's|^key_file = .*|key_file = "/data/apns-key.p8"|' {{server_config}} \
-        | write config.toml
-    write iroh-key < .dev/iroh-key
-    if [ -f .dev/fcm-service-account.json ]; then write fcm-service-account.json < .dev/fcm-service-account.json; fi
-    if [ -f .dev/apns/key.p8 ]; then write apns-key.p8 < .dev/apns/key.p8; fi
-
-# Copy the local on-prem config into the on-prem server and restart it. The
-# config lives in the main checkout's .dev/, which worktrees share.
-deploy-onprem-config container="beep-onprem-server-1":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    config="$(git rev-parse --path-format=absolute --git-common-dir)/../.dev/onprem-server.toml"
-    test -f "$config" || { echo "No $config"; exit 1; }
-    docker exec -i --user beep {{container}} sh -c 'umask 077 && cat > /data/config.toml' < "$config"
-    docker restart {{container}} > /dev/null
-    sleep 3
-    docker logs --since 10s {{container}} 2>&1 | tail -5
-
-# Tail the remote server's log file, which outlives the container: it is in
-# the beep_data volume, where `docker compose logs` is lost on every deploy
-remote-logs:
-    DOCKER_HOST={{remote_docker}} docker compose exec server tail -n 200 -F /data/logs/beep.log
 
 # Android only: rebuild, install, launch
 android: bake-profile build-android install-apk launch-app
