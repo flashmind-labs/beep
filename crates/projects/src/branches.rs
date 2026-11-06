@@ -1,7 +1,8 @@
 //! A project's branches with work, and giving one a worktree.
 
 use crate::{
-    Shell, ShellOutput, commands::exclude_project_dirs, github_owner_var, model::MachinePath, quote,
+    NO_GIT_SH, Shell, ShellOutput, commands::exclude_project_dirs, github_owner_var,
+    model::MachinePath, quote,
 };
 use anyhow::{Result, bail};
 use beep_proto::{ProjectBranch, WorkBranch, node::agent};
@@ -133,6 +134,7 @@ fn ok(ran: &ShellOutput) -> Result<()> {
     match ran.exit_code {
         Some(0) => Ok(()),
         Some(3) => bail!("the project's folder is not there"),
+        Some(NO_GIT_SH) => bail!("{}", tail(&ran.output)),
         Some(code) => bail!("exited with {code}: {}", tail(&ran.output)),
         None => bail!("did not finish in time"),
     }

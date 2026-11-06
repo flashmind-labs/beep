@@ -4,7 +4,7 @@
 use crate::error::{FleetError, Result};
 use async_trait::async_trait;
 use beep_mesh::{Mesh, PeerClient};
-use beep_projects::{Clip, Shell, ShellOutput, imports::machine::FoundFolders};
+use beep_projects::{Clip, Shell, ShellOutput, for_machine, imports::machine::FoundFolders};
 use beep_proto::node::{
     EnvReport,
     agent::{SESSIONS_PROTOCOL, SessionFolder, SessionsReply, SessionsRequest},
@@ -39,15 +39,16 @@ pub trait Peers: Send + Sync {
     }
 }
 
-/// A shell on one machine, over its `shell/1` protocol. A script may carry a token, so nothing
-/// here logs it.
+/// A shell on one machine, over its `shell/1` protocol. Scripts are POSIX sh, and on Windows
+/// they run in the sh of Git for Windows. A script may carry a token, so nothing here logs it.
 pub(crate) struct PeerShell {
     client: PeerClient,
+    windows: bool,
 }
 
 impl PeerShell {
-    pub(crate) fn new(client: PeerClient) -> Self {
-        Self { client }
+    pub(crate) fn new(client: PeerClient, windows: bool) -> Self {
+        Self { client, windows }
     }
 }
 
@@ -58,7 +59,7 @@ impl Shell for PeerShell {
             let (mut tx, mut rx) = self.client.open(shell::PROTOCOL).await?;
             let timeout_secs = u32::try_from(limit.as_secs().max(1)).unwrap_or(u32::MAX);
             tx.send(&Request::Run {
-                command: script.to_owned(),
+                command: for_machine(script, self.windows).into_owned(),
                 timeout_secs,
             })
             .await?;
