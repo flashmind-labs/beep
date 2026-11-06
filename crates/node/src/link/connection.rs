@@ -1,6 +1,7 @@
 //! The connection to the server: the link code that joins the account, then
 //! the control stream, kept open and reopened when it drops.
 
+use crate::files::paths;
 use crate::{
     agents::mcp::{self, Upstream},
     agents::{AgentKind, Agents, SESSIONS_ALPN, SessionsAlpn},
@@ -176,7 +177,7 @@ pub async fn serve(
     offers.extra.push(Arc::new(searches));
     // The workspace as the node resolved it, only once it is shared.
     let workspace = workspace
-        .and_then(|dir| dir.canonicalize().ok())
+        .and_then(|dir| paths::canonicalize(dir).ok())
         .filter(|dir| folders.first() == Some(dir.as_path()))
         .map(|dir| dir.to_string_lossy().into_owned());
     let mut started = None;

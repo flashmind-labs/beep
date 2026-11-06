@@ -2,7 +2,8 @@
 //! is the checkout it was added to, a subfolder's the top) and its `origin`
 //! remote.
 
-use crate::{agents::work_folder::git, machine::service::plain_path};
+use crate::agents::work_folder::git;
+use crate::files::paths;
 use beep_proto::node::agent::WorkPlace;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -37,9 +38,7 @@ pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
     let top = PathBuf::from(lines.next()?.trim());
     let common = PathBuf::from(lines.next()?.trim());
     let main = main_folder(dir, &top, &common);
-    let real_top = top
-        .canonicalize()
-        .map_or_else(|_| top.clone(), |real| PathBuf::from(plain_path(&real)));
+    let real_top = paths::canonicalize(&top).unwrap_or_else(|_| top.clone());
     let branch = git(dir, &["symbolic-ref", "--short", "-q", "HEAD"])
         .map(|name| name.trim().to_owned())
         .filter(|name| !name.is_empty());
@@ -74,10 +73,9 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
     let common = if common.is_absolute() {
         common.to_owned()
     } else {
-        // Relative to `dir`, as git prints it there. Without the `\\?\` that Windows adds, so
-        // the folder reads as the user knows it.
-        match dir.join(common).canonicalize() {
-            Ok(path) => PathBuf::from(plain_path(&path)),
+        // Relative to `dir`, as git prints it there, spelled as the user knows it.
+        match paths::canonicalize(dir.join(common)) {
+            Ok(path) => path,
             Err(_) => return top.to_owned(),
         }
     };
@@ -117,11 +115,7 @@ pub(super) mod tests {
         }
         let root = tempfile::tempdir().expect("a temp folder");
         fs::create_dir_all(root.path().join("proj")).expect("a folder");
-        let repo = root
-            .path()
-            .join("proj")
-            .canonicalize()
-            .expect("a real path");
+        let repo = paths::canonicalize(root.path().join("proj")).expect("a real path");
         run(&repo, &["init", "-q"]);
         run(
             &repo,

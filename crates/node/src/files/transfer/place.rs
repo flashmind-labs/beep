@@ -453,12 +453,13 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::files::paths;
     use std::io::Write;
 
     /// A temporary folder and its real path, which the checks compare against.
     fn temp_dir() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("made");
-        let real = dir.path().canonicalize().expect("exists");
+        let real = paths::canonicalize(dir.path()).expect("exists");
         (dir, real)
     }
 

@@ -90,6 +90,7 @@ pub(crate) fn call_folder(
 mod tests {
     use super::*;
     use crate::agents::checkout::tests::{has_git, run};
+    use crate::files::paths;
     use serde_json::json;
     use std::fs;
 
@@ -101,11 +102,7 @@ mod tests {
         }
         let root = tempfile::tempdir().expect("a temp folder");
         fs::create_dir_all(root.path().join("proj")).expect("a folder");
-        let repo = root
-            .path()
-            .join("proj")
-            .canonicalize()
-            .expect("a real path");
+        let repo = paths::canonicalize(root.path().join("proj")).expect("a real path");
         run(&repo, &["init", "-q", "-b", "main"]);
         run(
             &repo,

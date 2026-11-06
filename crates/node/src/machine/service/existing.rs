@@ -2,6 +2,7 @@
 //! replaces a service that serves another node. The parsers read the text
 //! each manager keeps: a systemd unit, a launchd plist, a Windows task.
 
+use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
@@ -88,7 +89,7 @@ pub(super) fn decide(installed: &Installed, dir: &Path) -> Result<Action> {
 /// ignoring a Windows `\\?\` prefix.
 fn same_folder(a: &Path, b: &Path) -> bool {
     let plain = |path: &Path| {
-        let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+        let path = paths::canonicalize(path).unwrap_or_else(|_| path.to_owned());
         let text = path.display().to_string();
         let text = text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned();
         if cfg!(windows) {

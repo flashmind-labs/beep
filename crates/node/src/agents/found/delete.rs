@@ -2,6 +2,7 @@
 //! always checked to lie inside the store first.
 
 use super::{Agent, Stores};
+use crate::files::paths;
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     fs, io,
@@ -34,8 +35,8 @@ impl Stores {
 
 /// The real path of `path` when it lies strictly inside `root`.
 fn inside(root: &Path, path: &Path) -> Result<PathBuf> {
-    let root = fs::canonicalize(root).context("the store is not readable")?;
-    let real = fs::canonicalize(path).context("the session is not readable")?;
+    let root = paths::canonicalize(root).context("the store is not readable")?;
+    let real = paths::canonicalize(path).context("the session is not readable")?;
     ensure!(
         real != root && real.starts_with(&root),
         "{} is outside the agent's store",
