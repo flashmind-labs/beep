@@ -455,7 +455,7 @@ mod tests {
     }
 
     pub(super) fn offers(dir: &TempDir) -> Offers {
-        Offers::local(&[], Provision::new(dir.path()), false)
+        Offers::local(&[], Provision::new(dir.path()))
     }
 
     pub(super) struct Mac {

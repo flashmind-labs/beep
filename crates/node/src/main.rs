@@ -2,8 +2,8 @@
 
 use beep_node::{
     agents::{Agents, claude::hooks, mcp},
-    link::{self, local, peers, state},
-    machine::{env, service, setup, update},
+    link::{self, peers, state},
+    machine::{env, host, service, update},
 };
 
 use anyhow::{Context, Result};
@@ -28,8 +28,8 @@ struct Cli {
     /// Where the key and settings live; the user's config folder by default.
     #[arg(long, global = true)]
     dir: Option<PathBuf>,
-    /// Makes this folder the user's workspace, for `run` and `local`: Beep
-    /// keeps the user's files in it and runs their code there.
+    /// Shares this folder through `files/1`, for `run`, before the folders
+    /// in `node.toml`.
     #[arg(long, global = true, env = "BEEP_NODE_WORKSPACE")]
     workspace: Option<PathBuf>,
     /// Logs to this file, a new one each day, instead of stderr. The
@@ -46,48 +46,17 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Links this machine to a server account with a setup token.
-    ///
-    /// Links this machine to the account that made `token` in Beep ("Add a
-    /// machine"), then runs the node in the background as a service that
-    /// starts with the machine (see `service`). Where there is no service
-    /// manager to use, as in a container, it serves in the foreground.
+    /// Retired: machines join a mesh with `beep-node mesh join <ticket>`.
+    #[command(hide = true)]
     Setup {
-        /// The setup token, `bk1-...`.
-        token: String,
-        /// What to call this machine, such as "dev server". Defaults to the
-        /// name given in Beep, else the host name.
-        #[arg(long)]
-        name: Option<String>,
-        /// The folder to look for git checkouts in, such as ~/Projects.
-        /// Defaults to home.
-        #[arg(long)]
-        search: Option<String>,
-        /// Stops after linking instead of serving.
-        #[arg(long, conflicts_with = "foreground")]
-        no_run: bool,
-        /// Serves in the foreground until stopped, like `run`, instead of
-        /// installing the service.
-        #[arg(long)]
-        foreground: bool,
-    },
-    /// Links to an older server with a code (legacy).
-    ///
-    /// The old way, kept for older servers: makes this machine's key and
-    /// prints a code to paste into the phone. Prefer `setup`.
-    Link {
-        /// The Beep server's endpoint id.
-        #[arg(long)]
-        server: String,
-        /// What to call this machine, such as "dev server".
-        #[arg(long)]
-        name: String,
+        /// Whatever an older script passes, read only to say it is retired.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Serves Beep in this terminal until stopped.
     ///
-    /// Serves Beep until stopped: to the server when this machine is linked to
-    /// one, and to the devices of its mesh. Makes this machine's key on the
-    /// first run.
+    /// Serves Beep to the devices of this machine's mesh until stopped.
+    /// Makes this machine's key on the first run.
     Run,
     /// This machine's mesh of devices.
     ///
@@ -95,19 +64,6 @@ enum Command {
     Mesh {
         #[command(subcommand)]
         action: MeshAction,
-    },
-    /// Runs as the node bundled with a single-user server (legacy).
-    ///
-    /// Runs as the node bundled with a single-user server: reads the
-    /// server's key from a folder both share, leaves this node's key there
-    /// for the server to link to its owner, then serves like `run`.
-    Local {
-        /// The folder shared with the server.
-        #[arg(long)]
-        link: PathBuf,
-        /// What to call this machine.
-        #[arg(long, default_value = "Beep server")]
-        name: String,
     },
     /// Prints what this machine reports to Beep.
     Env,
@@ -403,42 +359,14 @@ async fn run() -> Result<()> {
         None => state::default_dir()?,
     };
     match cli.command {
-        Command::Setup {
-            token,
-            name,
-            search,
-            no_run,
-            foreground,
-        } => {
-            let search = search.as_deref().map(state::Search::parse);
-            let (state, claimed) = setup::setup(&dir, &token, name.as_deref(), search).await?;
-            if no_run {
-                println!(
-                    "Linked to {}. Start it with `beep-node service install`, or \
-                     `beep-node run` to serve here.",
-                    claimed.account
-                );
-                return Ok(());
-            }
-            println!("Linked to {}.", claimed.account);
-            if !foreground {
-                match in_background(&dir, cli.workspace.as_deref()) {
-                    Ok(described) => {
-                        println!("{described}");
-                        return Ok(());
-                    }
-                    Err(why) => println!("Serving here in the foreground: {why:#}."),
-                }
-            }
-            link::serve(state, cli.workspace.as_deref(), stopped()?).await
-        }
-        Command::Link { server, name } => {
-            let state = state::State::create(&dir, &server, &name)?;
-            link::print_offer(&state)
-        }
+        Command::Setup { args: _ } => anyhow::bail!(
+            "`beep-node setup` is retired: machines no longer link to a server. Join this \
+             machine to your mesh with `beep-node mesh join <ticket>`, with a ticket from \
+             Add a machine in the Beep desktop app."
+        ),
         Command::Mesh { action } => match action {
             MeshAction::Join { ticket, search } => {
-                // Refused before the ticket is spent, as `setup` does.
+                // Refused before the ticket is spent.
                 let search = search.as_deref().map(state::Search::parse);
                 if let Some(search) = &search {
                     search.existing_root().context("--search")?;
@@ -451,13 +379,13 @@ async fn run() -> Result<()> {
                 } else {
                     ticket
                 };
-                // A fresh machine has no node yet: start it in the background,
-                // as `setup` does, before the ticket is sent.
+                // A fresh machine has no node yet: start it in the background
+                // before the ticket is sent.
                 if !peers::is_running(&dir) {
                     // A service for another folder is not replaced.
                     let action = service::join_action(&dir)?;
                     // The service needs the folder and the key to exist.
-                    state::State::load_or_start(&dir, &setup::host_name().await)?;
+                    state::State::load_or_start(&dir, &host::host_name().await)?;
                     let failed = "no node is running and the service could not be started; run \
                          `beep-node run` in another terminal, then join again";
                     match action {
@@ -489,7 +417,7 @@ async fn run() -> Result<()> {
             MeshAction::Leave => peers::leave(&dir).await,
         },
         Command::Run => {
-            let state = state::State::load_or_start(&dir, &setup::host_name().await)?;
+            let state = state::State::load_or_start(&dir, &host::host_name().await)?;
             let stop = stopped()?;
             if !cli.with_parent {
                 return link::serve(state, cli.workspace.as_deref(), stop).await;
@@ -510,14 +438,6 @@ async fn run() -> Result<()> {
                         }
                     },
                 }
-            };
-            link::serve(state, cli.workspace.as_deref(), stop).await
-        }
-        Command::Local { link: shared, name } => {
-            let mut stop = Box::pin(stopped()?);
-            let state = tokio::select! {
-                state = local::prepare(&dir, &shared, &name) => state?,
-                () = &mut stop => return Ok(()),
             };
             link::serve(state, cli.workspace.as_deref(), stop).await
         }

@@ -3,7 +3,7 @@
 use crate::{agents::AgentKind, agents::found};
 use anyhow::{Context, Result, bail};
 use beep_proto::port::NODE_PORT;
-use iroh::{EndpointId, SecretKey};
+use iroh::SecretKey;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt, fs,
@@ -13,12 +13,9 @@ use std::{
 const KEY_FILE: &str = "key";
 const SETTINGS_FILE: &str = "node.toml";
 
-/// What `node.toml` holds.
+/// What `node.toml` holds. A `server` left by an older node is ignored.
 #[derive(Debug, Serialize, Deserialize)]
 struct Settings {
-    /// The server's endpoint id; a node that only belongs to a mesh has none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    server: Option<String>,
     name: String,
     /// Agents to offer beyond the known ones, or in their place, such as
     /// `[[agents]] name = "claude" program = "/opt/acp/claude-agent-acp"`.
@@ -43,8 +40,6 @@ pub struct State {
     /// The folder the key and settings live in.
     pub dir: PathBuf,
     pub key: SecretKey,
-    /// The server this node is linked to, if it is.
-    pub server: Option<EndpointId>,
     pub name: String,
     pub agents: Vec<AgentKind>,
     /// The folders shared through `files/1`.
@@ -112,83 +107,44 @@ pub fn default_dir() -> Result<PathBuf> {
 }
 
 impl State {
-    /// Saves the settings and makes the key, keeping an existing one so the
-    /// machine stays the same device.
-    pub fn create(dir: &Path, server: &str, name: &str) -> Result<Self> {
-        let server: EndpointId = server.parse().context("--server is not an endpoint id")?;
-        let key = ensure_key(dir)?;
-        Self::save(dir, key, Some(server), name, None)
-    }
-
-    /// The node in `dir`, made with `name` and no server only when `dir` has
-    /// no settings yet, for a machine that only belongs to a mesh.
+    /// The node in `dir`, made with `name` only when `dir` has no settings
+    /// yet.
     pub fn load_or_start(dir: &Path, name: &str) -> Result<Self> {
         // Settings without a key are never replaced: `load` says so.
         if dir.join(SETTINGS_FILE).exists() {
             return Self::load(dir);
         }
         let key = ensure_key(dir)?;
-        Self::save(dir, key, None, name, None)
+        Self::save(dir, key, name)
     }
 
-    /// Saves the settings for `server` with the key `ensure_key` made.
-    /// `search` replaces the folder checkouts are looked for in; `None`
-    /// keeps it.
-    pub fn save(
-        dir: &Path,
-        key: SecretKey,
-        server: Option<EndpointId>,
-        name: &str,
-        search: Option<Search>,
-    ) -> Result<Self> {
-        // Linking again keeps the agents and folders set by hand, and
-        // refuses rather than drop settings it cannot read.
-        let old = if dir.join(SETTINGS_FILE).exists() {
-            Some(read_settings(dir)?)
-        } else {
-            None
-        };
-        let kept = old.as_ref().and_then(|old| old.search.clone());
-        let search = match search {
-            Some(search) => {
-                if search.0 != kept {
-                    found::forget_checkouts(dir)?;
-                }
-                search.0
-            }
-            None => kept,
-        };
-        let old = old.map(|old| (old.agents, old.files, old.port));
-        let (agents, files, port) = old.unwrap_or_default();
+    /// Saves new settings named `name` with the key `ensure_key` made.
+    fn save(dir: &Path, key: SecretKey, name: &str) -> Result<Self> {
         let settings = Settings {
-            server: server.map(|server| server.to_string()),
             name: name.trim().to_owned(),
-            agents,
-            files,
-            port,
-            search,
+            agents: Vec::new(),
+            files: Vec::new(),
+            port: None,
+            search: None,
         };
         fs::write(dir.join(SETTINGS_FILE), toml::to_string(&settings)?)?;
-        Ok(Self::of(dir, key, server, settings))
+        Ok(Self::of(dir, key, settings))
     }
 
     pub fn load(dir: &Path) -> Result<Self> {
         let Some(key) = read_key(dir)? else {
             bail!(
-                "no key in {}; run `beep-node setup <token>` first",
+                "no key in {}; run `beep-node run` or `beep-node mesh join <ticket>` first",
                 dir.display()
             );
         };
-        let settings = read_settings(dir)?;
-        let server = parse_server(&settings)?;
-        Ok(Self::of(dir, key, server, settings))
+        Ok(Self::of(dir, key, read_settings(dir)?))
     }
 
-    fn of(dir: &Path, key: SecretKey, server: Option<EndpointId>, settings: Settings) -> Self {
+    fn of(dir: &Path, key: SecretKey, settings: Settings) -> Self {
         Self {
             dir: dir.to_owned(),
             key,
-            server,
             name: settings.name,
             agents: settings.agents,
             files: settings.files,
@@ -200,7 +156,7 @@ impl State {
 
 /// This machine's key, made and saved in `dir` when it has none, so the
 /// machine stays the same device.
-pub fn ensure_key(dir: &Path) -> Result<SecretKey> {
+fn ensure_key(dir: &Path) -> Result<SecretKey> {
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     match read_key(dir)? {
         Some(key) => Ok(key),
@@ -210,26 +166,6 @@ pub fn ensure_key(dir: &Path) -> Result<SecretKey> {
             Ok(key)
         }
     }
-}
-
-/// The server `node.toml` in `dir` names, `None` before any link.
-pub fn saved_server(dir: &Path) -> Result<Option<EndpointId>> {
-    if !dir.join(SETTINGS_FILE).exists() {
-        return Ok(None);
-    }
-    parse_server(&read_settings(dir)?)
-}
-
-fn parse_server(settings: &Settings) -> Result<Option<EndpointId>> {
-    settings
-        .server
-        .as_deref()
-        .map(|server| {
-            server
-                .parse()
-                .context("the server in node.toml is not an endpoint id")
-        })
-        .transpose()
 }
 
 /// Where `node.toml` in `dir` says to look for git checkouts.
@@ -284,48 +220,22 @@ mod tests {
     /// A machine that joins a mesh before it ever ran has no folder: starting
     /// its state makes the folder and key a service launch needs.
     #[test]
-    fn a_mesh_only_node_gets_its_folder_and_key() {
+    fn a_new_node_gets_its_folder_and_key() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().join("not").join("yet");
         assert!(!dir.exists());
         let state = State::load_or_start(&dir, "box").unwrap();
         assert!(paths::canonicalize(&dir).is_ok());
-        assert!(state.server.is_none());
         let again = State::load_or_start(&dir, "other name").unwrap();
-        assert_eq!(again.key.public(), state.key.public());
-    }
-
-    #[test]
-    fn linking_again_keeps_the_key() {
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path();
-        let server = SecretKey::generate().public().to_string();
-        let first = State::create(dir, &server, "box").unwrap();
-        let second = State::create(dir, &server, "build box").unwrap();
-        assert_eq!(first.key.public(), second.key.public());
-        let loaded = State::load(dir).unwrap();
-        assert_eq!(loaded.name, "build box");
-        assert_eq!(loaded.key.public(), first.key.public());
-    }
-
-    #[test]
-    fn a_node_with_no_server_starts_and_loads_again_without_one() {
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path();
-        let first = State::load_or_start(dir, "box").unwrap();
-        assert_eq!(first.server, None);
-        let again = State::load_or_start(dir, "other name").unwrap();
         assert_eq!(again.name, "box");
-        assert_eq!(again.key.public(), first.key.public());
-        assert_eq!(saved_server(dir).unwrap(), None);
+        assert_eq!(again.key.public(), state.key.public());
     }
 
     #[test]
     fn settings_without_a_key_are_never_replaced() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
-        let server = SecretKey::generate().public().to_string();
-        State::create(dir, &server, "box").unwrap();
+        State::load_or_start(dir, "box").unwrap();
         let settings = fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap();
         fs::remove_file(dir.join(KEY_FILE)).unwrap();
         assert!(State::load_or_start(dir, "other").is_err());
@@ -336,35 +246,21 @@ mod tests {
         assert!(!dir.join(KEY_FILE).exists());
     }
 
+    /// A node.toml from a node that was linked to a server, or that still
+    /// has `webhook_listen` (#339), loads; saving drops what is gone.
     #[test]
-    fn linking_again_keeps_settings_it_cannot_read() {
+    fn old_settings_load_and_saving_drops_them() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
-        let server = SecretKey::generate().public().to_string();
-        State::create(dir, &server, "box").unwrap();
-        let broken = "files = [\"/srv/project\"\n";
-        fs::write(dir.join(SETTINGS_FILE), broken).unwrap();
-        assert!(State::create(dir, &server, "box").is_err());
-        assert_eq!(fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap(), broken);
-    }
-
-    /// `webhook_listen` was a setting before webhooks went (#339): a
-    /// node.toml that still has it loads, and saving drops it.
-    #[test]
-    fn an_old_webhook_listen_setting_is_ignored() {
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path();
-        let server = SecretKey::generate().public().to_string();
-        State::create(dir, &server, "box").unwrap();
+        State::load_or_start(dir, "box").unwrap();
         let path = dir.join(SETTINGS_FILE);
-        let old = fs::read_to_string(&path).unwrap() + "webhook_listen = \"[fd00::12]:7480\"\n";
+        let old = fs::read_to_string(&path).unwrap()
+            + "server = \"abc\"\nwebhook_listen = \"[fd00::12]:7480\"\n";
         fs::write(&path, old).unwrap();
         assert_eq!(State::load(dir).unwrap().name, "box");
-        State::create(dir, &server, "box").unwrap();
-        assert!(
-            !fs::read_to_string(&path)
-                .unwrap()
-                .contains("webhook_listen")
-        );
+        save_search(dir, &Search::parse("~")).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("webhook_listen"), "{saved}");
+        assert!(!saved.contains("server"), "{saved}");
     }
 }

@@ -10,22 +10,16 @@ use crate::{
 };
 use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::{
-    Open, Opened, link_on,
-    tools::{Approved, PROTOCOL, REFUSED, Reply, Request, Tool},
-};
-use iroh::endpoint::Connection;
+use beep_proto::node::tools::{Reply, Request};
 use serde::Deserialize;
 use std::{
-    collections::HashMap,
     ffi::OsString,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    sync::watch,
     task::JoinSet,
     time::timeout,
 };
@@ -35,7 +29,6 @@ pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
 mod machines;
-mod permission;
 mod review;
 mod server;
 mod socket;
@@ -55,12 +48,6 @@ const MAX_CONNECTIONS: usize = 64;
 /// How long a connection has to say whose it is.
 const HELLO_LIMIT: Duration = Duration::from_secs(5);
 const MAX_HELLO: u64 = 4096;
-/// How long the server has to take a call's stream.
-const OPEN_LIMIT: Duration = Duration::from_secs(15);
-/// How long one call may run on the server: a command runs at most half
-/// an hour, and a sync waits a minute and a half.
-const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
-
 /// What the agent hears ahead of its first prompt.
 pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
     machines. list_machines says which machines there are, whether each is online, its OS, \
@@ -70,7 +57,7 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     cancel follow a background command. \
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
-    for the answer. Running and sending may wait for the user to allow it.";
+    for the answer.";
 
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {
@@ -193,113 +180,8 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
     })))
 }
 
-/// The server's connection, for the calls it runs: set while the node is
-/// connected to a server that takes `tools/1`.
-#[derive(Clone)]
-pub struct Upstream {
-    connection: Arc<watch::Sender<Option<Connection>>>,
-    /// The node has a server to link to at all.
-    has_server: bool,
-    /// What the server's rule said the last time the node asked it, by tool: what the node goes
-    /// on while the link is down.
-    heard: Arc<Mutex<HashMap<Tool, Rule>>>,
-}
-
-/// What the user's rule says about a call.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Rule {
-    /// It runs.
-    Run,
-    /// The user is asked first.
-    Ask,
-    /// It does not run; the text says why.
-    Refuse(String),
-}
-
-impl Default for Upstream {
-    fn default() -> Self {
-        Self::new(true)
-    }
-}
-
-impl Upstream {
-    /// For a node that has a server (`server` in `node.toml`) or not.
-    pub fn new(has_server: bool) -> Self {
-        Self {
-            connection: Arc::new(watch::Sender::new(None)),
-            has_server,
-            heard: Arc::default(),
-        }
-    }
-
-    pub(crate) fn has_server(&self) -> bool {
-        self.has_server
-    }
-
-    /// The server's rule for `tool`, as last heard. `None` before it was asked.
-    pub(crate) fn heard(&self, tool: Tool) -> Option<Rule> {
-        crate::lock(&self.heard).get(&tool).cloned()
-    }
-
-    /// Notes what a call without approval says of the rule for its tool: an ask, a refusal, or a
-    /// run. Any other failure says nothing of the rule.
-    fn hear(&self, request: &Request, reply: &Reply) {
-        if request.approved != Approved::No {
-            return;
-        }
-        let rule = match reply {
-            Reply::Ask { .. } => Rule::Ask,
-            Reply::Done { failed: false, .. } => Rule::Run,
-            Reply::Done { text, .. } if text.starts_with(REFUSED) => Rule::Refuse(text.clone()),
-            _ => return,
-        };
-        crate::lock(&self.heard).insert(request.tool, rule);
-    }
-
-    /// Whether the link to the server is up now.
-    pub(crate) fn connected(&self) -> bool {
-        self.connection.borrow().is_some()
-    }
-
-    pub(crate) fn set(&self, connection: Option<Connection>) {
-        self.connection.send_replace(connection);
-    }
-
-    /// Runs `request` on the server.
-    pub async fn call(&self, request: &Request) -> Result<Reply> {
-        let reply = self.exchange(request).await?;
-        self.hear(request, &reply);
-        Ok(reply)
-    }
-
-    async fn exchange(&self, request: &Request) -> Result<Reply> {
-        let connection = self.connection.borrow().clone().context(
-            "this machine is not connected to Beep's server now, or the server is too old \
-             for these tools",
-        )?;
-        let (send, recv) = connection.open_bi().await?;
-        let (mut tx, mut rx) = link_on(&connection, send, recv);
-        tx.send(&Open {
-            protocol: PROTOCOL.to_owned(),
-        })
-        .await?;
-        let opened: Opened = timeout(OPEN_LIMIT, rx.recv())
-            .await
-            .context("the server did not take the call in time")??
-            .context("the server closed the call")?;
-        if let Opened::Refused { reason } = opened {
-            bail!("the server refused the call: {reason}");
-        }
-        tx.send(request).await?;
-        timeout(CALL_LIMIT, rx.recv())
-            .await
-            .context("the call ran too long")??
-            .context("the server closed the call before answering")
-    }
-}
-
-/// What `server` uses on a node: the mesh or the server for calls, the
-/// sessions for questions.
+/// What `server` uses on a node: the mesh for calls, the sessions for
+/// questions.
 struct Node {
     offers: Offers,
 }
@@ -312,31 +194,19 @@ impl Backend for Node {
         if children::handles(request.tool) {
             return Ok(children::call(&self.offers, request).await);
         }
-        // In a mesh the machines answer for themselves; the server still
-        // takes what is not between machines, and machines the mesh lacks.
-        if let Some(mesh) = self.offers.mesh.get() {
-            if let Some(refused) = machines::run_here(&mesh, request) {
-                return Ok(refused);
-            }
-            let route = machines::route(
-                request.tool,
-                self.offers.tools.has_server(),
-                self.offers.tools.connected(),
-            );
-            match route {
-                machines::Route::Direct => {
-                    if let Some(reply) = machines::call(&self.offers, &mesh, request).await {
-                        return Ok(reply);
-                    }
-                }
-                machines::Route::Server => {
-                    if let Some(reply) = machines::mesh_only(&self.offers, &mesh, request).await {
-                        return Ok(reply);
-                    }
-                }
-            }
+        // The machines of the mesh answer for themselves.
+        let Some(mesh) = self.offers.mesh.get() else {
+            return Ok(Reply::Done {
+                text: "This machine is not in a mesh yet, so it reaches no other machines. Join \
+                       it with `beep-node mesh join <ticket>`."
+                    .to_owned(),
+                failed: true,
+            });
+        };
+        if let Some(refused) = machines::run_here(&mesh, request) {
+            return Ok(refused);
         }
-        self.offers.tools.call(request).await
+        Ok(machines::call(&self.offers, &mesh, request).await)
     }
 
     async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
@@ -358,9 +228,9 @@ struct Hello {
 /// Takes MCP connections on the socket in `launch`'s folder until the node
 /// stops, and gives sessions the server from now on. `beep-node mcp` only
 /// pipes its stdio to this socket, which only this user can open; the node
-/// checks the session's token and serves MCP itself. `ask_user` and
-/// approvals become questions in the session; every other call goes to the
-/// server over `tools/1`.
+/// checks the session's token and serves MCP itself. `ask_user` becomes a
+/// question in the session; every other call goes to the mesh over
+/// `tools/1`.
 pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
     let socket = &launch.socket;
     socket::prepare(socket, &launch.dir)?;

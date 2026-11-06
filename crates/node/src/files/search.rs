@@ -143,15 +143,13 @@ impl Protocol for Searches {
 mod tests {
     use super::*;
     use crate::link::state::State;
-    use iroh::SecretKey;
     use std::fs;
 
     #[tokio::test]
     async fn a_new_search_folder_is_saved_and_a_missing_one_refused() {
         let temp = tempfile::tempdir().expect("a temp folder");
         let dir = temp.path().join("node");
-        let server = SecretKey::generate().public().to_string();
-        State::create(&dir, &server, "box").expect("the node's settings");
+        State::load_or_start(&dir, "box").expect("the node's settings");
         // Walks this empty folder, not the home of whoever runs the test.
         let empty = temp.path().join("empty");
         fs::create_dir(&empty).expect("a folder");

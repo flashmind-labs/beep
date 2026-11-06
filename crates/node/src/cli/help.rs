@@ -14,7 +14,7 @@ const GROUPS: &[(&str, &[&str])] = &[
     ("Agents", &["sessions", "hooks"]),
     ("Service", &["run", "service", "update"]),
     ("Diagnostics", &["status", "logs", "report", "env"]),
-    ("Setup", &["setup", "version", "link", "local"]),
+    ("Other", &["version"]),
 ];
 
 fn template(cmd: &Command) -> String {

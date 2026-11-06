@@ -1,10 +1,9 @@
-//! The agent's machine tools answered between the machines of a mesh, with
-//! no server to ask: the node lists the mesh's devices itself and sends
-//! each call to the device it names, over `tools/1`. Calls for a machine the
-//! mesh does not hold go to the server when there is one. Between a user's
-//! own machines there are no rules to check first.
+//! The agent's machine tools answered between the machines of a mesh: the
+//! node lists the mesh's devices itself and sends each call to the device it
+//! names, over `tools/1`. Between a user's own machines there are no rules to
+//! check first.
 
-use super::{Rule, catalog::REMOTE_RUN, permission};
+use super::catalog::REMOTE_RUN;
 use crate::{
     files::transfer::{Incoming, Transfers},
     link::{
@@ -19,13 +18,13 @@ use beep_proto::node::{
     EnvReport, LinkRx, LinkTx, Open, Opened, link,
     mesh_state::{StateValue, SyncSpec},
     status::{self, Report},
-    tools::{Approved, PROTOCOL, REFUSED, Reply, Request, Tool},
+    tools::{PROTOCOL, Reply, Request, Tool},
     transfer::Reply as TransferReply,
 };
 use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{collections::BTreeSet, fmt::Write, time::Duration};
+use std::{fmt::Write, time::Duration};
 use tokio::time::timeout;
 
 /// How long a call waits for the link to a machine the mesh holds but is
@@ -91,48 +90,8 @@ pub(super) fn run_here(mesh: &Mesh, request: &Request) -> Option<Reply> {
     ))
 }
 
-/// Where a call goes, from what the node has of a server.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Route {
-    /// To the mesh.
-    Direct,
-    /// To the server, which holds the user's rules and asks first.
-    Server,
-}
-
-/// The server holds the rules for a send and a run. With its link
-/// up those go through it. With the link down, or no server, they go direct,
-/// and `asks_while_down` says whether the user is asked first.
-pub(super) fn route(tool: Tool, has_server: bool, link_up: bool) -> Route {
-    match tool {
-        Tool::RunOn | Tool::SendFiles if has_server && link_up => Route::Server,
-        _ => Route::Direct,
-    }
-}
-
-/// The rule for a call made while the server cannot be asked: the node has a server, its link is
-/// down, and the last rule heard for the tool decides. A tool never heard of asks only for a send.
-/// With no server ever, nothing asks.
-fn rule_while_down(offers: &Offers, tool: Tool) -> Rule {
-    if !offers.tools.has_server()
-        || offers.tools.connected()
-        || !matches!(tool, Tool::RunOn | Tool::SendFiles)
-    {
-        return Rule::Run;
-    }
-    offers
-        .tools
-        .heard(tool)
-        .unwrap_or(if tool == Tool::SendFiles {
-            Rule::Ask
-        } else {
-            Rule::Run
-        })
-}
-
-/// The reply for `request`, or `None` when the server answers it: a tool
-/// that is not between machines, or a machine the mesh does not hold.
-pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Option<Reply> {
+/// The reply for `request`, a tool between the machines of `mesh`.
+pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Reply {
     let args: Value = serde_json::from_str(&request.args).unwrap_or(Value::Null);
     let machine = |args: &Value| {
         args.get("machine")
@@ -140,37 +99,34 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Opt
             .map(str::to_owned)
     };
     match request.tool {
-        // The server's list has more to say, so it leads when there is one.
-        Tool::ListMachines if offers.tools.connected() => {
-            Some(merged_list(offers, mesh, request).await)
-        }
-        Tool::ListMachines => Some(list(mesh).await),
+        Tool::ListMachines => list(mesh).await,
         Tool::RunOn | Tool::SendFiles => {
-            let name = machine(&args)?;
+            let Some(name) = machine(&args) else {
+                return done("Give `machine`.", true);
+            };
             let Some(target) = machines(mesh)
                 .into_iter()
                 .find(|m| m.name == command_name(&name))
             else {
-                return missing(offers, mesh, &name);
+                return missing(mesh, &name);
             };
-            let rule = rule_while_down(offers, request.tool);
-            if let Some(stopped) = permission::enforce(offers, &rule, request, &args).await {
-                return Some(stopped);
-            }
-            Some(to_target(offers, mesh, &target, request, &args).await)
+            to_target(offers, mesh, &target, request, &args).await
         }
         Tool::SyncProject => sync_project(offers, mesh, request, &args).await,
         Tool::JobStatus | Tool::Cancel => {
-            let id = args.get("id")?.as_str()?;
-            let job = Job::parse(id)?;
-            let target = machines(mesh).into_iter().find(|m| m.name == job.machine)?;
+            let Some(job) = args.get("id").and_then(Value::as_str).and_then(Job::parse) else {
+                return done("Give the job id remote_run gave, such as task:7@box.", true);
+            };
+            let Some(target) = machines(mesh).into_iter().find(|m| m.name == job.machine) else {
+                return missing(mesh, &job.machine);
+            };
             let sent = Request {
                 args: json!({ "id": job.id.to_string() }).to_string(),
                 ..request.clone()
             };
-            Some(to_machine(offers, mesh, &target, &sent).await)
+            to_machine(offers, mesh, &target, &sent).await
         }
-        _ => None,
+        other => done(format!("{other:?} is not a tool between machines."), true),
     }
 }
 
@@ -186,82 +142,6 @@ async fn to_target(
         return send_files(offers, mesh, target, request, args).await;
     }
     to_machine(offers, mesh, target, request).await
-}
-
-/// The reply for a call the server would otherwise answer, when its target
-/// is a machine only the mesh knows (one that joined by ticket): the server
-/// has no such machine, so the call goes direct. `None` when the server
-/// knows the target, which keeps its rules, or the mesh does not hold it.
-pub(super) async fn mesh_only(offers: &Offers, mesh: &Mesh, request: &Request) -> Option<Reply> {
-    if !matches!(request.tool, Tool::RunOn | Tool::SendFiles) {
-        return None;
-    }
-    let args: Value = serde_json::from_str(&request.args).ok()?;
-    let name = command_name(args.get("machine")?.as_str()?);
-    let target = machines(mesh).into_iter().find(|m| m.name == name)?;
-    // A send to a machine of the mesh always goes direct: through the server it would need
-    // shared folders.
-    if request.tool != Tool::SendFiles {
-        let listing = Request {
-            tool: Tool::ListMachines,
-            args: "{}".to_owned(),
-            ..request.clone()
-        };
-        // An answer that is not a list leaves the call to the server, which says why.
-        let Ok(Reply::Done {
-            text,
-            failed: false,
-        }) = offers.tools.call(&listing).await
-        else {
-            return None;
-        };
-        // The server answers for a machine it reaches. One it lists offline may be a member the
-        // mesh reaches with no link to the server, such as a desktop with the server off.
-        if listed_online(&text).contains(&name) {
-            return None;
-        }
-    }
-    // The server cannot show a card for a machine it lacks, so when its rule asks, the node
-    // asks the user itself, and a rule that refuses still refuses. If the server cannot be
-    // reached to ask, the last rule heard stands; with none, nothing runs unasked.
-    let rule = probed_rule(offers, &rule_question(request, &args)).await;
-    if let Some(stopped) = permission::enforce(offers, &rule, request, &args).await {
-        return Some(stopped);
-    }
-    Some(to_target(offers, mesh, &target, request, &args).await)
-}
-
-/// The call that asks the server its rule for `request`. A rule that lets a call run also runs
-/// it, and the server may know this machine, so a send names one it cannot have.
-fn rule_question(request: &Request, args: &Value) -> Request {
-    if request.tool != Tool::SendFiles {
-        return request.clone();
-    }
-    let mut args = args.clone();
-    args["machine"] = Value::from("no machine, only asking the rule");
-    Request {
-        args: args.to_string(),
-        ..request.clone()
-    }
-}
-
-/// The server's rule for `request`, asked by a call without approval. If the server cannot be
-/// reached, the last rule heard stands; with none, nothing runs unasked.
-async fn probed_rule(offers: &Offers, request: &Request) -> Rule {
-    let probe = Request {
-        approved: Approved::No,
-        ..request.clone()
-    };
-    match offers.tools.call(&probe).await {
-        Ok(Reply::Ask { .. }) => Rule::Ask,
-        Ok(Reply::Done { text, failed: true }) if text.starts_with(REFUSED) => Rule::Refuse(text),
-        Ok(_) => Rule::Run,
-        Err(e) => offers.tools.heard(request.tool).unwrap_or_else(|| {
-            Rule::Refuse(format!(
-                "Not run: the server could not be asked whether the user allows it ({e:#})."
-            ))
-        }),
-    }
 }
 
 /// The most paths one `send_files` call takes.
@@ -358,13 +238,10 @@ async fn send_one(
 
 /// Scans the project here, then has the machines that sync it (or the one
 /// named) scan and wait until they have it.
-async fn sync_project(
-    offers: &Offers,
-    mesh: &Mesh,
-    request: &Request,
-    args: &Value,
-) -> Option<Reply> {
-    let project = args.get("project")?.as_str()?;
+async fn sync_project(offers: &Offers, mesh: &Mesh, request: &Request, args: &Value) -> Reply {
+    let Some(project) = args.get("project").and_then(Value::as_str) else {
+        return done("Give `project`.", true);
+    };
     let specs: Vec<(String, SyncSpec)> = mesh
         .scan("sync/")
         .into_iter()
@@ -377,17 +254,14 @@ async fn sync_project(
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case(project.trim()))
     else {
-        if offers.tools.has_server() {
-            return None;
-        }
         let names: Vec<&str> = specs.iter().map(|(name, _)| name.as_str()).collect();
-        return Some(done(
+        return done(
             format!(
                 "No synced project called {project}. Synced: {}.",
                 names.join(", ")
             ),
             true,
-        ));
+        );
     };
     let me = mesh.me();
     let mut notes = Vec::new();
@@ -409,7 +283,7 @@ async fn sync_project(
     if wanted.is_empty()
         && only.is_some_and(|only| !machines(mesh).iter().any(|m| m.id == me && m.name == only))
     {
-        return Some(done(format!("That machine does not sync {name}."), true));
+        return done(format!("That machine does not sync {name}."), true);
     }
     let call = Request {
         args: json!({ "project": name }).to_string(),
@@ -438,43 +312,26 @@ async fn sync_project(
     for note in notes {
         let _ = write!(text, "\n{note}");
     }
-    Some(done(text, failed))
+    done(text, failed)
 }
 
-/// `None` (the server's) when there is one, else why there is no such machine.
-fn missing(offers: &Offers, mesh: &Mesh, name: &str) -> Option<Reply> {
-    if offers.tools.has_server() {
-        return None;
-    }
+/// Why there is no machine called `name`.
+fn missing(mesh: &Mesh, name: &str) -> Reply {
     let names: Vec<String> = machines(mesh).into_iter().map(|m| m.name).collect();
-    Some(done(
+    done(
         format!("No machine called {name}. Machines: {}.", names.join(", ")),
         true,
-    ))
+    )
 }
 
 /// The mesh's devices, each with what its own status report says of it
 /// when it answers in time.
 async fn list(mesh: &Mesh) -> Reply {
-    let lines = device_lines(mesh).await;
-    done(
-        lines
-            .into_iter()
-            .map(|line| line.text)
-            .collect::<Vec<_>>()
-            .join("\n"),
-        false,
-    )
+    done(device_lines(mesh).await.join("\n"), false)
 }
 
-/// One device of the mesh as the list shows it.
-struct Line {
-    name: String,
-    online: bool,
-    text: String,
-}
-
-async fn device_lines(mesh: &Mesh) -> Vec<Line> {
+/// Each device of the mesh as the list shows it.
+async fn device_lines(mesh: &Mesh) -> Vec<String> {
     let me = mesh.me();
     futures::future::join_all(mesh.devices().into_iter().map(|status| async move {
         let env = if status.device.id == me {
@@ -502,91 +359,9 @@ async fn device_lines(mesh: &Mesh) -> Vec<Line> {
             // Writing to a string cannot fail.
             let _ = write!(line, "\n  {}", describe(&env));
         }
-        Line {
-            name: command_name(&status.device.name),
-            online: status.online,
-            text: line,
-        }
+        line
     }))
     .await
-}
-
-/// The server's list with the mesh's devices it does not name added, so a
-/// machine that joined by ticket shows. Without a usable server list, the
-/// mesh's alone.
-async fn merged_list(offers: &Offers, mesh: &Mesh, request: &Request) -> Reply {
-    match offers.tools.call(request).await {
-        Ok(Reply::Done {
-            text,
-            failed: false,
-        }) => done(merge(&text, device_lines(mesh).await), false),
-        _ => list(mesh).await,
-    }
-}
-
-/// `server`'s list with each of `lines` it does not name added. A machine
-/// the server shows offline that the mesh has online gets the mesh's line.
-fn merge(server: &str, lines: Vec<Line>) -> String {
-    let known = listed(server);
-    let up = listed_online(server);
-    let stale: BTreeSet<String> = lines
-        .iter()
-        .filter(|line| line.online && known.contains(&line.name) && !up.contains(&line.name))
-        .map(|line| line.name.clone())
-        .collect();
-    let mut extra: Vec<String> = lines
-        .into_iter()
-        .filter(|line| !known.contains(&line.name) || stale.contains(&line.name))
-        .map(|line| line.text)
-        .collect();
-    if extra.is_empty() {
-        return server.to_owned();
-    }
-    if known.is_empty() {
-        return extra.join("\n");
-    }
-    extra.insert(0, without(server, &stale).trim_end().to_owned());
-    extra.join("\n")
-}
-
-/// `server`'s list without the entries of `names`: each `- name:` line with
-/// the indented and blank lines after it.
-fn without(server: &str, names: &BTreeSet<String>) -> String {
-    let mut skipping = false;
-    let mut kept = Vec::new();
-    for line in server.lines() {
-        if let Some((name, _)) = line.strip_prefix("- ").and_then(|l| l.split_once(':')) {
-            skipping = names.contains(&command_name(name));
-        } else if !(line.starts_with(' ') || line.trim().is_empty()) {
-            skipping = false;
-        }
-        if !skipping {
-            kept.push(line);
-        }
-    }
-    kept.join("\n")
-}
-
-/// The machine names a server list shows, one per `- name: ...` line.
-fn listed(server: &str) -> BTreeSet<String> {
-    entries(server).map(|(name, _)| name).collect()
-}
-
-/// The machines a server list shows online: `- name: online...`.
-fn listed_online(server: &str) -> BTreeSet<String> {
-    entries(server)
-        .filter(|(_, online)| *online)
-        .map(|(name, _)| name)
-        .collect()
-}
-
-/// Each machine of a server list, with whether the server shows it online.
-fn entries(server: &str) -> impl Iterator<Item = (String, bool)> + '_ {
-    server
-        .lines()
-        .filter_map(|line| line.strip_prefix("- "))
-        .filter_map(|line| line.split_once(':'))
-        .map(|(name, facts)| (command_name(name), facts.trim_start().starts_with("online")))
 }
 
 /// One line on what the machine is and can do.
@@ -792,236 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn calls_route_by_the_servers_link() {
-        // Link up: the server answers what it checks.
-        for tool in [Tool::RunOn, Tool::SendFiles] {
-            assert_eq!(route(tool, true, true), Route::Server, "{tool:?}");
-            assert_eq!(route(tool, false, false), Route::Direct, "{tool:?}");
-            assert_eq!(route(tool, true, false), Route::Direct, "{tool:?}");
-        }
-        // Not checked by the server: direct whatever the link.
-        for tool in [Tool::JobStatus, Tool::Cancel, Tool::SyncProject] {
-            assert_eq!(route(tool, true, true), Route::Direct, "{tool:?}");
-        }
-    }
-
-    #[test]
-    fn with_the_link_down_the_last_rule_heard_decides() {
-        let dir = tempfile::tempdir().expect("a temp folder");
-        let offers = |has_server| {
-            Offers::local(
-                &[],
-                crate::machine::provision::Provision::new(dir.path()),
-                has_server,
-            )
-        };
-        let down = offers(true);
-        // Never heard: a send asks, a run goes direct.
-        assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Ask);
-        assert_eq!(rule_while_down(&down, Tool::RunOn), Rule::Run);
-        let said = |tool, reply: Reply| {
-            let request = Request {
-                session: "s".to_owned(),
-                tool,
-                args: "{}".to_owned(),
-                approved: Approved::No,
-            };
-            down.tools.hear(&request, &reply);
-        };
-        let ask = Reply::Ask {
-            app: "Your machines".to_owned(),
-            action: "run".to_owned(),
-            fields: Vec::new(),
-        };
-        // Heard: it goes on the rule the server last gave, a refusal included.
-        said(Tool::RunOn, ask);
-        said(Tool::SendFiles, done("sent", false));
-        assert_eq!(rule_while_down(&down, Tool::RunOn), Rule::Ask);
-        assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Run);
-        said(
-            Tool::RunOn,
-            done(format!("{REFUSED} Your machines to read only."), true),
-        );
-        assert!(matches!(
-            rule_while_down(&down, Tool::RunOn),
-            Rule::Refuse(_)
-        ));
-        // A failure that is not a refusal says nothing of the rule.
-        said(Tool::SendFiles, done("No machine called x.", true));
-        assert_eq!(rule_while_down(&down, Tool::SendFiles), Rule::Run);
-        // With no server ever, nothing asks.
-        let alone = offers(false);
-        for tool in [Tool::RunOn, Tool::SendFiles] {
-            assert_eq!(rule_while_down(&alone, tool), Rule::Run, "{tool:?}");
-        }
-    }
-
-    fn mesh_line(name: &str) -> Line {
-        Line {
-            name: name.to_owned(),
-            online: true,
-            text: format!("- {name}: online, node"),
-        }
-    }
-
-    const SERVER_LIST: &str = "The user's machines, by the name the other tools take:\n\n\
-        - build-box: online; this machine, where you run\n  Linux x86_64\n\n- mac: offline";
-
-    #[test]
-    fn the_servers_list_names_its_machines() {
-        let names: Vec<String> = listed(SERVER_LIST).into_iter().collect();
-        assert_eq!(names, ["build-box", "mac"]);
-    }
-
-    #[test]
-    fn a_machine_only_the_mesh_knows_joins_the_servers_list() {
-        let merged = merge(
-            SERVER_LIST,
-            vec![mesh_line("build-box"), mesh_line("laptop")],
-        );
-        assert!(merged.starts_with(SERVER_LIST), "{merged}");
-        assert!(merged.ends_with("\n- laptop: online, node"), "{merged}");
-        assert_eq!(merged.matches("- build-box:").count(), 1, "{merged}");
-        // Nothing to add: the server's text as it is.
-        let offline = Line {
-            online: false,
-            ..mesh_line("mac")
-        };
-        assert_eq!(merge(SERVER_LIST, vec![offline]), SERVER_LIST);
-    }
-
-    /// Issue #390: a desktop with the server off has no link to it, so the server lists it
-    /// offline while the mesh reaches it. The mesh's word stands, and a remote_run goes direct.
-    #[test]
-    fn a_machine_the_server_lists_offline_but_the_mesh_reaches_is_online() {
-        let online: Vec<String> = listed_online(SERVER_LIST).into_iter().collect();
-        assert_eq!(online, ["build-box"]);
-        let merged = merge(SERVER_LIST, vec![mesh_line("build-box"), mesh_line("mac")]);
-        assert!(
-            merged.contains("- build-box: online; this machine"),
-            "{merged}"
-        );
-        assert!(
-            merged.ends_with("Linux x86_64\n- mac: online, node"),
-            "{merged}"
-        );
-        assert!(!merged.contains("offline"), "{merged}");
-    }
-
-    #[test]
-    fn a_server_with_no_machines_leaves_the_mesh_list() {
-        let merged = merge(
-            "The user has no machines running beep-node.",
-            vec![mesh_line("laptop")],
-        );
-        assert_eq!(merged, "- laptop: online, node");
-    }
-
-    #[test]
     fn a_machine_is_named_in_one_word() {
         assert_eq!(command_name(" Mac Studio "), "mac-studio");
-    }
-
-    /// A server that answers every `tools/1` call with `reply`, and the connection to it.
-    async fn server_answering(reply: Reply) -> (Offers, impl Sized, tempfile::TempDir) {
-        use beep_proto::node::{Open, Opened, link};
-        const ALPN: &[u8] = b"beep-test";
-        let endpoint = || iroh::Endpoint::builder(iroh::endpoint::presets::Minimal);
-        let server = endpoint()
-            .alpns(vec![ALPN.to_vec()])
-            .bind()
-            .await
-            .expect("the server binds");
-        let client = endpoint().bind().await.expect("the node binds");
-        let addr = server.addr();
-        let serving = tokio::spawn(async move {
-            let connection = server
-                .accept()
-                .await
-                .expect("a connection comes")
-                .await
-                .expect("it connects");
-            while let Ok((send, recv)) = connection.accept_bi().await {
-                let (mut tx, mut rx) = link(send, recv);
-                let _: Open = rx.recv().await.expect("read").expect("an open");
-                tx.send(&Opened::Ready {}).await.expect("sent");
-                let _: Request = rx.recv().await.expect("read").expect("a call");
-                tx.send(&reply).await.expect("sent");
-            }
-        });
-        let connection = client.connect(addr, ALPN).await.expect("the node connects");
-        let dir = tempfile::tempdir().expect("a temp folder");
-        let offers = Offers::local(
-            &[],
-            crate::machine::provision::Provision::new(dir.path()),
-            true,
-        );
-        offers.tools.set(Some(connection));
-        (
-            offers,
-            (client, tokio_util::task::AbortOnDropHandle::new(serving)),
-            dir,
-        )
-    }
-
-    fn call_of(tool: Tool) -> Request {
-        Request {
-            session: "s".to_owned(),
-            tool,
-            args: "{}".to_owned(),
-            approved: Approved::No,
-        }
-    }
-
-    #[test]
-    fn asking_the_rule_for_a_send_cannot_send_through_the_server() {
-        let args = json!({ "machine": "box-b", "paths": ["/srv/project/a"] });
-        let send = Request {
-            args: args.to_string(),
-            ..call_of(Tool::SendFiles)
-        };
-        let asked: Value =
-            serde_json::from_str(&rule_question(&send, &args).args).expect("the args parse");
-        assert_ne!(asked["machine"], "box-b");
-        assert_eq!(asked["paths"], args["paths"]);
-    }
-
-    #[tokio::test]
-    async fn a_refusing_rule_still_refuses_a_machine_the_server_lacks() {
-        let refusal = format!("{REFUSED} Your machines to read only.");
-        let (offers, _server, _dir) = server_answering(done(refusal.clone(), true)).await;
-        for tool in [Tool::RunOn, Tool::SendFiles] {
-            let rule = probed_rule(&offers, &call_of(tool)).await;
-            assert_eq!(rule, Rule::Refuse(refusal.clone()), "{tool:?}");
-            let stopped = permission::enforce(&offers, &rule, &call_of(tool), &Value::Null).await;
-            assert_eq!(stopped, Some(done(refusal.clone(), true)), "{tool:?}");
-        }
-        // The server's own failure for a machine it lacks is not a refusal.
-        let (offers, _server, _dir) = server_answering(done("No machine called x.", true)).await;
-        assert_eq!(probed_rule(&offers, &call_of(Tool::RunOn)).await, Rule::Run);
-    }
-
-    #[tokio::test]
-    async fn a_probe_the_server_cannot_answer_uses_the_last_rule_heard_else_refuses() {
-        let dir = tempfile::tempdir().expect("a temp folder");
-        let offers = Offers::local(
-            &[],
-            crate::machine::provision::Provision::new(dir.path()),
-            true,
-        );
-        // No link at all, no rule heard: nothing runs unasked.
-        for tool in [Tool::RunOn, Tool::SendFiles] {
-            assert!(
-                matches!(probed_rule(&offers, &call_of(tool)).await, Rule::Refuse(_)),
-                "{tool:?}"
-            );
-        }
-        let ask = Reply::Ask {
-            app: "Your machines".to_owned(),
-            action: "run".to_owned(),
-            fields: Vec::new(),
-        };
-        offers.tools.hear(&call_of(Tool::RunOn), &ask);
-        assert_eq!(probed_rule(&offers, &call_of(Tool::RunOn)).await, Rule::Ask);
     }
 }
