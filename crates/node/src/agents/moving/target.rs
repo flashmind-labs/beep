@@ -156,11 +156,8 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     }
     let kind = env
         .agents
-        .kinds
-        .iter()
-        .find(|kind| kind.name == record.agent.as_str())
-        .with_context(|| format!("this machine has no {}", record.agent))?
-        .clone();
+        .named(record.agent.as_str())
+        .with_context(|| format!("this machine has no {}", record.agent))?;
     if env.agents.runs(&record.id) {
         // A restart between starting and noting it.
         return Ok(());

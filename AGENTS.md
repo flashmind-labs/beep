@@ -538,7 +538,10 @@ required) says the same with `harness` set to `claude` and the tools named
 
 - `agents/`: coding agents run over ACP, their sessions and spend, sessions
   found on disk (`claude/`, `found/`), the Beep MCP server (`mcp/`) and the
-  agents that start agents (`family.rs`, `mcp/children.rs`).
+  agents that start agents (`family.rs`, `mcp/children.rs`). An agent
+  whose CLI is here with no ACP adapter and no npx gets one in the node's
+  `agent-adapters/`, on a Node.js from nodejs.org (`adapters/`), retried
+  hourly; `beep-node status` lists how each agent stands.
 - `files/`: shared folders (`Folders`), project sync, Syncthing checks,
   node-to-node transfers and the git checkout search.
 - `link/`: the node's key and settings (`state`), linking and the control
