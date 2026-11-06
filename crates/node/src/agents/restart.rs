@@ -225,12 +225,6 @@ impl Agents {
         *self.reopened.borrow()
     }
 
-    /// For a host that resumes no sessions after a restart, as the Mac app:
-    /// moves and reads stop waiting for them at once.
-    pub fn nothing_to_reopen(&self) {
-        self.reopened.send_replace(true);
-    }
-
     /// What it takes to start session `id` again, as it runs now.
     pub(crate) fn open_session(&self, id: &str) -> Option<OpenSession> {
         let session = self.get(id)?;

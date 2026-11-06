@@ -14,6 +14,7 @@ pub mod peers;
 pub mod reconnect;
 mod report;
 pub(crate) mod restart;
+pub use restart::{note_on_quit, reopen_and_keep};
 pub mod state;
 mod traffic;
 pub(crate) mod watchdog;
