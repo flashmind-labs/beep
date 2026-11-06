@@ -89,8 +89,12 @@ fn read_lines(file: &Path, open: &mut HashSet<PathBuf>, out: &mut Vec<String>) -
         if let Some(name) = line.strip_prefix("#include ") {
             let parent = file.parent().unwrap_or(Path::new(""));
             read_lines(&parent.join(name.trim()), open, out)?;
-        } else if line.starts_with('#') {
+        } else if line.starts_with("#escape") {
             bail!("the directive {line}");
+        } else if line.starts_with('#') {
+            // Syncthing reads it as a pattern for a name starting with `#`, which in
+            // practice is a comment people write; gitignore reads it as one.
+            continue;
         } else {
             out.push(translate(line)?);
         }
@@ -222,6 +226,13 @@ mod tests {
         assert!(ignored(&rules, "secret/x"));
         assert!(!ignored(&rules, "plain.TXT"));
         assert!(ignored(&rules, "plain.other"));
+    }
+
+    #[test]
+    fn a_line_starting_with_a_hash_is_a_comment() {
+        let (_dir, rules) = rules("# build output\n*.raw\n#also a note\n");
+        assert!(ignored(&rules, "a.raw"));
+        assert!(!ignored(&rules, "build output"));
     }
 
     #[test]
