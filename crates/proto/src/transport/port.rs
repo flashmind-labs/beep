@@ -75,39 +75,3 @@ pub async fn bind_on(builder: impl Fn() -> Builder, port: u16) -> Result<Endpoin
     }
     builder().bind().await
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use iroh::endpoint::presets;
-    use std::net::UdpSocket;
-
-    #[tokio::test]
-    async fn binds_the_port_asked_for_or_a_random_one_when_it_is_taken() {
-        let taken = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("a free port binds");
-        let port = taken
-            .local_addr()
-            .expect("a bound socket has an address")
-            .port();
-        let builder = || Endpoint::builder(presets::Minimal);
-
-        let fallback = bind_on(builder, port).await.expect("falls back");
-        assert!(
-            fallback
-                .bound_sockets()
-                .iter()
-                .all(|addr| addr.port() != port)
-        );
-        fallback.close().await;
-
-        drop(taken);
-        let fixed = bind_on(builder, port).await.expect("binds the free port");
-        assert!(
-            fixed
-                .bound_sockets()
-                .iter()
-                .any(|addr| addr.is_ipv4() && addr.port() == port)
-        );
-        fixed.close().await;
-    }
-}

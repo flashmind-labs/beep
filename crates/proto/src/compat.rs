@@ -92,6 +92,7 @@ sample_values! {
     i64 => [1_760_000_000_000]
     f64 => [1.5]
     String => ["text".to_owned()]
+    serde_bytes::ByteBuf => [serde_bytes::ByteBuf::from(b"$ ls\r\n\x1b[32mok\x1b[0m".to_vec())]
     AgentSlug => [AgentSlug::from("text")]
     ModelId => [ModelId::from("text")]
     FlshModel => ["openrouter:vendor/model".parse().expect("a valid model")]
