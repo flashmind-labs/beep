@@ -191,7 +191,7 @@ function imageView(t: MediaTab) {
 }
 
 function videoView(t: MediaTab) {
-  const el = h(`<div class="agpview"><div class="agpstage"><video controls playsinline preload="metadata"></video></div>
+  const el = h(`<div class="agpview"><div class="agpstage"><video controls playsinline preload="auto"></video></div>
     <div class="agpacts"><span class="meta">${esc(fileSize(t.size))}</span><span class="sp"></span>${fileButtons(t, "Open in QuickTime")}</div></div>`);
   const video = el.querySelector("video")!;
   video.onloadedmetadata = () => {
@@ -202,6 +202,9 @@ function videoView(t: MediaTab) {
   video.onerror = () => {
     el.querySelector(".agpstage")!.replaceWith(h('<div class="agpmsg">This video does not play here. Open it in QuickTime instead.</div>'));
   };
+  // WebKit drops a blob video's picture once it ends, so play again shows
+  // black: load it afresh, back at its first frame.
+  video.onended = () => video.load();
   video.src = t.url!;
   wireFileButtons(t, el);
   return el;
