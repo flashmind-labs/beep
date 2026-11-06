@@ -142,7 +142,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   const think = levels.length
     ? [`<button type="button" data-age="" class="${p.effort ? "" : "on"}">Default${p.effort ? "" : CHECK}</button>`,
       ...levels.map(l => `<button type="button" data-age="${l.value}" class="${p.effort === l.value ? "on" : ""}">${esc(l.label)}${p.effort === l.value ? CHECK : ""}</button>`)].join("")
-    : `<p class="none">${esc(effortNote(p.agent, name))}</p>`;
+    : `<p class="none">${esc(effortNote(name))}</p>`;
   el.innerHTML = `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">
       <div class="agc-rail">${rail}</div>
       <div class="agc-list"><div class="agc-find"><input class="agc-search" spellcheck="false" autocomplete="off" placeholder="Search ${esc(name)} models…" value="${esc(p.query)}"></div><div class="agc-models"></div></div>
