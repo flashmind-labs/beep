@@ -32,7 +32,7 @@ import { escUp } from "./escup-state.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { AG } from "../agents/agents.ts";
-import { loadAgents, takePending } from "./pane.ts";
+import { debugWithAgent, loadAgents, takePending } from "./pane.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
@@ -163,7 +163,7 @@ pane.connect({
   },
   openReport() {
     closeSettings();
-    openReport(document.body);
+    openReport(document.body, debugWithAgent);
   },
   settingsAway(view) {
     closeSettings();

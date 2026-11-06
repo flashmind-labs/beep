@@ -16,6 +16,8 @@ import { loadThreadChats, threadHead, pinButton, threadChats } from "./threadcar
 import { refresh } from "./refresh.ts";
 import { showNotices } from "./notices.ts";
 import { openReport } from "../report/report.ts";
+import { debugPrompt } from "../report/report-state.ts";
+import type { MacControl } from "../machines/machine-state.ts";
 
 const ROUTINES_TITLE: [string, string] = ["Routines", "What Beep does on its own"];
 const APPS_TITLE: [string, string] = ["Apps", "What Beep can use for you"];
@@ -93,6 +95,13 @@ export async function loadAgents() {
 
 // ---------- Handoffs ----------
 
+/// The Report a problem sheet's "Debug with an agent": the start form on this
+/// Mac, when Beep may use it, with a prompt to look into Beep and file a report.
+export async function debugWithAgent(text: string) {
+  const mac = state.mac ?? await invoke<MacControl>("mac_control").catch(() => null);
+  go("pane", { agentnew: { prompt: debugPrompt(text), at: mac?.enabled ? { machine: mac.id } : null } });
+}
+
 /// Shows what the bar or tray asked for, once; Home when nothing is waiting.
 export async function takePending(fallback: ViewName | null) {
   const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
@@ -101,7 +110,7 @@ export async function takePending(fallback: ViewName | null) {
   // The report target: the Report a problem sheet over the page on screen.
   if (target === "report") {
     if (!shown) go("home");
-    return openReport(document.body);
+    return openReport(document.body, debugWithAgent);
   }
   if (typeof target === "object" && "projects" in target) return go("projects", target.projects);
   if (typeof target === "object" && "ask" in target) return askBeep(target.ask.prompt);
