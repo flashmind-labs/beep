@@ -44,6 +44,20 @@ pub fn alert(app: &AppHandle, notice: &Notice) {
     show(app, notice, CenterTarget::Notice { session });
 }
 
+/// A notification with nothing to answer that opens `target` when clicked.
+pub(crate) fn opening(app: &AppHandle, title: &str, body: &str, target: CenterTarget) {
+    let notice = Notice {
+        title: title.to_owned(),
+        body: body.to_owned(),
+        session_id: String::new(),
+        app: None,
+        approval: None,
+        changed: false,
+        group: false,
+    };
+    show(app, &notice, target);
+}
+
 fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
     #[cfg(target_os = "macos")]
     mac::show(app, notice, target);

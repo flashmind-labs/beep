@@ -1,4 +1,5 @@
 use super::*;
+use crate::files::paths;
 use crate::files::syncthing::Syncthing;
 use beep_mesh::transport_config;
 use beep_proto::node::sync::Project;
@@ -53,7 +54,7 @@ async fn quitting_saves_the_projects_while_a_peer_hangs() {
     let router = served
         .add_to(Router::builder(here.clone()).accept(b"hung", Hung))
         .spawn();
-    let folder = shared.path().join("proj").canonicalize().expect("exists");
+    let folder = paths::canonicalize(shared.path().join("proj")).expect("exists");
     let refused = transfers
         .syncs()
         .configure(vec![Project {

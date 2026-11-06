@@ -4,6 +4,7 @@
 
 mod folders;
 pub(crate) mod fsat;
+pub(crate) mod paths;
 pub(crate) mod search;
 pub mod sync;
 pub mod syncthing;

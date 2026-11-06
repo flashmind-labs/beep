@@ -3,6 +3,7 @@
 //! the turn ends (`read`, `read_since`), only inside the session's folder.
 
 use super::images::Picture;
+use crate::files::paths;
 use beep_proto::sniff_image;
 use std::{
     io::Read,
@@ -59,7 +60,7 @@ pub(crate) fn read(cwd: &Path, paths: &[PathBuf]) -> Vec<Picture> {
 
 /// `read`, leaving out files last written before `since`.
 pub(crate) fn read_since(cwd: &Path, paths: &[PathBuf], since: SystemTime) -> Vec<Picture> {
-    let Ok(cwd) = cwd.canonicalize() else {
+    let Ok(cwd) = paths::canonicalize(cwd) else {
         return Vec::new();
     };
     paths
@@ -80,7 +81,7 @@ fn read_one(cwd: &Path, path: &Path, since: SystemTime) -> std::io::Result<Optio
         return Ok(None);
     };
     // Resolves links too, so one cannot point outside the folder.
-    let path = path.canonicalize()?;
+    let path = paths::canonicalize(path)?;
     if !path.starts_with(cwd) {
         return Ok(None);
     }

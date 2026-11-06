@@ -3,7 +3,7 @@
 //! connected (`reconnect`), and what carries over a restart (`restart`).
 
 mod connection;
-mod from_mesh;
+pub(crate) mod from_mesh;
 pub(crate) use from_mesh::Membership;
 pub mod local;
 pub(crate) mod local_socket;

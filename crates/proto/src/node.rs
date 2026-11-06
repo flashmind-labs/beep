@@ -26,12 +26,12 @@ pub mod harness;
 pub mod mesh_state;
 pub mod process;
 pub mod report;
+pub mod skills;
 pub mod sync;
 pub mod terminal;
 pub mod tools;
 pub mod transfer;
 pub mod usage;
-pub mod webhook;
 
 pub use admin::{logs, search, shell, status, tool_update, traffic, update, version};
 pub use control::*;
