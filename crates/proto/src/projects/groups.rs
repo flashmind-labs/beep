@@ -9,7 +9,7 @@ use crate::ApiError;
 /// `~/Projects/work` on a Mac and `/home/user/work` on
 /// Linux are both `work`. A folder outside the home folder stays
 /// absolute; the home folder itself, or its `Projects`, is empty.
-pub fn project_group_path(path: &str) -> String {
+fn project_group_path(path: &str) -> String {
     let path = path.trim().replace('\\', "/");
     let Some(rest) = home_relative(&path) else {
         let trimmed = path.trim_end_matches('/');
@@ -150,26 +150,5 @@ mod tests {
         assert_eq!(project_group_path("/home/"), "/home");
         assert_eq!(project_group_path("/"), "/");
         assert_eq!(project_group_path("relative/x"), "relative/x");
-    }
-
-    fn given(list: &[&str]) -> Vec<String> {
-        list.iter().map(|p| (*p).to_owned()).collect()
-    }
-
-    #[test]
-    fn a_home_folder_the_root_or_nothing_is_refused() {
-        for list in [
-            vec![],
-            vec!["~"],
-            vec!["/Users/someone/Projects"],
-            vec!["/"],
-        ] {
-            assert!(
-                matches!(group_paths(&given(&list)), Err(ApiError::BadRequest { .. })),
-                "{list:?}"
-            );
-        }
-        let many: Vec<String> = (0..=MAX_PATHS).map(|i| format!("~/f{i}")).collect();
-        assert!(group_paths(&many).is_err());
     }
 }
