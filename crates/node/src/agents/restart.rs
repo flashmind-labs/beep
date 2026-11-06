@@ -214,11 +214,8 @@ impl Agents {
 
     pub(crate) async fn reopen_one(&self, open: OpenSession) -> Result<()> {
         let kind = self
-            .kinds
-            .iter()
-            .find(|kind| kind.name == open.agent)
-            .with_context(|| format!("this node no longer runs {}", open.agent))?
-            .clone();
+            .named(&open.agent)
+            .with_context(|| format!("this node no longer runs {}", open.agent))?;
         self.prepare(&kind).await?;
         let cwd = open.cwd.to_string_lossy();
         let follows = open

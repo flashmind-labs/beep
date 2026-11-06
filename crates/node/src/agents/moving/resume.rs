@@ -161,11 +161,8 @@ pub(super) async fn continue_here(
     }
     let kind = env
         .agents
-        .kinds
-        .iter()
-        .find(|kind| kind.name == agent.as_str())
-        .with_context(|| format!("this machine has no {agent}"))?
-        .clone();
+        .named(agent.as_str())
+        .with_context(|| format!("this machine has no {agent}"))?;
     let folders = continued_folders(env, &meta)?;
     if !folders.new.is_dir() {
         bail!(

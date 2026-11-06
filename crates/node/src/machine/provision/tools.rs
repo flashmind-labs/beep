@@ -314,7 +314,7 @@ impl Download {
 }
 
 /// The SHA-256 that `sums`, as `sha256sum` prints them, lists for `file`.
-fn listed_sha256<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
+pub(crate) fn listed_sha256<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
     sums.lines().find_map(|line| {
         let mut words = line.split_whitespace();
         let sha256 = words.next()?;
@@ -324,7 +324,7 @@ fn listed_sha256<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
 }
 
 /// Fails unless the file at `path` has the SHA-256 `expected` (hex).
-pub(super) fn verify(path: &Path, expected: &str) -> Result<()> {
+pub(crate) fn verify(path: &Path, expected: &str) -> Result<()> {
     let mut file = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buf = [0; 64 * 1024];
@@ -346,7 +346,7 @@ pub(super) fn verify(path: &Path, expected: &str) -> Result<()> {
 
 /// Downloads `url` with curl, which every supported system has: to `to`,
 /// or else into what it returns.
-async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
+pub(crate) async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
     let mut command = Command::new("curl");
     command.args(["-fsSL", "--proto", "=https", "--retry", "2"]);
     if let Some(to) = to {
@@ -411,7 +411,7 @@ async fn extract(archive: &Path, member: &str, into: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn remove_dir(dir: &Path) -> Result<()> {
+pub(crate) async fn remove_dir(dir: &Path) -> Result<()> {
     match tokio::fs::remove_dir_all(dir).await {
         Err(e) if e.kind() != io::ErrorKind::NotFound => {
             Err(e).with_context(|| format!("removing {}", dir.display()))
