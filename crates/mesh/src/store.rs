@@ -313,19 +313,10 @@ impl Core {
         Ok(self.devices.ops().to_vec())
     }
 
-    /// Removes the temporary device `id` and its `temporary/` key. `asker` is the device that
-    /// asked, when one did, and may only ask about itself. A device already removed is done:
-    /// `Ok(false)`, so two desktops may both try. One that is not temporary is refused.
-    pub(crate) fn remove_temporary(
-        &mut self,
-        asker: Option<EndpointId>,
-        id: EndpointId,
-    ) -> Result<bool, MeshError> {
+    /// Removes the temporary device `id` and its `temporary/` key. A device already removed is
+    /// done: `Ok(false)`, so two desktops may both try. One that is not temporary is refused.
+    pub(crate) fn remove_temporary(&mut self, id: EndpointId) -> Result<bool, MeshError> {
         self.desktop()?;
-        let refuse = |why: &str| MeshError::Refused(why.to_owned());
-        if asker.is_some_and(|asker| asker != id) {
-            return Err(refuse("a device may only remove itself"));
-        }
         let key = Key::Temporary(id.to_string());
         let temporary = self.state.get(&key).is_some();
         if self.devices.is_removed(id) {
@@ -336,7 +327,7 @@ impl Core {
             return Ok(false);
         }
         if !temporary || !self.devices.is_member(id) {
-            return Err(refuse("not a temporary device"));
+            return Err(MeshError::Refused("not a temporary device".to_owned()));
         }
         self.devices.remove(&self.key, id)?;
         self.save_devices()?;

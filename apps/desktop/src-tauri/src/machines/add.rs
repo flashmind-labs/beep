@@ -29,7 +29,7 @@ pub struct TokenView {
 
 /// A ticket that brings a device of `kind` into the mesh, with what to copy: the line a node
 /// runs, or the ticket itself for another Mac to paste. A `temporary` node, such as a
-/// container, leaves the mesh when it stops.
+/// container, is removed after a day offline.
 #[tauri::command]
 pub async fn mesh_invite(
     fleet: State<'_, Arc<Fleet>>,

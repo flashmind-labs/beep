@@ -61,7 +61,7 @@ pub enum Key {
     /// again: `unmoved/credential/<id>` or `unmoved/harness/<agent>/<VAR>`. Nodes keep the
     /// server's values of that family while any record of it remains.
     Unmoved(String),
-    /// A device that leaves the mesh when it stops, such as a container: `temporary/<id>`,
+    /// A device removed after a day offline, such as a container: `temporary/<id>`,
     /// written by the desktop that spent its ticket. The value is empty.
     Temporary(String),
     /// A kind this build does not know, as its text. A member holds it and passes it on and

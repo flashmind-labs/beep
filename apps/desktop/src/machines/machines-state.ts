@@ -121,8 +121,8 @@ export function updatedNotes(installed: Installed, machine: string, tools: reado
   });
 }
 
-/// The tag after a machine's name: "container" for one that leaves the mesh
-/// when it stops, else none.
+/// The tag after a machine's name: "container" for one removed after a day
+/// offline, else none.
 export function machineTag(m: { temporary?: boolean }): string | null {
   return m.temporary ? "container" : null;
 }

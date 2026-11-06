@@ -1,6 +1,6 @@
 // The "Add a machine" sheet.
 import { invoke } from "../ui/tauri.ts";
-import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch, inviteArgs, joinedNote } from "./addmachine-state.ts";
+import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
 import { button, el, present } from "../ui/dom.ts";
 import { copyButton, openSheet } from "../ui/parts.ts";
@@ -244,7 +244,7 @@ function body() {
       const what = describeMachine(state.machine);
       return [
         el("div", "am-done", el("span", "ddot"), el("b", "", `${state.machine.name} joined`)),
-        el("div", "am-sub", `${what ? what + ". " : ""}${joinedNote(kind)}`),
+        el("div", "am-sub", `${what ? what + ". " : ""}It shows under Machines and can run agents now.`),
         button("Done", "dbtn pri", closeAddMachine),
       ];
     }

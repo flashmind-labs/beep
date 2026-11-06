@@ -398,14 +398,12 @@ aside to `beep-node.exe.old`, removed by the next update.
 
 Add a machine's Container option mints a ticket with `temporary` set
 (`Mesh::invite_temporary`). The desktop that spends it writes
-`temporary/<id>` in the replicated state, never in the signed `Device`. A
-temporary node that stops on a signal asks a desktop over `leave/1` to remove
-it (3 s at most, skipped while an update restarts it); a desktop takes that
-only from the device about itself (`Mesh::remove_on_request`). Every desktop
-also removes a temporary device offline for 10 minutes
-(`beep_fleet::temporary`, run from `notices/watch.rs`) with a bell row;
-removal is idempotent, so two desktops may both try. Other machines are never
-removed on their own.
+`temporary/<id>` in the replicated state, never in the signed `Device`. Every
+desktop removes a temporary device offline for 24 hours
+(`beep_fleet::temporary`, run from `notices/watch.rs`) with a bell row, so a
+restart or reboot keeps it (a removed key can never rejoin). Removal is
+idempotent, so two desktops may both try. Other machines are never removed on
+their own.
 
 ## beep-sync and git
 
