@@ -215,7 +215,9 @@ pub(super) async fn mesh_only(offers: &Offers, mesh: &Mesh, request: &Request) -
         else {
             return None;
         };
-        if listed(&text).contains(&name) {
+        // The server answers for a machine it reaches. One it lists offline may be a member the
+        // mesh reaches with no link to the server, such as a desktop with the server off.
+        if listed_online(&text).contains(&name) {
             return None;
         }
     }
@@ -468,6 +470,7 @@ async fn list(mesh: &Mesh) -> Reply {
 /// One device of the mesh as the list shows it.
 struct Line {
     name: String,
+    online: bool,
     text: String,
 }
 
@@ -501,6 +504,7 @@ async fn device_lines(mesh: &Mesh) -> Vec<Line> {
         }
         Line {
             name: command_name(&status.device.name),
+            online: status.online,
             text: line,
         }
     }))
@@ -520,12 +524,19 @@ async fn merged_list(offers: &Offers, mesh: &Mesh, request: &Request) -> Reply {
     }
 }
 
-/// `server`'s list with each of `lines` it does not name added.
+/// `server`'s list with each of `lines` it does not name added. A machine
+/// the server shows offline that the mesh has online gets the mesh's line.
 fn merge(server: &str, lines: Vec<Line>) -> String {
     let known = listed(server);
+    let up = listed_online(server);
+    let stale: BTreeSet<String> = lines
+        .iter()
+        .filter(|line| line.online && known.contains(&line.name) && !up.contains(&line.name))
+        .map(|line| line.name.clone())
+        .collect();
     let mut extra: Vec<String> = lines
         .into_iter()
-        .filter(|line| !known.contains(&line.name))
+        .filter(|line| !known.contains(&line.name) || stale.contains(&line.name))
         .map(|line| line.text)
         .collect();
     if extra.is_empty() {
@@ -534,18 +545,48 @@ fn merge(server: &str, lines: Vec<Line>) -> String {
     if known.is_empty() {
         return extra.join("\n");
     }
-    extra.insert(0, server.trim_end().to_owned());
+    extra.insert(0, without(server, &stale).trim_end().to_owned());
     extra.join("\n")
+}
+
+/// `server`'s list without the entries of `names`: each `- name:` line with
+/// the indented and blank lines after it.
+fn without(server: &str, names: &BTreeSet<String>) -> String {
+    let mut skipping = false;
+    let mut kept = Vec::new();
+    for line in server.lines() {
+        if let Some((name, _)) = line.strip_prefix("- ").and_then(|l| l.split_once(':')) {
+            skipping = names.contains(&command_name(name));
+        } else if !(line.starts_with(' ') || line.trim().is_empty()) {
+            skipping = false;
+        }
+        if !skipping {
+            kept.push(line);
+        }
+    }
+    kept.join("\n")
 }
 
 /// The machine names a server list shows, one per `- name: ...` line.
 fn listed(server: &str) -> BTreeSet<String> {
+    entries(server).map(|(name, _)| name).collect()
+}
+
+/// The machines a server list shows online: `- name: online...`.
+fn listed_online(server: &str) -> BTreeSet<String> {
+    entries(server)
+        .filter(|(_, online)| *online)
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// Each machine of a server list, with whether the server shows it online.
+fn entries(server: &str) -> impl Iterator<Item = (String, bool)> + '_ {
     server
         .lines()
         .filter_map(|line| line.strip_prefix("- "))
         .filter_map(|line| line.split_once(':'))
-        .map(|(name, _)| command_name(name))
-        .collect()
+        .map(|(name, facts)| (command_name(name), facts.trim_start().starts_with("online")))
 }
 
 /// One line on what the machine is and can do.
@@ -818,6 +859,7 @@ mod tests {
     fn mesh_line(name: &str) -> Line {
         Line {
             name: name.to_owned(),
+            online: true,
             text: format!("- {name}: online, node"),
         }
     }
@@ -841,7 +883,29 @@ mod tests {
         assert!(merged.ends_with("\n- laptop: online, node"), "{merged}");
         assert_eq!(merged.matches("- build-box:").count(), 1, "{merged}");
         // Nothing to add: the server's text as it is.
-        assert_eq!(merge(SERVER_LIST, vec![mesh_line("mac")]), SERVER_LIST);
+        let offline = Line {
+            online: false,
+            ..mesh_line("mac")
+        };
+        assert_eq!(merge(SERVER_LIST, vec![offline]), SERVER_LIST);
+    }
+
+    /// Issue #390: a desktop with the server off has no link to it, so the server lists it
+    /// offline while the mesh reaches it. The mesh's word stands, and a remote_run goes direct.
+    #[test]
+    fn a_machine_the_server_lists_offline_but_the_mesh_reaches_is_online() {
+        let online: Vec<String> = listed_online(SERVER_LIST).into_iter().collect();
+        assert_eq!(online, ["build-box"]);
+        let merged = merge(SERVER_LIST, vec![mesh_line("build-box"), mesh_line("mac")]);
+        assert!(
+            merged.contains("- build-box: online; this machine"),
+            "{merged}"
+        );
+        assert!(
+            merged.ends_with("Linux x86_64\n- mac: online, node"),
+            "{merged}"
+        );
+        assert!(!merged.contains("offline"), "{merged}");
     }
 
     #[test]

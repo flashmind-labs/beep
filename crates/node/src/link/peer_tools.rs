@@ -35,9 +35,12 @@ const DEFAULT_RUN_SECS: u64 = 600;
 pub(crate) struct Caller {
     /// The tasks the caller's jobs live in and can see.
     pub table: Table,
-    /// Whether a node's `RunOn` and `SendFiles` may act on this
-    /// device: not when it is a desktop.
-    pub may_run_on_here: bool,
+    /// This device is a desktop: a node may not send it files or start
+    /// agents on it.
+    pub desktop_here: bool,
+    /// Why a node's `RunOn` may not run here, or `None` when it may: the
+    /// host lends this machine to no other device.
+    pub commands_off: Option<String>,
     /// This node's synced projects and transfers, when it shares folders.
     pub transfers: Option<Transfers>,
     /// This node's coding agents, which another node's agents may start
@@ -50,7 +53,8 @@ impl Caller {
     pub(crate) fn local(offers: &Offers) -> Self {
         Self {
             table: Table::Shared,
-            may_run_on_here: true,
+            desktop_here: false,
+            commands_off: None,
             transfers: offers.transfers.get(),
             agents: Some(offers.agents.clone()),
         }
@@ -98,19 +102,17 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     let outcome = match serde_json::from_str::<Value>(&request.args) {
         Err(e) => Err(format!("The arguments are not JSON: {e}")),
         Ok(args) => match request.tool {
-            Tool::RunOn if !caller.may_run_on_here => {
-                Err("This device is a desktop: another node may not run commands on it.".to_owned())
-            }
-            Tool::RunOn => match parse(args) {
-                Ok(args) => run_on(args, caller.table).await,
-                Err(e) => Err(e),
+            Tool::RunOn => match (&caller.commands_off, parse(args)) {
+                (Some(off), _) => Err(off.clone()),
+                (None, Ok(args)) => run_on(args, caller.table).await,
+                (None, Err(e)) => Err(e),
             },
             Tool::JobStatus => job(args, false, caller.table).await,
             Tool::Cancel => job(args, true, caller.table).await,
             // Writes outside a project the desktop's owner shares: a node may
             // not send files to a desktop. Syncing is confined to a project
             // this device already syncs, with the peers a desktop named.
-            Tool::SendFiles if !caller.may_run_on_here => {
+            Tool::SendFiles if caller.desktop_here => {
                 Err("This device is a desktop: another node may not send files to it.".to_owned())
             }
             Tool::SyncProject => sync_project(args, &caller).await,
@@ -137,7 +139,7 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
     let (Table::Peer(peer), Some(agents)) = (caller.table, &caller.agents) else {
         return failed("Agents are started through the node's own Beep MCP server.");
     };
-    if request.tool == Tool::StartAgent && !caller.may_run_on_here {
+    if request.tool == Tool::StartAgent && caller.desktop_here {
         return failed("This device is a desktop: another node may not start agents on it.");
     }
     children::answer_peer(agents, peer, request).await
@@ -339,10 +341,11 @@ fn task_error(reply: TaskReply) -> String {
 mod tests {
     use super::*;
 
-    fn caller(table: Table, may_run_on_here: bool) -> Caller {
+    fn caller(table: Table, node_here: bool) -> Caller {
         Caller {
             table,
-            may_run_on_here,
+            desktop_here: !node_here,
+            commands_off: None,
             transfers: None,
             agents: None,
         }
@@ -425,18 +428,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_desktop_refuses_run_on_from_a_node_and_a_node_takes_it() {
+    async fn a_desktop_runs_a_nodes_command_unless_it_lends_itself_to_no_one() {
         let table = Table::Peer(iroh::SecretKey::generate().public());
-        let on_desktop = caller(table, false);
-        let Reply::Done { text, failed } = answer(run_on(), on_desktop).await else {
-            panic!("not done");
-        };
-        assert!(failed && text.contains("desktop"), "{text}");
-        assert!(!text.contains("ran-here"));
-        let on_node = caller(table, true);
-        let Reply::Done { text, failed } = answer(run_on(), on_node).await else {
+        let Reply::Done { text, failed } = answer(run_on(), caller(table, false)).await else {
             panic!("not done");
         };
         assert!(!failed && text.contains("ran-here"), "{text}");
+        let off = Caller {
+            commands_off: Some(
+                "mac doesn't run commands: Let Beep use this Mac is off in its Settings.".into(),
+            ),
+            ..caller(table, false)
+        };
+        let Reply::Done { text, failed } = answer(run_on(), off).await else {
+            panic!("not done");
+        };
+        assert!(
+            failed && text.contains("Let Beep use this Mac is off"),
+            "{text}"
+        );
+        assert!(!text.contains("ran-here") && !text.contains("offline"));
     }
 }
