@@ -136,10 +136,14 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
 /// The conflict of `name`, told by where each content is.
 fn conflict(name: &str, copies: &[Copy<'_>]) -> Conflict {
     let mut contents: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
+    let mut here = Vec::new();
     for copy in copies {
         let at = contents.entry(&copy.listed.hash).or_default();
         for folder in &copy.listed.folders {
             at.push((copy.machine, folder));
+            if copy.here {
+                here.push(format!("{} {folder}", copy.machine));
+            }
         }
     }
     // A machine that holds two contents is named with its folder.
@@ -173,10 +177,12 @@ fn conflict(name: &str, copies: &[Copy<'_>]) -> Conflict {
     places.sort();
     places.dedup();
     lines.sort();
+    here.sort();
     Conflict {
         name: name.to_owned(),
         copies: lines,
         places,
+        here,
     }
 }
 

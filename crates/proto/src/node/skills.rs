@@ -66,6 +66,9 @@ pub struct Conflict {
     /// Where each differing content is, one label per content: a machine's
     /// name, with its folder when one machine holds two.
     pub places: Vec<String>,
+    /// The lines of `copies` that are on the machine asking.
+    #[serde(default)]
+    pub here: Vec<String>,
 }
 
 impl Conflict {

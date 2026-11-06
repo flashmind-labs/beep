@@ -37,6 +37,8 @@ export interface Note {
   done: boolean;
   /// The session, or a build's project, a click opens.
   target: NoteTarget;
+  /// The lines of `text` that are on this Mac, for a skill conflict.
+  here?: string[];
 }
 
 /// One row of the pane.
@@ -52,6 +54,7 @@ export interface Item {
   read: boolean;
   done: boolean;
   target: NoteTarget;
+  here?: string[];
 }
 
 export const fromAlert = (a: Alert): Item => ({ id: a.session_id, server: true, kind: "alert", title: a.title, text: a.text, source: a.source, at: a.at, read: a.read, done: false, target: null });
@@ -119,10 +122,31 @@ export function doneLabel(i: Item): string {
 /// Whether the row still asks, with Allow and Deny.
 export const asks = (i: Item) => i.kind === "asks" && !i.done;
 
-/// What a click on a row does: an alert opens in the pane, the rest open
-/// their session, the Sync page or Machines.
-export function opens(i: Item): "alert" | "session" | "project" | "sync" | "machines" | null {
+/// One copy of a skill: its machine and folder, and whether it is on this Mac.
+export interface Copy {
+  machine: string;
+  folder: string;
+  here: boolean;
+}
+
+/// A skill conflict's copies, one per line of its text, `machine folder`.
+export function copies(i: Item): Copy[] {
+  return i.text.split("\n").filter(Boolean).map(line => {
+    const at = line.indexOf(" ~/");
+    return { machine: at < 0 ? line : line.slice(0, at), folder: at < 0 ? "" : line.slice(at + 1), here: !!i.here?.includes(line) };
+  });
+}
+
+/// The skill's name in a conflict's title, `Skill x differs on a and b`.
+export function skillName(i: Item): string {
+  return /^Skill (.+) differs on /.exec(i.title)?.[1] ?? "";
+}
+
+/// What a click on a row does: an alert or a skill conflict opens in the pane,
+/// the rest open their session, the Sync page or Machines.
+export function opens(i: Item): "alert" | "skill" | "session" | "project" | "sync" | "machines" | null {
   if (i.server) return "alert";
+  if (i.kind === "skill_conflict") return "skill";
   if (i.target && typeof i.target === "object" && "projects" in i.target) return "project";
   if (i.target) return "session";
   if (i.kind === "conflict") return "sync";
