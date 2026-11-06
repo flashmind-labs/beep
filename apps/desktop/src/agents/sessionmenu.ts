@@ -7,6 +7,7 @@ import type { AgentRow, Started } from "./agents.ts";
 import { parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
+import { closeSession } from "./closing.ts";
 
 /// Opens the menu for `s` where `e` was clicked. `open` is what clicking the row does.
 export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow) => void) {
@@ -36,7 +37,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
           text: "The agent stops running.",
           note: "Its transcript stays.",
           action: "Close",
-          run: () => invoke("agent_steer", { ...at, steer: "close" }),
+          run: () => closeSession(s),
         }),
       });
     }
