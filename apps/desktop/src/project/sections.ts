@@ -94,6 +94,7 @@ export const runs = makeRuns({
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
   mode: liveMode.chip,
   kept: keptSection("runs"),
+  hostsChanged: () => redrawProjectsPage(),
 });
 
 /// Every 10 seconds while a project page shows: the runs move on, but only

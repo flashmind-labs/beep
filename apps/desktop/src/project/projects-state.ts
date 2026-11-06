@@ -1,6 +1,7 @@
 import { plural } from "../ui/format.ts";
 import { syncedBySyncthing } from "./filesync.ts";
 import type { AgentQuestion, RunningAgent, RunningRow } from "../agents/running-state.ts";
+import type { HostRow } from "./runs.ts";
 // Projects as the window lists them, their groups and the overview's cards,
 // as pure functions so they can be tested without Tauri.
 
@@ -235,6 +236,29 @@ export function openOnLabel(url: string) {
   let host = "";
   try { host = new URL(url).host; } catch { return null; }
   return host === "github.com" ? "Open on GitHub" : `Open on ${host}`;
+}
+
+/// The header's buttons, one per forge the repository is on: each run host
+/// with a page (the project's own first), and the project's page when no
+/// host names its server. Hosts on one server count once. "GitHub" or
+/// "Forgejo", or the server's host when two share a label.
+export function forgeLinks(url: string | null | undefined, hosts: readonly Pick<HostRow, "host" | "kind" | "repo" | "primary" | "url">[] | null | undefined) {
+  const server = (page: string) => { try { return new URL(page).hostname.toLowerCase(); } catch { return null; } };
+  const found: { kind: HostRow["kind"]; url: string; server: string }[] = [];
+  const add = (kind: HostRow["kind"], page: string | null | undefined, first = false) => {
+    const at = page ? server(page) : null;
+    if (!page || !at || found.some(f => f.server === at)) return;
+    found[first ? "unshift" : "push"]({ kind, url: page, server: at });
+  };
+  for (const h of [...(hosts ?? [])].sort((a, b) => Number(b.primary) - Number(a.primary))) {
+    add(h.kind, h.url ?? (h.kind === "github" ? `https://github.com/${h.repo}` : null));
+  }
+  if (url) add(server(url) === "github.com" ? "github" : "forgejo", url, true);
+  const label = (kind: HostRow["kind"]) => (kind === "github" ? "GitHub" : "Forgejo");
+  return found.map(f => {
+    const shared = found.filter(o => label(o.kind) === label(f.kind)).length > 1;
+    return { label: shared ? new URL(f.url).host : label(f.kind), url: f.url };
+  });
 }
 
 /// The menu line and button that remove a project from Beep.

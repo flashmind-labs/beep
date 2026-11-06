@@ -200,7 +200,8 @@ pub struct Session {
     lists: Cache<String, LabeledProjectLists>,
     runs: Cache<String, HostedRuns>,
     /// Runs opened, by project and run id.
-    run_details: Cache<(String, u64), ProjectRunDetail>,
+    /// By project, host and run id.
+    run_details: Cache<(String, Option<String>, u64), ProjectRunDetail>,
     spend: Cache<(), SpendReport>,
     /// The freshest plan of each agent any read heard, which `spend` gives: a machine's stream
     /// that still owes a plan adds it when the node sends it.
@@ -351,19 +352,25 @@ impl Session {
         Ok(read)
     }
 
-    /// Run `id` of the project with its jobs and the end of a failed job's log. A finished run
-    /// is read once and then given from here; a running one is read again after
-    /// [`RUN_GOING_FRESH`], or after `Options::fresh` while the host's rate limit is low.
-    /// `refresh` reads the host now, for a run the list shows changed.
-    pub async fn run(&self, project: &str, id: u64, refresh: bool) -> Result<ProjectRunDetail> {
-        let key = (project.to_owned(), id);
+    /// Run `id` of the project on `host` (its own host for `None`) with its jobs and the end of
+    /// a failed job's log. A finished run is read once and then given from here; a running one
+    /// is read again after [`RUN_GOING_FRESH`], or after `Options::fresh` while the host's rate
+    /// limit is low. `refresh` reads the host now, for a run the list shows changed.
+    pub async fn run(
+        &self,
+        project: &str,
+        host: Option<&str>,
+        id: u64,
+        refresh: bool,
+    ) -> Result<ProjectRunDetail> {
+        let key = (project.to_owned(), host.map(str::to_owned), id);
         let fresh =
             |detail: &ProjectRunDetail| run_fresh(detail, self.options.fresh, SystemTime::now());
         if !refresh && let Some((held, false)) = self.run_details.get_by(&key, fresh) {
             return Ok(held);
         }
         let started = self.epoch.load(Ordering::Relaxed);
-        let read = self.desk().await?.run(project, id).await?;
+        let read = self.desk().await?.run(project, host, id).await?;
         if started == self.epoch.load(Ordering::Relaxed) {
             self.run_details
                 .put_within(key, read.clone(), MAX_RUN_DETAILS);

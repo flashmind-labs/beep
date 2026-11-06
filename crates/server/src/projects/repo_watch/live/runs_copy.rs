@@ -209,6 +209,7 @@ impl RunsCopy {
                     synced_at: slot.copy.synced_at,
                     error: slot.copy.error.clone(),
                     rate_limited_until: slot.copy.limited(calls),
+                    url: None,
                 })
                 .collect(),
             error: self
