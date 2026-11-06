@@ -156,10 +156,19 @@ export function dropTerm(t: PaneTerm) {
   t.screen.dispose();
 }
 
-/// Stops `t`'s shell on its machine.
+/// Stops `t`'s shell on its machine and lets go of its screen. The tab
+/// stops following it first, so the end the stop causes is not taken for
+/// one of its own; when the stop fails it follows it again.
 export async function killTerm(t: PaneTerm) {
-  await invoke("terminal_close", { id: t.row.id });
-  dropTerm(t);
+  const was = t.link;
+  detachTerm(t);
+  try {
+    await invoke("terminal_close", { id: t.row.id });
+  } catch (e) {
+    if (was === "attached" || was === "attaching") { t.tries = 0; attach(t); } else t.link = was;
+    throw e;
+  }
+  t.screen.dispose();
 }
 
 /// Forgets an ended terminal on the server, as Home does.
