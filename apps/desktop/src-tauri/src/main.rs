@@ -430,7 +430,6 @@ fn main() {
             settings::cli_login::use_cli_login,
             settings::cli_login::use_gh_account,
             settings::credentials::check_credential,
-            settings::credentials::credential_providers,
             settings::credentials::list_credentials,
             settings::credentials::list_github_accounts,
             settings::credentials::remove_credential,

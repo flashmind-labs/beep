@@ -1,7 +1,7 @@
 import type * as AgentAccountsModule from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import type * as CredentialsModule from "./credentials.ts";
-import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount, Provider } from "./credentials.ts";
+import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
 import { when } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
@@ -11,7 +11,7 @@ import { esc } from "../ui/format.ts";
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
 /// `mod`).
-export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod: null, list: undefined, github: undefined, providers: [], edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false, checks: {} };
+export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod: null, list: undefined, github: undefined, edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false, checks: {} };
 const credModule = () => import("./credentials.ts").then(m => (CRED.mod = m));
 
 /// Finds a control inside `el`, the section or page being bound.
@@ -66,10 +66,9 @@ export async function loadCreds() {
     // A server from before several GitHub accounts does not list them:
     // the credentials list then has the one GitHub token.
     const accounts = invoke<GitHubAccount[]>("list_github_accounts").catch(e => { console.warn(e); return undefined; });
-    const [, list, providers, github] = await Promise.all([credModule(), invoke<Credential[]>("list_credentials"), invoke<Provider[]>("credential_providers"), accounts]);
+    const [, list, github] = await Promise.all([credModule(), invoke<Credential[]>("list_credentials"), accounts]);
     CRED.list = list;
     CRED.github = github;
-    CRED.providers = providers;
     checkForgejo(list);
   } catch (e) {
     console.warn(e);
