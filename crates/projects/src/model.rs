@@ -1,7 +1,7 @@
 //! Names and paths the project modules share: repositories, machine paths, task slugs and hosts.
 
 use beep_proto::node::agent;
-use std::{fmt, str::FromStr};
+use std::{borrow::Cow, fmt, str::FromStr};
 use strum::{EnumString, IntoStaticStr};
 use thiserror::Error;
 use url::Url;
@@ -380,9 +380,62 @@ pub fn branch_name(text: &str) -> Option<&str> {
     (!bad).then_some(text)
 }
 
+/// A Windows path without the verbatim prefix `canonicalize` gives it: `\\?\C:\x` is `C:\x` and
+/// `\\?\UNC\host\share` is `\\host\share`. Any other path is returned as it is.
+pub fn plain_path(path: &str) -> Cow<'_, str> {
+    if let Some(share) = path.strip_prefix(r"\\?\UNC\") {
+        Cow::Owned(format!(r"\\{share}"))
+    } else if let Some(rest) = path.strip_prefix(r"\\?\")
+        && rest.as_bytes().get(1) == Some(&b':')
+    {
+        Cow::Borrowed(rest)
+    } else {
+        Cow::Borrowed(path)
+    }
+}
+
+/// A path the sh of Git for Windows prints, such as `/c/Users/me`, as Windows spells it:
+/// `C:\Users\me`. `None` for a path that starts with no drive.
+pub fn windows_path(msys: &str) -> Option<String> {
+    let rest = msys.strip_prefix('/')?;
+    let (drive, rest) = rest.split_once('/').unwrap_or((rest, ""));
+    let mut letters = drive.chars();
+    let (Some(letter), None) = (letters.next(), letters.next()) else {
+        return None;
+    };
+    letter.is_ascii_alphabetic().then(|| {
+        format!(
+            "{}:\\{}",
+            letter.to_ascii_uppercase(),
+            rest.replace('/', "\\")
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_paths_lose_the_verbatim_prefix() {
+        assert_eq!(plain_path(r"\\?\C:\Users\me\games"), r"C:\Users\me\games");
+        assert_eq!(plain_path(r"\\?\UNC\nas\share\x"), r"\\nas\share\x");
+        assert_eq!(plain_path(r"\\?\Volume{abc}\x"), r"\\?\Volume{abc}\x");
+        assert_eq!(plain_path("/home/me/code"), "/home/me/code");
+        assert_eq!(plain_path(r"C:\code"), r"C:\code");
+    }
+
+    #[test]
+    fn git_sh_paths_become_windows_paths() {
+        assert_eq!(
+            windows_path("/c/Users/me/games").as_deref(),
+            Some(r"C:\Users\me\games")
+        );
+        assert_eq!(windows_path("/d").as_deref(), Some(r"D:\"));
+        assert_eq!(windows_path("/home/me"), None);
+        assert_eq!(windows_path("/"), None);
+        assert_eq!(windows_path("relative/x"), None);
+    }
 
     #[test]
     fn repo_names_parse() {

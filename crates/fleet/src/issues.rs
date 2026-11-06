@@ -11,6 +11,7 @@ use beep_projects::issues::{
     MachineView, issue_view, list_open, list_open_prs, machine_view, pull_request_head,
     pull_request_view,
 };
+use beep_projects::model::plain_path;
 use beep_proto::{
     LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest, PullRequestHead,
 };
@@ -182,7 +183,7 @@ pub fn places(mesh: &beep_mesh::Mesh, project: &str) -> Vec<(iroh::EndpointId, S
             stored
                 .places
                 .into_iter()
-                .map(|(machine, place)| (machine, place.folder))
+                .map(|(machine, place)| (machine, plain_path(&place.folder).into_owned()))
                 .collect()
         })
         .unwrap_or_default()

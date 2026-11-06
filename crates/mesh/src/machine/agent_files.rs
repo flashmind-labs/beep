@@ -112,7 +112,7 @@ async fn run_write(client: &PeerClient, script: String) -> Result<(), MeshError>
 
 /// Whether the machine's shell is PowerShell on Windows. A POSIX shell prints
 /// `:OS` for this command, PowerShell prints the `OS` variable, `Windows_NT`.
-async fn on_windows(client: &PeerClient) -> Result<bool, MeshError> {
+pub async fn on_windows(client: &PeerClient) -> Result<bool, MeshError> {
     let ran = exec(client, "echo $env:OS", LIMIT).await?;
     Ok(ran.output.trim() == "Windows_NT")
 }

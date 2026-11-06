@@ -28,7 +28,9 @@ use beep_projects::{
         repo::RepoRef,
         store::ImportStore,
     },
+    is_windows,
     issues::{ImportedPlace, MachineName, Machines, ProjectStore},
+    model::windows_path,
     model::{IssueHost, RepoName, branch_name},
 };
 use beep_proto::{
@@ -441,20 +443,24 @@ impl Desk {
         let shell = seen.machine.shell()?;
         let asked = FolderPath::parse(folder)?.ok_or(ImportError::BadFolder)?;
         let there = folder::look(shell, name, &asked).await?;
+        // The sh of Git for Windows says `/c/Users/me`; the node there reads `C:\Users\me`.
+        let windows = seen.machine.os.as_deref().is_some_and(is_windows);
+        let path = match windows.then(|| windows_path(&there.path)).flatten() {
+            Some(native) => native,
+            None => there.path,
+        };
         if there.exists && !there.empty {
             return Err(FleetError::refused(format!(
-                "{} has other files. Choose another folder.",
-                there.path
+                "{path} has other files. Choose another folder."
             )));
         }
         if seen
             .env
             .as_ref()
-            .is_some_and(|env| env.syncthing_folder(&there.path).is_some())
+            .is_some_and(|env| env.syncthing_folder(&path).is_some())
         {
             return Err(FleetError::refused(format!(
-                "Syncthing keeps {} in step on {name}. Choose another folder.",
-                there.path
+                "Syncthing keeps {path} in step on {name}. Choose another folder."
             )));
         }
         folder::make(shell, name, &asked).await?;
@@ -462,7 +468,7 @@ impl Desk {
         let _write = WRITES.lock().await;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
         let place = Place {
-            folder: there.path,
+            folder: path,
             imported_ms: now_ms(),
             // `.git/config` comes from the others, and with it their `origin`.
             fork: stored.places.values().find_map(|place| place.fork.clone()),
@@ -532,9 +538,6 @@ impl Desk {
             let (Some(shell), Some(env)) = (seen.machine.shell, seen.env) else {
                 continue;
             };
-            if env.os == "windows" {
-                continue;
-            }
             let has = |tool: &str| env.tools.iter().any(|known| known.name == tool);
             let signed_in = |tool: &str| {
                 env.logins
