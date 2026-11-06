@@ -49,7 +49,7 @@ export async function loadOlder(mode: Reading) {
       if (taken.run === AG.page) break;
       const keep = rowInView();
       AG.page = { ...AG.page, ...taken.run };
-      if (mode !== "all") drawAgentBody(keep);
+      if (mode !== "all") drawAgentBody(keep, false, true);
     }
     if (mode === "prompt" && AG.page && lacksPrompt(AG.page) && !AG.older.stop) AG.older.gaveUp = true;
   } catch (e) {
@@ -58,7 +58,7 @@ export async function loadOlder(mode: Reading) {
     AG.older.loading = false;
   }
   // One draw for the whole run of "all", and for what a run says at its end.
-  if (reads && S.view === "agent" && AG.open === o) drawAgentBody(rowInView());
+  if (reads && S.view === "agent" && AG.open === o) drawAgentBody(rowInView(), false, true);
 }
 
 /// Home or ⌘↑: every older entry is read, then the log shows its first.
