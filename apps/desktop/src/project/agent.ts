@@ -109,7 +109,8 @@ export interface ChatAt {
   view?: string | null;
   session?: string | null;
   /// The coding agent session the pane shows, when it does.
-  agent?: { machine_id: string; cwd?: string | null } | null;
+  /// `main` is its repository's main checkout, when it works in a linked worktree.
+  agent?: { machine_id: string; cwd?: string | null; main?: string | null } | null;
   /// This machine's id.
   mac?: string | null;
 }
@@ -154,18 +155,18 @@ export function shortName(name: string | null | undefined) {
   return n.slice(n.lastIndexOf("/") + 1) || n;
 }
 
-/// Where ⌘N starts a chat: the project whose page shows, or whose session
-/// (a coding agent's, or its project chat) the pane shows. The machine is this
-/// one when the project has a checkout here, else the one the shown session runs
-/// on, else the first with a checkout. Null starts a general chat.
+/// Where ⌘N starts an agent: the project whose page shows, or whose session
+/// (a coding agent's, or its project chat) the pane shows. The machine is the
+/// shown session's, else this one when the project has a checkout here, else
+/// the first with a checkout. Null opens the start form.
 export function newChatTarget(at: ChatAt, agents: readonly Named[] | null | undefined, projects: readonly FolderOf[] | null = []): NewChatTarget | null {
   let project: string | null = null;
   if (at.shown === "projects") project = at.picked || null;
   else if (at.shown === "pane" && at.view === "chat") project = chatProject(agents, at.session)?.name ?? null;
-  else if (at.shown === "pane" && at.view === "agent" && at.agent) project = projectOf({ machine_id: at.agent.machine_id, cwd: at.agent.cwd ?? "" }, projects ?? [])?.name ?? null;
+  else if (at.shown === "pane" && at.view === "agent" && at.agent) project = projectOf({ machine_id: at.agent.machine_id, cwd: at.agent.cwd ?? "", main: at.agent.main }, projects ?? [])?.name ?? null;
   if (!project) return null;
   const on = (projects ?? []).filter(p => p.name === project).map(p => p.machine_id);
-  const machine = [at.mac, at.agent?.machine_id].find(m => m && on.includes(m)) ?? on[0] ?? null;
+  const machine = [at.agent?.machine_id, at.mac].find(m => m && on.includes(m)) ?? on[0] ?? null;
   return { project, machine };
 }
 
