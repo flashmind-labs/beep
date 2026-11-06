@@ -12,7 +12,7 @@ use beep_proto::{
     AgentSteer, ApiError, ModelId, SteerAgentSession, Upload, check_agent_images, image_key,
     node::agent::Effort,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 /// What `agent_steer` does to a session, as the page sends it.
@@ -53,6 +53,33 @@ pub enum Steer {
     StopTask {
         task: String,
     },
+}
+
+/// Why `agent_steer` failed, as the page tells it apart:
+/// `{ kind: "lost" | "unsure" | "failed", message }`.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SteerError {
+    /// The machine could not be reached: nothing went, send again.
+    Lost { message: String },
+    /// The link dropped or timed out once the order went: the machine may
+    /// have taken it, so read the session before sending again.
+    Unsure { message: String },
+    /// What the machine or the app said.
+    Failed { message: String },
+}
+
+impl From<DesktopError> for SteerError {
+    fn from(e: DesktopError) -> Self {
+        let message = e.to_string();
+        if e.is_transport() {
+            Self::Lost { message }
+        } else if matches!(e, DesktopError::Unsure(_) | DesktopError::TimedOut(_)) {
+            Self::Unsure { message }
+        } else {
+            Self::Failed { message }
+        }
+    }
 }
 
 /// An image as the page sends it: its bytes in base64.
@@ -136,6 +163,20 @@ fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
 
 #[tauri::command]
 pub async fn agent_steer(
+    app: AppHandle,
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+    steer: Steer,
+) -> Result<Vec<String>, SteerError> {
+    Ok(sent(app, beep, fleet, machine_id, agent, session, steer).await?)
+}
+
+// The arguments are those of `agent_steer`.
+#[allow(clippy::too_many_arguments)]
+async fn sent(
     app: AppHandle,
     beep: Service<'_>,
     fleet: Machines<'_>,
@@ -273,6 +314,27 @@ mod tests {
         ));
         let old = DesktopError::Api(ApiError::bad_request("unknown op 5"));
         assert!(older_than(&old, &[5, 6]));
+    }
+
+    #[test]
+    fn a_steer_that_may_have_gone_is_told_from_one_that_did_not() {
+        let kind = |e: DesktopError| SteerError::from(e);
+        assert!(matches!(
+            kind(DesktopError::Offline("box".into())),
+            SteerError::Lost { .. }
+        ));
+        assert!(matches!(
+            kind(DesktopError::Lost("box".into())),
+            SteerError::Lost { .. }
+        ));
+        assert!(matches!(
+            kind(DesktopError::Unsure("box".into())),
+            SteerError::Unsure { .. }
+        ));
+        assert!(matches!(
+            kind(DesktopError::BadRequest("no".into())),
+            SteerError::Failed { .. }
+        ));
     }
 
     #[test]
