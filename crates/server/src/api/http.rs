@@ -16,7 +16,7 @@ use crate::{
             SERVER_PATH, SESSION_PATH, ServerInfo, SessionStart,
         },
     },
-    push::{Device, Events, Hub, Pulse},
+    push::{Device, Events, Hub, Pulse, notices},
 };
 use anyhow::Result;
 use axum::{
@@ -30,12 +30,20 @@ use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt};
 use iroh::{EndpointId, SecretKey};
 use serde::Deserialize;
-use std::{collections::HashMap, convert::Infallible, future::Future, io, sync::Arc, time::SystemTime};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    future::{Future, pending},
+    io,
+    net::Ipv4Addr,
+    sync::Arc,
+    time::SystemTime,
+};
 use tokio::{
     net::TcpListener,
     sync::{OwnedSemaphorePermit, Semaphore},
 };
-use tokio_util::{codec::FramedRead, io::StreamReader};
+use tokio_util::{codec::FramedRead, io::StreamReader, task::AbortOnDropHandle};
 
 /// Requests served at once, open streams included; past it the server
 /// answers 503.
@@ -86,6 +94,40 @@ pub async fn serve(
     Ok(())
 }
 
+/// The apps' side of a server on a free port of this machine, for tests and
+/// tools: the HTTP service and the notice log, with no FCM or APNs. Dropping
+/// it stops both.
+pub struct Local {
+    url: String,
+    _serving: AbortOnDropHandle<Result<()>>,
+    _notices: AbortOnDropHandle<()>,
+}
+
+impl Local {
+    pub async fn start(app: Arc<App>, key: &SecretKey, pulse: Pulse) -> Result<Self> {
+        let notices = notices::start(
+            app.store.clone(),
+            app.notifications.subscribe(),
+            None,
+            notices::ACK_WAIT,
+        );
+        let service = service(app, key, pulse).await?;
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let serving = tokio::spawn(serve(listener, service, pending()));
+        Ok(Self {
+            url,
+            _serving: AbortOnDropHandle::new(serving),
+            _notices: AbortOnDropHandle::new(notices),
+        })
+    }
+
+    /// Where a client reaches it: `http://127.0.0.1:<port>`.
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+}
+
 async fn server_info(State(service): State<Arc<Service>>) -> Response {
     let info = ServerInfo {
         id: service.server.to_string(),
@@ -119,7 +161,7 @@ async fn events(
     let cx = match service.admit(&headers).await {
         Ok(Caller::SignedIn(cx)) => cx,
         Ok(Caller::Guest { .. }) => return error(&ApiError::Unauthorized {}),
-        Err(refused) => return refused,
+        Err(refused) => return refused.response(),
     };
     let Some(permit) = service.permit() else {
         return busy();
@@ -143,7 +185,7 @@ async fn request(
     };
     let caller = match service.admit(&headers).await {
         Ok(caller) => caller,
-        Err(refused) => return refused,
+        Err(refused) => return refused.response(),
     };
     let Some(permit) = service.permit() else {
         return busy();
@@ -196,15 +238,33 @@ enum Caller {
     },
 }
 
+/// Why a request is not served.
+enum Refused {
+    /// No token, or one past its time: get a new one.
+    Stale,
+    Key(Refusal),
+    Busy,
+}
+
+impl Refused {
+    fn response(self) -> Response {
+        match self {
+            Self::Stale => stale_token(),
+            Self::Key(refusal) => refused(refusal),
+            Self::Busy => busy(),
+        }
+    }
+}
+
 impl Service {
-    /// The caller, or the answer refusing it.
-    async fn admit(&self, headers: &HeaderMap) -> Result<Caller, Response> {
+    /// The caller, or why it is refused.
+    async fn admit(&self, headers: &HeaderMap) -> Result<Caller, Refused> {
         let key = headers
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "))
             .and_then(|token| self.tokens.check(token, SystemTime::now()))
-            .ok_or_else(stale_token)?;
+            .ok_or(Refused::Stale)?;
         let platform = headers
             .get(PLATFORM_HEADER)
             .and_then(|value| value.to_str().ok())
@@ -212,11 +272,11 @@ impl Service {
         let signed_in = match self.app.admit(&key).await {
             Ok(Admission::SignedIn(signed_in)) => signed_in,
             Ok(Admission::Guest) => return Ok(Caller::Guest { key, platform }),
-            Ok(Admission::Revoked) => return Err(refused(Refusal::Revoked)),
-            Ok(Admission::NotInvited) => return Err(refused(Refusal::NotInvited)),
+            Ok(Admission::Revoked) => return Err(Refused::Key(Refusal::Revoked)),
+            Ok(Admission::NotInvited) => return Err(Refused::Key(Refusal::NotInvited)),
             Err(e) => {
                 log::warn!("sign in failed: {e:#}");
-                return Err(busy());
+                return Err(Refused::Busy);
             }
         };
         // A key makes its account as a phone; one the Mac app made it with
@@ -278,10 +338,9 @@ fn stale_token() -> Response {
 
 fn refused(refusal: Refusal) -> Response {
     let mut response = error(&ApiError::Unauthorized {});
-    response.headers_mut().insert(
-        REFUSED_HEADER,
-        HeaderValue::from_static(refusal.as_str()),
-    );
+    response
+        .headers_mut()
+        .insert(REFUSED_HEADER, HeaderValue::from_static(refusal.as_str()));
     response
 }
 

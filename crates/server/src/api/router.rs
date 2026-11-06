@@ -150,7 +150,9 @@ impl Router {
                         finish(handler(cx, request, uplink, sink), tx)
                     }))
                 }
-                (Ok(_), None) => Answer::Once(Err(ApiError::bad_request("a duplex request without its frames"))),
+                (Ok(_), None) => Answer::Once(Err(ApiError::bad_request(
+                    "a duplex request without its frames",
+                ))),
                 (Err(e), _) => Answer::Once(Err(e)),
             };
             Box::pin(async move { answer })

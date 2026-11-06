@@ -6,15 +6,14 @@ use async_trait::async_trait;
 use beep_node::link::Offers;
 use beep_server::{
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools},
-    client::{Client, Node},
     nodes,
     protocol::{
         AttachTerminal, DeviceKind, ListTerminals, OpenTerminal, TerminalEvent, TerminalInput,
-        TerminalState,
+        TerminalState, client::Client,
     },
-    push::Pusher,
+    push::Pulse,
     store::{NewKey, TestDb},
 };
 use flashmind::types::{
@@ -55,9 +54,9 @@ async fn endpoint(key: SecretKey) -> Endpoint {
 struct Setup {
     _db: TestDb,
     router: Router,
+    _apps: http::Local,
     machine: String,
     client: Client,
-    _phone: Node,
     _node: tokio::task::JoinHandle<anyhow::Result<()>>,
     _terminals: TempDir,
 }
@@ -74,19 +73,18 @@ async fn setup() -> Setup {
         ServerTools::default(),
         models,
     );
-    let server = endpoint(SecretKey::generate()).await;
-    let pusher = Pusher::with_retry_waits(server.clone(), Arc::new(store), None, Vec::new());
+    let server_key = SecretKey::generate();
+    let server = endpoint(server_key.clone()).await;
     let server_id = server.id();
     let router = Router::builder(server)
         .accept(
             nodes::NODE_ALPN,
             nodes::NodeHandler::new(app.clone(), server_id),
         )
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
         .spawn();
+    let apps = http::Local::start(app.clone(), &server_key, Pulse::manual())
+        .await
+        .expect("the apps' HTTP starts");
     let phone_key = SecretKey::generate();
     let user = app
         .sign_in(&phone_key.public())
@@ -120,16 +118,13 @@ async fn setup() -> Setup {
     })
     .await
     .expect("the node came online");
-    let phone = Node::bind(phone_key, router.endpoint().addr(), Arc::new(|_| true))
-        .await
-        .expect("a phone binds");
-    let client = phone.connect().await.expect("a phone connects");
+    let client = Client::new(apps.url(), phone_key).expect("a phone client");
     Setup {
         _db: db,
         router,
+        _apps: apps,
         machine,
         client,
-        _phone: phone,
         _node: task,
         _terminals: terminals,
     }

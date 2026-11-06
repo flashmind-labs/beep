@@ -39,7 +39,11 @@ impl Tokens {
     pub fn start(&self, start: &SessionStart, now: SystemTime) -> Result<SessionToken, ApiError> {
         let refused = || ApiError::Unauthorized {};
         let key: PublicKey = start.key.parse().map_err(|_| refused())?;
-        let signature: [u8; 64] = start.signature.as_slice().try_into().map_err(|_| refused())?;
+        let signature: [u8; 64] = start
+            .signature
+            .as_slice()
+            .try_into()
+            .map_err(|_| refused())?;
         let signature = Signature::from_bytes(&signature);
         key.verify(&session_message(&self.server, &key, start.at), &signature)
             .map_err(|_| refused())?;
@@ -138,8 +142,15 @@ mod tests {
         let device = SecretKey::from_bytes(&[2; 32]);
         let tokens = Tokens::new(&server);
         let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
-        let elsewhere = signed(&device, &SecretKey::from_bytes(&[3; 32]).public(), secs(now));
-        assert_eq!(tokens.start(&elsewhere, now), Err(ApiError::Unauthorized {}));
+        let elsewhere = signed(
+            &device,
+            &SecretKey::from_bytes(&[3; 32]).public(),
+            secs(now),
+        );
+        assert_eq!(
+            tokens.start(&elsewhere, now),
+            Err(ApiError::Unauthorized {})
+        );
         let stale = signed(&device, &server.public(), secs(now) - 3600);
         assert!(matches!(
             tokens.start(&stale, now),

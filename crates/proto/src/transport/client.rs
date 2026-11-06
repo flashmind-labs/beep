@@ -109,7 +109,7 @@ impl Client {
                     .await
                     .context("the server did not answer")?;
                 let body = ok_body(response).await?;
-                Ok(http::decode(&body).context("could not read the server's reply")?)
+                http::decode(&body).context("could not read the server's reply")
             })
             .await
     }

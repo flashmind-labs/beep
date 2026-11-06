@@ -5,12 +5,11 @@ use async_trait::async_trait;
 use beep_node::link::Offers;
 use beep_server::{
     agent::models::ModelChoices,
-    api::transport,
+    api::http,
     app::{App, ServerTools},
-    client::Node,
     nodes,
-    protocol::{DeviceKind, ListMachineTraffic, node::traffic::TrafficReport},
-    push::Pusher,
+    protocol::{DeviceKind, ListMachineTraffic, client::Client, node::traffic::TrafficReport},
+    push::Pulse,
     store::{NewKey, TestDb},
 };
 use flashmind::types::{
@@ -66,24 +65,18 @@ async fn reports_are_stored_and_restarts_keep_totals() {
         ServerTools::default(),
         models,
     );
-    let server_endpoint = endpoint(SecretKey::generate()).await;
-    let pusher = Pusher::with_retry_waits(
-        server_endpoint.clone(),
-        Arc::new(store),
-        None,
-        vec![Duration::from_millis(200)],
-    );
+    let server_key = SecretKey::generate();
+    let server_endpoint = endpoint(server_key.clone()).await;
     let server_id = server_endpoint.id();
     let router = Router::builder(server_endpoint)
         .accept(
             nodes::NODE_ALPN,
             nodes::NodeHandler::new(app.clone(), server_id),
         )
-        .accept(
-            transport::ALPN,
-            transport::BeepHandler::new(app.clone(), pusher),
-        )
         .spawn();
+    let apps = http::Local::start(app.clone(), &server_key, Pulse::manual())
+        .await
+        .expect("the apps' HTTP starts");
     let server = router.endpoint().addr();
 
     let alice = SecretKey::generate();
@@ -102,10 +95,7 @@ async fn reports_are_stored_and_restarts_keep_totals() {
     .await
     .unwrap();
 
-    let phone = Node::bind(alice, server.clone(), Arc::new(|_| true))
-        .await
-        .expect("a phone binds");
-    let app_client = phone.connect().await.expect("a phone connects");
+    let app_client = Client::new(apps.url(), alice).expect("a phone client");
 
     let node = endpoint(node_key.clone()).await;
     let served = tokio::spawn(async move {
