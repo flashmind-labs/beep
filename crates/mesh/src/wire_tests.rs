@@ -2,9 +2,9 @@
 
 use crate::PeerStream;
 use crate::devices::OpBody;
-use crate::frame::{self, FrameReader};
 use crate::link::Frame;
 use crate::mesh::AddrNote;
+use crate::wire::{self, FrameReader};
 use crate::{Device, DeviceKind, DeviceOp, Entry, JOIN_ALPN, Key, Mesh, PEER_ALPN};
 use iroh::endpoint::{Connection, QuicTransportConfig, SendStream, VarInt, presets};
 use iroh::protocol::Router;
@@ -110,10 +110,10 @@ async fn raw_in(to: &Dev, key: &SecretKey, session: u64) -> Raw {
         heads: BTreeMap::new(),
         session,
     };
-    frame::send(&mut send, &hello).await.expect("hello");
+    wire::send(&mut send, &hello).await.expect("hello");
     Raw {
         send,
-        recv: FrameReader::new(recv, frame::MAX_FRAME),
+        recv: FrameReader::new(recv, wire::MAX_FRAME),
         conn,
         _endpoint: endpoint,
     }
@@ -137,14 +137,14 @@ async fn a_node_peer_cannot_forge_an_add_or_an_entry() {
         }),
     )
     .expect("signs");
-    frame::send(&mut raw.send, &Frame::Ops(vec![add]))
+    wire::send(&mut raw.send, &Frame::Ops(vec![add]))
         .await
         .expect("send");
     let key = Key::Credential("c".to_owned());
     let mut forged = Entry::sign(&n, mesh, key.clone(), Some(b"x".to_vec()), 5, 1).expect("signs");
     forged.origin = a.key.public();
     let own = Entry::sign(&n, mesh, key.clone(), Some(b"y".to_vec()), 6, 2).expect("signs");
-    frame::send(&mut raw.send, &Frame::Entries(vec![forged, own]))
+    wire::send(&mut raw.send, &Frame::Entries(vec![forged, own]))
         .await
         .expect("send");
     // Frames are handled in order: once this note lands, the rest were seen.
@@ -154,7 +154,7 @@ async fn a_node_peer_cannot_forge_an_add_or_an_entry() {
         addr: marker.clone(),
         generation: u64::MAX,
     };
-    frame::send(&mut raw.send, &Frame::Addrs(vec![note]))
+    wire::send(&mut raw.send, &Frame::Addrs(vec![note]))
         .await
         .expect("send");
     let mut updates = a.mesh.updates();
@@ -267,7 +267,7 @@ async fn a_poisoned_relayed_address_is_dropped_and_a_first_hand_one_wins() {
         addr: poison.clone(),
         generation: u64::MAX,
     };
-    frame::send(&mut hostile.send, &Frame::Addrs(vec![note]))
+    wire::send(&mut hostile.send, &Frame::Addrs(vec![note]))
         .await
         .expect("send");
     // Plausible: kept, as relayed news.
@@ -276,7 +276,7 @@ async fn a_poisoned_relayed_address_is_dropped_and_a_first_hand_one_wins() {
         addr: near.clone(),
         generation: in_a_minute(30_000),
     };
-    frame::send(&mut hostile.send, &Frame::Addrs(vec![note]))
+    wire::send(&mut hostile.send, &Frame::Addrs(vec![note]))
         .await
         .expect("send");
     until_addr(&a.mesh, victim.public(), &near).await;
@@ -288,7 +288,7 @@ async fn a_poisoned_relayed_address_is_dropped_and_a_first_hand_one_wins() {
         addr: first_hand.clone(),
         generation: 1,
     };
-    frame::send(&mut own.send, &Frame::Addrs(vec![note]))
+    wire::send(&mut own.send, &Frame::Addrs(vec![note]))
         .await
         .expect("send");
     until_addr(&a.mesh, victim.public(), &first_hand).await;
@@ -303,7 +303,7 @@ async fn a_node_flooding_forged_entries_is_closed() {
     for seq in 1..=20 {
         let mut forged = Entry::sign(&n, mesh, Key::Flsh, Some(vec![1]), 5, seq).expect("signs");
         forged.origin = a.key.public();
-        frame::send(&mut raw.send, &Frame::Entries(vec![forged]))
+        wire::send(&mut raw.send, &Frame::Entries(vec![forged]))
             .await
             .expect("send");
     }
@@ -459,7 +459,7 @@ fn a_frame_with_a_field_from_a_newer_build_is_read() {
     enum Newer {
         Hello {
             addrs: Vec<AddrNote>,
-            #[serde(with = "crate::bin::heads")]
+            #[serde(with = "crate::wire::heads")]
             heads: crate::Heads,
             session: u64,
             added: String,

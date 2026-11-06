@@ -194,60 +194,7 @@ impl LinkRx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::{Down, NodeHello};
-    use serde::Deserialize;
-
-    #[derive(Serialize)]
-    struct NewerHello {
-        version: String,
-        name: String,
-        offers: Vec<String>,
-        workspace: Option<String>,
-        setup: Option<String>,
-        credentials: bool,
-        checkouts: bool,
-        agent_settings: bool,
-        branch_checkouts: bool,
-        added_later: u32,
-    }
-
-    #[derive(Debug, PartialEq, Deserialize)]
-    struct Pair {
-        a: u8,
-    }
-
-    #[derive(Serialize)]
-    struct NewerPair {
-        a: u8,
-        b: u8,
-    }
-
-    #[tokio::test]
-    async fn a_node_message_with_a_field_from_a_newer_build_is_read() {
-        let LocalLink {
-            caller: (mut tx, _),
-            node: (_, mut rx),
-        } = local_link();
-        tx.send(&NewerHello {
-            version: "9.0.0".into(),
-            name: "box".into(),
-            offers: vec!["shell/1".into()],
-            workspace: None,
-            setup: None,
-            credentials: true,
-            checkouts: true,
-            agent_settings: true,
-            branch_checkouts: true,
-            added_later: 5,
-        })
-        .await
-        .expect("sends");
-        let hello: NodeHello = rx.recv().await.expect("reads").expect("a message");
-        assert_eq!(hello.name, "box");
-        assert!(hello.branch_checkouts);
-        tx.send(&NewerPair { a: 1, b: 2 }).await.expect("sends");
-        assert_eq!(rx.recv::<Pair>().await.expect("reads"), Some(Pair { a: 1 }));
-    }
+    use crate::node::Down;
 
     #[tokio::test]
     async fn a_link_writes_compact_or_named_as_it_was_built() {

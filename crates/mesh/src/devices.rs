@@ -14,10 +14,10 @@
 //! Accepted limit: an `Add` signed by a removed device, seen by a member
 //! before the `Remove`, stays. Remove that device too.
 
+use crate::state::now_ms;
 use iroh::{EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 use strum::{Display, IntoStaticStr};
 use thiserror::Error;
 
@@ -37,7 +37,7 @@ pub enum DeviceKind {
 /// with a new `SIGN_DOMAIN` and new ALPNs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
-    #[serde(with = "crate::bin::id")]
+    #[serde(with = "crate::wire::id")]
     pub id: EndpointId,
     pub name: String,
     pub kind: DeviceKind,
@@ -50,7 +50,7 @@ pub(crate) enum OpBody {
     Genesis(Device),
     Add(Device),
     Remove {
-        #[serde(with = "crate::bin::id")]
+        #[serde(with = "crate::wire::id")]
         id: EndpointId,
         at_ms: u64,
     },
@@ -58,10 +58,10 @@ pub(crate) enum OpBody {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceOp {
-    #[serde(with = "crate::bin::id")]
+    #[serde(with = "crate::wire::id")]
     pub author: EndpointId,
     body: OpBody,
-    #[serde(with = "crate::bin::sig")]
+    #[serde(with = "crate::wire::sig")]
     sig: Signature,
 }
 
@@ -199,13 +199,6 @@ pub struct Devices {
     added: BTreeMap<EndpointId, Entry>,
     /// Removed key and the earliest `at_ms` of a `Remove` naming it.
     removed: BTreeMap<EndpointId, u64>,
-}
-
-fn now_ms() -> u64 {
-    let since = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis());
-    u64::try_from(since).unwrap_or(u64::MAX)
 }
 
 impl Devices {

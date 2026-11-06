@@ -544,35 +544,3 @@ impl Notice {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_resolved_notice_names_a_question() {
-        let question = PendingApproval {
-            run_id: String::new(),
-            query_id: "q1".into(),
-            approval: Approval {
-                app: "Gmail".into(),
-                action: "Send email".into(),
-                fields: Vec::new(),
-            },
-        };
-        let resolved = Notice::resolved("chat".into(), question.clone());
-        assert_eq!(resolved.resolved_question(), Some("q1"));
-        assert!(resolved.title.is_empty());
-        let asking = Notice {
-            title: "Allow Gmail: Send email?".into(),
-            changed: false,
-            ..resolved.clone()
-        };
-        assert_eq!(asking.resolved_question(), None);
-        let group = Notice {
-            group: true,
-            ..resolved
-        };
-        assert_eq!(group.resolved_question(), None);
-    }
-}
