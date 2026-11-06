@@ -169,6 +169,12 @@ pub async fn serve(
     // session started outside Beep does not wait for them.
     let searches = Searches::start(state.dir.clone(), offers.agents.clone(), &state.search);
     offers.extra.push(Arc::new(searches));
+    // The plans read ahead too: Claude Code takes a while to start, and a
+    // desktop opening its window would otherwise wait for it.
+    let agents = offers.agents.clone();
+    let _plans = AbortOnDropHandle::new(tokio::spawn(async move {
+        agents.read_plans_at_start().await;
+    }));
     // The workspace as the node resolved it, only once it is shared.
     let workspace = workspace
         .and_then(|dir| paths::canonicalize(dir).ok())
