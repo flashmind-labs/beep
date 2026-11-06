@@ -466,8 +466,3 @@ export function elsewhereSection(rows: Project[]) {
   return section("sec-elsewhere", "Your open PRs and issues in repos without a project", "", null,
     h("div", "cc-panel cc-open", ...body));
 }
-
-/// "github.com" from a project's web page.
-export function hostOf(url: string | null) {
-  try { return new URL(url ?? "").host; } catch { return ""; }
-}

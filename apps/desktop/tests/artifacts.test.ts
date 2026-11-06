@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { artifactVersion, collectArtifacts, FRAME_SANDBOX, frameHtml, goneArtifacts, goneMessage, madeNote, readPlace, relativeTo, toolArtifacts } from "../src/agentpane/artifacts-state.ts";
+import { artifactVersion, collectArtifacts, FRAME_SANDBOX, frameHtml, goneArtifacts, goneMessage, madeFiles, madeGroup, readPlace, relativeTo, toolArtifacts } from "../src/agentpane/artifacts-state.ts";
 
 const CWD = "/srv/project";
 const LINK = "https://claude.ai/code/artifact/0000-placeholder";
@@ -70,9 +70,27 @@ test("files a turn's commands made are listed from the node's note, inside the f
     ["coverage.pdf", "pdf", true, 1],
     ["flow.svg", "svg", true, 1],
   ]);
-  assert.equal(madeNote(entries[3].text), "Made coverage.pdf, notes.md, flow.svg");
-  assert.equal(madeNote("[conversation compacted]"), null);
-  assert.equal(madeNote("(made a.pdf)\nsomething else"), null);
+  assert.equal(madeFiles("[conversation compacted]", CWD), null);
+  assert.equal(madeFiles("(made a.pdf)\nsomething else", CWD), null);
+});
+
+test("a note of made files groups them by kind and counts each group", () => {
+  const note = ["a.png", "b.jpg", "flow.svg", "notes.md", "out/report.pdf", "index.html", "ship.glb", "data.csv", "a.png"]
+    .map(n => `(made ${n})`).join("\n");
+  const made = madeFiles(note, CWD)!;
+  assert.equal(made.files.length, 8, "a file named twice is listed once");
+  assert.deepEqual(made.files[4], { path: "/srv/project/out/report.pdf", name: "report.pdf" });
+  assert.deepEqual(made.groups.map(g => [g.label, g.files.map(f => f.name)]), [
+    ["Images", ["a.png", "b.jpg", "flow.svg"]],
+    ["Documents", ["notes.md"]],
+    ["PDFs", ["report.pdf"]],
+    ["Web pages", ["index.html"]],
+    ["3D models", ["ship.glb"]],
+    ["Other", ["data.csv"]],
+  ]);
+  assert.equal(made.counts, "3 images, 1 document, 1 PDF, 1 web page, 1 3D model, 1 other file");
+  assert.equal(madeFiles("(made a.png)\n(made b.png)\n(made c.md)\n(made d.md)", CWD)!.counts, "2 images, 2 documents");
+  assert.equal(madeGroup("x.stl"), "models");
 });
 
 test("a file the machine no longer has is gone; an offline machine marks none", () => {
