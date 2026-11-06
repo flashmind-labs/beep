@@ -2,7 +2,7 @@
 
 use crate::{
     error::{DesktopError, Result},
-    fleet::Machines,
+    fleet::{Machines, asked::SMALL_LIMIT},
 };
 use beep_proto::node::agent::{RunningProcess, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
 use serde::Serialize;
@@ -26,14 +26,20 @@ pub async fn agent_processes(
             local: false,
         });
     };
-    let reply = fleet
-        .client(machine)
-        .await?
-        .call_within::<_, SessionsReply>(
-            Duration::from_secs(10),
-            SESSIONS_PROTOCOL,
-            &SessionsRequest::Processes { session },
+    let read = async {
+        let request = SessionsRequest::Processes {
+            session: session.clone(),
+        };
+        let client = fleet.client(machine).await?;
+        Ok::<_, DesktopError>(
+            client
+                .call::<_, SessionsReply>(SESSIONS_PROTOCOL, &request)
+                .await?,
         )
+    };
+    let step = "reading the session's running commands";
+    let reply = fleet
+        .asked(machine, &session, step, SMALL_LIMIT, read)
         .await?;
     match reply {
         SessionsReply::Processes { processes } => Ok(ProcessesView {

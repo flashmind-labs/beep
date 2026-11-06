@@ -51,6 +51,8 @@ const STDERR_LINES: usize = 5;
 /// The longest stderr line read whole; a longer one is skipped.
 const MAX_STDERR_LINE: usize = 64 * 1024;
 const ORDERS: usize = 16;
+/// How long an order may wait for the session's actor to take it.
+const ORDER_WAIT: Duration = Duration::from_secs(20);
 /// Updates and questions from the agent waiting for the session's task.
 const EVENTS: usize = 64;
 /// The longest text of a question the node asks.
@@ -385,15 +387,31 @@ impl Session {
     }
 
     /// Hands `command` to the session and waits until it is done or refused.
+    /// The actor answers an order at once; one stuck past `ORDER_WAIT` is
+    /// an error and a line in the log, not a caller held for good (#427).
     pub(super) async fn order(&self, command: Command) -> Result<(), String> {
         let (done, answer) = oneshot::channel();
-        self.orders
-            .send(Order { command, done })
+        let ordered = async {
+            self.orders
+                .send(Order { command, done })
+                .await
+                .map_err(|_| "the session has ended".to_owned())?;
+            answer
+                .await
+                .map_err(|_| "the session has ended".to_owned())?
+        };
+        tokio::time::timeout(ORDER_WAIT, ordered)
             .await
-            .map_err(|_| "the session has ended".to_owned())?;
-        answer
-            .await
-            .map_err(|_| "the session has ended".to_owned())?
+            .unwrap_or_else(|_| {
+                log::warn!(
+                    "session {}: no answer to an order in {ORDER_WAIT:?}",
+                    self.id
+                );
+                Err(format!(
+                    "the session did not answer in {} s",
+                    ORDER_WAIT.as_secs()
+                ))
+            })
     }
 
     /// Closes the session and waits until its agent has stopped.

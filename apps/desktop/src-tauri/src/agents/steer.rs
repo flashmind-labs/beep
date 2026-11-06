@@ -5,7 +5,7 @@ use crate::{
     agents::sessions::closed,
     beep::Service,
     error::{DesktopError, Result},
-    fleet::{Machines, agents as direct},
+    fleet::{Machines, agents as direct, asked::ORDER_LIMIT},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
@@ -160,7 +160,16 @@ pub async fn agent_steer(
             session: session.clone(),
             steer,
         };
-        let opened = direct::steer(&fleet, machine, order).await?;
+        let sent = direct::steer(&fleet, machine, order);
+        let opened = fleet
+            .asked(
+                machine,
+                &session,
+                "sending to the session",
+                ORDER_LIMIT,
+                sent,
+            )
+            .await?;
         if close {
             // The lists show it ended once the machine says so, about two
             // seconds on; bounded by `until_ended`, nothing else owns it.

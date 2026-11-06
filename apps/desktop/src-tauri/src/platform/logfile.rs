@@ -61,6 +61,12 @@ pub fn start() -> Option<WorkerGuard> {
     {
         eprintln!("no log: {e}");
     }
+    // A command that panics never answers its window: the log says so.
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("panic: {info}");
+        default(info);
+    }));
     Some(guard)
 }
 

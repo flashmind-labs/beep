@@ -30,14 +30,22 @@ const core = window.__TAURI__.core;
 export const { Channel } = core;
 
 /// Sends a page's error to the app's log.
-function logError(message: string) {
+export function logError(message: string) {
   core.invoke("log_webview", { message }).catch(() => {});
 }
 
-/// Calls a Rust command, logging it when it fails.
-export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return core.invoke<T>(cmd, args).catch((e: unknown) => {
-    logError(`${cmd} failed: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);
+/// Calls a Rust command, logging it when it fails. With `within` (ms) a
+/// command that has not answered by then fails with a plain error, so a
+/// call that never returns cannot hold the page.
+export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const call = core.invoke<T>(cmd, args);
+  const limited = within == null ? call : Promise.race([call, new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(`no answer in ${Math.round(within / 1000)} s. Try again.`), within);
+  })]);
+  return limited.finally(() => clearTimeout(timer)).catch((e: unknown) => {
+    const session = typeof args?.session === "string" ? ` (session ${args.session})` : "";
+    logError(`${cmd} failed${session}: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);
     throw e;
   });
 }

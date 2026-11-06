@@ -108,8 +108,8 @@ impl PeerClient {
         }
     }
 
-    /// A client for the node in this process. No network, no timers: each
-    /// stream is a pair of in-memory pipes with `session` serving the far end.
+    /// A client for the node in this process. No network: each stream is a
+    /// pair of in-memory pipes with `session` serving the far end.
     pub fn local(session: SessionFn) -> Self {
         Self {
             via: Via::Local(session),
@@ -168,19 +168,15 @@ impl PeerClient {
         }
     }
 
-    /// Reads the node's answer to `Open`. Over the network it gets
-    /// `OPEN_TIMEOUT`.
+    /// Reads the node's answer to `Open`, within `OPEN_TIMEOUT`. The node in
+    /// this process gets it too: a stream it never answers would otherwise
+    /// hold the caller for good, with nothing in the log (#427).
     async fn confirmed(&self, rx: &mut LinkRx, protocol: &str) -> Result<(), MeshError> {
-        match &self.via {
-            Via::Peer(_) => timeout(OPEN_TIMEOUT, answer(rx, protocol))
-                .await
-                .map_err(|e| {
-                    MeshError::Link(
-                        anyhow::Error::new(e).context("the node did not open the stream"),
-                    )
-                })?,
-            Via::Local(_) => answer(rx, protocol).await,
-        }
+        timeout(OPEN_TIMEOUT, answer(rx, protocol))
+            .await
+            .map_err(|e| {
+                MeshError::Link(anyhow::Error::new(e).context("the node did not open the stream"))
+            })?
     }
 
     /// Sends one request on a new stream and reads one reply, giving up
@@ -361,6 +357,25 @@ mod tests {
             .expect_err("a pending future times out");
         let e = anyhow::Error::new(elapsed).context("the node did not answer");
         assert!(MeshError::Link(e).is_transport());
+    }
+
+    /// A node in this process that never answers `Open` fails the open in
+    /// time instead of holding the caller for good (#427).
+    #[tokio::test(start_paused = true)]
+    async fn a_local_node_that_never_answers_fails_the_open() {
+        let silent: SessionFn = Arc::new(|tx: LinkTx, rx: LinkRx| {
+            Box::pin(async move {
+                let _held = (tx, rx);
+                pending::<()>().await;
+            })
+        });
+        let opened = PeerClient::local(silent)
+            .open_sending("codex/1", &"resume")
+            .await;
+        let Err(e) = opened else {
+            panic!("no answer is an error");
+        };
+        assert!(e.is_transport(), "{e:#}");
     }
 
     #[test]
