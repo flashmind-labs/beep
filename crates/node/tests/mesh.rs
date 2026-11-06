@@ -32,6 +32,7 @@ use beep_proto::{
         },
     },
 };
+use beep_report::Answer;
 use futures::{SinkExt, StreamExt};
 use iroh::{
     Endpoint, EndpointId, SecretKey,
@@ -729,6 +730,72 @@ async fn another_node_gets_a_report_with_status_and_version() {
     assert_eq!(version, env!("CARGO_PKG_VERSION"));
     assert!(status.contains("build-box"), "{status}");
     assert!(!os.is_empty());
+}
+
+#[tokio::test]
+async fn the_node_collects_from_its_mesh_for_the_cli() {
+    let desktop = desktop(None).await;
+    let a = Node::start(Config {
+        name: Some("box-a"),
+        ..Config::default()
+    })
+    .await;
+    let b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    // Until `a` has its link to `b`, `b` is offline in the report.
+    let shares = timeout(LIMIT, async {
+        loop {
+            let shares = beep_node::link::peers::collect_report(a.dir.path(), 0)
+                .await
+                .expect("the node collects")
+                .expect("the node runs");
+            if shares
+                .iter()
+                .any(|share| share.id == b.id && share.answer == Answer::Answered)
+            {
+                return shares;
+            }
+        }
+    })
+    .await
+    .expect("b answered in time");
+    let answered: Vec<_> = shares
+        .iter()
+        .filter(|share| share.answer == Answer::Answered)
+        .map(|share| share.id)
+        .collect();
+    assert_eq!(answered.len(), 2, "{shares:?}");
+    assert!(answered.contains(&a.id), "{shares:?}");
+    let own = shares
+        .iter()
+        .find(|share| share.id == a.id)
+        .expect("a's own share");
+    assert!(own.status.contains("box-a"), "{}", own.status);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_silent_node_on_the_socket_does_not_stop_the_report() {
+    let dir = TempDir::new().expect("a temp folder");
+    let listener =
+        tokio::net::UnixListener::bind(dir.path().join("mesh.sock")).expect("the socket binds");
+    // Accepts and never writes, as a node whose workers are stuck.
+    let _held = tokio::spawn(async move {
+        let mut open = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            open.push(stream);
+        }
+    });
+    let started = tokio::time::Instant::now();
+    let collected =
+        beep_node::link::peers::collect_report_within(dir.path(), 0, Duration::from_secs(1)).await;
+    assert!(collected.is_err(), "{collected:?}");
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 #[tokio::test]

@@ -13,7 +13,7 @@ const GROUPS: &[(&str, &[&str])] = &[
     ("Mesh", &["mesh join", "mesh devices", "mesh leave"]),
     ("Agents", &["sessions", "hooks"]),
     ("Service", &["run", "service", "update"]),
-    ("Diagnostics", &["status", "logs", "env"]),
+    ("Diagnostics", &["status", "logs", "report", "env"]),
     ("Setup", &["setup", "version", "link", "local"]),
 ];
 

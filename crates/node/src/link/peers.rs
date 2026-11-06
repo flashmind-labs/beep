@@ -18,10 +18,11 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerStream,
-    SessionFn, StreamHandler,
+    DeviceKind, DeviceStatus, InUse, JoinProtocol, JoinTicket, Mesh, MeshProtocol, PeerClient,
+    PeerStream, SessionFn, StreamHandler,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
+use beep_report::{Share, Target, collect};
 use iroh::{
     Endpoint,
     endpoint::Connection,
@@ -55,6 +56,10 @@ const LEAVE: &str = "leave";
 /// The node answers a `LocalStatus` in compact msgpack, then closes. A node
 /// from before it closes without answering.
 const STATUS: &str = "status";
+/// `report <since>`, Unix seconds; the node answers every device's
+/// `Share` of a problem report, a `Vec<Share>` in compact msgpack, then
+/// closes. A node from before it closes without answering.
+const REPORT: &str = "report ";
 
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
@@ -368,6 +373,45 @@ impl Peers {
         self.inner.active()
     }
 
+    /// Every device's share of a problem report from Unix second `since`:
+    /// this node's through its own `report/1`, the others' over their live
+    /// links. This node alone before it joined a mesh.
+    async fn report(&self, since: i64) -> Vec<Share> {
+        let me = self.inner.endpoint.id();
+        let active = self.active();
+        let own = |name: String, kind: DeviceKind| Target {
+            id: me,
+            name,
+            kind,
+            client: Ok(PeerClient::local(self.local_session())),
+        };
+        let targets = match active.filter(|active| active.mesh.is_member(me)) {
+            Some(active) => active
+                .mesh
+                .devices()
+                .into_iter()
+                .map(|status| {
+                    let device = status.device;
+                    if device.id == me {
+                        return own(device.name, device.kind);
+                    }
+                    Target {
+                        id: device.id,
+                        name: device.name,
+                        kind: device.kind,
+                        client: active
+                            .mesh
+                            .peer(device.id)
+                            .map(PeerClient::new)
+                            .ok_or_else(|| "offline".to_owned()),
+                    }
+                })
+                .collect(),
+            None => vec![own(self.inner.name.clone(), DeviceKind::Node)],
+        };
+        collect(targets, since).await
+    }
+
     /// Takes `mesh` as the node's membership; its peers' streams are served
     /// from here on.
     pub fn install(&self, mesh: Mesh) {
@@ -663,6 +707,12 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         write.write_all(&rmp_serde::to_vec(&status)?).await?;
         write.shutdown().await?;
         return Ok(());
+    } else if let Some(since) = request.strip_prefix(REPORT) {
+        let since: i64 = since.trim().parse().context("reading the report's start")?;
+        let shares = peers.report(since).await;
+        write.write_all(&rmp_serde::to_vec(&shares)?).await?;
+        write.shutdown().await?;
+        return Ok(());
     } else {
         return Ok(());
     };
@@ -784,6 +834,57 @@ pub async fn local_status(dir: &Path) -> Result<Option<LocalStatus>> {
     }
     let status = beep_proto::lenient::from_slice(&bytes).context("reading the node's status")?;
     Ok(Some(status))
+}
+
+/// Why the running node gave no report; the text is the share's status.
+#[cfg(feature = "cli")]
+#[derive(Debug, thiserror::Error)]
+pub enum ReportError {
+    #[error("the running node did not answer in {0} seconds")]
+    Silent(u64),
+    #[error("the running node is older and cannot collect")]
+    Older,
+}
+
+/// How long the running node has to collect a report.
+#[cfg(feature = "cli")]
+const REPORT_LIMIT: Duration = Duration::from_secs(30);
+
+/// Every device's share of a problem report from Unix second `since`, as
+/// the node running from `dir` collects it; `None` when no node runs there.
+#[cfg(feature = "cli")]
+pub async fn collect_report(dir: &Path, since: i64) -> Result<Option<Vec<Share>>> {
+    collect_report_within(dir, since, REPORT_LIMIT).await
+}
+
+/// `collect_report` with the node given `limit` to answer.
+#[cfg(feature = "cli")]
+pub async fn collect_report_within(
+    dir: &Path,
+    since: i64,
+    limit: Duration,
+) -> Result<Option<Vec<Share>>> {
+    use crate::link::local_socket;
+    /// The most bytes read: every device's share at its cap, and more.
+    const MAX_SHARES: u64 = 64 * 1024 * 1024;
+    let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
+        return Ok(None);
+    };
+    let (read, mut write) = split(stream);
+    let mut bytes = Vec::new();
+    timeout(limit, async {
+        write
+            .write_all(format!("{REPORT}{since}\n").as_bytes())
+            .await?;
+        read.take(MAX_SHARES).read_to_end(&mut bytes).await
+    })
+    .await
+    .map_err(|_| ReportError::Silent(limit.as_secs()))??;
+    if bytes.is_empty() {
+        return Err(ReportError::Older.into());
+    }
+    let shares = beep_proto::lenient::from_slice(&bytes).context("reading the node's report")?;
+    Ok(Some(shares))
 }
 
 #[cfg(feature = "cli")]
