@@ -98,6 +98,18 @@ test("a Beep call reads as its machine, command, files and verb", () => {
   assert.equal(toolKind("Beep: Run on build-box: make [completed]"), "beep");
 });
 
+test("agent starts expose the full prompt with or without a target machine", () => {
+  const prompt = "Fix the login flow.\n\nRun `cargo test` and preserve <session>.\n" + "Last instruction. ".repeat(200);
+  for (const [head, machine] of [["Start codex agent", ""], ["Start claude agent on build-box", "build-box"], ["Start an agent", ""]]) {
+    const title = `Beep: ${head}: ${prompt}`;
+    const call = beepCall(title)!;
+    assert.equal(call.machine, machine);
+    assert.equal(call.detail, prompt.trimEnd());
+    assert.ok(!call.done.includes("Fix the login flow"));
+    assert.equal(beepCall(title.replace(`: ${prompt}`, ""))?.detail, "");
+  }
+});
+
 const th = (text: string, ms: number | null = null) => ({ kind: "thought", text, ms });
 
 test("only the running turn's last entry, a thought without a length, is still thinking", () => {

@@ -728,15 +728,19 @@ fn child_entry(call: &str, view: &ChildView) -> String {
         "ended" if view.error.is_some() => "failed",
         _ => "completed",
     };
+    // Keep the original prompt below the display title. The call's final
+    // line is its JSON result, so prompt lines may themselves contain JSON.
+    let prompt = call
+        .rsplit_once("\n{")
+        .and_then(|(head, _)| head.rsplit_once(" ["))
+        .and_then(|(title, _)| title.strip_prefix(STARTED))
+        .and_then(|start| start.split_once(": "))
+        .map(|(_, prompt)| prompt);
+    let title = title.lines().next().unwrap_or_default();
+    let title = prompt.map_or_else(|| title.to_owned(), |prompt| format!("{title}\n{prompt}"));
     let mut text = format!(
         "{} [{status}]\n[steps] {}\n[agent] {} on {}\n[child] {} {} {}",
-        title.lines().next().unwrap_or_default(),
-        view.turns,
-        view.harness,
-        view.machine,
-        view.id,
-        view.state,
-        view.key
+        title, view.turns, view.harness, view.machine, view.id, view.state, view.key
     );
     // What the child spent, for the card only: it is the child's session's
     // own spend, which the parent's numbers never include.
