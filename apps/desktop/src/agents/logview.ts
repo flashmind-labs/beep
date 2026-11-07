@@ -119,7 +119,8 @@ function subOf(at: number) {
   if (!seen) subTimes.set(key, seen = { start: now, live: working });
   if (!working && seen.live && seen.end == null) seen.end = now;
   const ms = !seen.live ? null : working ? now - seen.start : (seen.end ?? now) - seen.start;
-  return { title: title.split("\n")[0], agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms };
+  const [name, ...prompt] = title.split("\n");
+  return { title: name, prompt: sub.child ? prompt.join("\n") : "", agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms };
 }
 
 /// One subagent as a row: its name, how it stands, how long and how many steps.
@@ -138,7 +139,10 @@ function subRow(at: number, inPane = false) {
   // A child that runs can be stopped from its row, as from its own log.
   const stoppable = kid && (st === "working" || st === "needs you");
   const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
-  return `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  if (inPane || !x.prompt) return row;
+  const open = AG.steps.get(at) ?? false;
+  return `<div class="dsubprompt" data-row="${at}" data-at="${at}">${row}<button class="prompt-toggle" data-prompt="${at}" aria-expanded="${open}">${ICON.chev}Prompt</button>${open ? `<pre>${esc(x.prompt)}</pre>` : ""}</div>`;
 }
 
 /// Subagents closed in the pane, by session and the call's place. The log keeps them.
