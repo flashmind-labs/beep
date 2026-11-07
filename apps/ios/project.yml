@@ -61,7 +61,9 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # A background push wakes the app to fetch notices the server could not send, and live
         # voice keeps talking when the screen locks.
-        UIBackgroundModes: [remote-notification, audio]
+        UIBackgroundModes: [remote-notification, audio, fetch]
+        # The check for questions that wait while Beep is closed.
+        BGTaskSchedulerPermittedIdentifiers: [com.flashmind.beep.asks]
         # A live voice session shows in the Dynamic Island and on the Lock Screen.
         NSSupportsLiveActivities: true
         # beep://new, from the widget.

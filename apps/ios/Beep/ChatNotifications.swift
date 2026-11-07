@@ -29,6 +29,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Key.chat, actions: [reply, read], intentIdentifiers: []),
             UNNotificationCategory(identifier: Key.approval, actions: [allow, deny], intentIdentifiers: []),
+            AskAlerts.categoryDefinition,
         ])
     }
 
@@ -153,6 +154,10 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     @MainActor func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        if response.notification.request.content.categoryIdentifier == AskAlerts.category {
+            await answerAsk(info, action: response.actionIdentifier)
+            return
+        }
         guard let thread = info["thread"] as? String else { return }
         let group = info["group"] as? Bool ?? false
         switch response.actionIdentifier {
@@ -174,6 +179,23 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
         default:
             break
         }
+    }
+
+    /// Allow or Deny on a coding agent's question. The app may be in the background.
+    @MainActor private func answerAsk(_ info: [AnyHashable: Any], action: String) async {
+        guard let model, let machine = info["askMachine"] as? String, let agent = info["askAgent"] as? String,
+              let session = info["askSession"] as? String, let question = info["askQuestion"] as? Int else { return }
+        if action == UNNotificationDefaultActionIdentifier {
+            model.destination = .codingSession(machine, agent, session)
+            return
+        }
+        let reply = info[action == AskAlerts.allow ? "askAllow" : "askDeny"] as? String ?? ""
+        guard !reply.isEmpty, action == AskAlerts.allow || action == AskAlerts.deny else { return }
+        let task = UIApplication.shared.beginBackgroundTask(withName: "answer")
+        defer { UIApplication.shared.endBackgroundTask(task) }
+        model.connect()
+        try? await model.workspace.client().answerCoding(machineId: machine, agent: agent, session: session,
+                                                          question: UInt32(question), reply: reply)
     }
 
     /// Sends the reply with time asked of iOS, since the app may be in the background.

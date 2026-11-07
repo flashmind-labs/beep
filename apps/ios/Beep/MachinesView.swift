@@ -7,6 +7,7 @@ struct MachinesView: View {
     @Environment(AppModel.self) private var model
     let back: () -> Void
     var terminals: (() -> Void)? = nil
+    @Environment(\.tabRoot) private var tabRoot
     @State private var machines: [Machine]?
     @State private var stats: [String: MachineStats] = [:]
     @State private var open: String?
@@ -15,7 +16,7 @@ struct MachinesView: View {
     var body: some View {
         let shown = machines?.first { $0.id == open }
         VStack(spacing: 0) {
-            BackBar(title: shown?.name ?? "Machines", back: { if shown != nil { open = nil } else { back() } }) {
+            BackBar(title: shown?.name ?? "Machines", back: { if shown != nil { open = nil } else { back() } }, showsBack: shown != nil || !tabRoot) {
                 if let terminals { Button("Terminals", action: terminals).buttonStyle(TextAction()) }
             }
             if let shown {
