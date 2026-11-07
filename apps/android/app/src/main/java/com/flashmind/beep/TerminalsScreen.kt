@@ -92,7 +92,7 @@ private fun TerminalScreen(repository: ChatRepository, initial: Terminal, onBack
             var stream: TerminalConnection? = null
             try {
                 val transcript = TerminalText()
-                stream = api.attachTerminal(initial.id)
+                stream = api.attachTerminal(initial.id, 80u, 24u)
                 connection = stream
                 interactive = true
                 while (true) {

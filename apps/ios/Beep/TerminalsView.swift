@@ -176,7 +176,7 @@ struct TerminalView: View {
             let snapshot = try await model.workspace.client().terminalOutput(id: id)
             terminal = snapshot.terminal
             guard terminal?.state == .running else { transcript.append(Array(snapshot.lines.joined(separator: "\n").utf8)); return }
-            let connection = try await model.workspace.client().attachTerminal(id: id)
+            let connection = try await model.workspace.client().attachTerminal(id: id, cols: 80, rows: 24)
             stream = connection; attached = true
             while !Task.isCancelled, let frame = try await connection.next() {
                 if frame.ended {
