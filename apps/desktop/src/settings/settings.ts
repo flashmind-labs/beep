@@ -522,7 +522,7 @@ function drawSheet() {
   // The page's sections are drawn from where the sub stands now.
   const page = settingsSections(local.set, local.mac, local.linked, true).find(([id]) => id === path.page)?.[1] ?? "";
   const focus = focusKey(el);
-  el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"><b>Settings</b><small>Beep for macOS ${esc(local.set.version)}</small><div class="dset-pages">${navHtml(shown, path)}</div></nav>
+  el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"><b>Settings</b><div class="dset-pages">${navHtml(shown, path)}</div><small class="dset-ver">Beep for macOS ${esc(local.set.version)}</small></nav>
     <div class="dset-body"><div class="dset-top"><span class="dset-crumbs">${crumbsHtml(path)}</span><kbd>esc</kbd></div>
     <div class="dset-page dform">${page}</div></div>`;
   bindNav(el);
