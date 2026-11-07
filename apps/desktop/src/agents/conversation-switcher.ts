@@ -5,6 +5,7 @@ import { loadSessions, sessions } from "./sessions.ts";
 import { withoutCopies } from "./move-store.ts";
 import { S, windowHooks } from "../bar/core.ts";
 import { el } from "../ui/dom.ts";
+import { harnessInner } from "../ui/harnessicon.ts";
 import { openSheet } from "../ui/parts.ts";
 
 interface SwitcherOptions {
@@ -54,7 +55,9 @@ export function initConversationSwitcher(options: SwitcherOptions) {
           const kind = agentKind(s.agent);
           const project = windowHooks?.sessionProject?.(s)?.label || folderName(s.cwd);
           const state = s.status === "asking" ? "Needs you" : s.status === "idle" ? "Ready" : s.status === "waiting" ? "Waiting" : s.status === "starting" ? "Starting" : "Working";
-          const mark = el("span", "conversation-mark", kind.ini, el("i", `conversation-dot ${s.status}`));
+          const icon = el("span", "conversation-icon");
+          icon.innerHTML = harnessInner(s.agent);
+          const mark = el("span", "conversation-mark", icon, el("i", `conversation-dot ${s.status}`));
           mark.setAttribute("aria-hidden", "true");
           const title = s.title || project || kind.name;
           const row = el("button", "conversation-choice", mark,

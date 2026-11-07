@@ -6,7 +6,7 @@ import { filterProjects } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { pageAgent } from "./agent.ts";
-import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, reviewPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, nextBarMachine, reviewPrompt, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
@@ -50,10 +50,10 @@ export const projectComp = (() => {
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("aria-label", "Task for a coding agent");
-  input.title = "Enter starts, Shift+Enter adds a line";
+  input.title = "Enter starts, Shift+Enter adds a line, Shift+Tab switches machines";
   const machine = h("button", "pill");
   machine.type = "button";
-  machine.title = "The machine it runs on";
+  machine.title = "The machine it runs on (Shift+Tab in the task field)";
   const folder = h("button", "pill");
   folder.type = "button";
   folder.title = "The checkout, a new worktree, or an existing worktree";
@@ -94,6 +94,19 @@ export const projectComp = (() => {
 
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
+    if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing && !pc.adding) {
+      const p = barProject(), hosts = pc.hosts ?? [];
+      const current = p && barPlace(p.places, hosts, pc.machine);
+      const next = p && current && nextBarMachine(p.places, hosts, current.machine_id);
+      if (p && next) {
+        e.preventDefault();
+        pc.machine = next.machine_id;
+        keepMachine(p.name, next.machine_id);
+        redrawProjects();
+        input.focus();
+      }
+      return;
+    }
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
     e.preventDefault();
     form.requestSubmit();

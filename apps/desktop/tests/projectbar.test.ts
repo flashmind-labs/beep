@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addHosts, barPlace, barPrompt, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt } from "../src/project/projectbar.ts";
+import { addHosts, barPlace, barPrompt, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -12,6 +12,13 @@ const PLACES = [
   { machine: "b", cwd: "/home/user/acme/widget" },
   { machine: "n", cwd: "/srv/acme/widget" },
 ];
+
+test("machine switching cycles only through machines with an agent and a checkout", () => {
+  assert.equal(nextBarMachine(PLACES, HOSTS, "b")?.machine_id, "m");
+  assert.equal(nextBarMachine(PLACES, HOSTS, "m")?.machine_id, "b");
+  assert.equal(nextBarMachine(PLACES.slice(0, 1), HOSTS, "m"), null);
+  assert.equal(nextBarMachine([], HOSTS, ""), null);
+});
 
 test("the bar starts on the machine picked, else the first by name with a checkout and an agent", () => {
   assert.deepEqual(barPlace(PLACES, HOSTS, "m"), { machine_id: "m", machine_name: "mac-box", cwd: "/Users/user/acme/widget" });
