@@ -6,8 +6,9 @@ let windowHidden = false;
 let paneOff = false;
 const told: (() => void)[] = [];
 
-/// Whether the window shows.
-export const pageShown = () => !windowHidden && document.visibilityState === "visible";
+/// Whether the window shows. A focused page shows, whatever the flags say:
+/// a missed shown event or a stale visibilityState left sessions unread (#449).
+export const pageShown = () => !!document.hasFocus?.() || !windowHidden && document.visibilityState === "visible";
 
 /// Whether the bar's views show: the window does and, in the command
 /// center, the pane is mounted.
@@ -46,4 +47,6 @@ if (typeof window !== "undefined") {
     void window.__TAURI__.event.listen(name, () => setHidden(hidden));
   }
   document.addEventListener("visibilitychange", changed);
+  // Focus, a key or a click means the window is on screen.
+  for (const name of ["focus", "keydown", "pointerdown"]) window.addEventListener?.(name, () => { setHidden(false); changed(); }, true);
 }
