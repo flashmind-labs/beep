@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         if options?[.location] != nil { model.connect() }
         // An App Intent may be waiting to start live voice.
         LiveLauncher.attach(model)
+        BackgroundAsks.register(model: model)
         // A token needs no permission; showing what it brings does, which onboarding asks.
         application.registerForRemoteNotifications()
         return true
@@ -58,6 +59,8 @@ enum Route: Hashable {
     case groupInfo(String)
     case settings, memories, routines, skills, places, locationAlways, apps, devices, machines
     case projects, codingAgents, terminals, notifications, activity
+    /// The command center's bell, settings and their pages.
+    case bell, centerSettings, appearance, notifySettings
     case project(String), terminal(String)
     case agentSession(String, String, String)
     case skill(String)
@@ -99,7 +102,7 @@ struct RootView: View {
         if !serverEnabled() {
             NavigationStack(path: $path) {
                 SwiftUI.Group {
-                    if model.workspace.meshLinked { ProjectsView(path: $path, home: true) }
+                    if model.workspace.meshLinked { CenterRoot(path: $path) }
                     else { LinkedDevicesView(back: {}, home: true) }
                 }
                 .navigationDestination(for: Route.self) { route in
@@ -211,6 +214,10 @@ struct RootView: View {
                 sheet = .invite(id: $0.id, name: $0.name)
             }
         case .settings: SettingsView(path: $path)
+        case .bell: BellView(center: AskCenter.shared, path: $path)
+        case .centerSettings: CenterSettingsView(path: $path)
+        case .appearance: AppearanceView(back: { pop() })
+        case .notifySettings: NotifySettingsView(path: $path)
         case .devices: LinkedDevicesView(back: { pop() })
         case .machines: MachinesView(back: { pop() }, terminals: { path.append(.terminals) })
         case .apps: AppsView(back: { pop() })
@@ -327,6 +334,8 @@ struct RootView: View {
             openGroup(id)
         case .placeRoutine(let id):
             path.append(.placeRoutine(id))
+        case .codingSession(let machine, let agent, let session):
+            path.append(.agentSession(machine, agent, session))
         case .latestRead:
             path = [.latestRead]
         case .newChat:

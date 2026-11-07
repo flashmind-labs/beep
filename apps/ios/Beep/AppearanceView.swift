@@ -17,7 +17,7 @@ struct AppearanceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BackBar(title: "Appearance", back: back)
+            CCTop(title: "Appearance", back: back)
             ScrollView {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
                     ForEach(cells) { cell in
@@ -42,7 +42,9 @@ struct AppearanceView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(Mint.pageInset)
+                .padding(.horizontal, 12).padding(.top, 12)
+                CCNote(text: "The desktop's skins. Match system uses Linear in dark mode and Light in light mode.")
+                    .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 20)
             }
         }
         .background(Mint.page)
