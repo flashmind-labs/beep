@@ -13,6 +13,7 @@
 .mac .conversation-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mac .conversation-state { display: grid; text-align: right; }
 .mac .conversation-mark { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--d-bg); border: 1px solid var(--d-border); font-size: 12px; font-weight: 600; }
+.mac .conversation-mark .cc-ag { width: 100%; height: 100%; background: transparent; background-image: none; border: 0; }
 .mac .conversation-status { position: absolute; right: -4px; bottom: -4px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--d-elev); background: var(--d-muted); }
 .mac .conversation-status.working { background: var(--d-emerald); }
 .mac .conversation-status.asks { background: var(--d-amber, var(--d-muted)); }

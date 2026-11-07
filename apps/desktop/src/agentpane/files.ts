@@ -82,7 +82,6 @@ export function filesView() {
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
-    + `<button class="agpbtn" data-fnew="file">+ File</button><button class="agpbtn" data-fnew="folder">+ Folder</button><button class="agpbtn" data-fupload>Upload</button>`
     + `<button class="agpbtn" data-frefresh="1" title="Read the folders again">&#8635;</button></div>`
     + `<div class="agtree" role="tree" aria-label="Working files" aria-multiselectable="true" tabindex="0"></div>`
     + `<div class="agpacts"><span class="meta mono" title="${esc(paneRoot())}">${esc(paneRoot())}</span><span data-fstatus role="status"></span><span class="sp"></span><span class="hint">Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting.</span></div></div>`);
@@ -233,7 +232,6 @@ function draw() {
   F.selected = new Set([...F.selected].filter(p => visible.has(p)));
   if (F.picked && !visible.has(F.picked)) F.picked = null;
   tree.setAttribute("aria-busy", String(F.busy));
-  F.el?.querySelectorAll<HTMLButtonElement>("[data-fnew],[data-fupload]").forEach(b => { b.disabled = F.busy; });
   if (F.picked) tree.setAttribute("aria-activedescendant", `agfile-${encodeURIComponent(F.picked)}`);
   else tree.removeAttribute("aria-activedescendant");
   const count = F.el?.querySelector(".agpacts .meta");
@@ -286,8 +284,6 @@ function wire(el: HTMLElement) {
     refresh();
   });
   el.querySelector("[data-frefresh]")!.addEventListener("click", refresh);
-  el.querySelectorAll<HTMLElement>("[data-fnew]").forEach(b => b.addEventListener("click", () => createItem(b.dataset.fnew === "folder")));
-  el.querySelector("[data-fupload]")!.addEventListener("click", () => chooseUpload(destination()));
   tree.addEventListener("click", e => {
     closeFilesMenu();
     tree.focus();
@@ -383,7 +379,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     ...(n ? [["mention", `Mention ${n > 1 ? `${n} items` : "in message"}`], ["-", ""], ["abs", "Copy path"], ["rel", "Copy relative path"], ["copy", `Copy${n > 1 ? ` ${n} items` : ""}`], ["cut", `Cut${n > 1 ? ` ${n} items` : ""}`]] as [string, string][] : []),
     ...(canPasteFiles(F.clipboard, F.key, dir) ? [["paste", `Paste ${F.clipboard!.paths.length} items into ${dir || "working folder"}`]] as [string, string][] : []),
     ...(n === 1 && F.selected.size === 1 ? [["rename", "Rename..."]] as [string, string][] : []),
-    ["-", ""], ["newfile", "New file..."], ["newfolder", "New folder..."], ["upload", "Upload files..."], ["refresh", "Refresh"],
+    ["-", ""], ["newfile", "New file..."], ["newfolder", "New folder..."], ["refresh", "Refresh"],
     ...(n ? [["-", ""], ["save", `Save ${n > 1 ? `${n} items ` : ""}to this Mac`], ["delete", `Delete ${n > 1 ? `${n} items ` : ""}permanently...`]] as [string, string][] : []),
   ];
   const m = h(`<div class="agctx" role="menu" aria-label="File actions">${items.map(([k, t]) => k === "-" ? "<hr>" : `<button role="menuitem" data-fact="${k}"${k === "delete" ? ' class="warn"' : ""}>${esc(t)}</button>`).join("")}</div>`);
@@ -420,7 +416,6 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     else if (act === "paste") void paste(dir);
     else if (act === "rename") renameItem();
     else if (act === "newfile" || act === "newfolder") createItem(act === "newfolder", dir);
-    else if (act === "upload") chooseUpload(dir);
     else if (act === "refresh") refresh();
     else if (act === "delete") deleteItems();
     else if (act === "save") void saveItems();
@@ -523,16 +518,6 @@ function deleteItems() {
     note: "Folders include everything inside. This cannot be undone.", action: `Delete ${paths.length} ${paths.length === 1 ? "item" : "items"}`,
     run: async () => { await edit({ Delete: { paths } }, at); },
   });
-}
-function chooseUpload(folder: string) {
-  if (F.busy) return;
-  const at = target();
-  const input = document.createElement("input");
-  input.type = "file"; input.multiple = true;
-  input.addEventListener("change", () => {
-    if (F.key === at.key && input.files?.length) askUpload([...input.files], folder, at.root);
-  });
-  input.click();
 }
 async function saveItems() {
   const paths = selectedPaths(), at = target();

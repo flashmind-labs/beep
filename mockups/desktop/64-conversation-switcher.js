@@ -12,7 +12,7 @@
     <header><b>Active conversations</b><small>Most recently used</small></header>
     <div class="conversation-switcher-items" role="listbox" aria-label="Active conversations" aria-activedescendant="conversation-choice-${selected}">
       ${order.map(id => { const c = conversations[id]; return `<button id="conversation-choice-${id}" class="conversation-choice" role="option" aria-selected="${id === selected}" data-conversation-choice="${id}" tabindex="-1">
-        <span class="conversation-mark">${c.mark}<span class="conversation-status ${c.mode}" aria-hidden="true"></span></span>
+        <span class="conversation-mark" aria-hidden="true"><span class="cc-ag ${c.agent === 'Codex' ? 'codex' : 'claude'} mark">${window.__MARKS[c.agent === 'Codex' ? 'codex' : 'claude']}</span><span class="conversation-status ${c.mode}"></span></span>
         <span class="conversation-label"><b>${c.title}</b><small>${c.project} · ${c.agent}</small></span><span class="conversation-state">${c.status}${id === current ? '<small>Current</small>' : ''}</span>
       </button>`; }).join('')}
     </div>
