@@ -995,7 +995,7 @@ expected 200, got 401</pre></details></span></div>`;
 
   // ----- New session: the agent view with an empty conversation (issue 289) -----
   // Cmd+N in a project opens it. The layout is a session's: header, conversation, side pane. The project's
-  // start input (machine, checkout, harness, Start) sits where the session's message field does, and has focus.
+  // centered start composer has the project preset, with machine, checkout and harness controls.
   // Cmd+T adds a terminal tab to the pane, on the machine and checkout the input points to; the terminal takes
   // the keys. Esc in it goes back to the input, unless a program such as vim or less owns the screen. Shift+Esc
   // makes the focused tab fill the view. Sending starts the session in place: the pane and its terminals stay.
@@ -1003,7 +1003,11 @@ expected 200, got 401</pre></details></span></div>`;
     const css = document.createElement("style");
     css.textContent = `.mac .ag-empty { height: 100%; display: grid; place-items: center; color: var(--d-dim); font-size: 13px }
 .mac .ag-conv > .cc-pjc { margin-inline: 16px }
-.mac .ag-conv > .cc-pjc .box { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }`;
+.mac .ag-conv > .cc-pjc .box { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }
+.mac .ag-conv .dbody:has(.draft-start) { display: flex; flex-direction: column }
+.mac .draft-start { flex: 1; width: 100%; display: flex; padding: 16px; box-sizing: border-box }
+.mac .draft-start .agc { margin: auto; min-width: 0 }
+.mac .draft-start .agc .session-intro h3 { font-size: 36px; line-height: 40px }`;
     document.head.append(css);
     const base = D.dAgentSession;
     D.dAgentSession = () => {
@@ -1013,11 +1017,23 @@ expected 200, got 401</pre></details></span></div>`;
       S.d.ags = term ? "term" : "idle";
       let out;
       try { out = base(); } finally { S.d.ags = st; }
-      const form = (D.dWinProject().match(/<form class="cc-pjc"[\s\S]*?<\/form>/) || [""])[0];
-      if (!form) throw new Error("project start input not found");
-      const keys = [["⏎", "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]];
+      // Use the new-agent composer with its project already selected.
+      const previous = S.d.agc;
+      const template = document.createElement("template");
+      S.d.agc = "ready";
+      try { template.innerHTML = D.dAgentNew(); } finally { S.d.agc = previous; }
+      const composer = template.content.querySelector(".agc");
+      if (!composer) throw new Error("new-agent composer not found");
+      const project = composer.querySelector('[title="The project this agent works on"]');
+      project?.nextElementSibling?.remove();
+      project?.remove();
+      const prompt = composer.querySelector(".pr");
+      prompt.classList.add("ph");
+      prompt.textContent = "Describe the task.";
+      const form = composer.outerHTML;
+      const keys = [["⌘⏎", "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]];
       const slim = `<div class="dhints slim">${keys.map(([k, t], i) => `<span${i >= 3 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}</div>`;
-      const conv = `<div class="ag-conv"><div class="dbody" id="agbody"><div class="dagmain"><div class="ag-empty">New session in acme/widget</div></div></div>${form}${slim}</div>`;
+      const conv = `<div class="ag-conv"><div class="dbody" id="agbody"><div class="draft-start">${form}</div></div>${slim}</div>`;
       const head = `<div class="dhead"><span class="tt"><b><button class="agproj" data-dgo="dWinProject">acme/widget</button></b><small title="/srv/project">build-box</small></span><span id="agstate"></span><button class="dbtn quiet" title="Open in Zed (⌘O)" data-toast="Opens ~/Projects/widget in Zed">Open in Zed</button></div>`;
       out = out.replace(/<div class="dhead">[\s\S]*?<\/div>/, head);
       out = out.replace(/<div class="ag-conv">[\s\S]*?<\/div>(?=<div class="ag-div")/, conv);

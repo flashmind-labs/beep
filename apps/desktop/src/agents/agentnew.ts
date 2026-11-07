@@ -121,7 +121,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
 /// The same project task hint, or a general one before a project is picked.
 function taskHint(missing: boolean) {
   if (missing) return "Say what the agent should do.";
-  return AG.form.project ? `Describe a task for a coding agent in ${AG.form.project}` : "Describe the task.";
+  return "Describe the task.";
 }
 
 export function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
@@ -160,13 +160,13 @@ function drawFrame() {
   c.send.id = "aggo";
   c.pick.id = "agpick";
   c.err.id = "agerr";
-  const head = `<div class="dhead"><span class="tt"><b id="agtitle"></b><small id="aghere"></small></span>
-      ${PANE ? "" : '<button class="dbtn quiet" id="agList">All sessions</button>'}</div>`;
-  bar.innerHTML = `${head}<div class="agnew"><div class="dbody"><div class="agempty" id="agempty"></div></div><div id="agcomposer"></div>
-      <div class="agnew-notes"><div class="agc-why" id="agwhy" hidden></div><div id="aghelp"></div></div></div>
-      ${hints([[ICON.ret, "start"], ["⌘M", "model"], ["esc", "cancel"]])}`;
+  const head = PANE ? "" : `<div class="dhead"><span class="tt"><b>Start a coding agent</b><small>It runs on your machine; follow it and answer it here</small></span>
+      <button class="dbtn quiet" id="agList">All sessions</button></div>`;
+  bar.innerHTML = `${head}<div class="agc-wrap" id="agcomposer"></div>
+      ${hints([[`⌘${ICON.ret}`, "start"], ["⌘M", "model"], ["esc", "cancel"]])}`;
   $$("#agcomposer").append(c.form);
   c.box.insertAdjacentHTML("beforeend", '<div id="agunder"></div>');
+  c.form.insertAdjacentHTML("beforeend", '<div class="agnew-notes"><div class="agc-why" id="agwhy" hidden></div><div id="aghelp"></div></div>');
   c.form.addEventListener("submit", e => { e.preventDefault(); void startAgent(); });
   c.input.addEventListener("input", () => {
     f.prompt = c.input.value;
@@ -200,13 +200,10 @@ function drawParts() {
   const focused = active?.closest("#agpick") ? "#agpick .agc-search" : active?.id ? `#${active.id}` : "";
   const go = $$<HTMLButtonElement>("#aggo");
   go.disabled = AG.busy || !hosts.length || !f.machine || !f.project;
-  go.title = !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (Enter)";
+  go.title = !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (⌘↩)";
   // The key hints give way to an open menu.
   bar.classList.toggle("agc-menuopen", !!f.open);
-  go.firstChild!.textContent = AG.busy ? "Starting" : "Start";
-  $$("#agtitle").textContent = f.project || "Start a coding agent";
-  $$("#aghere").textContent = formHost()?.machine_name ?? "";
-  $$("#agempty").textContent = f.project ? `New session in ${f.project}` : "Pick a project to start a new session";
+  composer.setBusy(AG.busy);
   requestAnimationFrame(composer.grow);
   drawPill(none);
   drawPicker();
@@ -215,7 +212,7 @@ function drawParts() {
   composer.err.textContent = missing ? "Say what the agent should do." : AG.error;
   $$("#aghelp").innerHTML = !AG.hosts ? '<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>' : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
       <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Add a machine and run the <code>beep-node mesh join</code> command it shows there.</li></ol>
-      <div><button class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
+      <div><button type="button" class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
   if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") focusEnd(focused);
 }
 

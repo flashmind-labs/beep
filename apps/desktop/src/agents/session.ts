@@ -279,7 +279,7 @@ export function agentHints() {
     const rows = sections.map(section => `<section><b>${esc(section.title)}</b>${section.rows.map(row => `<span><kbd>${esc(row.keys)}</kbd>${esc(row.does)}</span>`).join("")}</section>`).join("");
     return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}</div></details></div>`;
   };
-  if (AG.draft) return slim([[ICON.ret, "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
+  if (AG.draft) return slim([[`⌘${ICON.ret}`, "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
