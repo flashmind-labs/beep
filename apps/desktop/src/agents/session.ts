@@ -544,12 +544,22 @@ function agentClick(e: MouseEvent) {
     else m.thoughts.delete(at);
     return;
   }
-  // A finished turn's heading or folded line opens its steps; the heading folds them again.
+  // The heading toggles the steps; Collapse at their end returns to it.
   const turn = target.closest<HTMLElement>("#agbody [data-turn]");
   if (turn && AG.open) {
     const opened = turnsOf(AG.open.session).opened, key = Number(turn.dataset.turn);
-    if (!opened.delete(key)) opened.add(key);
-    return drawAgentBody(clickedRow(turn));
+    const collapse = turn.hasAttribute("data-collapse");
+    const heading = `#agbody .hd[data-turn="${key}"]`;
+    // Bring the heading into view before the shorter turn is virtualized.
+    if (collapse) $(heading)?.scrollIntoView({ block: "nearest" });
+    if (!opened.delete(key) && !collapse) opened.add(key);
+    drawAgentBody(clickedRow(turn));
+    if (collapse) {
+      const head = $<HTMLButtonElement>(heading);
+      head?.focus({ preventScroll: true });
+      head?.scrollIntoView({ block: "nearest" });
+    }
+    return;
   }
   // A file a step names opens in the media pane.
   const step = target.closest<HTMLElement>("#agbody [data-media]");
