@@ -46,6 +46,22 @@ enum AskAlerts {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: key, content: content, trigger: nil))
     }
 
+    /// Lets a question post again, after its answer did not go through.
+    static func forget(_ key: String) {
+        let seen = (UserDefaults.standard.stringArray(forKey: seenKey) ?? []).filter { $0 != key }
+        UserDefaults.standard.set(seen, forKey: seenKey)
+    }
+
+    /// Tells the user an answer from a notification did not go through; a tap opens the session.
+    static func postFailure(machine: String, agent: String, session: String, detail: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Could not send your answer"
+        content.body = detail
+        content.sound = .default
+        content.userInfo = ["askMachine": machine, "askAgent": agent, "askSession": session]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
     /// Forgets the questions that no longer wait.
     static func keepSeen(waiting: Set<String>) {
         let seen = (UserDefaults.standard.stringArray(forKey: seenKey) ?? []).filter(waiting.contains)

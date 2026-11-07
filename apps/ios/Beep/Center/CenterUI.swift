@@ -40,7 +40,6 @@ struct CCTop<Trailing: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             trailing
-            if back != nil { Color.clear.frame(width: 0) }
         }
         .padding(.leading, back == nil ? 16 : 4).padding(.trailing, 8)
         .frame(height: 48)

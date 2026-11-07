@@ -43,7 +43,7 @@ struct AppearanceView: View {
                     }
                 }
                 .padding(.horizontal, 12).padding(.top, 12)
-                CCNote(text: "The desktop's skins. Match system uses Linear in dark mode and Light in light mode.")
+                CCNote(text: "Match system uses Linear in dark mode and Light in light mode.")
                     .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 20)
             }
         }
