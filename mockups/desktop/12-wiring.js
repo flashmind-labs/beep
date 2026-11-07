@@ -166,6 +166,7 @@ document.getElementById("desk").addEventListener("click", e => {
 document.addEventListener("keydown", e => {
   if (e.metaKey && e.key === "/") { e.preventDefault(); return go(S.screen === "dKeys" ? "dEmpty" : "dKeys"); }
   if (e.key !== "Escape" || S.screen === "dEmpty") return;
+  if (S.screen === "dAddTicket") { S.d.ns = "machines"; return go("dNoServer"); }
   if (S.screen === "dKeys") return go("dEmpty");
   if (S.screen === "dChats") return go("dDone");
   if (S.screen === "dGroupInfo" || S.screen === "dGroupInvite") return go("dGroup");

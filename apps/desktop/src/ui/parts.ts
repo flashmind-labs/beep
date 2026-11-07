@@ -144,6 +144,13 @@ type SheetOptions = {
   onClose?: () => void;
 };
 
+const openSheets: HTMLElement[] = [];
+
+/// Whether a sheet was placed above this element.
+export function sheetAbove(element: HTMLElement) {
+  return openSheets.some(root => !!(element.compareDocumentPosition(root) & Node.DOCUMENT_POSITION_FOLLOWING));
+}
+
 /// A sheet on the page: a click on the scrim or Esc closes it, and focus goes
 /// back to what had it. `close` always closes, so a caller guards its own buttons.
 export function openSheet(label: string, cls: string, options: SheetOptions = {}) {
@@ -153,6 +160,8 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
   const close = () => {
     if (!open) return;
     open = false;
+    const index = openSheets.indexOf(root);
+    if (index !== -1) openSheets.splice(index, 1);
     document.removeEventListener("keydown", keys, true);
     root.remove();
     focusBack(back);
@@ -160,13 +169,15 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
   };
   const allowed = () => !options.canClose || options.canClose();
   const keys = (e: KeyboardEvent) => {
+    if (openSheets.at(-1) !== root) return;
     if (options.onKey?.(e) || e.key !== "Escape") return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     if (allowed()) close();
   };
   root.addEventListener("mousedown", e => { if (e.target === root && allowed()) close(); });
   document.addEventListener("keydown", keys, true);
   document.body.append(root);
+  openSheets.push(root);
   return { root, sheet, close };
 }

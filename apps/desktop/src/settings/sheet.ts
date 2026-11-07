@@ -1,6 +1,6 @@
 // Settings as a sheet over the command center window.
 import { ago } from "../ui/format.ts";
-import { dbtn as button } from "../ui/parts.ts";
+import { dbtn as button, sheetAbove } from "../ui/parts.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
 import { pane } from "../bar/pane.ts";
@@ -36,6 +36,7 @@ export function openSettings(section?: string) {
   // While open, keys stay in the sheet: Esc closes it, and nothing reaches
   // the page behind.
   const keys = (e: KeyboardEvent) => {
+    if (sheetAbove(scrim)) return;
     // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
     if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
     else if (e.metaKey && e.key === ",") e.preventDefault();
