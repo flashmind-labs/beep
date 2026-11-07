@@ -406,6 +406,27 @@ pub async fn write_file<S: Sessions + ?Sized>(
     }
 }
 
+/// Edits files once. Mutations are never retried after a lost reply.
+pub async fn edit_files<S: Sessions + ?Sized>(
+    node: &S,
+    root: String,
+    action: beep_proto::node::agent::FileAction,
+) -> Result<NodeWork<()>, MeshError> {
+    let reply = hinted(
+        node.sessions(
+            SessionsRequest::EditFiles { root, action },
+            Duration::from_secs(300),
+        )
+        .await,
+        "to edit files",
+    )?;
+    match reply {
+        SessionsReply::FilesEdited {} => Ok(NodeWork::Done(())),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
 /// The custom agents the harnesses define for `folder` on the node and in its home.
 pub async fn custom_agents<S: Sessions + ?Sized>(
     node: &S,

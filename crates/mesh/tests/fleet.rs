@@ -19,7 +19,7 @@ use beep_proto::{
     TerminalEvent,
     node::{
         NODE_ALPN, NODE_ALPN_NAMED, Open, Opened,
-        agent::{DiffAsk, Event, Request, Status},
+        agent::{DiffAsk, Event, FileAction, Request, Status},
         link,
         process::TaskId,
         terminal::{Reply as PtyReply, Request as PtyRequest, Size},
@@ -212,7 +212,7 @@ async fn opening_a_local_session_makes_no_network_call() {
 }
 
 #[tokio::test]
-async fn a_files_diff_and_tree_read_with_no_server() {
+async fn a_files_diff_tree_and_edits_work_with_no_server() {
     let node = machine(true).await;
     let repo = TempDir::new().expect("a temp dir");
     let git = |args: &[&str]| {
@@ -233,6 +233,9 @@ async fn a_files_diff_and_tree_read_with_no_server() {
     git(&["commit", "-q", "-m", "first"]);
     fs::write(repo.path().join("a.txt"), "one\ntwo\n").expect("a change");
     let root = repo.path().display().to_string();
+    // File operations are allowed only in a shared folder or an agent's working folder.
+    let mut opened = start(&node.client, repo.path()).await;
+    first_turn(&mut opened).await;
 
     let NodeWork::Done(tree) = sessions::tree(
         &node.client,
@@ -290,6 +293,48 @@ async fn a_files_diff_and_tree_read_with_no_server() {
         fs::read(repo.path().join("b.txt")).expect("written"),
         b"new"
     );
+    for action in [
+        FileAction::CreateFolder {
+            path: "drafts".into(),
+        },
+        FileAction::Copy {
+            paths: vec!["b.txt".into()],
+            folder: "drafts".into(),
+        },
+        FileAction::Rename {
+            path: "drafts/b.txt".into(),
+            to: "drafts/copy.txt".into(),
+        },
+        FileAction::Move {
+            paths: vec!["drafts/copy.txt".into()],
+            folder: String::new(),
+        },
+    ] {
+        assert!(matches!(
+            sessions::edit_files(&node.client, root.clone(), action)
+                .await
+                .expect("the edit answers"),
+            NodeWork::Done(())
+        ));
+    }
+    assert_eq!(
+        fs::read(repo.path().join("copy.txt")).expect("copied"),
+        b"new"
+    );
+    assert!(matches!(
+        sessions::edit_files(
+            &node.client,
+            root,
+            FileAction::Delete {
+                paths: vec!["copy.txt".into(), "drafts".into()]
+            }
+        )
+        .await
+        .expect("the delete answers"),
+        NodeWork::Done(())
+    ));
+    assert!(!repo.path().join("copy.txt").exists());
+    assert!(!repo.path().join("drafts").exists());
 }
 
 #[tokio::test]

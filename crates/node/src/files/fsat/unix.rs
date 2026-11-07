@@ -41,6 +41,31 @@ impl Dir {
         })
     }
 
+    /// Names in this folder, without following child links.
+    pub(crate) fn entries(&self) -> io::Result<Vec<std::ffi::OsString>> {
+        let mut names = Vec::new();
+        for entry in rustix::fs::Dir::read_from(&self.fd)? {
+            let entry = entry?;
+            let name = entry.file_name().to_bytes();
+            if name != b"." && name != b".." {
+                names.push(OsStr::from_bytes(name).to_owned());
+            }
+        }
+        Ok(names)
+    }
+
+    pub(crate) fn read_file(&self, name: &OsStr) -> io::Result<File> {
+        let flags = OFlags::RDONLY
+            .union(OFlags::NOFOLLOW)
+            .union(OFlags::NONBLOCK)
+            .union(OFlags::CLOEXEC);
+        let file = File::from(openat(&self.fd, name, flags, Mode::empty())?);
+        if !file.metadata()?.is_file() {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        Ok(file)
+    }
+
     /// Flushes everything written to this folder's disk, at one flush however
     /// many files. Where there is no such call this does nothing, and each
     /// file is flushed on its own instead.
