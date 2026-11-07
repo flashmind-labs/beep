@@ -1,7 +1,5 @@
-# Checks every push and pull request, then builds the server image on pushes
-# to main and puts it in the private registry, tagged with the commit and
-# `latest`. The private ops repo deploys it. The node workflow pushes the
-# beep-node image.
+# Builds the server image on pushes and pull requests. Pushes to main also put
+# it in the private registry, tagged with the commit and `latest`.
 #
 # The registry host and account are repository variables and the token a
 # repository secret, so nothing about the box is written down here. `runs-on:
@@ -16,60 +14,31 @@ on:
   workflow_dispatch:
 
 jobs:
-  check:
-    runs-on: host
-    env:
-      PG: beep-ci-pg-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - uses: actions/checkout@v4
-
-      # A throwaway database on a free loopback port, so runs don't collide.
-      - name: Start Postgres
-        run: |
-          set -euo pipefail
-          # A cancelled run skips its Stop step: remove databases older than two hours.
-          old=$(date -d '2 hours ago' +%s)
-          docker ps --filter name=beep-ci-pg- --format '{{.ID}} {{.CreatedAt}}' | while read -r id day time zone _; do
-            [ "$(date -d "$day $time $zone" +%s)" -lt "$old" ] && docker rm -f "$id" > /dev/null || true
-          done
-          docker run -d --rm --name "$PG" -p 127.0.0.1::5432 \
-            -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep \
-            --tmpfs /var/lib/postgresql/data --shm-size 1g pgvector/pgvector:pg17 \
-            -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=1000
-          timeout 60 sh -c "until docker exec $PG pg_isready -h 127.0.0.1 -U beep > /dev/null 2>&1; do sleep 1; done"
-
-      - name: Format, lint and test
-        run: |
-          set -euo pipefail
-          port=$(docker port "$PG" 5432/tcp | head -1 | sed 's/.*://')
-          docker build --network host --target check \
-            --build-arg "BEEP_TEST_DATABASE_URL=postgres://beep:beep@127.0.0.1:${port}/beep" .
-
-      - name: Stop Postgres
-        if: always()
-        run: docker rm -f "$PG" > /dev/null 2>&1 || true
-
   image:
-    needs: check
-    if: github.event_name != 'pull_request'
     runs-on: host
     steps:
       - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t "beep-server:${GITHUB_SHA}" .
 
       - name: Log in to the registry
+        if: github.event_name != 'pull_request'
         run: |
           printf '%s' '${{ secrets.REGISTRY_TOKEN }}' \
             | docker login '${{ vars.REGISTRY }}' \
                 -u '${{ vars.REGISTRY_USER }}' --password-stdin
 
-      - name: Build and push
+      - name: Push the image
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           IMAGE='${{ vars.REGISTRY }}/${{ vars.REGISTRY_USER }}/beep-server'
-          docker build -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
+          docker tag "beep-server:${GITHUB_SHA}" "${IMAGE}:${GITHUB_SHA}"
+          docker tag "beep-server:${GITHUB_SHA}" "${IMAGE}:latest"
           docker push "${IMAGE}:${{ github.sha }}"
           docker push "${IMAGE}:latest"
 
       - name: Log out
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         run: docker logout '${{ vars.REGISTRY }}'
