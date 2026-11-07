@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, withoutDiffs } from "../src/agents/agentturns.ts";
+import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -170,4 +170,28 @@ test("a row the reader opened is not folded into a group or the turn's heading",
   assert.deepEqual(toolRuns(log, [1, 2, 3], 0, new Set([2])), [[1], [2], [3]]);
   assert.deepEqual(keptSteps(log, turn), []);
   assert.deepEqual(keptSteps(log, turn, 0, new Set([1, 3])), [1, 3]);
+});
+
+
+test("responses and thoughts separate independently folded tool sections", () => {
+  const log = [u("go"), { kind: "thought", text: "check" }, t("ls [completed]"), t("pwd [completed]"),
+    a("Found it."), t("cargo test [completed]"), a("All passed."), a("Done.")];
+  assert.deepEqual(turnSections(log, splitTurns(log)[0]), [
+    { tools: false, ats: [1] }, { tools: true, ats: [2, 3] },
+    { tools: false, ats: [4] }, { tools: true, ats: [5] }, { tools: false, ats: [6, 7] },
+  ]);
+  const partial = log.slice(2, 6);
+  assert.deepEqual(turnSections(partial, splitTurns(partial, 42)[0], 42), [
+    { tools: true, ats: [42, 43] }, { tools: false, ats: [44] }, { tools: true, ats: [45] },
+  ]);
+});
+
+
+test("a response stays outside the fold when more tools arrive", () => {
+  const log = [u("go"), t("ls [completed]"), a("Checking the result.")];
+  const before = turnSections(log, splitTurns(log)[0]);
+  log.push(t("cargo test [in_progress]"));
+  const after = turnSections(log, splitTurns(log)[0]);
+  assert.deepEqual(after.slice(0, 2), before);
+  assert.deepEqual(after[2], { tools: true, ats: [3] });
 });
