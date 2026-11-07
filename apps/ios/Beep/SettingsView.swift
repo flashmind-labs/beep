@@ -190,7 +190,7 @@ struct SettingsView: View {
                             Text(agent.when).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                        Text("\(name), \(agent.thinking)").font(.body(12)).foregroundStyle(Mint.muted)
+                        Text("\(name), \(String(describing: agent.thinking))").font(.body(12)).foregroundStyle(Mint.muted)
                     }
                 }
             }
