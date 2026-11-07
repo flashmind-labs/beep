@@ -9,8 +9,17 @@ const CC_TERMS = [
 CC_IC.term = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 (() => {
   const st = document.createElement("style");
-  st.textContent = `.mac .tl { display: grid; grid-template-columns: 260px minmax(0,1fr); gap: 14px; min-height: 0; flex: 1 }
-.mac .tl-list { display: grid; align-content: start; gap: 12px; overflow-y: auto }
+  st.textContent = `.mac .tl { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0,1fr); gap: 0; min-height: 0; flex: 1; align-items: stretch; overflow: hidden }
+.mac .tl-view { padding: 0; overflow: hidden }
+.mac .tl-view > .tl { flex: 1 }
+.mac .tl-list { display: grid; align-content: start; gap: 12px; min-height: 0; max-height: none; overflow-y: auto; padding: 14px 12px; border-right: 1px solid var(--d-border) }
+.mac .tl > .tm-panel { grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; border: 0; border-radius: 0 }
+.mac .tl .tm-xterm, .mac .tl .tm-screen { height: auto; min-height: 0; max-height: none }
+.mac .tl .tm-xterm { overflow: hidden }
+.mac .tl .tm-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.mac .tl > .tm-form { align-self: start; margin: 14px 16px; max-height: 100%; overflow-y: auto }
+.mac .tl-view > .cc-err { margin: 12px 16px 0 }
+.mac .tl .tm-xterm:focus-visible, .mac .tl .tm-screen:focus-visible { outline: 1px solid var(--d-muted); outline-offset: -1px }
 .mac .tl-m h5 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--d-muted) }
 .mac .tl-m h5 .dbtn { margin-left: auto; padding: 1px 7px; font-size: 11.5px }
 .mac .tl-it { display: grid; grid-template-columns: 10px minmax(0,1fr); gap: 2px 8px; align-items: center; width: 100%; text-align: left; padding: 7px 9px; border-radius: 8px; border: 1px solid transparent; background: none; color: var(--d-fg) }
@@ -52,7 +61,10 @@ D.dTerminals = () => {
     right = `<form class="cc-panel tm-form" onsubmit="return false"><b class="tm-title">New terminal</b><div class="tm-f"><span>Machine</span>${places.length ? tmChips(places, m, "tlm") : '<span class="dmuted">No machine is online</span>'}</div>
       ${tmField("Folder", "Empty for the workspace or home folder")}${tmField("Command", "Empty for your shell")}${tmField("Name", "The command, or shell, when empty")}
       <div class="in-acts"><button class="dbtn pri" type="button"${places.length ? ' data-tl="default"' : " disabled"}>Open</button><button class="dbtn quiet" type="button" data-tl="pick">Cancel</button></div></form>`;
-  } else if (oz) right = tmOpen(TL_T[openId], oz[1], act, oz[2] || {});
+  } else if (oz) right = tmOpen(TL_T[openId], oz[1], act, oz[2] || {})
+    .replace('class="tm-xterm"', 'class="tm-xterm" tabindex="0" aria-label="Terminal"')
+    .replace('class="tm-screen"', 'class="tm-screen" tabindex="0" aria-label="Terminal output"')
+    .replace('</span><button class="dbtn small', '</span><button class="dbtn small" type="button" title="Focus terminal (Shift+Esc)" data-tl-focus>Focus</button><button class="dbtn small');
   else right = `<div class="cc-conn"><b>${wait ? "Loading…" : empty ? "No terminals yet" : "Pick a terminal"}</b><button class="dbtn pri" data-tl="new" data-dact="dset:tlm:">New terminal</button></div>`;
   const head = `<div class="cc-top"><h2>Terminals</h2><small>${old || wait ? "" : empty ? "None open" : "3 on 2 machines"}</small>
       <span class="tools">${old ? "" : '<button class="dbtn pri small" data-tl="new" data-dact="dset:tlm:">New terminal</button>'}</span></div>`;
@@ -61,6 +73,10 @@ D.dTerminals = () => {
   return ccWin(ccSide("terminals"), `${head}<div class="cc-view tl-view">${view}</div>`);
 };
 document.getElementById("desk").addEventListener("click", e => {
+  if (e.target.closest("[data-tl-focus]")) {
+    document.querySelector(".tl .tm-xterm, .tl .tm-screen")?.focus();
+    return;
+  }
   const b = e.target.closest("[data-tl]");
   if (!b) return;
   S.d.tl = b.dataset.tl; render();
@@ -95,3 +111,12 @@ D.dSync = () => {
 };
 VARIANTS.dSync = [["Conflicts", "default"], ["All in sync", "insync"], ["Nothing synced", "none"]].map(([l, k]) => [l, () => { S.d.sy = k; render(); }, () => (S.d.sy || "default") === k]);
 DESK_SCREENS.find(g => g.group === "Command center").items.push(["dSync", "Sync across projects", "CommandCenterWindow, SyncPage"]);
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+  const terminal = document.querySelector(".tl .tm-xterm, .tl .tm-screen");
+  if (!terminal) return;
+  e.preventDefault();
+  e.stopPropagation();
+  terminal.focus();
+}, true);
