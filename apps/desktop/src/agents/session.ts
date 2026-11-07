@@ -420,7 +420,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   void refreshMoves().then(drawMove);
   const msg = $<HTMLTextAreaElement>("#agmsg");
   if (msg) {
-    composeField(msg, { images: agentAttach, grow: 156 });
+    composeField(msg, { images: agentAttach, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
     bindMentionMenu(msg);
   }
   drawAgentAttached();
