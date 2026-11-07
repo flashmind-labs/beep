@@ -1109,7 +1109,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 /* Harness badges show each agent's own logo; OpenCode keeps letters. */
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }
-.agc-menuopen > .dhints { visibility: hidden }
+.agc-menuopen > .agkeys { visibility: hidden }
 /* Composers (chat/compose.ts): a long paste is a pill, the part sent as code
    has a dim outline. Both are drawn on a layer behind the field's own text. */
 .cx-field { position: relative; z-index: 1 }
@@ -1315,3 +1315,17 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agrunningrow .r { display: flex; gap: 6px; align-items: center }
 .agrunningrow .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
 .agrunningerror { padding: 8px }
+
+/* Session shortcuts under the composer. */
+.agkeys { position: relative; flex: none; min-width: 0 }
+.agkeys .dhints.slim { padding-right: 84px }
+.agkeys .dhints span.lo { display: inline-flex }
+.agkeys details > summary { position: absolute; right: 16px; top: 2px; cursor: pointer; color: var(--dim); font-size: 11px; list-style: none }
+.agkeys details > summary::-webkit-details-marker { display: none }
+.agkeys details > summary:hover, .agkeys details > summary:focus-visible { color: var(--fg) }
+.agkeys details[open] > summary { font-size: 0 }
+.agkeys details[open] > summary::after { content: "Show less"; font-size: 11px }
+.agkeys-list { max-height: 220px; overflow: auto; padding: 8px 16px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 16px; color: var(--dim); font-size: 11px }
+.agkeys-list section { display: grid; align-content: start; gap: 6px }
+.agkeys-list section > b { color: var(--fg) }
+.agkeys-list section > span { display: flex; align-items: center; gap: 6px }
