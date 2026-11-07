@@ -592,9 +592,10 @@ impl Reach<'_> {
             .agents
             .children_of(self.who)
             .iter()
-            .map(|child| {
-                let id = Agents::name_of(child);
-                ChildView::of(&child.info(), &id).named(&here)
+            .filter_map(|child| {
+                let live = child.live.borrow();
+                let id = live.agent_session.as_deref()?;
+                Some(ChildView::of(&live.info, id).named(&here))
             })
             .collect();
         // One whose start got no answer has no id to ask for yet.
