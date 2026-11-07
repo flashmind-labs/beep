@@ -49,6 +49,11 @@ class StayConnectedService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!NotifyPrefs.on(this, NotifyPrefs.STAY)) {
+            // Android restarted it after the user turned Stay connected off.
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome).setColor(LINEAR_ACCENT.toInt())

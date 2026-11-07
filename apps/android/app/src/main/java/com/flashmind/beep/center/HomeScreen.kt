@@ -9,6 +9,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -58,6 +59,7 @@ private fun place(session: MachineSession): String =
 
 private fun money(value: Double) = String.format(Locale.ROOT, "$%.2f", value)
 
+@OptIn(ExperimentalMaterial3Api::class)
 /** The first tab: machines, what waits on the user, what runs, open PRs and issues. */
 @Composable
 internal fun HomeScreen(repository: ChatRepository, model: HomeModel, openBell: () -> Unit, openSettings: () -> Unit,
@@ -69,12 +71,14 @@ internal fun HomeScreen(repository: ChatRepository, model: HomeModel, openBell: 
     var showUsage by remember { mutableStateOf(false) }
     val owner = LocalLifecycleOwner.current
 
+    var refreshing by remember { mutableStateOf(false) }
     suspend fun load() = coroutineScope {
+        val started = System.currentTimeMillis().toULong()
         val refreshed = async { model.refresh() }
         val spend = async { try { repository.workspaceApi().codingUsage() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } }
         refreshed.await()
         spend.await()?.let { usage = it }
-        AskCenter.keepAsks(context, model.waiting)
+        if (model.home != null && model.error.isEmpty()) AskCenter.keepAsks(context, model.waiting, started)
     }
     LaunchedEffect(owner) {
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -92,6 +96,7 @@ internal fun HomeScreen(repository: ChatRepository, model: HomeModel, openBell: 
             CcIconButton(Icons.Outlined.Notifications, "Notifications", model.badge, openBell)
             CcIconButton(Icons.Outlined.Settings, "Settings", onClick = openSettings)
         }
+        PullToRefreshBox(refreshing, { scope.launch { refreshing = true; try { load() } finally { refreshing = false } } }) {
         CcBody {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 data?.machines.orEmpty().forEach { CcStripCell(it.name, stripDetail(it), it.online, openMachines) }
@@ -108,6 +113,7 @@ internal fun HomeScreen(repository: ChatRepository, model: HomeModel, openBell: 
                     HomeTab.Machines -> MachineTable(data.machines)
                 }
             }
+        }
         }
     }
     if (showUsage) usage?.let { UsageSheet(it) { showUsage = false } }
@@ -148,7 +154,6 @@ private fun Overview(model: HomeModel, openSession: (MachineSession) -> Unit, op
 
 @Composable
 private fun NeedRow(model: HomeModel, need: Need, openSession: (MachineSession) -> Unit, openProject: (String) -> Unit, open: (String) -> Unit) {
-    val scope = rememberCoroutineScope()
     when (need) {
         is Need.Ask -> {
             val session = need.session
@@ -160,7 +165,7 @@ private fun NeedRow(model: HomeModel, need: Need, openSession: (MachineSession) 
                 Column(Modifier.padding(start = 11.dp, end = 11.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     question.options.forEach { option ->
                         CcButton(option.name, if (option.id == primary) CcButtonStyle.Primary else CcButtonStyle.Plain, leading = true) {
-                            scope.launch { model.answer(session, option) }
+                            model.submit(session, option)
                         }
                     }
                 }
