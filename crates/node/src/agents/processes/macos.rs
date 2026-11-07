@@ -67,7 +67,7 @@ pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
                 group: info.pbi_pgid,
                 birth: birth(&info),
                 started_at: info.pbi_start_tvsec,
-                command: command.trim().to_owned(),
+                command: command.trim().into(),
             },
         );
     }
