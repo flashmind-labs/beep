@@ -8,7 +8,7 @@
 //! child, from the link the caller passes, so a chain across machines
 //! cannot get around them.
 
-use super::{AGENT_ID_WAIT, Agents, Begin, Command, Session, known, live::Live, mcp::children};
+use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
 use crate::{AsyncMutex, link::Membership};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{Effort, ParentLink, SessionInfo, Status};
@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
-use tokio::{sync::watch, time::timeout};
+use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 
 mod notes;
@@ -281,13 +281,7 @@ impl Agents {
                 .map_err(|e| format!("{e:#}"))?
         };
         self.watch_parent(&session);
-        // The child goes by the agent's own id once it has one.
-        let mut live = session.live.clone();
-        let named =
-            live.wait_for(|live| live.agent_session.is_some() || live.status() == Status::Ended);
-        if timeout(AGENT_ID_WAIT, named).await.is_err() {
-            log::info!("child session {} goes by its short id", session.id);
-        }
+        session.named_info().await?;
         Ok(session)
     }
 

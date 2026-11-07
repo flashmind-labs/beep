@@ -79,7 +79,10 @@ export function beepCall(title: string): BeepCall | null {
   let m: RegExpExecArray | null;
   if (rest === "List machines") return call("Listed machines", "Listing machines");
   if ((m = /^Run on (.+?)(?:: ([\s\S]*))?$/.exec(rest))) return call("Ran on", "Running on", { machine: m[1], detail: m[2] });
-  if ((m = /^Start (\S+|an agent) on (.+?)(?:: ([\s\S]*))?$/.exec(rest))) return call(`Started ${m[1]} on`, `Starting ${m[1]} on`, { machine: m[2], detail: m[3] });
+  if ((m = /^Start (\S+ agent|an agent|\S+)(?: on (.+?))?(?:: ([\s\S]*))?$/.exec(rest))) {
+    const on = m[2] ? " on" : "";
+    return call(`Started ${m[1]}${on}`, `Starting ${m[1]}${on}`, { machine: m[2], detail: m[3] });
+  }
   if ((m = /^Sync (.+?)(?: to (.+))?$/.exec(rest))) return call("Synced", "Syncing", { detail: m[1], machine: m[2] });
   if ((m = /^Send (\d+) (files?) to (.+)$/.exec(rest))) return call("Sent files to", "Sending files to", { machine: m[3], files: `${m[1]} ${m[2]}` });
   if ((m = /^Check job ?(.*)$/.exec(rest))) return call("Checked job", "Checking job", { detail: m[1] });

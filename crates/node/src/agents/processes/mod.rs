@@ -10,6 +10,8 @@ use std::{
 use tokio::time::{Instant, interval};
 use tokio_util::task::AbortOnDropHandle;
 
+mod snapshot;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -31,7 +33,7 @@ struct Process {
     /// The OS creation time, kept at its original precision to detect pid reuse.
     birth: u64,
     started_at: u64,
-    command: String,
+    command: Arc<str>,
 }
 
 /// The coding agents' own programs, never a command they ran.
@@ -127,16 +129,18 @@ impl Processes {
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 ticks.tick().await;
-                if let Err(e) = processes.refresh().await {
+                if let Err(e) = processes.refresh(false).await {
                     log::debug!("could not read session processes: {e:#}");
                 }
             }
         }))
     }
 
-    async fn refresh(self: &Arc<Self>) -> anyhow::Result<Vec<Process>> {
+    async fn refresh(self: &Arc<Self>, fresh: bool) -> anyhow::Result<Vec<Process>> {
         let _reading = self.reading.lock().await;
-        let all = os::snapshot().await?;
+        // A new root must not take a cached entry left by a reused pid.
+        let first = crate::lock(&self.known).root_birth.is_none();
+        let all = snapshot::read(fresh || first).await?;
         let mut observed = crate::lock(&self.known);
         if observed.root_birth.is_none() {
             observed.root_birth = all.get(&self.root).map(|p| p.birth);
@@ -176,7 +180,7 @@ impl Processes {
 
     pub(super) async fn list(self: &Arc<Self>) -> anyhow::Result<Vec<RunningProcess>> {
         let processes: Vec<_> = self
-            .refresh()
+            .refresh(false)
             .await?
             .into_iter()
             .filter(|p| !p.helper())
@@ -198,7 +202,7 @@ impl Processes {
 
     pub(super) async fn stop(self: &Arc<Self>, pid: u32) -> anyhow::Result<()> {
         let process = self
-            .refresh()
+            .refresh(true)
             .await?
             .into_iter()
             .find(|p| p.pid == pid && !p.helper())
@@ -207,7 +211,7 @@ impl Processes {
     }
 
     pub(super) async fn close(self: &Arc<Self>) {
-        match self.refresh().await {
+        match self.refresh(true).await {
             Ok(processes) => {
                 if let Err(e) = stop(&processes).await {
                     log::warn!("could not stop session processes: {e:#}");

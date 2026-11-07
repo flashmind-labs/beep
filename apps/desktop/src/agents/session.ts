@@ -477,6 +477,12 @@ function agentClick(e: MouseEvent) {
   if (closing) return void closeRow(closing);
   const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
   if (stopping) return void stopKid(stopping);
+  const prompt = target.closest<HTMLElement>("#agbody [data-prompt]");
+  if (prompt) {
+    const at = Number(prompt.dataset.prompt);
+    AG.steps.set(at, prompt.getAttribute("aria-expanded") !== "true");
+    return drawAgentBody(clickedRow(prompt));
+  }
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
@@ -527,9 +533,6 @@ function agentClick(e: MouseEvent) {
   const thought = target.closest<HTMLElement>("#agbody [data-thought]");
   if (thought && AG.open) {
     const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
-    // A thought streams open; once the reader folds or opens it, it keeps
-    // their choice when it ends.
-    m.touched.add(at);
     if (toggleThought(thought)) m.thoughts.add(at);
     else m.thoughts.delete(at);
     return;

@@ -31,7 +31,7 @@ const BARE_WORKTREE: &str = "Beep: if you will change files and this folder is a
 
 /// One part of a user entry's text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Part<'a> {
+pub enum Part<'a> {
     /// What the user wrote.
     User(&'a str),
     /// What Beep told the agent.
@@ -77,7 +77,7 @@ pub(crate) fn from_child(id: &str, name: &str, state: &str, text: &str) -> Strin
 }
 
 /// The parts of `text`, in order; empty user parts are left out.
-pub(crate) fn parts(text: &str) -> Vec<Part<'_>> {
+pub fn parts(text: &str) -> Vec<Part<'_>> {
     let mut parts = Vec::new();
     let mut rest = text;
     loop {
