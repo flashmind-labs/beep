@@ -104,3 +104,53 @@ test("nothing draws or asks after closing", async t => {
   assert.deepEqual(shown, ["deploy: ", "deploys: "]);
   assert.equal(asks.length, 1);
 });
+
+test("local prompt matches draw while server chat search is still waiting", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const prompts = finder(), chats = finder();
+  const { shown, draw } = drawn();
+  const search = new PaletteSearch([prompts.find, chats.find], draw);
+  search.type("retry");
+  t.mock.timers.tick(DEBOUNCE_MS);
+  await prompts.asks[0].answer(["prompt"]);
+  assert.equal(shown.at(-1), "retry: prompt");
+  await chats.asks[0].answer(["chat"]);
+  assert.equal(shown.at(-1), "retry: prompt,chat");
+  search.stop();
+});
+
+test("an index update reruns the same query and rejects an earlier snapshot", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { asks, find } = finder();
+  const { shown, draw } = drawn();
+  const search = new PaletteSearch(find, draw);
+  search.type("retry");
+  t.mock.timers.tick(DEBOUNCE_MS);
+  search.requery();
+  t.mock.timers.tick(DEBOUNCE_MS);
+  await asks[0].answer(["old"]);
+  assert.equal(asks.length, 2);
+  await asks[1].answer(["new"]);
+  assert.equal(shown.at(-1), "retry: new");
+  assert.ok(shown.every(line => !line.includes("old")));
+  search.stop();
+});
+
+test("a burst of indexing updates keeps existing matches and does not postpone search", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { asks, find } = finder();
+  const { shown, draw } = drawn();
+  const search = new PaletteSearch(find, draw);
+  search.type("retry");
+  t.mock.timers.tick(DEBOUNCE_MS);
+  await asks[0].answer(["cached"]);
+  search.requery();
+  t.mock.timers.tick(DEBOUNCE_MS / 2);
+  search.requery();
+  assert.equal(shown.at(-1), "retry: cached");
+  t.mock.timers.tick(DEBOUNCE_MS / 2);
+  assert.equal(asks.length, 2);
+  await asks[1].answer(["updated"]);
+  assert.equal(shown.at(-1), "retry: updated");
+  search.stop();
+});

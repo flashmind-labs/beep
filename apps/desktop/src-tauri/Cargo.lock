@@ -467,6 +467,7 @@ dependencies = [
  "pulldown-latex",
  "qrcode",
  "rmp-serde",
+ "rusqlite",
  "secrecy",
  "serde",
  "serde_bytes",

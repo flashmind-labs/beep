@@ -75,6 +75,7 @@ export function initPalette(window_: PaletteDeps) {
   readIndex();
   // A window with the palette shut reads it the next time it opens.
   listen("palette-changed", () => { if (root) readIndex(); else behind = true; });
+  listen("palette-text-changed", () => searching?.requery());
 }
 
 /// `text` with the first match of `q` wrapped in <mark>; never markup.
@@ -115,7 +116,10 @@ export function openPalette() {
   input.focus();
   drawnQuery = "";
   searching = new PaletteSearch<Entry<AgentRow>>(
-    query => invoke<Entry<AgentRow>[]>("center_find_text", { query }),
+    [
+      query => invoke<Entry<AgentRow>[]>("center_find_prompts", { query }),
+      query => invoke<Entry<AgentRow>[]>("center_find_text", { query }),
+    ],
     (q, text) => {
       // A redraw of the same query keeps the row the user is on.
       const on = q === drawnQuery ? hits[sel] : undefined;
@@ -160,13 +164,14 @@ function draw(q: string) {
 }
 
 function row(hit: Hit, i: number, q: string) {
-  const note = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? el("small", "", hit.detail) : null;
+  const note = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? el("small", "", ...marked(hit.detail, q)) : null;
+  const snippet = hit.snippet ? el("small", "", ...marked(hit.snippet, q)) : null;
   const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? el("span", "w", hit.detail) : null;
   // A research is a chat; it keeps its paper's icon here.
   const name = ICON_OF[hit.kind === "chat" && deps!.research(hit.id) ? "research" : hit.kind] ?? hit.kind;
   const markup = name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
   const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(markup);
-  const b = el("button", "it", lead, el("span", "t", el("span", "", ...marked(hit.title, q)), note), side);
+  const b = el("button", "it", lead, el("span", "t", el("span", "", ...marked(hit.title, q)), note, snippet), side);
   b.type = "button";
   b.tabIndex = -1;
   b.setAttribute("role", "option");

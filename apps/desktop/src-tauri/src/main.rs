@@ -328,6 +328,7 @@ fn main() {
             notices::work::answer_work,
             notices::work::list_questions,
             palette::index::center_find_text,
+            palette::prompts::center_find_prompts,
             palette::lists::center_palette_index,
             palette::lists::center_palette_refresh,
             platform::editors::editors,
@@ -535,15 +536,17 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         dir.join("views.json"),
         env!("CARGO_PKG_VERSION"),
     ));
-    // The server's chats and views are not kept while nothing shows them. The server holds the
-    // originals; Home and the project pages fill again from the mesh. The palette reads the
-    // views, so they go before it loads.
+    // Hide server views while keeping the mesh's saved search lists for
+    // Cmd+K, before any machine has answered.
     if !beep::SERVER_ENABLED {
         chats.clear();
-        views.clear();
+        views.keep_local();
     }
     app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(palette::PaletteCache::load(&views)?);
+    app.manage(Arc::new(palette::prompts::PromptIndex::open(
+        &dir.join("search.sqlite"),
+    )?));
     app.manage(views);
     let endpoint = tauri::async_runtime::block_on(bind_endpoint(
         beep::identity::secret_key(&identity),

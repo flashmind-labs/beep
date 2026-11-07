@@ -1,6 +1,6 @@
 //! The views the window last drew from the server, in one file, so a new
 //! window shows them at once. Only what the server lists goes in, never a
-//! key; a file of another format or app version is dropped and rewritten.
+//! key. A new app version keeps only the typed local search lists.
 
 use crate::{
     beep::{Service, state::LinkState},
@@ -154,6 +154,16 @@ impl ViewCache {
         Ok(())
     }
 
+    /// Keeps the mesh's search data when server views are hidden. These
+    /// typed lists are also readable across app updates.
+    pub fn keep_local(&self) {
+        self.lock()
+            .retain(|view, _| matches!(view, View::Palette | View::AgentSessions));
+        if let Err(e) = self.save() {
+            log::warn!("saving the local views: {e:#}");
+        }
+    }
+
     /// Forgets every view, when this computer starts over.
     pub fn clear(&self) {
         self.lock().clear();
@@ -181,7 +191,7 @@ fn read(path: &Path, app: &str) -> anyhow::Result<BTreeMap<View, Value>> {
     };
     let file: CacheFile =
         serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", path.display()))?;
-    if file.format != FORMAT || file.app != app {
+    if file.format != FORMAT {
         bail!(
             "{} is from format {} of app {}",
             path.display(),
@@ -189,7 +199,11 @@ fn read(path: &Path, app: &str) -> anyhow::Result<BTreeMap<View, Value>> {
             file.app
         );
     }
-    Ok(file.views)
+    let mut views = file.views;
+    if file.app != app {
+        views.retain(|view, _| matches!(view, View::Palette | View::AgentSessions));
+    }
+    Ok(views)
 }
 
 /// `result`, kept as the latest `view` when it is an answer.
@@ -317,17 +331,41 @@ mod tests {
     }
 
     #[test]
-    fn another_version_is_dropped() {
+    fn another_version_keeps_only_local_search_lists() {
         let path = path();
         let cache = ViewCache::load(path.clone(), "1.0.0");
         cache.put(View::Home, json!({}));
+        cache.put(View::Palette, json!({"projects": []}));
+        cache.put(View::AgentSessions, json!([]));
         cache.write_unsaved();
-        assert!(ViewCache::load(path.clone(), "1.0.1").views().is_empty());
+        let upgraded = ViewCache::load(path.clone(), "1.0.1");
+        assert_eq!(upgraded.get(View::Home), None);
+        assert_eq!(upgraded.get(View::Palette), Some(json!({"projects": []})));
+        assert_eq!(upgraded.get(View::AgentSessions), Some(json!([])));
 
         let old = json!({"format": FORMAT + 1, "app": "1.0.0", "views": {"home": {}}});
         fs::write(&path, old.to_string()).expect("the file is written");
         assert!(ViewCache::load(path.clone(), "1.0.0").views().is_empty());
         cache.clear();
+    }
+
+    #[test]
+    fn disabling_server_views_preserves_search_across_restart() {
+        let path = path();
+        let cache = ViewCache::load(path.clone(), "0.2.0");
+        cache.put(View::Home, json!({"projects": []}));
+        cache.put(
+            View::Palette,
+            json!({"projects": [{"project": "acme/widget"}]}),
+        );
+        cache.put(View::AgentSessions, json!([]));
+        cache.write_unsaved();
+        cache.keep_local();
+        let reopened = ViewCache::load(path, "0.2.0");
+        assert_eq!(reopened.get(View::Home), None);
+        assert_eq!(reopened.get(View::Palette), cache.get(View::Palette));
+        assert_eq!(reopened.get(View::AgentSessions), Some(json!([])));
+        reopened.clear();
     }
 
     #[test]

@@ -1,70 +1,82 @@
-// What the Cmd+K palette draws when. What the window holds draws at once;
-// chat text is searched by the app, a moment after typing stops.
+// Local lists draw immediately. Independent text indexes answer after
+// typing stops, so a slow source cannot hold back another source's hits.
 
 export const DEBOUNCE_MS = 120;
-/// Chat text is searched from this many characters.
 const MIN_TEXT_QUERY = 2;
 
 export type TextFinder<T> = (query: string) => Promise<T[]>;
 export type Drawer<T> = (query: string, text: T[]) => void;
 
+type Source<T> = { find: TextFinder<T>; text: T[]; asking: boolean };
+
 export class PaletteSearch<T> {
   private query = "";
-  /// The chats holding the query in their text, as far as known.
-  private text: T[] = [];
+  private version = 0;
+  private sources: Source<T>[];
   private timer: ReturnType<typeof setTimeout> | undefined;
-  /// One search of chat text at a time: it walks every message.
-  private asking = false;
   private stopped = false;
-
-  private findText: TextFinder<T>;
   private draw: Drawer<T>;
 
-  constructor(findText: TextFinder<T>, draw: Drawer<T>) {
-    this.findText = findText;
+  constructor(finders: TextFinder<T> | TextFinder<T>[], draw: Drawer<T>) {
+    this.sources = (Array.isArray(finders) ? finders : [finders])
+      .map(find => ({ find, text: [], asking: false }));
     this.draw = draw;
   }
 
-  /// The query changed.
   type(query: string) {
+    if (this.stopped) return;
     this.query = query;
-    this.text = [];
-    this.draw(query, this.text);
+    this.version++;
+    for (const source of this.sources) source.text = [];
+    this.refresh();
     clearTimeout(this.timer);
     this.timer = undefined;
     if (query.trim().length >= MIN_TEXT_QUERY) {
-      this.timer = setTimeout(() => { this.timer = undefined; this.ask(); }, DEBOUNCE_MS);
+      this.timer = setTimeout(() => {
+        this.timer = undefined;
+        for (const source of this.sources) this.ask(source);
+      }, DEBOUNCE_MS);
     }
   }
 
-  /// What the window holds changed: draw the same query again.
+  /// The lists changed; keep the text matches already found.
   refresh() {
-    if (!this.stopped) this.draw(this.query, this.text);
+    if (!this.stopped) this.draw(this.query, this.sources.flatMap(source => source.text));
   }
 
-  /// The palette closed: nothing more draws.
+  /// A background index changed, even if the query did not.
+  requery() {
+    if (this.stopped || this.timer !== undefined || this.query.trim().length < MIN_TEXT_QUERY) return;
+    // Coalesce indexing bursts without postponing the next search or
+    // clearing matches already on screen.
+    this.version++;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      for (const source of this.sources) this.ask(source);
+    }, DEBOUNCE_MS);
+  }
+
   stop() {
     this.stopped = true;
     clearTimeout(this.timer);
   }
 
-  private async ask() {
-    if (this.stopped || this.asking) return;
-    const query = this.query;
-    this.asking = true;
+  private async ask(source: Source<T>) {
+    if (this.stopped || source.asking) return;
+    const { query, version } = this;
+    source.asking = true;
     let text: T[] | null = null;
     try {
-      text = await this.findText(query);
+      text = await source.find(query);
     } catch (e) {
-      console.warn("searching chat text:", e);
+      console.warn("searching palette text:", e);
     }
-    this.asking = false;
+    source.asking = false;
     if (this.stopped) return;
-    if (query === this.query) {
-      if (text) { this.text = text; this.draw(query, text); }
-      // Typed while this one ran, and its wait is over: search what it says now.
+    if (version === this.version) {
+      if (text) { source.text = text; this.refresh(); }
     } else if (this.timer === undefined && this.query.trim().length >= MIN_TEXT_QUERY) {
-      this.ask();
+      this.ask(source);
     }
   }
 }

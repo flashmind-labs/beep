@@ -25,7 +25,7 @@ fn last_part(path: &str) -> Option<&str> {
 }
 
 /// True when `cwd` is `folder` or inside it.
-fn within(cwd: &str, folder: &str) -> bool {
+pub(super) fn within(cwd: &str, folder: &str) -> bool {
     let folder = folder.trim_end_matches(['/', '\\']);
     !folder.is_empty()
         && cwd
@@ -142,35 +142,37 @@ pub(super) fn session_entries(lists: &PaletteLists, imported: &[ImportedProject]
     sessions.sort_by_key(|s| Reverse(s.last_activity));
     sessions
         .into_iter()
-        .map(|s| {
-            let project = session_project(s, imported);
-            let harness = harness_name(&s.agent);
-            let title = s
-                .title
-                .as_deref()
-                .filter(|t| !t.trim().is_empty())
-                .or(project)
-                .unwrap_or(harness);
-            let keys: Vec<&str> = [
-                Some(title),
-                project,
-                Some(harness),
-                Some(s.agent.as_str()),
-                Some(s.machine_name.as_str()),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            let detail = [Some(harness), project, Some(s.machine_name.as_str())]
-                .into_iter()
-                .flatten()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" · ");
-            let id = format!("{} {}", s.machine_id, s.id);
-            let mut entry = Entry::new(HitKind::AgentSession, id, title.to_owned(), detail, &keys);
-            entry.session = Some(SessionRow::from(s.clone()));
-            entry
-        })
+        .map(|s| session_entry(s, imported))
         .collect()
+}
+
+pub(super) fn session_entry(s: &MachineSession, imported: &[ImportedProject]) -> Entry {
+    let project = session_project(s, imported);
+    let harness = harness_name(&s.agent);
+    let title = s
+        .title
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+        .or(project)
+        .unwrap_or(harness);
+    let keys: Vec<&str> = [
+        Some(title),
+        project,
+        Some(harness),
+        Some(s.agent.as_str()),
+        Some(s.machine_name.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let detail = [Some(harness), project, Some(s.machine_name.as_str())]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let id = format!("{} {}", s.machine_id, s.id);
+    let mut entry = Entry::new(HitKind::AgentSession, id, title.to_owned(), detail, &keys);
+    entry.session = Some(SessionRow::from(s.clone()));
+    entry
 }
