@@ -1,4 +1,8 @@
 name: Beep
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: 1.99.3
 options:
   bundleIdPrefix: com.flashmind
   deploymentTarget:
@@ -14,6 +18,7 @@ targets:
     scheme:
       testTargets: [BeepTests]
     dependencies:
+      - package: SwiftTerm
       - target: BeepWidget
       - target: BeepNotifications
     sources:
@@ -86,6 +91,7 @@ targets:
     sources:
       - path: Tests/SkinTests.swift
       - path: Tests/HomeStateTests.swift
+      - path: Tests/TerminalKeysTests.swift
     dependencies:
       - target: Beep
     settings:
