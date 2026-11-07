@@ -79,7 +79,7 @@ export function registerProviders(deps: ProvidersDeps) {
     }
     deps.redrawTop();
     draw();
-    if (st.machine && !st.views.has(st.machine)) load(false);
+    if (st.machine) void load(false);
   }
 
   async function load(refresh: boolean) {

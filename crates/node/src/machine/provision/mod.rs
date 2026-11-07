@@ -14,7 +14,7 @@ use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     ForgejoLogin, LinkRx, LinkTx, MachineCredentials,
-    tool_update::{Reply, Request, Tool},
+    tool_update::{Available, Check, Reply, Request, Tool},
 };
 use std::{
     env,
@@ -22,8 +22,12 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::Duration,
 };
-use tokio::{sync::Notify, task::spawn_blocking};
+use tokio::{
+    sync::{Notify, watch},
+    task::spawn_blocking,
+};
 use tokio_util::task::AbortOnDropHandle;
 
 /// What the node readies on the machine, made once per node process.
@@ -41,6 +45,8 @@ pub struct Provision {
     /// Held while a tool is installed, so two installs never share a
     /// download folder.
     installing: AsyncMutex<()>,
+    updates: watch::Sender<Option<Vec<Available>>>,
+    recheck: Notify,
 }
 
 impl Provision {
@@ -53,6 +59,8 @@ impl Provision {
             changed: Notify::new(),
             teacli: AsyncMutex::new(()),
             installing: AsyncMutex::new(()),
+            updates: watch::channel(None).0,
+            recheck: Notify::new(),
         };
         spawn_env::set_path(vec![provision.bin()]);
         Arc::new(provision)
@@ -74,6 +82,9 @@ impl Provision {
     pub fn start(self: &Arc<Self>) -> AbortOnDropHandle<()> {
         let provision = self.clone();
         AbortOnDropHandle::new(tokio::spawn(async move {
+            let checks = provision.clone();
+            let checks = tokio::spawn(async move { checks.check_loop().await });
+            let _checks = AbortOnDropHandle::new(checks);
             // Tokens wait for the server: a node that stopped while they
             // were revoked must not keep using them.
             provision.configure_teacli().await;
@@ -86,8 +97,66 @@ impl Provision {
             if provision.install_tools().await {
                 provision.configure_teacli().await;
                 provision.changed.notify_one();
+                provision.recheck.notify_one();
             }
+            std::future::pending::<()>().await;
         }))
+    }
+
+    async fn check_loop(&self) {
+        let releases = beep_mesh::machine::releases::ToolReleases::default();
+        let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        interval.tick().await;
+        loop {
+            let (installed, _) =
+                crate::machine::env::probe_tools(crate::machine::env::ToolScope::Updatable).await;
+            let mut updates = Vec::new();
+            for tool in Tool::ALL {
+                let name: &str = tool.into();
+                let Some(version) = installed
+                    .iter()
+                    .find(|item| item.name == name)
+                    .and_then(|item| item.version.as_ref())
+                else {
+                    continue;
+                };
+                if let Some(latest) = releases.latest(tool).await
+                    && beep_proto::node::harness::is_newer(&latest, version)
+                {
+                    updates.push(Available {
+                        tool,
+                        version: version.clone(),
+                        latest,
+                    });
+                }
+            }
+            self.updates.send_replace(Some(updates));
+            tokio::select! {
+                _ = interval.tick() => {},
+                _ = self.recheck.notified() => {},
+            }
+        }
+    }
+
+    pub(crate) async fn serve_tool_checks(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+        if rx.recv::<Check>().await?.is_some() {
+            let mut updates = self.updates.subscribe();
+            let available = tokio::time::timeout(Duration::from_secs(55), async {
+                loop {
+                    if let Some(available) = updates.borrow_and_update().clone() {
+                        break available;
+                    }
+                    if updates.changed().await.is_err() {
+                        break Vec::new();
+                    }
+                }
+            })
+            .await
+            .unwrap_or_default();
+            tx.send(&available).await?;
+        }
+        tx.finish().await
     }
 
     /// Whether any tool was installed.
@@ -139,6 +208,7 @@ impl Provision {
             self.configure_teacli().await;
         }
         self.changed.notify_one();
+        self.recheck.notify_one();
         Ok(())
     }
 
@@ -241,6 +311,29 @@ fn install_skills(node_dir: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use beep_proto::{SecretText, node::EnvSecret};
+
+    #[tokio::test]
+    async fn tool_check_waits_for_the_first_result_and_returns_it() {
+        let _env = spawn_env::TEST_LOCK.lock().await;
+        let dir = tempfile::tempdir().unwrap();
+        let provision = Provision::new(dir.path());
+        let link = beep_proto::node::local_link();
+        let (mut tx, mut rx) = link.caller;
+        let (node_tx, node_rx) = link.node;
+        let server = provision.clone();
+        let serving = tokio::spawn(async move { server.serve_tool_checks(node_tx, node_rx).await });
+        tx.send(&Check {}).await.unwrap();
+        provision.updates.send_replace(Some(vec![Available {
+            tool: Tool::Flsh,
+            version: "0.1.0".into(),
+            latest: "0.2.0".into(),
+        }]));
+        let updates = rx.recv::<Vec<Available>>().await.unwrap().unwrap();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].tool, Tool::Flsh);
+        assert_eq!(updates[0].latest, "0.2.0");
+        serving.await.unwrap().unwrap();
+    }
 
     #[tokio::test]
     async fn forgetting_removes_the_tokens_from_disk() {

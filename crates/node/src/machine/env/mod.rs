@@ -46,33 +46,8 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
 ];
 
 pub async fn probe() -> EnvReport {
-    let mut tools = Vec::new();
-    // Found as the processes the node starts find them, with the tools it
-    // installed.
-    let path = spawn_env::search_path();
+    let (tools, found) = probe_tools(ToolScope::All).await;
     let home = dirs::home_dir();
-    let mut found: Vec<(&str, PathBuf)> = Vec::new();
-    for (name, args) in KNOWN_TOOLS {
-        // Also in the install folders the agents are started from, which a
-        // service's bare `PATH` leaves out.
-        let program = which::which_in(name, path.as_ref(), "/")
-            .ok()
-            .or_else(|| locate::fallback(name, home.as_deref()?));
-        if let Some(program) = program {
-            let version = match ran(&program, args).await {
-                // A stub that only says what is missing, like `xcodebuild`
-                // with no Xcode, is not the tool.
-                Some((false, _)) => continue,
-                Some((true, text)) => first_line(&text).map(|line| tool_version(name, &line)),
-                None => None,
-            };
-            tools.push(ToolInfo {
-                name: (*name).to_owned(),
-                version,
-            });
-            found.push((name, program));
-        }
-    }
     let at = |name: &str| {
         found
             .iter()
@@ -146,6 +121,46 @@ pub async fn probe() -> EnvReport {
         // Filled in by the status stream, which knows the installs.
         adapters: Vec::new(),
     }
+}
+
+pub(crate) enum ToolScope {
+    All,
+    Updatable,
+}
+
+/// The tools available to node processes and their executable paths.
+pub(crate) async fn probe_tools(scope: ToolScope) -> (Vec<ToolInfo>, Vec<(&'static str, PathBuf)>) {
+    let mut tools = Vec::new();
+    // Found as the processes the node starts find them, with the tools it
+    // installed.
+    let path = spawn_env::search_path();
+    let home = dirs::home_dir();
+    let mut found: Vec<(&str, PathBuf)> = Vec::new();
+    for (name, args) in KNOWN_TOOLS {
+        if matches!(scope, ToolScope::Updatable) && !matches!(*name, "gh" | "teacli" | "flsh") {
+            continue;
+        }
+        // Also in the install folders the agents are started from, which a
+        // service's bare `PATH` leaves out.
+        let program = which::which_in(name, path.as_ref(), "/")
+            .ok()
+            .or_else(|| locate::fallback(name, home.as_deref()?));
+        if let Some(program) = program {
+            let version = match ran(&program, args).await {
+                // A stub that only says what is missing, like `xcodebuild`
+                // with no Xcode, is not the tool.
+                Some((false, _)) => continue,
+                Some((true, text)) => first_line(&text).map(|line| tool_version(name, &line)),
+                None => None,
+            };
+            tools.push(ToolInfo {
+                name: (*name).to_owned(),
+                version,
+            });
+            found.push((name, program));
+        }
+    }
+    (tools, found)
 }
 
 /// What `program args` printed, stdout then stderr, when it ran in time.

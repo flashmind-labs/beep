@@ -108,6 +108,7 @@ pub async fn serve(
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
     let mut offers = Offers::local(&state.agents, provision);
+    let _harness_checks = offers.agents.start_harness_checks();
     // The ACP adapters an agent found here lacks, installed in the node's
     // folder; the work stops with the node.
     let _adapters = offers
@@ -399,7 +400,7 @@ impl Offers {
         .chain(
             self.provision
                 .iter()
-                .flat_map(|_| [tool_update::PROTOCOL, tool_update::FLSH])
+                .flat_map(|_| [tool_update::PROTOCOL, tool_update::FLSH, tool_update::CHECK])
                 .map(str::to_owned),
         )
         .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
@@ -545,6 +546,10 @@ pub(crate) async fn serve_open(
         sign_in::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             crate::machine::sign_in::serve(tx, rx).await
+        }
+        tool_update::CHECK if let Some(provision) = &offers.provision => {
+            tx.send(&Opened::Ready {}).await?;
+            provision.serve_tool_checks(tx, rx).await
         }
         tool_update::PROTOCOL | tool_update::FLSH if let Some(provision) = &offers.provision => {
             tx.send(&Opened::Ready {}).await?;

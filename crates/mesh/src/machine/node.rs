@@ -182,6 +182,22 @@ impl Tasks<'_> {
     }
 }
 
+/// The tool updates most recently found by the node.
+pub async fn tool_updates(client: &PeerClient) -> Result<Vec<tool_update::Available>, MeshError> {
+    let words = Words {
+        silent: "the node did not answer about tool updates",
+        closed: "the node closed the tool update check",
+    };
+    exchange(
+        client,
+        Duration::from_secs(60),
+        tool_update::CHECK,
+        &tool_update::Check {},
+        words,
+    )
+    .await
+}
+
 /// Has the node install release `version` of `tool`.
 pub async fn install_tool(client: &PeerClient, tool: Tool, version: &str) -> Result<(), MeshError> {
     let request = tool_update::Request::Install {
