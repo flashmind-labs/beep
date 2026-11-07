@@ -1,0 +1,77 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
+import type { CenterView, ProjectsArg, ViewArg } from "../src/center/state.ts";
+
+// Load the real navigation with the window's DOM and services replaced.
+const element = () => ({ hidden: false, textContent: "", replaceChildren() {} }) as unknown as HTMLElement;
+const state = { picked: null as string | null, subscribed: false, agents: [] };
+const views = new Map<string, CenterView & { el: HTMLElement }>();
+Object.assign(globalThis, {
+  navigationTest: { state, views, element },
+  document: { hidden: false, getElementById: () => null },
+  requestAnimationFrame: () => 0,
+});
+const stubs = new Map(Object.entries({
+  "center/state.ts": "export const { state, views } = globalThis.navigationTest; export const $ = () => globalThis.navigationTest.element();",
+  "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {};",
+  "ui/dom.ts": "export const el = () => globalThis.navigationTest.element();",
+  "center/sidebar.ts": "export const drawSide = () => {}; export const projectRows = () => [];",
+  "project/agent.ts": "export const chatProject = () => null;",
+  "settings/sheet.ts": "export const openSettings = () => {};",
+  "center/threadcard.ts": "export const threadChats = null;",
+  "settings/subscription.ts": "export const viewHidden = () => false;",
+  "bar/core.ts": "export const S = { server: false };",
+}).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
+const hooks = registerHooks({
+  load(url, context, next) {
+    const source = stubs.get(url);
+    return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
+  },
+});
+const { registerView, go, goHistory } = await import("../src/center/views.ts");
+hooks.deregister();
+
+test("Back and Forward restore the project section a resumed session came from", () => {
+  let tile: string | null = null;
+  let sessionArg: ViewArg;
+  registerView("home", { el: element(), mount() {} });
+  registerView("projects", {
+    el: element(),
+    currentArg: () => ({ project: state.picked, tile }),
+    mount(_el, arg) {
+      const target = arg as ProjectsArg;
+      state.picked = target.project;
+      tile = target.tile ?? null;
+    },
+    unmount() { tile = null; },
+  });
+  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+
+  go("home");
+  go("projects", { project: "acme/widget" });
+  tile = "running";
+  const session = { agent: { machine_id: "build-box", machine_name: "build-box", id: "session", cwd: "/srv/project", agent: "codex", status: "idle", external: false } };
+  go("pane", session);
+  assert.equal(tile, null, "leaving the project clears its live selection");
+  assert.deepEqual((sessionArg as { from: unknown }).from, {
+    view: "projects", arg: { project: "acme/widget", tile: "running" },
+  });
+  goHistory(false);
+  assert.equal(state.picked, "acme/widget");
+  assert.equal(tile, "running");
+  goHistory(true);
+  assert.ok(sessionArg && typeof sessionArg === "object" && "agent" in sessionArg);
+  goHistory(false);
+  assert.equal(tile, "running");
+  goHistory(false);
+  assert.equal(views.get("home")!.el.hidden, false, "the section adds no extra history step");
+  goHistory(true);
+  assert.equal(tile, "running");
+
+  go("projects", { project: "acme/other" });
+  assert.equal(tile, null, "opening another project starts at Overview");
+  goHistory(false);
+  assert.equal(state.picked, "acme/widget");
+  assert.equal(tile, "running");
+});
