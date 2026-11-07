@@ -292,12 +292,14 @@ $ <span class="cur"> </span>`,
   };
   // Sticky modifiers: a tap holds one for the next key, as on the desktop keyboard.
   const MODS = ["Ctrl", "Alt", "Shift"];
+  // Two rows of nine: the arrows sit as an inverted T at the right end.
+  const KEYS = ["Esc", "Tab", "|", "/", "~", "-", "", "↑", "", "Ctrl", "Alt", "Shift", "Home", "End", "", "←", "↓", "→"];
   views.ccTerminal = () => {
     const view = C.termMode === "view", ended = C.termMode === "ended";
     return screen("", top(C.term === "htop" ? "htop" : "shell", `<button class="cc-ib" ${toast("Detached; it keeps running")} aria-label="More">${ic("dots", 20)}</button>`, "ccTerminals", `${C.term === "htop" ? "gpu-box · ~" : "build-box · ~/src/sample-project"}`) +
       `<div class="cc-termbar"><span class="cc-dot${ended ? " off" : ""}"></span><span>${ended ? "Ended · exit 0" : view ? "View only" : "Attached · 54×31"}</span><span class="sp"></span>${ended ? btn("Close") : btn(view ? "Take control" : "View only", "", act("seg", "termMode:" + (view ? "control" : "view")))}${ended ? "" : btn("Close…", "danger")}</div>` +
       `<div class="cc-term">${TERM[C.term]}</div>` +
-      (view || ended ? "" : `<div class="cc-keys">${["Esc", "Tab", "Ctrl", "Alt", "Shift", "←", "↑", "↓", "→", "|", "/", "~", "-"].map(k => `<button ${MODS.includes(k) ? act("mod", k) + ` aria-pressed="${C.mods.includes(k)}"` : ""}>${k}</button>`).join("")}<button aria-label="Hide keyboard">${ic("kbd", 16)}</button></div><div class="cc-kbd">Keyboard</div>`));
+      (view || ended ? "" : `<div class="cc-keys">${KEYS.map(k => k ? `<button ${MODS.includes(k) ? act("mod", k) + ` aria-pressed="${C.mods.includes(k)}"` : ""}>${k}</button>` : "<span></span>").join("")}</div><div class="cc-kbd">Keyboard</div>`));
   };
   VAR("ccTerminal", [["Shell", () => { C.term = "shell"; C.termMode = "control"; }, () => C.term === "shell" && C.termMode === "control"], ["htop", () => { C.term = "htop"; C.termMode = "control"; }, () => C.term === "htop" && C.termMode === "control"], ["View only", () => C.termMode = "view", () => C.termMode === "view"], ["Ended", () => C.termMode = "ended", () => C.termMode === "ended"]]);
 
