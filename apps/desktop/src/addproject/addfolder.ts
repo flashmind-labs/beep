@@ -1,3 +1,4 @@
+import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Add a folder" sheet: a machine (this Mac first), a folder on it, what
 // that folder is (a checkout, its remote and branch), then Add project, which
 // adds the checkout in place with no clone. Choose… opens the macOS folder
@@ -23,6 +24,7 @@ export interface AddFolderOptions {
   onBack?: (() => void) | null;
 }
 
+let syncthing = syncthingImportChoice();
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
 let opts: AddFolderOptions = {};
 let state: FolderState = startOn([], null);
@@ -32,6 +34,7 @@ let reading = false;
 /// Opens the sheet on this Mac. Nothing opens the folder picker until Choose….
 export function openAddFolder(options: AddFolderOptions = {}) {
   if (root) return;
+  syncthing = syncthingImportChoice();
   opts = options;
   state = startOn(options.machines || [], options.macId || null);
   reading = false;
@@ -52,6 +55,7 @@ function closed() {
 
 function update(event: FolderEvent) {
   state = nextFolder(state, event);
+  void syncthing.follow(state.machine, state.chosen?.path ?? null);
   if (root) draw();
 }
 
@@ -108,7 +112,7 @@ async function submit() {
   if (state === was || !state.chosen) return;
   try {
     const project = await invoke<ProjectRow>("import_project", {
-      repo: repoOf(state.chosen), machineId: state.machine, folder: state.chosen.path, worktrees: [], parent: null,
+      repo: repoOf(state.chosen), machineId: state.machine, folder: state.chosen.path, worktrees: [], parent: null, syncthingFiles: syncthing.value(),
     });
     keepLastImport(project);
     update({ type: "done", project });
@@ -160,6 +164,7 @@ function form() {
     folder,
     facts.length ? el("div", "ip-found", state.chosen?.origin && el("span", "ddot"), facts[0]) : null,
     facts[1] ? el("div", "am-sub", facts[1]) : null,
+    syncthing.node,
     state.error ? el("div", "am-msg bad", state.error) : null,
     el("div", "am-line ip-foot", go, button("Back", "dbtn quiet", () => { const back = opts.onBack; close?.(); back?.(); })),
   ];

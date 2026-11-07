@@ -22,9 +22,9 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-/// Earlier versions keep moving Git refs through the file list. They must
-/// not sync with a node whose checkout belongs to Git after its first copy.
-pub(crate) const ALPN: &[u8] = b"beep-sync/4";
+/// Every batch carries its scanned checkout. Earlier versions cannot
+/// enforce that base when Git changes during a pull.
+pub(crate) const ALPN: &[u8] = b"beep-sync/5";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
@@ -69,6 +69,7 @@ enum Reply {
         replica: Replica,
         entries: Vec<Entry>,
         upto: u64,
+        checkout: Checkout,
     },
     Refused {
         message: String,
@@ -163,7 +164,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     } else {
         0
     };
-    let mut head = shared.head().await?;
+    let mut head = shared.list_checkout().await?;
     tx.send(&Reply::Head {
         commit: head.commit,
         behind: shared.last_change_after(since),
@@ -174,10 +175,16 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     loop {
         // A device removed meanwhile gets nothing more, not even what is
         // already queued.
-        if !syncs.allows(&peer) {
+        if !syncs.allows(&peer) || shared.is_stopped() {
             return Ok(());
         }
-        let now = shared.head().await?;
+        let now = match shared.list_checkout().await {
+            Ok(head) => head,
+            Err(_) => {
+                shared.scan_before_matching().await?;
+                shared.list_checkout().await?
+            }
+        };
         if now != head {
             head = now;
             tx.send(&Reply::Head {
@@ -187,7 +194,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             })
             .await?;
         }
-        let mut changes = shared.changes(since, BATCH);
+        let mut changes = shared.changes(since, BATCH, head)?;
         if !changes.entries.is_empty() {
             since = changes.upto;
             if !copy_git {
@@ -199,6 +206,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                 replica: shared.replica(),
                 entries: changes.entries,
                 upto: changes.upto,
+                checkout: head,
             })
             .await?;
             continue;
@@ -305,7 +313,14 @@ async fn pull_once(
                 replica,
                 entries,
                 upto,
+                checkout,
             } => {
+                if shared.head().await?.differs(checkout) && !shared.copies_git() {
+                    bail!("Git commits differ; waiting for Git before accepting this batch");
+                }
+                if !shared.copies_git() {
+                    shared.check_git().await?;
+                }
                 shared.merge_from(&peer.id, &entries, Cursor { replica, seq: upto });
                 if last.is_some_and(|last| upto >= last) {
                     last = None;

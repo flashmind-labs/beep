@@ -1478,3 +1478,80 @@ async fn an_unborn_repository_is_copied_only_once() {
     );
     in_step(&a, &b).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_clean_checkout_fetches_and_fast_forwards_before_file_sync() {
+    let (a, b) = synced_repo().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    git(
+        &b.folder(),
+        &["remote", "add", "origin", &a.folder().to_string_lossy()],
+    );
+    git(&b.folder(), &["fetch", "origin"]);
+    git(
+        &b.folder(),
+        &["branch", "--set-upstream-to=origin/main", "main"],
+    );
+    let target = commit(&a, "README.md", "committed change\n");
+    // The upstream may already have commits beyond this peer's checkout.
+    commit(&a, "later.txt", "a later upstream commit\n");
+    git(&a.folder(), &["switch", "-c", "working", &target]);
+    write(&a.path("README.md"), "work after the commit\n");
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("Git to catch up before carrying the working edit", || {
+        head(&b).as_deref() == Some(target.as_str())
+            && read(&b.path("README.md")).as_deref() == Some(b"work after the commit\n".as_slice())
+            && b.status().pending == 0
+    })
+    .await;
+    assert!(!b.path("later.txt").exists());
+    assert!(b.status().conflicts.is_empty(), "{:?}", b.status());
+    assert!(git(&b.folder(), &["diff", "--cached", "--name-only"]).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn automatic_git_catchup_preserves_unstaged_staged_and_untracked_work() {
+    for kind in ["unstaged", "staged", "untracked"] {
+        let (a, b) = synced_repo().await;
+        a.pause(&b, true).await;
+        b.pause(&a, true).await;
+        git(
+            &b.folder(),
+            &["remote", "add", "origin", &a.folder().to_string_lossy()],
+        );
+        git(&b.folder(), &["fetch", "origin"]);
+        git(
+            &b.folder(),
+            &["branch", "--set-upstream-to=origin/main", "main"],
+        );
+        let before = head(&b);
+        let path = if kind == "untracked" {
+            "local.txt"
+        } else {
+            "README.md"
+        };
+        write(&b.path(path), "local work\n");
+        if kind == "staged" {
+            git(&b.folder(), &["add", path]);
+        }
+        let status = git(&b.folder(), &["status", "--porcelain"]);
+        commit(&a, "README.md", "new commit\n");
+        a.pause(&b, false).await;
+        b.pause(&a, false).await;
+        eventually("the dirty checkout to report why it waits", || {
+            b.status()
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("commit or stash"))
+        })
+        .await;
+        assert_eq!(head(&b), before);
+        assert_eq!(
+            read(&b.path(path)).as_deref(),
+            Some(b"local work\n".as_slice())
+        );
+        assert_eq!(git(&b.folder(), &["status", "--porcelain"]), status);
+    }
+}

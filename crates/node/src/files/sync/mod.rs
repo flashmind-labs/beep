@@ -57,7 +57,8 @@ mod project;
 mod root;
 mod rules;
 mod scan;
-mod stignore;
+pub(super) mod stignore;
+mod syncthing;
 mod watch;
 
 pub(crate) use peer::{ALPN, PeerHandler};
@@ -1006,6 +1007,14 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
                 message: format!("{e:#}"),
             },
         },
+        Request::SyncthingFiles { folder, enabled } => {
+            match syncs.syncthing_files(&folder, enabled).await {
+                Ok(files) => Reply::SyncthingFiles { files },
+                Err(e) => Reply::Error {
+                    message: format!("{e:#}"),
+                },
+            }
+        }
         other => Reply::Error {
             message: format!("this node cannot do {other:?} yet"),
         },

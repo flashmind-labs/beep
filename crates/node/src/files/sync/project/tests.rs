@@ -759,7 +759,7 @@ fn an_edit_after_a_won_conflict_builds_on_the_merge() {
         stat: stat(2),
     };
     let prior = state.saved.seen.get("plan.md").cloned();
-    record(&mut state, &found, [3; 32], prior);
+    record(&mut state, &found, [3; 32], prior, false);
     let entry = state.saved.map.get("plan.md").unwrap();
     assert_eq!(entry.file.as_ref().map(|f| f.hash), Some([3; 32]));
     assert_eq!(entry.version.compare(&merged), Order::Newer);

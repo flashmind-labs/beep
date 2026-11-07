@@ -1,3 +1,4 @@
+import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
 // online machine (Auto lets the server pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
@@ -51,6 +52,7 @@ export function keepLastImport(project: ProjectRow) {
   try { localStorage.setItem(LAST_KEY, JSON.stringify(last)); } catch { /* kept for this launch only */ }
 }
 
+let syncthing = syncthingImportChoice();
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
 let macId: string | null = null, close: (() => void) | null = null, onDone: ((project: ProjectRow) => void) | null = null;
 /// The repository's checkouts and branches with work, once read: for the repo
@@ -78,6 +80,7 @@ const listed = new Map<string, readonly string[]>();
 /// Opens the sheet. Choose… opens the folder picker, never the sheet itself.
 export function openImportProject(options: ImportProjectOptions = {}) {
   if (root) return;
+  syncthing = syncthingImportChoice();
   machines = options.machines || [];
   macId = options.macId || null;
   onDone = options.onDone || null;
@@ -167,6 +170,7 @@ function update(event: ImportEvent) {
   // Picking a machine or a folder replaces whatever was typed as the folder.
   if (event.type === "pick" || event.type === "choose" || event.type === "unchoose") resetFolder();
   state = next(state, event);
+  void syncthing.follow(state.machine, state.chosen?.path ?? null);
   if (root && event.type !== "edit") draw();
   else if (root) syncForm();
 }
@@ -185,7 +189,7 @@ async function submit() {
   // The branches picked go with it only when they were read for this repo.
   const worktrees = preview && previewFor === state.repo.trim() ? worktreesToAsk(preview, picks) : [];
   try {
-    const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees, parent: parentFolder() });
+    const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees, parent: parentFolder(), syncthingFiles: syncthing.value() });
     keepLastImport(project);
     update({ type: "done", project });
     // The sheet may have closed while cloning: the project still lands.
@@ -322,6 +326,7 @@ function form() {
     forkLine(),
     el("div", "am-sub", folderHelp(state, machines)),
     ...branchesBlock(),
+    syncthing.node,
     state.error ? el("div", "am-msg bad", state.error) : null,
     el("div", "am-line ip-foot", go, button("Cancel", "dbtn quiet", closeImportProject)),
   ];

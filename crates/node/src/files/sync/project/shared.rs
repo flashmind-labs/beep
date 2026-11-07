@@ -253,12 +253,25 @@ impl Shared {
         crate::lock(&self.unheard).is_empty()
     }
 
-    pub(in crate::files::sync) fn changes(&self, since: u64, limit: usize) -> Changes {
-        self.lock().saved.map.since(since, limit)
+    pub(in crate::files::sync) fn changes(
+        &self,
+        since: u64,
+        limit: usize,
+        checkout: Checkout,
+    ) -> Result<Changes> {
+        let state = self.lock();
+        if state.saved.checkout != Some(checkout) {
+            bail!("the file list changed base before this batch was sent");
+        }
+        Ok(state.saved.map.since(since, limit))
     }
 
     pub(in crate::files::sync) async fn stopped(&self) {
         self.stop.cancelled().await;
+    }
+
+    pub(in crate::files::sync) fn is_stopped(&self) -> bool {
+        self.stop.is_cancelled()
     }
 
     pub(in crate::files::sync) fn stop(&self) {
@@ -324,7 +337,7 @@ impl Shared {
     }
 
     /// Whether an established checkout must wait for Git before writing files.
-    pub(super) async fn check_git(&self) -> Result<()> {
+    pub(in crate::files::sync) async fn check_git(&self) -> Result<()> {
         if self.copies_git() {
             return Ok(());
         }
@@ -344,6 +357,90 @@ impl Shared {
             bail!("Git commits differ; push and pull through Git before syncing files");
         }
         Ok(())
+    }
+
+    /// Called by the project task, so fetching and checkout cannot overlap
+    /// this node's own file writes or scans.
+    pub(super) async fn align_git(&self) -> Result<bool> {
+        if self.copies_git() {
+            return Ok(false);
+        }
+        let own = self.head().await?;
+        let target = {
+            let heads = crate::lock(&self.peer_heads);
+            let mut targets = heads
+                .iter()
+                .filter(|(peer, head)| self.has_peer(peer) && own.differs(**head))
+                .map(|(_, head)| head.commit);
+            let Some(Some(target)) = targets.next() else {
+                return Ok(false);
+            };
+            if targets.any(|other| other != Some(target)) {
+                bail!(
+                    "Git commits differ between peers; align them through Git before syncing files"
+                );
+            }
+            target
+        };
+        {
+            let state = self.lock();
+            if super::list::plan(&state, &crate::read_lock(&self.rules))
+                .iter()
+                .any(|work| !gitdir::in_git(&work.path))
+            {
+                bail!("Git commits differ; pending working changes must be settled before pulling");
+            }
+        }
+        let repo = Repo::open(self.root())
+            .context("Git commits differ; the local repository is unavailable")?;
+        let (repo, command, branch) = spawn_blocking(move || -> Result<_> {
+            if own
+                .commit
+                .is_some_and(|commit| repo.is_ancestor(target, commit) == Some(true))
+            {
+                bail!("Git commits differ; this checkout is ahead of the peer");
+            }
+            let (command, branch) = repo.upstream_fetch()?;
+            Ok((repo, command, branch))
+        })
+        .await?
+        .context("Git commits differ; automatic fetch could not complete")?;
+        let mut command = tokio::process::Command::from(command);
+        command.kill_on_drop(true);
+        let output = timeout(Duration::from_secs(30), command.output())
+            .await
+            .context("Git commits differ; fetching the upstream timed out")??;
+        if !output.status.success() {
+            bail!(
+                "Git commits differ; fetching the upstream failed; fetch it manually before syncing"
+            );
+        }
+        let (snapshot, file) = {
+            let mut state = self.lock();
+            state.saved.fast_forward = Some(target);
+            state.unsaved = true;
+            (state.saved.clone(), self.file.clone())
+        };
+        spawn_blocking(move || {
+            crate::link::note::write(&file, &rmp_serde::to_vec(&snapshot)?)?;
+            repo.fast_forward(own, target, &branch)
+        })
+        .await??;
+        self.pull_again();
+        Ok(true)
+    }
+
+    /// A list can only travel under the checkout its completed scan read.
+    pub(in crate::files::sync) async fn list_checkout(&self) -> Result<Checkout> {
+        let now = self.head().await?;
+        if self.lock().saved.checkout != Some(now) {
+            bail!("waiting for a scan of the current Git checkout");
+        }
+        let root = self.root().to_owned();
+        if spawn_blocking(move || gitdir::is_busy(&root)).await? {
+            bail!("waiting for the Git operation running on this machine");
+        }
+        Ok(now)
     }
 
     /// The initial donor has sent its whole list successfully.

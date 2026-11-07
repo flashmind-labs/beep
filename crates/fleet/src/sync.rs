@@ -41,6 +41,39 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 }
 
 impl Desk {
+    /// Changes only the selected project's path in this machine's Syncthing share.
+    pub async fn syncthing_files(
+        &self,
+        machine: &str,
+        folder: &str,
+        enabled: Option<bool>,
+    ) -> Result<beep_proto::node::sync::SyncthingFiles> {
+        let client = self
+            .peers
+            .client(
+                machine
+                    .parse()
+                    .map_err(|_| FleetError::refused("Invalid machine ID"))?,
+            )
+            .await?;
+        let reply: Reply = client
+            .call(
+                PROTOCOL,
+                &Request::SyncthingFiles {
+                    folder: folder.to_owned(),
+                    enabled,
+                },
+            )
+            .await?;
+        match reply {
+            Reply::SyncthingFiles { files } => Ok(files),
+            Reply::Error { message } => Err(FleetError::Refused(message)),
+            _ => Err(FleetError::refused(
+                "Update this machine to change Syncthing project file sync.",
+            )),
+        }
+    }
+
     /// What `machine` says of every project it syncs; `None` when it is offline or does not answer.
     pub(crate) async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
         let client = self.peers.client(machine).await.ok()?;
@@ -262,6 +295,13 @@ impl Desk {
                 continue;
             };
             if let Some(synced) = env.syncthing_folder(&place.folder) {
+                if self
+                    .syncthing_files(&seen.machine.id, &place.folder, None)
+                    .await
+                    .is_ok_and(|files| !files.enabled)
+                {
+                    continue;
+                }
                 out.push(SyncthingPlace {
                     machine_id: seen.machine.id,
                     folder: place.folder.clone(),
