@@ -9,9 +9,9 @@ export class PageHistory<T> {
 
   /// Leaves `page` for a new one. Going to the page it already was keeps
   /// no step, and ends what was ahead only when the page changes.
-  visit(page: T, next?: T) {
+  visit(page: T, next?: T, replace = false) {
     if (next !== undefined && JSON.stringify(page) === JSON.stringify(next)) return;
-    if (JSON.stringify(this.past.at(-1)) !== JSON.stringify(page)) this.past.push(page);
+    if (!replace && JSON.stringify(this.past.at(-1)) !== JSON.stringify(page)) this.past.push(page);
     if (this.past.length > MAX_PAGES) this.past.shift();
     this.ahead.length = 0;
   }
