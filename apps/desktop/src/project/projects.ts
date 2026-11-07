@@ -8,7 +8,7 @@ import type { RunsRow } from "./runs.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { pageAgent } from "./agent.ts";
 import { invoke } from "../ui/tauri.ts";
-import { awaitsView, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
+import { awaitsView, projectRunning, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
@@ -200,8 +200,7 @@ export function projectDetail(p: Project) {
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
   if (p.imported && (!state.gitsync.has(p.name) || gitDue.has(p.name))) loadGit(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
-  const inside = (r: RunningAgent, m: { id: string; folder: string }) => r.machine_id === m.id && (r.cwd === m.folder || r.cwd?.startsWith(m.folder + "/"));
-  const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent" && p.machines.some(m => inside(r, m)));
+  const running = projectRunning(p, state.home?.running, state.sessions.get(p.name));
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
   // The project agent's view is on its way, or who has an agent is not known yet.
   if (awaitsView(p, state.agents)) {

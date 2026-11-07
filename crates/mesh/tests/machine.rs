@@ -107,7 +107,7 @@ mod listing {
     }
 
     #[test]
-    fn a_recent_outside_session_offers_resume_unless_it_can_be_followed() {
+    fn a_recent_outside_session_without_a_process_has_ended() {
         let host = Host {
             id: "m".into(),
             name: "build-box".into(),
@@ -126,7 +126,94 @@ mod listing {
             agent: "claude".into(),
             ..codex
         };
-        assert_eq!(past_session(&host, claude).status, AgentStatus::Running {});
+        assert_eq!(past_session(&host, claude).status, AgentStatus::Ended {});
+    }
+
+    #[test]
+    fn live_outside_sessions_have_the_same_status_in_history_and_running() {
+        let host = Host {
+            id: "m".into(),
+            name: "build-box".into(),
+        };
+        for agent in ["claude", "codex"] {
+            for presence in [Presence::Working, Presence::Waiting, Presence::Running] {
+                let session = ExternalSession {
+                    id: "s".into(),
+                    agent: agent.into(),
+                    presence,
+                    last_activity: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    ..ExternalSession::default()
+                };
+                assert_eq!(
+                    past_session(&host, session.clone()).status,
+                    external_session(&host, session).status
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn project_history_uses_the_owned_sessions_actual_state() {
+        use beep_mesh::{
+            MeshError,
+            machine::{Sessions, listing::project_sessions},
+        };
+        use beep_proto::node::agent::{SessionInfo, SessionsReply, SessionsRequest, Status};
+        use std::time::Duration;
+
+        struct Node(Status);
+        impl Sessions for Node {
+            async fn sessions(
+                &self,
+                request: SessionsRequest,
+                _: Duration,
+            ) -> Result<SessionsReply, MeshError> {
+                Ok(match request {
+                    SessionsRequest::List {} => {
+                        let mut info = SessionInfo {
+                            id: "owned".into(),
+                            agent: "codex".into(),
+                            cwd: "/srv/project".into(),
+                            title: Some("Current title".into()),
+                            ..SessionInfo::default()
+                        };
+                        info.state.status = self.0;
+                        SessionsReply::Sessions {
+                            sessions: vec![info],
+                        }
+                    }
+                    SessionsRequest::InFolders { .. } => SessionsReply::External {
+                        sessions: vec![ExternalSession {
+                            id: "transcript".into(),
+                            agent: "codex".into(),
+                            taken_over: Some("owned".into()),
+                            presence: Presence::Recent,
+                            ..ExternalSession::default()
+                        }],
+                    },
+                    _ => unreachable!("only session lists are requested"),
+                })
+            }
+        }
+        let host = Host {
+            id: "m".into(),
+            name: "build-box".into(),
+        };
+        for (state, expected) in [
+            (Status::Ended, AgentStatus::Ended {}),
+            (Status::Working, AgentStatus::Working {}),
+            (Status::Idle, AgentStatus::Idle {}),
+        ] {
+            let listed = project_sessions(&Node(state), &host, vec!["/srv/project".into()]).await;
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0].id, "owned");
+            assert_eq!(listed[0].status, expected);
+            assert_eq!(listed[0].title.as_deref(), Some("Current title"));
+            assert!(!listed[0].external);
+        }
     }
 
     #[test]
