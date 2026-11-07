@@ -295,6 +295,8 @@ export function agentHints() {
 
 /// Puts the session's key hints in place of those on screen.
 export function redrawAgentHints() {
+  const input = $<HTMLTextAreaElement>("#agmsg"), s = AG.page?.session;
+  if (input && s) input.placeholder = AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
   const hint = $("#agconv > .agkeys");
   if (hint) hint.replaceWith(h(agentHints()));
 }

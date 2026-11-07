@@ -56,7 +56,7 @@ Object.assign(D, {
     const n = st === "one" ? 1 : st === "three" ? 3 : 8;
     const err = st === "max" ? `<div class="dmuted" style="color:var(--d-err);padding:6px 16px 0 56px">Up to 8 images in one message</div>` : "";
     const text = st === "one" ? `<span class="txt">What plant is this?<span class="caret" style="height:20px"></span></span>`
-      : `<span class="caret" style="height:22px"></span><span class="txt ph" style="margin-left:-10px">Ask about ${n === 1 ? "this image" : "these images"}…</span>`;
+      : `<span class="caret" style="height:22px"></span><span class="txt ph" style="margin-left:-10px">Add a message (optional)</span>`;
     const drop = st === "drop" ? `<div class="ddrop">${IC.image.replace('width="20" height="20"', 'width="18" height="18"')}Drop images or files to ask about them</div>` : "";
     return deskScene(dBar(drop + (st === "drop" ? "" : dThumbs(n) + err) + `<div class="dinput" data-dgo="dStream" style="cursor:text">${st === "drop" ? `<span class="txt ph">Ask Beep…</span>` : text}</div>`
       + dHints([[DI.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]])));
