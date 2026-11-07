@@ -148,7 +148,6 @@ impl Agents {
             return;
         }
         let root = layout::root(node_dir);
-        let mut any = false;
         for known in detection.lacking {
             log::info!("{} found, installing its adapter", known.cli);
             self.adapters.set(known.name, Install::Running);
@@ -160,7 +159,10 @@ impl Agents {
                         installed.script.display()
                     );
                     self.adapters.set(known.name, Install::Done);
-                    any = true;
+                    if let Some(after) = detect(node_dir, extra).await {
+                        self.adapters.saw(&after);
+                        self.set_kinds(after.kinds);
+                    }
                 }
                 Err(e) => {
                     log::warn!(
@@ -172,14 +174,6 @@ impl Agents {
                 }
             }
         }
-        if !any {
-            return;
-        }
-        let Some(after) = detect(node_dir, extra).await else {
-            return;
-        };
-        self.adapters.saw(&after);
-        self.set_kinds(after.kinds);
     }
 
     /// The agents this node offers and how their adapters stand, for
