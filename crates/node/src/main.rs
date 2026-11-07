@@ -56,7 +56,8 @@ enum Command {
     /// Serves Beep in this terminal until stopped.
     ///
     /// Serves Beep to the devices of this machine's mesh until stopped.
-    /// Makes this machine's key on the first run.
+    /// Makes this machine's key on the first run. Installs Claude Code hooks
+    /// while running and removes them when it stops.
     Run,
     /// This machine's mesh of devices.
     ///
@@ -93,8 +94,8 @@ enum Command {
     /// Installs or removes the Claude Code hooks.
     ///
     /// Claude Code hooks that tell the node when a session started outside
-    /// Beep ends a turn or waits for the user. Install edits Claude Code's
-    /// settings and prints what it changed.
+    /// Beep ends a turn or waits for the user. Run manages the user's hooks
+    /// automatically; these commands also work with project settings.
     Hooks {
         #[command(subcommand)]
         action: HooksAction,
@@ -419,6 +420,13 @@ async fn run() -> Result<()> {
         Command::Run => {
             let state = state::State::load_or_start(&dir, &host::host_name().await)?;
             let stop = stopped()?;
+            let _hooks = match hooks::Installation::for_node(&dir) {
+                Ok(hooks) => Some(hooks),
+                Err(e) => {
+                    log::warn!("could not install Claude Code hooks: {e:#}");
+                    None
+                }
+            };
             if !cli.with_parent {
                 return link::serve(state, cli.workspace.as_deref(), stop).await;
             }
