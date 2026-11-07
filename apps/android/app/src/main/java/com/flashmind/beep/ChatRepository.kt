@@ -200,9 +200,9 @@ class ChatRepository(private val storage: LocalStorage) {
             val kept = state.value.conversations.flatMap { c ->
                 c.pendingFiles + c.queued.flatMap { it.files } + c.messages.flatMap { it.files } }.map { it.path }
             withContext(Dispatchers.IO) { runCatching { Attachments.prune(storage.context, kept) } }
-            restoreIdentity()
+            if (com.flashmind.beep.ffi.serverEnabled()) restoreIdentity()
             accountName.value = identityName(storage.identity())
-            if (settings.value.configured) reconnect()
+            if (com.flashmind.beep.ffi.serverEnabled() && settings.value.configured) reconnect()
         }
     }
 
@@ -433,6 +433,7 @@ class ChatRepository(private val storage: LocalStorage) {
         reconnect()
     }
     fun reconnect() {
+        if (!com.flashmind.beep.ffi.serverEnabled()) return
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             var attempt = 0

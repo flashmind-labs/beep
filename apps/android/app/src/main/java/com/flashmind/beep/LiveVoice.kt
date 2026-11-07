@@ -182,6 +182,7 @@ class LiveVoice(private val context: Context, private val repository: ChatReposi
 
     /** Opens live voice, or plays the opening again when it is open already. */
     fun start(origin: LiveOrigin, holding: Boolean = false) {
+        if (!com.flashmind.beep.ffi.serverEnabled()) return
         if (!repository.settings.value.configured) return
         val current = mutableState.value
         if (current.active && current.problem == null) {
