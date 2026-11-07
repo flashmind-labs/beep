@@ -45,8 +45,6 @@
 .mac .ag-card .plan .row { color: var(--d-fg); padding-top: 4px }
 .mac .ag-card .plan .row .m { width: 16px; display: grid; place-items: center; flex: none }
 .mac .ag-card .plan .row.pend { color: var(--d-muted) }
-.mac .ag-card .files { display: grid; gap: 2px; padding: 0 12px; font-family: var(--mono); font-size: 12px }
-.mac .ag-card .files span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .ag-card .q { margin: 10px 12px 0; padding: 10px 12px; border-radius: 9px; border: 1px solid rgba(242,153,74,.45); background: rgba(242,153,74,.08); display: grid; gap: 8px; font-size: 13px }
 .mac .ag-card .q code { white-space: pre-wrap; overflow-wrap: anywhere; color: rgba(227,228,230,.9) }
 .mac .ag-card .q .btns { display: flex; flex-wrap: wrap; gap: 6px }
