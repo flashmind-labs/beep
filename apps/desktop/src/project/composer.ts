@@ -427,7 +427,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 async function startFromBar() {
   const c = projectComp, p = barProject(), text = c.input.value.trim();
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  if (!p || !place || !text || pc.starting || pc.adding) return;
+  if (!p || !place || (!text && !barImages.length) || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.err.textContent = "Name the branch first."; return; }
   const was = barExisting(p.name, place);

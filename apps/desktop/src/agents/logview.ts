@@ -586,9 +586,6 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   drawQueue();
   tickTurns();
   redrawAgentHints();
-  // An ended session goes on from the field: the next message resumes it.
-  const msg = $<HTMLTextAreaElement>("#agmsg"), k = agentKind(s.agent);
-  if (msg) msg.placeholder = s.status === "ended" ? `Message ${k.name} to continue` : `Message ${k.name}`;
   // Only a turn that runs can be stopped.
   const stop = $<HTMLButtonElement>("#agstop");
   if (stop) {
