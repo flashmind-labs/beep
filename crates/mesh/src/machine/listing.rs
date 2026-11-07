@@ -16,6 +16,7 @@ use beep_proto::{
 };
 use futures::future::join_all;
 use std::{
+    cmp::Reverse,
     collections::HashMap,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -26,7 +27,7 @@ pub const NODE_LIMIT: Duration = Duration::from_secs(3);
 /// The agents whose outside sessions are listed, and how many of each.
 const EXTERNAL_AGENTS: [&str; 3] = ["claude", "codex", "flsh"];
 const EXTERNAL_LIMIT: u32 = 20;
-/// The most sessions a project lists.
+/// The most sessions a project asks each machine to list.
 pub const MAX_PROJECT_SESSIONS: usize = 50;
 /// A node slower than this to list a project's sessions is logged.
 const SLOW_NODE: Duration = Duration::from_secs(1);
@@ -166,6 +167,14 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
             Vec::new()
         }
     }
+}
+
+/// Combines the machines' project histories, newest first. Each machine's
+/// list is already bounded; another cap here hides the quieter machines.
+pub fn project_history(sessions: impl IntoIterator<Item = MachineSession>) -> Vec<MachineSession> {
+    let mut sessions: Vec<_> = sessions.into_iter().collect();
+    sessions.sort_by_key(|session| Reverse(session.last_activity));
+    sessions
 }
 
 /// The machine a session runs on.
