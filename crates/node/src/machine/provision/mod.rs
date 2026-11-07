@@ -90,6 +90,20 @@ impl Provision {
         }))
     }
 
+    /// Installs the compiler cache separately so it never delays other tools.
+    pub fn start_sccache(self: &Arc<Self>) -> AbortOnDropHandle<()> {
+        let provision = self.clone();
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            if which::which_in("sccache", Some(provision.tool_path()), "/").is_ok() {
+                return;
+            }
+            log::info!("installing sccache");
+            if installed_ok("sccache", tools::SCCACHE.install(&provision.bin()).await) {
+                provision.changed.notify_one();
+            }
+        }))
+    }
+
     /// Whether any tool was installed.
     async fn install_tools(&self) -> bool {
         let _one = self.installing.lock().await;
