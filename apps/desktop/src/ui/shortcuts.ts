@@ -36,6 +36,8 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
   ] },
   { title: "Window", rows: [
     { keys: "⌘K", does: "Search" },
+    { keys: "⌥Tab", does: "Switch active conversations; hold Option to choose" },
+    { keys: "⌥⇧Tab", does: "Previous active conversation" },
     { keys: "⌘,", does: "Settings" },
     { keys: "⌘/", does: "Keyboard shortcuts" },
     { keys: "⌘N", does: "New agent session" },
