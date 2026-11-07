@@ -100,8 +100,11 @@ internal object AskAlerts {
             .putExtra("machine", notice.machineId).putExtra("agent", notice.agent).putExtra("session", notice.session)
             .putExtra("question", (notice.question ?: 0u).toInt()).putExtra("reply", option.id)
         val code = (notice.askKey + option.id).hashCode()
-        return Notification.Action.Builder(null, label,
-            PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build()
+        val builder = Notification.Action.Builder(null, label,
+            PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        // Allow needs the phone unlocked (API 31+; earlier versions have no such flag).
+        if (option.allow && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setAuthenticationRequired(true)
+        return builder.build()
     }
 
     /** Lets a question post again, after its answer did not go through. */
