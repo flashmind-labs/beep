@@ -289,6 +289,22 @@ pub enum SessionsRequest {
     /// Known native sessions first, then whenever a local CLI opens,
     /// updates or closes one, as `External` snapshots.
     FollowPresence {},
+    /// Mutates entries inside a working folder. Answered only with `FilesEdited` or `Error`.
+    EditFiles {
+        root: String,
+        action: FileAction,
+    },
+}
+
+/// File browser operations. Destinations must not already exist.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FileAction {
+    CreateFile { path: String },
+    CreateFolder { path: String },
+    Rename { path: String, to: String },
+    Copy { paths: Vec<String>, folder: String },
+    Move { paths: Vec<String>, folder: String },
+    Delete { paths: Vec<String> },
 }
 
 /// The most paths one `Present` asks about.
@@ -332,6 +348,7 @@ impl SessionsRequest {
             | Self::FollowImages {}
             | Self::FollowUsage { .. }
             | Self::RefreshPlanUsage {}
+            | Self::EditFiles { .. }
             | Self::WriteFile { .. }
             | Self::DeleteSession { .. }
             | Self::ContinueCopy { .. }
@@ -508,6 +525,8 @@ pub enum SessionsReply {
     ProcessStopped {},
     /// The answer to `InstallAdapters`.
     AdaptersInstalling {},
+    /// Sent only in response to `EditFiles`.
+    FilesEdited {},
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by

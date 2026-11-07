@@ -298,6 +298,14 @@ pub async fn serve_sessions(
             })
             .await
         }
+        SessionsRequest::EditFiles { root, action } => {
+            work_request(&agents, &root, reach::Access::Write, move |real| {
+                let root = work_folder::WorkRoot::at(&real)?;
+                work_folder::edit(&root, &action)?;
+                Ok(SessionsReply::FilesEdited {})
+            })
+            .await
+        }
         SessionsRequest::CustomAgents { folder } => {
             let home = dirs::home_dir();
             work_request(&agents, &folder, reach::Access::Work, move |real| {
