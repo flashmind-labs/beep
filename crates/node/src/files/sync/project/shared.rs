@@ -357,18 +357,9 @@ impl Shared {
         }
     }
 
-    /// Whether this checkout has merged with `peer` before.
-    pub(in crate::files::sync) fn is_matched(&self, peer: &EndpointId) -> bool {
-        self.lock().saved.matched.contains(&peer.to_string())
-    }
-
-    /// Brings the list in line with the folder before it is compared with
-    /// a peer's that never matched it, or sent to one. A list from before the
-    /// user's last edits would count those as older than they are.
+    /// Brings the list in line with the folder before comparing or sending it.
+    /// A list from before the user's last edits would count those as older.
     pub(in crate::files::sync) async fn scan_before_matching(&self) -> Result<()> {
-        if self.is_paused() {
-            return Ok(());
-        }
         self.rescan(MATCH_SCAN).await?;
         Ok(())
     }
