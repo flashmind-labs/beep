@@ -91,7 +91,7 @@ struct RootView: View {
     var body: some View {
         if !serverEnabled() {
             NavigationStack(path: $path) {
-                Group {
+                SwiftUI.Group {
                     if model.workspace.meshLinked { ProjectsView(path: $path, home: true) }
                     else { LinkedDevicesView(back: {}, home: true) }
                 }
