@@ -477,6 +477,12 @@ function agentClick(e: MouseEvent) {
   if (closing) return void closeRow(closing);
   const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
   if (stopping) return void stopKid(stopping);
+  const prompt = target.closest<HTMLElement>("#agbody [data-prompt]");
+  if (prompt) {
+    const at = Number(prompt.dataset.prompt);
+    AG.steps.set(at, prompt.getAttribute("aria-expanded") !== "true");
+    return drawAgentBody(clickedRow(prompt));
+  }
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
