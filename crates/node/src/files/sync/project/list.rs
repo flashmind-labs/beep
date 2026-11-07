@@ -23,43 +23,57 @@ pub(super) struct Work {
 }
 
 /// Records a file the scan hashed.
-pub(super) fn record(state: &mut State, found: &Found, hash: [u8; 32], prior: Option<Seen>) {
+pub(super) fn record(
+    state: &mut State,
+    found: &Found,
+    hash: [u8; 32],
+    prior: Option<Seen>,
+    baseline: bool,
+) {
     let meta = FileMeta {
         hash,
         size: found.stat.size,
         mtime_ms: found.stat.mtime_ms(),
         executable: found.stat.executable,
     };
-    let version = match prior {
-        // Touched, not changed.
-        Some(prior) if prior.hash == hash => prior.version,
-        Some(prior) => {
-            // The list may hold the content seen here under a newer version:
-            // a concurrent edit this content won was merged into it. The
-            // edit builds on that, so it does not lose to it again.
-            let base = match state.saved.map.get(&found.path) {
-                Some(entry)
-                    if entry.file.as_ref().is_some_and(|f| f.hash == prior.hash)
-                        && entry.version.compare(&prior.version) == Order::Newer =>
-                {
+    let version = if baseline {
+        state.saved.map.baseline(
+            &found.path,
+            prior.map(|seen| seen.version).unwrap_or_default(),
+            Some(meta),
+        )
+    } else {
+        match prior {
+            // Touched, not changed.
+            Some(prior) if prior.hash == hash => prior.version,
+            Some(prior) => {
+                // The list may hold the content seen here under a newer version:
+                // a concurrent edit this content won was merged into it. The
+                // edit builds on that, so it does not lose to it again.
+                let base = match state.saved.map.get(&found.path) {
+                    Some(entry)
+                        if entry.file.as_ref().is_some_and(|f| f.hash == prior.hash)
+                            && entry.version.compare(&prior.version) == Order::Newer =>
+                    {
+                        entry.version.clone()
+                    }
+                    _ => prior.version,
+                };
+                state.saved.map.edit(&found.path, &base, Some(meta))
+            }
+            None => match state.saved.map.get(&found.path) {
+                // The same file arrived some other way; nothing changed.
+                Some(entry) if entry.file.as_ref().is_some_and(|f| f.hash == hash) => {
                     entry.version.clone()
                 }
-                _ => prior.version,
-            };
-            state.saved.map.edit(&found.path, &base, Some(meta))
+                // New here: concurrent with whatever the list has, so the two
+                // are kept apart if they differ.
+                _ => state
+                    .saved
+                    .map
+                    .edit(&found.path, &Version::default(), Some(meta)),
+            },
         }
-        None => match state.saved.map.get(&found.path) {
-            // The same file arrived some other way; nothing changed.
-            Some(entry) if entry.file.as_ref().is_some_and(|f| f.hash == hash) => {
-                entry.version.clone()
-            }
-            // New here: concurrent with whatever the list has, so the two
-            // are kept apart if they differ.
-            _ => state
-                .saved
-                .map
-                .edit(&found.path, &Version::default(), Some(meta)),
-        },
     };
     state.set_seen(
         &found.path,

@@ -22,6 +22,9 @@ use tokio::{
     time::{sleep, timeout},
 };
 
+mod project;
+pub(crate) use project::{BEGIN as PROJECT_IGNORE_BEGIN, END as PROJECT_IGNORE_END};
+
 /// The longest a call to Syncthing may take.
 const TIMEOUT: Duration = Duration::from_secs(2);
 /// The longest between looks at Syncthing's folders when no event says to.
@@ -191,10 +194,15 @@ impl Syncthing {
         let decided = spawn_blocking(move || {
             let folder = real(&folder);
             let home = home.as_deref().map(real);
-            match listed {
+            let managed = match listed {
                 Some(listed) => holding(&listed, &folder),
                 None => marked(&folder, home.as_deref()),
-            }
+            };
+            // An unreadable ignore file leaves ownership with Syncthing.
+            managed.filter(|managed| {
+                !crate::files::sync::stignore::project_ignored(&folder, &managed.root)
+                    .unwrap_or(false)
+            })
         })
         .await;
         match decided {
@@ -337,18 +345,27 @@ async fn fetch(gui: &Gui) -> Result<Vec<RawFolder>> {
 /// The body of `GET path`. HTTP/1.0, so the reply is neither chunked nor
 /// kept open: it ends when the connection closes.
 async fn get(gui: &Gui, path: &str) -> Result<Vec<u8>> {
+    request(gui, "GET", path, &[]).await
+}
+
+async fn request(gui: &Gui, method: &str, path: &str, body: &[u8]) -> Result<Vec<u8>> {
     let mut stream = TcpStream::connect(&gui.addr)
         .await
         .context("reaching Syncthing")?;
     let request = format!(
-        "GET {path} HTTP/1.0\r\nHost: {}\r\nX-API-Key: {}\r\nAccept: application/json\r\n\r\n",
+        "{method} {path} HTTP/1.0\r\nHost: {}\r\nX-API-Key: {}\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
         gui.addr,
-        gui.key.expose_secret()
+        gui.key.expose_secret(),
+        body.len()
     );
     stream
         .write_all(request.as_bytes())
         .await
         .context("asking Syncthing")?;
+    stream
+        .write_all(body)
+        .await
+        .context("sending Syncthing's request body")?;
     let mut reply = Vec::new();
     let limit = u64::try_from(MAX_REPLY + 1)?;
     (&mut stream)

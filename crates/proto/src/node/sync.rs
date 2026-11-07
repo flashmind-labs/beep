@@ -59,6 +59,11 @@ pub enum Request {
     /// node has from its peers, then answers `Rescanned`. Only a node
     /// offering `RESCAN`.
     Rescan { project: String },
+    /// Reads or changes the project path's exclusion in its Syncthing share.
+    SyncthingFiles {
+        folder: String,
+        enabled: Option<bool>,
+    },
 }
 
 /// Which side of a conflict `Request::Resolve` keeps.
@@ -112,6 +117,16 @@ pub enum Reply {
     Error {
         message: String,
     },
+    SyncthingFiles {
+        files: SyncthingFiles,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncthingFiles {
+    pub available: bool,
+    pub enabled: bool,
+    pub label: Option<String>,
 }
 
 /// A project the node will not sync, and why.

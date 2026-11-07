@@ -20,6 +20,19 @@ use serde::Serialize;
 use std::sync::Arc;
 use tauri::State;
 
+#[tauri::command]
+pub async fn project_syncthing_files(
+    fleet: FleetState<'_>,
+    machine_id: String,
+    folder: String,
+    enabled: Option<bool>,
+) -> Result<beep_proto::node::sync::SyncthingFiles> {
+    Ok(desk(&fleet)
+        .await?
+        .syncthing_files(&machine_id, &folder, enabled)
+        .await?)
+}
+
 /// One machine's sync of one project.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct SyncRow {

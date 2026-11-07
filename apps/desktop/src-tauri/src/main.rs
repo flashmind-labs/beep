@@ -339,6 +339,7 @@ fn main() {
             projects::branches::find_import_fork,
             projects::branches::preview_import,
             projects::file_sync::project_sync,
+            projects::file_sync::project_syncthing_files,
             projects::git_sync::project_git_move,
             projects::git_sync::project_git_state,
             projects::file_sync::project_sync_detail,
