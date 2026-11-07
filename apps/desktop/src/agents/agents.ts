@@ -31,6 +31,7 @@ import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
+import { cycleMachine } from "./move.ts";
 import { esc, money, tokenCount } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
@@ -481,6 +482,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     // unless the field has text to move through.
     const jump = logJumpKey(e, cmd);
     if (jump) { e.preventDefault(); void (jump === "start" ? jumpToStart() : jumpToEnd()); return true; }
+    if (e.key === "Tab" && e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg" && cycleMachine()) { e.preventDefault(); return true; }
     if (e.key === "Tab" && e.shiftKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();

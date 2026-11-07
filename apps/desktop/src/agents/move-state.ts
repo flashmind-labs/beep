@@ -60,6 +60,14 @@ export function targetNote(t: MoveTarget, agent: string): { note: string; enable
   return { note: "folder ready", enabled: true, offline: false };
 }
 
+/// The next available online target in machine-name order, wrapping around.
+export function nextMoveTarget(current: { id: string; name: string }, targets: readonly MoveTarget[], agent: string): MoveTarget | null {
+  const available = targets.filter(t => t.online && targetNote(t, agent).enabled);
+  const ordered = [current, ...available].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const next = ordered[(ordered.indexOf(current) + 1) % ordered.length];
+  return next === current ? null : available.find(t => t.id === next.id) ?? null;
+}
+
 /// Megabytes with one decimal, or kilobytes under one.
 export function fmtBytes(n: number) {
   return n < 1_000_000 ? `${Math.max(1, Math.round(n / 1000))} KB` : `${(n / 1_000_000).toFixed(1)} MB`;
