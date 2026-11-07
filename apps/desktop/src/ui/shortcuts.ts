@@ -82,6 +82,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "esc", does: "Terminal back to the input" },
   ] },
   { title: "Terminals", rows: [
+    { keys: "Shift+Esc", does: "Focus the selected terminal on the Terminals page" },
     { keys: "⌘N", does: "New terminal like this one" },
     { keys: "⌃`", does: "New terminal in the session folder" },
     { keys: "⌃← / ⌥←", does: "Word back" },

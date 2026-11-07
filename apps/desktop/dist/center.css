@@ -795,9 +795,10 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .fl-tbl td:last-child { text-align: right; white-space: nowrap }
 .cc-ag.pi { color: #B18CE0 } .cc-ag.gemini { color: #6FA8DC } .cc-ag.flsh { color: #3B9B7A } .cc-ag.opencode { color: var(--warn) }
 /* Terminals on every machine: the page's machine list beside the open terminal. */
-.tl-view { display: flex; flex-direction: column }
-.tl { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; min-height: 0; flex: 1; align-items: start }
-.tl-list { display: grid; align-content: start; gap: 12px; overflow-y: auto; max-height: calc(100vh - 140px) }
+.tl-view { display: flex; flex-direction: column; padding: 0; overflow: hidden }
+.tl-view > .tl { flex: 1 }
+.tl { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 0; min-height: 0; flex: 1; align-items: stretch; overflow: hidden }
+.tl-list { display: grid; align-content: start; gap: 12px; min-height: 0; overflow-y: auto; padding: 14px 12px; border-right: 1px solid var(--border) }
 .tl-m h5 .dbtn { margin-left: auto }
 .tl-m h5 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted) }
 .tl-it { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 2px 8px; align-items: center; width: 100%; text-align: left; padding: 7px 9px; border-radius: var(--radius-sm); border: 1px solid transparent; background: none; color: var(--fg); font: inherit; cursor: pointer }
@@ -806,9 +807,16 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .tl-it b { font-family: var(--mono, ui-monospace, monospace); font-weight: 500; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .tl-it small { grid-column: 2; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .tl-empty { font-size: 12px; color: var(--muted); padding: 4px 9px }
-.tl > .cc-conn { min-height: 320px }
+.tl > .cc-conn { min-height: 0 }
+.tl > .tm-panel { grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; border: 0; border-radius: 0 }
+.tl .tm-xterm, .tl .tm-screen { height: auto; min-height: 0; max-height: none }
+.tl .tm-xterm { overflow: hidden }
+.tl .tm-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.tl > .tm-form { align-self: start; margin: 14px 16px; max-height: 100%; overflow-y: auto }
+.tl-view > .cc-err { margin: 12px 16px 0 }
+.tl .tm-screen:focus-visible { outline: 1px solid var(--muted); outline-offset: -1px }
 .tm-form .tm-title { font-size: 13.5px; font-weight: 600 }
-@media (max-width: 760px) { .tl { grid-template-columns: minmax(0, 1fr) } }
+@media (max-width: 760px) { .tl { grid-template-columns: minmax(140px, 30%) minmax(0, 1fr) } }
 .us { position: relative; flex: none; margin-left: 10px }
 .us[hidden] { display: none }
 .us-pill { display: inline-flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer }

@@ -623,6 +623,9 @@ export function makeTerminals(deps: TerminalDeps) {
     };
     acts.push(button(running ? "Kill…" : "Close", "small warn", stop));
     items.push({ label: running ? "Kill…" : "Close", warn: true, on: stop });
+    const focus = button("Focus", "small", () => focusOpen());
+    focus.title = "Focus terminal (Shift+Esc)";
+    acts.unshift(focus);
     const head = h("div", "tm-head",
       h("span", "", h("b", "", open.name), ` ${open.machine_name} · ${open.cwd}`),
       h("span", "tm-st", stateLabel(open)), ...acts);
@@ -632,6 +635,8 @@ export function makeTerminals(deps: TerminalDeps) {
       const o = t.output;
       body = h("pre", "tm-screen", h("span", "tm-cmd", `${open.machine_name} ${open.cwd} $ ${open.command}`), "\n",
         o?.earlier ? "…\n" : "", (o ? o.lines : []).join("\n"));
+      body.tabIndex = 0;
+      body.setAttribute("aria-label", "Terminal output");
       watch(name);
       // The screen follows its newest line.
       queueMicrotask(() => { const s = document.querySelector(".tm-screen"); if (s) s.scrollTop = s.scrollHeight; });
@@ -666,6 +671,22 @@ export function makeTerminals(deps: TerminalDeps) {
     const like = newTermLike(open ? [{ ...open, focused: !!lives.get(open.id)?.screen.focused() }] : []);
     if (!like) return false;
     if (!t.busy) start(ALL, { command: "", name: "", machine: like.machine_id, cwd: like.cwd, project: like.project });
+    return true;
+  }
+
+  /// Focuses the selected terminal without attaching it or changing typing mode.
+  function focusOpen() {
+    const t = of(ALL);
+    if (shown !== ALL || t.form || !t.open) return false;
+    const live = lives.get(t.open);
+    if (!live) return false;
+    if (live.link === "view_only") {
+      const output = document.querySelector<HTMLElement>(".tl .tm-screen");
+      if (!output) return false;
+      output.focus();
+    } else {
+      live.screen.focus();
+    }
     return true;
   }
 
@@ -725,6 +746,7 @@ export function makeTerminals(deps: TerminalDeps) {
     machinesPanel,
     newOn,
     newLikeOpen,
+    focusOpen,
     /// Opens terminal `id` on the Terminals page, attached live.
     show: (id: string) => select(ALL, id),
     stop: () => { watch(null); dropAll(); shown = null; },
