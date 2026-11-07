@@ -220,6 +220,19 @@ impl Agents {
         );
     }
 
+    /// Checks installed harness releases once an hour while the node runs.
+    pub fn start_harness_checks(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
+        let agents = self.clone();
+        tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                harnesses::refresh_versions(&agents.kinds(), &agents.latest).await;
+            }
+        }))
+    }
+
     /// What this node finds of each agent harness it knows.
     pub(super) async fn harnesses(&self, refresh: bool) -> HarnessReport {
         harnesses::report(&self.kinds(), &self.settings, &self.latest, refresh).await

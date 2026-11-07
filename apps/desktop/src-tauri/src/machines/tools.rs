@@ -3,29 +3,48 @@
 use crate::{
     beep::Service,
     error::{DesktopError, Result},
-    fleet::{Machines, files as direct},
-    projects::unknown_op,
+    fleet::{Fleet, Machines, files as direct},
 };
-use beep_proto::{ListToolUpdates, ToolUpdate, UpdateMachineTool, node::tool_update::Tool};
-use std::time::Duration;
+use beep_proto::{ToolUpdate, UpdateMachineTool, node::tool_update::Tool};
+use futures::{StreamExt, stream};
+use std::{sync::Arc, time::Duration};
+use tauri::State;
 
-/// How long the server may take to look up the newest releases.
-const LIST_LIMIT: Duration = Duration::from_secs(30);
 /// How long a machine has to download and install a release.
 const UPDATE_LIMIT: Duration = Duration::from_secs(11 * 60);
 
-/// The tools behind their newest release; none without a server, or from one
-/// without it.
+/// The updates found by each connected node.
 #[tauri::command]
-pub async fn tool_updates(beep: Service<'_>) -> Result<Vec<ToolUpdate>> {
-    // The newest releases are looked up by the server.
-    if !beep.has_server() {
-        return Ok(Vec::new());
-    }
-    match beep.call_within(ListToolUpdates {}, LIST_LIMIT).await {
-        Err(e) if unknown_op(&e) => Ok(Vec::new()),
-        listed => listed,
-    }
+pub async fn tool_updates(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<ToolUpdate>> {
+    let machines = fleet.status().machines();
+    let fleet = fleet.inner().as_ref();
+    let updates = stream::iter(machines.into_iter().filter(|machine| machine.online))
+        .map(|machine| async move {
+            let Some(id) = fleet.member(&machine.id) else {
+                return Vec::new();
+            };
+            let Ok(client) = fleet.client(id).await else {
+                return Vec::new();
+            };
+            let Ok(updates) = beep_mesh::machine::tool_updates(&client).await else {
+                return Vec::new();
+            };
+            updates
+                .into_iter()
+                .map(|update| ToolUpdate {
+                    machine_id: machine.id.clone(),
+                    tool: update.tool.to_string(),
+                    version: update.version,
+                    latest: update.latest,
+                })
+                .collect::<Vec<_>>()
+        })
+        .buffer_unordered(4)
+        .collect::<Vec<_>>()
+        .await;
+    let mut updates: Vec<_> = updates.into_iter().flatten().collect();
+    updates.sort_by(|a, b| (&a.machine_id, &a.tool).cmp(&(&b.machine_id, &b.tool)));
+    Ok(updates)
 }
 
 /// Installs the newest `tool` on `machine_id`; gives the version installed.
@@ -44,9 +63,14 @@ pub async fn update_machine_tool(
     let named: Tool = tool
         .parse()
         .map_err(|_| DesktopError::BadRequest(format!("Beep does not update {tool}.")))?;
-    let latest = fleet.releases().latest(named).await.ok_or_else(|| {
-        DesktopError::BadRequest(format!("Could not look up the newest {named}."))
-    })?;
+    let client = fleet.client(machine).await?;
+    let latest = beep_mesh::machine::tool_updates(&client)
+        .await
+        .map_err(|e| DesktopError::BadRequest(format!("Could not check {named}: {e:#}")))?
+        .into_iter()
+        .find(|update| update.tool == named)
+        .map(|update| update.latest)
+        .ok_or_else(|| DesktopError::BadRequest(format!("No update found for {named}.")))?;
     direct::update_tool(&fleet, machine, named, &latest).await?;
     Ok(latest)
 }
