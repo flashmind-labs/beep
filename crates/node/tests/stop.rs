@@ -4,7 +4,8 @@
 
 use iroh::SecretKey;
 use rustix::process::{Pid, Signal, kill_process};
-use std::{fs, os::unix::fs::PermissionsExt, process::Stdio, time::Duration};
+use serde_json::{Value, json};
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Stdio, time::Duration};
 use tempfile::TempDir;
 use tokio::{
     io::{AsyncBufReadExt, BufReader, Lines},
@@ -35,6 +36,13 @@ async fn logged(lines: &mut Lines<BufReader<ChildStderr>>, log: &mut Vec<String>
 async fn sigterm_is_logged_and_the_node_exits_in_time() {
     let dir = TempDir::new().expect("a temp folder");
     let home = TempDir::new().expect("a temp folder");
+    let settings_path = home.path().join(".claude/settings.json");
+    fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+    let mut settings = json!({
+        "model": "opus",
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}
+    });
+    fs::write(&settings_path, settings.to_string()).unwrap();
     let key_file = dir.path().join("key");
     fs::write(&key_file, SecretKey::generate().to_bytes()).expect("the key is written");
     fs::set_permissions(&key_file, fs::Permissions::from_mode(0o600)).expect("the key is private");
@@ -65,6 +73,37 @@ async fn sigterm_is_logged_and_the_node_exits_in_time() {
         .await
         .unwrap_or_else(|_| panic!("the node did not start in time; it logged {log:#?}"));
 
+    let installed: Value = serde_json::from_slice(&fs::read(&settings_path).unwrap()).unwrap();
+    let command = beep_node::agents::claude::hooks::hook_command(
+        Path::new(env!("CARGO_BIN_EXE_beep-node")),
+        dir.path(),
+    );
+    for event in [
+        "Stop",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "UserPromptSubmit",
+        "Notification",
+        "SessionStart",
+        "SessionEnd",
+    ] {
+        assert!(
+            installed["hooks"][event]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|group| group["hooks"].as_array().unwrap())
+                .any(|hook| hook["command"].as_str() == Some(&command)),
+            "no Beep hook for {event}"
+        );
+    }
+    // An edit made while the node runs must survive its cleanup.
+    let mut edited = installed;
+    edited["model"] = json!("sonnet");
+    settings["model"] = json!("sonnet");
+    fs::write(&settings_path, edited.to_string()).unwrap();
+
     let pid = child
         .id()
         .and_then(|id| i32::try_from(id).ok())
@@ -80,4 +119,6 @@ async fn sigterm_is_logged_and_the_node_exits_in_time() {
     .await
     .unwrap_or_else(|_| panic!("the node did not stop in time; it logged {log:#?}"));
     assert!(stopped.success(), "the node exited with {stopped}");
+    let after: Value = serde_json::from_slice(&fs::read(&settings_path).unwrap()).unwrap();
+    assert_eq!(after, settings);
 }
