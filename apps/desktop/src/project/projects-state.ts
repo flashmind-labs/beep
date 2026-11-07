@@ -642,15 +642,16 @@ export function workersLabel(n: number) {
 
 /// The heading's line: "3 projects in 2 orgs, 3 workers running", or
 /// "4 projects in 1 group and 2 orgs, ..." with groups.
-export function overviewSub(groups: readonly { group?: unknown; org: string | null; cards: readonly { sum: { workers?: number } | null }[] }[]) {
+export function overviewSub(groups: readonly { group?: unknown; org: string | null; cards: readonly { agents?: number; sum: { workers?: number } | null }[] }[]) {
   const cards = groups.flatMap(g => g.cards);
   const orgs = groups.filter(g => g.org).length;
   const named = groups.filter(g => g.group).length;
-  const workers = cards.reduce((n, c) => n + (c.sum?.workers || 0), 0);
+  const workers = cards.reduce((n, c) => n + (c.sum?.workers ?? c.agents ?? 0), 0);
+  const unit = cards.some(c => c.sum) ? "worker" : "agent";
   const projects = plural(cards.length, "project", "projects");
   const parts = [named && plural(named, "group", "groups"), orgs && plural(orgs, "org", "orgs")].filter(Boolean);
   const where = parts.length ? ` in ${parts.join(" and ")}` : "";
-  return `${projects}${where}, ${workers ? `${plural(workers, "worker", "workers")} running` : "no workers running"}`;
+  return `${projects}${where}, ${workers ? `${plural(workers, unit, `${unit}s`)} running` : `no ${unit}s running`}`;
 }
 
 /// A Windows folder as the user knows it, without the `\\?\` prefix a

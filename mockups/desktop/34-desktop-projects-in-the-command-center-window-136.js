@@ -127,13 +127,14 @@ const ccSidePj = (cur, o = {}) => ccSide(cur, o).replace(/<div class="cc-grp"><h
 
 D.dWinProjects = () => {
   const empty = S.d.pjs === "empty";
+  const local = S.d.pjs === "local";
   const card = p => {
     const open = p.tasks.running + p.tasks.review + p.tasks.blocked + p.tasks.planned;
     const total = open + p.tasks.done;
-    return `<button class="pj-card" data-dgo="dWinProject"><div class="h"><span class="cc-pdot" style="background:${p.color}"></span><b title="${p.name}">${pjRepo(p)}</b><span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}" style="display:grid;color:${p.pin ? "var(--d-coral)" : "var(--d-dim)"}">${DI.pin}</span><small>${p.workers ? p.workers + (p.workers === 1 ? " worker" : " workers") : "idle"}</small></div>
-      <div class="pj-bar">${Object.entries(p.tasks).filter(([, n]) => n).map(([k, n]) => `<i style="width:${n / total * 100}%;background:${PJ_COLORS[k]}" title="${n} ${k}"></i>`).join("")}</div>
+    return `<button class="pj-card" data-dgo="dWinProject"><div class="h"><span class="cc-pdot" style="background:${p.color}"></span><b title="${p.name}">${pjRepo(p)}</b><span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}" style="display:grid;color:${p.pin ? "var(--d-coral)" : "var(--d-dim)"}">${DI.pin}</span><small>${p.workers ? p.workers + (local ? (p.workers === 1 ? " agent" : " agents") : (p.workers === 1 ? " worker" : " workers")) : "idle"}</small></div>
+      ${local ? `<span class="line">${p.workers ? "Last activity 12 min ago" : "No recent activity"}</span><span class="line sync">on build-box, mac-box</span>` : `<div class="pj-bar">${Object.entries(p.tasks).filter(([, n]) => n).map(([k, n]) => `<i style="width:${n / total * 100}%;background:${PJ_COLORS[k]}" title="${n} ${k}"></i>`).join("")}</div>
       <span class="line"><b>${open} open</b>${p.tasks.review ? ` · ${p.tasks.review} in review` : ""}${p.tasks.blocked ? ` · ${p.tasks.blocked} blocked` : ""} · ${p.tasks.done} done</span>
-      <span class="line">${p.last}</span>
+      <span class="line">${p.last}</span>`}
       ${p.sync ? `<span class="line sync">${p.sync}</span>` : ""}</button>`;
   };
   const body = empty
@@ -153,6 +154,6 @@ D.dWinProjects = () => {
       ${[["retry-flag", "PR #812 · needs reply", "build-box", ".worktrees/retry-flag", 1], ["fix-windows-paths", "pushed 2 weeks ago, no PR", "", "", 0], ["main", "default branch", "build-box", "/srv/uploader", 1]].map(([b, meta, m, wt, has]) =>
         `<div class="pj-task" style="padding:6px 0"><span class="t"><code>${b}</code></span>${has ? `<span class="pj-st running" style="color:var(--d-muted);border-color:var(--d-border)">${m}</span>` : ""}<span class="m"><span>${meta}</span>${has ? `<span>${wt}</span>` : ""}</span>${has ? "" : `<span class="pj-start"><span class="lbl">Worktree</span><span class="seg"><button aria-pressed="true">build-box</button><button>mac-box</button><button>Skip</button></span></span>`}</div>`).join("")}
       <span class="acts" style="display:flex;gap:6px"><button class="dbtn pri" data-toast="Imported; worktree for fix-windows-paths created on build-box">Import<kbd>⌘${DI.ret}</kbd></button><button class="dbtn quiet" data-toast="Cancelled">Cancel</button></span></div>`;
-  return ccWin(ccSidePj("projects"), `<div class="cc-top"><h2>Projects</h2><small>${empty ? "" : "4 projects in 2 orgs, 3 workers running"}</small></div><div class="cc-view">${imp ? importCard : ""}${body}${empty ? "" : apFoundSection()}${outside}</div>`);
+  return ccWin(ccSidePj("projects"), `<div class="cc-top"><h2>Projects</h2><small>${empty ? "" : (local ? "4 projects in 2 orgs, 3 agents running" : "4 projects in 2 orgs, 3 workers running")}</small></div><div class="cc-view">${imp ? importCard : ""}${body}${empty ? "" : apFoundSection()}${outside}</div>`);
 };
-VARIANTS.dWinProjects = [["Projects", "list"], ["None yet", "empty"], ["Import with branches", "import"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);
+VARIANTS.dWinProjects = [["Projects", "list"], ["Without task summaries", "local"], ["None yet", "empty"], ["Import with branches", "import"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);

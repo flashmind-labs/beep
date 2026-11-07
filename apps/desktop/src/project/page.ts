@@ -16,7 +16,7 @@ import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, newWindowOn, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
-import { importButton, projectList, projectFilter, overviewSection, loadOverview, projectDetail } from "./projects.ts";
+import { importButton, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
@@ -43,11 +43,10 @@ export function drawProjects(el: HTMLElement) {
     if (one) {
       view.append(...projectDetail(one));
       if (splitOn(one)) view.classList.add("split");
-    } else if (!state.picked && state.overview) view.append(...overviewSection(rows));
-    else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, state.picked ? null : projectFilter(), projectList(shownRows.length ? shownRows : rows)));
+    } else view.append(...overviewSection(shownRows.length ? shownRows : rows));
     const found = one ? null : foundSection();
     if (found) view.append(found);
-    const elsewhere = !state.picked && state.overview ? elsewhereSection(rows) : null;
+    const elsewhere = !state.picked ? elsewhereSection(rows) : null;
     if (elsewhere) view.append(elsewhere);
   }
   // Only the view is drawn again: the composer keeps what is typed and its
@@ -81,9 +80,9 @@ registerView("projects", {
   title() {
     if (!state.picked) {
       const rows = projectRows();
-      const sub = state.overview && rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top, state.groups)) : "Repositories on your machines";
-      // Groups show on the overview, from a server that keeps them.
-      const tools = state.overview && state.groups ? [button("", "small", () => editGroup())] : [];
+      const sub = rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top, state.groups)) : "Repositories on your machines";
+      // Group controls follow mesh support, independently of task summaries.
+      const tools = state.groups ? [button("", "small", () => editGroup())] : [];
       if (tools.length) tools[0].append(icon(IC.folder)!, " New group");
       return { title: "Projects", sub, tools: [...tools, importButton("small")] };
     }
