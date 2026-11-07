@@ -3229,15 +3229,45 @@ async fn a_session_in_a_worktree_moves_with_its_branch_and_uncommitted_work() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_machine_whose_syncthing_ignores_the_worktree_refuses_it_and_the_session_stays() {
-    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+async fn a_syncthing_worktree_moves_with_local_commits_and_relocated_session_paths() {
+    let mut pair = placed_pair().await;
     let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
-    // `b` is kept by Syncthing, which is told to leave worktrees out.
-    fs::create_dir(pair.b_folder.join(".stfolder")).expect("the marker");
-    fs::write(pair.b_folder.join(".stignore"), ".worktrees\n").expect("the ignore file");
+    // Each machine has its own Git metadata. The new branch commit never
+    // reaches the other checkout through either project's sync.
+    git_in(
+        &pair.b_folder,
+        &[
+            "clone",
+            "-q",
+            "--no-local",
+            "--single-branch",
+            "--branch",
+            "main",
+            pair.a_folder.to_str().unwrap(),
+            ".",
+        ],
+    );
+    let base = git_in(&pair.b_folder, &["rev-parse", "HEAD"]);
+    fs::write(a_worktree.join("committed.txt"), "on the branch\n").unwrap();
+    git_in(&a_worktree, &["add", "committed.txt"]);
+    git_in(
+        &a_worktree,
+        &[
+            "commit",
+            "-q",
+            "--only",
+            "-m",
+            "branch work",
+            "committed.txt",
+        ],
+    );
+    let head = git_in(&a_worktree, &["rev-parse", "HEAD"]);
+    for folder in [&pair.a_folder, &pair.b_folder] {
+        fs::create_dir(folder.join(".stfolder")).expect("the marker");
+    }
+    fs::write(pair.b_folder.join(".stignore"), ".worktrees\ncache/\n").unwrap();
     let conn_a = pair.desktop.reach(pair.a.id).await;
     let conn_b = pair.desktop.reach(pair.b.id).await;
-    // The picker's question gets the refusal before anything is written.
     let mut asked = ready(&conn_b, SESSIONS_PROTOCOL).await;
     asked
         .tx
@@ -3246,44 +3276,70 @@ async fn a_machine_whose_syncthing_ignores_the_worktree_refuses_it_and_the_sessi
             branch: "feat".to_owned(),
         })
         .await
-        .expect("the request is sent");
+        .unwrap();
     match timeout(LIMIT, asked.rx.recv::<SessionsReply>())
         .await
-        .expect("answered")
-        .expect("reads")
+        .unwrap()
+        .unwrap()
     {
-        Some(SessionsReply::MoveChecked { ignored }) => assert!(ignored),
+        Some(SessionsReply::MoveChecked { ignored }) => assert!(!ignored),
         other => panic!("not a move check: {other:?}"),
     }
-    // A record written anyway fails on `b` before `a` stops anything.
-    run_session_in(&conn_a, &a_worktree).await;
-    rollout_on(&pair.a, &a_worktree);
+    // The conversation began in the main checkout, then entered the worktree.
+    run_session_in(&conn_a, &pair.a_folder).await;
+    let original = rollout_on(&pair.a, &pair.a_folder);
+    let mut transcript = fs::read_to_string(&original).unwrap();
+    transcript.push_str(&format!(
+        "{}\n",
+        json!({"type":"turn_context","payload":{"cwd":a_worktree}})
+    ));
+    fs::write(&original, transcript).unwrap();
     ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 0).await;
-    until_progress(&conn_b, "refused", |p| {
-        p.phase == MovePhase::Failed
-            && p.reason
-                .as_deref()
-                .is_some_and(|reason| reason.contains("Syncthing is set not to sync"))
-    })
-    .await;
-    pair.a.logged("the move of session s did not finish").await;
-    assert!(!pair.b_folder.join(".worktrees/feat").exists());
-    // `a` still runs the session.
-    let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
-    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
-    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
-        .await
-        .expect("answered")
-        .expect("reads")
-    {
-        Some(SessionsReply::Sessions { sessions }) => {
-            assert!(
-                sessions.iter().any(|s| s.state.status != Status::Ended),
-                "{sessions:?}"
-            );
-        }
-        other => panic!("not a list: {other:?}"),
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+    pair.a
+        .logged("the move of session s is done on this side")
+        .await;
+    let tree = pair.b_folder.join(".worktrees/feat");
+    assert_eq!(git_in(&tree, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git_in(&pair.b_folder, &["rev-parse", "HEAD"]), base);
+    assert_eq!(
+        fs::read_to_string(tree.join("main.rs")).unwrap(),
+        "fn main() { todo!() }\n"
+    );
+    assert_eq!(
+        fs::read_to_string(tree.join("notes.txt")).unwrap(),
+        "not committed\n"
+    );
+    assert_eq!(
+        fs::read_to_string(tree.join("committed.txt")).unwrap(),
+        "on the branch\n"
+    );
+    let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
+    assert!(load.contains(&tree.display().to_string()), "{load}");
+    let moved = fs::read_to_string(
+        pair.b
+            .home
+            .path()
+            .join(".codex/sessions/2026/11/04")
+            .join(ROLLOUT),
+    )
+    .unwrap();
+    let header: serde_json::Value = serde_json::from_str(moved.lines().next().unwrap()).unwrap();
+    assert_eq!(header["payload"]["cwd"], tree.to_str().unwrap());
+    assert_eq!(
+        header["payload"]["runtime_workspace_roots"][0],
+        tree.to_str().unwrap()
+    );
+    for folder in [&pair.a_folder, &pair.b_folder] {
+        let ignores = fs::read_to_string(folder.join(".stignore")).unwrap();
+        assert!(ignores.lines().any(|line| line == ".git"));
+        assert!(ignores.lines().any(|line| line == ".worktrees"));
     }
+    assert!(
+        fs::read_to_string(pair.b_folder.join(".stignore"))
+            .unwrap()
+            .contains("cache/")
+    );
 }
 
 /// Two nodes of one mesh running the move adapter, with no `files` and no

@@ -3,20 +3,20 @@
 
 use super::{
     Stored,
-    folder::remap,
+    folder::Folders,
     json::{Step, replace, string_spans},
 };
 use crate::agents::claude::slug;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-pub(super) fn rewrite(transcript: &[u8], id: &str, old: &Path, new: &Path) -> Stored {
+pub(super) fn rewrite(transcript: &[u8], id: &str, folders: &Folders) -> Stored {
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
     for line in transcript.split_inclusive(|b| *b == b'\n') {
         let spans = string_spans(line, &[Step::Key("cwd")]);
-        bytes.extend(replace(line, &spans, |cwd| remap(cwd, old, new)));
+        bytes.extend(replace(line, &spans, |cwd| folders.remap(cwd)));
     }
     Stored {
         bytes,
-        path: PathBuf::from(slug(new)).join(format!("{id}.jsonl")),
+        path: PathBuf::from(slug(&folders.new)).join(format!("{id}.jsonl")),
     }
 }
