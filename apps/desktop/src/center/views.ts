@@ -110,7 +110,10 @@ export function go(name: ViewName, arg?: ViewArg): boolean {
   const view = views.get(name);
   if (!view) return false;
   const afterMount = pageTiming.start(pageName(name, arg));
-  if (shown && !moving) pages.visit(here(), { view: name, arg: name === "projects" ? { project: (arg as ProjectsArg | undefined)?.project ?? null } : arg });
+  // Sending from a draft turns it into the session; Back skips the spent form.
+  const replaceDraft = shown === "pane" && !!shownArg && typeof shownArg === "object" && "draft" in shownArg
+    && name === "pane" && !!arg && typeof arg === "object" && "agent" in arg && arg.adopt === true;
+  if (shown && !moving) pages.visit(here(), { view: name, arg: name === "projects" ? { project: (arg as ProjectsArg | undefined)?.project ?? null } : arg }, replaceDraft);
   shownArg = arg;
   if (shown && shown !== name) views.get(shown)!.unmount?.();
   shown = name;
