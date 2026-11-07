@@ -45,14 +45,18 @@ internal fun rememberAccountMode(repository: ChatRepository, refreshKey: Any): A
     val mode = remember(account) { AccountMode(context, account) }
     val owner = LocalLifecycleOwner.current
     LaunchedEffect(mode, connected, refreshKey, owner) {
-        if (!connected || account.isEmpty()) return@LaunchedEffect
+        if (account.isEmpty()) return@LaunchedEffect
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             do {
+                if (optionalSignal { repository.workspaceApi().workspaceLinked() }) {
+                    mode.observe(WorkspaceSignals(projects = true))
+                    return@repeatOnLifecycle
+                }
                 supervisorScope {
                     val api = repository.workspaceApi()
                     val github = async { optionalSignal { api.githubAccounts().isNotEmpty() } }
                     val githubApp = async { optionalSignal { repository.listApps().any { it.slug.equals("github", true) && it.connected } } }
-                    val projects = async { optionalSignal { api.listProjects().isNotEmpty() || api.listImportedProjects().isNotEmpty() } }
+                    val projects = async { optionalSignal { api.workspaceLinked() || api.listProjects().isNotEmpty() || api.listImportedProjects().isNotEmpty() } }
                     val machines = async { optionalSignal { repository.listMachines().size > 1 } }
                     mode.observe(WorkspaceSignals(github.await() || githubApp.await(), projects.await(), if (machines.await()) 2 else 0))
                 }

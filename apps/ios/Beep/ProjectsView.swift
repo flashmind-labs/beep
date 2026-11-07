@@ -3,16 +3,22 @@ import SwiftUI
 struct ProjectsView: View {
     @Environment(AppModel.self) private var model
     @Binding var path: [Route]
+    var home = false
     @State private var query = ""
     @State private var adding = false
 
     private var names: [String] {
         Set(model.workspace.projects.map(\.project) + model.workspace.projectAgents.map(\.name))
-            .filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }.sorted()
+            .filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }.sorted {
+                let left = model.workspace.pinnedProjects.contains($0)
+                let right = model.workspace.pinnedProjects.contains($1)
+                return left == right ? $0 < $1 : left
+            }
     }
 
     var body: some View {
-        WorkspacePage(title: "Projects", back: { path.removeLast() }) {
+        WorkspacePage(title: "Projects", back: { if !path.isEmpty { path.removeLast() } }, showsBack: !home) {
+            if home { Button("Devices") { path.append(.devices) }.buttonStyle(TextAction()) }
             Button("Add") { adding = true }.buttonStyle(TextAction())
         } content: {
             ScrollView {
@@ -50,7 +56,12 @@ struct ProjectsView: View {
                 }.padding(16)
             }.refreshable { await model.workspace.refresh() }
         }
-        .task(id: model.connected) { if model.connected { await model.workspace.refresh() } }
+        .task {
+            while !Task.isCancelled {
+                await model.workspace.refresh()
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
         .sheet(isPresented: $adding) { AddProjectView { name in adding = false; path.append(.project(name)) } }
     }
 }
@@ -80,9 +91,24 @@ struct ProjectView: View {
     @State private var run: RunSelection?
     @State private var starting = false
 
+    @State private var pinned = false
+    @State private var saving = false
+    @State private var removing = false
+
     var body: some View {
         WorkspacePage(title: project.split(separator: "/").last.map(String.init) ?? project, back: { path.removeLast() }) {
             Button("Start agent") { starting = true }.buttonStyle(TextAction())
+            Menu {
+                Button(pinned ? "Unpin" : "Pin to top") {
+                    change { try await model.workspace.client().pinProject(project: project, pinned: !pinned); pinned.toggle() }
+                }
+                if let sync {
+                    Button(sync.paused ? "Resume sync" : "Pause sync") {
+                        change { self.sync = try await model.workspace.client().pauseProjectSync(project: project, paused: !sync.paused) }
+                    }
+                }
+                Button("Remove from workspace", role: .destructive) { removing = true }
+            } label: { Image(systemName: "ellipsis").accessibilityLabel("Manage project") }.disabled(saving)
         } content: {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
@@ -106,7 +132,23 @@ struct ProjectView: View {
                 }.padding(16)
             }.refreshable { await load() }
         }
-        .task(id: tab) { await load() }
+        .task(id: tab) {
+            while !Task.isCancelled {
+                await load()
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
+        .task { do { pinned = try await model.workspace.client().projectsOnTop().contains(project) } catch { self.error = describe(error) } }
+        .alert("Remove project?", isPresented: $removing) {
+            Button("Remove", role: .destructive) {
+                change {
+                    try await model.workspace.client().removeProject(project: project)
+                    await model.workspace.refresh()
+                    if path.last == .project(project) { path.removeLast() }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("Remove this project from the shared workspace. Checkout files and running sessions stay on their machines.") }
         .sheet(item: $thread) { selected in
             if let agent { ThreadDetailView(project: project, projectID: agent.projectId, number: selected.number) }
         }
@@ -172,7 +214,7 @@ struct ProjectView: View {
     @ViewBuilder private var sessionRows: some View {
         if sessions.isEmpty { WorkspaceEmpty(title: "No coding sessions", detail: "Start an agent to work on this project.") }
         else { WorkspaceBox {
-            ForEach(sessions.filter { matches($0.title ?? $0.agent) }, id: \.id) { session in
+            ForEach(sessions.filter { matches($0.title ?? $0.agent) }, id: \.workspaceID) { session in
                 CodingSessionRow(session: session) { open(session) }
                 if session.id != sessions.last?.id { Divider().overlay(Mint.soft) }
             }
@@ -188,6 +230,14 @@ struct ProjectView: View {
                 if item.id != runs.last?.id { Divider().overlay(Mint.soft) }
             }
         } }
+    }
+
+    private func change(_ action: @escaping () async throws -> Void) {
+        saving = true
+        Task {
+            defer { saving = false }
+            do { try await action() } catch { self.error = describe(error) }
+        }
     }
 
     private func syncLabel(_ state: SyncStatus) -> String {

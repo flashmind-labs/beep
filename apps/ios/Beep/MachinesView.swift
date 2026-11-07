@@ -25,7 +25,12 @@ struct MachinesView: View {
             }
         }
         .background(Mint.page)
-        .task(id: model.connected) { if model.connected { await refresh() } }
+        .task {
+            while !Task.isCancelled {
+                await refresh()
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
     }
 
     private var list: some View {

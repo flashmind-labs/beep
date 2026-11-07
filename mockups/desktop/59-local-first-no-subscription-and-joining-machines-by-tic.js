@@ -135,7 +135,7 @@
   D.dAddTicket = () => {
     const k = S.d.tk || "node", s = S.d.ts || "ready";
     if (k === "other") return otherMac();
-    const node = k !== "desktop", box = k === "container", who = box ? "ci-runner" : node ? "build-box" : "MacBook Air";
+    const node = k !== "desktop" && k !== "phone", box = k === "container", who = k === "phone" ? "Phone" : box ? "ci-runner" : node ? "build-box" : "MacBook Air";
     let body;
     if (s === "joined") body = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>${who} joined</b></div>
        <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${box ? "Linux, Claude Code. It shows under Machines and can run agents now." : node ? "Linux, Docker, Claude Code, Codex. It shows under Machines and can run agents now." : "macOS, Claude Code, Codex. It shows under Machines and can run agents now."}</div>
@@ -146,6 +146,7 @@
        ${step("2. Run this there")}
        ${line(`beep-node mesh join ${TICKET}`, "Copied")}
        ${s === "waiting" ? waiting("the machine") : note}`;
+    else if (k === "phone") body = `${step("Phone pairing ticket")}${line(TICKET, "Copied")}<p>In Beep on your phone, open Devices and paste this ticket. The phone must prove it has this one-use secret over iroh.</p><p>Expires in 5 minutes. Keep this ticket private.</p>${waiting("the phone")}`;
     else body = `${step("Ticket")}
        ${line(TICKET, "Copied")}
        <div style="font-size:12.5px;color:var(--d-muted);margin-bottom:12px">Paste it into Beep on the other Mac, under Join with a ticket.</div>
@@ -154,7 +155,7 @@
     const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5">
       <div style="width:min(560px,86%);padding:18px 20px;border-radius:14px;border:1px solid var(--d-border);background:#151617;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px"><b style="font-size:15px">Add a machine</b><kbd style="font-size:11px;opacity:.7">esc</kbd></div>
-      ${s === "joined" || s === "expired" ? "" : `<div role="radiogroup" aria-label="Kind of machine" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">${kindCard("node", "Node", "A server or any always-on box", k === "node")}${kindCard("container", "Container", "Removed after a day offline", box)}${kindCard("desktop", "Desktop", "Another Mac", !node)}</div>`}${body}</div></div>`;
+      ${s === "joined" || s === "expired" ? "" : `<div role="radiogroup" aria-label="Kind of machine" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">${kindCard("node", "Node", "A server or any always-on box", k === "node")}${kindCard("container", "Container", "Removed after a day offline", box)}${kindCard("desktop", "Desktop", "Another Mac", k === "desktop")}${kindCard("phone", "Phone", "Pair over iroh", k === "phone")}</div>`}${body}</div></div>`;
     return nsHome(S.d.ns === "home").replace(/<\/div><\/div>\s*$/, sheet + "</div></div>");
   };
   const T = (l, kind, st) => [l, () => { S.d.tk = kind; S.d.ts = st; render(); }, () => (S.d.tk || "node") === kind && (S.d.ts || "ready") === st];

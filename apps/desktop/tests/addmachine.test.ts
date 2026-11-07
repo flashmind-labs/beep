@@ -31,8 +31,9 @@ test("the setup command names the search folder only when it is not home", () =>
 });
 
 test("a container ticket is a temporary node's", () => {
-  assert.deepEqual(KINDS.map(k => k.kind), ["node", "container", "desktop"]);
+  assert.deepEqual(KINDS.map(k => k.kind), ["node", "container", "desktop", "phone"]);
   assert.deepEqual(inviteArgs("node"), { kind: "Node", temporary: false });
   assert.deepEqual(inviteArgs("container"), { kind: "Node", temporary: true });
   assert.deepEqual(inviteArgs("desktop"), { kind: "Desktop", temporary: false });
+  assert.deepEqual(inviteArgs("phone"), { kind: "Desktop", temporary: false, phone: true });
 });

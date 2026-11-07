@@ -87,7 +87,13 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
+fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit, onWorkspaceLinked: () -> Unit = {}) {
+    if (!com.flashmind.beep.ffi.serverEnabled()) {
+        WorkspacePage("Linked devices", onBack) {
+            WorkspaceBody { WorkspaceLink(repository, onWorkspaceLinked) }
+        }
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var devices by remember { mutableStateOf<List<LinkedDevice>?>(null) }
@@ -137,6 +143,7 @@ fun LinkedDevicesScreen(repository: ChatRepository, onBack: () -> Unit) {
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp)) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                WorkspaceLink(repository)
                 Text("Devices on this account", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
                 Spacer(Modifier.height(4.dp))
                 val owner = devices.orEmpty().any { it.primary && it.thisDevice }
@@ -468,4 +475,48 @@ private fun ShowCodeSheet(repository: ChatRepository, onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun WorkspaceLink(repository: ChatRepository, onLinked: () -> Unit = {}) {
+    val api = repository.workspaceApi()
+    val scope = rememberCoroutineScope()
+    var linked by remember { mutableStateOf(false) }
+    var ticket by remember { mutableStateOf("") }
+    var adding by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(api) {
+        runCatching { api.workspaceLinked() }.onSuccess { linked = it }.onFailure { error = userMessage(it) }
+    }
+    Text("Workspace", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
+    Text(if (linked) "Workspace linked. Projects and node sessions connect directly." else
+        "Link your desktop workspace to manage projects and node sessions, even when the desktop is offline.",
+        fontSize = 12.sp, lineHeight = 18.sp, color = Beep.colors.muted)
+    WorkspaceError(error)
+    if (!linked) TextButton(onClick = { adding = true }) { Text("Link workspace") }
+    HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Beep.colors.softLine)
+    if (adding) AlertDialog(
+        onDismissRequest = { if (!busy) adding = false },
+        title = { Text("Link workspace") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("On desktop, open Machines, Add a machine, then choose Phone. Copy its ticket here.")
+                OutlinedTextField(ticket, { ticket = it }, label = { Text("Phone pairing ticket") }, enabled = !busy)
+                Text("This phone gets project controls, node sessions and shared credentials.")
+                WorkspaceError(error)
+            }
+        },
+        confirmButton = { TextButton(enabled = !busy && ticket.isNotBlank(), onClick = {
+            busy = true
+            scope.launch {
+                try {
+                    api.joinWorkspace(ticket.trim(), Build.MODEL)
+                    linked = true; ticket = ""; adding = false; error = null; onLinked()
+                } catch (failure: Exception) { error = userMessage(failure) }
+                finally { busy = false }
+            }
+        }) { Text(if (busy) "Linking…" else "Link workspace") } },
+        dismissButton = { TextButton(enabled = !busy, onClick = { adding = false }) { Text("Cancel") } },
+        containerColor = Beep.colors.surface)
 }

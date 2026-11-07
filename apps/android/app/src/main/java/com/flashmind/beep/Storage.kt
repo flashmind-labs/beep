@@ -185,6 +185,21 @@ class LocalStorage(internal val context: Context) {
         check(prefs.edit().putString("identity", encrypted).commit()) { "Could not save identity" }
         cachedIdentity = identity
     }
+    /** Each installation has its own mesh key, even when the server account was restored. */
+    fun workspaceIdentity(account: ByteArray): ByteArray = synchronized(identityLock) {
+        val name = "workspace-identity-" + com.flashmind.beep.ffi.identityName(account)
+        prefs.getString(name, null)?.let { encrypted ->
+            val bytes = Base64.decode(encrypted, Base64.NO_WRAP)
+            return@synchronized Cipher.getInstance("AES/GCM/NoPadding").apply {
+                init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+            }.doFinal(bytes.copyOfRange(12, bytes.size)).also { require(it.size == 32) }
+        }
+        newIdentity().also { identity ->
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+            val encrypted = Base64.encodeToString(cipher.iv + cipher.doFinal(identity), Base64.NO_WRAP)
+            check(prefs.edit().putString(name, encrypted).commit()) { "Could not save workspace identity" }
+        }
+    }
     fun loadState(): ChatState = runCatching {
         val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })
         val list = json.getJSONArray("conversations")

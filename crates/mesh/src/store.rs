@@ -11,6 +11,7 @@ use crate::{
 };
 use beep_proto::lenient;
 use iroh::{EndpointAddr, EndpointId, SecretKey};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{ErrorKind, Write};
@@ -44,12 +45,20 @@ pub(crate) struct View {
 
 pub(crate) type SharedView = Arc<RwLock<Arc<View>>>;
 
+#[derive(Serialize, Deserialize)]
+struct Redemption {
+    secret: JoinSecret,
+    joiner: EndpointId,
+    expires_ms: u64,
+}
+
 pub(crate) struct Core {
     key: SecretKey,
     dir: PathBuf,
     devices: Devices,
     state: State,
     tickets: Vec<JoinTicket>,
+    redemptions: Vec<Redemption>,
     view: SharedView,
     rev: Arc<watch::Sender<u64>>,
 }
@@ -59,6 +68,11 @@ impl Core {
     pub(crate) fn start(dir: &Path, key: SecretKey, devices: Devices) -> Result<Core, MeshError> {
         let state = State::open(dir, &key, devices.mesh())?;
         let tickets = match fs::read(dir.join(MESH_DIR).join("tickets.bin")) {
+            Ok(bytes) => lenient::from_slice(&bytes)?,
+            Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(e.into()),
+        };
+        let redemptions = match fs::read(dir.join(MESH_DIR).join("redemptions.bin")) {
             Ok(bytes) => lenient::from_slice(&bytes)?,
             Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e.into()),
@@ -74,6 +88,7 @@ impl Core {
             devices,
             state,
             tickets,
+            redemptions,
             view: Arc::new(RwLock::new(view)),
             rev: Arc::new(watch::channel(0).0),
         };
@@ -305,12 +320,32 @@ impl Core {
             Err(e) => return Err(e),
         }
         self.save_devices()?;
+        self.redemptions.retain(|claimed| claimed.expires_ms > now);
+        self.redemptions.push(Redemption {
+            secret: ticket.secret,
+            joiner,
+            expires_ms: ticket.expires_ms,
+        });
+        self.write(
+            "redemptions.bin",
+            &rmp_serde::to_vec(&self.redemptions)?,
+            true,
+        )?;
         if ticket.temporary {
             self.state
                 .set(Key::Temporary(joiner.to_string()), Some(Vec::new()))?;
         }
         self.publish();
         Ok(self.devices.ops().to_vec())
+    }
+
+    pub(crate) fn joined_with(&self, secret: &JoinSecret) -> Option<EndpointId> {
+        let now = now_ms();
+        self.redemptions
+            .iter()
+            .find(|claimed| claimed.expires_ms > now && claimed.secret.verify(secret))
+            .map(|claimed| claimed.joiner)
+            .filter(|id| self.devices.is_member(*id))
     }
 
     /// Removes the temporary device `id` and its `temporary/` key. A device already removed is
