@@ -6,12 +6,12 @@
 
 use super::{
     Stored,
-    folder::remap,
+    folder::Folders,
     json::{Step, replace, string_at, string_spans},
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-pub(super) fn rewrite(transcript: &[u8], file_name: &str, old: &Path, new: &Path) -> Stored {
+pub(super) fn rewrite(transcript: &[u8], file_name: &str, folders: &Folders) -> Stored {
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
     for line in transcript.split_inclusive(|b| *b == b'\n') {
         let mut spans = match string_at(line, &[Step::Key("type")]).as_deref() {
@@ -31,7 +31,7 @@ pub(super) fn rewrite(transcript: &[u8], file_name: &str, old: &Path, new: &Path
             _ => Vec::new(),
         };
         spans.sort_by_key(|span| span.start);
-        bytes.extend(replace(line, &spans, |folder| remap(folder, old, new)));
+        bytes.extend(replace(line, &spans, |folder| folders.remap(folder)));
     }
     Stored {
         bytes,

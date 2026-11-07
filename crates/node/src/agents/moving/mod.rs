@@ -40,10 +40,7 @@ use super::{Agents, found::Agent};
 use crate::files::sync::Syncs;
 use iroh::{Endpoint, EndpointId};
 use saved::Folder;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 use store::StoreRoots;
 
 /// The most moves one node takes part in at once.
@@ -110,21 +107,20 @@ pub(crate) struct Stored {
 }
 
 /// `transcript` of session `id`, written for a session that worked in
-/// `old` and now works in `new`. `file_name` is the name the source kept
+/// `folders.old` and now works in `folders.new`. `file_name` is the name the source kept
 /// it under (Codex and pi put the start time in it). Only the folder
 /// fields change; every other byte stays.
-pub(crate) fn rewrite(
+fn rewrite(
     harness: Harness,
     transcript: &[u8],
     id: &str,
     file_name: &str,
-    old: &Path,
-    new: &Path,
+    folders: &folder::Folders,
 ) -> Stored {
     match harness {
-        Harness::Claude => claude::rewrite(transcript, id, old, new),
-        Harness::Codex => codex::rewrite(transcript, file_name, old, new),
-        Harness::Pi => pi::rewrite(transcript, file_name, old, new),
-        Harness::Flsh => flsh::rewrite(transcript, id, old, new),
+        Harness::Claude => claude::rewrite(transcript, id, folders),
+        Harness::Codex => codex::rewrite(transcript, file_name, folders),
+        Harness::Pi => pi::rewrite(transcript, file_name, folders),
+        Harness::Flsh => flsh::rewrite(transcript, id, folders),
     }
 }
