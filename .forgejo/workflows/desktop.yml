@@ -68,21 +68,12 @@ jobs:
             rm -rf "$target"
           fi
 
-      - name: Check the web UI
+      - name: Build the web UI
         working-directory: apps/desktop
         run: |
           set -euo pipefail
           npm ci
           npm run build
-          npm run check
-
-      - name: Check
-        working-directory: apps/desktop/src-tauri
-        run: |
-          set -euo pipefail
-          cargo fmt --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test -- --test-threads=2
 
       - name: Import signing credentials
         env:

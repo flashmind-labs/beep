@@ -187,9 +187,12 @@ async function readList() {
   if (shown()) drawMachines();
 }
 
-// Opened before the machines connected: the page follows them as they come.
-for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) { void readList(); void loadToolUpdates(); } });
-setInterval(() => { if (shown()) void loadToolUpdates(); }, 60 * 60 * 1000);
+/// Starts the machine updates once per webview, from its entry point.
+export function followToolUpdates() {
+  // Opened before the machines connected: the page follows them as they come.
+  for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) { void readList(); void loadToolUpdates(); } });
+  setInterval(() => { if (shown()) void loadToolUpdates(); }, 60 * 60 * 1000);
+}
 
 async function loadNodeRelease() {
   const released = await invoke<string | null>("node_release").catch(e => { console.warn("beep-node release:", e); return null; });
