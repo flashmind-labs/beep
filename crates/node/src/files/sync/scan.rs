@@ -107,6 +107,15 @@ impl Walked {
 
 /// Walks `root` under `rules`, listing at most `skipped` left-out paths.
 pub(super) fn walk(root: &Path, rules: &Rules, skipped: usize) -> Result<Walked> {
+    walk_inner(root, rules, skipped, false)
+}
+
+/// Git projects only scan metadata needed to seed a new checkout.
+pub(super) fn walk_git(root: &Path, rules: &Rules) -> Result<Walked> {
+    walk_inner(root, rules, 0, true)
+}
+
+fn walk_inner(root: &Path, rules: &Rules, skipped: usize, git_only: bool) -> Result<Walked> {
     let mut walked = Walked {
         dirs: vec![root.to_owned()],
         ..Walked::default()
@@ -127,6 +136,9 @@ pub(super) fn walk(root: &Path, rules: &Rules, skipped: usize) -> Result<Walked>
                 continue;
             };
             let path = format!("{prefix}{name}");
+            if git_only && path != gitdir::GIT && !gitdir::in_git(&path) {
+                continue;
+            }
             let Ok(kind) = item.file_type() else {
                 continue;
             };

@@ -46,6 +46,7 @@ export interface MachineDetail {
   progress: SyncProgress | null;
   waiting: string[];
   can_resolve: boolean;
+  git_only?: boolean;
 }
 
 /// A project's sync, as `project_sync_detail` gives it (SyncDetailView).
@@ -398,7 +399,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     const bar = pct == null ? null : h("div", "fs-bar", h("i", ""));
     if (bar) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
     const folder = plainPath(m.folder);
-    const meta = h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)), folder ? h("code", "", folder) : null);
+    const meta = h("div", "fs-m", ...(m.git_only ? ["Git sync"] : machineMeta(m)).map(x => h("span", "", x)), folder ? h("code", "", folder) : null);
     const row = h("div", "fs-row", head, bar, meta);
     const clock = clockWarning(m.machine_id, null);
     if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
@@ -539,7 +540,9 @@ export function makeFileSync(deps: FileSyncDeps) {
       out.push(secHead("Waiting"));
       out.push(h("div", "cc-panel fs-list", ...waiting.map(w => h("div", "fs-wait", h("code", "", w.path), h("span", "dmuted", w.machines.join(", "))))));
     }
-    out.push(h("div", "dmuted fs-note", "Builds, ignored files and links stay on each machine."));
+    out.push(h("div", "dmuted fs-note", d.machines.some(machine => machine.git_only)
+      ? "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Where it lives for an explicit handoff."
+      : "Builds, ignored files and links stay on each machine."));
     return out;
   }
 

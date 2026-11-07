@@ -341,6 +341,8 @@ fn main() {
             projects::file_sync::project_sync,
             projects::file_sync::project_syncthing_files,
             projects::git_sync::project_git_move,
+            projects::file_sync::project_handoff_work,
+            projects::file_sync::project_syncthing_mode,
             projects::git_sync::project_git_state,
             projects::file_sync::project_sync_detail,
             projects::file_sync::project_sync_pause,

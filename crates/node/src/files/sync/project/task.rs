@@ -352,6 +352,7 @@ impl Task {
     /// Publishes how the project stands; progress shows only while a round
     /// runs, and `show` sets it then.
     pub(super) fn publish_status(&self, state: Option<SyncState>) {
+        let git_only = self.shared.lock().saved.git_only;
         let (files, bytes, conflicts) = {
             let locked = self.shared.lock();
             let bytes = locked.saved.seen.values().map(|seen| seen.stat.size).sum();
@@ -359,7 +360,7 @@ impl Task {
                 .saved
                 .map
                 .entries()
-                .filter(|entry| entry.file.is_some() && is_conflict(&entry.path))
+                .filter(|entry| !git_only && entry.file.is_some() && is_conflict(&entry.path))
                 .map(|entry| entry.path.clone())
                 .collect();
             (locked.saved.seen.len() as u64, bytes, conflicts)
@@ -367,7 +368,7 @@ impl Task {
         let paused = self.shared.is_paused();
         let state = state.unwrap_or(if paused {
             SyncState::Paused
-        } else if self.scan_failed {
+        } else if self.scan_failed || git_only && self.error.is_some() {
             SyncState::Failed
         } else if self.pending > 0 || !self.shared.heard_all() {
             SyncState::Syncing
@@ -382,6 +383,7 @@ impl Task {
         let error = self.error.clone();
         let waiting = self.waiting.clone();
         self.shared.publish(move |status| {
+            status.git_only = git_only;
             status.paused = paused;
             status.progress = None;
             status.waiting = waiting;

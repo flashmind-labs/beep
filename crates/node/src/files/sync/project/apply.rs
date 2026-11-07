@@ -181,12 +181,32 @@ impl Task {
             self.publish_status(None);
             return false;
         }
+        // A Git checkout exchanges commits, never live working-tree files.
+        if !copies_git && self.shared.head().await.is_ok_and(|head| head.present)
+            || !copies_git && self.shared.lock().saved.git_only
+        {
+            self.pending = 0;
+            self.waiting.clear();
+            self.publish_status(None);
+            return true;
+        }
         let (work, checkout) = {
             let state = self.shared.lock();
             let rules = read_lock(&self.shared.rules);
             let work = plan(&state, &rules)
                 .into_iter()
-                .filter(|work| copies_git || !gitdir::in_git(&work.path))
+                .filter(|work| {
+                    if copies_git
+                        && matches!(
+                            state.saved.git_copy,
+                            Some(GitCopy::Pending { peer: Some(_) })
+                        )
+                    {
+                        gitdir::in_git(&work.path)
+                    } else {
+                        !gitdir::in_git(&work.path)
+                    }
+                })
                 .collect::<Vec<_>>();
             (work, state.saved.checkout)
         };
@@ -616,6 +636,7 @@ impl Task {
                 bail!("waiting for the git operation running on this machine");
             }
             repo.rebuild_index()?;
+            repo.materialize_checkout()?;
             exclude_from_git(&root);
             Ok(true)
         })

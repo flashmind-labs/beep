@@ -251,7 +251,7 @@ pub async fn import_project(
         })
         .await?;
     if let Some(enabled) = syncthing_files {
-        desk.syncthing_files(&imported.machine_id, &imported.folder, Some(enabled))
+        desk.project_syncthing_mode(&imported.project, Some(enabled))
             .await?;
     }
     mirror_import(&beep, &imported).await;

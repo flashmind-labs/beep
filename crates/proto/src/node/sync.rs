@@ -64,6 +64,13 @@ pub enum Request {
         folder: String,
         enabled: Option<bool>,
     },
+    /// Captures uncommitted work without changing the source's index or files.
+    HandoffSnapshot { project: String },
+    /// Applies an explicit snapshot to a clean checkout at the same commit.
+    HandoffApply {
+        project: String,
+        snapshot: HandoffSnapshot,
+    },
 }
 
 /// Which side of a conflict `Request::Resolve` keeps.
@@ -120,6 +127,18 @@ pub enum Reply {
     SyncthingFiles {
         files: SyncthingFiles,
     },
+    HandoffSnapshot {
+        snapshot: HandoffSnapshot,
+    },
+    HandoffApplied {},
+}
+
+/// Uncommitted edits against one exact commit. Edits arrive unstaged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HandoffSnapshot {
+    pub base: String,
+    #[serde(with = "serde_bytes")]
+    pub patch: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -163,6 +182,9 @@ pub struct ProjectStatus {
     /// Some paths it still has to bring, or that failed and wait to be
     /// tried again, at most `MAX_WAITING`.
     pub waiting: Vec<String>,
+    /// Git owns the working tree; only explicit handoffs carry uncommitted edits.
+    #[serde(default)]
+    pub git_only: bool,
 }
 
 /// How far a node is through one round of bringing files in line.

@@ -96,6 +96,7 @@ fn machine_sync(
     paused: bool,
 ) -> MachineSync {
     let mut machine = MachineSync {
+        git_only: false,
         machine_id: row.endpoint.clone(),
         machine_name: name,
         folder: row.folder.clone(),
@@ -116,6 +117,7 @@ fn machine_sync(
             machine.error = Some("The machine is not syncing this folder.".to_owned());
         }
         Some(Some(status)) => {
+            machine.git_only = status.git_only;
             machine.status = match status.state {
                 State::Scanning => SyncStatus::Scanning {},
                 State::Syncing | State::Other => SyncStatus::Syncing {},

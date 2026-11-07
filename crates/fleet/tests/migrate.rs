@@ -111,6 +111,7 @@ impl Source for Server {
             project: "acme/widget".into(),
             pinned: false,
             machines: vec![MachineSync {
+                git_only: false,
                 machine_id: self.box_id.to_string(),
                 machine_name: "build-box".into(),
                 folder: "/srv/projects/acme/widget".into(),

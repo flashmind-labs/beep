@@ -173,7 +173,8 @@ fn find_copy(
         .iter()
         .copied()
         .map(Path::new)
-        .find(|folder| is_here(folder));
+        // Git working trees can differ even at the same commit.
+        .find(|folder| is_here(folder) && !folder.join(".git").exists());
     let Some(local) = here else {
         return Err(Miss::NotHere {
             project: project.to_owned(),
@@ -232,6 +233,7 @@ fn recorded(mesh: &Mesh) -> (Vec<ImportedProject>, Vec<ProjectSync>) {
                 .folders
                 .into_iter()
                 .map(|(machine, folder)| MachineSync {
+                    git_only: false,
                     machine_id: machine.to_string(),
                     machine_name: name_of(&machine),
                     folder,
@@ -294,7 +296,14 @@ async fn copy_of(beep: &Beep, fleet: &Fleet, machine_id: &str, dir: &str) -> Opt
         folder: dir.to_owned(),
     };
     if let Some(copy) = beep.copies().kept(&asked) {
-        return copy;
+        let copy = copy?;
+        if tokio::fs::try_exists(copy.local.join(".git"))
+            .await
+            .unwrap_or(true)
+        {
+            return None;
+        }
+        return Some(copy);
     }
     match look(beep, fleet, machine_id, dir).await {
         Ok(Ok(copy)) => {
@@ -425,6 +434,7 @@ mod tests {
 
     fn machine(id: &str, folder: &str) -> MachineSync {
         MachineSync {
+            git_only: false,
             machine_id: id.into(),
             machine_name: id.into(),
             folder: folder.into(),
@@ -510,6 +520,21 @@ mod tests {
             found("/srv/widget", &imported, &[], &["/mac/code/widget"]),
             Ok(copy("/srv/widget/", "/mac/code/widget"))
         );
+    }
+
+    #[test]
+    fn git_checkouts_read_from_the_remote_machine_even_at_the_same_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(".git")).unwrap();
+        let local = dir.path().to_str().unwrap();
+        let imported = [
+            import("box", "acme/widget", "/srv/widget"),
+            import("mac", "acme/widget", local),
+        ];
+        assert!(matches!(
+            found("/srv/widget", &imported, &[], &[local]),
+            Err(Miss::NotHere { .. })
+        ));
     }
 
     #[test]

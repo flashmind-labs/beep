@@ -740,6 +740,30 @@ mod mesh_state {
     }
 
     #[test]
+    fn project_syncthing_preference_defaults_and_is_appended() {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct OldProject {
+            url: String,
+        }
+        let old = OldProject {
+            url: "https://example.com/example/repo".into(),
+        };
+        let bytes = rmp_serde::to_vec(&old).unwrap();
+        let mut record = ProjectRecord::from_bytes(&bytes).unwrap();
+        assert_eq!(record.syncthing_files, None);
+        record.syncthing_files = Some(false);
+        let older: OldProject =
+            beep_proto::lenient::from_slice(&record.to_bytes().unwrap()).unwrap();
+        assert_eq!(older.url, old.url);
+        assert_eq!(
+            ProjectRecord::from_bytes(&record.to_bytes().unwrap())
+                .unwrap()
+                .syncthing_files,
+            Some(false)
+        );
+    }
+
+    #[test]
     fn values_round_trip_and_hide_secrets_in_debug() {
         let id = SecretKey::generate().public();
         let spec = SyncSpec {

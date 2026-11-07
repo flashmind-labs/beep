@@ -97,8 +97,14 @@ impl Shared {
             // Existing indexes, including staged work, stay owned by Git.
             saved.index_stale = false;
         }
+        let git_only = saved.git_only
+            || start.root.path().join(gitdir::GIT).exists()
+            || saved.checkout.is_some_and(|checkout| checkout.present)
+            || matches!(&saved.git_copy, Some(GitCopy::Finished));
+        let mode_changed = saved.git_only != git_only;
+        saved.git_only = git_only;
         let mut state = State::new(saved);
-        state.unsaved |= migrated;
+        state.unsaved |= migrated || mode_changed;
         let rules = Rules::load(start.root.path())?;
         let replica = state.saved.map.replica();
         let seq = state.saved.map.seq();
@@ -329,6 +335,9 @@ impl Shared {
         } else if own.differs(checkout) {
             bail!("Git commits differ; push and pull through Git before syncing files");
         }
+        if copies_git && checkout.present {
+            state.saved.git_only = true;
+        }
         state.saved.matched.insert(peer.to_string());
         state.unsaved = true;
         drop(state);
@@ -382,15 +391,6 @@ impl Shared {
             }
             target
         };
-        {
-            let state = self.lock();
-            if super::list::plan(&state, &crate::read_lock(&self.rules))
-                .iter()
-                .any(|work| !gitdir::in_git(&work.path))
-            {
-                bail!("Git commits differ; pending working changes must be settled before pulling");
-            }
-        }
         let repo = Repo::open(self.root())
             .context("Git commits differ; the local repository is unavailable")?;
         let (repo, command, branch) = spawn_blocking(move || -> Result<_> {
@@ -484,7 +484,20 @@ impl Shared {
         }
         let entries: Vec<_> = entries
             .iter()
-            .filter(|entry| copies_git || !gitdir::in_git(&entry.path))
+            .filter(|entry| {
+                if copies_git
+                    && matches!(
+                        state.saved.git_copy,
+                        Some(GitCopy::Pending { peer: Some(_) })
+                    )
+                {
+                    gitdir::in_git(&entry.path)
+                } else {
+                    !self.root().join(gitdir::GIT).exists()
+                        && !state.saved.git_only
+                        && !gitdir::in_git(&entry.path)
+                }
+            })
             .cloned()
             .collect();
         let merged = merge_peer(&mut state.saved.map, &entries);

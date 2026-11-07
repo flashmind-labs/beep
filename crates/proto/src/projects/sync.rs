@@ -91,6 +91,9 @@ ffi_structs! {
         pub hint: Option<String>,
         /// Why the machine's last scan or fetch failed.
         pub error: Option<String>,
+        /// The checkout syncs commits through Git, with explicit handoffs for edits.
+        #[serde(default)]
+        pub git_only: bool,
     }
 }
 

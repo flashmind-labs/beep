@@ -69,6 +69,11 @@ impl Task {
                 state.unsaved = true;
             }
         }
+        if checkout.present {
+            let mut state = self.shared.lock();
+            state.saved.git_only = true;
+            state.unsaved = true;
+        }
         let syncs_git = rules.syncs_git();
         *write_lock(&self.shared.rules) = rules;
         // Before the walk: git writes objects before the refs that name
@@ -99,11 +104,16 @@ impl Task {
         // No repository to read: its files missing are not deletes.
         let repo_gone = repo.is_none();
         let refs = repo.unwrap_or_default();
+        let git_only = self.shared.lock().saved.git_only;
         let walked = {
             let (root, rules) = (root.clone(), self.shared.rules.clone());
             spawn_blocking(move || {
                 let rules = read_lock(&rules);
-                scan::walk(&root, &rules, 0)
+                if git_only {
+                    scan::walk_git(&root, &rules)
+                } else {
+                    scan::walk(&root, &rules, 0)
+                }
             })
             .await??
         };
