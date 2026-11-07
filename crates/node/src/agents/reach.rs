@@ -166,6 +166,7 @@ impl Agents {
             // OpenCode's database, or its folder of them.
             logs.opencode,
             claude_temp(),
+            super::uploads::folder(),
         ]
         .into_iter()
         .flatten()
@@ -173,7 +174,10 @@ impl Agents {
         Reach {
             work,
             read,
-            no_write: claude_temp().into_iter().collect(),
+            no_write: claude_temp()
+                .into_iter()
+                .chain(super::uploads::folder())
+                .collect(),
             sessions,
         }
     }

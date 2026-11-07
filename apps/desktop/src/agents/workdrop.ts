@@ -1,8 +1,8 @@
 // Paths mentioned in a coding agent session's next message, and files dropped
 // or pasted on the session: pictures attach as before, other files upload into
-// the session's folder on its machine and are mentioned.
+// its host's temporary cache and are mentioned by absolute path.
 
-import { MAX_UPLOAD, UPLOAD_FOLDER, joinPath, mentionText, shortSize, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
+import { MAX_UPLOAD, joinPath, mentionText, shortSize, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
@@ -71,7 +71,7 @@ export function mentionChips() {
   const a = MN.ask;
   const ask = a ? `<div class="agupask"><span>Upload ${a.files.length === 1 ? `<b>${esc(a.files[0].name)}</b>` : `${a.files.length} files`} (${esc(shortSize(a.files.reduce((n, f) => n + f.size, 0)))}) to ${esc(paneSession()?.machine_name ?? "the machine")}:</span>`
     + `<button class="dbtn pri" data-agup="there">Into ${esc(a.folder ? `${a.folder}/` : "the session's folder")}</button>`
-    + `<button class="dbtn" data-agup="default">Into ${UPLOAD_FOLDER}/</button><button class="dbtn quiet" data-agup="cancel">Cancel</button></div>` : "";
+    + `<button class="dbtn" data-agup="default" title="Outside the project. Deleted when this session is closed.">Temporary attachments</button><button class="dbtn quiet" data-agup="cancel">Cancel</button></div>` : "";
   return chips.join("") + ups.join("") + ask;
 }
 
@@ -87,7 +87,7 @@ export function wireMentionChips(el: HTMLElement) {
     MN.ask = null;
     MN.redraw();
     if (!a || b.dataset.agup === "cancel") return;
-    uploadDropped(a.files, b.dataset.agup === "there" ? a.folder : UPLOAD_FOLDER, a.root);
+    uploadDropped(a.files, b.dataset.agup === "there" ? a.folder : null, a.root);
   }));
   if (MN.ask) queueMicrotask(() => el.querySelector<HTMLElement>('[data-agup="there"]')?.focus());
 }
@@ -100,8 +100,8 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
 }
 
 /// Files dropped or pasted on the session, other than the pictures the
-/// agent takes: uploaded into `folder`, by default `.beep/uploads/`.
-export async function uploadDropped(files: File[], folder = UPLOAD_FOLDER, root = paneSession()?.cwd ?? "") {
+/// agent takes: temporary attachments by default, permanent when `folder` is chosen.
+export async function uploadDropped(files: File[], folder: string | null = null, root = paneSession()?.cwd ?? "") {
   const session = paneSession();
   for (const f of files) {
     if (paneSession() !== session) return;
@@ -115,12 +115,12 @@ export async function uploadDropped(files: File[], folder = UPLOAD_FOLDER, root 
     }
     MN.redraw();
   }
-  reloadFolder(folder);
+  if (folder !== null) reloadFolder(folder);
 }
 
 /// Uploads `file` into `folder` of the session's folder, a part at a time;
 /// the path it took there, or "" when the session went away.
-async function uploadOne(file: File, folder: string, root: string) {
+async function uploadOne(file: File, folder: string | null, root: string) {
   const s = paneSession();
   if (!s) return "";
   if (file.size > MAX_UPLOAD) throw new Error(uploadRefusal(file));
@@ -128,7 +128,7 @@ async function uploadOne(file: File, folder: string, root: string) {
   MN.uploads.push(up);
   MN.redraw();
   try {
-    let path = joinPath(folder, up.name);
+    let path = folder === null ? up.name : joinPath(folder, up.name);
     for (const part of uploadParts(file.size)) {
       // A folder dropped from Finder fails to read here.
       let data: string;
@@ -136,12 +136,13 @@ async function uploadOne(file: File, folder: string, root: string) {
       catch { throw new Error("it could not be read; folders do not upload, drop the files in them"); }
       path = await invoke<string>("agent_tree_upload", {
         machineId: s.machine_id, root, path, offset: part.offset, size: file.size, data,
+        attachment: folder === null ? { agent: s.agent, session: s.id } : null,
       });
       if (paneSession() !== s) return "";
       up.done = part.offset + part.len;
       MN.redraw();
     }
-    return mentioned(root, s.cwd, path);
+    return folder === null ? path : mentioned(root, s.cwd, path);
   } finally {
     MN.uploads = MN.uploads.filter(u => u !== up);
   }
