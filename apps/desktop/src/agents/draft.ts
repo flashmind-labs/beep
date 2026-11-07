@@ -1,6 +1,6 @@
 // The agent view with no session yet (⌘N, ⌘T in a project): a session's layout,
-// header, conversation and side pane, with the project's start input where the
-// message field sits. Sending from it starts the session in place (session.ts
+// header and side pane, with the shared new-agent composer centered in the
+// empty conversation. Sending from it starts the session in place (session.ts
 // openAgent with `adopt`); the pane and its terminals stay.
 import { $, $$, bar, S, windowHooks } from "../bar/core.ts";
 import { paneFrame, rebindPane, startPane } from "../agentpane/media.ts";
@@ -31,12 +31,13 @@ export function openDraft(project: string, machine: string | null) {
   // The project page takes the input when it shows; it comes back here.
   const at = $$("#agdraft");
   if (projectComp.form.parentNode !== at) at.append(projectComp.form);
+  drawProjectComp(project);
   projectComp.input.focus();
 }
 
 function drawFrame(project: string) {
   bar.innerHTML = `<div class="dhead"><span class="tt"><b><button class="agproj" id="agproj">${esc(project)}</button></b><small id="aghere"></small></span><span id="agedit" class="agedit"></span></div>
-    <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody" id="agbody"><div class="agempty">New session in ${esc(project)}</div></div><div id="agdraft"></div>${agentHints()}</div>`)}</div>`;
+    <div class="agshell" id="agshell">${paneFrame(`<div class="agconv" id="agconv"><div class="dbody agdraft-body" id="agbody"><div id="agdraft"></div></div>${agentHints()}</div>`)}</div>`;
   $$("#agproj").addEventListener("click", () => windowHooks?.goBack({ view: "projects", arg: { project } }));
   $$("#agdraft").append(projectComp.form);
   bound = "";

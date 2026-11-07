@@ -41,7 +41,7 @@ const POLL_MS = 1000;
 const barImages: Attached[] = [];
 
 export const projectComp = (() => {
-  const composer = makeStartComposer();
+  const composer = makeStartComposer({ presentation: "compact" });
   const { form, input, choices, machine, folder, harness, pick, att, err, box } = composer;
   input.title += ", Shift+Tab switches machines";
   machine.title += " (Shift+Tab in the task field)";
@@ -215,6 +215,7 @@ function loadProjectBar(name: string) {
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
   const c = projectComp;
+  c.setPresentation(shown === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
   if (pc.project !== name) {
     pc.project = name;
     pc.machine = lastMachine(name);
@@ -228,7 +229,7 @@ export function drawProjectComp(name: string) {
   // The machine last picked, while it still has a checkout and an agent,
   // else the first such machine.
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  c.input.placeholder = barPrompt(name, (!!place && !pc.adding) || pc.hosts === null);
+  c.input.placeholder = c.centered() ? "Describe the task." : barPrompt(name, (!!place && !pc.adding) || pc.hosts === null);
   // Text set or cleared from code (Work on it, a start) fits once drawn.
   requestAnimationFrame(c.grow);
   c.machine.replaceChildren(...(pc.adding ? [pc.adding.machine_name, " ", h("small", "", "adding")]
@@ -253,7 +254,7 @@ export function drawProjectComp(name: string) {
   c.harness.setAttribute("aria-expanded", String(pc.open));
   drawBarPicker(host, offered);
   c.send.disabled = pc.starting || !place || !!pc.adding;
-  c.send.firstChild!.textContent = pc.starting ? "Starting" : "Start";
+  c.setBusy(pc.starting);
   draftPlace(place);
 }
 

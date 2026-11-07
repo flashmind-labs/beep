@@ -1345,11 +1345,30 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agtree:focus-visible .agtr[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px }
 .agctx button.warn { color: var(--hot) }
 
-/* New agent uses the project's composer under the same empty conversation. */
-.agnew { flex: 1; min-height: 0; display: flex; flex-direction: column }
-.agnew > .dbody { flex: 1; min-height: 0 }
-#agcomposer > .cc-pjc { margin-inline: 16px }
+/* Centered new-agent composer, also used with a preset project. */
+.agc-wrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 16px; display: flex; flex-direction: column }
+.cc-pjc.centered { width: 100%; max-width: 760px; box-sizing: border-box; margin: auto; gap: 16px; padding-block: 32px }
+.cc-pjc.centered .agc-intro { text-align: center; padding: 0 16px 24px }
+.cc-pjc.centered .agc-intro h3 { max-width: 680px; margin: 0 auto; font-size: 48px; line-height: 1; font-weight: 500; letter-spacing: -.04em; text-wrap: balance }
+.cc-pjc.centered .agc-intro p { margin: 24px 0 0; font-size: 14px; line-height: 20px; color: var(--muted); text-wrap: pretty }
+.cc-pjc.centered .box { border-radius: 16px; background: var(--surface); padding: 14px 14px 10px; gap: 8px }
+.cc-pjc.centered textarea { min-height: 58px }
+.cc-pjc.centered > .choices { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; position: relative; padding: 0 6px }
+.cc-pjc.centered .pill { border: 0; padding: 4px 8px; height: auto; gap: 8px; font-size: 13px }
+.cc-pjc.centered > .choices .pill { color: var(--muted); font-size: 12.5px }
+.cc-pjc.centered > .choices .pill small { color: var(--dim); font-size: 11.5px }
+.cc-pjc.centered .pill .cc-ag { width: 22px; height: 22px; border-radius: var(--radius-sm) }
+.agc-send { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); flex: none }
+.agc-send[disabled] { background: var(--elev); color: var(--dim); cursor: default }
+.agc-send:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px }
+.agc-word { display: inline-block; animation: session-word 700ms cubic-bezier(.22,1,.36,1) both; animation-delay: calc(var(--word) * 80ms) }
+@keyframes session-word { from { opacity: 0; transform: translateY(16px) } to { opacity: 1; transform: translateY(0) } }
+@media (max-width: 850px) { .cc-pjc.centered .agc-intro h3 { font-size: 36px; line-height: 40px } }
+@media (prefers-reduced-motion: reduce) { .agc-word { animation: none } }
 #agunder { display: contents }
 #agcomposer .box.err { border-color: var(--err) }
-.agnew-notes { margin: 0 16px 16px }
 .agnew-notes:has(.agc-why[hidden]):has(#aghelp:empty) { display: none }
+.agdraft-body { display: flex; flex-direction: column }
+#agdraft { flex: 1; display: flex; padding: 16px; box-sizing: border-box }
+#agdraft > .cc-pjc.centered { margin: auto }
+#agdraft .agc-intro h3 { font-size: 36px; line-height: 40px }

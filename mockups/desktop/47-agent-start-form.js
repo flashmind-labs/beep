@@ -1,15 +1,9 @@
 
-// New agent reuses the project composer, with a project selector.
+// Start form as a composer: prompt, then one pill for harness, model and
+// thinking, with Machine and Folder dropdowns under the box.
 (() => {
   const st = document.createElement("style");
-  st.textContent = `.mac .cc-view:has(> .ag-start) { display: flex; flex-direction: column; padding: 0 }
-.mac .cc-view > .ag-start { flex: 1; min-height: 0; display: flex; flex-direction: column }
-.mac .ag-start .ag-empty { flex: 1; display: grid; place-items: center; color: var(--d-dim); font-size: 13px }
-.mac .ag-start .choices { display: contents }
-.mac .ag-start .cc-pjc .box { position: relative }
-.mac .ag-start .agc-under { display: contents }
-.mac .ag-start .agc-why, .mac .ag-start .agc-help, .mac .ag-start .agc-note { margin: 0 16px 16px }
-.mac .cc-view:has(> .agc) { display: flex; flex-direction: column }
+  st.textContent = `.mac .cc-view:has(> .agc) { display: flex; flex-direction: column }
 .mac .agc { max-width: 760px; width: 100%; margin: auto auto 18px; display: grid; gap: 10px }
 .mac .agc h3 { margin: 0 0 14px; text-align: center; font-size: 26px; font-weight: 500; letter-spacing: -.01em }
 .mac .agc h3 b { font-weight: 600 }
@@ -198,7 +192,9 @@
   window.__MARKS = MARKS;
   const av = a => `<span class="cc-ag ${a} mark">${MARKS[a]}</span>`;
   const caret = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  const up = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
   const clip = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.5l-8.5 8.5a5 5 0 01-7-7L14 5.5a3.3 3.3 0 014.7 4.7L10.2 18.7a1.7 1.7 0 01-2.4-2.4L15.5 8.6"/></svg>';
+  const host = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>';
   const folder = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>';
   const MACHINES = [["build-box", "Claude Code, Codex, pi, flsh", true], ["mac-box", "Claude Code, Codex, Gemini CLI", true], ["win-box", "", false]];
   const MODELS = { claude: [["Default", "model-large"], ["model-large", ""], ["model-small", ""]],
@@ -226,7 +222,7 @@
       </div>`;
   };
   window.__agcPicker = agcPicker;
-  const AGV = ["nohost", "picker", "flsh", "pickernomachine", "host", "project", "folder", "branch", "basemenu", "typing", "none", "looking", "noprompt", "noproj", "noprojfolder", "code"];
+  const AGV = ["ready", "nohost", "picker", "flsh", "pickernomachine", "host", "project", "folder", "branch", "basemenu", "typing", "none", "looking", "noprompt", "noproj", "noprojfolder", "code"];
   D.dAgentNew = () => {
     const v = pick("agc", AGV, "nohost");
     const none = v === "none", looking = v === "looking", noprompt = v === "noprompt";
@@ -275,17 +271,22 @@
     const pathText = "~/acme/widget";
     const folderPill = v === "typing"
       ? `<span class="agc-type"><input spellcheck="false" autocomplete="off" role="combobox" aria-label="Folder" placeholder="/path/to/folder or ~/folder" value="~/acme/"><span><div class="agc-menu up" role="listbox"><button class="on" role="option"><span></span><span class="mono">relay</span><small></small></button><button role="option"><span></span><span class="mono">widget</span><small></small></button></div></span></span>`
-      : `<button class="agc-pill" aria-expanded="${v === "folder" || v === "noprojfolder"}" title="${np ? "The machine's workspace" : pathText}" data-dact="dset:agc:${np ? (v === "noprojfolder" ? "noproj" : "noprojfolder") : v === "folder" ? "nohost" : "folder"}">${np ? `${folder}Workspace <small class="mono">~</small>` : `${makes ? "New worktree" : "Current checkout"}<small>${makes ? "from main" : "as it is"}</small>`}</button>`;
-    const shared = D.dWinProject().match(/<form class="cc-pjc"[\s\S]*?<\/form>/)?.[0];
-    if (!shared) throw new Error("project start input not found");
-    const choices = `${pjPill}<button class="agc-pill" aria-expanded="${v === "host"}" data-dact="dset:agc:${v === "host" ? "nohost" : "host"}">${chosenHost || "Pick a machine"}</button>${folderPill}${base}`.replaceAll('class="agc-pill"', 'class="pill"').replaceAll('<span class="sep"></span>', '');
-    const harness = none || looking ? `<button class="pill" disabled>No agent</button>` : `<button class="pill" aria-expanded="${open}" title="Harness, model and thinking" data-dact="dset:agc:${v === "picker" ? "nohost" : "picker"}">${pillText}${caret}</button>`;
-    const send = `<button class="dbtn pri"${np || none || looking || !chosenHost ? ' disabled' : ' data-dgo="dAgentSession" data-dact="dset:ags:working"'}>Start<kbd>${DI.ret}</kbd></button>`;
-    const form = shared.replace(/<textarea[\s\S]*?<\/textarea>/, `<textarea rows="1" placeholder="${np ? "Describe the task." : "Describe a task for a coding agent in acme/widget"}">${prompt}</textarea>`)
-      .replace(/<div class="row">[\s\S]*?<\/div>/, `<div class="row"><span class="choices">${choices}</span><span class="sp"></span>${harness}${send}</div><div class="agc-under">${projectMenu}${hostMenu}${folderMenu}${baseMenu}</div>${picker}`);
-    return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>${np ? "Start a coding agent" : "acme/widget"}</h2><small>${chosenHost || ""}</small><span class="tools"><button class="dbtn small" data-dgo="dAgents">All sessions</button></span></div>
-      <div class="cc-view"><div class="ag-start"><div class="ag-empty">${np ? "Pick a project to start a new session" : "New session in acme/widget"}</div>${form}${why}${help}</div></div>
-      <div class="cc-hints"><span><kbd>${DI.ret}</kbd>start</span><span><kbd>⌘M</kbd>model</span><span><kbd>esc</kbd>cancel</span></div>`);
+      : `<button class="agc-pill" aria-expanded="${v === "folder" || v === "noprojfolder"}" title="${np ? "The machine's workspace" : pathText}" data-dact="dset:agc:${np ? (v === "noprojfolder" ? "noproj" : "noprojfolder") : v === "folder" ? "nohost" : "folder"}">${folder}${np ? 'Workspace <small class="mono">~</small>' : `<span class="mono">${pathText}</span><small>${makes ? "New worktree" : "Current checkout"}</small>`}${caret}</button>`;
+    const form = `<div class="agc"><h3>${np ? "What should we build?" : "What should we build in <b>widget</b>?"}</h3>
+      <div class="agc-box${noprompt ? " err" : ""}"><div class="pr${prompt ? "" : " ph"}">${v === "code"
+        // Text between two triple line breaks goes out in a code fence; a long
+        // paste in it is a pill that expands to the full text first.
+        ? `Why does the login test fail?<span class="cx-fence"><span class="cx-chip" data-toast="Shows the 42 lines; Expand puts them in the prompt">Pasted text <small>· 42 lines</small></span><br>cargo test -p widget-core</span>Keep the error text as it is.`
+        : prompt || (noprompt ? "Say what the agent should do." : "Describe the task.")}</div>
+        <div class="agc-row"><span class="sp"></span>
+          ${none || looking ? `<button class="agc-pill" disabled>No agent</button>` : `<button class="agc-pill" aria-expanded="${open}" title="Harness, model and thinking (⌘M)" data-dact="dset:agc:${v === "picker" ? "nohost" : "picker"}">${pillText}${caret}</button>`}
+          <button class="agc-send"${np ? ' disabled title="Pick a project first"' : none || looking || !chosenHost ? ' disabled title="Pick a machine first"' : ` data-dgo="dAgentSession" data-dact="dset:ags:working" title="Start (⌘↩)"`} aria-label="Start">${up}</button></div>${picker}</div>
+      <div class="agc-under">${pjPill}<button class="agc-pill" aria-expanded="${v === "host"}" data-dact="dset:agc:${v === "host" ? "nohost" : "host"}">${host}${chosenHost || "Pick a machine"}${caret}</button><span class="sep"></span>
+        ${folderPill}${base}${projectMenu}${hostMenu}${folderMenu}${baseMenu}</div>
+      ${why}${help}</div>`;
+    return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>Start a coding agent</h2><small>It runs on your machine; follow it and answer it here</small><span class="tools"><button class="dbtn small" data-dgo="dAgents">All sessions</button></span></div>
+      <div class="cc-view">${form}</div>
+      <div class="cc-hints"><span><kbd>⌘${DI.ret}</kbd>start</span><span><kbd>⌘M</kbd>model</span><span><kbd>esc</kbd>cancel</span></div>`);
   };
   const vr = (l, k) => [l, () => { S.d.agc = k; render(); }, () => pick("agc", AGV, "nohost") === k];
   VARIANTS.dAgentNew = [vr("No machine picked yet", "nohost"), vr("Picker open (Claude Code)", "picker"), vr("Picker open (flsh)", "flsh"), vr("Picker, no machine", "pickernomachine"), vr("Machine menu", "host"), vr("Project menu", "project"), vr("Folder menu", "folder"), vr("New worktree from a ref", "branch"), vr("Base menu", "basemenu"), vr("Typing a folder", "typing"), vr("No agents", "none"), vr("Looking for machines", "looking"), vr("No prompt", "noprompt"), vr("No project", "noproj"), vr("No project: folder menu", "noprojfolder"), vr("Pasted text sent as code", "code")];
