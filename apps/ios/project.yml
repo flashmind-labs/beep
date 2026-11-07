@@ -83,6 +83,7 @@ targets:
     platform: iOS
     sources:
       - path: Tests/SkinTests.swift
+      - path: Tests/HomeStateTests.swift
     dependencies:
       - target: Beep
     settings:
