@@ -985,10 +985,12 @@ async fn synced_repo() -> (Node, Node) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_commit_arrives_with_a_clean_status_both_ways() {
+async fn git_copies_once_then_commits_need_git_pull_and_staging_stays_local() {
     let a = Node::new().await;
     let b = Node::new().await;
     new_repo(&a);
+    write(&a.shared.path().join(".stignore"), ".git/\n");
+    write(&b.shared.path().join(".stignore"), ".git/\n");
     write(&a.path(".gitignore"), "local.env\ntarget/built.o\n");
     write(&a.path("local.env"), "ignored, and still carried\n");
     // Tracked, in a folder a default leaves out: `git status` would say
@@ -1013,44 +1015,50 @@ async fn a_commit_arrives_with_a_clean_status_both_ways() {
     assert!(read(&b.path("target/built.o")).is_none());
     assert!(!b.path(".git/index.lock").exists());
 
+    let original = head(&b).unwrap();
     let there = commit(&a, "src/lib.rs", "pub fn a() {}\n");
+    eventually("different commits to wait for Git", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("Git commits differ"))
+    })
+    .await;
+    assert_eq!(head(&b).as_deref(), Some(original.as_str()));
+    assert!(!b.path("src/lib.rs").exists());
+
+    git(
+        &b.folder(),
+        &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
+    );
     in_step(&a, &b).await;
     assert_eq!(head(&b).as_deref(), Some(there.as_str()));
-    assert_eq!(
-        git(&b.folder(), &["log", "--format=%s", "-1"]),
-        "src/lib.rs"
-    );
 
-    // The other way, with another branch, a tag and packed refs.
+    // A file round still runs, but branches, tags, config and the index stay local.
     git(&b.folder(), &["tag", "v1"]);
     git(&b.folder(), &["branch", "side"]);
     git(&b.folder(), &["pack-refs", "--all"]);
-    let back = commit(&b, "src/lib.rs", "pub fn b() {}\n");
-    in_step(&a, &b).await;
-    assert_eq!(head(&a).as_deref(), Some(back.as_str()));
-    eventually("the tag and the branch to arrive", || {
-        has_ref(&a, "refs/tags/v1") && has_ref(&a, "refs/heads/side")
+    write(&b.path("README.md"), "staged here\n");
+    git(&b.folder(), &["add", "README.md"]);
+    write(&b.path("local.env"), "after Git changes\n");
+    eventually("working files to arrive without Git metadata", || {
+        read(&a.path("local.env")).as_deref() == Some(b"after Git changes\n".as_slice())
+            && read(&a.path("README.md")).as_deref() == Some(b"staged here\n".as_slice())
     })
     .await;
-    // The reflog says where a branch moved here, by sync as by anything.
-    assert!(git(&a.folder(), &["reflog", "show", "main"]).contains("beep-sync"));
-
-    // A branch switched and one deleted follow.
-    git(&a.folder(), &["switch", "-q", "-c", "topic"]);
-    git(&a.folder(), &["branch", "-D", "side"]);
-    let topic = commit(&a, "topic.txt", "topic\n");
-    in_step(&a, &b).await;
-    assert_eq!(head(&b).as_deref(), Some(topic.as_str()));
-    eventually("HEAD and the deleted branch to follow", || {
-        git(&b.folder(), &["symbolic-ref", "HEAD"]) == "refs/heads/topic"
-            && !has_ref(&b, "refs/heads/side")
-    })
-    .await;
+    assert!(!has_ref(&a, "refs/tags/v1"));
+    assert!(!has_ref(&a, "refs/heads/side"));
+    assert!(git(&a.folder(), &["diff", "--cached", "--name-only"]).is_empty());
+    assert_eq!(
+        git(&b.folder(), &["diff", "--cached", "--name-only"]),
+        "README.md"
+    );
+    assert_sound(&a);
     assert_sound(&b);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn commits_on_both_sides_of_a_branch_stay_reachable() {
+async fn divergent_commits_wait_until_git_merges_them() {
     let (a, b) = synced_repo().await;
     a.pause(&b, true).await;
     b.pause(&a, true).await;
@@ -1058,64 +1066,31 @@ async fn commits_on_both_sides_of_a_branch_stay_reachable() {
     let theirs = commit(&b, "theirs.txt", "theirs\n");
     a.pause(&b, false).await;
     b.pause(&a, false).await;
-
-    let has_both = |node: &Node| {
-        let all = git(&node.folder(), &["log", "--all", "--format=%H"]);
-        all.contains(&ours) && all.contains(&theirs)
-    };
-    eventually("both commits and one branch tip on both machines", || {
-        has_both(&a) && has_both(&b) && head(&a) == head(&b)
-    })
-    .await;
-    let kept = |node: &Node| {
-        git(
-            &node.folder(),
-            &[
-                "for-each-ref",
-                "--format=%(refname) %(objectname)",
-                "refs/beep-conflicts",
-            ],
-        )
-    };
-    eventually("the losing side kept as a ref on both", || {
-        !kept(&a).is_empty() && kept(&a) == kept(&b)
-    })
-    .await;
-    assert_sound(&a);
-    assert_sound(&b);
-    eventually("the files of both commits on both", || {
+    eventually("both checkouts to wait for Git", || {
         [&a, &b].iter().all(|node| {
-            read(&node.path("ours.txt")).is_some() && read(&node.path("theirs.txt")).is_some()
+            node.status()
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Git commits differ"))
         })
     })
     .await;
-    eventually("the conflict to be shown", || {
-        a.status()
-            .conflicts
-            .iter()
-            .any(|path| path.starts_with(".git/refs/beep-conflicts/heads/main-"))
-    })
-    .await;
-
-    // Kept by the user: the branch moves there, and the ref is gone.
-    let copy = a.status().conflicts[0].clone();
-    let listed = kept(&a);
-    let lost = listed.split(' ').nth(1).unwrap().to_owned();
-    a.running()
-        .transfers
-        .syncs()
-        .resolve(PROJECT, &copy, Keep::Copy)
-        .await
-        .unwrap();
-    eventually("the branch to move on both", || {
-        head(&a).as_deref() == Some(lost.as_str())
-            && head(&b).as_deref() == Some(lost.as_str())
-            && kept(&a).is_empty()
-            && kept(&b).is_empty()
-    })
-    .await;
-    assert_sound(&a);
-    assert_sound(&b);
+    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
+    assert_eq!(head(&b).as_deref(), Some(theirs.as_str()));
+    assert!(!a.path("theirs.txt").exists());
+    assert!(!b.path("ours.txt").exists());
+    assert!(git(&a.folder(), &["for-each-ref", "refs/beep-conflicts"]).is_empty());
+    assert!(git(&b.folder(), &["for-each-ref", "refs/beep-conflicts"]).is_empty());
+    git(
+        &a.folder(),
+        &["fetch", &b.folder().to_string_lossy(), "main"],
+    );
+    git(&a.folder(), &["merge", "--no-edit", "FETCH_HEAD"]);
+    git(
+        &b.folder(),
+        &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
+    );
+    in_step(&a, &b).await;
 }
 
 /// Two checkouts of one commit, as Syncthing leaves them when it pauses.
@@ -1132,26 +1107,34 @@ async fn twins() -> (Node, Node) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn twin_checkouts_make_no_conflict_and_a_branch_behind_moves_forward() {
+async fn existing_checkouts_keep_their_own_branches_and_indexes() {
     let (a, b) = twins().await;
+    let original = head(&b).unwrap();
     git(&a.folder(), &["branch", "side"]);
     git(&b.folder(), &["branch", "side"]);
     git(&a.folder(), &["switch", "-q", "side"]);
     let ahead = commit(&a, "side.txt", "side\n");
     git(&a.folder(), &["switch", "-q", "main"]);
+    write(&b.path("README.md"), "staged locally\n");
+    git(&b.folder(), &["add", "README.md"]);
     a.sync_with(&b).await;
     b.sync_with(&a).await;
-    let side = |node: &Node| git(&node.folder(), &["rev-parse", "refs/heads/side"]);
-    let none_kept =
-        |node: &Node| git(&node.folder(), &["for-each-ref", "refs/beep-conflicts"]).is_empty();
-    eventually("the branch to be ahead on both, with nothing kept", || {
-        side(&a) == ahead && side(&b) == ahead && none_kept(&a) && none_kept(&b)
+    eventually("the staged file to sync without its index", || {
+        read(&a.path("README.md")).as_deref() == Some(b"staged locally\n".as_slice())
     })
     .await;
-    in_step(&a, &b).await;
-    for name in files(&a.folder()) {
-        assert!(!name.contains(" (conflict "), "{name}");
-    }
+    assert_eq!(git(&a.folder(), &["rev-parse", "refs/heads/side"]), ahead);
+    assert_eq!(
+        git(&b.folder(), &["rev-parse", "refs/heads/side"]),
+        original
+    );
+    assert_eq!(
+        git(&b.folder(), &["diff", "--cached", "--name-only"]),
+        "README.md"
+    );
+    assert!(git(&a.folder(), &["diff", "--cached", "--name-only"]).is_empty());
+    assert_sound(&a);
+    assert_sound(&b);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1202,7 +1185,7 @@ async fn a_copy_interrupted_part_way_finishes_and_never_looks_corrupt() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_linked_worktree_stays_on_its_machine_and_its_branch_travels() {
+async fn a_linked_worktree_is_copied_as_a_branch_only_during_bootstrap() {
     let a = Node::new().await;
     let b = Node::new().await;
     new_repo(&a);
@@ -1235,15 +1218,14 @@ async fn a_linked_worktree_stays_on_its_machine_and_its_branch_travels() {
     assert!(!b.path(".git/worktrees").exists());
     assert!(git(&feat, &["status", "--porcelain"]).is_empty());
 
-    // A commit on that branch elsewhere waits here, as the worktree has it
-    // checked out, and moves nothing from under it.
+    // A later commit on that branch belongs to Git and moves no local ref.
     git(&b.folder(), &["switch", "-q", "feat"]);
     let moved = commit(&b, "elsewhere.txt", "elsewhere\n");
     eventually("the status to say what waits", || {
         a.status()
             .error
             .as_deref()
-            .is_some_and(|error| error.contains("linked worktree"))
+            .is_some_and(|error| error.contains("Git commits differ"))
     })
     .await;
     assert_eq!(git(&feat, &["rev-parse", "HEAD"]), tip);
@@ -1253,55 +1235,41 @@ async fn a_linked_worktree_stays_on_its_machine_and_its_branch_travels() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn gc_on_one_side_leaves_both_sound() {
-    let a = Node::new().await;
-    let b = Node::new().await;
-    new_repo(&a);
-    for n in 0..5 {
-        commit(&a, &format!("{n}.txt"), &format!("{n}\n"));
-    }
-    a.sync_with(&b).await;
-    b.sync_with(&a).await;
-    in_step(&a, &b).await;
-    let loose = |node: &Node| {
-        files(&node.path(".git/objects"))
-            .iter()
-            .filter(|name| name.len() == 41)
-            .count()
-    };
-    let before = loose(&b);
-    assert!(before > 0);
-
+async fn gc_and_new_objects_stay_local_after_the_first_copy() {
+    let (a, b) = synced_repo().await;
+    let before = files(&b.path(".git/objects"));
     git(&a.folder(), &["gc", "-q", "--prune=now"]);
-    assert_eq!(loose(&a), 0);
+    write(&a.path("round.txt"), "after gc\n");
+    eventually("a file round after gc", || b.path("round.txt").exists()).await;
+    assert_eq!(files(&b.path(".git/objects")), before);
+    fs::remove_file(a.path("round.txt")).unwrap();
+    fs::remove_file(b.path("round.txt")).unwrap();
     assert_sound(&a);
-    // Work goes on. The pack comes with it, and what it replaced stays on
-    // the other side until its own gc.
+    assert_sound(&b);
+    let original = head(&b).unwrap();
     let next = commit(&a, "after.txt", "after gc\n");
-    in_step(&a, &b).await;
-    eventually("the pack to arrive", || {
-        files(&b.path(".git/objects"))
-            .iter()
-            .any(|name| name.ends_with(".idx"))
+    eventually("the new commit to wait for Git", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("Git commits differ"))
     })
     .await;
-    assert_sound(&b);
-    assert_eq!(head(&b).as_deref(), Some(next.as_str()));
-    assert!(loose(&b) >= before);
-    // What the gc removed does not come back.
-    assert!(loose(&a) < before);
-
-    git(&b.folder(), &["gc", "-q", "--prune=now"]);
-    let last = commit(&b, "last.txt", "after both\n");
+    assert_eq!(head(&b).as_deref(), Some(original.as_str()));
+    assert!(!b.path("after.txt").exists());
+    git(
+        &b.folder(),
+        &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
+    );
     in_step(&a, &b).await;
-    assert_eq!(head(&a).as_deref(), Some(last.as_str()));
+    assert_eq!(head(&b).as_deref(), Some(next.as_str()));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_node_on_the_old_protocol_is_turned_away() {
     let (a, b) = synced_repo().await;
     let refs = git(&a.folder(), &["show-ref"]);
-    for alpn in [&b"beep-sync/1"[..], b"beep-sync/2"] {
+    for alpn in [&b"beep-sync/1"[..], b"beep-sync/2", b"beep-sync/3"] {
         let old = b.running().endpoint.connect(a.addr(), alpn).await;
         assert!(old.is_err(), "an old node is not served");
     }
@@ -1331,46 +1299,44 @@ async fn a_peer_that_never_reported_git_deletes_nothing_of_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn git_removed_on_one_machine_comes_back_and_stays_on_the_other() {
-    let (a, b) = synced_repo().await;
+async fn git_is_not_copied_again_after_it_was_removed_locally() {
+    let (mut a, b) = synced_repo().await;
     let there = head(&b);
     fs::remove_dir_all(a.path(".git")).unwrap();
-    // Longer than a delete takes to settle and carry over.
-    sleep(Duration::from_secs(8)).await;
+    a.stop().await;
+    a.start().await;
+    a.sync_with(&b).await;
+    b.sync_with(&a).await;
+    write(&b.path("later.txt"), "a later round\n");
+    eventually("the later file round", || a.path("later.txt").exists()).await;
+    assert!(!a.path(".git").exists());
     assert_eq!(head(&b), there);
     assert_sound(&b);
-    in_step(&a, &b).await;
-    assert_eq!(head(&a), there);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn two_checkouts_at_other_commits_merge_their_files() {
+async fn two_existing_checkouts_at_other_commits_keep_their_files() {
     let a = Node::new().await;
     let b = Node::new().await;
     new_repo(&a);
     new_repo(&b);
-    commit(&a, "a.txt", "only on a\n");
-    commit(&b, "b.txt", "only on b\n");
-    write(&a.path("same.txt"), "this side\n");
-    write(&b.path("same.txt"), "that side\n");
+    let ours = commit(&a, "a.txt", "only on a\n");
+    let theirs = commit(&b, "b.txt", "only on b\n");
     a.sync_with(&b).await;
     b.sync_with(&a).await;
-
-    eventually("both to have every file at one commit", || {
-        read(&a.path("b.txt")).is_some()
-            && read(&b.path("a.txt")).is_some()
-            && head(&a).is_some()
-            && head(&a) == head(&b)
+    eventually("both to report different Git commits", || {
+        [&a, &b].iter().all(|node| {
+            node.status()
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Git commits differ"))
+        })
     })
     .await;
-    eventually("one version of the edited file on both", || {
-        let (here, there) = (read(&a.path("same.txt")), read(&b.path("same.txt")));
-        here.is_some() && here == there
-    })
-    .await;
-    // The commit that lost its branch stays reachable.
-    let kept = |node: &Node| git(&node.folder(), &["show-ref"]).contains("beep-conflicts");
-    eventually("the other commit to be kept", || kept(&a) && kept(&b)).await;
+    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
+    assert_eq!(head(&b).as_deref(), Some(theirs.as_str()));
+    assert!(!a.path("b.txt").exists());
+    assert!(!b.path("a.txt").exists());
     assert_sound(&a);
     assert_sound(&b);
 }
@@ -1476,4 +1442,39 @@ async fn a_config_from_a_peer_brings_the_remote_and_nothing_git_runs() {
             "{hostile} in\n{config}"
         );
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unborn_repository_is_copied_only_once() {
+    let a = Node::new().await;
+    let mut b = Node::new().await;
+    git(&a.folder(), &["init", "-q", "-b", "main"]);
+    a.sync_with(&b).await;
+    b.sync_with(&a).await;
+    eventually("an unborn checkout to arrive", || {
+        try_git(&b.folder(), &["rev-parse", "--git-dir"])
+            .status
+            .success()
+            && b.status().pending == 0
+    })
+    .await;
+    b.stop().await;
+    b.start().await;
+    b.sync_with(&a).await;
+    a.sync_with(&b).await;
+    commit(&a, "first.txt", "first\n");
+    eventually("the first commit to wait for a Git pull", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("Git commits differ"))
+    })
+    .await;
+    assert_eq!(head(&b), None);
+    assert!(!b.path("first.txt").exists());
+    git(
+        &b.folder(),
+        &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
+    );
+    in_step(&a, &b).await;
 }

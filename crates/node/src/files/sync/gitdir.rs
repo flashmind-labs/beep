@@ -1,5 +1,6 @@
-//! How the project's own `.git` travels. Only what `kind` names does, and
-//! each kind by its own rule, because plain file sync would break a repository:
+//! The initial copy of a project's `.git`. After it finishes, Git stays
+//! local and branches move through normal Git operations. Only what `kind`
+//! names is copied, with each kind handled separately:
 //!
 //! - Objects are content-addressed and only ever add up. A peer's delete (its
 //!   `git gc`) does not touch them here; this machine's own gc does.
@@ -190,6 +191,27 @@ impl Oid {
     }
 }
 
+/// The checkout advertised alongside a file list. An unborn repository has
+/// no commit, while a folder without Git has no repository at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Checkout {
+    pub(super) commit: Option<Oid>,
+    pub(super) present: bool,
+}
+
+impl Checkout {
+    pub(super) fn read(root: &Path) -> Self {
+        Self {
+            commit: Repo::open(root).and_then(|repo| repo.head()),
+            present: root.join(GIT).is_dir(),
+        }
+    }
+
+    pub(super) fn differs(self, other: Self) -> bool {
+        self.present && other.present && self.commit != other.commit
+    }
+}
+
 /// What the list's file record says for a ref, which has no file: only the
 /// time, the commit's, by which concurrent edits are ranked.
 pub(super) fn ref_stat(mtime_ms: i64) -> Stat {
@@ -214,6 +236,9 @@ pub(super) struct RefNow {
 pub(super) fn is_busy(root: &Path) -> bool {
     let git = root.join(GIT);
     [
+        "index.lock",
+        "HEAD.lock",
+        "packed-refs.lock",
         "MERGE_HEAD",
         "CHERRY_PICK_HEAD",
         "REVERT_HEAD",
@@ -465,6 +490,20 @@ impl Repo {
     pub(super) fn delete_ref(&self, name: &str, old: Oid) -> Result<()> {
         self.run(&["update-ref", "--no-deref", "-d", name, &old.hex()])?;
         Ok(())
+    }
+
+    /// Empty object and ref directories have no entries in the file list.
+    /// Make them once the initial list is complete, including an unborn repo.
+    pub(super) fn finish_copy(&self) -> Result<bool> {
+        for name in ["objects", "refs"] {
+            fs::create_dir_all(self.root.join(GIT).join(name))?;
+        }
+        self.run(&["rev-parse", "--git-dir"])?;
+        Ok(if self.head().is_some() {
+            !self.has_no_index()
+        } else {
+            self.head_ref().is_some() && self.refs()?.is_empty()
+        })
     }
 
     pub(super) fn has_no_index(&self) -> bool {

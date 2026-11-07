@@ -243,7 +243,8 @@ struct Found {
 }
 
 /// A project's rules, read from its folder, applied in this order:
-/// 1. `.git` in the project's root syncs as `gitdir` says; a `.git` further
+/// 1. The root's `.git` is collected for a new peer's first copy only,
+///    even when Syncthing excludes it. A `.git` further
 ///    down never does, and a folder whose `.git` is a file (a linked worktree
 ///    or a submodule) stays on its machine (see `scan::walk`).
 /// 2. The `.stignore` of every folder at or above the project: what the user
@@ -303,8 +304,6 @@ impl Rules {
         let git = Path::new(gitdir::GIT);
         rules.git_stays = if fs::symlink_metadata(root.join(git)).is_ok_and(|meta| !meta.is_dir()) {
             Some(Skip::rule(Rule::Git))
-        } else if rules.stignored(git, true) {
-            Some(Skip::rule(Rule::Other))
         } else if rules.beepignored(git, true).is_ignore() {
             Some(Skip::rule(Rule::BeepIgnore))
         } else {

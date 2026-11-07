@@ -315,12 +315,12 @@ impl Task {
     /// Saves the state when it changed and the last save is `SAVE_EVERY`
     /// old, or now when `now`. The state is copied under its lock and
     /// written outside it.
-    async fn save(&mut self, now: bool) {
+    pub(super) async fn save(&mut self, now: bool) -> bool {
         if !now && self.saved_at.elapsed() < SAVE_EVERY {
-            return;
+            return true;
         }
         let Some(snapshot) = self.shared.lock().snapshot() else {
-            return;
+            return true;
         };
         self.saved_at = Instant::now();
         let file = self.shared.file.clone();
@@ -335,7 +335,9 @@ impl Task {
             log::warn!("could not save {}: {e:#}", self.shared.name);
             // Tried again on the next pass.
             self.shared.lock().unsaved = true;
+            return false;
         }
+        true
     }
 
     /// Publishes how far the round is, and what still waits.
