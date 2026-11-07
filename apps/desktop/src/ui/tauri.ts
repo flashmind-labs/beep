@@ -39,6 +39,32 @@ export function logInfo(message: string) {
   core.invoke("log_webview", { message, info: true }).catch(() => {});
 }
 
+type Timing = { kind: "page" | "data" | "command"; name: string; ms: number; outcome: "ok" | "error" | "timeout" };
+const TIMED_COMMANDS = new Set([
+  "agent_view", "agent_modes", "agent_tasks", "agent_sessions", "agent_hosts", "center_home",
+  "project_sync", "project_overview", "center_project", "project_git_state", "center_project_lists",
+  "center_project_issues", "center_project_pull_requests", "center_project_runs",
+]);
+let timings: Timing[] = [];
+let timingTimer: ReturnType<typeof setTimeout> | undefined;
+function flushTimings() {
+  clearTimeout(timingTimer);
+  timingTimer = undefined;
+  if (!timings.length) return;
+  const samples = timings;
+  timings = [];
+  core.invoke("desktop_timings", { samples }).catch(() => {});
+}
+/// Queues bounded timing samples, without recording page arguments or command inputs.
+export function recordTiming(kind: Timing["kind"], name: string, ms: number, outcome: Timing["outcome"] = "ok") {
+  if (!Number.isFinite(ms) || ms < 0 || ms > 600_000) return;
+  timings.push({ kind, name, ms, outcome });
+  if (timings.length >= 200) flushTimings();
+  else timingTimer ??= setTimeout(flushTimings, 5_000);
+}
+window.addEventListener("pagehide", flushTimings);
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushTimings(); });
+
 /// How long a command may take unless its call says otherwise (#428).
 const COMMAND_WAIT_MS = 120_000;
 /// Commands that wait on the user (sign-ins, dialogs) or do long work
@@ -63,21 +89,25 @@ const UNTIMED = new Set([
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
   const lifecycle = cmd === "agent_start" || cmd === "agent_resume";
   const at = Date.now();
+  const measure = TIMED_COMMANDS.has(cmd) ? performance.now() : null;
+  let timedOut = false;
   if (lifecycle) logInfo(`agent command: ${JSON.stringify({ command: cmd, stage: "requested", machine: args?.machineId })}`);
   const streams = Object.values(args ?? {}).some(v => v instanceof Channel);
   const limit = within ?? (UNTIMED.has(cmd) || streams ? null : COMMAND_WAIT_MS);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const call = core.invoke<T>(cmd, args);
   const limited = limit == null ? call : Promise.race([call, new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(`no answer in ${Math.round(limit / 1000)} s. Try again.`), limit);
+    timer = setTimeout(() => { timedOut = true; reject(`no answer in ${Math.round(limit / 1000)} s. Try again.`); }, limit);
   })]);
   return limited.then(value => {
+    if (measure !== null) recordTiming("command", cmd, performance.now() - measure);
     if (lifecycle) {
       const started = value as { session?: { id?: string; machine_id?: string; status?: string } } | null;
       logInfo(`agent command: ${JSON.stringify({ command: cmd, stage: "returned", ms: Date.now() - at, session: started?.session?.id, machine: started?.session?.machine_id, status: started?.session?.status })}`);
     }
     return value;
   }).finally(() => clearTimeout(timer)).catch((e: unknown) => {
+    if (measure !== null) recordTiming("command", cmd, performance.now() - measure, timedOut ? "timeout" : "error");
     const about = [["machine", args?.machineId], ["session", args?.session]].filter(([, v]) => typeof v === "string").map(([k, v]) => `${k} ${v}`).join(", ");
     logError(`${cmd} failed${about ? ` (${about})` : ""}: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);
     throw e;

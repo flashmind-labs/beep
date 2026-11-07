@@ -334,6 +334,7 @@ fn main() {
             platform::editors::editors,
             platform::editors::open_in_editor,
             platform::logfile::log_webview,
+            platform::metrics::desktop_timings,
             projects::branches::add_branch_worktree,
             projects::branches::find_import_fork,
             projects::branches::preview_import,
@@ -554,6 +555,14 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),
     ))?;
+    match tauri::async_runtime::block_on(async {
+        beep_node::link::diagnostics::start(&endpoint, &dir.join("node/metrics.log"))
+    }) {
+        Ok(task) => {
+            app.manage(task);
+        }
+        Err(e) => log::warn!("metrics unavailable: {e:#}"),
+    }
     let (beep, notices) = Beep::start(
         endpoint.clone(),
         identity,

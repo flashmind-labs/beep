@@ -1,0 +1,23 @@
+
+.mac .rp-ta { box-sizing: border-box; width: 100%; min-height: 84px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--d-border); background: #0f1011; color: var(--d-fg); font: inherit; font-size: 13px; line-height: 18px }
+.mac .rp-ta.focus { border-color: var(--d-emerald) }
+.mac .rp-ta .ph { color: var(--d-dim) }
+.mac .rp-box { border: 1px solid var(--d-border); border-radius: 8px; background: #0f1011; margin-bottom: 14px; overflow: hidden }
+.mac .rp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 0; background: none; color: var(--d-fg); font: inherit; font-size: 13px; text-align: left }
+.mac .rp-row + .rp-row { border-top: 1px solid var(--d-border) }
+.mac button.rp-row { cursor: pointer }
+.mac button.rp-row:hover, .mac button.rp-row[aria-current="true"] { background: color-mix(in srgb, var(--d-fg) 5%, transparent) }
+.mac .rp-row .m { color: var(--d-muted); font-size: 12px; white-space: nowrap }
+.mac .rp-row .m.bad { color: var(--d-err) }
+.mac .rp-row code, .mac .rp-pane, .mac .rp-ref, .mac .rp-issue { font-family: var(--mono, ui-monospace, monospace) }
+.mac .rp-row code { font-size: 12.5px }
+.mac .rp-pane { margin: 0 0 14px; max-height: 190px; overflow: auto; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--d-border); background: #0f1011; color: var(--d-muted); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere }
+.mac .rp-pane .r { color: var(--d-fg); background: color-mix(in srgb, var(--d-fg) 12%, transparent); border-radius: 3px; padding: 0 3px }
+.mac .rp-pane-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px }
+.mac .rp-pane-head small { color: var(--d-muted); font-size: 12px }
+.mac .rp-total { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--d-muted) }
+.mac .rp-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; margin-bottom: 14px; border-radius: 8px; border: 1px solid var(--d-border); background: #0f1011; font-size: 15px; letter-spacing: .04em }
+.mac .rp-issue { margin: 0 0 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--d-border); background: #0f1011; color: var(--d-fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere }
+.mac .rp-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
+.mac .rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--d-err) }
+.mac .rp-hint { font-size: 12px; line-height: 17px; margin: -8px 0 14px; color: var(--d-dim) }

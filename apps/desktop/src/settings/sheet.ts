@@ -1,7 +1,8 @@
 // Settings as a sheet over the command center window.
 import { ago } from "../ui/format.ts";
 import { dbtn as button } from "../ui/parts.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, recordTiming } from "../ui/tauri.ts";
+import { PageTiming } from "../center/page-timing.ts";
 import { pane } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { registerInstructions } from "./instructions.ts";
@@ -13,12 +14,14 @@ import { shown, shownArg, registerView, windowProject, toMain, drawTop } from ".
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
 let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null } | null = null;
+const settingsTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { if (settingsOpen) recordTiming("page", page, ms); });
 
 export function openSettings(section?: string) {
   // A project window has no Settings of its own: the main window opens them.
   if (windowProject) return toMain("settings");
   // Already open: show page `section`, such as "machines".
   if (settingsOpen) return section && settingsOpen.scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
+  const afterMount = settingsTiming.start("settings");
   const sheet = h("div", "cc-set");
   sheet.setAttribute("role", "dialog");
   sheet.setAttribute("aria-modal", "true");
@@ -43,7 +46,7 @@ export function openSettings(section?: string) {
   document.body.append(scrim);
   settingsOpen = { scrim, keys, back };
   sheet.focus();
-  pane.settings(sheet, section).catch(e => console.warn("settings:", e));
+  pane.settings(sheet, section).then(() => afterMount()).catch(e => console.warn("settings:", e));
 }
 
 /// A window view the Settings sheet draws in its right pane, such as

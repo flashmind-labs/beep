@@ -151,7 +151,7 @@ registerView("pane", {
   title: paneTitle,
   mount(_el, arg) {
     pane.mounted(true);
-    pane.open(arg as PaneTarget);
+    return pane.open(arg as PaneTarget).then(() => {});
   },
   unmount() {
     pane.mounted(false);

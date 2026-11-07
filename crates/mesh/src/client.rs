@@ -19,7 +19,7 @@ use std::future::Future;
 use std::io::{self, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::task::spawn;
 use tokio::time::error::Elapsed;
@@ -32,6 +32,38 @@ pub const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long `call` waits for a node to reply.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Records cancelled calls as well as calls that complete: a caller may
+/// impose a shorter deadline than `call_within` itself.
+struct CallTiming<'a> {
+    protocol: &'a str,
+    peer: Option<EndpointId>,
+    started: Instant,
+    phase_started: Instant,
+    phase: &'static str,
+    outcome: &'static str,
+}
+
+impl Drop for CallTiming<'_> {
+    fn drop(&mut self) {
+        let elapsed = self.started.elapsed();
+        metrics::counter!("beep_peer_calls_total", "protocol" => self.protocol.to_owned(), "outcome" => self.outcome).increment(1);
+        metrics::histogram!("beep_peer_call_seconds", "protocol" => self.protocol.to_owned(), "outcome" => self.outcome).record(elapsed.as_secs_f64());
+        metrics::histogram!("beep_peer_phase_seconds", "protocol" => self.protocol.to_owned(), "phase" => self.phase, "outcome" => self.outcome)
+            .record(self.phase_started.elapsed().as_secs_f64());
+        if elapsed >= Duration::from_secs(1) {
+            tracing::warn!(
+                protocol = self.protocol,
+                peer = ?self.peer,
+                phase = self.phase,
+                outcome = self.outcome,
+                elapsed_ms = elapsed.as_millis(),
+                phase_ms = self.phase_started.elapsed().as_millis(),
+                "slow peer call"
+            );
+        }
+    }
+}
 
 /// Serves one session stream: the node's `session()` over in-memory halves.
 pub type SessionFn =
@@ -61,6 +93,7 @@ enum Via {
 #[derive(Clone)]
 pub struct PeerClient {
     via: Via,
+    peer: Option<EndpointId>,
 }
 
 impl Debug for PeerClient {
@@ -76,6 +109,7 @@ impl Debug for PeerClient {
 impl PeerClient {
     /// A client that opens every stream on this one connection.
     pub fn new(connection: Connection) -> Self {
+        let peer = connection.remote_id();
         Self {
             via: Via::Peer(Arc::new(move || {
                 let connection = connection.clone();
@@ -87,6 +121,7 @@ impl PeerClient {
                     Ok(link_on(&connection, send, recv))
                 })
             })),
+            peer: Some(peer),
         }
     }
 
@@ -105,6 +140,7 @@ impl PeerClient {
                     Ok(link(send, recv))
                 })
             })),
+            peer: Some(peer),
         }
     }
 
@@ -113,6 +149,7 @@ impl PeerClient {
     pub fn local(session: SessionFn) -> Self {
         Self {
             via: Via::Local(session),
+            peer: None,
         }
     }
 
@@ -196,15 +233,39 @@ impl PeerClient {
         protocol: &str,
         request: &Q,
     ) -> Result<R, MeshError> {
-        timeout(limit, async {
+        let now = Instant::now();
+        let mut timing = CallTiming {
+            protocol,
+            peer: self.peer,
+            started: now,
+            phase_started: now,
+            phase: "open",
+            outcome: "cancelled",
+        };
+        let result = timeout(limit, async {
             let (_tx, mut rx) = self.open_sending(protocol, request).await?;
+            metrics::histogram!("beep_peer_phase_seconds", "protocol" => protocol.to_owned(), "phase" => "open", "outcome" => "ok")
+                .record(timing.phase_started.elapsed().as_secs_f64());
+            timing.phase = "reply";
+            timing.phase_started = Instant::now();
             rx.recv()
                 .await
                 .map_err(MeshError::Link)?
                 .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))
         })
-        .await
-        .map_err(|e| MeshError::Link(anyhow::Error::new(e).context("the node did not answer")))?
+        .await;
+        match result {
+            Ok(result) => {
+                timing.outcome = if result.is_ok() { "ok" } else { "error" };
+                result
+            }
+            Err(e) => {
+                timing.outcome = "timeout";
+                Err(MeshError::Link(
+                    anyhow::Error::new(e).context("the node did not answer"),
+                ))
+            }
+        }
     }
 
     /// Sends one request and yields the replies until the node finishes the

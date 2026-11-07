@@ -1,3 +1,4 @@
+import "../ui/contextmenu.ts";
 // orb/: the orb window. Entry: this file (dist/orb.js).
 // The orb window: live mode while the bar is hidden.
 import "../ui/loopclock.ts";

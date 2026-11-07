@@ -1,3 +1,4 @@
+import "../ui/contextmenu.ts";
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/loopclock.ts";
@@ -46,16 +47,6 @@ import { placeOf } from "../agents/place.ts";
 
 followSkin();
 guardClicks();
-
-// The web view's own menu only offers Reload, which restarts the whole UI. Items with a
-// menu of their own stop the event first; here it stays native only where text can be
-// copied or pasted.
-document.addEventListener("contextmenu", e => {
-  const on = e.target instanceof Element ? e.target : null;
-  if (on?.closest("input, textarea, [contenteditable], .tm-xterm")) return;
-  if (getSelection()?.toString()) return;
-  e.preventDefault();
-});
 
 // ---------- Keys ----------
 
