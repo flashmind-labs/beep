@@ -102,7 +102,7 @@ impl Shared {
     /// Takes the members and who is on from `mesh`, and drops those that
     /// are not members any more. One whose link just went was seen now.
     fn refresh(&self, mesh: &Mesh) {
-        let devices = mesh.devices();
+        let devices = mesh.machines();
         let now = SystemTime::now();
         {
             let mut peers = self.peers();
@@ -397,7 +397,7 @@ impl Follower {
                 !finished
             });
             ended.retain(|id, _| self.shared.peers().contains_key(id));
-            for status in self.mesh.devices().into_iter().filter(|s| s.online) {
+            for status in self.mesh.machines().into_iter().filter(|s| s.online) {
                 let id = status.device.id;
                 if running.contains_key(&id) || !retry_due(ended.get(&id).copied()) {
                     continue;
@@ -671,7 +671,7 @@ mod tests {
         // The others drop it from their lists and lose its link.
         until(&second, |mesh| !mesh.is_member(gone)).await;
         assert!(!host.is_member(gone));
-        assert!(!second.devices().iter().any(|d| d.device.id == gone));
+        assert!(!second.machines().iter().any(|d| d.device.id == gone));
         until(&first, |mesh| !mesh.is_member(gone)).await;
         let status = mac.fleet.status();
         settled(status, |status| {

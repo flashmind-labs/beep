@@ -110,6 +110,7 @@ pub async fn serve(
     let _sccache = provision.start_sccache();
     let mut offers = Offers::local(&state.agents, provision);
     let _harness_checks = offers.agents.start_harness_checks();
+    let _uploads = crate::agents::uploads::maintain();
     // The ACP adapters an agent found here lacks, installed in the node's
     // folder; the work stops with the node.
     let _adapters = offers

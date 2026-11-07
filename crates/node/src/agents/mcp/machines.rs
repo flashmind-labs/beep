@@ -51,7 +51,7 @@ pub(super) struct Machine {
 }
 
 pub(super) fn machines(mesh: &Mesh) -> Vec<Machine> {
-    mesh.devices()
+    mesh.machines()
         .into_iter()
         .map(|status| Machine {
             id: status.device.id,
@@ -333,7 +333,7 @@ async fn list(mesh: &Mesh) -> Reply {
 /// Each device of the mesh as the list shows it.
 async fn device_lines(mesh: &Mesh) -> Vec<String> {
     let me = mesh.me();
-    futures::future::join_all(mesh.devices().into_iter().map(|status| async move {
+    futures::future::join_all(mesh.machines().into_iter().map(|status| async move {
         let env = if status.device.id == me {
             Some(env::probe().await)
         } else if status.online {

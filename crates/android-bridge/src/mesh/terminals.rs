@@ -67,7 +67,7 @@ impl Connected {
             machine_id: record.machine.to_string(),
             machine_name: self
                 .mesh
-                .devices()
+                .machines()
                 .into_iter()
                 .find(|device| device.device.id == record.machine)
                 .map(|device| device.device.name)

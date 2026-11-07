@@ -157,8 +157,6 @@ export function withMentions(text: string, paths: readonly string[]) {
   return [text.trim(), mentionText(paths)].filter(Boolean).join("\n\n");
 }
 
-/// Where dropped files go unless a folder is picked.
-export const UPLOAD_FOLDER = ".beep/uploads";
 /// The largest file a drop uploads, as the node takes it.
 export const MAX_UPLOAD = 64 * 1024 * 1024;
 /// The bytes one upload part carries.

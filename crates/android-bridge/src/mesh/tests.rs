@@ -343,6 +343,14 @@ async fn node_session_and_project_changes_survive_desktop_disconnect_and_phone_r
         .await
         .unwrap();
     let connected = client.mesh().await.unwrap().unwrap();
+    until(&desktop, || desktop.is_observer(key.public())).await;
+    assert!(desktop.is_member(key.public()));
+    assert!(
+        !desktop
+            .machines()
+            .iter()
+            .any(|status| status.device.id == key.public())
+    );
     until(&connected.mesh, || connected.mesh.peer(node.me()).is_some()).await;
     let place_key = Key::Project(format!("example/project/{}", node.me()));
     until(&connected.mesh, || {

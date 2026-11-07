@@ -34,7 +34,7 @@ use beep_proto::{
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
-use std::{cmp::Reverse, collections::HashSet, time::Duration};
+use std::{collections::HashSet, time::Duration};
 use tokio::time::timeout;
 
 /// Machines asked at once.
@@ -175,6 +175,29 @@ pub(crate) async fn write(
     work(fleet, machine, sessions::write_file(&client, part).await?)
 }
 
+/// Writes an attachment into its session's cache on the owning host.
+pub(crate) async fn upload(
+    fleet: &Fleet,
+    machine: EndpointId,
+    agent: String,
+    session: String,
+    write: WriteWorkFile,
+) -> Result<String> {
+    let client = fleet.client(machine).await?;
+    let part = WorkWrite {
+        root: write.root,
+        path: write.path,
+        offset: write.offset,
+        size: write.size,
+        data: write.data,
+    };
+    work(
+        fleet,
+        machine,
+        sessions::upload_file(&client, agent, session, part).await?,
+    )
+}
+
 /// What changed in the checkout `ask.root`.
 pub(crate) async fn work_diff(
     fleet: &Fleet,
@@ -234,16 +257,13 @@ pub(crate) async fn project_sessions(fleet: &Fleet, places: &[Place]) -> Vec<Mac
             }
         })
         .collect();
-    let mut sessions: Vec<MachineSession> = stream::iter(asks)
+    let sessions = stream::iter(asks)
         .buffer_unordered(IN_FLIGHT)
         .collect::<Vec<_>>()
         .await
         .into_iter()
-        .flatten()
-        .collect();
-    sessions.sort_by_key(|session| Reverse(session.last_activity));
-    sessions.truncate(listing::MAX_PROJECT_SESSIONS);
-    sessions
+        .flatten();
+    listing::project_history(sessions)
 }
 
 /// One folder of a machine for the folder browser: `path`, else its home.

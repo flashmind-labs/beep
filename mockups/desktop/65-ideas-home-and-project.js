@@ -41,6 +41,7 @@
 .mac .ix-kv { display: grid; grid-template-columns: 90px minmax(0, 1fr); font-size: 12.5px }
 .mac .ix-kv > span { padding: 7px 12px; border-top: 1px solid var(--d-border); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .ix-kv > span:nth-child(-n+2) { border-top: 0 } .mac .ix-kv > span:nth-child(odd) { color: var(--d-muted) }
+.mac .ix-ptabs { position: static; margin: -14px -16px 0; padding: 0 12px; overflow: visible }
 .mac .ix-diff { font-family: var(--mono); font-size: 11px } .mac .ix-diff .a { color: #4cb782 } .mac .ix-diff .d { color: var(--d-err) }
 `;
   document.head.append(st);
@@ -108,8 +109,8 @@
 
   const pjStrip = () => strip([["", "main", "branch"], ["", "Actions", "1 running · 1 failed", "bad"], ["", "2 agents", "running"], ["", "Machines", "3/4 · 1 terminal"], ["", "2 PRs", "1 needs a reply"], ["", "2 issues", "open"]]);
   // A flat list: what needs you, then each part with a count. No summary rows, no Agents next to Running.
-  const NAV = [["Overview", "", ""], ["Needs you", "1", "wait"], ["Running", "2", ""], null, ["Actions", "1 failed", "bad"], ["Machines", "3/4", ""], ["File sync", "in sync", ""], ["Issues", "2 open", ""], null, ["Tasks", "3", ""], ["Sessions", "14 past", ""], ["Branches", "5", ""]];
-  const nav = () => `<div class="pj-list ix-flat">${NAV.map((n, i) => !n ? "<hr>" : `<button class="pj-li"${i === 0 ? ' aria-current="true"' : ""}><span>${n[0]}</span><span class="c${n[2] ? " " + n[2] : ""}">${n[1]}</span></button>`).join("")}</div>`;
+  const NAV = [["Overview", "", ""], ["Needs you", "1", "wait"], ["Running", "2", ""], null, ["Actions", "1 failed", "bad"], ["Machines", "3/4", ""], ["File sync", "in sync", ""], ["Issues", "2 open", ""], null, ["Tasks", "3", ""], ["Sessions", "43 past", ""], ["Branches", "5", ""]];
+  const nav = (on = "Overview") => `<div class="pj-list ix-flat">${NAV.map(n => !n ? "<hr>" : `<button class="pj-li"${n[0] === on ? ' aria-current="true"' : ""}><span>${n[0]}</span><span class="c${n[2] ? " " + n[2] : ""}">${n[1]}</span></button>`).join("")}</div>`;
   const pjComp = () => `<form class="cc-pjc" onsubmit="return false"><div class="box"><textarea rows="1" placeholder="Describe a task for a coding agent in acme/widget"></textarea><div class="row"><button class="pill" type="button">build-box</button><button class="pill" type="button">Current checkout <small>as it is</small></button><span class="sp"></span><button class="pill" type="button">${ag("claude")}Claude Code <small>Default · Medium</small></button><button class="dbtn pri" data-toast="Started">Start<kbd>${DI.ret}</kbd></button></div></div></form>`;
 
   const MACH = [["busy", "build-box", "/srv/project/widget", "main", tg("run", "in sync"), "↓1 ↑2"], ["", "studio", "/srv/widget", "main", tg("run", "Syncthing"), ""],
@@ -135,14 +136,34 @@
     + `<div class="ix-two"><div class="ix-feed">${sec("Needs you", 1, panel(ln(kind("wait", "?"), "The project agent waits on you", "Plan for #92: 3 steps on build-box", btn("Open plan", "pri"))))}${EVENTS.map(([d, evs]) => `<div class="ix-day">${d}</div>${evs.map(([tm, k, t, s, r]) => `<div class="ix-ev"><span class="tm">${tm}</span>${k}<span class="t"><b>${t}</b><small>${s}</small></span><span class="r">${r}</span></div>`).join("")}`).join("")}</div>`
     + `<div>${sec("At a glance", "", panel(`<div class="ix-kv"><span>Branch</span><span class="mono">main</span><span>CI</span><span style="color:var(--d-err)">failing · #351</span><span>Agents</span><span>2 running</span><span>Machines</span><span>3 of 4 in sync</span><span>PRs</span><span>2 open · 1 needs reply</span><span>Issues</span><span>2 open</span><span>Hosts</span><span>GitHub, Forgejo</span></div>`))}</div></div>`;
 
+  // Sessions: past sessions and the project's custom agents in two tabs, so the
+  // sessions list gets the whole height instead of five rows.
+  const PAST = [["codex", "Session close command termination", "devbox", "13 min"], ["codex", "Windows build availability", "laptop", "14 min"], ["codex", "Brainstorm mock UI intro", "devbox", "16 min"],
+    ["claude", "Fix Cmd+[ session navigation", "devbox", "23 min"], ["codex", "Add two-finger image panning", "devbox", "25 min"], ["claude", "Retry uploads when the token expires", "build-box", "2 h"],
+    ["codex", "Bump the toolchain", "studio", "1 d"], ["claude", "Clippy fixes in the sync crate", "build-box", "1 d"], ["codex", "Pin the SDK to 4.2", "build-box", "2 d"], ["claude", "Draft the release notes", "laptop", "3 d"]];
+  const sessionsTabs = () => {
+    const tab = S.d.ixst || "sessions";
+    const bar = `<div class="cc-tabs ix-ptabs" role="tablist">${[["sessions", "Sessions", 43], ["agents", "Agents", 0]].map(([k, l, n]) => `<button role="tab" aria-selected="${k === tab}" data-dact="dset:ixst:${k}" data-dgo="dIdeaProject">${l}${n ? `<span class="n">${n}</span>` : ""}</button>`).join("")}</div>`;
+    const body = tab === "sessions"
+      ? panel(PAST.map(([a, t, m, w]) => ln(ag(a), t, `ended · ${m} · widget`, w)).join(""))
+      : `<div class="cc-panel cc-empty"><span>No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.</span></div>`;
+    const right = tab === "agents" ? `<div class="cc-sec"><h4></h4><button class="dbtn quiet small" data-toast="Reloaded">Reload</button></div>` : "";
+    return bar + right + body;
+  };
+
   D.dIdeaProject = () => {
     const v = S.d.ixp || "strip";
+    if (v === "sessions") {
+      const main = `<div class="ix-pj"><div class="cc-top"><h2>acme/widget</h2><small>github.com · imported 3 d</small><span class="tools"><button class="dbtn small">Open ${CHEV}</button><button class="dbtn quiet small" aria-label="Project menu">⋯</button></span></div>${pjStrip()}
+        <div class="pj-split">${nav("Sessions")}<div class="ix-det"><div class="sc">${sessionsTabs()}</div>${pjComp()}</div></div></div>`;
+      return skinned(ccWin(ccSidePj("acme/widget"), main));
+    }
     const tools = `<span class="tools"><button class="dbtn small" data-toast="GitHub, Forgejo, Open in Zed">Open ${CHEV}</button><button class="dbtn quiet small" aria-label="Project menu" data-toast="Pin, New window, Remove">⋯</button></span>`;
     const main = `<div class="ix-pj"><div class="cc-top"><h2>acme/widget</h2><small>github.com · imported 3 d</small>${tools}</div>${pjStrip()}
       <div class="pj-split">${nav()}<div class="ix-det"><div class="sc">${v === "strip" ? overviewA() : overviewB()}</div>${pjComp()}</div></div></div>`;
     return skinned(ccWin(ccSidePj("acme/widget"), main));
   };
-  VARIANTS.dIdeaProject = [["A: Status strip, docked composer", "strip"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
+  VARIANTS.dIdeaProject = [["A: Status strip, docked composer", "strip"], ["A: Sessions in tabs", "sessions"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
 
   DESK_SCREENS.unshift({ group: "Ideas (7 Nov)", items: [["dIdeaHome", "Home ideas", "Home: attention first or by project"], ["dIdeaProject", "Project page ideas", "Project: status strip or activity feed"]] });
   const want = location.hash.slice(1);

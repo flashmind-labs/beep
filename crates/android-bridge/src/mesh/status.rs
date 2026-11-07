@@ -43,7 +43,7 @@ impl Connected {
     pub async fn machines(&self) -> Vec<Machine> {
         stream::iter(
             self.mesh
-                .devices()
+                .machines()
                 .into_iter()
                 .filter(|device| device.device.id != self.mesh.me()),
         )
@@ -83,7 +83,7 @@ impl Connected {
     pub async fn machine_stats(&self) -> Vec<MachineStats> {
         stream::iter(
             self.mesh
-                .devices()
+                .machines()
                 .into_iter()
                 .filter(|device| device.online && device.device.id != self.mesh.me()),
         )

@@ -54,6 +54,7 @@ mod spend;
 mod subagent;
 pub mod tags;
 mod tool_diff;
+pub(crate) mod uploads;
 mod usage;
 mod window;
 mod work_diff;
