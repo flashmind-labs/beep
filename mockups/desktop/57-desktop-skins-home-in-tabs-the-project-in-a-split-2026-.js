@@ -900,13 +900,21 @@ Error: Process completed with exit code 101.</pre></span>
     const machines = [["build-box", "Claude Code, Codex"], ["mac-box", "Claude Code"]];
     const menu = add === "menu" ? `<div class="dmenu" style="top:auto;bottom:calc(100% + 6px);width:240px">${machines.map(([m, a]) => `<button class="mi" data-dact="dset:pjadd:adding" data-dgo="dWinProject"><b>${m}</b><small>${a}</small></button>`).join("")}</div>` : "";
     const pill = none ? `<span style="position:relative"><button class="pill" type="button" data-dact="dset:pjadd:${add === "menu" ? "none" : "menu"}" data-dgo="dWinProject">Add to a machine ${CHEV}</button>${menu}</span>`
-      : `<button class="pill" type="button"${adding ? " disabled" : ""}>build-box${adding ? " <small>adding</small>" : ""}</button>`;
+      : `<button class="pill pj-machine" type="button" title="Shift+Tab switches machines"${adding ? " disabled" : ""}>${S.d.pjmachine || 'build-box'}${adding ? " <small>adding</small>" : ""}</button>`;
     const ph = none || adding ? "Add acme/widget to a machine to start an agent" : "Describe a task for a coding agent in acme/widget";
     const err = adding ? `<span class="cc-err" role="status" data-dact="dset:pjadd:" data-dgo="dWinProject">Copying to build-box: 1,204 of 1,880 files</span>` : "";
     // Images pasted or dropped on the input go with the first prompt, as in a session's field.
     const att = S.d.pjimg ? `<div class="ag-att"><span><i></i>Screenshot 2026-10-07.png<em data-dact="dset:pjimg:" data-dgo="dWinProject">&#215;</em></span></div>` : "";
     return `<form class="cc-pjc" onsubmit="return false"><div class="box">${att}<textarea rows="1" placeholder="${ph}">${S.d.pjimg ? "The login button overlaps the field, as in this screenshot" : ""}</textarea><div class="row">${pill}<button class="pill" type="button"${none || adding ? " disabled" : ""}>Current checkout <small>as it is</small></button><span class="sp"></span><button class="pill" type="button">${hc("claude")}Claude Code <small>Default · Medium</small></button><button class="dbtn pri" type="button" data-toast="Started"${none || adding ? " disabled" : ""}>Start<kbd>⏎</kbd></button></div></div>${err}</form>`;
   };
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Tab' || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || !e.target.matches('.cc-pjc textarea')) return;
+    const pill = e.target.closest('.cc-pjc').querySelector('.pj-machine:not(:disabled)');
+    if (!pill) return;
+    e.preventDefault();
+    S.d.pjmachine = pill.textContent === 'build-box' ? 'mac-box' : 'build-box';
+    pill.textContent = S.d.pjmachine;
+  });
   D.dWinProject = () => {
     const sel = S.d.psel || "overview", lit = LIT[sel] || sel;
     const list = LIST.map(g => (g.title ? `<h4>${g.title}<span class="n">${g.items.length}</span></h4>` : "")
