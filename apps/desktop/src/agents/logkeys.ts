@@ -2,8 +2,8 @@
 // (⇧⌘Y) the last command. They write the same state a click does, then
 // draw the log again with the row in view held where it is.
 import { parseTool } from "./agentlog.ts";
-import { splitTurns, stepOpen } from "./agentturns.ts";
-import { allOpen, commandRows, thoughtRows, turnsHolding } from "./logkeys-state.ts";
+import { stepOpen } from "./agentturns.ts";
+import { allOpen, commandRows, thoughtRows } from "./logkeys-state.ts";
 import { AG } from "./agents.ts";
 import { drawAgentBody, newestStep, rowInView, turnsOf } from "./logview.ts";
 
@@ -40,8 +40,7 @@ export function toggleLastCommand() {
   return true;
 }
 
-/// ⌘U: every thought opens, or folds when all are open. Opening also opens
-/// the turns that hold them, as their steps are folded into the heading.
+/// ⌘U: every thought opens, or folds when all are open.
 export function toggleThoughts() {
   const p = AG.page, o = AG.open;
   if (!p || !o || AG.child != null) return false;
@@ -54,7 +53,6 @@ export function toggleThoughts() {
     if (open) m.thoughts.add(at);
     else m.thoughts.delete(at);
   }
-  if (open) for (const key of turnsHolding(splitTurns(p.entries, p.earlier), ats)) m.opened.add(key);
   drawAgentBody(keep);
   return true;
 }

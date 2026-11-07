@@ -1,7 +1,7 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
-import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, keptThoughts, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnStats, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
@@ -301,12 +301,13 @@ function madeRow(made: MadeFiles, at: number) {
 
 /// What this window knows of a session's turns: the ones it has seen, when it
 /// saw a turn start or end (entries carry no times), the turn running at the
-/// last draw, and the finished turns opened to their steps.
+/// last draw, and the tool sections opened to their steps.
 interface TurnMemory {
   known: Set<number>;
   starts: Map<number, number>;
   ends: Map<number, number>;
   running: number | null;
+  /// Tool sections opened, by their first entry.
   opened: Set<number>;
   /// The thoughts opened to their text.
   thoughts: Set<number>;
@@ -431,37 +432,29 @@ function turnUnits(p: AgentPage): Unit[] {
     const doing = (thought != null ? thoughtLine(entry(thought).text) : "") || status;
     if (running) thinking = liveAt != null || status === "Thinking";
     return () => {
-      const opened = m.opened.has(t.key);
-      let work: string[], stats = turnStats(p.entries, t, p.earlier);
-      if (opened) work = rowsOf(p, t.steps);
-      else {
-        const kept = new Set(keptSteps(p.entries, t, p.earlier, openedSteps()));
-        if (newest != null) kept.add(newest);
-        // While it runs, the thoughts since the newest step stay in view.
-        if (running) for (const at of t.steps) if (entry(at).kind === "thought" && (newest == null || at > newest)) kept.add(at);
-        // So do the thoughts just before it: one that ended folds to its
-        // line in place instead of going into the heading.
-        if (running && newest != null) {
-          for (let i = t.steps.indexOf(newest) - 1; i >= 0 && entry(t.steps[i]).kind === "thought"; i--) kept.add(t.steps[i]);
-        }
-        keptThoughts(p.entries, t, kept, p.earlier);
-        const folding = t.steps.filter(at => !kept.has(at));
-        // Pictures the folded steps looked at show small under the line.
-        const seen = folding.flatMap(at => entry(at).kind === "tool" && AG.log ? AG.log.imageLines(entry(at).text).names : []);
-        // The heading is the fold: what the folded steps did, on its line.
-        if (folding.some(at => entry(at).kind === "tool")) stats = summary(p.entries, t, p.earlier, folding);
-        const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${t.key}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
-        work = [pics, ...rowsOf(p, t.steps.filter(at => kept.has(at)))];
-      }
-      const head = turnHeadHtml({ state, start, ms, stats, key: t.steps.length ? t.key : null, opened });
+      const work = turnSections(p.entries, t, p.earlier).flatMap(section => {
+        if (!section.tools) return rowsOf(p, section.ats);
+        const key = section.ats[0], opened = m.opened.has(key);
+        const group: Turn = { key, user: null, steps: section.ats, answer: [] };
+        const kept = new Set(keptSteps(p.entries, group, p.earlier, openedSteps()));
+        if (newest != null && section.ats.includes(newest)) kept.add(newest);
+        const folding = section.ats.filter(at => !kept.has(at));
+        const stats = summary(p.entries, group, p.earlier, opened ? section.ats : folding);
+        const head = folding.length || opened
+          ? turnHeadHtml({ state: "working", ms: null, stats, key, opened }) : "";
+        const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);
+        const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
+        const rows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
+        const collapse = opened ? `<div><button class="dbtn quiet" data-turn="${key}" data-collapse>Collapse</button></div>` : "";
+        return [head, pics, ...rows, collapse];
+      });
+      const head = turnHeadHtml({ state, start, ms, stats: "", key: null, opened: false });
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
       const live = running ? liveLineHtml({
         state, thinking: thinking, start,
         doing: state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "",
       }) : "";
-      const collapse = opened && t.steps.length
-        ? `<div><button class="dbtn quiet" data-turn="${t.key}" data-collapse>Collapse</button></div>` : "";
-      return [user(), head, ...work, collapse, ...t.answer.map(row), live].filter(Boolean);
+      return [user(), head, ...work, live].filter(Boolean);
     };
   }
 }

@@ -51,6 +51,19 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
   return turns;
 }
 
+/// Consecutive tools fold together. Responses, thoughts and notes stay in
+/// order outside those folds, including text followed by more tool calls.
+export function turnSections(entries: LogEntry[], t: Turn, offset = 0): { tools: boolean; ats: number[] }[] {
+  const sections: { tools: boolean; ats: number[] }[] = [];
+  for (const at of [...t.steps, ...t.answer]) {
+    const tools = entries[at - offset].kind === "tool";
+    const last = sections.at(-1);
+    if (last && last.tools === tools) last.ats.push(at);
+    else sections.push({ tools, ats: [at] });
+  }
+  return sections;
+}
+
 export type ToolKind = "command" | "edit" | "read" | "search" | "web" | "beep" | "mcp" | "other";
 
 /// A call to the session's own Beep tools, read from the title the node
