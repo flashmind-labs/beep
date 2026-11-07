@@ -1257,7 +1257,8 @@ mod agent {
             assert_eq!(efforts("claude"), [Low, Medium, High, Xhigh, Max]);
             assert_eq!(efforts("codex"), [Low, Medium, High]);
             assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
-            for agent in ["gemini", "flsh", "opencode", "other"] {
+            assert_eq!(efforts("flsh"), [Off, Low, Medium, High]);
+            for agent in ["gemini", "opencode", "other"] {
                 assert!(efforts(agent).is_empty(), "{agent}");
             }
             let names: Vec<&str> = efforts("pi").iter().map(|e| e.as_str()).collect();
