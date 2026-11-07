@@ -214,6 +214,21 @@ export function lookingText(machines: readonly { online: boolean }[] | null | un
   return `Looking through Claude Code, Codex, pi, flsh and OpenCode sessions on ${on}…`;
 }
 
+/// The project's running sessions, including live rows read from its history
+/// before Home has refreshed. Home supplies the full state when both have a row.
+export function projectRunning(project: Pick<Project, "machines">, running: readonly RunningRow[] | null | undefined, sessions: readonly SessionRow[] | null | undefined): RunningAgent[] {
+  const inside = (r: RunningAgent) => project.machines.some(m => r.machine_id === m.id && (r.cwd === m.folder || r.cwd.startsWith(m.folder + "/")));
+  const live = (running || []).filter(isAgent).filter(inside);
+  const known = new Set(live.map(r => `${r.machine_id} ${r.id}`));
+  for (const s of sessions || []) {
+    const key = `${s.machine_id} ${s.id}`;
+    if (s.status === "ended" || known.has(key)) continue;
+    known.add(key);
+    live.push({ ...s, kind: "agent" });
+  }
+  return live;
+}
+
 /// A project's past sessions without those running now (they show under
 /// Agents), newest first.
 export function pastSessions<T extends Pick<SessionRow, "machine_id" | "id" | "last_activity">>(sessions: readonly T[] | null | undefined, running: readonly { machine_id: string; id: string }[] | null | undefined) {
