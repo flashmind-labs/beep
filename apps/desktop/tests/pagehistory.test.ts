@@ -20,3 +20,25 @@ test("opening the page already showing is not a step", () => {
   h.visit("home", "home");
   assert.equal(h.back("home"), undefined);
 });
+
+test("starting a session replaces its draft and preserves back and forward", () => {
+  for (const previous of ["projects", "previous-session"]) {
+    const h = new PageHistory<string>();
+    h.visit(previous, "draft");
+    h.visit("draft", "new-session", true);
+    assert.equal(h.back("new-session"), previous);
+    assert.equal(h.back(previous), undefined);
+    assert.equal(h.forward(previous), "new-session");
+    assert.equal(h.forward("new-session"), undefined);
+  }
+});
+
+test("replacing a page clears forward history", () => {
+  const h = new PageHistory<string>();
+  h.visit("projects", "draft");
+  h.visit("draft", "other-session");
+  assert.equal(h.back("other-session"), "draft");
+  h.visit("draft", "new-session", true);
+  assert.equal(h.forward("new-session"), undefined);
+  assert.equal(h.back("new-session"), "projects");
+});
