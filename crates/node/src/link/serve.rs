@@ -187,6 +187,13 @@ pub async fn serve(
     let _hooks = AbortOnDropHandle::new(tokio::spawn(async move {
         listen_hooks(&agents, &hooks_dir).await;
     }));
+    let agents = offers.agents.clone();
+    let presence_dir = state.dir.clone();
+    let _presence = AbortOnDropHandle::new(tokio::spawn(async move {
+        if let Err(e) = crate::agents::presence::listen(agents, &presence_dir).await {
+            log::warn!("not taking session presence: {e:#}");
+        }
+    }));
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
     let _mcp = mcp::start(&state.dir, &offers);

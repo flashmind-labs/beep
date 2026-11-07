@@ -108,7 +108,13 @@ impl Machine {
             let _mcp = mcp::start(&home.dir, &home.offers);
             // Terminal Claude Code sessions report their state here; the
             // MCP server stops when this task does, with the app.
-            listen_hooks(&home.offers.agents, &home.dir).await;
+            tokio::join!(listen_hooks(&home.offers.agents, &home.dir), async {
+                if let Err(e) =
+                    beep_node::agents::presence::listen(home.offers.agents.clone(), &home.dir).await
+                {
+                    log::warn!("not taking session presence: {e:#}");
+                }
+            });
             pending::<()>().await;
         });
     }

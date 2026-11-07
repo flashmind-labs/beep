@@ -327,6 +327,7 @@ pub(crate) async fn machine_sessions(
         same_session,
         SCAN_FRESH,
     ));
+    fleet.apply_presence(&mut sessions);
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
 }

@@ -15,13 +15,16 @@ use beep_proto::{
     },
 };
 use futures::future::join_all;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 use tokio::time::timeout;
 
 /// How long one request to a node may take.
 pub const NODE_LIMIT: Duration = Duration::from_secs(3);
 /// The agents whose outside sessions are listed, and how many of each.
-const EXTERNAL_AGENTS: [&str; 2] = ["claude", "codex"];
+const EXTERNAL_AGENTS: [&str; 3] = ["claude", "codex", "flsh"];
 const EXTERNAL_LIMIT: u32 = 20;
 /// The most sessions a project lists.
 pub const MAX_PROJECT_SESSIONS: usize = 50;
@@ -123,7 +126,14 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
 ) -> Vec<MachineSession> {
     let limit = u32::try_from(MAX_PROJECT_SESSIONS).unwrap_or(u32::MAX);
     let started = Instant::now();
-    let listed = timeout(NODE_LIMIT, sessions::in_folders(node, folders, limit)).await;
+    let (listed, owned) = tokio::join!(
+        timeout(NODE_LIMIT, sessions::in_folders(node, folders, limit)),
+        beep_sessions(node, host),
+    );
+    let mut owned: HashMap<_, _> = owned
+        .into_iter()
+        .map(|session| ((session.agent.clone(), session.id.clone()), session))
+        .collect();
     if started.elapsed() >= SLOW_NODE {
         tracing::info!(
             "project sessions listed slowly; node={} ms={}",
@@ -134,7 +144,18 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     match listed {
         Ok(Ok(found)) => found
             .into_iter()
-            .map(|session| past_session(host, session))
+            .map(|session| {
+                let past = past_session(host, session);
+                // A transcript names the session that took it over, but cannot say
+                // whether its turn is working, idle, asking or ended now.
+                if past.external {
+                    past
+                } else {
+                    owned
+                        .remove(&(past.agent.clone(), past.id.clone()))
+                        .unwrap_or(past)
+                }
+            })
             .collect(),
         Ok(Err(e)) => {
             tracing::info!("project sessions not listed; node={} error={e:#}", host.id);
@@ -212,16 +233,51 @@ pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession
     }
 }
 
-/// A session as a project lists it; only Claude Code's outside sessions can be followed live.
+/// Native reports override cached scans, including an explicit close.
+/// Sessions that Beep owns still come from its ordinary session list.
+pub fn apply_presence(
+    host: &Host,
+    presence: &[ExternalSession],
+    sessions: &mut Vec<MachineSession>,
+) {
+    for native in presence {
+        let index = sessions.iter().position(|session| {
+            session.machine_id == host.id
+                && session.id == native.id
+                && session.agent == native.agent
+        });
+        let shown = native.presence.is_live() && native.taken_over.is_none();
+        if let Some(index) = index {
+            let previous = &mut sessions[index];
+            if !previous.external {
+                continue;
+            }
+            if !shown {
+                sessions.remove(index);
+                continue;
+            }
+            previous.status = presence_status(native.presence);
+            previous.cwd.clone_from(&native.cwd);
+            if native.title.is_some() {
+                previous.title.clone_from(&native.title);
+            }
+            previous.last_activity = previous.last_activity.max(unix(native.last_activity));
+            continue;
+        }
+        if shown {
+            sessions.push(external_session(host, native.clone()));
+        }
+    }
+}
+
+/// A session as a project lists it, with the same outside presence as Running.
 pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
-    let followed = session.agent == "claude";
-    let status = match session.presence {
-        _ if session.taken_over.is_some() => AgentStatus::Running {},
-        _ if !followed => AgentStatus::Ended {},
-        Presence::Working => AgentStatus::Working {},
-        Presence::Waiting => AgentStatus::Waiting {},
-        Presence::Running | Presence::Recent => AgentStatus::Running {},
-        _ => AgentStatus::Ended {},
+    let status = if session.taken_over.is_some() {
+        AgentStatus::Running {}
+    } else if runs_now(&session, SystemTime::now()) {
+        presence_status(session.presence)
+    } else {
+        AgentStatus::Ended {}
     };
     let external = session.taken_over.is_none();
     MachineSession {
@@ -389,5 +445,39 @@ pub fn agent_models(list: ModelList) -> AgentModels {
                 description: model.description,
             })
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_open_and_close_override_a_stale_scan_without_duplicating_owned_sessions() {
+        let host = Host {
+            id: "machine-a".into(),
+            name: "build-box".into(),
+        };
+        let mut native = ExternalSession {
+            id: "session_a".into(),
+            agent: "flsh".into(),
+            cwd: "/srv/project".into(),
+            presence: Presence::Running,
+            ..ExternalSession::default()
+        };
+        let mut sessions = vec![];
+        apply_presence(&host, &[native.clone()], &mut sessions);
+        assert_eq!(sessions.len(), 1);
+        sessions[0].title = Some("Stored title".into());
+        apply_presence(&host, &[native.clone()], &mut sessions);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].title.as_deref(), Some("Stored title"));
+        native.presence = Presence::Stopped;
+        apply_presence(&host, &[native.clone()], &mut sessions);
+        assert!(sessions.is_empty());
+        native.presence = Presence::Running;
+        native.taken_over = Some("owned-session".into());
+        apply_presence(&host, &[native], &mut sessions);
+        assert!(sessions.is_empty());
     }
 }
