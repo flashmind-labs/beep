@@ -37,6 +37,14 @@ mod socket;
 pub(crate) use machines::over_the_mesh;
 pub(crate) use server::Backend;
 
+pub(crate) fn presence_socket(dir: &Path) -> PathBuf {
+    socket::path_for_named(dir, "presence.sock")
+}
+
+pub(crate) fn prepare_presence_socket(socket_path: &Path, dir: &Path) -> Result<()> {
+    socket::prepare(socket_path, dir)
+}
+
 /// The server's name, as agents prefix its tools: `mcp__beep__remote_run`.
 pub const SERVER_NAME: &str = "beep";
 /// The env var the token reaches `beep-node mcp` in.

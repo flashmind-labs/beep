@@ -21,7 +21,7 @@ use tokio::time::timeout;
 /// How long one request to a node may take.
 pub const NODE_LIMIT: Duration = Duration::from_secs(3);
 /// The agents whose outside sessions are listed, and how many of each.
-const EXTERNAL_AGENTS: [&str; 2] = ["claude", "codex"];
+const EXTERNAL_AGENTS: [&str; 3] = ["claude", "codex", "flsh"];
 const EXTERNAL_LIMIT: u32 = 20;
 /// The most sessions a project lists.
 pub const MAX_PROJECT_SESSIONS: usize = 50;
@@ -212,6 +212,43 @@ pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession
     }
 }
 
+/// Native reports override cached scans, including an explicit close.
+/// Sessions that Beep owns still come from its ordinary session list.
+pub fn apply_presence(
+    host: &Host,
+    presence: &[ExternalSession],
+    sessions: &mut Vec<MachineSession>,
+) {
+    for native in presence {
+        let index = sessions.iter().position(|session| {
+            session.machine_id == host.id
+                && session.id == native.id
+                && session.agent == native.agent
+        });
+        let shown = native.presence.is_live() && native.taken_over.is_none();
+        if let Some(index) = index {
+            let previous = &mut sessions[index];
+            if !previous.external {
+                continue;
+            }
+            if !shown {
+                sessions.remove(index);
+                continue;
+            }
+            previous.status = presence_status(native.presence);
+            previous.cwd.clone_from(&native.cwd);
+            if native.title.is_some() {
+                previous.title.clone_from(&native.title);
+            }
+            previous.last_activity = previous.last_activity.max(unix(native.last_activity));
+            continue;
+        }
+        if shown {
+            sessions.push(external_session(host, native.clone()));
+        }
+    }
+}
+
 /// A session as a project lists it; only Claude Code's outside sessions can be followed live.
 pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
     let followed = session.agent == "claude";
@@ -389,5 +426,39 @@ pub fn agent_models(list: ModelList) -> AgentModels {
                 description: model.description,
             })
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_open_and_close_override_a_stale_scan_without_duplicating_owned_sessions() {
+        let host = Host {
+            id: "machine-a".into(),
+            name: "build-box".into(),
+        };
+        let mut native = ExternalSession {
+            id: "session_a".into(),
+            agent: "flsh".into(),
+            cwd: "/srv/project".into(),
+            presence: Presence::Running,
+            ..ExternalSession::default()
+        };
+        let mut sessions = vec![];
+        apply_presence(&host, &[native.clone()], &mut sessions);
+        assert_eq!(sessions.len(), 1);
+        sessions[0].title = Some("Stored title".into());
+        apply_presence(&host, &[native.clone()], &mut sessions);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].title.as_deref(), Some("Stored title"));
+        native.presence = Presence::Stopped;
+        apply_presence(&host, &[native.clone()], &mut sessions);
+        assert!(sessions.is_empty());
+        native.presence = Presence::Running;
+        native.taken_over = Some("owned-session".into());
+        apply_presence(&host, &[native], &mut sessions);
+        assert!(sessions.is_empty());
     }
 }

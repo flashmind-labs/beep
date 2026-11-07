@@ -9,7 +9,9 @@ use crate::{
         state::{LinkState, NoticeVoice},
     },
     center,
+    center::home_sessions::{AgentSessions, HOME_CHANGED},
     chat::groups::GroupApproval,
+    fleet::Fleet,
     fleet::alerts::{Direct, Heard, Via},
     tray::{self, waiting::WaitingList},
     voice::Voice,
@@ -37,6 +39,14 @@ pub(crate) async fn serve(
             Some(notice) = notices.recv() => (notice, Via::Server),
             Some(direct) = direct.recv() => match direct {
                 Direct::Notice(notice) => (*notice, Via::Machine),
+                Direct::Presence { machine, sessions } => {
+                    app.state::<Arc<Fleet>>().note_presence(machine, sessions);
+                    app.state::<Arc<AgentSessions>>().stale();
+                    let _ = app.emit("sessions-changed", "");
+                    let _ = app.emit(HOME_CHANGED, ());
+                    tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
+                    continue;
+                }
                 // A build: the bell keeps it, and the first machine to tell
                 // it shows it.
                 Direct::Run(news) => {
