@@ -10,6 +10,7 @@ export interface Entry<S = unknown> {
   id: string;
   title: string;
   detail: string;
+  snippet?: string;
   /// The lowercase texts it is found by.
   keys: string[];
   /// The session an agent_session entry opens.
@@ -73,7 +74,7 @@ function matches<S>(query: string, group: Entry<S>[]): Hit<S>[][] {
   return tiers;
 }
 
-/// Chats found by title and by text are one hit, with the first snippet.
+/// A session found by title and text is one hit, with its matching excerpt.
 function withText<S>(tiers: Hit<S>[][], text: Entry<S>[]) {
   for (const found of text) {
     let known = false;
@@ -81,7 +82,7 @@ function withText<S>(tiers: Hit<S>[][], text: Entry<S>[]) {
       const at = hits.findIndex(hit => hit.id === found.id);
       if (at < 0) continue;
       known = true;
-      if (!hits[at].detail) hits[at] = { ...hits[at], detail: found.detail };
+      if (!hits[at].detail || found.kind === "agent_session") hits[at] = { ...hits[at], detail: found.detail, snippet: found.snippet };
     }
     if (!known) tiers[TEXT].push(found);
   }
@@ -94,10 +95,12 @@ export function rank<S>(rawQuery: string, index: PaletteIndex<S>, text: Entry<S>
   const query = rawQuery.trim().toLowerCase();
   if (!query) return [...index.actions, ...index.chats.slice(0, RECENT_CHATS)];
   const chats = matches(query, index.chats);
-  withText(chats, text);
+  withText(chats, text.filter(entry => entry.kind === "chat"));
+  const sessions = matches(query, index.sessions);
+  withText(sessions, text.filter(entry => entry.kind === "agent_session"));
   const find = (group: Entry<S>[]) => matches(query, group);
   const groups = [
-    find(index.actions), find(index.settings), find(index.code), find(index.projects), find(index.sessions),
+    find(index.actions), find(index.settings), find(index.code), find(index.projects), sessions,
     chats, find(index.memories), find(index.routines), find(index.machines),
   ];
   const shown = groups.map(tiers => tiers.flat().slice(0, PER_GROUP));

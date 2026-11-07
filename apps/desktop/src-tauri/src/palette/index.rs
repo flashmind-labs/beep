@@ -155,6 +155,9 @@ pub(crate) struct Entry {
     pub(super) id: String,
     pub(super) title: String,
     pub(super) detail: String,
+    /// A matching prompt, apart from the session's project and machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) snippet: Option<String>,
     /// The lowercase texts it is found by.
     pub(super) keys: Vec<String>,
     /// The session an `AgentSession` entry opens.
@@ -175,6 +178,7 @@ impl Entry {
             id,
             title,
             detail,
+            snippet: None,
             keys: keys.iter().map(|key| key.to_lowercase()).collect(),
             session: None,
         }

@@ -21,8 +21,8 @@ use beep_proto::{
     UpdateProjectTask,
 };
 use serde::{Deserialize, Serialize};
-use std::cmp::Reverse;
-use tauri::{WebviewWindow, ipc::Channel};
+use std::{cmp::Reverse, sync::Arc};
+use tauri::{AppHandle, Manager, WebviewWindow, ipc::Channel};
 use tokio::join;
 use uuid::Uuid;
 
@@ -152,6 +152,7 @@ pub async fn project_change_folder(
 /// syncs.
 #[tauri::command]
 pub async fn project_remove_from_machine(
+    app: AppHandle,
     fleet: FleetState<'_>,
     machines: Machines<'_>,
     project: String,
@@ -179,10 +180,17 @@ pub async fn project_remove_from_machine(
             machines.name_of(id)
         )));
     }
-    Ok(desk(&fleet)
-        .await?
+    let index = app.state::<Arc<crate::palette::prompts::PromptIndex>>();
+    let _projects = index.project_lock().await;
+    let desk = desk(&fleet).await?;
+    let removed = desk
         .remove_from_machine(&project, &machine_id, delete_folder.unwrap_or(false))
-        .await?)
+        .await?;
+    let projects = desk.imported().await;
+    let retired = index.sync_projects(projects.clone()).await?;
+    app.state::<crate::palette::PaletteCache>()
+        .project_list(&app, projects, retired);
+    Ok(removed)
 }
 
 /// Copies `project` onto `machine_id` through the server, which brings it

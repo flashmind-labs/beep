@@ -113,3 +113,27 @@ test("a keystroke over a big index stays under a millisecond", () => {
   // The median, as a busy host can stall any single run.
   assert.ok(median < 1, `median ${median} ms`);
 });
+
+test("prompt matches join coding sessions, with an excerpt and the session to open", () => {
+  const session = { machine_id: "build-box", id: "a" };
+  const listed = { ...entry("agent_session", "Connection fixes", "build-box a", "Codex · widget"), session };
+  const prompt = { ...listed, snippet: "Prompt: Add a retry button" };
+  const hits = rank("retry", index({ sessions: [listed] }), [prompt]);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].kind, "agent_session");
+  assert.equal(hits[0].session, session);
+  assert.equal(hits[0].detail, prompt.detail);
+  assert.equal(hits[0].snippet, prompt.snippet);
+});
+
+test("title and prompt hits deduplicate without merging a chat with the same id", () => {
+  const listed = entry("agent_session", "Retry fixes", "same", "Codex · widget");
+  const prompt = { ...listed, snippet: "Prompt: Add a retry button" };
+  const chat = entry("chat", "Retry discussion", "same");
+  const hits = rank("retry", index({ sessions: [listed], chats: [chat] }), [prompt]);
+  assert.equal(hits.filter(hit => hit.kind === "agent_session").length, 1);
+  assert.equal(hits.find(hit => hit.kind === "agent_session")?.detail, prompt.detail);
+  assert.equal(hits.find(hit => hit.kind === "agent_session")?.snippet, prompt.snippet);
+  assert.equal(hits.filter(hit => hit.kind === "chat").length, 1);
+  assert.equal(listed.detail, "Codex · widget");
+});

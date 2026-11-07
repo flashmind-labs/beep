@@ -186,6 +186,12 @@ async fn sent(
     steer: Steer,
 ) -> Result<Vec<String>> {
     let steer = AgentSteer::try_from(steer)?;
+    let indexed_prompt = match &steer {
+        AgentSteer::Prompt { text }
+        | AgentSteer::PromptImages { text, .. }
+        | AgentSteer::Steer { text, .. } => Some(text.clone()),
+        _ => None,
+    };
     // The keys of the images sent, which the session's log names them by.
     let keys: Vec<String> = match &steer {
         AgentSteer::PromptImages { images, .. } | AgentSteer::Steer { images, .. } => {
@@ -211,6 +217,14 @@ async fn sent(
                 sent,
             )
             .await?;
+        if let Some(prompt) = &indexed_prompt {
+            let host = beep_mesh::machine::Host {
+                id: machine_id.clone(),
+                name: fleet.name_of(machine),
+            };
+            let metadata = beep_mesh::machine::beep_session(&host, opened.info.clone());
+            crate::palette::prompts::sent(&app, metadata, prompt).await;
+        }
         if close {
             // The lists show it ended once the machine says so, about two
             // seconds on; bounded by `until_ended`, nothing else owns it.
@@ -237,6 +251,11 @@ async fn sent(
         (Err(e), Some(prompt)) if older_than(&e, &[5, 6]) => beep.call(call(prompt)).await,
         (sent, _) => sent,
     };
+    if sent.is_ok()
+        && let Some(prompt) = &indexed_prompt
+    {
+        crate::palette::prompts::sent_existing(&app, &machine_id, &session, prompt).await;
+    }
     match sent {
         Err(e) if images && older_than(&e, &[3]) => Err(DesktopError::BadRequest(
             "This Beep server does not take images yet. Send the message without them.".into(),

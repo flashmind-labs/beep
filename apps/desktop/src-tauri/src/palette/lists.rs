@@ -3,7 +3,11 @@
 //! the index on each answer. The server's lists are saved in the views file,
 //! so a new launch finds them before the server answers.
 
-use super::index::build_index;
+use super::{
+    index::build_index,
+    places::{Place, retired},
+    prompts::PromptIndex,
+};
 use crate::{
     beep::{Beep, state::LinkState},
     center::{
@@ -28,7 +32,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager, State, ipc::Response};
+use tauri::{AppHandle, Emitter, Listener, Manager, State, ipc::Response};
 use tokio::{join, select, sync::Notify, task::JoinSet, time::sleep};
 
 /// Tells the windows to read the index again.
@@ -50,6 +54,12 @@ pub(crate) struct PaletteLists {
     pub(super) routines: Option<Vec<Cron>>,
     pub(super) machines: Option<Vec<Machine>>,
     pub(super) projects: Option<Vec<ImportedProject>>,
+    #[serde(default)]
+    pub(super) retired_places: Vec<Place>,
+    #[serde(default)]
+    pub(super) forgotten_projects: HashSet<String>,
+    #[serde(default)]
+    pub(super) forgotten_chats: HashSet<String>,
     /// The projects board, which also holds projects never imported.
     pub(super) boards: Option<Vec<ProjectAgent>>,
     /// The machines' coding-agent sessions.
@@ -62,6 +72,36 @@ pub(crate) struct PaletteLists {
     /// Set while the app has no subscription: the index leaves out what is the assistant's.
     #[serde(skip)]
     pub(super) without_subscription: bool,
+}
+
+impl PaletteLists {
+    fn prune(&mut self) {
+        if let Some(projects) = &mut self.projects {
+            projects.retain(|p| !self.forgotten_projects.contains(&p.project));
+        }
+        if let Some(boards) = &mut self.boards {
+            for board in boards
+                .iter()
+                .filter(|b| self.forgotten_projects.contains(&b.name))
+            {
+                self.forgotten_chats.insert(board.chat_id.to_string());
+            }
+            boards.retain(|b| !self.forgotten_projects.contains(&b.name));
+        }
+        if let Some(branches) = &mut self.branches {
+            branches.retain(|b| !self.forgotten_projects.contains(&b.project));
+        }
+        if let Some(prs) = &mut self.prs {
+            prs.retain(|pr| !self.forgotten_projects.contains(&pr.repo));
+        }
+        if let Some(chats) = &mut self.chats {
+            chats.retain(|chat| !self.forgotten_chats.contains(&chat.id));
+        }
+        if let Some(sessions) = &mut self.sessions {
+            let projects = self.projects.as_deref().unwrap_or_default();
+            sessions.retain(|s| !retired(s, projects, &self.retired_places));
+        }
+    }
 }
 
 /// A branch with commits its project's default branch does not have.
@@ -115,6 +155,7 @@ pub(crate) struct PaletteCache {
     held: Mutex<Held>,
     read_lists: Notify,
     read_chats: Notify,
+    read_sessions: Notify,
 }
 
 fn index_json(lists: &PaletteLists) -> anyhow::Result<String> {
@@ -124,7 +165,7 @@ fn index_json(lists: &PaletteLists) -> anyhow::Result<String> {
 impl PaletteCache {
     /// Starts from the lists saved in `views`, if it holds them.
     pub(crate) fn load(views: &ViewCache) -> anyhow::Result<Self> {
-        let lists = match views.get(View::Palette).map(serde_json::from_value) {
+        let mut lists: PaletteLists = match views.get(View::Palette).map(serde_json::from_value) {
             Some(Ok(lists)) => lists,
             Some(Err(e)) => {
                 // Only a head start: the server's lists replace it.
@@ -133,16 +174,96 @@ impl PaletteCache {
             }
             None => PaletteLists::default(),
         };
+        lists.without_subscription = !crate::beep::SERVER_ENABLED;
+        lists.prune();
         let index = index_json(&lists)?;
         Ok(Self {
             held: Mutex::new(Held { lists, index }),
             read_lists: Notify::new(),
             read_chats: Notify::new(),
+            read_sessions: Notify::new(),
         })
     }
 
     fn held(&self) -> MutexGuard<'_, Held> {
         self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn projects(&self) -> Vec<ImportedProject> {
+        self.held().lists.projects.clone().unwrap_or_default()
+    }
+
+    pub(super) fn sessions(&self) -> Vec<MachineSession> {
+        self.held().lists.sessions.clone().unwrap_or_default()
+    }
+
+    pub(crate) fn project_list(
+        &self,
+        app: &AppHandle,
+        projects: Vec<ImportedProject>,
+        removed: Vec<Place>,
+    ) {
+        let changed = {
+            let held = self.held();
+            let previous: std::collections::BTreeSet<_> = held
+                .lists
+                .projects
+                .iter()
+                .flatten()
+                .map(Place::from)
+                .collect();
+            let current = projects.iter().map(Place::from).collect();
+            previous != current || held.lists.retired_places != removed
+        };
+        self.update(app, |lists| {
+            lists
+                .forgotten_projects
+                .extend(removed.iter().map(|p| p.project.clone()));
+            for project in &projects {
+                lists.forgotten_projects.remove(&project.project);
+            }
+            lists.projects = Some(projects);
+            lists.retired_places = removed;
+        });
+        if changed {
+            let _ = app.emit("palette-text-changed", ());
+        }
+    }
+
+    pub(super) fn forget_project(&self, app: &AppHandle, project: &str, removed: Vec<Place>) {
+        self.update(app, |lists| {
+            lists.forgotten_projects.insert(project.to_owned());
+            lists.retired_places = removed;
+        });
+    }
+
+    /// The session view supplies metadata before the lists have caught up.
+    /// An already listed session stays on the normal refresh schedule.
+    pub(crate) fn found_session(&self, app: &AppHandle, session: MachineSession) {
+        let known = {
+            let held = self.held();
+            held.lists
+                .sessions
+                .iter()
+                .flatten()
+                .any(|s| s.machine_id == session.machine_id && s.id == session.id)
+                || retired(
+                    &session,
+                    held.lists.projects.as_deref().unwrap_or_default(),
+                    &held.lists.retired_places,
+                )
+        };
+        if !known {
+            self.remember_session(app, session);
+        }
+    }
+
+    pub(super) fn remember_session(&self, app: &AppHandle, session: MachineSession) {
+        self.update(app, |lists| {
+            let sessions = lists.sessions.get_or_insert_default();
+            sessions.retain(|old| old.machine_id != session.machine_id || old.id != session.id);
+            sessions.push(session);
+        });
     }
 
     /// The chats in the local copy changed: read them for the index, soon.
@@ -162,6 +283,8 @@ impl PaletteCache {
         let changed = {
             let mut held = self.held();
             change(&mut held.lists);
+            held.lists.prune();
+            cache_view(&app.state::<Arc<ViewCache>>(), View::Palette, &held.lists);
             match index_json(&held.lists) {
                 Ok(index) if index != held.index => {
                     held.index = index;
@@ -190,11 +313,24 @@ pub fn center_palette_index(cache: State<'_, PaletteCache>) -> Response {
 #[tauri::command]
 pub fn center_palette_refresh(cache: State<'_, PaletteCache>) {
     cache.read_lists.notify_one();
+    cache.read_sessions.notify_one();
 }
 
 /// Keeps the index current for the app's life.
 pub(crate) async fn follow(app: AppHandle, beep: Arc<Beep>) {
-    join!(follow_lists(&app, &beep), follow_chats(&app, &beep));
+    for event in ["home-changed", "sessions-changed"] {
+        let handle = app.clone();
+        app.listen(event, move |_| {
+            handle.state::<PaletteCache>().read_sessions.notify_one()
+        });
+    }
+    join!(
+        follow_local(&app),
+        follow_lists(&app, &beep),
+        follow_chats(&app, &beep),
+        follow_sessions(&app, &beep),
+        super::prompts::follow(&app)
+    );
 }
 
 async fn follow_lists(app: &AppHandle, beep: &Arc<Beep>) {
@@ -241,8 +377,6 @@ async fn follow_chats(app: &AppHandle, beep: &Arc<Beep>) {
 
 /// Reads every list, then saves them for the next launch.
 async fn read_lists(app: &AppHandle, beep: &Arc<Beep>) {
-    let cache = app.state::<PaletteCache>();
-    let views = app.state::<Arc<ViewCache>>();
     join!(
         async {
             read_server_lists(app, beep).await;
@@ -250,34 +384,67 @@ async fn read_lists(app: &AppHandle, beep: &Arc<Beep>) {
             read_branches(app, beep).await;
         },
         read_prs(app, beep),
-        read_sessions(app, beep),
     );
-    cache_view(&views, View::Palette, &cache.held().lists);
+}
+
+async fn follow_local(app: &AppHandle) {
+    loop {
+        read_local_lists(app).await;
+        sleep(Duration::from_secs(2)).await;
+    }
+}
+
+/// Projects come from replicated mesh state, without scanning a machine.
+async fn read_local_lists(app: &AppHandle) {
+    let session = app.state::<Arc<FleetSession>>();
+    let fleet = app.state::<Arc<Fleet>>();
+    // The mesh opens in the background. An opening mesh is not an empty
+    // project list and must not erase what was saved.
+    if fleet.mesh().is_none() {
+        return;
+    }
+    let index = app.state::<Arc<PromptIndex>>();
+    let _projects = index.project_lock().await;
+    let projects = mesh_imports(&fleet, &session).await;
+    let removed = match index.sync_projects(projects.clone()).await {
+        Ok(removed) => removed,
+        Err(e) => {
+            log::warn!("updating indexed projects: {e:#}");
+            return;
+        }
+    };
+    app.state::<PaletteCache>()
+        .project_list(app, projects, removed);
+    let machines = machine_list::machines(app, &fleet, &app.state::<Outside>());
+    app.state::<PaletteCache>().update(app, |lists| {
+        lists.machines = Some(machines);
+    });
 }
 
 async fn read_server_lists(app: &AppHandle, beep: &Beep) {
-    let session = app.state::<Arc<FleetSession>>();
-    let fleet = app.state::<Arc<Fleet>>();
-    let (memories, routines, listed, boards, imported) = join!(
+    if beep.link_state() != LinkState::Linked {
+        return;
+    }
+    let (memories, routines, listed, boards) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
         beep.call(ListImportedProjects {}),
         beep.call(ListProjects {}),
-        mesh_imports(&fleet, &session),
     );
     let memories = section("memories", memories);
     let routines = section("routines", routines);
-    let machines = Some(machine_list::machines(
-        app,
-        &app.state::<Arc<Fleet>>(),
-        &app.state::<Outside>(),
-    ));
+    let imported = app
+        .state::<PaletteCache>()
+        .held()
+        .lists
+        .projects
+        .clone()
+        .unwrap_or_default();
     let projects = section("projects", with_server(imported, listed));
     let boards = section("the projects board", boards);
     app.state::<PaletteCache>().update(app, |lists| {
         lists.memories = memories.or(lists.memories.take());
         lists.routines = routines.or(lists.routines.take());
-        lists.machines = machines.or(lists.machines.take());
         lists.projects = projects.or(lists.projects.take());
         lists.boards = boards.or(lists.boards.take());
     });
@@ -301,6 +468,18 @@ async fn read_prs(app: &AppHandle, beep: &Beep) {
         .update(app, |lists| lists.prs = Some(prs));
 }
 
+async fn follow_sessions(app: &AppHandle, beep: &Arc<Beep>) {
+    let cache = app.state::<PaletteCache>();
+    loop {
+        read_sessions(app, beep).await;
+        sleep(Duration::from_secs(5)).await;
+        select! {
+            () = sleep(Duration::from_secs(30)) => {}
+            () = cache.read_sessions.notified() => {}
+        }
+    }
+}
+
 /// The server asks every machine.
 async fn read_sessions(app: &AppHandle, beep: &Arc<Beep>) {
     let agents = app.state::<Arc<AgentSessions>>();
@@ -311,6 +490,7 @@ async fn read_sessions(app: &AppHandle, beep: &Arc<Beep>) {
     };
     app.state::<PaletteCache>()
         .update(app, |lists| lists.sessions = Some(sessions));
+    app.state::<Arc<super::prompts::PromptIndex>>().changed();
 }
 
 /// Each project's are read on a machine.
@@ -373,6 +553,95 @@ mod tests {
     use super::*;
     use beep_proto::MemorySource;
     use std::time::SystemTime;
+
+    #[test]
+    fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
+        let project = ImportedProject {
+            project: "acme/widget".into(),
+            machine_id: "build-box".into(),
+            machine_name: "build-box".into(),
+            folder: "/srv/project".into(),
+            url: "https://example.com/acme/widget".into(),
+            cloned: false,
+            imported_at: SystemTime::UNIX_EPOCH,
+        };
+        let session = MachineSession {
+            id: "a".into(),
+            machine_id: "build-box".into(),
+            machine_name: "build-box".into(),
+            agent: "codex".into(),
+            title: Some("Retry fixes".into()),
+            cwd: "/srv/project/.worktrees/fix".into(),
+            status: beep_proto::AgentStatus::Ended {},
+            doing: None,
+            question: None,
+            external: false,
+            started_at: SystemTime::UNIX_EPOCH,
+            last_activity: SystemTime::UNIX_EPOCH,
+        };
+        let mut lists = PaletteLists {
+            projects: Some(vec![project.clone()]),
+            sessions: Some(vec![session.clone()]),
+            branches: Some(vec![BranchRow {
+                project: project.project.clone(),
+                name: "fix".into(),
+                ahead: 1,
+                subject: "Retry".into(),
+            }]),
+            prs: Some(vec![PrRow {
+                repo: project.project.clone(),
+                number: 1,
+                title: "Retry".into(),
+                url: "https://example.com/pull/1".into(),
+                detail: String::new(),
+            }]),
+            retired_places: vec![Place::from(&project)],
+            forgotten_projects: [project.project.clone()].into(),
+            ..PaletteLists::default()
+        };
+        lists.prune();
+        let index = serde_json::to_value(build_index(&lists)).expect("the index serializes");
+        for group in ["projects", "sessions", "code"] {
+            assert_eq!(index[group], serde_json::json!([]));
+        }
+        lists.sessions = Some(vec![session]);
+        lists.prune();
+        let index = serde_json::to_value(build_index(&lists)).expect("the index serializes");
+        assert_eq!(
+            index["projects"],
+            serde_json::json!([]),
+            "a stale session cannot return as an unimported folder"
+        );
+        assert_eq!(index["sessions"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn cached_projects_are_searchable_before_any_machine_answers() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("views.json");
+        let views = ViewCache::load(path.clone(), "0.2.0");
+        let lists = PaletteLists {
+            projects: Some(vec![ImportedProject {
+                project: "acme/widget".into(),
+                url: "https://example.com/acme/widget".into(),
+                machine_id: "build-box".into(),
+                machine_name: "build-box".into(),
+                folder: "/srv/project".into(),
+                cloned: false,
+                imported_at: SystemTime::UNIX_EPOCH,
+            }]),
+            ..PaletteLists::default()
+        };
+        views.put(View::Palette, serde_json::to_value(lists)?);
+        views.write_unsaved();
+        views.keep_local();
+        let upgraded = ViewCache::load(path, "0.2.1");
+        let cache = PaletteCache::load(&upgraded)?;
+        let index: serde_json::Value = serde_json::from_str(&cache.held().index)?;
+        assert_eq!(index["projects"][0]["id"], "acme/widget");
+        assert_eq!(index["projects"][0]["keys"][0], "acme/widget");
+        Ok(())
+    }
 
     /// A list that does not survive the file would leave the next launch
     /// empty, and only log it.

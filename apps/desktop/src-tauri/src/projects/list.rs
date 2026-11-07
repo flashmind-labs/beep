@@ -11,7 +11,7 @@ use crate::{
 use beep_proto::{ImportedProject, ListProjects, ProjectAgent, RemoveProject};
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 /// One imported project as the window shows it.
 #[derive(Debug, Serialize)]
@@ -81,22 +81,39 @@ pub async fn pin_project_to_top(
 /// server, if there is one, drops its chat and tasks. No files are deleted on any machine.
 #[tauri::command]
 pub async fn remove_project(
+    app: AppHandle,
     fleet: FleetState<'_>,
     beep: Service<'_>,
     project: String,
 ) -> Result<()> {
+    let index = app.state::<Arc<crate::palette::prompts::PromptIndex>>();
+    let projects_guard = index.project_lock().await;
     let Some(desk) = desk_or_server(&fleet, &beep).await? else {
-        return beep.call(RemoveProject { project }).await;
+        beep.call(RemoveProject {
+            project: project.clone(),
+        })
+        .await?;
+        index.forget_project(&app, &project).await?;
+        return Ok(());
     };
+    // Record locations even if the menu has not read this new import yet.
+    index.sync_projects(desk.imported().await).await?;
     match desk.remove(&project).await {
         Ok(()) => {
             // Nothing read of it is kept.
             fleet.forget();
+            index.forget_project(&app, &project).await?;
+            drop(projects_guard);
             mirror_remove(&beep, &project).await
         }
         // A project only the server has, until it is moved into the mesh.
         Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
-            beep.call(RemoveProject { project }).await
+            beep.call(RemoveProject {
+                project: project.clone(),
+            })
+            .await?;
+            index.forget_project(&app, &project).await?;
+            Ok(())
         }
         Err(e) => Err(e.into()),
     }

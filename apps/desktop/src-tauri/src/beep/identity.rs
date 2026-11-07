@@ -75,7 +75,13 @@ pub fn forget(app: &AppHandle) -> Result<()> {
             Err(e) => return Err(e.into()),
         }
     }
-    for file in ["identity.key", "state.json"] {
+    for file in [
+        "identity.key",
+        "state.json",
+        "search.sqlite",
+        "search.sqlite-wal",
+        "search.sqlite-shm",
+    ] {
         match fs::remove_file(dir.join(file)) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::NotFound => {}

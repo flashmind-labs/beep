@@ -5,6 +5,8 @@
 
 pub(crate) mod index;
 pub(crate) mod lists;
+mod places;
 mod projects;
+pub(crate) mod prompts;
 
 pub(crate) use lists::PaletteCache;
