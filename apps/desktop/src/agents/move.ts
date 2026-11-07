@@ -4,7 +4,7 @@
 // mesh; the target says how far it is (`move-state.ts` holds the logic).
 
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
-import { type MoveRecord, type MoveTarget, canMove, going, moveRows, nextMoveTarget, targetNote } from "./move-state.ts";
+import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
 import { MV, moved, nameOf, refreshMoves, stateOf } from "./move-store.ts";
 import { $, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
@@ -117,25 +117,6 @@ function menu(s: AgentRow) {
     if (b && !b.hasAttribute("disabled")) void start(s, UI.targets[Number(b.dataset.mv)], false);
   });
   return box;
-}
-
-let cycling = false;
-
-/// Move to the next available machine when the conversation field has focus.
-export function cycleMachine(): boolean {
-  const s = AG.page?.session;
-  if (!s || !canMove(s) || s.external || !windowHooks?.sessionProject?.(s)?.name) return false;
-  if (cycling || going(stateOf(s.id))) return true;
-  cycling = true;
-  void (async () => {
-    try {
-      const found = await targets(s);
-      if (AG.page?.session?.id !== s.id || AG.page.session.machine_id !== s.machine_id || going(stateOf(s.id))) return;
-      const next = nextMoveTarget({ id: s.machine_id, name: s.machine_name }, found, s.agent);
-      if (next) { UI.targets = found; await start(s, next, false); }
-    } finally { cycling = false; }
-  })();
-  return true;
 }
 
 /// Asks the machine to take the session over.

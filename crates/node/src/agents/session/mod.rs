@@ -38,6 +38,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
 mod orders;
+mod sccache;
 mod turns;
 
 use actor::Actor;
@@ -316,6 +317,9 @@ impl Session {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if let Some(wrapper) = sccache::wrapper(cwd, &kind.env) {
+            process.env("RUSTC_WRAPPER", wrapper);
+        }
         // Its own process group, so closing it stops what it started.
         let child = own_group(&mut process)
             .spawn()

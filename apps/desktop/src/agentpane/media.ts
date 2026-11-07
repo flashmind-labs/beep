@@ -182,7 +182,7 @@ export function paneFrame(conv: string) {
 
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
-  closeAll();
+  closePaneTabs();
   P.session = s;
   P.on = { right: FILES, bottom: FILES };
   readWorktrees(s);
@@ -228,14 +228,20 @@ export function rebindPane(s: PaneSession) {
   draw();
 }
 
-/// Every open tab closed, its bytes let go.
-function closeAll() {
-  for (const t of P.tabs) dropTab(t);
+/// Stops the pane's terminals and releases every tab, including shells still starting.
+export function closePaneTabs() {
+  for (const t of P.tabs) {
+    const closing = t.closed;
+    t.closed = true;
+    dropTab(t);
+    const id = t.term?.row.id ?? t.existing?.id;
+    t.term = undefined;
+    if (id && !closing) invoke("terminal_close", { id }).catch(e => console.warn("stopping a terminal on leaving its session:", e));
+  }
   P.tabs = [];
 }
 
 function dropTab(t: MediaTab) {
-  // A terminal left with its session keeps running on its machine; Home lists it.
   if (t.term) dropTerm(t.term);
   t.model?.dispose();
   t.el?.querySelector("video")?.pause();
@@ -244,7 +250,7 @@ function dropTab(t: MediaTab) {
 }
 
 // Leaving the session view lets go of what its tabs hold.
-changeListeners.push(() => { if (S.view !== "agent") { closeAll(); dropChanges(); P.watch?.disconnect(); P.watch = null; } });
+changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); dropChanges(); P.watch?.disconnect(); P.watch = null; } });
 
 /// Every tab's id, in the order the tab strips show them.
 function tabIds() {
@@ -586,9 +592,7 @@ function paneClick(e: MouseEvent, d: Dock) {
 export function closeTab(id: string) {
   const i = P.tabs.findIndex(t => t.id === id);
   if (i < 0) return;
-  // Closing a terminal's tab ends the terminal on its machine; only leaving
-  // the session lets it keep running. The tab goes once it stopped, and
-  // says why when it could not.
+  // The tab goes once its terminal stopped, and says why when it could not.
   const tab = P.tabs[i];
   if (tab.term) {
     if (tab.closed) return;
