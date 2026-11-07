@@ -206,16 +206,21 @@ export function replyPic(turn: Turn, pic: SentImage) {
 
 /// The pictures the viewer goes through, and the one it shows.
 export const V: { pics: ViewerPic[]; at: number } = { pics: [], at: 0 };
+let viewerHost = bar;
+let viewerFocus: HTMLElement | null = null;
 
-export function openViewer(pics: ViewerPic[], at: number) {
+export function openViewer(pics: ViewerPic[], at: number, host = bar) {
+  viewerHost = host;
+  viewerFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   Object.assign(V, { pics, at });
   $("#keys")?.remove();
   drawViewer();
 }
 
 export function closeViewer() {
-  $("#viewer")?.remove();
-  focusAsk();
+  document.getElementById("viewer")?.remove();
+  if (viewerFocus?.isConnected) viewerFocus.focus(); else focusAsk();
+  viewerFocus = null;
 }
 
 type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
@@ -231,7 +236,7 @@ export function drawViewer() {
     : p.url.startsWith("data:") ? "" : `<button class="dbtn" data-v="open">Open in browser</button>`;
   const nav = (dir: "prev" | "next", on: boolean) => many ? `<button class="nav${dir === "prev" ? " prev" : ""}" data-v="${dir}" aria-label="${dir === "prev" ? "Previous" : "Next"}"${on ? "" : " disabled"}>${ICON.chev}</button>` : "";
   const keys = [...(many ? [["← →", "move"]] : []), ...(keeps ? [["⌘S", "save"], ["⌘C", "copy"]] : []), ["esc", "close"]];
-  const el = h(`<div class="dover dviewer" id="viewer" role="dialog" aria-label="${esc(name)}">
+  const el = h(`<div class="dover dviewer" id="viewer" role="dialog" aria-modal="true" aria-label="${esc(name)}">
     <div class="vt"><span class="tt"><b>${esc(name)}</b><small>${esc(about)}</small></span>${acts}<button class="dbtn" data-v="close" aria-label="Close">${ICON.x}</button></div>
     <div class="vi">${nav("prev", V.at > 0)}<img alt="${esc(p.caption)}">${nav("next", V.at < V.pics.length - 1)}</div>
     <div class="cap">${esc(p.caption)}</div>${hints(keys)}</div>`);
@@ -241,8 +246,19 @@ export function drawViewer() {
   if (p.file) loadPic(p.file.id, p.file.mime).then(url => url ? (img.src = url) : gone());
   else img.src = p.url;
   el.addEventListener("click", e => { const b = (e.target as Element).closest<HTMLElement>("[data-v]"); if (b) viewerAct(b.dataset.v as ViewerAct); });
-  const old = $("#viewer");
-  old ? old.replaceWith(el) : bar.append(el);
+  // Keep viewer keys out of the composer and the window's page navigation.
+  el.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Tab") {
+      const buttons = [...el.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+      const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      e.preventDefault();
+      buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+    } else viewerKeys(e, e.metaKey);
+  });
+  const old = document.getElementById("viewer");
+  old ? old.replaceWith(el) : viewerHost.append(el);
+  el.querySelector<HTMLButtonElement>('[data-v="close"]')?.focus();
 }
 
 export function viewerAct(a: ViewerAct) {
@@ -318,10 +334,10 @@ let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 /// A short note at the bottom of the bar; one that names a saved file can
 /// show it in Finder.
 export function notice(text: string, { path, bad }: { path?: string; bad?: boolean } = {}) {
-  $("#saved")?.remove();
+  document.getElementById("saved")?.remove();
   const el = h(`<div class="dsaved${bad ? " bad" : ""}" id="saved" role="status"><span>${esc(text)}</span>${path ? '<button class="dbtn">Show in Finder</button>' : ""}</div>`);
   el.querySelector("button")?.addEventListener("click", () => invoke("reveal_file", { path }).catch(() => {}));
-  bar.append(el);
+  (document.getElementById("viewer")?.parentElement ?? bar).append(el);
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => el.remove(), 5000);
 }

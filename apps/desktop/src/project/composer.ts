@@ -30,7 +30,7 @@ import { defaultParent } from "../addproject/importproject-state.ts";
 import { lastImport } from "../addproject/importproject.ts";
 import { refresh } from "../center/refresh.ts";
 import type { Attached } from "../agents/agentqueue.ts";
-import { attachedChips, attachImages } from "../agents/images.ts";
+import { attachedChips, attachImages, wireAttachedPreviews } from "../agents/images.ts";
 import { agentPics } from "../chat/attach.ts";
 
 /// The tallest the bar's field grows before it scrolls, in pixels.
@@ -182,6 +182,7 @@ async function attachToBar(files: Iterable<File>) {
 function drawBarImages() {
   const att = projectComp.att;
   att.innerHTML = attachedChips(barImages, "pjatt");
+  wireAttachedPreviews(att, barImages);
   att.hidden = !barImages.length;
 }
 
