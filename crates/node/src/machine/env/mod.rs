@@ -120,6 +120,7 @@ pub async fn probe() -> EnvReport {
         syncthing: Syncthing::local().folders().await,
         // Filled in by the status stream, which knows the installs.
         adapters: Vec::new(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
     }
 }
 

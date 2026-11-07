@@ -99,6 +99,7 @@ async fn serve(
         tx.send(&Report::Env(EnvReport {
             os: "linux".into(),
             home: "/srv".into(),
+            version: "0.9.1".into(),
             ..EnvReport::default()
         }))
         .await?;
@@ -855,4 +856,50 @@ async fn ask_feed_delivers_question() {
     assert_eq!(notice.title, "Codex on build-box asks");
     assert_eq!(notice.options.len(), 2);
     assert!(notice.options[0].allow && !notice.options[1].allow);
+}
+
+#[tokio::test]
+async fn machine_version_comes_from_env() {
+    let desktop_dir = TempDir::new().unwrap();
+    let desktop_endpoint = endpoint(&SecretKey::generate()).await;
+    let desktop = Mesh::create(desktop_dir.path(), desktop_endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let _desktop_router = router(&desktop_endpoint, &desktop);
+    let node_dir = TempDir::new().unwrap();
+    let node_endpoint = endpoint(&SecretKey::generate()).await;
+    let ticket = desktop
+        .invite(DeviceKind::Node, Duration::from_secs(60))
+        .await
+        .unwrap();
+    let node = Mesh::join(node_dir.path(), node_endpoint.clone(), &ticket, "build-box")
+        .await
+        .unwrap();
+    let session = Arc::new(Mutex::new(info()));
+    let sizes = Arc::new(Mutex::new(Vec::new()));
+    let (peer, _) = node.protocols();
+    peer.on_stream(Arc::new(move |stream| {
+        let session = session.clone();
+        let sizes = sizes.clone();
+        Box::pin(async move {
+            serve(stream, session, sizes).await.unwrap();
+        })
+    }));
+    let _node_router = router(&node_endpoint, &node);
+    let phone_dir = TempDir::new().unwrap();
+    let client = phone(&phone_dir, &SecretKey::generate()).await;
+    let ticket = desktop
+        .invite(DeviceKind::Desktop, Duration::from_secs(60))
+        .await
+        .unwrap();
+    client
+        .join_workspace(ticket.encode_string(), "phone".into())
+        .await
+        .unwrap();
+    let connected = client.mesh().await.unwrap().unwrap();
+    until(&connected.mesh, || connected.mesh.peer(node.me()).is_some()).await;
+
+    let machines = connected.machines().await;
+    let found = machines.iter().find(|machine| machine.name == "build-box");
+    assert_eq!(found.map(|machine| machine.version.as_str()), Some("0.9.1"));
 }
