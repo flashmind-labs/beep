@@ -107,6 +107,7 @@ pub async fn serve(
     // stops with the node.
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
+    let _sccache = provision.start_sccache();
     let mut offers = Offers::local(&state.agents, provision);
     let _harness_checks = offers.agents.start_harness_checks();
     // The ACP adapters an agent found here lacks, installed in the node's
