@@ -20,6 +20,9 @@ use tokio::{
     time::timeout,
 };
 
+mod lifecycle;
+pub use lifecycle::Installation;
+
 /// The events the hooks are installed for, and whether Claude Code waits
 /// for the hook: only those that can deliver what Beep queued.
 const EVENTS: &[(&str, bool)] = &[
@@ -145,6 +148,10 @@ fn handler(command: &str, waited: bool) -> Value {
 /// Removes this node's hooks, then groups and events left empty; returns
 /// how many hooks it removed.
 fn remove(settings: &mut Value) -> usize {
+    remove_matching(settings, is_ours)
+}
+
+fn remove_matching(settings: &mut Value, matches: impl Fn(&Value) -> bool) -> usize {
     let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) else {
         return 0;
     };
@@ -156,7 +163,7 @@ fn remove(settings: &mut Value) -> usize {
         for group in groups.iter_mut() {
             if let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) {
                 let before = handlers.len();
-                handlers.retain(|handler| !is_ours(handler));
+                handlers.retain(|handler| !matches(handler));
                 removed += before - handlers.len();
             }
         }
