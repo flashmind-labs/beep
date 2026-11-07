@@ -40,7 +40,8 @@ impl Target {
     fn page(&self, size: u32) -> String {
         match self.api {
             Api::GitHub => format!("per_page={size}"),
-            Api::Forgejo => format!("limit={size}"),
+            // Forgejo leaves pagination off unless a page is specified.
+            Api::Forgejo => format!("limit={size}&page=1"),
         }
     }
 
@@ -236,6 +237,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn forgejo_run_lists_request_a_page_to_enable_pagination() {
+        let host = TestHost::start(|seen| match seen.path.as_str() {
+            "/repos/acme/widget/actions/runs?limit=20&page=1" => Reply::ok(RUNS),
+            _ => Reply::status("400 Bad Request"),
+        })
+        .await;
+        let target = test_target(Api::Forgejo, &host.base);
+        let client = Client::new();
+        let limit = Arc::new(Semaphore::new(2));
+        let caller = target.caller(&limit, &client);
+        let calls = HostCalls::default();
+        let runs = list(&calls, &caller, &target).await.expect("paged runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run.id, 77);
+    }
+
+    #[tokio::test]
     async fn a_forgejo_without_a_jobs_api_gives_no_jobs_not_an_error() {
         let host = TestHost::start(|_| Reply::status("404 Not Found")).await;
         let target = test_target(Api::Forgejo, &host.base);
@@ -252,7 +270,7 @@ mod tests {
         assert_eq!(got, None);
         assert_eq!(
             host.seen()[0].path,
-            "/repos/acme/widget/actions/runs/12/jobs?limit=50"
+            "/repos/acme/widget/actions/runs/12/jobs?limit=50&page=1"
         );
         // GitHub's 404 is an error: the run is gone.
         let github = test_target(Api::GitHub, &host.base);

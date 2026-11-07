@@ -186,10 +186,10 @@ impl Cli {
 impl Forge for Cli {
     async fn list(&self, at: &Target) -> Result<Vec<WorkflowRun>> {
         let page = match at.host {
-            Host::GitHub => "per_page",
-            Host::Forgejo { .. } => "limit",
+            Host::GitHub => format!("per_page={RUNS_PAGE}"),
+            Host::Forgejo { .. } => format!("limit={RUNS_PAGE}&page=1"),
         };
-        let path = format!("repos/{}/actions/runs?{page}={RUNS_PAGE}", at.repo);
+        let path = format!("repos/{}/actions/runs?{page}", at.repo);
         let text = Self::read(at, &path).await?;
         let reply: RunsReply = serde_json::from_str(&text).context("the run list does not read")?;
         Ok(reply.runs().into_iter().map(|listed| listed.run).collect())
