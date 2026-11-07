@@ -15,7 +15,7 @@ const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
 const CHILD: &str = "beep-child";
 /// The most of a context a log entry keeps: the user's words come first.
-const MAX_CONTEXT: usize = 1024;
+const MAX_CONTEXT: usize = 2048;
 
 /// How every bare brief Beep wrote began.
 const BARE_STARTS: [&str; 5] = [
@@ -186,7 +186,11 @@ pub(crate) fn untagged(text: &str) -> String {
     if !is_bare(trimmed) {
         return text.to_owned();
     }
-    for end in [mcp::BRIEF, BARE_WORKTREE] {
+    let old_brief = mcp::BRIEF.split(" For Rust, C, or C++ builds").next();
+    for end in [Some(mcp::BRIEF), old_brief, Some(BARE_WORKTREE)]
+        .into_iter()
+        .flatten()
+    {
         if let Some(at) = trimmed.rfind(end) {
             let (brief, rest) = trimmed.split_at(at + end.len());
             return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
@@ -322,5 +326,7 @@ mod tests {
         );
         let worktree = format!("{BARE_WORKTREE}\n\n{brief}fix it");
         assert_eq!(said(&worktree), "fix it");
+        let old = brief.split(" For Rust, C, or C++ builds").next().unwrap();
+        assert_eq!(said(&format!("{old}keep going")), "keep going");
     }
 }

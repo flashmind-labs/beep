@@ -67,7 +67,11 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     cancel follow a background command. \
     sync_project syncs Git commits for repositories and files for non-Git folders. Uncommitted Git edits require an explicit handoff; sync_project never copies them. \
     send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
-    for the answer.";
+    for the answer. For Rust, C, or C++ builds, check whether sccache is installed and use it \
+    when practical to reuse compilation results across worktrees. For Rust, set RUSTC_WRAPPER=sccache \
+    for the build if no compiler wrapper is already configured. For C or C++, follow the project's \
+    build configuration and preserve any existing compiler launcher. Do not install sccache or change \
+    the user's global configuration unless asked.";
 
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {
