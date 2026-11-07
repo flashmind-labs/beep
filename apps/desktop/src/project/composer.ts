@@ -412,7 +412,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     machine: { id: host.machine_id, name: host.machine_name },
     noMachine: "",
     anchor: () => projectComp.harness,
-    bounds: () => projectComp.form.parentElement,
+    bounds: () => projectComp.form.closest<HTMLElement>(".agconv") ?? projectComp.form.parentElement,
     changed: what => {
       if (what === "model") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
       if (what === "agent") p.effort = keepEffort(p.agent, p.effort);
