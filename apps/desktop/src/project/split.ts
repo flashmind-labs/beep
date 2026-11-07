@@ -22,9 +22,9 @@ import { homeBox, runningStatus } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { agentsSection, customAgentsSection, whereSection } from "./projects.ts";
+import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
-import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
+import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { IC } from "../ui/icons.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
@@ -164,7 +164,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   groups.push({ title: "", items: [
     ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] }] : []),
     // Running agents have their own rows above; this keeps past sessions and the custom agents.
-    { key: "agents", title: "Sessions", sub: past.length ? `${past.length} past` : "None yet", detail: () => [sessionsSection(p, running), customAgentsSection(rows)] },
+    { key: "agents", title: "Sessions", sub: past.length ? `${past.length} past` : "None yet", detail: () => sessionTabs(p, running, rows) },
     { key: "branches", title: "Branches", sub: branchTile(revs.branches(p.name), revs.reviews(p.name), ago).count || "", detail: () => revs.branchesPanel(p.name) },
   ] });
   const num = (n: number) => h("span", "num", `#${n}`);
@@ -246,6 +246,25 @@ function statusStrip(cells: { label: string; text: string; key: string; bad?: bo
     b.addEventListener("click", () => openTile(c.key));
     return b;
   }));
+}
+
+/// The Sessions row's tab on screen.
+let sessionTab: "sessions" | "agents" = "sessions";
+
+/// Past sessions and custom agents in two tabs, so each gets the whole height.
+function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Node[] {
+  const list = sessionsList(p, running, true);
+  const bar = h("div", "cc-tabs pj-tabs");
+  bar.setAttribute("role", "tablist");
+  for (const [key, label, n] of [["sessions", "Sessions", list.count], ["agents", "Agents", customAgentsCount(rows)]] as const) {
+    const b = h("button", "", label, n ? h("span", "n", String(n)) : null);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(key === sessionTab));
+    b.addEventListener("click", () => { sessionTab = key; redrawProjects(); });
+    bar.append(b);
+  }
+  return sessionTab === "sessions" ? [bar, list.body, ...(list.note ? [list.note] : [])] : [bar, customAgentsSection(rows)];
 }
 
 /// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
