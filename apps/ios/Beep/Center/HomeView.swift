@@ -227,8 +227,6 @@ struct HomeView: View {
     }
 }
 
-func bytes(_ count: UInt64) -> String { ByteCountFormatter.string(fromByteCount: Int64(clamping: count), countStyle: .file) }
-
 func ago(_ date: Date) -> String {
     let formatter = RelativeDateTimeFormatter()
     formatter.unitsStyle = .abbreviated

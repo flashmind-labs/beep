@@ -25,7 +25,7 @@ struct CenterRoot: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Group {
+            SwiftUI.Group {
                 switch tab {
                 case .home: if let home { HomeView(home: home, path: $path, openMachines: { tab = .machines }) }
                 case .projects: ProjectsView(path: $path)
