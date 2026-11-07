@@ -14,10 +14,10 @@ export function commandRows(entries: LogEntry[], offset = 0) {
   return out;
 }
 
-/// The places of the thoughts in the log: the rows ⌘U opens and folds.
+/// The first place of each thought group: the rows ⌘U opens and folds.
 export function thoughtRows(entries: LogEntry[], offset = 0) {
   const out: number[] = [];
-  entries.forEach((en, i) => { if (en.kind === "thought") out.push(offset + i); });
+  entries.forEach((en, i) => { if (en.kind === "thought" && entries[i - 1]?.kind !== "thought") out.push(offset + i); });
   return out;
 }
 

@@ -533,9 +533,6 @@ function agentClick(e: MouseEvent) {
   const thought = target.closest<HTMLElement>("#agbody [data-thought]");
   if (thought && AG.open) {
     const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
-    // A thought streams open; once the reader folds or opens it, it keeps
-    // their choice when it ends.
-    m.touched.add(at);
     if (toggleThought(thought)) m.thoughts.add(at);
     else m.thoughts.delete(at);
     return;
