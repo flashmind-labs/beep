@@ -732,7 +732,7 @@
     { title: "Needs you", items: [{ id: "card", t: "The project agent waits on you", sub: "1 card" }] },
     { title: "Running", items: [
       { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: '<span class="cc-running"><span class="dspin" role="img" aria-label="Working"></span>now</span>' },
-      { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "idle" }] },
+      { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "3m ago" }] },
     { title: "Project", items: [
       { id: "actions", t: "Actions", sub: "1 failed" },
       { id: "machines", t: "Machines", sub: "2/3 · 1 terminal" },

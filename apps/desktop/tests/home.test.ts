@@ -63,10 +63,15 @@ test("This Mac gets a row until the server lists it", () => {
   assert.equal(thisMacRow(mac({ status: "connected" }), [])!.state, "Connecting");
 });
 
-test("a Running row says now in a turn and idle between turns, not when it began", () => {
-  const agent = (status: string) => ({ kind: "agent" as const, status, started_at: 1000, last_activity: 1000 });
-  assert.equal(runningWhen(agent("working")), "now");
-  assert.equal(runningWhen(agent("idle")), "idle");
+test("a Running row shows time since last activity between turns", t => {
+  const now = 1_800_000_000_000;
+  t.mock.method(Date, "now", () => now);
+  const agent = { kind: "agent" as const, status: "idle", started_at: now - 86_400_000, last_activity: now - 180_000 };
+  assert.equal(runningWhen({ ...agent, status: "working" }), "now");
+  assert.equal(runningWhen(agent), "3m ago");
+  assert.equal(runningWhen({ ...agent, last_activity: now - 7_200_000 }), "2h ago");
+  assert.equal(runningWhen({ ...agent, last_activity: now }), "now");
+  assert.equal(runningWhen({ ...agent, last_activity: 0 }), "1d ago");
 });
 
 test("the disk column shows the other volume with the most free", () => {
