@@ -187,7 +187,9 @@ impl Inner {
             }
             tx.send(&Opened::Ready {}).await?;
             return match self.local_status().await {
-                Ok(status) => serve_report(tx, rx, status, offers.log).await,
+                Ok(status) => {
+                    serve_report(tx, rx, status, offers.log, self.dir.join("metrics.log")).await
+                }
                 Err(e) => {
                     let reason = format!("this machine's status could not be read: {e:#}");
                     tx.send(&report::Reply::Failed { reason }).await?;

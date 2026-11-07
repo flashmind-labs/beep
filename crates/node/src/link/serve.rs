@@ -94,6 +94,13 @@ pub async fn serve(
     };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
     traffic.measure_endpoint(endpoint.metrics().clone());
+    let _diagnostics = match super::diagnostics::start(&endpoint, &state.dir.join("metrics.log")) {
+        Ok(task) => Some(task),
+        Err(e) => {
+            log::warn!("metrics unavailable: {e:#}");
+            None
+        }
+    };
     log::info!("node key {}", endpoint.id());
     // Made once, so agent sessions outlive each connection.
     // Installs gh, teacli and the agent skills beside serving; the work

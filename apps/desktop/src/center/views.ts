@@ -1,5 +1,5 @@
 // The window's views: registering one, going to one, and the header it draws.
-import { invoke } from "../ui/tauri.ts";
+import { invoke, recordTiming } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
@@ -9,6 +9,7 @@ import { drawSide, projectRows } from "./sidebar.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { threadChats } from "./threadcard.ts";
 import { PageHistory } from "./pagehistory.ts";
+import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { S } from "../bar/core.ts";
 
@@ -64,6 +65,7 @@ export function toMain(target: CenterTarget) {
 const pages = new PageHistory<{ view: ViewName; arg: ViewArg }>();
 /// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
 let moving = false;
+const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => recordTiming("page", page, ms));
 
 /// The page showing, as `go` opens it again.
 function here() {
@@ -107,14 +109,17 @@ export function go(name: ViewName, arg?: ViewArg): boolean {
   }
   const view = views.get(name);
   if (!view) return false;
+  const afterMount = pageTiming.start(pageName(name, arg));
   if (shown && !moving) pages.visit(here(), { view: name, arg: name === "projects" ? { project: (arg as ProjectsArg | undefined)?.project ?? null } : arg });
   shownArg = arg;
   if (shown && shown !== name) views.get(shown)!.unmount?.();
   shown = name;
   for (const [n, v] of views) v.el.hidden = n !== name;
-  view.mount(view.el, arg);
+  const mounted = view.mount(view.el, arg);
   drawTop();
   drawSide();
+  if (mounted) void mounted.then(() => afterMount(name === "pane" ? pageName(name, S.view) : undefined)).catch(e => console.warn("mounting page:", e));
+  else afterMount();
   return true;
 }
 
