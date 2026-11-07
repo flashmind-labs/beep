@@ -103,7 +103,6 @@ export function attach(t: PaneTerm) {
       t.link = "attached";
       t.tries = 0;
       t.screen.setInput(true);
-      t.screen.focus();
       // The screen may have been fitted while it attached.
       sendSize(t);
     } else if (ev.kind === "output") {
