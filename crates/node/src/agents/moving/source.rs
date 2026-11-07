@@ -32,6 +32,11 @@ pub(super) async fn run(
         );
     }
     env.agents.until_reopened().await;
+    if record.worktree.is_some()
+        && let Err(e) = env.agents.moves.prepare_worktree(&record.project).await
+    {
+        return fail(env, record, None, &e).await;
+    }
     if let Some(worktree) = &record.worktree {
         env.agents
             .moves

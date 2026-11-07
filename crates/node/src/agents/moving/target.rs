@@ -9,7 +9,7 @@ use super::{
     offers::project_folder,
     progress::{Tracker, show},
     read::{self, Refused},
-    resume::{Arrival, Folders as ResumeFolders, How, resume},
+    resume::{Arrival, Folders as ResumeFolders, How, Workspace, resume},
     saved::{MadeWorktree, Phase, Saved},
     worktree::{self, Undone, Work},
 };
@@ -71,6 +71,7 @@ struct Folders {
 
 /// The worktree a target makes.
 struct Made {
+    old_checkout: PathBuf,
     checkout: PathBuf,
     folder: PathBuf,
 }
@@ -126,15 +127,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                     record.project
                 );
             }
-            if let Some(worktree) = &record.worktree
-                && env
-                    .agents
-                    .moves
-                    .ignores_worktree(&record.project, &worktree.branch)
-                    .await
-            {
-                bail!("Syncthing is set not to sync this worktree, so it cannot move here");
-            }
+            env.agents.moves.prepare_worktree(&record.project).await?;
             // Whether the branch and folder allow it is known before the
             // source ends anything.
             if let Some(worktree) = &record.worktree {
@@ -178,6 +171,9 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         record.id
     );
     files(record, &arriving, tracker, copied.since).await?;
+    if let (Some(made), Some(work)) = (&folders.worktree, &copied.work) {
+        commits(env, record, &made.checkout, &work.head).await?;
+    }
     log::info!("session {}: the files are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let made = match (&folders.worktree, &record.worktree, &copied.work) {
@@ -269,12 +265,38 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     let placed = ResumeFolders {
         old: folders.old.clone(),
         new: folders.new.clone(),
+        workspace: match (&folders.worktree, &record.worktree) {
+            (Some(made), Some(worktree)) => Some(Workspace {
+                checkout: made.old_checkout.clone(),
+                old: PathBuf::from(&worktree.from),
+                new: made.folder.clone(),
+            }),
+            _ => None,
+        },
     };
     let resumed = resume(env, &arrival, &kind, &placed, copied.file_name, copy).await;
     if resumed.is_err() && made {
         take_back(env, &record.id).await;
     }
     resumed
+}
+
+/// A Syncthing checkout has local Git metadata, so its missing commits travel
+/// directly from the source before the target attaches the worktree.
+async fn commits(env: &Env, record: &SessionMove, checkout: &Path, head: &str) -> Result<()> {
+    let (folder, commit) = (checkout.to_owned(), head.to_owned());
+    if spawn_blocking(move || worktree::has_commit(&folder, &commit)).await? {
+        return Ok(());
+    }
+    let connection = dial(env, record.from).await?;
+    let (send, recv) = connection.open_bi().await?;
+    let (tx, rx) = link(send, recv);
+    let result = read::pull_bundle(tx, rx, &record.id, head).await;
+    connection.close(0u32.into(), b"done");
+    let bytes = result?;
+    let (folder, commit) = (checkout.to_owned(), head.to_owned());
+    spawn_blocking(move || worktree::import(&folder, &commit, &bytes)).await??;
+    Ok(())
 }
 
 /// Whether a session of this node runs in `folder` or below it.
@@ -359,6 +381,7 @@ fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
         old: Path::new(&worktree.from).join(relative),
         new: top.join(relative),
         worktree: Some(Made {
+            old_checkout: PathBuf::from(theirs),
             checkout: PathBuf::from(mine),
             folder: top,
         }),
@@ -528,7 +551,11 @@ async fn files(
     let syncs = match arriving {
         Arriving::Beep(syncs) => syncs,
         Arriving::Syncthing(managed) => {
-            syncthing_done(record, managed, tracker).await;
+            // A worktree arrives as its own commits and patch. Nothing in
+            // the Syncthing checkout needs to settle before it can resume.
+            if record.worktree.is_none() {
+                syncthing_done(record, managed, tracker).await;
+            }
             return Ok(());
         }
     };

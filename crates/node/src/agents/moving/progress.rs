@@ -4,7 +4,8 @@
 //! scanned, and that it gave a move up.
 
 use super::{Env, offers::project_folder};
-use crate::lock;
+use crate::{files::syncthing::Syncthing, lock};
+use anyhow::Result;
 use beep_proto::node::agent::{MovePhase, MoveProgress};
 use std::{
     collections::{HashMap, HashSet},
@@ -214,7 +215,7 @@ impl Moves {
         agent: &str,
         id: &str,
         lost: Option<u64>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let env = lock(&self.env)
             .upgrade()
             .ok_or_else(|| anyhow::anyhow!("this node does not copy sessions"))?;
@@ -238,25 +239,18 @@ impl Moves {
         }
     }
 
-    /// Whether Syncthing keeps `project` here and its `.stignore` leaves
-    /// out a worktree on `branch`.
-    pub(crate) async fn ignores_worktree(&self, project: &str, branch: &str) -> bool {
+    /// Makes Syncthing leave this project's Git metadata and worktrees alone.
+    pub(crate) async fn prepare_worktree(&self, project: &str) -> Result<()> {
         let env = lock(&self.env).upgrade();
         let Some(env) = env else {
-            return false;
+            return Ok(());
         };
-        let (Some(syncs), Some(folder)) = (
-            &env.syncs,
-            project_folder(&env.mesh, project, &env.mesh.me()),
-        ) else {
-            return false;
-        };
-        syncs
-            .syncthing_ignores(
-                Path::new(&folder),
-                &beep_proto::node::agent::worktree_path(branch),
-            )
-            .await
+        if let Some(folder) = project_folder(&env.mesh, project, &env.mesh.me())
+            && let Some(managed) = Syncthing::local().check(Path::new(&folder)).await
+        {
+            managed.protect_checkout().await?;
+        }
+        Ok(())
     }
 
     /// How the move of `id` stands here, when this machine is part of one.

@@ -856,26 +856,6 @@ impl Syncs {
             .is_some_and(|shared| shared.has_peer(peer))
     }
 
-    /// Whether Syncthing keeps `folder`, a project's checkout, in step here
-    /// and its `.stignore` leaves out `relative`, a folder of the project. A
-    /// `.stignore` that cannot be read counts as leaving it out.
-    pub(crate) async fn syncthing_ignores(&self, folder: &Path, relative: &str) -> bool {
-        if self.inner.syncthing.check(folder).await.is_none() {
-            return false;
-        }
-        let folder = folder.to_owned();
-        let relative = PathBuf::from(relative);
-        spawn_blocking(move || match stignore::Stignore::load_above(&folder) {
-            Ok(rules) => rules.iter().any(|rule| rule.ignores(&relative, true)),
-            Err(e) => {
-                log::warn!("a .stignore does not read: {e:#}");
-                true
-            }
-        })
-        .await
-        .unwrap_or(true)
-    }
-
     fn project(&self, name: &str) -> Option<Arc<Shared>> {
         lock(&self.inner.projects)
             .get(name)
