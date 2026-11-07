@@ -135,12 +135,18 @@ private class TerminalLink(private val api: BeepClient, private val id: String, 
     var error by mutableStateOf<String?>(null)
     private var connection: TerminalConnection? = null
 
-    val attached get() = connection != null
+    /** Another device took control: coming back does not attach again until Take control. */
+    var takenOver = false
+        private set
+    /** The user chose View only: a reattach follows the output but stays read-only. */
+    private var chosenViewOnly = false
 
-    fun viewOnly() { phase = TerminalPhase.ViewOnly; emulator.viewOnly() }
+    fun viewOnly() { chosenViewOnly = true; phase = TerminalPhase.ViewOnly; emulator.viewOnly() }
 
     /** True when the stream is still there. Otherwise the caller attaches again. */
     fun takeControl(): Boolean {
+        takenOver = false
+        chosenViewOnly = false
         if (connection == null) { phase = TerminalPhase.Connecting; return false }
         phase = TerminalPhase.Attached
         emulator.takeControl()
@@ -166,10 +172,10 @@ private class TerminalLink(private val api: BeepClient, private val id: String, 
                 phase = TerminalPhase.Ended(endedText(snapshot.terminal))
                 return
             }
-            val (cols, rows) = emulator.size() ?: return
+            val (cols, rows) = emulator.size() ?: run { phase = TerminalPhase.Disconnected; return }
             stream = api.attachTerminal(id, cols.coerceIn(1, 65535).toUShort(), rows.coerceIn(1, 65535).toUShort())
             connection = stream
-            phase = TerminalPhase.Attached
+            phase = if (chosenViewOnly) TerminalPhase.ViewOnly else TerminalPhase.Attached
             next = coroutineScope {
                 // One sender keeps keys and resizes in order and ends with the stream.
                 val outbox = Channel<TerminalSend>(Channel.UNLIMITED)
@@ -187,13 +193,13 @@ private class TerminalLink(private val api: BeepClient, private val id: String, 
                 val utf8 = Utf8Input()
                 emulator.connect(cols to rows, input = { bytes ->
                     utf8.text(bytes)?.takeIf { it.isNotEmpty() }?.let { outbox.trySend(TerminalSend.Keys(it)) }
-                }, resize = { c, r -> outbox.trySend(TerminalSend.Resize(c, r)) })
+                }, resize = { c, r -> outbox.trySend(TerminalSend.Resize(c, r)) }, controlling = !chosenViewOnly)
                 try {
                     var result: TerminalPhase = TerminalPhase.Disconnected
                     while (true) {
                         val frame = stream.next() ?: break
                         if (frame.ended) { result = TerminalPhase.Ended("Ended"); break }
-                        if (frame.viewOnly) { result = TerminalPhase.ViewOnly; break }
+                        if (frame.viewOnly) { takenOver = true; result = TerminalPhase.ViewOnly; break }
                         emulator.feed(frame.data)
                     }
                     result
@@ -237,10 +243,10 @@ internal fun TerminalScreen(repository: ChatRepository, initial: Terminal, onBac
     var closing by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
     DisposableEffect(emulator) { onDispose { emulator.close() } }
-    // The stream is dropped when the app leaves the screen. A takeover by another device is not undone by coming back.
+    // The stream is dropped when the app leaves the screen and attached again on return, unless another device took control.
     LaunchedEffect(initial.id, attempt, owner) {
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            if (link.phase != TerminalPhase.ViewOnly) link.run()
+            if (!link.takenOver) link.run()
         }
     }
     val phase = link.phase
