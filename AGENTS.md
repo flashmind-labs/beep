@@ -158,9 +158,9 @@ run against the newer schema.
 
 Every screen is mocked in `mockups/`, one file per platform:
 
-- Android: `mockups/android.html`
-- iOS: `mockups/ios.html`
-- Desktop, including the tray bar: `mockups/desktop.html`
+- Android: `mockups/android/index.html`
+- iOS: `mockups/ios/index.html`
+- Desktop, including the tray bar: `mockups/desktop/index.html`
 
 Before changing an app's UI, update that platform's mock first so it shows
 the new screen or state, then change the app to match.
