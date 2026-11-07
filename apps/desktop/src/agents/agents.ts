@@ -270,7 +270,7 @@ interface AgentState {
   /// a steer was sent from one after.
   polls: number;
   /// The session whose turn the user stopped, until it no longer runs.
-  stopping: string | null;
+  stopping: { id: string; turns: number } | null;
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
   /// The open session's modes, when the server says.
