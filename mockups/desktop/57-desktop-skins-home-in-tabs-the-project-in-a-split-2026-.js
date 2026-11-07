@@ -433,7 +433,7 @@
 .mac .pj-task.found { background: color-mix(in srgb, #8a9cf0 8%, transparent) }
 .mac .pj-needs { display: grid; gap: 8px }
 .mac .cc-view.split { padding: 0; overflow: hidden; display: block }
-.mac .pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100% }
+.mac .pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100%; min-height: 0 }
 .mac .pj-list { overflow: auto; border-right: 1px solid var(--d-border); padding-bottom: 10px; scrollbar-width: thin }
 .mac .pj-list h4 { margin: 0; padding: 12px 14px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--d-dim); display: flex; gap: 8px }
 .mac .pj-list h4 .n { font-weight: 400 }
