@@ -363,6 +363,12 @@ export function keptSteps(entries: LogEntry[], t: Turn, offset = 0, pinned?: Rea
   });
 }
 
+/// Calls still running in this turn stay visible outside their tool fold.
+export function runningSteps(entries: LogEntry[], t: Turn, offset = 0) {
+  return t.steps.filter(at => entries[at - offset].kind === "tool"
+    && parseTool(imageLines(entries[at - offset].text).text).status === "in_progress");
+}
+
 /// `kept` with the turn's thoughts added when no tool is left to fold:
 /// thoughts fold with tools, and with none there is no line to open.
 export function keptThoughts(entries: LogEntry[], t: Turn, kept: Set<number>, offset = 0) {

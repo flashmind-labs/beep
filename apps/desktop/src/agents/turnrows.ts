@@ -100,7 +100,7 @@ export function toolRowHtml(r: { kind: ToolKind; verb: string; target: string; t
   const counts = /^\+(\d+) -(\d+)$/.exec(r.detail);
   return `<div class="dcoderen tool row${r.cls ?? ""}"${r.attrs ?? ""}><span class="ki">${KIND_ICONS[r.kind]}</span><span class="vb">${esc(r.verb)}</span>`
     + `<code class="tt" title="${esc(r.tip)}">${esc(r.target)}</code>`
-    + `<span class="rm${r.bad ? " bad" : ""}">${r.since != null ? `<span data-since="${r.since}" title="Time since this window saw the command running">${duration(Date.now() - r.since)}</span>` : counts ? `<span class="pl">+${counts[1]}</span><span class="mi">-${counts[2]}</span>` : esc(r.detail)}</span>`
+    + `<span class="rm${r.bad ? " bad" : ""}">${r.since != null ? `<span data-since="${r.since}" title="Time since this window saw the tool running">${duration(Date.now() - r.since)}</span>` : counts ? `<span class="pl">+${counts[1]}</span><span class="mi">-${counts[2]}</span>` : esc(r.detail)}</span>`
     + `<span class="mk">${r.mark}</span>${r.after ?? ""}</div>`;
 }
 
