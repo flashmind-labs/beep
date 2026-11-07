@@ -34,6 +34,11 @@ export function logError(message: string) {
   core.invoke("log_webview", { message }).catch(() => {});
 }
 
+/// Sends a diagnostic to the same local log, without marking it as an error.
+export function logInfo(message: string) {
+  core.invoke("log_webview", { message, info: true }).catch(() => {});
+}
+
 /// How long a command may take unless its call says otherwise (#428).
 const COMMAND_WAIT_MS = 120_000;
 /// Commands that wait on the user (sign-ins, dialogs) or do long work
@@ -56,6 +61,9 @@ const UNTIMED = new Set([
 /// channel) fails with a plain error, so a call that never returns cannot
 /// hold the page.
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
+  const lifecycle = cmd === "agent_start" || cmd === "agent_resume";
+  const at = Date.now();
+  if (lifecycle) logInfo(`agent command: ${JSON.stringify({ command: cmd, stage: "requested", machine: args?.machineId })}`);
   const streams = Object.values(args ?? {}).some(v => v instanceof Channel);
   const limit = within ?? (UNTIMED.has(cmd) || streams ? null : COMMAND_WAIT_MS);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -63,7 +71,13 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
   const limited = limit == null ? call : Promise.race([call, new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(`no answer in ${Math.round(limit / 1000)} s. Try again.`), limit);
   })]);
-  return limited.finally(() => clearTimeout(timer)).catch((e: unknown) => {
+  return limited.then(value => {
+    if (lifecycle) {
+      const started = value as { session?: { id?: string; machine_id?: string; status?: string } } | null;
+      logInfo(`agent command: ${JSON.stringify({ command: cmd, stage: "returned", ms: Date.now() - at, session: started?.session?.id, machine: started?.session?.machine_id, status: started?.session?.status })}`);
+    }
+    return value;
+  }).finally(() => clearTimeout(timer)).catch((e: unknown) => {
     const about = [["machine", args?.machineId], ["session", args?.session]].filter(([, v]) => typeof v === "string").map(([k, v]) => `${k} ${v}`).join(", ");
     logError(`${cmd} failed${about ? ` (${about})` : ""}: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);
     throw e;
