@@ -219,6 +219,9 @@ const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWith
 
 /// "Custom agents", read on this Mac's checkout or else the first machine
 /// with one. Named apart from "Agents", the ones running now.
+/// How many custom agents the project has, as far as read.
+export function customAgentsCount(rows: WhereRow[]) { return cags.view(agentsPlace(rows)).count; }
+
 export function customAgentsSection(rows: WhereRow[]) {
   const place = agentsPlace(rows);
   const { body, count } = cags.view(place);
