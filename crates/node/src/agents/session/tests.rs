@@ -1250,6 +1250,13 @@ async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
     steer.text = "Use the fixture @.beep/uploads/build.log".into();
     session.order(Command::Steer(steer)).await.unwrap();
     assert_eq!(session.info().state.queued, 2);
+    assert_eq!(
+        session.info().state.queued_messages,
+        [
+            "Use the fixture @.beep/uploads/build.log\n[Image: shot.png]",
+            "later"
+        ]
+    );
     // Nothing goes while the tool call runs.
     let methods = |log: &Path| -> Vec<String> {
         sent(log)
