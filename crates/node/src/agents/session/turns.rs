@@ -141,6 +141,7 @@ impl Actor {
             live.end_thought(Instant::now());
             live.stopped(by_user);
             live.info.turns += 1;
+            live.info.last_activity = crate::agents::unix_now();
             live.last_stop = Some(stop);
             live.info.question = None;
             let state: &mut State = &mut live.info.state;
