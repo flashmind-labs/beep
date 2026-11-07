@@ -194,8 +194,8 @@ function drawParts() {
   const title = formTitle(f.project);
   $$("#agtitle").innerHTML = title.name ? `${esc(title.lead)} <b>${esc(title.name)}</b>?` : esc(title.lead);
   const go = $$<HTMLButtonElement>("#aggo");
-  go.disabled = AG.busy || !hosts.length || !f.machine;
-  go.title = f.machine ? "Start (⌘↩)" : "Pick a machine first";
+  go.disabled = AG.busy || !hosts.length || !f.machine || !f.project;
+  go.title = !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (⌘↩)";
   // The key hints give way to an open menu.
   bar.classList.toggle("agc-menuopen", !!f.open);
   go.innerHTML = AG.busy ? '<span class="dspin"></span>' : UP;
@@ -267,7 +267,7 @@ function drawUnder() {
     ? `<span class="agc-type"><input id="agcwd" spellcheck="false" autocomplete="off" role="combobox" aria-label="Folder" placeholder="/path/to/folder or ~/folder" value="${esc(f.cwd)}"><span id="agcwdmenu"></span></span>`
     : `<button class="agc-pill" id="agfoldb" aria-expanded="${f.open === "folder"}" title="${esc(f.cwd.trim() || host?.workspace || "The machine's workspace")}">${FOLDER}${folderText}${sub}${CARET}</button>`;
   const base = checkout && makesBranch(f.checkout ?? DEFAULT_CHECKOUT) ? `<span class="bar"></span>${baseButton()}` : "";
-  const project = `<button class="agc-pill" id="agprojb" aria-expanded="${f.open === "project"}" title="${f.project ? "The project this agent works on" : "Pick a project, or run in a folder"}">${PROJECT}${esc(f.project || "No project")}${CARET}</button>`;
+  const project = `<button class="agc-pill" id="agprojb" aria-expanded="${f.open === "project"}" title="${f.project ? "The project this agent works on" : "Pick a project to start"}">${PROJECT}${esc(f.project || "No project")}${CARET}</button>`;
   el.innerHTML = `${project}<span class="bar"></span><button class="agc-pill" id="aghostb" aria-expanded="${f.open === "host"}">${HOST}${esc(host ? host.machine_name : "Pick a machine")}${CARET}</button><span class="bar"></span>${folder}${base}${projectMenu()}${hostMenu()}${folderMenu(checkout)}${baseMenu()}`;
   placeMenu();
   if (f.typing) bindFolderField();
@@ -303,7 +303,7 @@ function projectMenu() {
     return `<button data-agp="${esc(p.name)}" class="${f.project === p.name ? "on" : ""}"><span></span><span>${esc(p.name)}</span><small class="${here ? "mono" : ""}">${esc(where)}</small></button>`;
   });
   const note = PROJECTS === null ? ['<button disabled><span></span><span><span class="dspin"></span> Reading projects…</span><small></small></button>'] : [];
-  const none = `<button data-agp="" class="${f.project ? "" : "on"}"><span></span>No project<small>run in a folder</small></button>`;
+  const none = `<button data-agp="" class="${f.project ? "" : "on"}"><span></span>No project<small>pick one to start</small></button>`;
   return `<div class="agc-menu" role="menu">${[...note, ...rows, ...(rows.length || note.length ? ["<hr>"] : []), none].join("")}</div>`;
 }
 
@@ -606,6 +606,7 @@ function syncModel() {
 export async function startAgent() {
   const f = AG.form;
   if (AG.busy || S.view !== "agentnew") return;
+  if (!f.project) { f.open = "project"; return drawParts(); }
   if (!f.prompt.trim()) { AG.error = "prompt"; drawParts(); return $("#agprompt")?.focus(); }
   if (!f.machine) { f.open = "host"; return drawParts(); }
   AG.busy = true;
