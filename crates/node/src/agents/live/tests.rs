@@ -726,3 +726,17 @@ fn a_session_the_agent_has_not_named_takes_its_first_prompt_line() {
     live.prompted("and more");
     assert_eq!(live.info.title.as_deref(), Some("Flaky CI"));
 }
+
+#[test]
+fn steering_keeps_the_running_turns_files_and_start() {
+    let mut live = live();
+    live.prompted("make an image");
+    live.turn_links.push("result.png".into());
+    let start = live.turn_start;
+    let began = live.turn_began;
+    live.steered("make it blue");
+    assert_eq!(live.turn_start, start);
+    assert_eq!(live.turn_began, began);
+    assert_eq!(live.turn_links, ["result.png"]);
+    assert_eq!(live.transcript(10).0.last().unwrap().text, "make it blue");
+}

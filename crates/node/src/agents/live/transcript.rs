@@ -217,6 +217,15 @@ impl Live {
         state.error = None;
     }
 
+    /// A message joined the running turn, keeping its files and timing.
+    pub(crate) fn steered(&mut self, text: &str) {
+        self.end_thought(Instant::now());
+        self.active_at = Some(Instant::now());
+        self.info.last_activity = unix_now();
+        self.in_message = false;
+        self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
+    }
+
     /// The question the agent asked in `session/request_permission`.
     pub(crate) fn question(&self, id: u32, request: &RequestPermissionRequest) -> Question {
         let call = &request.tool_call;
