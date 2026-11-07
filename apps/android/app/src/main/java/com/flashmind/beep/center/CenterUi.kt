@@ -88,10 +88,11 @@ internal fun CcBody(modifier: Modifier = Modifier, content: @Composable ColumnSc
 }
 
 @Composable
-internal fun CcSection(title: String, count: Int? = null, action: String? = null, onAction: () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+internal fun CcSection(title: String, count: Int? = null, online: Boolean? = null, action: String? = null, onAction: () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (online != null) CcDot(online)
                 Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
                 if (count != null) Text(count.toString(), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Beep.colors.dim)
             }
