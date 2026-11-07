@@ -373,25 +373,24 @@ export async function loadWhere(name: string) {
   if (state.picked === name) redrawProjectsPage();
 }
 
-/// The sessions your coding agents ran in the project's folders, newest first,
-/// each opens; those running now are under Agents.
+/// Ended sessions in the project's folders, newest first; each opens.
 const SESSIONS_SHOWN = 5;
 
 export function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
+  const past = pastSessions(sessions, running);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
   if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see its sessions."));
   else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
   else {
-    const past = pastSessions(sessions, running);
     body = past.length
       ? h("div", "cc-panel", fitRows(past.map(sessionRow), SESSIONS_SHOWN))
-      : emptyPanel(h("span", "", "No sessions yet."));
+      : emptyPanel(h("span", "", "No past sessions yet."));
   }
   const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;
   note?.classList.add("ss-updating");
-  return section("sec-sessions", "Sessions", sessions?.length || "", null, body, note);
+  return section("sec-sessions", "Past sessions", past.length || "", null, body, note);
 }
 
 /// The agent view for a session row.

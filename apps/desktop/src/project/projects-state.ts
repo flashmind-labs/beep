@@ -229,12 +229,11 @@ export function projectRunning(project: Pick<Project, "machines">, running: read
   return live;
 }
 
-/// A project's past sessions without those running now (they show under
-/// Agents), newest first.
-export function pastSessions<T extends Pick<SessionRow, "machine_id" | "id" | "last_activity">>(sessions: readonly T[] | null | undefined, running: readonly { machine_id: string; id: string }[] | null | undefined) {
+/// Ended sessions, excluding any still listed as live, newest first.
+export function pastSessions<T extends Pick<SessionRow, "machine_id" | "id" | "status" | "last_activity">>(sessions: readonly T[] | null | undefined, running: readonly { machine_id: string; id: string }[] | null | undefined) {
   const live = new Set((running || []).map(r => `${r.machine_id} ${r.id}`));
   return [...(sessions || [])]
-    .filter(s => !live.has(`${s.machine_id} ${s.id}`))
+    .filter(s => s.status === "ended" && !live.has(`${s.machine_id} ${s.id}`))
     .sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0));
 }
 
