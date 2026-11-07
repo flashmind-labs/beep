@@ -673,7 +673,7 @@ expected 200, got 401</pre></details></span></div>`;
       rw("run", "Ran", "cargo test -p invites", { mt: '<span class="mi">exit 101</span>', st: "bad", open: opened, body: `<pre class="cmd"><span class="k">python3</span> - &lt;&lt;<span class="s">'PY'</span>\n<span class="k">import</span> json\n<span class="c"># read the report</span>\nprint(<span class="s">"failed"</span>, <span class="n">1</span>)\nPY</pre>` + outBox(testOut) }),
       rw("web", "Fetched", "docs.rs/tokio/latest/tokio/time", { mt: "200 · 14 KB" }),
       rw("mcp", "linear", "get_issue INV-142", { mt: "MCP" }),
-      doneRich ? rw("run", "Ran", "cargo test -p invites", { mt: "14 passed" }) : rw("run", "Running", "cargo test -p invites delivery", { st: "run" }),
+      doneRich ? rw("run", "Ran", "cargo test -p invites", { mt: "14 passed" }) : rw("run", "Running", "cargo test -p invites delivery", { st: "run", mt: "12s" }),
       doneRich ? "" : v === "richthink"
         ? `<div class="dthink open"><button aria-expanded="true"><span class="lb">Thought</span><span class="cv">${SG.chev}</span></button><div class="bd"><div><div class="tx"><div class="kk" data-kkdemo></div></div></div></div></div>`
         : v === "richthought"

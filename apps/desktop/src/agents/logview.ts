@@ -34,6 +34,9 @@ import { ICON } from "../ui/icons.ts";
 /// A step's mark: done, failed, running or did not finish.
 const mark = (status: string) => stepMark(status, AGENT_ACTIVE.has(AG.page?.session.status));
 
+// Entries do not carry start times. Remember when this window first saw each command.
+const commandStarts = new Map<string, number>();
+
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
 export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
@@ -53,6 +56,11 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
   const parts = rowParts(en.text, live, open);
+  const command = parts.kind === "command" || beep?.doing === "Running on";
+  const key = `${AG.open?.machine_id ?? ""}\n${AG.open?.session ?? ""}\n${at}`;
+  if (live && command && !commandStarts.has(key)) commandStarts.set(key, Date.now());
+  const since = live && command ? commandStarts.get(key) : undefined;
+  if (!live) commandStarts.delete(key);
   // A command may be cut at any width, so it always opens.
   const opens = !!output || long || (beep ? !!beep.detail : parts.kind === "command");
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
@@ -60,18 +68,22 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
   if (beep) {
     return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-      + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open)}`
+      + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open, since)}`
       + mediaButtons(title) + body + pics + "</div>";
   }
   // Opened, a command or a long title leaves the row's one line and shows whole under it.
   const wrapped = open && (parts.kind === "command" || long);
   const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
   return toolRowHtml({
-    ...parts, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
+    ...parts, since, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
     attrs: ` data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}`,
     after: mediaButtons(title) + rowBody + pics,
   });
+}
+
+function commandClock(since: number) {
+  return `<span data-since="${since}" title="Time since this window saw the command running">${duration(Date.now() - since)}</span>`;
 }
 
 /// What an opened call shows: each diff as its changed lines, then the
@@ -87,11 +99,11 @@ function toolBody(output: string) {
 /// A call to the session's Beep tools: what it did, the machine as a chip,
 /// the first line of its command or prompt, then the file count and how it
 /// stands on the right. Opened, the command or prompt is under it instead.
-function beepHead(beep: BeepCall, title: string, state: string, live: boolean, open: boolean) {
+function beepHead(beep: BeepCall, title: string, state: string, live: boolean, open: boolean, since?: number) {
   return `<span class="tt bp" title="${esc(beepLine(title) ?? title)}"><span class="bi">${KIND_ICONS.beep}</span><span class="v">${esc(live ? beep.doing : beep.done)}</span>`
     + (beep.machine ? `<span class="mc">${esc(beep.machine)}</span>` : "")
     + (beep.detail && !open ? `<code>${esc(beep.detail.split("\n")[0])}</code>` : "") + "</span>"
-    + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}</span>`;
+    + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}${since != null ? ` · ${commandClock(since)}` : ""}</span>`;
 }
 
 /// A button for each media file a step's title names (at most three),
