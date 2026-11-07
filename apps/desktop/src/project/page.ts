@@ -39,9 +39,10 @@ export function drawProjects(el: HTMLElement) {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
-    if (one) view.append(...projectDetail(one));
-    if (one && splitOn(one)) view.classList.add("split");
-    else if (!state.picked && state.overview) view.append(...overviewSection(rows));
+    if (one) {
+      view.append(...projectDetail(one));
+      if (splitOn(one)) view.classList.add("split");
+    } else if (!state.picked && state.overview) view.append(...overviewSection(rows));
     else view.append(section("sec-projects", "Projects", state.picked ? "" : rows.length, state.picked ? null : projectFilter(), projectList(shownRows.length ? shownRows : rows)));
     const found = one ? null : foundSection();
     if (found) view.append(found);

@@ -434,13 +434,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 /* The project page: everything going on in a list at the left, the picked
    row's detail at the right, each scrolling on its own. */
 .cc-view.split { padding: 0; overflow: hidden; display: block }
-.pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100% }
-/* In the split the bar floats centered in the page, so both columns run to the
-   bottom and scroll clear of it. The view and the bar share their .cc-box. */
-.cc-box:has(> .cc-view.split) { position: relative }
-.cc-view.split ~ .cc-pjc { position: absolute; z-index: 2; bottom: 0; right: 0; left: 0; margin: 0 16px 14px }
-.cc-view.split ~ .cc-pjc > * { justify-self: center; width: min(100%, 760px); box-sizing: border-box }
-.cc-view.split :is(.pj-det, .pj-list) { padding-bottom: calc(var(--pjc-h, 110px) + 18px) }
+.pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100%; min-height: 0 }
 .pj-list { overflow: auto; border-right: 1px solid var(--border); padding-bottom: 10px; scrollbar-width: thin }
 .pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
 .pj-list h4 { margin: 0; padding: 12px 14px 4px; display: flex; gap: 8px }

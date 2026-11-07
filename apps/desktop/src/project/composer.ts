@@ -91,8 +91,6 @@ export const projectComp = (() => {
   });
   const box = h("div", "box", att, input, row, pick);
   const form = h("form", "cc-pjc", box, err);
-  // The split's right column leaves room for the floating bar.
-  new ResizeObserver(() => form.parentElement?.style.setProperty("--pjc-h", `${form.offsetHeight}px`)).observe(form);
 
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
