@@ -1625,6 +1625,74 @@ async fn agent_mcp(desktop: &Member, node: &Node, work: &Path, sent: &Path) -> M
 
 #[cfg(unix)]
 #[tokio::test]
+async fn an_agent_queries_models_on_its_own_machine_and_a_peer() {
+    let desktop = desktop().await;
+    let work = TempDir::new().expect("a temp folder");
+    let sent = work.path().join("sent.jsonl");
+    let remote_sent = work.path().join("remote.jsonl");
+    let remote_adapter = ADAPTER.replace(
+        r#"{"sessionId":"s"}"#,
+        r#"{"sessionId":"s","models":{"availableModels":[{"modelId":"fast","name":"Fast","description":"Quick tasks"}],"currentModelId":"fast"}}"#,
+    );
+    let a = Node::start(Config {
+        name: Some("box-a"),
+        agent: Some(adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    let b = Node::start(Config {
+        name: Some("box-b"),
+        agent: Some(adapter_of(&remote_adapter, &remote_sent)),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
+    assert!(mcp.tools().await.iter().any(|name| name == "harness_info"));
+    timeout(LIMIT, async {
+        loop {
+            let (listed, failed) = mcp.call("list_machines", json!({})).await;
+            assert!(!failed, "{listed}");
+            if listed.contains("box-b: online") {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the peer comes online");
+    for args in [
+        json!({"harness": "codex"}),
+        json!({"harness": "codex", "machine": "box-a"}),
+    ] {
+        let (text, failed) = mcp.call("harness_info", args).await;
+        assert!(!failed, "{text}");
+        let info: serde_json::Value = serde_json::from_str(&text).expect("harness info");
+        assert_eq!(info["model_selection"], "Fixed");
+    }
+    let (text, failed) = mcp
+        .call(
+            "harness_info",
+            json!({"harness": "codex", "machine": "box-b"}),
+        )
+        .await;
+    assert!(!failed, "{text}");
+    let info: serde_json::Value = serde_json::from_str(&text).expect("harness info");
+    assert_eq!(info["model_selection"], "Listed");
+    assert_eq!(info["default_model"], "fast");
+    assert_eq!(info["models"][0]["id"], "fast");
+    assert_eq!(info["effort_levels"], json!(["low", "medium", "high"]));
+    let remote = fs::read_to_string(remote_sent).expect("the remote adapter was queried");
+    assert!(remote.contains("session/new"));
+    assert!(
+        !remote.contains("session/prompt"),
+        "discovery starts no turn"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn an_agent_sends_files_between_machines_that_share_no_folders() {
     let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");
