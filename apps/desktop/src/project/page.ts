@@ -1,7 +1,6 @@
 // project/: the Projects page and one project's page (tasks, threads, runs,
 // file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
-import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, svgEl as icon } from "../ui/parts.ts";
 import { filterProjects, whereRows, forgeLinks, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -11,10 +10,9 @@ import { editorTools } from "./editors.ts";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor, pageAgent } from "./agent.ts";
 import { type ProjectsArg, state, pages, warm } from "../center/state.ts";
-import { projectDot, section, line } from "../ui/pieces.ts";
 import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
-import { setProjectOnTop, openProjectWindow, newWindowOn, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
+import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { importButton, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile } from "./split.ts";
@@ -23,7 +21,7 @@ import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
-import { lazyRows, resetRows } from "../ui/lazyrows.ts";
+import { resetRows } from "../ui/lazyrows.ts";
 
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();
@@ -136,35 +134,3 @@ registerView("projects", {
   },
   unmount: () => openTile(null, false),
 });
-
-/// A project's row on Home: its dot, `name` (its full name by default),
-/// the machines it is on and how many agents run there.
-export function homeProjectRow(p: Project, i: number, name = p.name) {
-  const row = line(
-    projectDot(i),
-    name,
-    [p.machines.map(m => m.name).join(", "), p.agents ? plural(p.agents, "agent", "agents") : ""].filter(Boolean).join(" · "),
-    [p.last ? ago(p.last) : ""],
-    () => openProjects(p.name));
-  newWindowOn(row, row, p.name);
-  return row;
-}
-
-/// Home's Projects: a panel per owner, as many across as fit, so one owner
-/// keeps one column's width.
-export function projectsSection(rows: Project[]) {
-  const owners = new Map<string, { p: Project; i: number }[]>();
-  rows.forEach((p, i) => {
-    const cut = p.name.lastIndexOf("/");
-    const owner = cut > 0 ? p.name.slice(0, cut) : "";
-    const list = owners.get(owner);
-    if (list) list.push({ p, i }); else owners.set(owner, [{ p, i }]);
-  });
-  const all = [...owners];
-  // A few panels at a time; the rest draw as the page scrolls toward them.
-  const panels = lazyRows("home:projects", "", all.length, (from, to) => all.slice(from, to).map(([owner, list]) =>
-    section("", owner || "Other", list.length, null, h("div", "cc-panel", ...list.map(({ p, i }) => homeProjectRow(p, i, p.name.slice(p.name.lastIndexOf("/") + 1)))))), 0, 2);
-  const el = h("div", "cc-hgrid", ...panels);
-  el.id = "sec-projects-home";
-  return el;
-}
