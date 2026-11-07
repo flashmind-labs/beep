@@ -153,3 +153,23 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .am-phone-qr svg { display: block; width: 100%; height: 100% }
 .am-phone-manual { margin: 10px 0; font-size: 12px }
 .am-phone-manual summary { cursor: pointer; margin-bottom: 8px }
+
+/* Active conversations, held open by Option. */
+.am-scrim.conversation-scrim { align-content: center; padding: 24px; }
+.conversation-switcher { box-sizing: border-box; width: 480px; max-width: 100%; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; padding: 12px; border-radius: 12px; }
+.conversation-switcher header { display: flex; justify-content: space-between; gap: 16px; padding: 4px 8px 12px; font-size: 12px; }
+.conversation-switcher small, .conversation-switcher footer { color: var(--muted); font-size: 12px; line-height: 16px; }
+.conversation-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; min-height: 0; overflow-y: auto; outline: none; }
+.conversation-choice { flex: none; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 2px solid transparent; border-radius: 8px; color: var(--fg); background: transparent; text-align: left; cursor: pointer; }
+.conversation-choice[aria-selected="true"] { border-color: var(--accent); background: var(--deep); }
+.conversation-choice:hover { background: var(--deep); }
+.conversation-choice:active { transform: scale(.98); }
+.conversation-label { display: grid; min-width: 0; }
+.conversation-label b { font-size: 14px; line-height: 20px; font-weight: 500; }
+.conversation-label b, .conversation-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-state { display: grid; color: var(--muted); font-size: 12px; line-height: 16px; text-align: right; }
+.conversation-mark { position: relative; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--deep); border: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+.conversation-dot { position: absolute; right: -4px; bottom: -4px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--surface); background: var(--muted); }
+.conversation-dot.working, .conversation-dot.running { background: var(--accent); }
+.conversation-dot.asking { background: var(--hot); }
+.conversation-switcher footer { display: grid; gap: 4px; padding: 12px 8px 4px; }

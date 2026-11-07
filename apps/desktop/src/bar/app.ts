@@ -1,3 +1,5 @@
+import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
+import { openAgent } from "../agents/session.ts";
 import "../ui/contextmenu.ts";
 // bar/: the bar's page, its views, keys, hints and live voice, and the pane
 // the command center embeds it as. Entry: this file (dist/app.js).
@@ -8,6 +10,7 @@ import { followSkin } from "../ui/skin.ts";
 import { guardClicks } from "../ui/clickguard.ts";
 followSkin();
 guardClicks();
+initConversationSwitcher({ open: session => openAgent(session) });
 import "./events.ts";
 import { show } from "./views.ts";
 
