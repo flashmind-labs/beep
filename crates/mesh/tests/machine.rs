@@ -83,6 +83,58 @@ mod listing {
     };
 
     #[test]
+    fn project_history_keeps_older_agents_from_other_machines() {
+        use beep_mesh::machine::listing::{MAX_PROJECT_SESSIONS, project_history};
+        use std::time::{Duration, UNIX_EPOCH};
+
+        let host = Host {
+            id: "machine-a".into(),
+            name: "build-box".into(),
+        };
+        let mut codex: Vec<_> = (0..MAX_PROJECT_SESSIONS)
+            .map(|index| {
+                past_session(
+                    &host,
+                    ExternalSession {
+                        id: format!("codex-{index}"),
+                        agent: "codex".into(),
+                        last_activity: 100 + u64::try_from(index).unwrap(),
+                        presence: Presence::Stopped,
+                        ..ExternalSession::default()
+                    },
+                )
+            })
+            .collect();
+        let other = Host {
+            id: "machine-b".into(),
+            name: "gpu-box".into(),
+        };
+        let claude = past_session(
+            &other,
+            ExternalSession {
+                id: "claude-history".into(),
+                agent: "claude".into(),
+                last_activity: 1,
+                presence: Presence::Stopped,
+                ..ExternalSession::default()
+            },
+        );
+        codex.insert(0, claude);
+        let history = project_history(codex);
+        assert_eq!(history.len(), MAX_PROJECT_SESSIONS + 1);
+        assert!(
+            history
+                .windows(2)
+                .all(|pair| pair[0].last_activity >= pair[1].last_activity)
+        );
+        let oldest = history.last().unwrap();
+        assert_eq!(oldest.agent, "claude");
+        assert_eq!(oldest.machine_id, other.id);
+        assert_eq!(oldest.status, AgentStatus::Ended {});
+        assert_eq!(oldest.last_activity, UNIX_EPOCH + Duration::from_secs(1));
+    }
+
+    #[test]
     fn only_an_app_that_reads_thoughts_gets_them() {
         let entries = vec![
             agent::Entry::new(agent::EntryKind::User, "go".into()),

@@ -34,7 +34,7 @@ use beep_proto::{
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
-use std::{cmp::Reverse, collections::HashSet, time::Duration};
+use std::{collections::HashSet, time::Duration};
 use tokio::time::timeout;
 
 /// Machines asked at once.
@@ -234,16 +234,13 @@ pub(crate) async fn project_sessions(fleet: &Fleet, places: &[Place]) -> Vec<Mac
             }
         })
         .collect();
-    let mut sessions: Vec<MachineSession> = stream::iter(asks)
+    let sessions = stream::iter(asks)
         .buffer_unordered(IN_FLIGHT)
         .collect::<Vec<_>>()
         .await
         .into_iter()
-        .flatten()
-        .collect();
-    sessions.sort_by_key(|session| Reverse(session.last_activity));
-    sessions.truncate(listing::MAX_PROJECT_SESSIONS);
-    sessions
+        .flatten();
+    listing::project_history(sessions)
 }
 
 /// One folder of a machine for the folder browser: `path`, else its home.
