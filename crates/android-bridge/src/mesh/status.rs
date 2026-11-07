@@ -54,11 +54,10 @@ impl Connected {
     }
 
     async fn machine(&self, device: DeviceStatus) -> Machine {
-        let env = if device.online {
+        let report = if device.online {
             self.snapshot(&device.device.id.to_string(), false)
                 .await
                 .env
-                .map(machine_env)
         } else {
             None
         };
@@ -73,8 +72,11 @@ impl Connected {
                     .last_seen
                     .unwrap_or(UNIX_EPOCH + Duration::from_millis(device.device.added_at_ms))
             },
-            version: String::new(),
-            env,
+            version: report
+                .as_ref()
+                .map(|report| report.version.clone())
+                .unwrap_or_default(),
+            env: report.map(machine_env),
         }
     }
 

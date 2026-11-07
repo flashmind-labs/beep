@@ -10,3 +10,6 @@
 
 # JLatexMath looks up its macros and alphabets by class name.
 -keep class org.scilab.forge.jlatexmath.** { *; }
+
+# The Termux library's native code finds its JNI class by name.
+-keep class com.termux.terminal.JNI { *; }

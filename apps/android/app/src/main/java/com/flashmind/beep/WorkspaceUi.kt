@@ -35,6 +35,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
+/** True inside a bottom tab, whose first screen has no back button. */
+internal val LocalTabRoot = compositionLocalOf { false }
+
 internal class WorkspaceLoad<T> {
     var value by mutableStateOf<T?>(null)
     var error by mutableStateOf<String?>(null)
@@ -73,13 +76,14 @@ internal suspend fun workspaceAction(onError: (String?) -> Unit, block: suspend 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun WorkspacePage(title: String, onBack: () -> Unit, refresh: (() -> Unit)? = null,
-    tabs: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {},
+    tabs: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {}, root: Boolean = false,
     content: @Composable ColumnScope.() -> Unit) {
-    BackHandler(onBack = onBack)
+    // A bottom tab's first screen has nothing to go back to.
+    BackHandler(enabled = !root, onBack = onBack)
     Scaffold(containerColor = Beep.colors.page, topBar = {
         Column {
             TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(title, style = displayStyle(18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+                navigationIcon = { if (!root) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
                 actions = {
                     actions()
                     if (refresh != null) IconButton(onClick = refresh) { Icon(Icons.Outlined.Refresh, "Refresh", Modifier.size(20.dp)) }

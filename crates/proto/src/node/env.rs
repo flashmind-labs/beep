@@ -37,6 +37,9 @@ pub struct EnvReport {
     /// install.
     #[serde(default)]
     pub adapters: Vec<AdapterInstall>,
+    /// The beep-node version, such as "0.1.0".
+    #[serde(default)]
+    pub version: String,
 }
 
 /// An agent found on the machine whose ACP adapter the node installs.
