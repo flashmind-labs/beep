@@ -2,7 +2,7 @@ import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { attach, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
-import { P, closeTab, type MediaTab } from "../src/agentpane/media.ts";
+import { P, closeTab, closePaneTabs, type MediaTab } from "../src/agentpane/media.ts";
 import { makeTerminals, ALL, type Screen, type TermEvent, type TerminalRow } from "../src/terminals/terminals.ts";
 
 const ROW: TerminalRow = {
@@ -195,4 +195,78 @@ test("a terminal whose stop fails keeps its tab and is followed again", async t 
   assert.equal(term.link, "attaching");
   assert.equal(count("terminal_attach"), 2);
   P.tabs.length = 0;
+});
+
+
+test("leaving a session stops its terminals and drops their screens", async t => {
+  noPane(t);
+  calls.length = 0;
+  let disposed = 0;
+  const screen = fakeScreen();
+  screen.dispose = () => { disposed++; };
+  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
+  const stream = nextAttach();
+  attach(term);
+  stream.send({ kind: "attached" });
+  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, done: 0, error: "", el: null, term });
+  closePaneTabs();
+  await settle();
+  assert.equal(P.tabs.length, 0);
+  assert.equal(disposed, 1);
+  assert.deepEqual(calls.filter(c => c.cmd === "terminal_close").map(c => c.args), [{ id: "t1" }]);
+  stream.end();
+  await settle();
+  assert.equal(count("terminal_attach"), 1);
+});
+
+test("leaving marks starting terminals closed and stops unopened existing terminals", async t => {
+  noPane(t);
+  calls.length = 0;
+  const starting: MediaTab = { id: "term:new", kind: "term", name: "new", path: null, url: null, size: 0, done: 0, error: "", el: null };
+  P.tabs.push(starting, { ...starting, id: "term:existing", existing: ROW });
+  closePaneTabs();
+  await settle();
+  assert.equal(starting.closed, true);
+  assert.equal(P.tabs.length, 0);
+  assert.deepEqual(calls.filter(c => c.cmd === "terminal_close").map(c => c.args), [{ id: "t1" }]);
+});
+
+test("leaving during a tab close does not send a second stop", async t => {
+  noPane(t);
+  calls.length = 0;
+  let stopped!: () => void;
+  answers.terminal_close = new Promise<void>(resolve => { stopped = resolve; });
+  const term = paneTerm(ROW, fakeScreen(), { onEnd() {}, onLink() {}, onEscape() {} });
+  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, done: 0, error: "", el: null, term });
+  closeTab("term:shell");
+  closePaneTabs();
+  stopped();
+  await settle();
+  delete answers.terminal_close;
+  assert.equal(count("terminal_close"), 1);
+  assert.equal(P.tabs.length, 0);
+});
+
+test("a stop refused after leaving cannot reconnect the disposed terminal", async t => {
+  noPane(t);
+  calls.length = 0;
+  let refuse!: (e: Error) => void;
+  answers.terminal_close = new Promise<void>((_, reject) => { refuse = reject; });
+  const screen = fakeScreen();
+  let disposed = 0;
+  screen.dispose = () => { disposed++; };
+  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
+  const stream = nextAttach();
+  attach(term);
+  stream.send({ kind: "attached" });
+  P.tabs.push({ id: "term:shell", kind: "term", name: "shell", path: null, url: null, size: 0, done: 0, error: "", el: null, term });
+  closeTab("term:shell");
+  closePaneTabs();
+  refuse(new Error("the node stopped answering"));
+  await settle();
+  delete answers.terminal_close;
+  assert.equal(term.link, "detached");
+  assert.equal(count("terminal_attach"), 1);
+  assert.equal(disposed, 1);
+  assert.equal(P.tabs.length, 0);
 });

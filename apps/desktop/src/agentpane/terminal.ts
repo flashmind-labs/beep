@@ -26,6 +26,7 @@ export interface PaneTerm {
   view: string;
   /// Counts attaches, so a stream that an attach replaced is ignored.
   attaches: number;
+  disposed?: boolean;
   /// The size the node last got from this tab.
   sent: TermSize | null;
   /// Its shell exited, or its machine no longer has it.
@@ -151,6 +152,8 @@ export function detachTerm(t: PaneTerm) {
 
 /// Detaches `t` and lets go of its screen.
 export function dropTerm(t: PaneTerm) {
+  if (t.disposed) return;
+  t.disposed = true;
   detachTerm(t);
   t.screen.dispose();
 }
@@ -164,10 +167,12 @@ export async function killTerm(t: PaneTerm) {
   try {
     await invoke("terminal_close", { id: t.row.id });
   } catch (e) {
-    if (was === "attached" || was === "attaching") { t.tries = 0; attach(t); } else t.link = was;
+    if (!t.disposed) {
+      if (was === "attached" || was === "attaching") { t.tries = 0; attach(t); } else t.link = was;
+    }
     throw e;
   }
-  t.screen.dispose();
+  dropTerm(t);
 }
 
 /// Forgets an ended terminal on the server, as Home does.
