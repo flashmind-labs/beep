@@ -3,6 +3,7 @@
 import { markDelivered, stopPending } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
+import { failBanner } from "../ui/failbanner.ts";
 import { hints } from "../bar/hints.ts";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { openViewer } from "../chat/media.ts";
@@ -389,13 +390,20 @@ onClosing(() => { if (S.view === "agent") drawSessionClose(); });
 export async function closeOpenSession() {
   const s = AG.page?.session, o = AG.open;
   if (AG.draft || !s || !o || shownStatus(s) === "closing" || !sessionOffers({ ...s, status: shownStatus(s) }).close) return;
+  const closing = closeSession(s);
+  // Leave before the machine acknowledges the close.
+  agentBack(true);
   try {
-    await closeSession(s);
-    if (isOpen(o)) agentBack();
+    await closing;
   } catch (e) {
-    if (!isOpen(o)) return;
-    AG.note = readError(e);
-    drawAgentBody();
+    if (isOpen(o) && agentOnScreen()) {
+      AG.note = readError(e);
+      drawAgentBody();
+    } else {
+      const banner = failBanner(`Could not close session: ${readError(e)}`, () => banner.remove());
+      Object.assign(banner.style, { position: "fixed", inset: "auto 16px 16px", zIndex: "1000", background: "var(--ink)" });
+      document.body.append(banner);
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
+import { sessionVisible } from "../agents/closing.ts";
 import { ago, plural, since } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, headedTable, freshNote, svgEl as icon } from "../ui/parts.ts";
 import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
@@ -201,7 +202,7 @@ export function projectDetail(p: Project) {
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
   if (p.imported && (!state.gitsync.has(p.name) || gitDue.has(p.name))) loadGit(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
-  const running = projectRunning(p, state.home?.running, state.sessions.get(p.name));
+  const running = projectRunning(p, state.home?.running, state.sessions.get(p.name)).filter(sessionVisible);
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
   // The project agent's view is on its way, or who has an agent is not known yet.
   if (awaitsView(p, state.agents)) {
