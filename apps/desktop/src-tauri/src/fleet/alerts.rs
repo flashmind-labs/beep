@@ -228,11 +228,17 @@ impl Heard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::DesktopError;
     use beep_mesh::transport_config;
     use beep_node::{agents::AgentKind, link::Offers, machine::provision::Provision};
+    use beep_proto::{
+        ApiError,
+        node::agent::{Request, protocol},
+    };
     use iroh::{Endpoint, SecretKey, endpoint::presets};
     use std::collections::BTreeMap;
     use tempfile::TempDir;
+    use tokio::time::timeout;
 
     const LIMIT: Duration = Duration::from_secs(60);
 
