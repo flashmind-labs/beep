@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
+import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, runningSteps, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -194,4 +194,14 @@ test("a response stays outside the fold when more tools arrive", () => {
   const after = turnSections(log, splitTurns(log)[0]);
   assert.deepEqual(after.slice(0, 2), before);
   assert.deepEqual(after[2], { tools: true, ats: [3] });
+});
+
+test("only running tool calls stay visible between thoughts", () => {
+  const log = [u("go"), { kind: "thought", text: "one" }, t("ls [completed]"),
+    { kind: "thought", text: "two" }, t("Read file [completed]"), t("cargo test [in_progress]")];
+  const turn = splitTurns(log)[0];
+  assert.deepEqual(turnSections(log, turn).map(section => section.ats), [[1], [2], [3], [4, 5]]);
+  assert.deepEqual(runningSteps(log, turn), [5]);
+  log[5] = t("cargo test [completed]");
+  assert.deepEqual(runningSteps(log, splitTurns(log)[0]), []);
 });
