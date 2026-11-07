@@ -76,9 +76,10 @@ class TerminalEmulatorModel(private val context: Context) {
     }
 
     /** Starts sending input and size changes and opens the keyboard. A grid different from the attach size is sent now. */
-    fun connect(attachedAt: Pair<Int, Int>, input: (ByteArray) -> Unit, resize: (Int, Int) -> Unit) {
+    fun connect(attachedAt: Pair<Int, Int>, input: (ByteArray) -> Unit, resize: (Int, Int) -> Unit, controlling: Boolean = true) {
         onInput = input
         onResize = resize
+        if (!controlling) return
         lockInput(false)
         if (cols > 0 && (cols to rows) != attachedAt) resize(cols, rows)
     }
