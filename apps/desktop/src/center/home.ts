@@ -31,9 +31,7 @@ import { onPlaces, runningLineAt } from "../agents/place.ts";
 import { moveLabel, onMoves } from "../agents/move-store.ts";
 import { closingNote, onClosing } from "../agents/closing.ts";
 
-export function runningRow(r: RunningRow) {
-  const projects = state.home?.projects || [];
-  const { title, sub } = r.kind === "agent" ? runningLineAt(r, projects) : runningLine(r, projects);
+export function runningStatus(r: RunningRow) {
   const moving = r.kind === "agent" ? moveLabel(r) : null;
   const closing = r.kind === "agent" ? closingNote(r) : null;
   const working = r.kind === "agent" && ["working", "running", "starting"].includes(r.status);
@@ -43,7 +41,14 @@ export function runningRow(r: RunningRow) {
     spin.setAttribute("aria-label", r.status === "starting" ? "Starting" : "Working");
   }
   const when = spin ? h("span", "cc-running", spin, runningWhen(r)) : runningWhen(r);
-  const right = [moving ? tag(moving.chip === "Moving" ? "run" : "bad", moving.chip) : closing || (r.status === "asking" ? tag("wait", "needs you") : when)];
+  return moving ? tag(moving.chip === "Moving" ? "run" : "bad", moving.chip) : closing || (r.status === "asking" ? tag("wait", "needs you") : when);
+}
+
+export function runningRow(r: RunningRow) {
+  const projects = state.home?.projects || [];
+  const { title, sub } = r.kind === "agent" ? runningLineAt(r, projects) : runningLine(r, projects);
+  const moving = r.kind === "agent" ? moveLabel(r) : null;
+  const right = [runningStatus(r)];
   const row = r.kind === "research"
     ? line(null, title, sub, right, () => openResearch(r.session))
     // The pane's agent view follows and answers it.

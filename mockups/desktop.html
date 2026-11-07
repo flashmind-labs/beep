@@ -9894,6 +9894,8 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(["dWinResearch",
 .mac .pj-tag.lab.on { color: var(--d-fg); border-color: var(--d-emerald) }
 .mac .cc-open > .pj-labels { padding: 8px 12px 4px }
 .mac .pj-li .r { font-size: 11.5px; color: var(--d-muted); white-space: nowrap }
+.mac .cc-running { display: inline-flex; align-items: center; gap: 8px }
+.mac .cc-running .dspin { width: 10px; height: 10px; flex: none }
 .mac .pj-det { overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; scrollbar-width: thin }
 .mac .pj-det > * { flex: none }
 .mac .pj-dh { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--d-border) }
@@ -10166,8 +10168,8 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(["dWinResearch",
     { title: "", items: [{ id: "overview", t: "Overview", sub: "2 running · 2 PRs · 2 issues" }] },
     { title: "Needs you", items: [{ id: "card", t: "The project agent waits on you", sub: "1 card" }] },
     { title: "Running", items: [
-      { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: "1 min" },
-      { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "4 min" }] },
+      { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: '<span class="cc-running"><span class="dspin" role="img" aria-label="Working"></span>now</span>' },
+      { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "idle" }] },
     { title: "Project", items: [
       { id: "actions", t: "Actions", sub: "1 failed" },
       { id: "machines", t: "Machines", sub: "2/3 · 1 terminal" },
