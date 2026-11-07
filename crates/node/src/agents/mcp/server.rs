@@ -448,6 +448,7 @@ mod tests {
             names,
             [
                 "list_machines",
+                "harness_info",
                 "remote_run",
                 "sync_project",
                 "send_files",
@@ -472,6 +473,7 @@ mod tests {
         };
         // Codex asks unless a tool reads only, or is neither destructive nor open world.
         assert_eq!(hints("list_machines")["readOnlyHint"], true);
+        assert_eq!(hints("harness_info")["readOnlyHint"], true);
         assert_eq!(hints("remote_run")["destructiveHint"], false);
         assert_eq!(hints("remote_run")["openWorldHint"], false);
         assert_eq!(text(&out[2]), "- build-box: online");

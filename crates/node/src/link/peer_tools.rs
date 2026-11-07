@@ -4,7 +4,10 @@
 //! check, since the mesh's members are the user's own machines.
 
 use crate::{
-    agents::{Agents, mcp::children},
+    agents::{
+        Agents,
+        mcp::{children, harness},
+    },
     files::transfer::{Incoming, Transfers},
     link::Offers,
     run::tasks::{self, Table},
@@ -75,6 +78,15 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, caller: Caller) -> Res
 type Outcome = Result<String, String>;
 
 pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
+    if request.tool == Tool::HarnessInfo {
+        return match &caller.agents {
+            Some(agents) => harness::answer(agents, &request).await,
+            None => Reply::Done {
+                text: "This machine has no coding harnesses available.".to_owned(),
+                failed: true,
+            },
+        };
+    }
     if matches!(
         request.tool,
         Tool::StartAgent
