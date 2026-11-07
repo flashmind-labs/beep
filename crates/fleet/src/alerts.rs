@@ -148,7 +148,7 @@ pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHand
     let mut updates = mesh.updates();
     loop {
         updates.borrow_and_update();
-        let machines = mesh.devices().into_iter().map(|d| d.device.id).collect();
+        let machines = mesh.machines().into_iter().map(|d| d.device.id).collect();
         running.keep(&machines, &mut start);
         if updates.changed().await.is_err() {
             return;
@@ -166,7 +166,7 @@ async fn machine(peers: Arc<dyn Peers>, mesh: Mesh, id: EndpointId, out: mpsc::S
 
 /// What the mesh calls `machine`, or its short id.
 fn name_of(mesh: &Mesh, machine: EndpointId) -> String {
-    mesh.devices()
+    mesh.machines()
         .into_iter()
         .find(|status| status.device.id == machine)
         .map_or_else(
@@ -434,6 +434,15 @@ mod tests {
     }
 
     async fn dev(from: Option<&Dev>, kind: DeviceKind, name: &str) -> Dev {
+        join(from, Some(kind), name).await
+    }
+
+    /// A phone: joins with an observer ticket, so it is a member but not a code host.
+    async fn phone(from: &Dev, name: &str) -> Dev {
+        join(Some(from), None, name).await
+    }
+
+    async fn join(from: Option<&Dev>, kind: Option<DeviceKind>, name: &str) -> Dev {
         let key = SecretKey::generate();
         let dir = TempDir::new().expect("a temp dir");
         let endpoint = Endpoint::builder(presets::Minimal)
@@ -447,11 +456,12 @@ mod tests {
                 .await
                 .expect("the mesh is created"),
             Some(from) => {
-                let ticket = from
-                    .mesh
-                    .invite(kind, Duration::from_secs(3600))
-                    .await
-                    .expect("a ticket");
+                let ttl = Duration::from_secs(3600);
+                let ticket = match kind {
+                    Some(kind) => from.mesh.invite(kind, ttl).await,
+                    None => from.mesh.invite_observer(ttl).await,
+                }
+                .expect("a ticket");
                 Mesh::join(dir.path(), endpoint.clone(), &ticket, name)
                     .await
                     .expect("the device joins")
@@ -623,5 +633,42 @@ mod tests {
         timeout(LIMIT, closed.notified())
             .await
             .expect("the stream to the removed machine ends");
+    }
+
+    #[tokio::test]
+    async fn a_paired_phone_gets_no_stream() {
+        let (desktop, node) = two().await;
+        let phone = phone(&desktop, "pocket").await;
+        let phone_asked = Arc::new(Notify::new());
+        let asked = phone_asked.clone();
+        let (peer, _) = phone.mesh.protocols();
+        peer.on_stream(Arc::new(move |_stream: PeerStream| {
+            let asked = asked.clone();
+            Box::pin(async move { asked.notify_one() })
+        }));
+        node_of(&node, asking(), Arc::new(Notify::new()));
+        let (following, mut heard) =
+            follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
+        let _following = tokio::spawn(following);
+        // The node's notice proves the pass over the members ran.
+        timeout(LIMIT, async {
+            while !matches!(heard.recv().await, Some(Heard::Notice { .. })) {}
+        })
+        .await
+        .expect("the node is followed");
+        assert!(
+            desktop
+                .mesh
+                .devices()
+                .iter()
+                .any(|d| d.device.id == phone.id),
+            "the phone is a member"
+        );
+        assert!(
+            timeout(Duration::from_secs(2), phone_asked.notified())
+                .await
+                .is_err(),
+            "no stream is opened to the phone"
+        );
     }
 }
