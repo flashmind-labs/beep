@@ -141,6 +141,14 @@ export async function renderMachines(id: string | null = null) {
   await readList();
   // Looking the newest releases up can take a while; the page shows first.
   void loadNodeRelease();
+  void loadToolUpdates();
+}
+
+let toolUpdatesLoading = false;
+let toolUpdatesAgain = false;
+async function loadToolUpdates() {
+  if (toolUpdatesLoading) { toolUpdatesAgain = true; return; }
+  toolUpdatesLoading = true;
   try {
     const tools = await invoke<ToolUpdate[]>("tool_updates");
     // The page only changes when a newer release shows up.
@@ -149,6 +157,12 @@ export async function renderMachines(id: string | null = null) {
     if (shown() && !same) drawMachines();
   } catch (e) {
     console.warn("tool updates:", e);
+  } finally {
+    toolUpdatesLoading = false;
+    if (toolUpdatesAgain) {
+      toolUpdatesAgain = false;
+      if (shown()) void loadToolUpdates();
+    }
   }
 }
 
@@ -174,7 +188,8 @@ async function readList() {
 }
 
 // Opened before the machines connected: the page follows them as they come.
-for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) void readList(); });
+for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) { void readList(); void loadToolUpdates(); } });
+setInterval(() => { if (shown()) void loadToolUpdates(); }, 60 * 60 * 1000);
 
 async function loadNodeRelease() {
   const released = await invoke<string | null>("node_release").catch(e => { console.warn("beep-node release:", e); return null; });

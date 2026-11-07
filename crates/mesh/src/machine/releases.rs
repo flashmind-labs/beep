@@ -16,7 +16,7 @@ use tokio::{sync::Mutex as AsyncMutex, time::timeout};
 const AGENT: &str = "beep";
 
 /// How long a found release is trusted before it is looked up again.
-const FRESH: Duration = Duration::from_secs(6 * 60 * 60);
+const FRESH: Duration = Duration::from_secs(55 * 60);
 /// The same for beep-node, whose releases the Machines page offers.
 const NODE_FRESH: Duration = Duration::from_secs(60 * 60);
 /// Where beep-node's `latest.txt` is published.
