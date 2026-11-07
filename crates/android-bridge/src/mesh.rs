@@ -10,6 +10,7 @@ use tokio::sync::OnceCell;
 
 mod agents;
 mod alerts;
+mod home;
 mod projects;
 mod status;
 mod terminals;
