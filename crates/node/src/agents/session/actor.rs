@@ -334,6 +334,14 @@ impl Actor {
         processes.close().await;
         child.stop(STOP_GRACE).await;
         drop(held);
+        if closed && by_user {
+            let info = self.live.borrow().info.clone();
+            let removed =
+                spawn_blocking(move || crate::agents::uploads::remove(&info.agent, &info.id)).await;
+            if let Err(e) = removed.unwrap_or_else(|e| Err(e.into())) {
+                log::warn!("could not remove closed session attachments: {e:#}");
+            }
+        }
         if !asked {
             self.alert(AlertKind::Failed {
                 reason: reason.clone(),
@@ -480,6 +488,7 @@ impl Actor {
                     };
                     if let Command::Close { by_user } = command {
                         self.by_user = by_user;
+                        self.live.send_modify(|live| live.closing = by_user);
                         let _ = done.send(Ok(()));
                         return Ok(End::Closed);
                     }

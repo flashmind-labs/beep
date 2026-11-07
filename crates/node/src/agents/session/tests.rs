@@ -1964,3 +1964,32 @@ async fn an_idle_injection_is_sent_once_as_a_prompt_in_either_reply_order() {
         assert_eq!(session.info().state.queued, 0);
     }
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_explicit_close_refuses_late_uploads_before_the_agent_stops() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", PLAIN_ADAPTER, &log);
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    settle(&session).await;
+    session
+        .order(Command::Close { by_user: true })
+        .await
+        .unwrap();
+    let info = session.info();
+    // The close must win even before validating the upload's name or touching disk.
+    let error = crate::agents::uploads::write(
+        &info.agent,
+        &info.id,
+        "../late.mp4",
+        0,
+        1,
+        b"x",
+        Some(&session),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("session is closed"), "{error:#}");
+    until(&session, |live| live.status() == Status::Ended).await;
+}
