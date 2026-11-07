@@ -110,7 +110,7 @@ data class BeepFonts(
 @Immutable
 data class BeepTokens(val colors: BeepColors, val shapes: BeepShapes, val fonts: BeepFonts) {
     companion object {
-        fun of(skin: Skin) = BeepTokens(skin.colors, BeepShapes(skin.radius, skin.radius * 0.75f), BeepFonts(Inter, FontWeight.SemiBold, 0.em, Inter))
+        fun of(skin: Skin) = BeepTokens(skin.colors, BeepShapes(skin.radius, skin.smallRadius), BeepFonts(Inter, FontWeight.SemiBold, 0.em, Inter))
     }
 }
 
@@ -133,7 +133,7 @@ internal fun skinColors(page: Long, surface: Long, raised: Long, ink: Long, mute
 
 /** One of the desktop's skins. */
 @Immutable
-data class Skin(val id: String, val name: String, val light: Boolean, val colors: BeepColors, val radius: Dp)
+data class Skin(val id: String, val name: String, val light: Boolean, val colors: BeepColors, val radius: Dp, val smallRadius: Dp)
 
 object Skins {
     const val SYSTEM = "system"
@@ -141,9 +141,12 @@ object Skins {
 
     /** The picked skin; "system", and any old or unknown value, is Linear in dark mode and Light in light mode. */
     fun resolve(choice: String?, dark: Boolean): Skin {
-        val id = if (choice == null || all.none { it.id == choice }) (if (dark) "linear" else "paper") else choice
+        val id = if (normalize(choice) == SYSTEM) (if (dark) "linear" else "paper") else choice
         return all.first { it.id == id }
     }
+
+    /** A skin id, or "system" for Match system and any old or unknown value. */
+    fun normalize(choice: String?) = if (all.any { it.id == choice }) choice!! else SYSTEM
 }
 
 val LocalBeep = staticCompositionLocalOf { BeepTokens.of(Skins.resolve(Skins.SYSTEM, true)) }
@@ -170,7 +173,7 @@ object Appearance {
     fun load(context: Context) {
         if (loaded) return
         loaded = true
-        choice.value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: Skins.SYSTEM
+        choice.value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null).let(Skins::normalize)
     }
 
     fun set(context: Context, value: String) {

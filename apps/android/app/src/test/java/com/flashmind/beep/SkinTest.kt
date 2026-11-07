@@ -22,4 +22,15 @@ class SkinTest {
                 "gruvbox", "rosepine", "geist", "mono", "paper", "solarized", "macos", "warm"),
             Skins.all.map { it.id })
     }
+
+    @Test fun unknown_values_normalize_to_system() {
+        assertEquals("system", Skins.normalize("mint_quiet"))
+        assertEquals("system", Skins.normalize(null))
+        assertEquals("tokyo", Skins.normalize("tokyo"))
+    }
+
+    @Test fun small_radius_is_set_or_three_quarters() {
+        assertEquals(8f, Skins.all.first { it.id == "classic" }.smallRadius.value)
+        assertEquals(6f, Skins.all.first { it.id == "linear" }.smallRadius.value)
+    }
 }
