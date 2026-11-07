@@ -169,13 +169,38 @@ fn a_replayed_image_becomes_an_image_line() {
     live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
         "content": {"type": "image", "mimeType": "image/png", "data": data}})));
     let (entries, _) = live.transcript(10);
-    assert_eq!(entries[0].text, format!("what is this\n{line}\n{line}"));
+    assert_eq!(entries[0].text, format!("what is this\n{line}\n{line}\n"));
     let mut found = Vec::new();
     assert_eq!(
         replayed("a [link](https://x.dev) stays", &mut found),
         "a [link](https://x.dev) stays"
     );
     assert!(found.is_empty());
+}
+
+#[test]
+fn replayed_image_chunks_stay_apart_from_the_text_around_them() {
+    let mut live = live();
+    let png = b"\x89PNG\r\n\x1a\nshot";
+    let data = STANDARD.encode(png);
+    for text in [
+        "Look at this".to_owned(),
+        format!("[@image](data:image/png;base64,{data})"),
+        "and this too".to_owned(),
+    ] {
+        live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
+            "content": {"type": "text", "text": text}})));
+    }
+    live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
+        "content": {"type": "image", "mimeType": "image/png", "data": data}})));
+    live.apply(&update(json!({"sessionUpdate": "user_message_chunk",
+        "content": {"type": "text", "text": "More detail"}})));
+    let line = format!("[image: image-{}]", image_key(png));
+    assert_eq!(
+        live.transcript(10).0[0].text,
+        format!("Look at this\n{line}\nand this too\n{line}\nMore detail")
+    );
+    assert_eq!(live.picture(&image_key(png)).unwrap().data, png);
 }
 
 #[test]

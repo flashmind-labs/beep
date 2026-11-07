@@ -46,8 +46,8 @@
     mvfiles: { base: "idle", cur: "laptop", busy: true, extra: moving([...CONV, ["run", "Project files 12 left"], ["todo", "Resuming on studio"]]) },
     mvwait: { base: "idle", cur: "laptop", busy: true, extra: moving([...CONV, ["run", "Waiting for laptop"], ["todo", "Project files 12 left"], ["todo", "Resuming on studio"]]) },
     mvresume: { base: "idle", cur: "laptop", busy: true, extra: moving([...CONV, ["done", "Project files"], ["run", "Resuming on studio"]]) },
-    mvdone: { base: "idle", cur: "studio", open: "mvdonemenu", line: "Moved from laptop" },
-    mvdonemenu: { base: "idle", cur: "studio", menu: "mvdone", line: "Moved from laptop" },
+    mvdone: { base: "idle", cur: "studio", open: "mvdonemenu", line: "Moved from laptop", image: true },
+    mvdonemenu: { base: "idle", cur: "studio", menu: "mvdone", line: "Moved from laptop", image: true },
     mvwtmenu: { base: "idle", cur: "laptop", menu: "idle", wt: true },
     mvwtfail: { base: "idle", cur: "laptop", extra: '<div class="mvs" role="status"><div class="h"><span class="t">Move failed: the uncommitted changes do not apply on studio. Still on laptop, nothing lost.</span><span class="sp"></span><button class="dbtn quiet small" data-toast="Dismissed">Dismiss</button></div></div>' },
     mvcopy: { base: "idle", cur: "laptop", off: true, extra: '<div class="mvs"><div class="h"><span class="t">Another machine continued this session later. This version is kept</span><span class="sp"></span><button class="dbtn quiet small" data-toast="Continues here from this version">Restore</button><button class="dbtn quiet small" data-toast="Copy discarded">Discard</button></div></div>' },
@@ -74,6 +74,10 @@
     let html;
     S.d.ags = c.base;
     try { html = orig(); } finally { S.d.ags = keep; }
+    if (c.image) {
+      const at = endOf(html, '<div class="dcoderen user');
+      if (at > 0) html = html.slice(0, at) + '<div class="pics"><i class="img" style="width:160px;height:96px"></i></div>' + html.slice(at);
+    }
     const open = c.open || (c.menu ? c.menu : "");
     const btn = c.off ? `<span class="ddot off"></span> laptop offline`
       : `<button class="mvb" ${c.busy ? "disabled" : `data-dact="dset:ags:${c.menu ? c.menu : open}"`} aria-haspopup="menu" aria-expanded="${!!c.menu}" title="${c.busy ? "Moving" : "Move this session to another machine"}">${c.cur}${c.busy ? "" : CHEV}</button>`;

@@ -206,8 +206,14 @@ impl Live {
         let line = picture.line();
         self.keep(picture);
         let joined = match self.transcript.back() {
-            Some(last) if self.in_message && last.kind == EntryKind::User => format!("\n{line}"),
-            _ => line,
+            Some(last)
+                if self.in_message
+                    && last.kind == EntryKind::User
+                    && !last.text.ends_with('\n') =>
+            {
+                format!("\n{line}\n")
+            }
+            _ => format!("{line}\n"),
         };
         self.user_chunk(&joined);
     }

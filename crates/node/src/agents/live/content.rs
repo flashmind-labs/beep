@@ -57,12 +57,14 @@ pub(super) fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
         match picture {
             Some(picture) => {
                 out.push_str(rest[..open].trim_end_matches(' '));
-                if !out.is_empty() && !out.ends_with('\n') {
+                // The adapter may replay a picture as a chunk of its own,
+                // between two text chunks of the same user message.
+                if !out.ends_with('\n') {
                     out.push('\n');
                 }
                 out.push_str(&picture.line());
                 found.push(picture);
-                if !rest[end..].is_empty() && !rest[end..].starts_with('\n') {
+                if !rest[end..].starts_with('\n') {
                     out.push('\n');
                 }
             }

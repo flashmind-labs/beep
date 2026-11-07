@@ -227,7 +227,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     let (entries, _) = session.live.borrow().transcript(10);
     assert_eq!(
         entries[0].text,
-        format!("what is this\n[image: image-{key}]")
+        format!("what is this\n[image: image-{key}]\n")
     );
     let served = agents.image(&session.id, &key).await.unwrap();
     assert_eq!(

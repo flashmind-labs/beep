@@ -5,7 +5,8 @@
 
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
-import { MV, moved, nameOf, refreshMoves, stateOf } from "./move-store.ts";
+import { MV, moved, nameOf, stateOf } from "./move-store.ts";
+import { loadSessions } from "./sessions.ts";
 import { $, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { esc } from "../ui/format.ts";
@@ -37,12 +38,14 @@ export function drawMove() {
   drawHead(s);
   drawBox(s);
   const r = here(s);
-  if (r && going(stateOf(s.id)) && !UI.timer) UI.timer = window.setTimeout(poll, POLL_MS);
+  const p = stateOf(s.id);
+  // The target can finish before its session appears in the next scan.
+  if (r?.from === s.machine_id && (going(p) || p?.phase === "done") && !UI.timer) UI.timer = window.setTimeout(poll, POLL_MS);
 }
 
 async function poll() {
   UI.timer = 0;
-  await refreshMoves();
+  try { await loadSessions(); } catch (e) { console.warn("sessions not read after a move", e); }
   drawMove();
 }
 
