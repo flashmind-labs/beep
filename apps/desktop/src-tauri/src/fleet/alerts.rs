@@ -464,6 +464,7 @@ cat > /dev/null
             args: vec!["-c".into(), ASKING.into(), "fake-adapter".into()],
             env: BTreeMap::new(),
             compact: None,
+            compact_models: Vec::new(),
         };
         let offers = Offers::local(&[agent], Provision::new(dir.path()));
         let fleet = Arc::new(Fleet::new(bind().await, dir.path(), "Studio", offers));

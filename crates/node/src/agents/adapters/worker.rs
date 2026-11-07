@@ -234,6 +234,7 @@ mod tests {
             args: Vec::new(),
             env: BTreeMap::new(),
             compact: None,
+            compact_models: Vec::new(),
         }
     }
 

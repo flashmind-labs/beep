@@ -13,7 +13,7 @@ use beep_proto::{
         EnvReport, EnvSecret, ForgejoLogin, LinkRx, LinkTx, Open, Opened, SyncthingFolder,
         ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
-        harness::{AutoCompact, HarnessConfig},
+        harness::{AutoCompact, HarnessConfig, ModelCompact},
         mesh_state::{Credential, SkillSync, StateValue, SyncSpec},
         shell::{self, Event, Request},
         status::Report,
@@ -966,6 +966,26 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
             .is_err(),
         "a percent over 100 is refused"
     );
+    let rules = vec![ModelCompact {
+        model: "model-small".into(),
+        compact: AutoCompact {
+            enabled: true,
+            percent: None,
+            tokens: Some(240_000),
+        },
+    }];
+    studio
+        .save_harness_model_compacts("codex", rules.clone())
+        .await
+        .expect("model overrides saved");
+    let mut duplicate = rules.clone();
+    duplicate.extend(rules.clone());
+    assert!(
+        studio
+            .save_harness_model_compacts("codex", duplicate)
+            .await
+            .is_err()
+    );
     let first = studio
         .save_instructions("- Write plainly.", None, "")
         .await
@@ -977,7 +997,7 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
         !m.scan("instructions/").is_empty()
             && m.get(&Key::Harness("codex".into()))
                 .and_then(|bytes| HarnessConfig::from_bytes(&bytes).ok())
-                .is_some_and(|config| config.compact.is_some())
+                .is_some_and(|config| config.compact.is_some() && !config.compact_models.is_empty())
             && m.get(&Key::Pin("acme/widget".into())).is_some()
     })
     .await;
@@ -1026,6 +1046,11 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     assert_eq!(config.env[0].value.expose(), "proxy-secret-1");
     // Saving the other settings keeps the compaction setting.
     assert_eq!(config.compact, Some(compact));
+    assert_eq!(config.compact_models, rules);
+    assert_eq!(
+        laptop.harness_model_compacts("codex").expect("model rules"),
+        rules
+    );
     assert_eq!(
         laptop.harness_compact("codex").expect("read"),
         Some(compact)

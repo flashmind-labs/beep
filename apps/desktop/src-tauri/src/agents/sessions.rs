@@ -467,6 +467,8 @@ pub struct ModelView {
     id: String,
     name: String,
     description: Option<String>,
+    context_window: Option<u64>,
+    max_context_window: Option<u64>,
 }
 
 impl From<AgentModels> for ModelsView {
@@ -485,6 +487,8 @@ impl From<AgentModel> for ModelView {
             id: model.id,
             name: model.name,
             description: model.description,
+            context_window: model.context_window,
+            max_context_window: model.max_context_window,
         }
     }
 }

@@ -118,11 +118,25 @@ pub struct ModelOption {
     /// What people call it; the id when the agent gives no name.
     pub name: String,
     pub description: Option<String>,
+    /// The harness's default usable context, when reported.
+    #[serde(default)]
+    pub context_window: Option<u64>,
+    /// The largest usable window the harness reports for this model.
+    #[serde(default)]
+    pub max_context_window: Option<u64>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_model_entries_default_context_limits() {
+        let old = rmp_serde::to_vec(&("model", "Model", Option::<String>::None)).unwrap();
+        let decoded: ModelOption = crate::lenient::from_slice(&old).unwrap();
+        assert_eq!(decoded.context_window, None);
+        assert_eq!(decoded.max_context_window, None);
+    }
 
     #[test]
     fn model_ids_are_short_and_plain() {

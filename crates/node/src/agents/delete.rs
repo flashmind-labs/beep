@@ -168,6 +168,7 @@ mod tests {
             args: vec!["-c".into(), "cat > /dev/null".into()],
             env: BTreeMap::new(),
             compact: None,
+            compact_models: Vec::new(),
         }
     }
 

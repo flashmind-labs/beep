@@ -138,6 +138,7 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
     }
     kind.args.extend(config.args.iter().cloned());
     kind.compact = config.compact;
+    kind.compact_models.clone_from(&config.compact_models);
     for var in &config.env {
         kind.env
             .insert(var.name.clone(), var.value.expose().to_owned());
@@ -422,6 +423,7 @@ async fn info(found: &Found, config: Option<HarnessConfig>, npm: &install::Npm) 
         args: Vec::new(),
         env: Default::default(),
         compact: None,
+        compact_models: Vec::new(),
     });
     let kind = match &config {
         Some(config) => configure(&base, config),
@@ -538,6 +540,7 @@ mod tests {
             args: vec!["--acp".into()],
             env: BTreeMap::from([("INITIAL_AGENT_MODE".into(), "agent-full-access".into())]),
             compact: None,
+            compact_models: Vec::new(),
         }
     }
 

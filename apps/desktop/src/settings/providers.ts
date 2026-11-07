@@ -8,6 +8,7 @@ import { checkedLabel, compactKind, compactOf, compactProblem, differsLabel, dif
 import type { Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
 import type { ViewName } from "../center/state.ts";
 import { copyButton, emptyPanel } from "../ui/parts.ts";
+import { modelContextPanel } from "./model-context.ts";
 import { flshPanel } from "./flsh.ts";
 import { failBanner } from "../ui/failbanner.ts";
 import { type AdapterInstall, adapterLine, adapterOf } from "../machines/adapters-state.ts";
@@ -60,6 +61,7 @@ export function registerProviders(deps: ProvidersDeps) {
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
   let inSettings = false;
+  const contexts = modelContextPanel({ invoke, h, button, redraw: () => draw() });
   const flsh = flshPanel({ invoke, h, button, redraw: () => draw() });
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
@@ -481,6 +483,7 @@ export function registerProviders(deps: ProvidersDeps) {
     box.append(h("div", "hv-acts hv-save", saveBtn, many ? allBtn : null, many ? include : null, discard, done, problem));
     // flsh's own settings are the same on every machine and save apart.
     if (hv.agent === "flsh") box.append(...flsh.render());
+    if (st.machine) box.append(...contexts.render(st.machine, hv.agent));
     return box;
   }
 

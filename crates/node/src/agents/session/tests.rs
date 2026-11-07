@@ -12,7 +12,7 @@ use crate::agents::{
 };
 use beep_proto::node::{
     agent::{Alert, AlertKind, OptionKind, StopReason, TaskState},
-    harness::AutoCompact,
+    harness::{AutoCompact, ModelCompact},
 };
 use beep_proto::{MAX_AGENT_IMAGES, Upload};
 use serde_json::Value;
@@ -89,6 +89,7 @@ fn script(name: &str, script: &str, log: &Path) -> AgentKind {
         ],
         env: Default::default(),
         compact: None,
+        compact_models: Vec::new(),
     }
 }
 
@@ -1059,6 +1060,53 @@ async fn a_full_window_is_compacted_before_the_next_prompt() {
         !entries.iter().any(|entry| entry.text == COMPACT_PROMPT),
         "the node's /compact is not shown as the user's"
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_default_model_uses_its_override_instead_of_the_harness_token_limit() {
+    let handshake = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"model-small"}],"currentModelId":"model-small"}}'
+"#;
+    let adapter = COMPACTING_ADAPTER.replacen("handshake \"$1\"", handshake, 1);
+    for enabled in [true, false] {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("sent.jsonl");
+        let mut kind = script("codex", &adapter, &log);
+        kind.compact = Some(AutoCompact {
+            enabled: true,
+            percent: None,
+            tokens: Some(90_000),
+        });
+        kind.compact_models = vec![ModelCompact {
+            model: "model-small".into(),
+            compact: AutoCompact {
+                enabled,
+                percent: None,
+                tokens: Some(80_000),
+            },
+        }];
+        let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
+        settle(&session).await;
+        session
+            .order(Command::Prompt(Prompt::from("next".to_owned())))
+            .await
+            .unwrap();
+        until(&session, |live| {
+            live.info.turns >= 2 || live.status() == Status::Ended
+        })
+        .await;
+        assert_eq!(session.info().turns, 2);
+        let expected = if enabled {
+            vec!["go", COMPACT_PROMPT, "next"]
+        } else {
+            vec!["go", "next"]
+        };
+        assert_eq!(prompts(&log), expected);
+    }
 }
 
 #[cfg(unix)]

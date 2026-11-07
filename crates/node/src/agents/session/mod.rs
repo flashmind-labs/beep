@@ -6,7 +6,7 @@ use super::{
     AgentKind,
     acp::Prompt,
     alerts::AlertHub,
-    compaction::{Compactor, Policy},
+    compaction::{Compactor, Policy, Route},
     images::Images,
     known,
     live::Live,
@@ -292,8 +292,16 @@ impl Session {
         // An agent with its own auto-compaction is set to the same
         // threshold unless the user set it.
         let route = route(&kind.name);
-        let agent_env = policy
-            .env(route, &kind.env)
+        // Model rules move the triggers to the node, including the fallback.
+        // Turn off Claude's configurable trigger, as for a harness token limit.
+        // Codex keeps its own default safety compaction.
+        let native_policy = match (kind.compact_models.is_empty(), route) {
+            (true, _) => Some(policy),
+            (false, Route::Percent { .. }) => Some(Policy::Off),
+            _ => None,
+        };
+        let agent_env = native_policy
+            .and_then(|policy| policy.env(route, &kind.env))
             .map(|var| (var.name, var.value));
         let mut process = command(&kind.program);
         // The credentials this agent may have, such as Claude Code's token.
@@ -366,7 +374,7 @@ impl Session {
             first_mode: mode,
             left_plan_for: None,
             returning: None,
-            compactor: Compactor::new(route, policy),
+            compactor: Compactor::new(route, policy).with_models(kind.compact_models.clone()),
             asked: VecDeque::new(),
             next_question: 1,
             stderr: VecDeque::new(),

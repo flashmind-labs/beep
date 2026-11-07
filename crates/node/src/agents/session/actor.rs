@@ -7,7 +7,7 @@ use super::{
 use crate::agents::{
     acp::{self, AsyncTask, Line, LineReader, ModelSwitch, Offered, Prompt},
     alerts::AlertHub,
-    compaction::Compactor,
+    compaction::{Compactor, TurnEnd},
     images::Picture,
     known,
     live::{Live, TurnTokens, cut},
@@ -72,6 +72,7 @@ pub(super) enum Reply {
     /// level, `what` saying which, as the transcript notes it.
     Reconfigured {
         what: String,
+        model: Option<ModelId>,
         result: Result<(), agent_client_protocol::Error>,
     },
     /// The answer to setting how hard the new session thinks.
@@ -522,6 +523,14 @@ impl Actor {
                 {
                     self.show_steer();
                 }
+                if let SessionUpdate::ConfigOptionUpdate(options) = &update {
+                    let offered = acp::offered_models(
+                        &serde_json::json!({ "configOptions": options.config_options }),
+                    );
+                    if let Some(model) = offered.current {
+                        self.model_is(Some(&model));
+                    }
+                }
                 if let SessionUpdate::CurrentModeUpdate(now) = &update {
                     self.mode_is(cx, now.current_mode_id.to_string());
                 }
@@ -606,9 +615,24 @@ impl Actor {
             Reply::Resumed(session, Ok(answer)) => {
                 return Ok(self.ready(cx, session, acp::offers(&answer)));
             }
-            Reply::ModelSet { result: Ok(()), .. } => self.think(cx),
-            Reply::Reconfigured { what, result } => match result {
-                Ok(()) => self.note(&format!("Switched to {what} from the next turn")),
+            Reply::ModelSet {
+                model,
+                result: Ok(()),
+            } => {
+                self.model_is(Some(model.as_str()));
+                self.think(cx);
+            }
+            Reply::Reconfigured {
+                what,
+                model,
+                result,
+            } => match result {
+                Ok(()) => {
+                    if let Some(model) = model {
+                        self.model_is(Some(model.as_str()));
+                    }
+                    self.note(&format!("Switched to {what} from the next turn"));
+                }
                 Err(e) => self.note(&format!("Could not switch to {what}: {e}")),
             },
             Reply::EffortSet { effort, result } => {
@@ -787,6 +811,7 @@ impl Actor {
         offered: Offered,
     ) -> Option<End> {
         self.acp_session = Some(session.clone());
+        self.model_is(offered.current.as_deref());
         self.thinking = offered.thinking;
         self.switch = offered.switch.clone();
         if let Some(modes) = offered.modes {
@@ -827,6 +852,19 @@ impl Actor {
             Err(e) => Some(End::Failed(format!(
                 "the agent could not switch to {model}: {e}"
             ))),
+        }
+    }
+
+    /// A model switch while idle can make the existing context due for compaction.
+    fn model_is(&mut self, model: Option<&str>) {
+        if self.compactor.set_model(model) {
+            let live = self.live.borrow();
+            if live.info.state.status == Status::Idle {
+                self.compactor.turn_ended(TurnEnd {
+                    usage: live.info.context,
+                    commands: &live.commands,
+                });
+            }
         }
     }
 

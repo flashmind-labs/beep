@@ -77,6 +77,7 @@ async fn machine(network: bool) -> Machine {
         args: vec!["-c".into(), ADAPTER.into(), "fake-adapter".into()],
         env: BTreeMap::new(),
         compact: None,
+        compact_models: Vec::new(),
     };
     let offers = Offers::local(&[agent], Provision::new(dir.path()));
     let peers = Peers::new(endpoint, dir.path().to_owned(), "build-box".into(), offers);

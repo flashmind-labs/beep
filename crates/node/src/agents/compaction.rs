@@ -9,8 +9,11 @@
 //! left to it.
 
 use beep_proto::{
-    AgentContext,
-    node::{agent::AgentCommand, harness::AutoCompact},
+    AgentContext, ModelId,
+    node::{
+        agent::AgentCommand,
+        harness::{AutoCompact, ModelCompact},
+    },
 };
 use std::collections::BTreeMap;
 
@@ -160,6 +163,8 @@ pub(super) struct Compactor {
     due: bool,
     /// The node's `/compact` is running.
     running: bool,
+    models: Vec<ModelCompact>,
+    model: Option<ModelId>,
 }
 
 /// What a session looks like when its turn ends.
@@ -176,13 +181,39 @@ impl Compactor {
             route,
             due: false,
             running: false,
+            models: Vec::new(),
+            model: None,
         }
+    }
+
+    pub(super) fn with_models(mut self, models: Vec<ModelCompact>) -> Self {
+        if !models.is_empty() {
+            self.route = Route::Advertised;
+        }
+        self.models = models;
+        self
+    }
+
+    pub(super) fn set_model(&mut self, model: Option<&str>) -> bool {
+        if self.model.as_ref().map(ModelId::as_str) == model {
+            return false;
+        }
+        self.model = model.map(ModelId::from);
+        self.due = false;
+        true
     }
 
     /// A turn the user asked for ended.
     pub(super) fn turn_ended(&mut self, end: TurnEnd<'_>) {
-        self.due =
-            self.policy.due(end.usage) && self.route.takes_compact(self.policy, end.commands);
+        let override_policy = self
+            .models
+            .iter()
+            .find(|rule| Some(rule.model.as_str()) == self.model.as_ref().map(ModelId::as_str))
+            .map(|rule| Policy::from_setting(Some(rule.compact)));
+        let (policy, route) = override_policy.map_or((self.policy, self.route), |policy| {
+            (policy, Route::Advertised)
+        });
+        self.due = policy.due(end.usage) && route.takes_compact(policy, end.commands);
     }
 
     /// Whether to send `/compact` now, before the next prompt: never while
@@ -443,5 +474,64 @@ mod tests {
             assert_eq!(Policy::Off.env(route(agent), &env(&[])), None);
             assert_eq!(Policy::At(70).env(route(agent), &env(&[])), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+
+    #[test]
+    fn model_rules_follow_switches_and_revert_to_harness_setting() {
+        let mut compactor = Compactor::new(crate::agents::route("codex"), Policy::AtTokens(800))
+            .with_models(vec![
+                ModelCompact {
+                    model: "model-small".into(),
+                    compact: AutoCompact {
+                        enabled: true,
+                        percent: None,
+                        tokens: Some(100),
+                    },
+                },
+                ModelCompact {
+                    model: "model-off".into(),
+                    compact: AutoCompact {
+                        enabled: false,
+                        percent: None,
+                        tokens: None,
+                    },
+                },
+            ]);
+        let commands = [AgentCommand {
+            name: "compact".into(),
+            ..AgentCommand::default()
+        }];
+        for (model, due) in [
+            ("model-small", true),
+            ("model-off", false),
+            ("other", false),
+        ] {
+            compactor.set_model(Some(model));
+            compactor.turn_ended(TurnEnd {
+                usage: Some(AgentContext {
+                    used: 100,
+                    size: 1000,
+                }),
+                commands: &commands,
+            });
+            assert_eq!(compactor.start(false), due, "{model}");
+            compactor.finished();
+        }
+        compactor.turn_ended(TurnEnd {
+            usage: Some(AgentContext {
+                used: 800,
+                size: 1000,
+            }),
+            commands: &commands,
+        });
+        assert!(
+            compactor.start(false),
+            "the harness token fallback is enforced between turns too"
+        );
     }
 }

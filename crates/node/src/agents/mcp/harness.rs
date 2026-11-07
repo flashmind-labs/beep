@@ -185,6 +185,7 @@ mod tests {
     async fn local_and_peer_queries_discover_models_without_starting_a_coding_turn() {
         let dir = tempfile::tempdir().expect("a temp folder");
         let marker = dir.path().join("probes");
+        std::fs::write(dir.path().join("models_cache.json"), r#"{"models":[{"slug":"fast","context_window":400000,"max_context_window":800000,"effective_context_window_percent":90}]}"#).expect("a model catalog");
         let script = r#"
 printf x >> "$PROBE_COUNT"
 id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
@@ -202,8 +203,13 @@ cat > /dev/null
             name: "codex".to_owned(),
             program: "sh".to_owned(),
             args: vec!["-c".to_owned(), script.to_owned()],
-            env: [("PROBE_COUNT".to_owned(), marker.display().to_string())].into(),
+            env: [
+                ("PROBE_COUNT".to_owned(), marker.display().to_string()),
+                ("CODEX_HOME".to_owned(), dir.path().display().to_string()),
+            ]
+            .into(),
             compact: None,
+            compact_models: Vec::new(),
         };
         let mut offers = Offers::local(&[], Provision::new(dir.path()));
         offers.agents = Arc::new(Agents::new(vec![kind]));
@@ -219,7 +225,7 @@ cat > /dev/null
         assert_eq!(info["default_model"], "fast");
         assert_eq!(
             info["models"][0],
-            json!({"id": "fast", "name": "Fast", "description": "Quick tasks"})
+            json!({"id": "fast", "name": "Fast", "description": "Quick tasks", "context_window": 360000, "max_context_window": 720000})
         );
         assert_eq!(info["models"][1]["id"], "careful");
         assert_eq!(info["effort_levels"], json!(["low", "medium", "high"]));

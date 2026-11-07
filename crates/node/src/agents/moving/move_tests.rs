@@ -58,6 +58,7 @@ fn kind() -> AgentKind {
         args: vec!["-c".into(), ADAPTER.into(), "fake-adapter".into()],
         env: BTreeMap::new(),
         compact: None,
+        compact_models: Vec::new(),
     }
 }
 
