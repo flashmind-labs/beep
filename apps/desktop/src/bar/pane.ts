@@ -4,7 +4,7 @@ import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
 import { type AgentRow, loadAgentHosts, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.ts";
-import { newTerminal, openTerminal } from "../agentpane/media.ts";
+import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { sessions } from "../agents/sessions.ts";
 import { renderApps } from "../settings/apps.ts";
@@ -126,6 +126,7 @@ export const pane = {
   /// The pane goes off screen: the window stops showing its chat or group,
   /// so their notices show again.
   leave() {
+    closePaneTabs();
     if (S.view === "chat") invoke("new_chat").catch(() => {});
     else if (GROUP_VIEWS.has(S.view)) invoke("close_group").catch(() => {});
   },
