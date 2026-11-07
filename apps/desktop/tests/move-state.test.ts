@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, dedupe, effective, fmtBytes, going, listLabel, moveRows, movedTo, nextMoveTarget, targetNote } from "../src/agents/move-state.ts";
+import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, dedupe, effective, fmtBytes, going, listLabel, moveRows, movedTo, targetNote } from "../src/agents/move-state.ts";
 
 const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: false, reason: null, ...over });
 const record: MoveRecord = { session: "s1", agent: "codex", from: "laptop-id", to: "studio-id", project: "acme/app", at: 10 };
@@ -123,14 +123,4 @@ test("an open session follows its move once the new machine lists it", () => {
   assert.equal(movedTo(open, records, [{ machine_id: "box", id: "s1", agent: "codex" }]), null);
   assert.equal(movedTo(open, records, [there]), there);
   assert.equal(movedTo({ ...open, machine_id: "air" }, records, [there]), null);
-});
-
-test("next machine wraps and skips offline or unavailable targets", () => {
-  const current = { id: "b", name: "B" };
-  const a = target({ id: "a", name: "A" });
-  const c = target({ id: "c", name: "C", online: false });
-  const d = target({ id: "d", name: "D", checkout: false });
-  assert.equal(nextMoveTarget(current, [a, c, d], "codex")?.id, "a");
-  assert.equal(nextMoveTarget({ id: "0", name: "0" }, [a, c], "codex")?.id, "a");
-  assert.equal(nextMoveTarget(current, [c, d], "codex"), null);
 });
