@@ -1,0 +1,10 @@
+.connect-setup{height:100%;min-height:0;display:flex;flex-direction:column;padding:0;gap:0}
+.connect-content{display:flex;flex-direction:column;align-items:flex-start;gap:24px;overflow-y:auto;min-height:0;flex:1;padding:24px}
+.connect-mark{width:64px;height:64px;border-radius:16px;background:var(--m-raised);color:var(--m-brand);display:grid;place-items:center}
+.connect-setup h1{font-size:30px;line-height:36px;font-weight:600;letter-spacing:-.02em;margin:0;text-wrap:balance}
+.connect-intro{font-size:16px;line-height:24px;color:var(--m-muted);margin:0}
+.connect-steps{display:grid;gap:16px}.connect-steps h2{font-size:14px;line-height:20px;font-weight:600;margin:0}
+.connect-steps ol{margin:0;padding-left:24px;display:grid;gap:16px;font-size:14px;line-height:20px}.connect-steps li{padding-left:4px}.connect-steps li::marker{color:var(--m-muted)}
+.connect-setup .muted{font-size:12px;line-height:16px;margin:0}.connect-download{font-size:14px;line-height:20px;color:var(--m-brand);min-height:48px;display:flex;align-items:center;text-decoration:none}
+.connect-actions{display:grid;gap:8px;flex:none;padding:16px 24px}.connect-actions button{min-height:48px;font-size:16px;font-weight:600}.connect-actions .muted{text-align:center;margin-top:8px}.connect-error{font-size:14px;line-height:20px;color:var(--m-error);margin:0}.connect-camera{min-height:320px;background:var(--m-raised);display:grid;place-items:center;color:var(--m-muted);border-radius:8px}
+.connect-setup a:focus-visible,.connect-setup button:focus-visible{outline:2px solid var(--m-brand);outline-offset:4px}
