@@ -298,3 +298,17 @@ test("Cmd+Shift+W closes once and a late reply leaves another page alone", async
   await settle();
   assert.equal(S.view, "agents");
 });
+
+
+test("an image can be sent with no prompt", async () => {
+  const page = openSession("idle");
+  const input = field("  ");
+  show({ "#agmsg": input });
+  AG.att = [png];
+  answers.agent_steer = ["picture-key"];
+  await sendAgentMessage();
+  assert.deepEqual(steers(), [{ prompt: { text: "", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
+  assert.equal(input.value, "");
+  assert.deepEqual(AG.att, []);
+  assert.equal(page.entries[0].text, "[image: shot.png]");
+});

@@ -277,9 +277,15 @@ export async function sendAgentMessage() {
   if (MN.uploads.length) return agentAttachError(`Wait for ${MN.uploads[0].name} to upload`);
   // Paths from the Files tab and uploads go after what was typed, as `@path`.
   const text = MN.paths.length ? withMentions(typed, takeMentions()) : typed;
-  const o = AG.open!, page = AG.page!;
+  const page = AG.page!;
   if (page.session.status === "ended") return continueAgent(input!, text, images);
-  input!.value = "";
+  return sendMessage(input!, text, images);
+}
+
+/// Sends a prepared message, preserving it in the field if refused.
+async function sendMessage(input: HTMLTextAreaElement, text: string, images: Attached[]) {
+  const o = AG.open!, page = AG.page!;
+  input.value = "";
   if (images.length) {
     AG.att = [];
     drawAgentAttached();
@@ -289,7 +295,7 @@ export async function sendAgentMessage() {
   page.entries.push(mine);
   drawAgentBody();
   const sent = await steerAgent({ prompt: outgoing(text, images) });
-  if (sent || !isOpen(o)) return;
+  if (sent || !isOpen(o)) return sent;
   // Nothing went: the message and its images wait in the field again,
   // before anything typed since, under the note that says why.
   if (/does not take images yet/.test(AG.note)) AG.noImages = o.session;
@@ -301,6 +307,7 @@ export async function sendAgentMessage() {
   if (images.length) AG.att = images;
   drawAgentBody();
   drawAgentAttached();
+  return false;
 }
 
 /// Sends the diff review `text` as one message: a steer while a turn runs,
@@ -335,27 +342,26 @@ export async function sendReview(text: string) {
 }
 
 /// Resumes the ended session with `text`, then follows the session that
-/// goes on from it. Images go once it runs again.
+/// goes on from it. Messages with images go together after resuming.
 export async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[]) {
   const o = AG.open!;
-  if (images.length && !text) { AG.note = "Say something to continue the session, then send the images."; drawAgentBody(); return false; }
   input.value = "";
   input.disabled = true;
   AG.note = "";
-  AG.page!.entries.push({ kind: "user", text });
+  if (!images.length) AG.page!.entries.push({ kind: "user", text });
   drawAgentBody();
   try {
-    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: text }, AGENT_SEND_WAIT_MS);
+    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length ? null : text }, AGENT_SEND_WAIT_MS);
     if (!isOpen(o)) return true;
     // The same session goes on in the same field.
     input.disabled = false;
     input.focus();
     openAgent(started.session, { back: AG.back });
-    if (images.length) { AG.att = images; drawAgentAttached(); }
+    if (images.length) return sendMessage($<HTMLTextAreaElement>("#agmsg") ?? input, text, images);
     return true;
   } catch (e) {
     if (!isOpen(o)) return false;
-    AG.page!.entries.pop();
+    if (!images.length) AG.page!.entries.pop();
     input.disabled = false;
     input.value = text;
     AG.note = String(e).replace(/^(bad request|error):\s*/i, "");
