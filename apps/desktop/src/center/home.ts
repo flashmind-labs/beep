@@ -35,7 +35,15 @@ export function runningRow(r: RunningRow) {
   const projects = state.home?.projects || [];
   const { title, sub } = r.kind === "agent" ? runningLineAt(r, projects) : runningLine(r, projects);
   const moving = r.kind === "agent" ? moveLabel(r) : null;
-  const right = [moving ? tag(moving.chip === "Moving" ? "run" : "bad", moving.chip) : (r.kind === "agent" && closingNote(r)) || (r.status === "asking" ? tag("wait", "needs you") : runningWhen(r))];
+  const closing = r.kind === "agent" ? closingNote(r) : null;
+  const working = r.kind === "agent" && ["working", "running", "starting"].includes(r.status);
+  const spin = working && !moving && !closing ? h("span", "dspin") : null;
+  if (spin) {
+    spin.setAttribute("role", "img");
+    spin.setAttribute("aria-label", r.status === "starting" ? "Starting" : "Working");
+  }
+  const when = spin ? h("span", "cc-running", spin, runningWhen(r)) : runningWhen(r);
+  const right = [moving ? tag(moving.chip === "Moving" ? "run" : "bad", moving.chip) : closing || (r.status === "asking" ? tag("wait", "needs you") : when)];
   const row = r.kind === "research"
     ? line(null, title, sub, right, () => openResearch(r.session))
     // The pane's agent view follows and answers it.

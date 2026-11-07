@@ -86,6 +86,45 @@ test("an ended session keeps the queue while no field shows", async () => {
   assert.deepEqual(AG.queue.map(q => q.text), ["first"]);
 });
 
+test("opening a session reads it once even when the webview reports hidden", async () => {
+  const page = openSession("starting");
+  show({});
+  answers.agent_view = { ...page, session: { ...page.session, status: "working" }, entries: [{ kind: "agent", text: "Reading the project" }] };
+  await pollAgent(true);
+  assert.equal(AG.page?.session.status, "working");
+  assert.equal(AG.page?.entries[0].text, "Reading the project");
+  assert.equal(calls.filter(c => c.cmd === "agent_view").length, 1);
+  const logs = calls.filter(c => c.cmd === "log_webview").map(c => c.args as { message: string; info?: boolean });
+  const applied = logs.find(l => l.message.includes('"stage":"read-applied"'))!;
+  assert.equal(applied.info, true);
+  assert.match(applied.message, /"visibility":"hidden"/);
+  assert.match(applied.message, /"windowHidden":null/);
+  assert.match(applied.message, /"paneOff":false/);
+  assert.match(applied.message, /"focused":false/);
+  assert.ok(logs.some(l => l.message.includes('"stage":"read-settled"')));
+  assert.ok(logs.every(l => !l.message.includes("Reading the project")), "diagnostics omit message contents");
+  await pollAgent();
+  assert.equal(calls.filter(c => c.cmd === "agent_view").length, 1, "background polling still waits for the window");
+  assert.ok(calls.some(c => c.cmd === "log_webview" && (c.args as { message: string }).message.includes('"reason":"hidden"')));
+});
+
+test("a stalled first read logs the operation it is waiting for", async t => {
+  const page = openSession("starting");
+  show({});
+  answers.agent_view = page;
+  let finish!: (tasks: []) => void;
+  answers.agent_tasks = new Promise<[]>(resolve => { finish = resolve; });
+  t.after(() => { finish([]); delete answers.agent_tasks; });
+  const polling = pollAgent(true);
+  await settle();
+  const logs = calls.filter(c => c.cmd === "log_webview").map(c => (c.args as { message: string }).message);
+  assert.ok(logs.some(l => l.includes('"stage":"read-settled"') && l.includes('"pending":["tasks"]')));
+  assert.equal(AG.inflight, AG.open);
+  finish([]);
+  await polling;
+  assert.equal(AG.inflight, null);
+});
+
 test("a text message that fails to send goes back in the field under the error", async () => {
   const page = openSession("idle");
   const input = field("fix the build");

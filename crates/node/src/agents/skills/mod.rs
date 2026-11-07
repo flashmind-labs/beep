@@ -12,9 +12,21 @@ mod follow;
 
 pub(crate) use follow::{follow, serve};
 
-use beep_proto::node::skills::{Conflict, Listed};
+use beep_mesh::{Key, Mesh};
+use beep_proto::node::{
+    mesh_state::{SkillSync, StateValue},
+    skills::{Conflict, Listed},
+};
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::sync::{Notify, watch};
+
+/// The shared setting, enabled before a desktop changes it.
+fn enabled(mesh: &Mesh) -> bool {
+    mesh.get(&Key::SkillSync)
+        .and_then(|bytes| SkillSync::from_bytes(&bytes).ok())
+        .unwrap_or_default()
+        .enabled
+}
 
 /// Whether the node syncs skills, what it lists and the conflicts it last
 /// found. Shared by every copy of the offers; the `follow` task writes it.

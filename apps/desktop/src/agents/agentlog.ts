@@ -26,7 +26,10 @@ export function parseTool(entry: unknown): ToolParts {
 /// Titles quote what they name in backticks (Edit `src/main.rs`); the row
 /// shows them in mono already.
 function plainTitle(title: string) {
-  return title.trim().replace(/`([^`\n]*)`/g, "$1");
+  const text = title.trim();
+  if (text.startsWith("Beep: ")) return text;
+  const [first, ...rest] = text.split("\n");
+  return [first.replace(/`([^`\n]*)`/g, "$1"), ...rest].join("\n");
 }
 
 /// Output the agent wrapped in one fenced block, without the fence.

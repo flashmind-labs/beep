@@ -76,6 +76,21 @@ test("a dropped stream reconnects in the footer, not on the screen", async t => 
   assert.equal(termStatus(term, "build-box"), "build-box · what you type goes there");
 });
 
+test("attaching and reconnecting do not take keyboard focus", () => {
+  calls.length = 0;
+  const screen = fakeScreen();
+  let focuses = 0;
+  screen.focus = () => { focuses++; };
+  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
+  for (let i = 0; i < 2; i++) {
+    const stream = nextAttach();
+    attach(term);
+    stream.send({ kind: "attached" });
+    assert.equal(focuses, 0);
+    assert.equal(term.link, "attached");
+  }
+});
+
 test("Esc typed in the screen reaches the tab's hook, not the shell", () => {
   calls.length = 0;
   const screen = fakeScreen();

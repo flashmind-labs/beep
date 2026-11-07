@@ -129,6 +129,9 @@ struct EntryRow {
     /// as Markdown with raw HTML left as text. Not on tools and plans.
     #[serde(skip_serializing_if = "Option::is_none")]
     html: Option<String>,
+    /// Cleaned Markdown for child parts of a user entry, in source order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    child_html: Vec<String>,
     /// How long a thought took, in milliseconds, once it ended.
     #[serde(skip_serializing_if = "Option::is_none")]
     ms: Option<u64>,
@@ -136,6 +139,11 @@ struct EntryRow {
 
 impl From<AgentEntry> for EntryRow {
     fn from(entry: AgentEntry) -> Self {
+        let child_html = if matches!(entry.kind, AgentEntryKind::User {}) {
+            super::child_reply::replies(&entry.text)
+        } else {
+            Vec::new()
+        };
         // The bar draws the pictures of image lines after the text.
         let (html, ms) = match entry.kind {
             AgentEntryKind::Agent {} => (
@@ -155,6 +163,7 @@ impl From<AgentEntry> for EntryRow {
             kind: entry.kind.into(),
             text: entry.text,
             html,
+            child_html,
             ms,
         }
     }
@@ -876,6 +885,18 @@ mod tests {
         assert_eq!(thought.ms, Some(12_000));
         let html = thought.html.expect("a thought carries its HTML");
         assert!(html.contains("<strong>Reading</strong>"), "{html}");
+    }
+
+    #[test]
+    fn child_replies_have_their_own_html_without_changing_the_agents_prompt() {
+        let text = "<beep-child id=\"k1\" state=\"finished\">\n[child k1 finished] **Passed**.\nReply with send_to_agent to continue it.\n</beep-child>\nThanks.";
+        let row = EntryRow::from(AgentEntry {
+            kind: AgentEntryKind::User {},
+            text: text.into(),
+        });
+        assert_eq!(row.text, text);
+        assert_eq!(row.child_html, ["<p><strong>Passed</strong>.</p>\n"]);
+        assert_eq!(row.html.as_deref(), Some("<p>Thanks.</p>\n"));
     }
 
     #[test]

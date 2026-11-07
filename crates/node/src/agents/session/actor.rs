@@ -19,7 +19,7 @@ use agent_client_protocol::{
     Agent, Client, ConnectionTo, Dispatch, Handled, JsonRpcRequest, Responder, on_receive_dispatch,
     on_receive_notification, on_receive_request,
     schema::v1::{
-        InitializeResponse, McpServer, PromptResponse, RequestPermissionRequest,
+        ContentBlock, InitializeResponse, McpServer, PromptResponse, RequestPermissionRequest,
         RequestPermissionResponse, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
         SetSessionModeRequest, ToolCallId,
     },
@@ -103,6 +103,7 @@ pub(super) enum Reply {
         result: Result<serde_json::Value, agent_client_protocol::Error>,
     },
     Prompt(Result<PromptResponse, agent_client_protocol::Error>),
+    Steered(Result<serde_json::Value, agent_client_protocol::Error>),
     /// The answer to the `/compact` the node sent.
     Compacted(Result<PromptResponse, agent_client_protocol::Error>),
     /// The agent was given `stop_within` to end turn `turn` after Stop.
@@ -127,6 +128,11 @@ pub(super) struct Asked {
     pub(super) waiting: Waiting,
     /// The plan it asks to approve, for a plan's approval.
     pub(super) plan: Option<String>,
+}
+
+pub(super) struct PendingSteer {
+    pub(super) prompt: Prompt,
+    pub(super) shown: bool,
 }
 
 /// Who waits for a question's answer.
@@ -165,6 +171,11 @@ pub(super) struct Actor {
     pub(super) acp_session: Option<SessionId>,
     /// Whether the agent takes image blocks, once `initialize` said.
     pub(super) takes_images: Option<bool>,
+    pub(super) takes_steering: bool,
+    /// A steer sent to the adapter, awaiting its delivery outcome.
+    pub(super) steering: Option<PendingSteer>,
+    /// The adapter found no running turn; wait for our prompt's reply.
+    pub(super) steer_after_turn: bool,
     /// The agent's id of an earlier session to resume.
     pub(super) resume: Option<String>,
     /// The transcript the resumed session had before the node restarted,
@@ -499,6 +510,17 @@ impl Actor {
     fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {
         match event {
             Event::Update(update) => {
+                // The adapter echoes an injected message before continuing.
+                // Show it there so its answer follows it in the transcript.
+                if let SessionUpdate::UserMessageChunk(chunk) = &update
+                    && let ContentBlock::Text(text) = &chunk.content
+                    && self
+                        .steering
+                        .as_ref()
+                        .is_some_and(|steer| steer.prompt.text == text.text)
+                {
+                    self.show_steer();
+                }
                 if let SessionUpdate::CurrentModeUpdate(now) = &update {
                     self.mode_is(cx, now.current_mode_id.to_string());
                 }
@@ -567,6 +589,7 @@ impl Actor {
         match reply {
             Reply::Initialized(Ok(initialized)) => {
                 self.takes_images = Some(acp::takes_images(&initialized));
+                self.takes_steering = acp::takes_steering(&initialized);
                 if let Some(end) = self.initialized(cx, &initialized) {
                     return Ok(Some(end));
                 }
@@ -638,6 +661,7 @@ impl Actor {
             }
             Reply::Prompt(result) => {
                 self.turn = None;
+                self.steer_after_turn = false;
                 self.stopping = None;
                 self.running.clear();
                 let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
@@ -651,6 +675,7 @@ impl Actor {
                 };
                 self.turn_done(cx, stop, error);
             }
+            Reply::Steered(result) => self.steered(cx, result)?,
             Reply::Compacted(result) => self.compacted(cx, result),
             Reply::StopDue { turn } => {
                 if self.turn == Some(turn) && self.stopping == Some(Stopping::User) {
@@ -806,7 +831,7 @@ impl Actor {
 
     /// Shows `note` in the transcript, for what the session does other
     /// than asked.
-    fn note(&mut self, note: &str) {
+    pub(super) fn note(&mut self, note: &str) {
         log::info!("{note}");
         self.live
             .send_modify(|live| live.push(EntryKind::Other, note));

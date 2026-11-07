@@ -349,7 +349,6 @@ window.addEventListener("keydown", e => {
   const d = pane.dataset.dock as Dock, ids = docked()[d];
   const step = e.shiftKey ? ids.length - 1 : 1;
   showTab(d, ids[(ids.indexOf(P.on[d]) + step) % ids.length]);
-  pane.focus({ preventScroll: true });
 }, true);
 
 function wireDivider(dock: Dock) {
@@ -494,7 +493,12 @@ function drawDock(d: Dock, ids: string[]) {
     if (!hide && t.el.hidden) showFrame(t);
     t.el.hidden = t.id !== on;
     if (!hide) t.model?.resize();
-    if (!hide && t.term) requestAnimationFrame(() => { t.term?.screen.fit(); if (t.id === P.on[d]) t.term?.screen.focus(); });
+    if (!hide && t.term) requestAnimationFrame(() => {
+      t.term?.screen.fit();
+      // A refresh must not take the keys back from the conversation.
+      // Check now, since focus may have changed while this frame waited.
+      if (t.id === P.on[d] && !P.layout.hidden[d] && pane.isConnected && pane.contains(document.activeElement)) t.term?.screen.focus();
+    });
   }
 }
 
@@ -529,6 +533,7 @@ function showTab(d: Dock, id: string) {
   if (id === CHANGES && P.on[d] !== CHANGES && madeChangesView()) reloadChanges();
   P.on[d] = id;
   draw();
+  paneOf(d)?.focus({ preventScroll: true });
 }
 
 /// The menu of a tab the user opened: close it, save its file, copy its path. The
@@ -698,7 +703,6 @@ export function showPaneTab(n: number) {
   P.layout.hidden[d] = false;
   saveLayout();
   showTab(d, id);
-  paneOf(d)?.focus({ preventScroll: true });
   return true;
 }
 

@@ -10,6 +10,8 @@ use std::{
 use tokio::time::{Instant, interval};
 use tokio_util::task::AbortOnDropHandle;
 
+mod snapshot;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -31,7 +33,7 @@ struct Process {
     /// The OS creation time, kept at its original precision to detect pid reuse.
     birth: u64,
     started_at: u64,
-    command: String,
+    command: Arc<str>,
 }
 
 /// The coding agents' own programs, never a command they ran.
@@ -63,6 +65,17 @@ impl Process {
             return true;
         }
         let args: Vec<_> = words.collect();
+        // Codex keeps its JavaScript and computer-use runtimes alive between calls.
+        let program = program.replace('\\', "/");
+        if name == "node_repl" && program.ends_with("/cua_node/bin/node_repl")
+            || name == "node"
+                && args.iter().any(|arg| {
+                    arg.replace('\\', "/")
+                        .ends_with("/node_modules/@oai/cua-repl/bin/cua-repl.mjs")
+                })
+        {
+            return true;
+        }
         if args.windows(2).any(|pair| pair == ["mcp", "--session"]) {
             return true;
         }
@@ -116,16 +129,18 @@ impl Processes {
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 ticks.tick().await;
-                if let Err(e) = processes.refresh().await {
+                if let Err(e) = processes.refresh(false).await {
                     log::debug!("could not read session processes: {e:#}");
                 }
             }
         }))
     }
 
-    async fn refresh(self: &Arc<Self>) -> anyhow::Result<Vec<Process>> {
+    async fn refresh(self: &Arc<Self>, fresh: bool) -> anyhow::Result<Vec<Process>> {
         let _reading = self.reading.lock().await;
-        let all = os::snapshot().await?;
+        // A new root must not take a cached entry left by a reused pid.
+        let first = crate::lock(&self.known).root_birth.is_none();
+        let all = snapshot::read(fresh || first).await?;
         let mut observed = crate::lock(&self.known);
         if observed.root_birth.is_none() {
             observed.root_birth = all.get(&self.root).map(|p| p.birth);
@@ -165,7 +180,7 @@ impl Processes {
 
     pub(super) async fn list(self: &Arc<Self>) -> anyhow::Result<Vec<RunningProcess>> {
         let processes: Vec<_> = self
-            .refresh()
+            .refresh(false)
             .await?
             .into_iter()
             .filter(|p| !p.helper())
@@ -187,16 +202,18 @@ impl Processes {
 
     pub(super) async fn stop(self: &Arc<Self>, pid: u32) -> anyhow::Result<()> {
         let process = self
-            .refresh()
+            .refresh(true)
             .await?
             .into_iter()
             .find(|p| p.pid == pid && !p.helper())
             .ok_or_else(|| anyhow::anyhow!("the process is not running in this session"))?;
-        stop(&[process]).await
+        let stopped = stop(&[process]).await;
+        snapshot::invalidate().await;
+        stopped
     }
 
     pub(super) async fn close(self: &Arc<Self>) {
-        match self.refresh().await {
+        match self.refresh(true).await {
             Ok(processes) => {
                 if let Err(e) = stop(&processes).await {
                     log::warn!("could not stop session processes: {e:#}");
@@ -281,6 +298,9 @@ mod tests {
             "bwrap --unshare-pid",
             "/usr/bin/node /srv/npx/node_modules/@openai/codex/bin/codex.js app-server",
             "/srv/npx/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host",
+            "/opt/tools/cua_node/bin/node_repl",
+            "/opt/tools/cua_node/bin/node /opt/tools/cua_node/lib/node_modules/@oai/cua-repl/bin/cua-repl.mjs",
+            "node /opt/tools/node_modules/@oai/cua-repl/bin/cua-repl.mjs",
         ] {
             assert!(process(command).helper(), "{command}");
         }
@@ -292,6 +312,9 @@ mod tests {
             "sh -c 'echo codex'",
             "pip install x",
             "node /srv/app/codex-report.js",
+            "node_repl",
+            "node /srv/app/cua-repl.mjs",
+            "/opt/tools/cua_node/bin/node /srv/app/server.js",
         ] {
             assert!(!process(command).helper(), "{command}");
         }

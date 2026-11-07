@@ -28,8 +28,8 @@ import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
-import { invoke, listen, logError } from "../ui/tauri.ts";
-import { onShownChange, paneShown } from "../ui/active.ts";
+import { invoke, listen, logError, logInfo } from "../ui/tauri.ts";
+import { onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
@@ -45,6 +45,7 @@ import { sameSession } from "./running-state.ts";
 /// the empty view that started it becomes the session in place: its pane, terminal
 /// tabs included, stays as it is.
 export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: string | BackTo; adopt?: boolean } = {}) {
+  traceSession("opening", { machine_id: s.machine_id, agent: s.agent, session: s.id }, { status: s.status, adopt });
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
     if (from !== undefined) AG.back = from;
@@ -54,7 +55,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     const shown = $<ChatBody>("#agbody");
     if (S.view === "agent" && shown) {
       shown.scrollTop = returnScroll(shown, shown.top ?? 0);
-      return void pollAgent();
+      return void pollAgent(true);
     }
     if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
     S.view = "agent";
@@ -62,7 +63,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     // A log the reader scrolled up in goes back where they left it; one at its end starts there again.
     drawAgentFrame(false, left?.key === sessionKey(s) && left.body.stuck === false ? left.body : null);
     watchRead(AG.open!);
-    return void pollAgent();
+    return void pollAgent(true);
   }
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
@@ -77,18 +78,24 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   });
   drawAgentFrame(inPlace);
   watchRead(AG.open!);
-  pollAgent();
+  pollAgent(true);
 }
 
 /// A session opened that still has no read after this long leaves a line in the log.
 const READ_WATCH_MS = 30_000;
+
+let reading: { open: OpenAgent; at: number; pending: Set<string> } | null = null;
+
+function traceSession(stage: string, o: OpenAgent, details: Record<string, unknown> = {}) {
+  logInfo(`session view: ${JSON.stringify({ stage, session: o.session, machine: o.machine_id, view: S.view, body: !!$("#agbody"), ...visibilitySnapshot(), ...details })}`);
+}
 
 /// Logs it when the session `o` opened still shows nothing read after
 /// `READ_WATCH_MS` with no error said: the view is stuck, and why (#427).
 function watchRead(o: OpenAgent) {
   setTimeout(() => {
     if (AG.open !== o || !isOpen(o) || AG.sig || AG.readError) return;
-    logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s (reading ${AG.inflight === o}, on screen ${agentOnScreen()})`);
+    logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s ${JSON.stringify({ reading: AG.inflight === o, pending: reading?.open === o ? [...reading.pending] : [], view: S.view, body: !!$("#agbody"), ...visibilitySnapshot() })}`);
   }, READ_WATCH_MS);
 }
 
@@ -126,15 +133,29 @@ export function agentDelay() {
 }
 
 /// Asks for the open session, then again after `agentDelay()` while it
-/// stays on screen. Never two calls at once for one session.
-export async function pollAgent() {
+/// stays on screen. Opening reads once even if the webview's
+/// visibility has not caught up. Never two calls at once for one session.
+export async function pollAgent(readNow = false) {
   clearTimeout(AG.timer);
   const o = AG.open;
-  if (!o || !isOpen(o) || AG.inflight === o || !agentOnScreen()) return;
+  if (!o) return;
+  const trace = readNow || !AG.sig;
+  const skip = !isOpen(o) ? "different-view" : AG.inflight === o ? "in-flight" : !readNow && !agentOnScreen() ? "hidden" : null;
+  if (skip) {
+    if (trace) traceSession("read-skipped", o, { reason: skip, readNow });
+    return;
+  }
   AG.inflight = o;
   const read = ++AG.polls;
+  const current = { open: o, at: Date.now(), pending: new Set(["view", "modes", "tasks", "processes"]) };
+  reading = current;
+  if (trace) traceSession("read-started", o, { readNow });
+  const tracked = <T>(name: string, call: Promise<T>) => call.finally(() => {
+    current.pending.delete(name);
+    if (trace) traceSession("read-settled", o, { part: name, ms: Date.now() - current.at, pending: [...current.pending] });
+  });
   try {
-    const [page, modes, tasks] = await Promise.all([invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS), readModes(o), readTasks(o), readRunning()]);
+    const [page, modes, tasks] = await Promise.all([tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS)), tracked("modes", readModes(o)), tracked("tasks", readTasks(o)), tracked("processes", readRunning())]);
     if (isOpen(o)) {
       AG.modes = modes;
       AG.tasks = tasks;
@@ -162,12 +183,14 @@ export async function pollAgent() {
       // Nothing the log shows changed: no draw.
       const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.paused, AG.answering, AG.child, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
       if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
+      if (trace) traceSession("read-applied", o, { status: page.session.status, entries: page.entries.length, ms: Date.now() - current.at });
       void readUsage(o, page);
       flushQueue();
       // The oldest turn shown has its prompt: read back until it does.
       if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
     }
   } catch (e) {
+    if (trace) traceSession("read-failed", o, { pending: [...current.pending], ms: Date.now() - current.at });
     if (isOpen(o)) {
       // A dropped link is read again with backoff; a session its machine
       // came back without has ended, and no turn runs on.
@@ -179,10 +202,14 @@ export async function pollAgent() {
     }
   } finally {
     if (AG.inflight === o) AG.inflight = null;
+    if (reading === current) reading = null;
   }
   // Another session opened while this one was asked: follow that one.
   if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
-  if (!isOpen(o) || !agentOnScreen()) return;
+  if (!isOpen(o) || !agentOnScreen()) {
+    if (trace) traceSession("polling-stopped", o, { reason: !isOpen(o) ? "different-view" : "hidden" });
+    return;
+  }
   const delay = AG.link.lost ? retryDelay(AG.link.lost) : agentDelay();
   const paused = delay === null && AG.page?.session.status !== "ended";
   if (paused !== AG.paused) { AG.paused = paused; drawAgentBody(); }
@@ -202,6 +229,7 @@ window.addEventListener("agent-pane-shown", () => {
 });
 
 onShownChange(shown => {
+  if (AG.open && S.view === "agent") traceSession("visibility-changed", AG.open, { shown });
   if (!shown) clearTimeout(AG.timer);
   else if (S.view === "agent") pollAgent();
 }, true);
@@ -487,6 +515,12 @@ function agentClick(e: MouseEvent) {
   if (closing) return void closeRow(closing);
   const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
   if (stopping) return void stopKid(stopping);
+  const prompt = target.closest<HTMLElement>("#agbody [data-prompt]");
+  if (prompt) {
+    const at = Number(prompt.dataset.prompt);
+    AG.steps.set(at, prompt.getAttribute("aria-expanded") !== "true");
+    return drawAgentBody(clickedRow(prompt));
+  }
   // A subagent opens as its own conversation; the crumb goes back.
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
   if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
@@ -537,9 +571,6 @@ function agentClick(e: MouseEvent) {
   const thought = target.closest<HTMLElement>("#agbody [data-thought]");
   if (thought && AG.open) {
     const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
-    // A thought streams open; once the reader folds or opens it, it keeps
-    // their choice when it ends.
-    m.touched.add(at);
     if (toggleThought(thought)) m.thoughts.add(at);
     else m.thoughts.delete(at);
     return;

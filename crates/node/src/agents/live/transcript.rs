@@ -169,6 +169,11 @@ impl Live {
         if self.transcript.len() >= MAX_ENTRIES {
             self.transcript.pop_front();
             self.dropped += 1;
+            // Long turns also evict entries. Batch the scan so pruning does
+            // not walk every retained tool for every incoming entry.
+            if self.dropped.is_multiple_of(64) {
+                self.prune_tools();
+            }
         }
         self.transcript.push_back(entry);
         self.dropped + self.transcript.len() as u64 - 1
@@ -209,12 +214,27 @@ impl Live {
         self.turn_images.clear();
         self.turn_began = Some(SystemTime::now());
         // A tool whose entry left the transcript has nothing left to show.
-        let dropped = self.dropped;
-        self.tools.retain(|_, tool| tool.entry >= dropped);
+        self.prune_tools();
         let state = &mut self.info.state;
         state.status = Status::Working;
         state.summary = "Thinking".into();
         state.error = None;
+    }
+
+    /// A message joined the running turn, keeping its files and timing.
+    pub(crate) fn steered(&mut self, text: &str) {
+        self.end_thought(Instant::now());
+        self.active_at = Some(Instant::now());
+        self.info.last_activity = unix_now();
+        self.in_message = false;
+        self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
+    }
+
+    fn prune_tools(&mut self) {
+        let dropped = self.dropped;
+        self.tools.retain(|_, tool| tool.entry >= dropped);
+        self.codex_threads
+            .retain(|_, call| self.tools.contains_key(call));
     }
 
     /// The question the agent asked in `session/request_permission`.
