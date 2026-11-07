@@ -507,6 +507,7 @@ mod tests {
             assert!(rewritten.contains("[extensions]"), "{rewritten}");
             // A copy of the repository with only the rewritten config.
             let copy = tempfile::tempdir().expect("a temp folder");
+            std::fs::create_dir(copy.path().join(".git")).expect("a Git folder");
             let mut dirs = vec![source.path().join(".git")];
             let mut at = 0;
             while at < dirs.len() {

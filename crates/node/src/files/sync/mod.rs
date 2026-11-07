@@ -47,6 +47,7 @@ use tokio_util::task::AbortOnDropHandle;
 mod disk;
 mod gitconfig;
 mod gitdir;
+mod handoff;
 mod lists;
 mod map;
 #[cfg(test)]
@@ -57,7 +58,8 @@ mod project;
 mod root;
 mod rules;
 mod scan;
-mod stignore;
+pub(super) mod stignore;
+mod syncthing;
 mod watch;
 
 pub(crate) use peer::{ALPN, PeerHandler};
@@ -510,6 +512,12 @@ impl Syncs {
             let made = make_missing(&folders, &folder)?;
             let root = open_target(&folders, &folder)
                 .with_context(|| format!("the folder {folder} cannot be synced"))?;
+            if !root.path().join(".git").exists() && root.path().ancestors().skip(1).any(|parent| parent.join(".git").exists()) {
+                bail!("This folder is inside a Git checkout. Import the repository root for Git sync.");
+            }
+            if root.path().join(".git").is_file() {
+                bail!("Linked worktrees and submodules stay on their machine. Import the main checkout for Git sync.");
+            }
             anyhow::Ok((root, made))
         })
         .await??;
@@ -986,6 +994,28 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
                 message: format!("{e:#}"),
             },
         },
+        Request::HandoffSnapshot { project } => match syncs.handoff_snapshot(&project).await {
+            Ok(snapshot) => Reply::HandoffSnapshot { snapshot },
+            Err(e) => Reply::Error {
+                message: format!("{e:#}"),
+            },
+        },
+        Request::HandoffApply { project, snapshot } => {
+            match syncs.handoff_apply(&project, snapshot).await {
+                Ok(()) => Reply::HandoffApplied {},
+                Err(e) => Reply::Error {
+                    message: format!("{e:#}"),
+                },
+            }
+        }
+        Request::SyncthingFiles { folder, enabled } => {
+            match syncs.syncthing_files(&folder, enabled).await {
+                Ok(files) => Reply::SyncthingFiles { files },
+                Err(e) => Reply::Error {
+                    message: format!("{e:#}"),
+                },
+            }
+        }
         other => Reply::Error {
             message: format!("this node cannot do {other:?} yet"),
         },

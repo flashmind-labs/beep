@@ -1,3 +1,4 @@
+import { syncthingImportChoice } from "../project/syncthing.ts";
 // addproject/: the Add a project, Add a folder, Import a project and New
 // project sheets. Entry: openAddProject here, openAddFolder in addfolder.ts,
 // openImportProject in importproject.ts, openNewProject in newproject.ts.
@@ -94,6 +95,7 @@ export interface FoundRowState {
   status?: ImportState | null;
 }
 
+let syncthing = syncthingImportChoice();
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: AddProjectOptions = {}, close: (() => void) | null = null;
 /// null while the machines look, then the rows they found.
 let found: FoundRow[] | null = null;
@@ -118,11 +120,11 @@ let batch = false;
 let search: HTMLInputElement | null = null, bar: HTMLDivElement | null = null, listBox: HTMLDivElement | null = null, remoteBox: HTMLDivElement | null = null;
 
 /// Imports a found row in place on each machine that has it.
-export async function importFound(row: FoundRow) {
+export async function importFound(row: FoundRow, syncthingFiles: boolean | null = null) {
   let first: ProjectRow | null = null;
   for (const one of importPlan(row)) {
     try {
-      const project = await invoke<ProjectRow>("import_project", one);
+      const project = await invoke<ProjectRow>("import_project", { ...one, syncthingFiles });
       first = first || project;
     } catch (e) {
       if (!first) throw e;
@@ -136,6 +138,7 @@ export async function importFound(row: FoundRow) {
 /// Opens the sheet.
 export function openAddProject(options: AddProjectOptions = {}) {
   if (root) return;
+  syncthing = syncthingImportChoice();
   opts = options;
   found = null;
   hosts = null;
@@ -228,6 +231,7 @@ async function importPicked() {
   const names = toImport(shownRows().map(row => row.name), picked, status);
   if (!names.length) return;
   batch = true;
+  const syncthingFiles = syncthing.value();
   for (const name of names) {
     status.set(name, { state: "importing" });
     failed.delete(name);
@@ -238,7 +242,7 @@ async function importPicked() {
     const row = byName.get(name);
     if (!row) return;
     try {
-      landed.push(await importFound(row));
+      landed.push(await importFound(row, syncthingFiles));
       status.set(name, { state: "done" });
       picked.delete(name);
     } catch (e) {
@@ -259,7 +263,7 @@ async function doImport(row: FoundRow) {
   status.delete(row.name);
   draw();
   try {
-    const project = await importFound(row);
+    const project = await importFound(row, syncthing.value());
     importing = null;
     closeAddProject();
     opts.onImported?.(project);
@@ -289,7 +293,7 @@ function build() {
     way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }),
     way("New project…", "Create a repository and put it on your machines", () => { closeAddProject(); opts.onNew?.(); }));
   sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),
-    el("div", "am-label", "Found on your machines"), search, bar, hint, listBox, remoteBox, ways);
+    el("div", "am-label", "Found on your machines"), search, bar, hint, listBox, syncthing.node, remoteBox, ways);
 }
 
 function draw() {

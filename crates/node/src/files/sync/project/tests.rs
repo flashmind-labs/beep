@@ -780,7 +780,7 @@ fn an_edit_after_a_won_conflict_builds_on_the_merge() {
         stat: stat(2),
     };
     let prior = state.saved.seen.get("plan.md").cloned();
-    record(&mut state, &found, [3; 32], prior);
+    record(&mut state, &found, [3; 32], prior, false);
     let entry = state.saved.map.get("plan.md").unwrap();
     assert_eq!(entry.file.as_ref().map(|f| f.hash), Some([3; 32]));
     assert_eq!(entry.version.compare(&merged), Order::Newer);
@@ -871,14 +871,14 @@ async fn a_round_that_could_not_check_its_folder_does_not_count_as_applied() {
 }
 
 #[tokio::test]
-async fn refs_git_cannot_read_leave_the_files_to_sync() {
+async fn unreadable_git_does_not_enable_file_sync() {
     // A `.git` with a `HEAD` git refuses, as Git for Windows refuses a
-    // verbatim root: the files are still scanned and nothing is deleted.
+    // verbatim root: working files stay local and nothing is deleted.
     let project = Project::new(&["a.txt", "src/b.rs", ".git/HEAD"]).await;
     {
         let state = project.task.shared.lock();
-        assert!(state.saved.seen.contains_key("a.txt"));
-        assert!(state.saved.seen.contains_key("src/b.rs"));
+        assert!(!state.saved.seen.contains_key("a.txt"));
+        assert!(!state.saved.seen.contains_key("src/b.rs"));
     }
     assert_eq!(project.deleted(), Vec::<String>::new());
     project.stop().await;

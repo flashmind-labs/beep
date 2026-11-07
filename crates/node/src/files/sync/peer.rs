@@ -22,9 +22,9 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-/// Earlier versions keep moving Git refs through the file list. They must
-/// not sync with a node whose checkout belongs to Git after its first copy.
-pub(crate) const ALPN: &[u8] = b"beep-sync/4";
+/// Every batch carries its scanned checkout. Earlier versions cannot
+/// enforce that base when Git changes during a pull.
+pub(crate) const ALPN: &[u8] = b"beep-sync/6";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
@@ -39,6 +39,9 @@ const MAX_STREAMS: usize = 64;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 enum Request {
+    Handoff {
+        project: String,
+    },
     /// Sends `project`'s changes after `since`, when `replica` is the
     /// peer's replica, or all of them, then each change as it happens.
     Pull {
@@ -53,6 +56,9 @@ enum Request {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 enum Reply {
+    Handoff {
+        snapshot: beep_proto::node::sync::HandoffSnapshot,
+    },
     /// Sent first: the commit the peer's checkout is at, if it has one.
     Head {
         commit: Option<Oid>,
@@ -69,6 +75,7 @@ enum Reply {
         replica: Replica,
         entries: Vec<Entry>,
         upto: u64,
+        checkout: Checkout,
     },
     Refused {
         message: String,
@@ -127,14 +134,34 @@ impl ProtocolHandler for PeerHandler {
 }
 
 async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
-    let Some(Request::Pull {
-        project,
-        replica,
-        since,
-        copy_git,
-    }) = rx.recv::<Request>().await?
-    else {
-        return Ok(());
+    let (project, replica, since, copy_git) = match rx.recv::<Request>().await? {
+        Some(Request::Pull {
+            project,
+            replica,
+            since,
+            copy_git,
+        }) => (project, replica, since, copy_git),
+        Some(Request::Handoff { project }) => {
+            if !syncs
+                .project(&project)
+                .is_some_and(|shared| shared.has_peer(&peer))
+                || !syncs.allows(&peer)
+            {
+                return tx
+                    .send(&Reply::Refused {
+                        message: "This project is not shared with this peer.".into(),
+                    })
+                    .await;
+            }
+            let reply = match syncs.handoff_snapshot(&project).await {
+                Ok(snapshot) => Reply::Handoff { snapshot },
+                Err(e) => Reply::Refused {
+                    message: format!("{e:#}"),
+                },
+            };
+            return tx.send(&reply).await;
+        }
+        None => return Ok(()),
     };
     let Some(shared) = syncs
         .project(&project)
@@ -163,7 +190,14 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     } else {
         0
     };
-    let mut head = shared.head().await?;
+    let mut head = shared.list_checkout().await?;
+    if shared.copies_git() && head.present {
+        return tx
+            .send(&Reply::Refused {
+                message: "The initial Git checkout is still arriving.".into(),
+            })
+            .await;
+    }
     tx.send(&Reply::Head {
         commit: head.commit,
         behind: shared.last_change_after(since),
@@ -174,10 +208,16 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     loop {
         // A device removed meanwhile gets nothing more, not even what is
         // already queued.
-        if !syncs.allows(&peer) {
+        if !syncs.allows(&peer) || shared.is_stopped() {
             return Ok(());
         }
-        let now = shared.head().await?;
+        let now = match shared.list_checkout().await {
+            Ok(head) => head,
+            Err(_) => {
+                shared.scan_before_matching().await?;
+                shared.list_checkout().await?
+            }
+        };
         if now != head {
             shared.scan_before_matching().await?;
             head = shared.head().await?;
@@ -188,18 +228,23 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             })
             .await?;
         }
-        let mut changes = shared.changes(since, BATCH);
+        let mut changes = shared.changes(since, BATCH, head)?;
         if !changes.entries.is_empty() {
             since = changes.upto;
-            if !copy_git {
-                changes
-                    .entries
-                    .retain(|entry| !super::gitdir::in_git(&entry.path));
-            }
+            let git_only = shared.status().git_only;
+            changes.entries.retain(|entry| {
+                let git = super::gitdir::in_git(&entry.path);
+                if git_only {
+                    copy_git && head.present && git
+                } else {
+                    !git
+                }
+            });
             tx.send(&Reply::Changes {
                 replica: shared.replica(),
                 entries: changes.entries,
                 upto: changes.upto,
+                checkout: head,
             })
             .await?;
             continue;
@@ -306,7 +351,14 @@ async fn pull_once(
                 replica,
                 entries,
                 upto,
+                checkout,
             } => {
+                if shared.head().await?.differs(checkout) && !shared.copies_git() {
+                    bail!("Git commits differ; waiting for Git before accepting this batch");
+                }
+                if !shared.copies_git() {
+                    shared.check_git().await?;
+                }
                 shared.merge_from(&peer.id, &entries, Cursor { replica, seq: upto });
                 if last.is_some_and(|last| upto >= last) {
                     last = None;
@@ -315,9 +367,34 @@ async fn pull_once(
                 }
             }
             Reply::Refused { message } => bail!("the peer refused: {message}"),
+            Reply::Handoff { .. } => bail!("the peer answered another request"),
         }
     }
     Ok(())
+}
+
+/// A session move is also an explicit request to bring its uncommitted work.
+pub(super) async fn handoff_snapshot(
+    endpoint: &Endpoint,
+    peer: EndpointAddr,
+    project: &str,
+) -> Result<beep_proto::node::sync::HandoffSnapshot> {
+    timeout(Duration::from_secs(60), async {
+        let connection = endpoint.connect(peer, ALPN).await?;
+        let (send, recv) = connection.open_bi().await?;
+        let (mut tx, mut rx) = link(send, recv);
+        tx.send(&Request::Handoff {
+            project: project.to_owned(),
+        })
+        .await?;
+        match rx.recv::<Reply>().await? {
+            Some(Reply::Handoff { snapshot }) => Ok(snapshot),
+            Some(Reply::Refused { message }) => bail!("{message}"),
+            _ => bail!("The source did not provide its uncommitted work."),
+        }
+    })
+    .await
+    .context("The source handoff timed out.")?
 }
 
 #[cfg(test)]

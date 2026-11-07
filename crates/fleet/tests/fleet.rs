@@ -2820,3 +2820,52 @@ async fn skill_sync_is_enabled_by_default_and_shared_between_desktops() {
     .await;
     assert!(a.skill_sync_enabled());
 }
+
+#[tokio::test]
+async fn project_syncthing_choice_reaches_a_machine_that_joins_later() {
+    use beep_proto::node::mesh_state::ProjectRecord;
+    let studio = create("studio").await;
+    let desk = desk(&studio, &[]).await;
+    let key = Key::Project("example/repo".to_owned());
+    studio
+        .mesh
+        .set(
+            key.clone(),
+            Some(
+                ProjectRecord {
+                    url: "https://example.com/example/repo".into(),
+                    ..ProjectRecord::default()
+                }
+                .to_bytes()
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        desk.project_syncthing_mode("example/repo", None)
+            .await
+            .unwrap(),
+        None
+    );
+    desk.project_syncthing_mode("example/repo", Some(false))
+        .await
+        .unwrap();
+    let later = join(&studio, DeviceKind::Node, "build-box").await;
+    until(&later.mesh, |mesh| {
+        mesh.get(&key).is_some_and(|bytes| {
+            ProjectRecord::from_bytes(&bytes).unwrap().syncthing_files == Some(false)
+        })
+    })
+    .await;
+    desk.project_syncthing_mode("example/repo", Some(true))
+        .await
+        .unwrap();
+    until(&later.mesh, |mesh| {
+        mesh.get(&key).is_some_and(|bytes| {
+            let record = ProjectRecord::from_bytes(&bytes).unwrap();
+            record.syncthing_files == Some(true) && record.url == "https://example.com/example/repo"
+        })
+    })
+    .await;
+}

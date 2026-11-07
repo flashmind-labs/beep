@@ -268,6 +268,9 @@ async fn sync_project(args: Value, caller: &Caller) -> Outcome {
             None => return Err(format!("{project} stopped syncing here.")),
         }
     }
+    if status.git_only && status.state != SyncState::Idle {
+        return Err(sync_line(&status));
+    }
     Ok(sync_line(&status))
 }
 
@@ -282,6 +285,8 @@ fn settled(status: &ProjectStatus) -> bool {
 
 fn sync_line(status: &ProjectStatus) -> String {
     let mut line = match status.state {
+        SyncState::Idle if status.pending == 0 && status.git_only =>
+            "Git checkout ready; uncommitted edits stay on their machine and require an explicit handoff".to_owned(),
         SyncState::Idle if status.pending == 0 => format!("in sync, {} files", status.files),
         SyncState::Failed => format!(
             "failed: {}",

@@ -64,11 +64,11 @@ pub(super) fn tools(reviewer: bool) -> Value {
         },
         {
             "name": "sync_project",
-            "description": "Sync a project's files between the user's machines now, as Beep \
-                keeps synced projects in step: scans for changes here and on the others, then \
-                waits up to 90 seconds until `machine` (or every machine that syncs it) has \
-                them, and says how each stands. Use it before running work on another machine \
-                that needs files you just changed.",
+            "description": "Sync a project now. Git repositories exchange commits through Git; \
+                uncommitted edits stay on their machine and require an explicit handoff. Non-Git \
+                folders exchange files. Scans here and on the other machines, then waits up to \
+                90 seconds and reports how each stands. A successful Git sync does not mean \
+                uncommitted files were copied.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

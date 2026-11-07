@@ -230,6 +230,7 @@ async fn node_session_and_project_changes_survive_desktop_disconnect_and_phone_r
             Some(
                 ProjectRecord {
                     url: "https://example.com/example/project".into(),
+                    ..ProjectRecord::default()
                 }
                 .to_bytes()
                 .unwrap(),

@@ -218,6 +218,7 @@ fn openable(path: &Path) -> bool {
 /// `folder` when the user chose one, else the machine's projects folder,
 /// then gives each of `worktrees` its worktree.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn import_project(
     fleet: FleetState<'_>,
     beep: Service<'_>,
@@ -226,6 +227,7 @@ pub async fn import_project(
     folder: Option<String>,
     worktrees: Option<Vec<WorktreeArg>>,
     parent: Option<String>,
+    syncthing_files: Option<bool>,
 ) -> Result<ProjectRow> {
     let machine_id = machine_id.filter(|id| !id.is_empty());
     let folder = folder.filter(|folder| !folder.trim().is_empty());
@@ -238,8 +240,8 @@ pub async fn import_project(
             machine_id: w.machine_id.filter(|id| !id.is_empty()),
         })
         .collect();
-    let imported = desk(&fleet)
-        .await?
+    let desk = desk(&fleet).await?;
+    let imported = desk
         .import(ImportJob {
             repo: &repo,
             machine_id: machine_id.as_deref(),
@@ -248,6 +250,10 @@ pub async fn import_project(
             worktrees: &worktrees,
         })
         .await?;
+    if let Some(enabled) = syncthing_files {
+        desk.project_syncthing_mode(&imported.project, Some(enabled))
+            .await?;
+    }
     mirror_import(&beep, &imported).await;
     Ok(imported.into())
 }

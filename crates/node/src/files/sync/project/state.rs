@@ -56,6 +56,15 @@ pub(super) struct Saved {
     /// Missing in state written before Git became local after the first copy.
     #[serde(default)]
     pub(super) git_copy: Option<GitCopy>,
+    /// The checkout observed throughout the last complete scan.
+    #[serde(default)]
+    pub(super) checkout: Option<crate::files::sync::gitdir::Checkout>,
+    /// Saved before our checkout changes, so a restart still recognizes its base.
+    #[serde(default)]
+    pub(super) fast_forward: Option<crate::files::sync::gitdir::Oid>,
+    /// Once Git owns a checkout, removing .git must not reenable file sync.
+    #[serde(default)]
+    pub(super) git_only: bool,
 }
 
 pub(super) struct State {
