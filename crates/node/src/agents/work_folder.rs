@@ -2,6 +2,9 @@
 //! `tree`, `read` a part at a time and `write` dropped files. The Mac app
 //! reads a synced project's copy through `local_tree` and `local_read`.
 
+mod actions;
+pub(super) use actions::edit;
+
 use super::media_file::Chunk;
 use crate::files::paths;
 use anyhow::{Context, Result, bail};

@@ -6,6 +6,7 @@ import { MAX_UPLOAD, UPLOAD_FOLDER, joinPath, mentionText, shortSize, uploadPart
 import { fileBase64 } from "../chat/attach.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
+import { mentioned } from "../agentpane/worktree-state.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -21,6 +22,7 @@ interface Upload {
 interface UploadAsk {
   files: File[];
   folder: string;
+  root: string;
 }
 
 export const MN = {
@@ -85,26 +87,28 @@ export function wireMentionChips(el: HTMLElement) {
     MN.ask = null;
     MN.redraw();
     if (!a || b.dataset.agup === "cancel") return;
-    uploadDropped(a.files, b.dataset.agup === "there" ? a.folder : UPLOAD_FOLDER);
+    uploadDropped(a.files, b.dataset.agup === "there" ? a.folder : UPLOAD_FOLDER, a.root);
   }));
   if (MN.ask) queueMicrotask(() => el.querySelector<HTMLElement>('[data-agup="there"]')?.focus());
 }
 
 /// Files dropped on the folder `folder` of the Files tab: asked first.
-export function askUpload(files: File[], folder: string) {
+export function askUpload(files: File[], folder: string, root = paneSession()?.cwd ?? "") {
   if (!files.length) return;
-  MN.ask = { files, folder };
+  MN.ask = { files, folder, root };
   MN.redraw();
 }
 
 /// Files dropped or pasted on the session, other than the pictures the
 /// agent takes: uploaded into `folder`, by default `.beep/uploads/`.
-export async function uploadDropped(files: File[], folder = UPLOAD_FOLDER) {
+export async function uploadDropped(files: File[], folder = UPLOAD_FOLDER, root = paneSession()?.cwd ?? "") {
+  const session = paneSession();
   for (const f of files) {
+    if (paneSession() !== session) return;
     const why = uploadRefusal(f);
     if (why) { MN.error(why); continue; }
     try {
-      const path = await uploadOne(f, folder);
+      const path = await uploadOne(f, folder, root);
       if (path && !MN.paths.includes(path)) MN.paths.push(path);
     } catch (e) {
       MN.error(`${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`);
@@ -116,7 +120,7 @@ export async function uploadDropped(files: File[], folder = UPLOAD_FOLDER) {
 
 /// Uploads `file` into `folder` of the session's folder, a part at a time;
 /// the path it took there, or "" when the session went away.
-async function uploadOne(file: File, folder: string) {
+async function uploadOne(file: File, folder: string, root: string) {
   const s = paneSession();
   if (!s) return "";
   if (file.size > MAX_UPLOAD) throw new Error(uploadRefusal(file));
@@ -131,13 +135,13 @@ async function uploadOne(file: File, folder: string) {
       try { data = await fileBase64(file.slice(part.offset, part.offset + part.len)); }
       catch { throw new Error("it could not be read; folders do not upload, drop the files in them"); }
       path = await invoke<string>("agent_tree_upload", {
-        machineId: s.machine_id, root: s.cwd, path, offset: part.offset, size: file.size, data,
+        machineId: s.machine_id, root, path, offset: part.offset, size: file.size, data,
       });
       if (paneSession() !== s) return "";
       up.done = part.offset + part.len;
       MN.redraw();
     }
-    return path;
+    return mentioned(root, s.cwd, path);
   } finally {
     MN.uploads = MN.uploads.filter(u => u !== up);
   }
