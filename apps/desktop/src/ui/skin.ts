@@ -11,6 +11,7 @@ export interface Skin {
 }
 
 export const SKINS: readonly Skin[] = [
+  { id: "flashmind", name: "Flashmind", swatch: "#0d161e" },
   { id: "linear", name: "Linear", swatch: "#151617" },
   { id: "classic", name: "Classic", swatch: "#1a2a23" },
   { id: "quiet", name: "Quiet", swatch: "#161b18" },

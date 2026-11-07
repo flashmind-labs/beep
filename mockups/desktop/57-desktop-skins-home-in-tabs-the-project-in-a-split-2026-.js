@@ -2,6 +2,7 @@
 {
   const st = document.createElement("style");
   st.textContent = `
+.mac .cc-win.sk-flashmind { --d-ink: #080e14; --d-surface: #0d161e; --d-elev: #16242d; --d-border: #26323b; --d-fg: #f1f4f2; --d-muted: #9baab1; --d-dim: #60747d; --d-emerald: #82e7e0; --d-coral: #f09b83; --d-err: #f07878; background: var(--d-ink) }
 .mac .cc-win.sk-paper { --d-ink: #fafaf9; --d-surface: #fff; --d-elev: #f0f0ee; --d-border: #e2e2de; --d-fg: #1d1f21; --d-muted: #6b6f74; --d-dim: #9a9ea3; --d-emerald: #1f5fbf; --d-coral: #c9473a; --d-err: #c9473a; background: var(--d-ink) }
 .mac .cc-win .cc-side { background: var(--d-ink) }
 .mac .cc-win.sk-paper :is(h2, .cc-side *) { color: var(--d-fg) }
@@ -156,7 +157,7 @@
 `;
   document.head.append(st);
 
-  const skinCls = () => S.d.skin === "paper" ? " sk-paper" : "";
+  const skinCls = () => S.d.skin === "paper" ? " sk-paper" : S.d.skin === "flashmind" ? " sk-flashmind" : "";
   const skinned = html => html.replace('class="cc-win"', `class="cc-win${skinCls()}"`);
   const btn = (l, pri) => `<button class="dbtn${pri ? " pri" : ""}" style="padding:3px 10px;font-size:12px;min-height:24px" data-toast="${l}">${l}</button>`;
   const hc = ag => `<span class="cc-ag ${ag}" style="width:20px;height:20px;border-radius:5px;font-size:8.5px">${ag === "codex" ? "CX" : "CC"}</span>`;
@@ -307,7 +308,7 @@
       <div class="cc-comp hc"><span class="in"><span class="caret"></span><span class="ph">${none ? "Ask Beep anything" : "Ask Beep, or start an agent on a machine"}</span></span>${none ? "" : `<button class="dbtn" data-dgo="dAgentNew" title="Start a coding agent on a machine">Agent</button>`}<button class="dbtn pri" data-toast="Sent">Send<kbd>${DI.ret}</kbd></button></div>`;
     return window.__mrmOver(skinned(ccWin(ccSide("home", { old, bare: empty, noChats: empty }), main)));
   };
-  const skinVariants = [["Skin: Linear", () => { S.d.skin = ""; render(); }, () => !S.d.skin], ["Skin: Light", () => { S.d.skin = "paper"; render(); }, () => S.d.skin === "paper"]];
+  const skinVariants = [["Skin: Flashmind", () => { S.d.skin = "flashmind"; render(); }, () => S.d.skin === "flashmind"], ["Skin: Linear", () => { S.d.skin = ""; render(); }, () => !S.d.skin], ["Skin: Light", () => { S.d.skin = "paper"; render(); }, () => S.d.skin === "paper"]];
   const keepVariants = (VARIANTS.dHome || []).filter(([l]) => !["Balanced", "Calm", "Detailed", "Default", "Wide window"].includes(l) && !l.startsWith("Git:"));
   const stuckAt = keepVariants.findIndex(([l]) => l === "Still connecting");
   keepVariants.splice(stuckAt + 1, 0, ...[["Not linked", "unlinked"], ["Removed from the account", "revoked"], ["Turned away", "refused"]].map(([l, k]) => [l, () => { Object.assign(S.d, { cc: k, mrm: "", htab: "overview" }); render(); }, () => S.d.cc === k]));
