@@ -137,6 +137,14 @@ links-deploy:
     test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "Set CLOUDFLARE_ACCOUNT_ID in .env"; exit 1; }
     cd deploy/links && npx wrangler deploy
 
+# Write the phone skin tables from the desktop skins
+phone-skins:
+    python3 scripts/phone-skins.py
+
+# Fail when the phone skin tables are stale
+phone-skins-check:
+    python3 scripts/phone-skins.py --check
+
 # Format, lint and test the desktop app
 desktop-check:
     cd apps/desktop && npm ci --silent && npm run build && npm run check

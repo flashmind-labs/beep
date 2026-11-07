@@ -31,7 +31,7 @@ use beep_proto::{
     node::{
         LinkRx, LinkTx,
         agent::Request as AgentRequest,
-        terminal::{Reply as TerminalReply, Request as TerminalRequest},
+        terminal::{Reply as TerminalReply, Request as TerminalRequest, Size},
     },
 };
 use std::{sync::Arc, time::SystemTime};
@@ -663,15 +663,23 @@ impl BeepClient {
         .await
     }
 
-    pub async fn attach_terminal(&self, id: String) -> Result<Arc<TerminalConnection>, BeepError> {
+    pub async fn attach_terminal(
+        &self,
+        id: String,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Arc<TerminalConnection>, BeepError> {
+        let (cols, rows) = (clamp_cells(cols), clamp_cells(rows));
         if let Some(mesh) = self.mesh().await? {
-            return mesh.attach_terminal(parse_id(&id)?).await;
+            return mesh
+                .attach_terminal(parse_id(&id)?, Size { cols, rows })
+                .await;
         }
         let request = AttachTerminal {
             id: parse_id(&id)?,
             from: 0,
-            cols: 80,
-            rows: 24,
+            cols: cols.into(),
+            rows: rows.into(),
         };
         let client = self.client()?;
         let (input, output) =
@@ -758,6 +766,36 @@ impl TerminalConnection {
         }))
     }
 
+    /// Tells the terminal the screen's new size in character cells.
+    pub async fn resize(&self, cols: u16, rows: u16) -> Result<(), BeepError> {
+        let (cols, rows) = (clamp_cells(cols), clamp_cells(rows));
+        let mut input = self.input.lock().await;
+        match &mut *input {
+            TerminalInputStream::Server(input) => {
+                timed(
+                    CALL_TIMEOUT,
+                    "terminal resize",
+                    input.send(&TerminalInput::Resize {
+                        cols: cols.into(),
+                        rows: rows.into(),
+                    }),
+                )
+                .await
+            }
+            TerminalInputStream::Mesh(input) => {
+                timed(
+                    CALL_TIMEOUT,
+                    "terminal resize",
+                    input.send(&TerminalRequest::Resize {
+                        size: Size { cols, rows },
+                    }),
+                )
+                .await
+            }
+            TerminalInputStream::ViewOnly => Ok(()),
+        }
+    }
+
     pub async fn keys(&self, text: String) -> Result<(), BeepError> {
         if text.len() > MAX_TERMINAL_INPUT {
             return Err(BeepError::BadRequest {
@@ -789,6 +827,10 @@ impl TerminalConnection {
             TerminalInputStream::ViewOnly => Err(crate::bad_request("This terminal is view only.")),
         }
     }
+}
+
+fn clamp_cells(cells: u16) -> u16 {
+    cells.clamp(1, 500)
 }
 
 fn parse_id(id: &str) -> Result<Uuid, BeepError> {

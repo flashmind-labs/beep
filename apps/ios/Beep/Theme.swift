@@ -1,25 +1,6 @@
 import SwiftUI
 
-/// The looks a user can pick, as on Android. The raw value is what gets stored, so never rename one.
-enum BeepStyle: String, CaseIterable, Identifiable {
-    case mintQuiet = "mint_quiet"
-    case softClay = "soft_clay"
-    case bubblegum
-    case rodeo
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .mintQuiet: "Mint Quiet"
-        case .softClay: "Soft Clay"
-        case .bubblegum: "Bubblegum"
-        case .rodeo: "Rodeo"
-        }
-    }
-}
-
-/// Linear colors resolve against the current system appearance.
+/// A skin's colors and corner.
 struct Palette {
     var page, surface, raised, ink, muted, dim: Color
     var line, soft, user, onUser: Color
@@ -28,56 +9,89 @@ struct Palette {
     var code, onCode: Color
     var outline: CGFloat = 1
     var radius: CGFloat = 8
+    var smallRadius: CGFloat = 6
     var body: String? = "Inter-Regular"
 
-    static func of(_ style: BeepStyle) -> Palette {
-        let page = Color.adaptive(0xF7F8FA, 0x0F1011)
-        let surface = Color.adaptive(0xFFFFFF, 0x151617)
-        let raised = Color.adaptive(0xF0F1F4, 0x1C1D1F)
-        let ink = Color.adaptive(0x202126, 0xE3E4E6)
-        let line = Color.adaptive(0xE1E3E8, 0x222326)
-        let accent: Color = switch style {
-        case .mintQuiet: Color(hex: 0x5E6AD2)
-        case .softClay: Color(hex: 0x8B6CD2)
-        case .bubblegum: .adaptive(0x9C357F, 0xE18BC7)
-        case .rodeo: .adaptive(0x676C76, 0x8A8F98)
-        }
-        return Palette(page: page, surface: surface, raised: raised, ink: ink,
-            muted: .adaptive(0x676C76, 0x8A8F98), dim: .adaptive(0x767B85, 0x5B5F65),
-            line: line, soft: line,
-            user: .adaptive(0xD5D9F1, 0x202439), onUser: ink,
-            brand: .adaptive(0x4F5BC0, 0x8A9CF0), accent: accent, onAccent: .white,
-            ok: .adaptive(0x268557, 0x4CB782), warn: .adaptive(0x946B00, 0xF2C94C),
-            error: .adaptive(0xC33838, 0xEB5757),
-            tints: [raised, surface, accent.opacity(0.12)], code: raised, onCode: ink)
+    /// Built from the generated table in Skins.swift.
+    static func skin(page: UInt32, surface: UInt32, raised: UInt32, ink: UInt32, muted: UInt32, dim: UInt32,
+                     line: UInt32, accent: UInt32, onAccent: UInt32, ok: UInt32, warn: UInt32, error: UInt32,
+                     brand: UInt32, user: UInt32, tint: UInt32, radius: CGFloat, smallRadius: CGFloat) -> Palette {
+        Palette(page: Color(hex: page), surface: Color(hex: surface), raised: Color(hex: raised), ink: Color(hex: ink),
+            muted: Color(hex: muted), dim: Color(hex: dim), line: Color(hex: line), soft: Color(hex: line),
+            user: Color(hex: user), onUser: Color(hex: ink),
+            brand: Color(hex: brand), accent: Color(hex: accent), onAccent: Color(hex: onAccent),
+            ok: Color(hex: ok), warn: Color(hex: warn), error: Color(hex: error),
+            tints: [Color(hex: raised), Color(hex: surface), Color(hex: tint)],
+            code: Color(hex: raised), onCode: Color(hex: ink), radius: radius, smallRadius: smallRadius)
     }
 }
 
-/// The picked look, saved on the device. Views read it through `Mint`, so observation
-/// redraws everything in the new look when it changes.
+/// One of the desktop's skins.
+struct Skin {
+    let id: String
+    let name: String
+    let light: Bool
+    let palette: Palette
+}
+
+extension Skins {
+    static let system = "system"
+
+    /// The picked skin. "system", and any old or unknown value, is Linear in dark mode and Light in light mode.
+    static func resolve(_ choice: String, dark: Bool) -> Skin {
+        let id = normalize(choice) == system ? (dark ? "linear" : "paper") : choice
+        return all.first { $0.id == id }!
+    }
+
+    /// A skin id, or "system" for Match system and any old or unknown value.
+    static func normalize(_ choice: String) -> String { all.contains { $0.id == choice } ? choice : system }
+}
+
+/// The picked skin, saved on the device. Views read it through `Mint`, so observation
+/// redraws everything in the new skin when it changes.
 @Observable final class Appearance {
     static let shared = Appearance()
     private static let key = "style"
 
     private(set) var palette: Palette
+    private(set) var skin: Skin
 
-    var style: BeepStyle {
+    var choice: String {
         didSet {
-            palette = Palette.of(style)
-            UserDefaults.standard.set(style.rawValue, forKey: Self.key)
+            UserDefaults.standard.set(choice, forKey: Self.key)
+            apply()
         }
     }
 
+    /// The system appearance, not the one a picked skin forces on the views.
+    private var dark: Bool
+
     private init() {
-        let style = UserDefaults.standard.string(forKey: Self.key).flatMap(BeepStyle.init(rawValue:)) ?? .mintQuiet
-        self.style = style
-        palette = Palette.of(style)
+        let choice = Skins.normalize(UserDefaults.standard.string(forKey: Self.key) ?? Skins.system)
+        let dark = Self.systemIsDark()
+        self.choice = choice
+        self.dark = dark
+        let skin = Skins.resolve(choice, dark: dark)
+        self.skin = skin
+        palette = skin.palette
     }
+
+    /// The root view calls this when the colour scheme changes while Match system is on.
+    func systemChanged() { apply() }
+
+    private func apply() {
+        dark = Self.systemIsDark()
+        skin = Skins.resolve(choice, dark: dark)
+        palette = skin.palette
+    }
+
+    /// The screen's trait collection is set from the first frame and ignores a skin's forced scheme.
+    private static func systemIsDark() -> Bool { UIScreen.main.traitCollection.userInterfaceStyle != .light }
 
     static var palette: Palette { shared.palette }
 }
 
-/// The current look's colors. The name is from when Mint Quiet was the only one.
+/// The current skin's colors. The name is from when Mint Quiet was the only look.
 enum Mint {
     static var page: Color { Appearance.palette.page }
     static var surface: Color { Appearance.palette.surface }
@@ -100,7 +114,7 @@ enum Mint {
     static var tints: [Color] { Appearance.palette.tints }
     static var outline: CGFloat { Appearance.palette.outline }
     static var radius: CGFloat { Appearance.palette.radius }
-    static let smallRadius: CGFloat = 6
+    static var smallRadius: CGFloat { Appearance.palette.smallRadius }
     static let spacing: CGFloat = 12
     static let pageInset: CGFloat = 16
     static let activity = Color(hex: 0x151617)
@@ -123,15 +137,6 @@ enum Mint {
 }
 
 extension Color {
-    static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(uiColor: UIColor { traits in
-            let hex = traits.userInterfaceStyle == .dark ? dark : light
-            return UIColor(red: CGFloat((hex >> 16) & 255) / 255,
-                           green: CGFloat((hex >> 8) & 255) / 255,
-                           blue: CGFloat(hex & 255) / 255, alpha: 1)
-        })
-    }
-
     init(hex: UInt32) {
         self.init(
             red: Double((hex >> 16) & 0xFF) / 255,
