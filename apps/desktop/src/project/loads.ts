@@ -1,5 +1,6 @@
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
+import { sessionVisible } from "../agents/closing.ts";
 import { ago, base, reason, since } from "../ui/format.ts";
 import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote, svgEl } from "../ui/parts.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
@@ -382,7 +383,7 @@ const SESSIONS_SHOWN = 5;
 
 export function sessionsSection(p: Project, running: RunningAgent[]) {
   const sessions = state.sessions.get(p.name);
-  const past = pastSessions(sessions, running);
+  const past = pastSessions(sessions, running).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
   if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see its sessions."));

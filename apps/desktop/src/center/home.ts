@@ -29,7 +29,7 @@ import { type MachineCard, machineDisk, thisMacRow } from "../machines/machine-s
 import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
 import { onPlaces, runningLineAt } from "../agents/place.ts";
 import { moveLabel, onMoves } from "../agents/move-store.ts";
-import { closingNote, onClosing } from "../agents/closing.ts";
+import { closingNote, onClosing, visibleRunning } from "../agents/closing.ts";
 
 export function runningStatus(r: RunningRow) {
   const moving = r.kind === "agent" ? moveLabel(r) : null;
@@ -281,7 +281,8 @@ export function homeBox(id: string, title: string, count: number | string, open:
 /// requests and Issues, Terminals and Coming up. A list with nothing in it
 /// leaves its place empty; a row with nothing in it is left out.
 export function overview(home: HomeView) {
-  const { running, coming_up: coming, needs_you: needs, updates } = home;
+  const { coming_up: coming, needs_you: needs, updates } = home;
+  const running = visibleRunning(home.running);
   const items = [...(state.git?.items || [])].sort(newestFirst);
   const prs = items.filter(i => i.kind === "pull_request"), issues = items.filter(i => i.kind === "issue");
   const terms = home.machines?.length ? allTerms.list(ALL) || [] : [], projects = projectRows() || [];

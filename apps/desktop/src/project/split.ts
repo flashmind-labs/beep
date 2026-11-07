@@ -1,5 +1,6 @@
 // A project page's split: the list of tasks, PRs, issues and machines on
 // the left, the picked row's view on the right.
+import { sessionVisible } from "../agents/closing.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
 import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts";
@@ -153,7 +154,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   }));
   if (runItems.length) groups.push({ title: "Running", items: runItems });
   groups.push({ title: "Project", items: project });
-  const past = sessions ? pastSessions(sessions, running) : [];
+  const past = sessions ? pastSessions(sessions, running).filter(sessionVisible) : [];
   groups.push({ title: "Work", items: [
     ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] }] : []),
     { key: "agents", title: "Agents", sub: agentTile(running, past).count || "None running", detail: () => [agentsSection(running), customAgentsSection(rows), sessionsSection(p, running)] },
