@@ -1,4 +1,4 @@
-import { composeMessage as compose, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
+import { composeMessage as compose, expandPills, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
 import { invoke } from "../ui/tauri.ts";
 
 // A composer's field as flsh's prompt: a long paste is one pill, removed
@@ -17,6 +17,8 @@ export function composeMessage(value: string) {
 }
 
 export interface ComposeOptions {
+  /// A stable key for a prompt kept locally between visits and app launches.
+  draft?: string;
   /// Takes a picture whose path was pasted; without it the path stays text.
   images?: (files: File[]) => unknown;
   /// Grows the field with its lines, up to this height in pixels.
@@ -40,6 +42,20 @@ const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "va
 /// Makes `field` a composer. Calling it again on the same field does nothing.
 export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = {}) {
   if (fields.has(field)) return;
+  const draftKey = opts.draft === undefined ? null : `beep.promptDraft.v1.${opts.draft}`;
+  if (draftKey) {
+    try { field.value = localStorage.getItem(draftKey) ?? field.value; } catch { /* Storage can be unavailable. */ }
+  }
+  const saveDraft = () => {
+    if (!draftKey) return;
+    try {
+      // Pill IDs only live in this window. Keep their text without changing
+      // whitespace or adding the code fences that sending would add.
+      const text = expandPills(field.value, pastes);
+      if (text) localStorage.setItem(draftKey, text);
+      else localStorage.removeItem(draftKey);
+    } catch { /* Keep the field usable when storage is full or unavailable. */ }
+  };
   const layer = document.createElement("div");
   layer.className = "cx-layer";
   layer.setAttribute("aria-hidden", "true");
@@ -53,9 +69,9 @@ export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = 
   Object.defineProperty(field, "value", {
     configurable: true,
     get() { return VALUE.get!.call(this); },
-    set(v: string) { VALUE.set!.call(this, v); later(field); },
+    set(v: string) { VALUE.set!.call(this, v); saveDraft(); later(field); },
   });
-  field.addEventListener("input", () => { closePop(field); draw(field); });
+  field.addEventListener("input", () => { saveDraft(); closePop(field); draw(field); });
   field.addEventListener("focus", () => draw(field));
   field.addEventListener("scroll", () => { layer.scrollTop = field.scrollTop; });
   field.addEventListener("paste", e => paste(field, e));
