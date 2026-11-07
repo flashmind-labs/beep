@@ -982,6 +982,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .ag-att .att .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .ag-att .att button { position: absolute; right: 5px; border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid }
 .ag-att .att button:hover { color: var(--fg) }
+.ag-att .att .preview { position: static; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: zoom-in }
+.ag-att .att .preview:hover { color: var(--fg) }
+.ag-att .att button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm) }
 .dcoderen .pics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; white-space: normal }
 .dcoderen .pic { display: block; max-width: 160px; max-height: 110px; border-radius: var(--radius-sm); border: 1px solid var(--border); object-fit: cover; cursor: zoom-in }
 .dcoderen .pic.none { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--muted); background: var(--surface) }

@@ -2,7 +2,7 @@
 import type { Attached } from "./agentqueue.ts";
 import { fileBase64 } from "../chat/attach.ts";
 import { $, S } from "../bar/core.ts";
-import { GONE } from "../chat/media.ts";
+import { GONE, openViewer } from "../chat/media.ts";
 import { mentionChips, wireMentionChips } from "./workdrop.ts";
 import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
 import { noAgentImages, redrawAgentHints } from "./session.ts";
@@ -60,7 +60,14 @@ export async function attachImages(list: Attached[], files: Iterable<File>, erro
 
 /// The chips of `list`, each with a remove button marked `data-<attr>`.
 export const attachedChips = (list: Attached[], attr: string) => list.map((a, i) =>
-  `<span class="att"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span><button type="button" aria-label="Remove ${esc(a.name)}" data-${attr}="${i}">${ICON.x}</button></span>`).join("");
+  `<span class="att"><button type="button" class="preview" data-att-preview="${i}" aria-label="Preview ${esc(a.name)}" title="Expand image"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span></button><button type="button" aria-label="Remove ${esc(a.name)}" data-${attr}="${i}">${ICON.x}</button></span>`).join("");
+
+/// Opens waiting images without changing the message or its attachments.
+export function wireAttachedPreviews(el: HTMLElement, list: Attached[]) {
+  el.querySelectorAll<HTMLButtonElement>("[data-att-preview]").forEach(b => b.addEventListener("click", () => {
+    openViewer(list.map(a => ({ url: a.url, name: a.name, saves: true })), Number(b.dataset.attPreview), el.closest<HTMLElement>(".cc-main") ?? undefined);
+  }));
+}
 
 /// The chips of waiting images above the field, as in the mock.
 export function drawAgentAttached() {
@@ -75,7 +82,7 @@ export function drawAgentAttached() {
     drawAgentAttached();
     $("#agmsg")?.focus();
   }));
-  if (el) wireMentionChips(el);
+  if (el) { wireMentionChips(el); wireAttachedPreviews(el, AG.att); }
   if (old) el ? old.replaceWith(el) : old.remove();
   else if (el) field.before(el);
   if (S.view === "agent") redrawAgentHints();
