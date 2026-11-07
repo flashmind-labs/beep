@@ -503,8 +503,10 @@ impl Actor {
     /// Has `kind` wait for the server, about this session as it stands.
     pub(super) fn alert(&self, kind: AlertKind) {
         let live = self.live.borrow();
-        // The id the session is listed under now: once the agent gives its
-        // own, `list` shows that one, and a notice must name what it finds.
+        // Startup failures are returned to the caller, without publishing an unnamed session.
+        if live.agent_session.is_none() {
+            return;
+        }
         let alert = Alert {
             session: live.info.id.clone(),
             agent: self.agent.clone(),

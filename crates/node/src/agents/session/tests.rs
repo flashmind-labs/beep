@@ -105,6 +105,44 @@ async fn settle(session: &Session) {
     .unwrap();
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_slow_start_waits_for_acps_id() {
+    let (tx, mut rx) = watch::channel(Live::default());
+    let named = named_info(&mut rx);
+    tokio::pin!(named);
+    assert!(futures::poll!(named.as_mut()).is_pending());
+    tokio::time::advance(Duration::from_secs(60)).await;
+    assert!(futures::poll!(named.as_mut()).is_pending());
+    tx.send_modify(|live| {
+        live.agent_session = Some("acp-session".to_owned());
+        live.info.id = "acp-session".to_owned();
+    });
+    assert_eq!(named.await.unwrap().id, "acp-session");
+}
+
+#[tokio::test]
+async fn a_failed_start_returns_its_error_without_a_session_id() {
+    let (tx, mut rx) = watch::channel(Live::default());
+    let named = named_info(&mut rx);
+    tokio::pin!(named);
+    assert!(futures::poll!(named.as_mut()).is_pending());
+    tx.send_modify(|live| {
+        live.info.state.status = Status::Ended;
+        live.info.state.error = Some("ACP initialization failed".to_owned());
+    });
+    assert_eq!(named.await.unwrap_err(), "ACP initialization failed");
+}
+
+#[tokio::test]
+async fn a_dropped_start_returns_an_error_without_a_session_id() {
+    let (tx, mut rx) = watch::channel(Live::default());
+    drop(tx);
+    assert_eq!(
+        named_info(&mut rx).await.unwrap_err(),
+        "the agent stopped before giving a session id"
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_takeover_resumes_without_permission_prompts() {

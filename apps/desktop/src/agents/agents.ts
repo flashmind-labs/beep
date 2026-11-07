@@ -98,6 +98,8 @@ export interface AgentEntry {
   kind: string;
   text: string;
   html?: string;
+  /// Cleaned Markdown for child prompt parts, in source order.
+  child_html?: string[];
   ms?: number | null;
 }
 

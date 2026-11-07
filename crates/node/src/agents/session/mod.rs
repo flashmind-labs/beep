@@ -146,6 +146,7 @@ struct Order {
 }
 
 pub(super) struct Session {
+    /// Private handle for the process and its MCP connection, never a public session id.
     pub(super) id: String,
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
@@ -313,7 +314,7 @@ impl Session {
             .with_context(|| format!("starting {}", kind.program))?;
         let processes = Processes::new(child.id().context("the agent has no pid")?);
         let info = SessionInfo {
-            id: id.clone(),
+            id: resume.clone().unwrap_or_default(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
             started_at: unix_now(),
@@ -397,6 +398,11 @@ impl Session {
         self.live.borrow().info.clone()
     }
 
+    /// Waits for ACP to name the session. A failed startup has no session to publish.
+    pub(super) async fn named_info(&self) -> Result<SessionInfo, String> {
+        named_info(&mut self.live.clone()).await
+    }
+
     /// The commands and skills the agent last reported.
     pub(super) fn commands(&self) -> Vec<AgentCommand> {
         self.live.borrow().commands.clone()
@@ -437,6 +443,23 @@ impl Session {
         let mut live = self.live.clone();
         // An error means the task is gone, which also ends the wait.
         let _ = live.wait_for(|live| live.status() == Status::Ended).await;
+    }
+}
+
+async fn named_info(live: &mut watch::Receiver<Live>) -> Result<SessionInfo, String> {
+    let named = live
+        .wait_for(|live| live.agent_session.is_some() || live.status() == Status::Ended)
+        .await
+        .map_err(|_| "the agent stopped before giving a session id".to_owned())?;
+    if named.agent_session.is_some() {
+        Ok(named.info.clone())
+    } else {
+        Err(named
+            .info
+            .state
+            .error
+            .clone()
+            .unwrap_or_else(|| "the agent stopped before giving a session id".to_owned()))
     }
 }
 
