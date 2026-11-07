@@ -587,7 +587,12 @@ expected 200, got 401</pre></details></span></div>`;
     // The heading is the fold: how long it worked and what it did, on one
     // line that opens the steps. Opened, it counts the calls instead.
     const workLine = v === "failed" ? "Ran 4 commands (2 failed), edited 2 files, performed 2 other actions" : shots ? "Ran 2 commands, edited 2 files, viewed 2 images, performed 2 other actions" : "Ran 2 commands, edited 2 files, performed 2 other actions";
-    const turn1 = [you, head(`Worked for 1m 12s<span class="stats">· ${stepsOpen ? "6 tool calls · 2 files changed" : workLine}</span>`, stepsOpen, true),
+    const turn1 = [you, dHead("Worked for 1m 12s", { when: "17:14" }),
+      dThink({ secs: 4, open: !!S.d.agprethought, act: `dset:agprethought:${S.d.agprethought ? "" : "1"}`, text: "I will check the failing assertion before changing the fixture." }),
+      dHead("Ran 1 command", { act: `dset:agpretools:${S.d.agpretools ? "" : "1"}`, open: !!S.d.agpretools }),
+      S.d.agpretools ? dRows(step("ok", "Ran cargo test -p widget-core login")) : "",
+      `<div class="dcoderen agent md">The test expects the old error message. I will update the fixture and run the suite again.</div>`,
+      head(`${stepsOpen ? "6 tool calls · 2 files changed" : workLine}`, stepsOpen, true),
       stepsOpen ? `<div class="${v === "beeptools" ? "steps" : "tools"}">${v === "beeptools" ? beepSteps : steps}</div>` : "",
       ...(shots ? [`<div class="shots small"><i class="img"></i><i class="img b2"></i></div>`] : []),
       ...(v === "answered" ? [answered] : []), picture,
