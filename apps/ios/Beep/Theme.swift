@@ -239,16 +239,17 @@ struct TextAction: ButtonStyle {
 struct BackBar<Trailing: View>: View {
     let title: String
     let back: () -> Void
+    var showsBack = true
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
         HStack(spacing: 4) {
-            BackArrow(action: back)
+            if showsBack { BackArrow(action: back) }
             Text(title.display).font(.display(18)).foregroundStyle(Mint.ink).lineLimit(1)
             Spacer()
             trailing
         }
-        .padding(.leading, 6).padding(.trailing, 18)
+        .padding(.leading, showsBack ? 6 : 18).padding(.trailing, 18)
         .frame(minHeight: 54)
         .overlay(alignment: .bottom) { Rectangle().fill(Mint.soft).frame(height: 1) }
     }
@@ -269,8 +270,8 @@ struct BackArrow: View {
 }
 
 extension BackBar where Trailing == EmptyView {
-    init(title: String, back: @escaping () -> Void) {
-        self.init(title: title, back: back) { EmptyView() }
+    init(title: String, back: @escaping () -> Void, showsBack: Bool = true) {
+        self.init(title: title, back: back, showsBack: showsBack) { EmptyView() }
     }
 }
 

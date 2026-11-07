@@ -89,7 +89,17 @@ struct RootView: View {
     @State private var trailEnd: String?
 
     var body: some View {
-        if model.onboarded {
+        if !serverEnabled() {
+            NavigationStack(path: $path) {
+                Group {
+                    if model.workspace.meshLinked { ProjectsView(path: $path, home: true) }
+                    else { LinkedDevicesView(back: {}, home: true) }
+                }
+                .navigationDestination(for: Route.self) { route in
+                    screen(route).toolbar(.hidden, for: .navigationBar)
+                }
+            }.tint(Mint.brand)
+        } else if model.onboarded {
             NavigationStack(path: $path) {
                 ChatsDrawer(open: $drawer, openChat: { openChat($0) }, openGroup: openGroup,
                             newGroup: { sheet = .new }, invite: { sheet = .invite(id: $0.id, name: $0.name) },

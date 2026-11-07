@@ -22,7 +22,7 @@ struct CodingAgentsView: View {
                     if !loaded { WorkspaceLoading() }
                     else if sessions.isEmpty { WorkspaceEmpty(title: "No coding sessions", detail: "Start an agent on a linked machine.") }
                     else { WorkspaceBox {
-                        ForEach(sessions.filter { query.isEmpty || ($0.title ?? $0.agent).localizedCaseInsensitiveContains(query) || $0.machineName.localizedCaseInsensitiveContains(query) }, id: \.id) { session in
+                        ForEach(sessions.filter { query.isEmpty || ($0.title ?? $0.agent).localizedCaseInsensitiveContains(query) || $0.machineName.localizedCaseInsensitiveContains(query) }, id: \.workspaceID) { session in
                             CodingSessionRow(session: session) { path.append(.agentSession(session.machineId, session.agent, session.id)) }
                             if session.id != sessions.last?.id { Divider().overlay(Mint.soft) }
                         }
@@ -39,7 +39,12 @@ struct CodingAgentsView: View {
                 }.padding(16)
             }.refreshable { await load() }
         }
-        .task(id: model.connected) { if model.connected { await load() } }
+        .task {
+            while !Task.isCancelled {
+                await load()
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            }
+        }
         .sheet(isPresented: $starting) {
             StartCodingAgentView { session in starting = false; path.append(.agentSession(session.machineId, session.agent, session.id)) }
         }

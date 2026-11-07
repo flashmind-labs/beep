@@ -35,20 +35,29 @@ emulator (`./gradlew assembleDebug`).
 
 ## Servers and hosting
 
-Desktops and `beep-node`s form a mesh and work with no server. Every order
+Desktops, paired phones and `beep-node`s form a mesh and work with no server. Every order
 (agents, files, terminals, project sync, credentials, usage) goes directly
 peer to peer, signed by the device list. A project with a checkout on two machines syncs by itself, in any folder (`files` is not needed), wherever Syncthing does not hold that folder; a held folder starts when Syncthing pauses or lets go, and two checkouts at different commits wait, unchanged, until they agree. A desktop mints tickets and adds
 machines; a node can only join, and the server hands out no tickets. Project
 sync, groups, pins, credentials and settings are replicated state that only
-desktops may write.
+desktops and paired phones may write.
 
-`beep-server` is optional and paid: memories, routines, app connections, the
-assistant, the project agent and reviews, and the phones (Android and iOS
-still talk only to the server). A desktop with a server mirrors imports and
-credential saves to it.
+On desktop, Machines, Add a machine, Phone creates a one-use ticket that
+expires after five minutes. Paste it under Devices on Android or iOS. The
+phone proves it holds the ticket secret over iroh; the desktop records the
+authenticated device key that redeemed it. Membership and project changes
+persist and replicate through the mesh. Node sessions stay on the node and
+are accessible from phone and desktop independently, including after a phone
+restart or while the desktop is offline. Each phone installation has its own
+mesh key, separate from its server account.
+
+`beep-server` provides memories, routines, app connections, the assistant,
+the project agent and reviews. These features are disabled on the apps for
+now. A desktop with server features enabled mirrors imports and credential
+saves to it.
 
 The server has no access to `beep-node`s: nodes never link to it, and it runs
-no user code. Machine work for the assistant and the phones goes through a
+no user code. Legacy server machine requests require a relay through a
 desktop of the account (`crates/server/src/tools/machines/relay.rs`); with no
 desktop online the tool says "No desktop is online to run this." The relay
 itself (the server asking a desktop, Allow and Deny there, the run over the
@@ -69,9 +78,14 @@ No desktop or node keeps one: the desktop deletes any `credential/api.*` an olde
 to the mesh on launch, and a node never makes one an env var. Agent accounts (the Claude Code
 token, Codex's key) and forge tokens still go to every machine.
 
-### The desktop runs without the server for now
+### The apps run without the server for now
 
 `SERVER_ENABLED` (`apps/desktop/src-tauri/src/beep/mod.rs`) is false: the desktop never contacts `beep-server`, a saved link reads as unlinked and its server features are hidden. Nothing is removed; turning it on brings them back.
+
+The phone bridge also sets `SERVER_ENABLED` to false
+(`crates/android-bridge/src/lib.rs`). Android and iOS open the workspace,
+hide assistant and server screens, and refuse server calls before starting
+HTTP or the server events stream. Live voice is guarded on both phones.
 
 Coding agents get no memories: no memory tools and no standing rules. Memories are the assistant's.
 
@@ -223,7 +237,7 @@ Report a problem form starts one with Debug with an agent.
 
 ## The apps over HTTP
 
-Phones, desktops and `beep-probe` reach the server over HTTP
+When server features are enabled, phones, desktops and `beep-probe` reach the server over HTTP
 (`crates/proto/src/transport/http.rs`, client in `client.rs`, server in
 `crates/server/src/api/http.rs`). Nodes never reach the server.
 
