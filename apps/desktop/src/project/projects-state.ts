@@ -274,17 +274,6 @@ export function removeProjectSheet(name: string) {
   };
 }
 
-/// When a project was first imported, in words: "today", "yesterday",
-/// "3 days ago", "5 weeks ago". `at` and `now` are in milliseconds.
-export function importedWhen(at: number, now: number) {
-  const midnight = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
-  const days = Math.round((midnight(now) - midnight(at)) / 86400000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 14) return `${days} days ago`;
-  return `${Math.round(days / 7)} weeks ago`;
-}
-
 /// What the machines found of repository `repo`, null when none has it.
 export function foundFor(found: readonly FoundRow[] | null | undefined, repo: string) {
   const name = repo.toLowerCase();
@@ -297,16 +286,11 @@ export function awaitsView(project: { name: string; imported: boolean }, agents:
   return project.imported && (agents === undefined || !!agents?.some(a => a.name === project.name));
 }
 
-/// The line under a project's name: its host and when it was imported, or where
-/// it came from when it is not imported.
-export function projectLine(project: { name: string; imported: boolean; url?: string | null } | null | undefined, imported: readonly Pick<ProjectRow, "name" | "imported_at">[] | null | undefined, now: number) {
+/// The line under a project's name: its host, or where it came from.
+export function projectLine(project: { imported: boolean; url?: string | null } | null | undefined) {
   if (!project) return "";
   if (!project.imported) return "From running agents";
-  let host = "";
-  try { host = new URL(String(project.url)).host; } catch {}
-  const times = (imported || []).filter(r => r.name === project.name && r.imported_at).map(r => r.imported_at);
-  const when = times.length ? `imported ${importedWhen(Math.min(...times), now)}` : "";
-  return [host, when].filter(Boolean).join(" · ");
+  try { return new URL(String(project.url)).host; } catch { return ""; }
 }
 
 /// A row that keeps `i`, its place in the list it came from, for its colour.
