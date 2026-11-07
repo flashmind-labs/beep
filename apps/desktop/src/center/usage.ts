@@ -165,6 +165,18 @@ export function harnessLine(spend: HarnessSpend) {
   return tokens ? `${cost} · ${tokens}` : cost;
 }
 
+/// Tokens reported for each model across harnesses and billing types.
+export function modelTotals(harnesses: HarnessSpend[]): NamedTokens[] {
+  const totals = new Map<string, number>();
+  for (const harness of harnesses) {
+    for (const model of harness.models) {
+      if (model.tokens > 0) totals.set(model.name, (totals.get(model.name) ?? 0) + model.tokens);
+    }
+  }
+  return [...totals].map(([name, tokens]) => ({ name, tokens }))
+    .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
+}
+
 /// What the pill says of today: the dollars paid, else the tokens plans covered.
 export function todayLine(today: { total: Pick<Spend, "cost_usd">; tokens: number }) {
   return today.total.cost_usd > 0 || !today.tokens ? money(today.total.cost_usd) : tokenCount(today.tokens);
@@ -250,6 +262,11 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
       if (spend.models.length) row.title = spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n");
       block.append(row);
     }
+  }
+  const models = modelTotals(period.harnesses);
+  if (models.length) {
+    block.append(h("h5", "us-sub", h("span", "", "By model")));
+    for (const model of models) block.append(spendRow(h("small", "", model.name), "", tokenCount(model.tokens)));
   }
   const tokens = period.tokens ? tokenCount(period.tokens) : metered ? "" : unpricedLine(period.total.unpriced);
   const paid = period.total.cost_usd > 0 || !tokens;
