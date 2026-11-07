@@ -12,11 +12,12 @@ import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
+import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions, sessionsRead } from "./sessions.ts";
-import { closeSession } from "./closing.ts";
+import { closeSession, onClosing, shownStatus } from "./closing.ts";
+import { sessionOffers } from "./sessionmenu-state.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
@@ -37,7 +38,7 @@ import { onPlaces, placeOf } from "./place.ts";
 import { drawMove } from "./move.ts";
 import { MV, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
-import { placeSub } from "./place-state.ts";
+import { placeName, placeRepo } from "./place-state.ts";
 import { sameSession } from "./running-state.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
@@ -148,6 +149,7 @@ export async function pollAgent() {
       const news = hasNews(AG.page, page);
       // The older entries held stay while the newest are read again.
       AG.page = joinRuns(AG.page, page);
+      drawAgentHeading();
       // The frame around the log is drawn again; the log itself stays.
       if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));
       else if (field && $("#agconv")) drawAgentFrame(true, $<ChatBody>("#agbody"));
@@ -310,13 +312,47 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
   draw();
 }
 
-// The head names the worktree once the machine says the session is in one.
-onPlaces(() => {
+// Titles and checkout details can arrive after the frame first draws.
+function drawAgentHeading() {
   const s = AG.page?.session;
-  const here = document.getElementById("aghere");
-  // The machine menu in the head stays.
-  if (s && here && !here.querySelector(".mvb")) here.textContent = placeSub(placeOf(s), s.machine_name) ?? s.machine_name;
-});
+  if (!s) return;
+  drawSessionClose();
+  const title = $("#agtitle");
+  if (!title) return;
+  title.textContent = title.title = s.title || agentKind(s.agent).name;
+  const project = windowHooks?.sessionProject?.(s), place = placeOf(s);
+  const folder = $("#agproj"), branch = $("#agbranch");
+  if (folder) folder.textContent = project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || agentKind(s.agent).name;
+  if (branch) branch.textContent = place?.linked ? ` · ${placeName(place)}` : "";
+  const here = $("#aghere");
+  // Keep the machine menu when checkout details change.
+  if (here && !here.querySelector(".mvb")) here.textContent = s.machine_name;
+}
+onPlaces(drawAgentHeading);
+
+function drawSessionClose() {
+  const s = AG.page?.session, button = $<HTMLButtonElement>("#agclose");
+  if (!s || !button) return;
+  const status = shownStatus(s);
+  button.hidden = !sessionOffers({ ...s, status }).close;
+  button.disabled = status === "closing";
+  button.textContent = button.disabled ? "Closing…" : "Close session";
+}
+onClosing(() => { if (S.view === "agent") drawSessionClose(); });
+
+/// Closes the open session, preserving its conversation for later.
+export async function closeOpenSession() {
+  const s = AG.page?.session, o = AG.open;
+  if (AG.draft || !s || !o || shownStatus(s) === "closing" || !sessionOffers({ ...s, status: shownStatus(s) }).close) return;
+  try {
+    await closeSession(s);
+    if (isOpen(o)) agentBack();
+  } catch (e) {
+    if (!isOpen(o)) return;
+    AG.note = readError(e);
+    drawAgentBody();
+  }
+}
 
 /// A session started outside Beep that only shows here: still running there,
 /// or of an agent Beep cannot take over. A closed one continues from the field.
@@ -335,7 +371,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
-  const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b>${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : esc(shortCwd(s.cwd) || k.name)}</b><small id="aghere" title="${esc(s.cwd)}">${esc(placeSub(placeOf(s), s.machine_name) ?? s.machine_name)}</small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
+  const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b id="agtitle" title="${esc(s.title || k.name)}">${esc(s.title || k.name)}</b><small class="aglocation" title="${esc(s.cwd)}"><span class="agfolder">${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : `<span id="agproj">${esc(shortCwd(s.cwd) || k.name)}</span>`}<span id="agbranch"></span></span><span>@</span><span id="aghere">${esc(s.machine_name)}</span></small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span><button class="dbtn quiet" id="agclose" title="Close session (⇧⌘W)">Close session</button></div>`;
   const conv = `<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`;
   // Out of the page a box reads 0: it keeps where the reader left it.
   const keptTop = kept ? (kept.isConnected ? kept.scrollTop : kept.top ?? 0) : 0;
@@ -347,6 +383,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
+  drawAgentHeading();
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
   const place = { ...s, project: project?.name };
@@ -436,6 +473,7 @@ async function stopKid(x: HTMLElement) {
 function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
   const target = e.target as HTMLElement;
+  if (target.closest("#agclose")) return void closeOpenSession();
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
   if (target.closest("#agmodelb")) return toggleModelPicker();

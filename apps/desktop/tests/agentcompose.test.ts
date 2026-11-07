@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
 import { AG, type AgentPage, type AgentRow, agentKeys, drawAgents } from "../src/agents/agents.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { agentHints, pollAgent } from "../src/agents/session.ts";
+import { agentHints, closeOpenSession, pollAgent } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { switchSessionModel } from "../src/agents/modelpill.ts";
 import type { Waiting } from "../src/agents/agentqueue.ts";
@@ -206,4 +206,56 @@ test("replacing the shared session list does not change what a drawn row opens",
   // The fake bar cannot draw the session view; what matters is which session it set to open.
   try { agentKeys({ key: "Enter", preventDefault() {} } as KeyboardEvent, false); } catch {}
   assert.equal(AG.open?.session, "a1");
+});
+
+
+test("the open session title follows the title returned by its machine", async () => {
+  const page = openSession("idle");
+  const title = { textContent: "", title: "" };
+  show({ "#agtitle": title });
+  await read({ ...page, session: { ...page.session, title: "Fix the retry" } });
+  assert.equal(title.textContent, "Fix the retry");
+  assert.equal(title.title, "Fix the retry");
+});
+
+test("close refuses ended and external sessions and empty drafts", async () => {
+  for (const state of ["ended", "external", "draft"]) {
+    const page = openSession(state === "ended" ? "ended" : "idle");
+    page.session.external = state === "external";
+    AG.draft = state === "draft" ? "sample-project" : null;
+    show({});
+    await closeOpenSession();
+    assert.deepEqual(steers(), []);
+  }
+  AG.draft = null;
+});
+
+test("a refused close keeps the session open and shows the error", async () => {
+  openSession("idle");
+  const button = { hidden: false, disabled: false, textContent: "" };
+  show({ "#agclose": button });
+  refuse("agent_steer", "Machine is offline");
+  await closeOpenSession();
+  assert.deepEqual(steers(), ["close"]);
+  assert.equal(S.view, "agent");
+  assert.equal(AG.note, "Machine is offline");
+  assert.equal(button.disabled, false);
+  assert.equal(button.hidden, false);
+});
+
+test("Cmd+Shift+W closes once and a late reply leaves another page alone", async () => {
+  openSession("idle");
+  const button = { hidden: false, disabled: false, textContent: "" };
+  show({ "#agclose": button });
+  let prevented = 0;
+  const event = { key: "W", shiftKey: true, altKey: false, ctrlKey: false, isComposing: false, repeat: false, preventDefault() { prevented++; } } as KeyboardEvent;
+  assert.equal(agentKeys({ ...event, shiftKey: false } as KeyboardEvent, true), false);
+  assert.equal(agentKeys(event, true), true);
+  assert.equal(agentKeys(event, true), true);
+  assert.deepEqual(steers(), ["close"]);
+  assert.equal(prevented, 2);
+  assert.equal(button.disabled, true);
+  S.view = "agents";
+  await settle();
+  assert.equal(S.view, "agents");
 });
