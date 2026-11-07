@@ -235,18 +235,33 @@ pub fn detect(extra: &[AgentKind], node_dir: Option<&Path>) -> Vec<AgentKind> {
 pub(super) struct Detection {
     /// The agents the node can start.
     pub(super) kinds: Vec<AgentKind>,
-    /// The known agents whose CLI is here but not their ACP adapter, nor npx
-    /// to run it with.
+    /// The known agents whose CLI is here but lack a direct ACP adapter.
     pub(super) lacking: Vec<&'static Known>,
     /// The agents in `kinds` that run on the adapter the node installed.
     pub(super) on_own_node: Vec<&'static str>,
 }
 
 impl Detection {
+    fn record(&mut self, known: &'static Known, launch: Option<Launch>, home: Option<&Path>) {
+        match launch {
+            Some(Launch::Ready(kind)) => self.kinds.push(anchored(kind, home)),
+            Some(Launch::ViaNpx(kind)) => {
+                self.lacking.push(known);
+                self.kinds.push(anchored(kind, home));
+            }
+            Some(Launch::OnOwnNode(kind)) => {
+                self.on_own_node.push(known.name);
+                self.kinds.push(beside_cli(kind, known, home));
+            }
+            Some(Launch::LacksAdapter) => self.lacking.push(known),
+            None => {}
+        }
+    }
+
     pub(super) fn log(&self) {
         for known in &self.lacking {
-            log::warn!(
-                "{} found, but not its ACP adapter ({}), and there is no npx to run it with",
+            log::info!(
+                "{} found, but not its ACP adapter ({})",
                 known.cli,
                 known.adapter_bin().unwrap_or(known.cli)
             );
@@ -268,32 +283,22 @@ impl Detection {
 pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detection {
     let home = dirs::home_dir();
     let found = |program: &str| locate::find(program, home.as_deref()).is_some();
-    let mut kinds = Vec::new();
-    let mut lacking = Vec::new();
-    let mut on_own_node = Vec::new();
+    let mut detection = Detection {
+        kinds: Vec::new(),
+        lacking: Vec::new(),
+        on_own_node: Vec::new(),
+    };
     for known in KNOWN {
         let own = node_dir.and_then(|dir| adapters::installed(dir, known));
-        match launch(known, &found, own.as_ref()) {
-            Some(Launch::Ready(kind)) => kinds.push(anchored(kind, home.as_deref())),
-            Some(Launch::OnOwnNode(kind)) => {
-                on_own_node.push(known.name);
-                kinds.push(beside_cli(kind, known, home.as_deref()));
-            }
-            Some(Launch::LacksAdapter) => lacking.push(known),
-            None => {}
-        }
+        detection.record(known, launch(known, &found, own.as_ref()), home.as_deref());
     }
     for kind in extra {
-        kinds.retain(|known| known.name != kind.name);
-        lacking.retain(|known| known.name != kind.name);
-        on_own_node.retain(|name| *name != kind.name);
-        kinds.push(kind.clone());
+        detection.kinds.retain(|known| known.name != kind.name);
+        detection.lacking.retain(|known| known.name != kind.name);
+        detection.on_own_node.retain(|name| *name != kind.name);
+        detection.kinds.push(kind.clone());
     }
-    Detection {
-        kinds,
-        lacking,
-        on_own_node,
-    }
+    detection
 }
 
 /// `kind` set to start the program where `locate` found it when `PATH` does
@@ -332,8 +337,10 @@ fn beside_cli(mut kind: AgentKind, known: &Known, home: Option<&Path>) -> AgentK
 /// How the node can start a known agent whose CLI is installed.
 #[derive(Debug, PartialEq)]
 pub(super) enum Launch {
-    /// With what the machine has: the CLI, the adapter, or npx.
+    /// With what the machine has: the CLI or its adapter.
     Ready(AgentKind),
+    /// Usable while the node installs a direct adapter.
+    ViaNpx(AgentKind),
     /// With the adapter the node installed, on the node's own Node.
     OnOwnNode(AgentKind),
     /// Its CLI is here, but neither its ACP adapter nor npx to run it with:
@@ -391,6 +398,8 @@ pub(super) fn launch(
     };
     Some(if on_own_node {
         Launch::OnOwnNode(kind)
+    } else if kind.program == "npx" {
+        Launch::ViaNpx(kind)
     } else {
         Launch::Ready(kind)
     })
@@ -452,9 +461,24 @@ mod tests {
         assert_eq!(PathBuf::from(&kind.program), own.node);
         assert_eq!(kind.args, vec![own.script.to_string_lossy().into_owned()]);
 
-        let Some(Launch::Ready(kind)) = launch(known("claude"), &with_npx, None) else {
+        let Some(Launch::ViaNpx(kind)) = launch(known("claude"), &with_npx, None) else {
             panic!("npx");
         };
         assert_eq!(kind.program, "npx");
+    }
+
+    #[test]
+    fn npx_fallback_is_offered_while_the_direct_adapter_is_installed() {
+        let codex = known("codex");
+        let mut detection = Detection {
+            kinds: Vec::new(),
+            lacking: Vec::new(),
+            on_own_node: Vec::new(),
+        };
+        detection.record(codex, launch(codex, &has(&["codex", "npx"]), None), None);
+        assert_eq!(detection.kinds.len(), 1);
+        assert_eq!(detection.kinds[0].program, "npx");
+        assert_eq!(detection.lacking.len(), 1);
+        assert_eq!(detection.lacking[0].name, "codex");
     }
 }
