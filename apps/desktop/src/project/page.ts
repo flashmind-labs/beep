@@ -75,6 +75,7 @@ export function drawProjects(el: HTMLElement) {
 }
 
 registerView("projects", {
+  currentArg: () => ({ project: state.picked, tile: pa.tile }),
   title() {
     if (!state.picked) {
       const rows = projectRows();
@@ -124,7 +125,7 @@ registerView("projects", {
       if (pages.due("gitsync", state.picked)) gitDue.add(state.picked);
       noteRecent(state.picked);
     }
-    openTile(pa.run ? "actions" : null, false);
+    openTile(pa.run ? "actions" : (arg as ProjectsArg | undefined)?.tile ?? null, false);
     resetRows("projects-overview");
     drawProjects(el);
     if (state.picked) revalidate(state.picked);
