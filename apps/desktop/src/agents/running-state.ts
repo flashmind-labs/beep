@@ -70,10 +70,12 @@ export function runningLine(
 export const runningAt = (r: (Pick<RunningAgent, "kind" | "started_at" | "last_activity"> & { status?: string }) | Pick<RunningResearch, "kind" | "started_at">) =>
   r.kind !== "agent" ? r.started_at : r.status === "working" ? Date.now() : r.last_activity || r.started_at;
 
-/// What a Running now row says for its time. A session Beep started reports
-/// only its start, so one between turns says idle, not how long ago it began.
-export const runningWhen = (r: Parameters<typeof runningAt>[0]) =>
-  r.kind === "agent" && r.status === "idle" ? "idle" : ago(runningAt(r));
+/// Idle sessions show how long ago they were last active.
+export function runningWhen(r: Parameters<typeof runningAt>[0]) {
+  const time = ago(runningAt(r));
+  if (r.kind !== "agent" || r.status !== "idle" || time === "now") return time;
+  return `${time.replace(" min", "m").replace(" h", "h").replace(" d", "d")} ago`;
+}
 
 /// Running now rows, the one that moved last first.
 export function byRecent<T extends Parameters<typeof runningAt>[0]>(rows: readonly T[]) {
