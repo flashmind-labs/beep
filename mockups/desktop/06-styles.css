@@ -1,0 +1,40 @@
+/* batch-c terminals */
+.mac .tm-panel { display: grid; gap: 0; overflow: hidden }
+.mac .tm-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--d-border); font-size: 12.5px; color: var(--d-muted) }
+.mac .tm-head b { color: var(--d-fg); font-weight: 600 }
+.mac .tm-head .tm-st { margin-left: auto }
+.mac .tm-screen { margin: 0; min-height: 280px; max-height: 52vh; overflow: auto; padding: 12px 14px; background: color-mix(in srgb, #000 35%, transparent); font: 12px/1.6 var(--mono, ui-monospace, monospace); color: color-mix(in srgb, var(--d-fg) 90%, transparent); white-space: pre-wrap; user-select: text }
+.mac .tm-screen .tm-cmd { color: var(--d-muted) }
+.mac .tm-head .small { flex: none }
+.mac .tm-xterm { height: 52vh; min-height: 280px; padding: 8px 10px; background: color-mix(in srgb, var(--d-ink) 80%, #000) }
+.mac .tm-xterm .xterm { height: 100% }
+.mac .tm-xterm .xterm-viewport { background: color-mix(in srgb, var(--d-ink) 80%, #000) !important }
+.mac .tm-foot { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; font-size: 11.5px; color: var(--d-muted) }
+.mac .tm-form { display: grid; gap: 10px; padding: 12px }
+.mac .tm-f { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 12.5px }
+.mac .tm-f > span { color: var(--d-muted) }
+.mac .tm-f input { padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, #000 25%, transparent); color: var(--d-fg); font: 12.5px var(--mono, ui-monospace, monospace); outline: 0; user-select: text }
+.mac .tm-f input:focus { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }
+.mac .tm-chips { display: flex; gap: 6px; flex-wrap: wrap }
+.mac .tl-view { display: flex; flex-direction: column }
+.mac .tl { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; min-height: 0; flex: 1; align-items: start }
+.mac .tl-list { display: grid; align-content: start; gap: 12px; overflow-y: auto; max-height: calc(100vh - 140px) }
+.mac .tl-m h5 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--d-muted) }
+.mac .tl-m h5 .dbtn { margin-left: auto; min-height: 20px; padding: 0 7px; font-size: 11.5px }
+.mac .tl-it { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 2px 8px; align-items: center; width: 100%; text-align: left; padding: 7px 9px; border-radius: var(--radius-sm); border: 1px solid transparent; background: none; color: var(--d-fg); font: inherit; cursor: pointer }
+.mac .tl-it:hover { background: color-mix(in srgb, var(--d-fg) 4%, transparent) }
+.mac .tl-it[aria-current="true"] { background: var(--d-elev); border-color: var(--d-border) }
+.mac .tl-it b { font-family: var(--mono, ui-monospace, monospace); font-weight: 500; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .tl-it small { grid-column: 2; color: var(--d-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .tl-empty { font-size: 12px; color: var(--d-muted); padding: 4px 9px }
+.mac .tl > .cc-conn { min-height: 320px }
+.mac .tm-form .tm-title { font-size: 13.5px; font-weight: 600 }
+.mac .tl-list { max-height: 720px }
+.mac .tm-screen { max-height: 420px }
+.mac .tm-xterm { height: 420px }
+.mac .tm-term { margin: 0; height: 100%; overflow: hidden; white-space: pre; font: 12px/1.2 var(--mono, ui-monospace, monospace); color: #CFE3D8 }
+.mac .tm-term .g { color: #6FCF97 } .mac .tm-term .d { color: #6B7D73 } .mac .tm-term .y { color: #E9B949 }
+.mac .tm-term .cur { display: inline-block; width: 7px; height: 14px; vertical-align: -3px; background: #6FCF97 }
+.mac .tm-screen .g, .mac .tm-screen .d, .mac .tm-screen .y { color: inherit }
+.mac .dbtn:disabled { opacity: .5; cursor: default }
+.mac .tl-view > .cc-err { color: var(--d-err); font-size: 12px }
