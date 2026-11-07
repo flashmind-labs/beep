@@ -69,22 +69,17 @@
   // review requests and finished agents. One button per row.
   const NEEDS = [
     [kind("wait", IC.ask), "May it run xcodebuild on laptop?", "Claude Code · you/site · Swipeable approval strip", btn("Answer", "pri")],
-    [kind("ok", IC.done), "Clippy fixes in the sync crate finished", `acme/api · build-box · <span class="ix-diff"><span class="a">+84</span> <span class="d">−31</span></span> in 6 files`, btn("Review", "pri")],
-    [kind("bad", IC.ci), "#41 Cut the cache warm-up in half: checks failing", "acme/api · your pull request · build.yml #351", btn("Fix with an agent")],
-    [kind("", IC.pr), "#12 Move the blog to the new theme wants your review", "you/site · sam · 5 h", btn("Review")],
-    [kind("wait", IC.sync), "notes.txt has two copies", "acme/widget · build-box and studio differ", btn("Resolve")],
+    [kind("bad", IC.pr), "#41 Cut the cache warm-up in half", "acme/api · checks failing", btn("Open")],
+    [kind("", IC.pr), "#12 Move the blog to the new theme", "you/site · your review", btn("Review")],
+    [kind("wait", IC.sync), "notes (conflict 1a2b3c4d).txt", "acme/widget · Another copy of notes.txt · on build-box, studio", btn("Resolve")],
   ];
   const needs = () => sec("Needs you", NEEDS.length, panel(NEEDS.map(([k, t, s, b]) => ln(k, t, s, b)).join("")));
 
   const RUN = [["claude", "Swipeable approval strip on iOS", "you/site", "laptop", "fix-approval", tg("wait", "needs you")],
     ["codex", "Fix the device build script", "acme/api", "build-box", "main", "4 min"],
     ["claude", "Retry uploads when the token expires", "acme/widget", "build-box", "retry-upload", "31 min"]];
-  const runTable = () => sec("Running", RUN.length, panel(`<div class="ix-tbl" style="grid-template-columns:minmax(0,1.6fr) minmax(0,.8fr) minmax(0,.7fr) minmax(0,.8fr) auto">`
-    + ["Task", "Project", "Machine", "Branch", ""].map(t => `<span class="th">${t}</span>`).join("")
-    + RUN.map(([a, t, p, m, b, w]) => `<span>${ag(a)}${t}</span><span class="mu">${p}</span><span class="mu">${m}</span><span class="mono">${b}</span><span class="end mu">${w}</span>`).join("") + `</div>`));
+  const runRows = () => sec("Running", RUN.length, panel(RUN.map(([a, t, p, m, , w]) => ln(ag(a), t, `${p} · ${m}`, w)).join("")));
 
-  const DONE = [["claude", "Bump the toolchain", "acme/widget · studio · merged #39", "11:20"], ["codex", "Pin the SDK to 4.2", "acme/api · build-box · ended, 2 files", "09:05"], ["claude", "Draft the release notes", "you/site · laptop · stopped by you", "08:40"]];
-  const done = () => sec("Done today", DONE.length, panel(DONE.map(([a, t, s, w]) => ln(ag(a), t, s, w)).join("")));
   const coming = () => sec("Coming up", CC_COMING.length, panel(CC_COMING.map(c => ln(`<span class="cc-when"><b>${c[0]}</b>${c[1]}</span>`, c[2], c[3], "")).join("")));
 
   const PROJ = [
@@ -99,8 +94,8 @@
   D.dIdeaHome = () => {
     const v = S.d.ixh || "attention";
     const body = v === "attention"
-      ? note("<b>Attention first.</b> One <b>Needs you</b> list holds asks, finished agents, red CI on your PRs, review requests and sync conflicts, each with one button. Running is a table. Projects leave Home (the sidebar and Projects page have them) and Terminals move to the Machines tab. Updates show only with a server.")
-        + needs() + runTable() + `<div class="cc-cols">${done()}${coming()}</div>`
+      ? note("<b>Attention first (built, #466).</b> One <b>Needs you</b> list holds agents' questions, chat approvals, PRs waiting on you and sync conflicts, each with one button. Running lists every session. Projects, Terminals, PR and Issue boxes leave Overview: the sidebar, the PRs and issues tab and the Machines tab have them. Updates show only with a server.")
+        + needs() + runRows() + coming()
       : note("<b>By project.</b> Each project with something going on gets a card: its agents, its PRs and CI, its conflicts. Quiet projects fold into one line. Needs you is the same list, so the cards repeat it in context.")
         + byProject() + coming();
     const main = `<div class="cc-top"><h2>Home</h2><small>Saturday, 7 November</small><span class="tools"></span></div>
@@ -111,9 +106,9 @@
 
   // ---------- Project page ----------
 
-  const pjStrip = () => strip([["", "main", "branch"], ["bad", "CI", "failing · build.yml #351", "bad"], ["busy", "2 agents", "build-box, studio"], ["", "3 of 4 machines", "in sync · mini-box 42%"], ["", "2 PRs", "1 needs reply"], ["", "2 issues", "open"]]);
+  const pjStrip = () => strip([["", "main", "branch"], ["", "Actions", "1 running · 1 failed", "bad"], ["", "2 agents", "running"], ["", "Machines", "3/4 · 1 terminal"], ["", "2 PRs", "1 needs a reply"], ["", "2 issues", "open"]]);
   // A flat list: what needs you, then each part with a count. No summary rows, no Agents next to Running.
-  const NAV = [["Overview", "", ""], ["Needs you", "1", "wait"], ["Running", "2", ""], null, ["Pull requests", "2", ""], ["Issues", "2", ""], ["Actions", "1 failed", "bad"], ["Machines", "3 of 4", ""], null, ["Sessions", "14", ""], ["Tasks", "3", ""], ["Branches", "5", ""], ["Files", "", ""]];
+  const NAV = [["Overview", "", ""], ["Needs you", "1", "wait"], ["Running", "2", ""], null, ["Actions", "1 failed", "bad"], ["Machines", "3/4", ""], ["File sync", "in sync", ""], ["Issues", "2 open", ""], null, ["Tasks", "3", ""], ["Sessions", "14 past", ""], ["Branches", "5", ""]];
   const nav = () => `<div class="pj-list ix-flat">${NAV.map((n, i) => !n ? "<hr>" : `<button class="pj-li"${i === 0 ? ' aria-current="true"' : ""}><span>${n[0]}</span><span class="c${n[2] ? " " + n[2] : ""}">${n[1]}</span></button>`).join("")}</div>`;
   const pjComp = () => `<form class="cc-pjc" onsubmit="return false"><div class="box"><textarea rows="1" placeholder="Describe a task for a coding agent in acme/widget"></textarea><div class="row"><button class="pill" type="button">build-box</button><button class="pill" type="button">Current checkout <small>as it is</small></button><span class="sp"></span><button class="pill" type="button">${ag("claude")}Claude Code <small>Default · Medium</small></button><button class="dbtn pri" data-toast="Started">Start<kbd>${DI.ret}</kbd></button></div></div></form>`;
 
@@ -124,7 +119,7 @@
     + MACH.map(([d, m, f, b, s, x]) => `<span><span class="ddot ${d}"></span>${m}</span><span class="mono">${f}</span><span class="mono">${b}</span><span>${s}</span><span class="mu">${x}</span><span class="end">${d === "bad" ? btn("Fix with an agent") : `<button class="dbtn quiet small" aria-label="More" data-toast="Start an agent here, Open in Finder, Copy path, Remove">⋯</button>`}</span>`).join("")
     + `</div>`), `<button class="dbtn quiet small" data-toast="Add to laptop">Add to laptop</button>`);
 
-  const overviewA = () => note("<b>Status strip and a docked composer.</b> The strip says branch, CI, agents, sync, PRs and issues at a glance; each opens its part. The list is flat, with no summary rows and no Agents next to Running. The overview keeps one place per fact: CI shows on the PR row, not again under Actions. Machines is a table with one ⋯ per row; only a broken row gets a button. The composer docks under the detail instead of floating over it.")
+  const overviewA = () => note("<b>Status strip (built, #466).</b> The strip says branch, Actions, agents, machines, PRs and issues; each opens its row of the list. The list loses its Project and Work headings, and Agents becomes Sessions (past sessions and custom agents), since running agents have their own rows. Actions leaves the overview: the strip and the list have it. Under Machines, Start an agent here, Open in Finder and Copy path go in one ⋯ menu; a fix keeps its button.")
     + sec("Needs you", 1, panel(ln(kind("wait", "?"), "The project agent waits on you", "Plan for #92 Auto-sync the SDK docs: 3 steps on build-box", btn("Open plan", "pri"))))
     + sec("Running", 2, panel(ln(ag("claude"), "Swipeable approval strip", "build-box · fix-approval", "now") + ln(ag("codex"), "Fix the device build script", "studio · main", "3 min")))
     + `<div class="cc-cols">${sec("Pull requests", 2, panel(ln(kind("bad", "PR"), "#41 Cut the cache warm-up in half", "sam · 5 d · checks failing", tg("wait", "needs reply")) + ln(kind("ok", "PR"), "#38 Bump the sync crate", "you · 9 d · checks passing", tg("run", "ready"))))}${sec("Issues", 2, panel(ln(kind("", "#"), "#92 Auto-sync the SDK docs", "contributor-a · 32 d · docs, ci", "") + ln(kind("", "#"), "#53 Publish the CLI like the SDK", "contributor-b · 173 d · release", "")))}</div>`

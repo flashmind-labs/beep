@@ -2,7 +2,8 @@
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
 import { ago, base, reason, since } from "../ui/format.ts";
-import { copyButton, dbtn as button, emptyPanel, fitRows, freshNote, svgEl } from "../ui/parts.ts";
+import { copy, dbtn as button, emptyPanel, fitRows, freshNote, svgEl } from "../ui/parts.ts";
+import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -276,9 +277,15 @@ export function whereRow(p: Project, m: WhereRow) {
   const name = h("span", "nm", h("b", "", m.name));
   if (m.kind === "here") {
     const path = m.folder!;
-    const start = button("Start an agent here", "small", () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }));
-    const copy = copyButton(path, "Copy path", "dbtn quiet small");
-    const finder = m.mac ? button("Open in Finder", "quiet small", () => invoke("open_folder", { path }).catch(e => console.warn("open folder:", e))) : null;
+    // One menu instead of a row of buttons; what needs fixing keeps its button.
+    const items: MenuItem[] = [
+      { label: "Start an agent here", on: () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }) },
+      ...(m.mac ? [{ label: "Open in Finder", on: () => void invoke("open_folder", { path }).catch(e => console.warn("open folder:", e)) }] : []),
+      { label: "Copy path", on: () => void copy(path) },
+    ];
+    const more = button("⋯", "quiet small", e => openMenu(e, m.name, items));
+    more.title = "More";
+    more.setAttribute("aria-label", `More for ${m.name}`);
     const shown = plainPath(path);
     const folder = h("span", "nm", h("span", "os", shown));
     folder.title = shown;
@@ -300,7 +307,7 @@ export function whereRow(p: Project, m: WhereRow) {
     }
     const git = gitCells(p, m);
     if (git.note) folder.append(h("span", "gs-line", git.note));
-    return [name, folder, h("span", "acts", ...git.buttons, finder, copy, start)];
+    return [name, folder, h("span", "acts", ...git.buttons, more)];
   }
   const key = `${p.name}\n${m.id}`;
   const copied = copies.get(key);
