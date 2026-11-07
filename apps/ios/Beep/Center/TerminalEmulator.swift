@@ -15,12 +15,12 @@ import UIKit
     private(set) var rows = 0
     private var fontSize: CGFloat = 11
     private var pinchStart: CGFloat = 11
-    private var readOnly = false
+    private var readOnly = true
 
-    var onInput: ([UInt8]) -> Void = { _ in }
-    /// Called when the grid size changes after the first layout.
-    var onResize: (Int, Int) -> Void = { _, _ in }
-    private var sizeWaiter: CheckedContinuation<(Int, Int), Never>?
+    /// Set while a stream is attached, cleared with `disconnect()`.
+    private var onInput: (([UInt8]) -> Void)?
+    private var onResize: ((Int, Int) -> Void)?
+    private var sizeWaiter: (id: UUID, continuation: CheckedContinuation<(Int, Int)?, Never>)?
 
     override init() {
         super.init()
@@ -28,30 +28,59 @@ import UIKit
         view.nativeBackgroundColor = Self.background
         view.nativeForegroundColor = Self.foreground
         view.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        view.inputAccessoryView = keyBar
         keyBar.send = { [weak self] in self?.input($0) }
         view.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinch)))
     }
 
-    /// The grid size once the view has been laid out.
-    func size() async -> (Int, Int) {
+    /// The grid size once the view has been laid out, or nil if the caller is cancelled first.
+    /// A newer call replaces an older waiter, which gets nil.
+    func size() async -> (Int, Int)? {
         if cols > 0 { return (cols, rows) }
-        return await withCheckedContinuation { sizeWaiter = $0 }
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled { continuation.resume(returning: nil); return }
+                sizeWaiter?.continuation.resume(returning: nil)
+                sizeWaiter = (id, continuation)
+            }
+        } onCancel: {
+            Task { @MainActor in self.dropWaiter(id) }
+        }
     }
+
+    private func dropWaiter(_ id: UUID) {
+        guard sizeWaiter?.id == id else { return }
+        sizeWaiter?.continuation.resume(returning: nil)
+        sizeWaiter = nil
+    }
+
+    /// Starts sending input and size changes. A resize that happened since `attachedAt` is sent now.
+    func connect(attachedAt: (Int, Int), input: @escaping ([UInt8]) -> Void, resize: @escaping (Int, Int) -> Void) {
+        onInput = input; onResize = resize
+        if (cols, rows) != attachedAt, !readOnly { resize(cols, rows) }
+    }
+
+    func disconnect() { onInput = nil; onResize = nil }
 
     func feed(_ data: [UInt8]) { view.feed(byteArray: data[...]) }
 
     func reset() { view.getTerminal().resetToInitialState() }
 
-    /// Hides the key bar and the keyboard, and drops typed input.
+    /// Hides the key bar and the keyboard, and sends nothing: no input and no resize. Output keeps
+    /// coming. Leaving read-only sends the current grid once.
     func setReadOnly(_ value: Bool) {
+        guard value != readOnly else { return }
         readOnly = value
         view.inputAccessoryView = value ? nil : keyBar
         view.reloadInputViews()
-        if value { _ = view.resignFirstResponder() } else { _ = view.becomeFirstResponder() }
+        if value { _ = view.resignFirstResponder() }
+        else {
+            _ = view.becomeFirstResponder()
+            if cols > 0 { onResize?(cols, rows) }
+        }
     }
 
-    private func input(_ bytes: [UInt8]) { if !readOnly { onInput(bytes) } }
+    private func input(_ bytes: [UInt8]) { if !readOnly { onInput?(bytes) } }
 
     @objc private func pinch(_ gesture: UIPinchGestureRecognizer) {
         if gesture.state == .began { pinchStart = fontSize }
@@ -65,8 +94,8 @@ import UIKit
         MainActor.assumeIsolated {
             guard newCols > 0, newRows > 0, (newCols, newRows) != (cols, rows) else { return }
             cols = newCols; rows = newRows
-            if let waiter = sizeWaiter { sizeWaiter = nil; waiter.resume(returning: (newCols, newRows)) }
-            else { onResize(newCols, newRows) }
+            if let waiter = sizeWaiter { sizeWaiter = nil; waiter.continuation.resume(returning: (newCols, newRows)) }
+            else if !readOnly { onResize?(newCols, newRows) }
         }
     }
 
@@ -91,9 +120,7 @@ struct TerminalEmulator: UIViewRepresentable {
     let model: TerminalEmulatorModel
 
     func makeUIView(context: Context) -> SwiftTerm.TerminalView {
-        let view = model.view
-        DispatchQueue.main.async { _ = view.becomeFirstResponder() }
-        return view
+        model.view
     }
 
     func updateUIView(_ view: SwiftTerm.TerminalView, context: Context) {}
