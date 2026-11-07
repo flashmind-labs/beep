@@ -27,6 +27,8 @@ import com.flashmind.beep.LinkedDevicesScreen
 import com.flashmind.beep.LocalTabRoot
 import com.flashmind.beep.MachinesScreen
 import com.flashmind.beep.ProjectsScreen
+import com.flashmind.beep.LocalOpenTerminal
+import com.flashmind.beep.TerminalScreen
 import com.flashmind.beep.TerminalsScreen
 import com.flashmind.beep.WorkspaceError
 import com.flashmind.beep.WorkspaceLoading
@@ -51,6 +53,7 @@ private sealed interface Pushed {
     data class Session(val session: MachineSession) : Pushed
     data class SessionById(val machine: String, val agent: String, val id: String) : Pushed
     data class Project(val name: String) : Pushed
+    data class Terminal(val terminal: com.flashmind.beep.proto.Terminal) : Pushed
 }
 
 /** What a linked phone opens on: the five tabs of the command center. */
@@ -65,6 +68,7 @@ internal fun CenterRoot(repository: ChatRepository) {
     }
     fun push(screen: Pushed) { stack.add(screen) }
     fun pop() { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) }
+    val openTerminal: (com.flashmind.beep.proto.Terminal) -> Unit = { push(Pushed.Terminal(it)) }
 
     // The notification permission is asked for when the user turns on a setting or the first ask arrives.
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -105,6 +109,7 @@ internal fun CenterRoot(repository: ChatRepository) {
     val top = stack.lastOrNull()
     if (top != null) {
         Box(Modifier.fillMaxSize().background(Beep.colors.page)) {
+          CompositionLocalProvider(LocalOpenTerminal provides openTerminal) {
             when (top) {
                 Pushed.Bell -> Padded(::pop) { BellScreen(::pop) { notice ->
                     if (notice.machineId.isNotEmpty()) push(Pushed.SessionById(notice.machineId, notice.agent, notice.session))
@@ -117,13 +122,15 @@ internal fun CenterRoot(repository: ChatRepository) {
                 is Pushed.Session -> CodingAgentsScreen(repository, initialSession = top.session, onBack = ::pop)
                 is Pushed.SessionById -> SessionById(repository, top, ::pop)
                 is Pushed.Project -> ProjectsScreen(repository, initialProject = top.name, onBack = ::pop)
+                is Pushed.Terminal -> TerminalScreen(repository, top.terminal, ::pop)
             }
+          }
         }
         return
     }
     Column(Modifier.fillMaxSize().background(Beep.colors.page)) {
         Box(Modifier.weight(1f)) {
-            CompositionLocalProvider(LocalTabRoot provides true) {
+            CompositionLocalProvider(LocalTabRoot provides true, LocalOpenTerminal provides openTerminal) {
                 when (tab) {
                     CenterTab.Home -> Box(Modifier.statusBarsPadding()) { HomeScreen(repository, model, openBell = { push(Pushed.Bell) }, openSettings = { push(Pushed.Settings) },
                         openMachines = { tab = CenterTab.Machines }, openSession = { push(Pushed.Session(it)) },
