@@ -152,6 +152,7 @@ pub fn user_html(markdown: &str) -> String {
         | Options::ENABLE_GFM;
     let events = Parser::new_ext(&source, options).map(|event| match event {
         Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
+        Event::SoftBreak => Event::HardBreak,
         other => other,
     });
     let mut out = String::with_capacity(source.len() * 3 / 2);
@@ -628,6 +629,20 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn user_message_preserves_line_breaks_and_code() {
+        let html =
+            user_html("{thought}\n{tools collapsed}\n`inline`\n\n```text\nfirst\nsecond\n```");
+        assert!(
+            html.contains("{thought}<br>\n{tools collapsed}<br>\n<code>inline</code>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("first\nsecond\n</code>"),
+            "{html}"
+        );
+    }
 
     #[test]
     fn a_users_message_is_markdown_with_raw_html_as_text() {
