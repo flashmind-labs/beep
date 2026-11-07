@@ -4,7 +4,7 @@
 
 use super::{
     Syncs,
-    gitdir::{Checkout, Oid},
+    gitdir::{Checkout, Oid, Repo},
     map::{Entry, Replica},
     project::{Cursor, Shared},
 };
@@ -16,15 +16,16 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use serde::{Deserialize, Serialize};
-use std::{fmt, sync::Arc, time::Duration};
+use std::{fmt, process::Stdio, sync::Arc, time::Duration};
 use tokio::{
-    task::JoinSet,
+    io::{AsyncReadExt, AsyncWriteExt},
+    task::{JoinSet, spawn_blocking},
     time::{Instant, sleep, timeout},
 };
 
 /// Every batch carries its scanned checkout. Earlier versions cannot
 /// enforce that base when Git changes during a pull.
-pub(crate) const ALPN: &[u8] = b"beep-sync/6";
+pub(crate) const ALPN: &[u8] = b"beep-sync/7";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
@@ -51,6 +52,12 @@ enum Request {
         #[serde(default)]
         copy_git: bool,
     },
+    GitObjects {
+        project: String,
+        commit: Oid,
+        branch: String,
+        have: Option<Oid>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,6 +76,8 @@ enum Reply {
         behind: Option<u64>,
         #[serde(default)]
         has_git: bool,
+        #[serde(default)]
+        branch: Option<String>,
     },
     /// Changes of `replica` up to its change `upto`.
     Changes {
@@ -80,6 +89,11 @@ enum Reply {
     Refused {
         message: String,
     },
+    GitChunk {
+        #[serde(with = "serde_bytes")]
+        bytes: Vec<u8>,
+    },
+    GitDone,
 }
 
 /// Answers other nodes' pulls.
@@ -141,6 +155,24 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             since,
             copy_git,
         }) => (project, replica, since, copy_git),
+        Some(Request::GitObjects {
+            project,
+            commit,
+            branch,
+            have,
+        }) => {
+            let Some(shared) = syncs
+                .project(&project)
+                .filter(|shared| shared.has_peer(&peer) && syncs.allows(&peer))
+            else {
+                return tx
+                    .send(&Reply::Refused {
+                        message: "This project is not shared with this peer.".into(),
+                    })
+                    .await;
+            };
+            return serve_objects(&syncs, &shared, peer, &mut tx, commit, &branch, have).await;
+        }
         Some(Request::Handoff { project }) => {
             if !syncs
                 .project(&project)
@@ -202,6 +234,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
         commit: head.commit,
         behind: shared.last_change_after(since),
         has_git: head.present,
+        branch: git_branch(shared.root()).await?,
     })
     .await?;
     let mut seq = shared.subscribe();
@@ -225,6 +258,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                 commit: head.commit,
                 behind: shared.last_change_after(since),
                 has_git: head.present,
+                branch: git_branch(shared.root()).await?,
             })
             .await?;
         }
@@ -323,6 +357,7 @@ async fn pull_once(
                 commit,
                 behind,
                 has_git,
+                branch,
             } => {
                 // A connection that worked: losing it is no reason to wait long.
                 *wait = FIRST_RETRY;
@@ -332,6 +367,50 @@ async fn pull_once(
                     peer.id,
                     started.elapsed()
                 );
+                shared.observe_head(
+                    &peer.id,
+                    Checkout {
+                        commit,
+                        present: has_git,
+                    },
+                    branch.clone(),
+                );
+                let own = shared.head().await?;
+                if own.differs(Checkout {
+                    commit,
+                    present: has_git,
+                }) && !shared.copies_git()
+                    && let (Some(target), Some(remote_branch)) = (commit, branch.as_deref())
+                {
+                    let root = shared.root().to_owned();
+                    let remote_branch = remote_branch.to_owned();
+                    let (need, have) = spawn_blocking(move || -> Result<_> {
+                        let repo = Repo::open(&root).context("Git checkout is unavailable")?;
+                        repo.require_clean()?;
+                        if repo.head_ref().as_deref() != Some(remote_branch.as_str()) {
+                            bail!("Git commits differ between branches");
+                        }
+                        let have = repo.head();
+                        Ok((
+                            have.is_some_and(|oid| {
+                                repo.is_ancestor(target, oid).is_none()
+                                    && repo.is_ancestor(oid, target).is_none()
+                            }),
+                            have,
+                        ))
+                    })
+                    .await??;
+                    if need {
+                        receive_objects(
+                            &connection,
+                            shared,
+                            target,
+                            branch.as_deref().unwrap_or_default(),
+                            have,
+                        )
+                        .await?;
+                    }
+                }
                 shared
                     .first_contact(
                         &peer.id,
@@ -339,6 +418,7 @@ async fn pull_once(
                             commit,
                             present: has_git,
                         },
+                        branch,
                     )
                     .await?;
                 last = behind;
@@ -367,10 +447,134 @@ async fn pull_once(
                 }
             }
             Reply::Refused { message } => bail!("the peer refused: {message}"),
-            Reply::Handoff { .. } => bail!("the peer answered another request"),
+            Reply::Handoff { .. } | Reply::GitChunk { .. } | Reply::GitDone => {
+                bail!("the peer answered another request")
+            }
         }
     }
     Ok(())
+}
+
+/// The branch is checked separately from the object ID before moving a checkout.
+async fn git_branch(root: &std::path::Path) -> Result<Option<String>> {
+    let root = root.to_owned();
+    Ok(spawn_blocking(move || Repo::open(&root).and_then(|repo| repo.head_ref())).await?)
+}
+
+async fn serve_objects(
+    syncs: &Syncs,
+    shared: &Shared,
+    peer: iroh::EndpointId,
+    tx: &mut LinkTx,
+    commit: Oid,
+    branch: &str,
+    have: Option<Oid>,
+) -> Result<()> {
+    let root = shared.root().to_owned();
+    let branch = branch.to_owned();
+    let (command, input) = spawn_blocking(move || -> Result<_> {
+        let repo = Repo::open(&root).context("Git checkout is unavailable")?;
+        if repo.head() != Some(commit) || repo.head_ref().as_deref() != Some(branch.as_str()) {
+            bail!("The peer checkout changed; retrying sync");
+        }
+        let mut input = format!("{}\n", commit.hex());
+        if let Some(have) = have.filter(|have| repo.is_ancestor(*have, commit) == Some(true)) {
+            input.push_str(&format!("^{}\n", have.hex()));
+        }
+        let mut command = repo.git();
+        command
+            .args(["pack-objects", "--stdout", "--revs"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        Ok((command, input))
+    })
+    .await??;
+    let mut command = tokio::process::Command::from(command);
+    command.kill_on_drop(true);
+    let mut child = command.spawn()?;
+    let mut stdin = child.stdin.take().context("pack input missing")?;
+    stdin.write_all(input.as_bytes()).await?;
+    drop(stdin);
+    let mut stdout = child.stdout.take().context("pack output missing")?;
+    let mut buffer = vec![0; 64 * 1024];
+    loop {
+        let n = stdout.read(&mut buffer).await?;
+        if n == 0 {
+            break;
+        }
+        if !syncs.allows(&peer) || !shared.has_peer(&peer) || shared.is_stopped() {
+            bail!("Project sharing stopped");
+        }
+        tx.send(&Reply::GitChunk {
+            bytes: buffer[..n].to_vec(),
+        })
+        .await?;
+    }
+    if !child.wait().await?.success() {
+        bail!("Git could not create the object pack");
+    }
+    tx.send(&Reply::GitDone).await
+}
+
+async fn receive_objects(
+    connection: &Connection,
+    shared: &Shared,
+    commit: Oid,
+    branch: &str,
+    have: Option<Oid>,
+) -> Result<()> {
+    timeout(Duration::from_secs(300), async {
+        let (send, recv) = connection.open_bi().await?;
+        let (mut tx, mut rx) = link(send, recv);
+        tx.send(&Request::GitObjects {
+            project: shared.name().to_owned(),
+            commit,
+            branch: branch.to_owned(),
+            have,
+        })
+        .await?;
+        let root = shared.root().to_owned();
+        let command = spawn_blocking(move || -> Result<_> {
+            let repo = Repo::open(&root).context("Git checkout is unavailable")?;
+            let mut command = repo.git();
+            command
+                .args(["index-pack", "--stdin", "--fix-thin"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            Ok(command)
+        })
+        .await??;
+        let mut command = tokio::process::Command::from(command);
+        command.kill_on_drop(true);
+        let mut child = command.spawn()?;
+        let mut stdin = child.stdin.take().context("pack input missing")?;
+        let mut total = 0u64;
+        loop {
+            match rx.recv::<Reply>().await? {
+                Some(Reply::GitChunk { bytes }) => {
+                    total = total
+                        .checked_add(bytes.len() as u64)
+                        .context("Git pack too large")?;
+                    if total > 2 * 1024 * 1024 * 1024 {
+                        bail!("Git pack exceeds the transfer limit");
+                    }
+                    stdin.write_all(&bytes).await?;
+                }
+                Some(Reply::GitDone) => break,
+                Some(Reply::Refused { message }) => bail!("{message}"),
+                _ => bail!("The peer did not complete the Git pack"),
+            }
+        }
+        drop(stdin);
+        if !child.wait().await?.success() {
+            bail!("Git could not read the object pack");
+        }
+        Ok(())
+    })
+    .await
+    .context("The Git object transfer timed out")?
 }
 
 /// A session move is also an explicit request to bring its uncommitted work.
@@ -413,6 +617,7 @@ mod tests {
             commit: None,
             behind: Some(7),
             has_git: true,
+            branch: None,
         })
         .unwrap();
         assert_eq!(
@@ -426,6 +631,7 @@ mod tests {
                 commit: None,
                 behind: None,
                 has_git: false,
+                branch: None,
             }
         );
     }
