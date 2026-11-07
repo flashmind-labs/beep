@@ -1,7 +1,7 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
-import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, runningSteps, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
@@ -34,8 +34,8 @@ import { ICON } from "../ui/icons.ts";
 /// A step's mark: done, failed, running or did not finish.
 const mark = (status: string) => stepMark(status, AGENT_ACTIVE.has(AG.page?.session.status));
 
-// Entries do not carry start times. Remember when this window first saw each command.
-const commandStarts = new Map<string, number>();
+// Entries do not carry start times. Remember when this window first saw each call.
+const toolStarts = new Map<string, number>();
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
 export function toolRow(en: AgentEntry, at: number, pics = "") {
@@ -56,11 +56,10 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
   const parts = rowParts(en.text, live, open);
-  const command = parts.kind === "command" || beep?.doing === "Running on";
   const key = `${AG.open?.machine_id ?? ""}\n${AG.open?.session ?? ""}\n${at}`;
-  if (live && command && !commandStarts.has(key)) commandStarts.set(key, Date.now());
-  const since = live && command ? commandStarts.get(key) : undefined;
-  if (!live) commandStarts.delete(key);
+  if (live && !toolStarts.has(key)) toolStarts.set(key, Date.now());
+  const since = live ? toolStarts.get(key) : undefined;
+  if (!live) toolStarts.delete(key);
   // A command may be cut at any width, so it always opens.
   const opens = !!output || long || (beep ? !!beep.detail : parts.kind === "command");
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
@@ -83,7 +82,7 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
 }
 
 function commandClock(since: number) {
-  return `<span data-since="${since}" title="Time since this window saw the command running">${duration(Date.now() - since)}</span>`;
+  return `<span data-since="${since}" title="Time since this window saw the tool running">${duration(Date.now() - since)}</span>`;
 }
 
 /// What an opened call shows: each diff as its changed lines, then the
@@ -432,14 +431,15 @@ function turnUnits(p: AgentPage): Unit[] {
     if (start != null) turnStarts.set(t.key, start);
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
-    // The newest step of a running turn, shown as it goes.
-    const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
+    // The last tool may need to open on failure; running calls stay visible.
+    const lastStep = t.steps.at(-1);
+    const newest = running && lastStep != null && entry(lastStep).kind === "tool" ? lastStep : undefined;
+    const liveSteps = new Set(running ? runningSteps(p.entries, t, p.earlier) : []);
     if (newest != null) newestStep = newest;
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
-    // What it does now is its last thought; the agent's own status line
-    // (Codex sends the running command) only until it has one.
-    const thought = running ? [...t.steps].reverse().find(at => entry(at).kind === "thought") : undefined;
+    // Use the last thought only while it is the latest step.
+    const thought = running && lastStep != null && entry(lastStep).kind === "thought" ? lastStep : undefined;
     const status = s.doing?.split("\n")[0].trim() ?? "";
     const doing = (thought != null ? thoughtLine(entry(thought).text) : "") || status;
     if (running) thinking = liveAt != null || status === "Thinking";
@@ -449,7 +449,7 @@ function turnUnits(p: AgentPage): Unit[] {
         const key = section.ats[0], opened = m.opened.has(key);
         const group: Turn = { key, user: null, steps: section.ats, answer: [] };
         const kept = new Set(keptSteps(p.entries, group, p.earlier, openedSteps()));
-        if (newest != null && section.ats.includes(newest)) kept.add(newest);
+        for (const at of section.ats) if (liveSteps.has(at)) kept.add(at);
         const folding = section.ats.filter(at => !kept.has(at));
         const stats = summary(p.entries, group, p.earlier, opened ? section.ats : folding);
         const head = folding.length || opened
