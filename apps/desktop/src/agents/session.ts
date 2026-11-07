@@ -1,9 +1,10 @@
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
-import { markDelivered } from "./agentqueue.ts";
+import { markDelivered, stopPending } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
+import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { openViewer } from "../chat/media.ts";
 import { readRunning, runningCount } from "../agentpane/running.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
@@ -79,7 +80,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   AG.draft = null;
   Object.assign(AG, {
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
-    page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 },
+    page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
@@ -187,7 +188,7 @@ export async function pollAgent(readNow = false) {
       AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
       AG.readError = "";
       AG.link = LINKED;
-      if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
+      AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
       markDelivered(AG.queue, page.queued, read);
       // Nothing the log shows changed: no draw.
       const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.paused, AG.answering, AG.child, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
@@ -262,14 +263,19 @@ export const turnRuns = () => {
 /// Whether the user stopped the open session's turn and it has not ended.
 export const stoppingNow = () => {
   const s = AG.page?.session;
-  return !!s && AG.stopping === s.id && AGENT_ACTIVE.has(s.status);
+  return !!s && AG.stopping?.id === s.id && AGENT_ACTIVE.has(s.status);
 };
 
 /// The session's keys on one small line.
 export function agentHints() {
   const s = AG.page?.session, q = s?.question;
-  const slim = (items: Parameters<typeof hints>[0]) => hints(items).replace('class="dhints"', 'class="dhints slim"');
-  if (AG.draft) return slim([[ICON.ret, "start"], ["⌘T", "terminal"], ["⌘1", "files"], ["esc", "back"]]);
+  const slim = (items: Parameters<typeof hints>[0]) => {
+    const open = $("#agshortcuts")?.hasAttribute("open") ? " open" : "";
+    const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
+    const rows = sections.map(section => `<section><b>${esc(section.title)}</b>${section.rows.map(row => `<span><kbd>${esc(row.keys)}</kbd>${esc(row.does)}</span>`).join("")}</section>`).join("");
+    return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}</div></details></div>`;
+  };
+  if (AG.draft) return slim([[ICON.ret, "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
@@ -288,7 +294,7 @@ export function agentHints() {
 
 /// Puts the session's key hints in place of those on screen.
 export function redrawAgentHints() {
-  const hint = $("#agconv > .dhints");
+  const hint = $("#agconv > .agkeys");
   if (hint) hint.replaceWith(h(agentHints()));
 }
 

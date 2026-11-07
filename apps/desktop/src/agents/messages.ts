@@ -179,7 +179,7 @@ export function flushQueue() {
 /// one the node had just delivered would reach the agent twice (#378).
 export function interruptAgent() {
   if (!turnRuns()) return false;
-  AG.stopping = AG.page!.session.id;
+  AG.stopping = { id: AG.page!.session.id, turns: AG.page!.turns };
   drawQueue();
   redrawAgentHints();
   drawAgentBody();

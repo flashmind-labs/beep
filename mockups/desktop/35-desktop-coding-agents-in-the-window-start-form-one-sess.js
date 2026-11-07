@@ -333,6 +333,9 @@
 .mac #agmodel .cc-ag { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; border: 1px solid var(--d-border); background: var(--d-elev); flex: none }
 .mac #agmodel .cc-ag.mark svg { color: inherit }
 .mac .dhints.slim { padding: 2px 16px 6px; border-top: 0; background: none; font-size: 11px; color: var(--d-dim); gap: 4px 12px }
+.mac .ag-shortcuts { margin-left: auto }
+.mac .ag-shortcuts summary { cursor: pointer }
+.mac .ag-shortcuts > div { display: flex; flex-wrap: wrap; gap: 4px 12px; padding-top: 8px }
 .mac .dhints.slim kbd { font-size: 10.5px }
 @container (max-width: 560px) { .mac .dhints span.lo { display: none } }
 .mac .ag-pane { min-width: 0; background: rgba(15,16,17,.35) }
@@ -610,7 +613,8 @@ expected 200, got 401</pre></details></span></div>`;
       `<div class="dcoderen user"><b>You</b><span>${subs ? "Check every place that shows this error" : "Now run the whole suite"}</span></div>`,
       head(`${asks ? "Waiting for you · 48s" : "Working for 48s"}${thinkV ? "" : '<span class="stats">· Ran 2 commands, read 3 files</span>'}`, false, !thinkV),
       thinkV ? tk(false, v === "thoughtopen", "Thought for 12s", v === "thoughtopen" ? "thoughts" : "thoughtopen", T1) : "",
-      thinkV ? dRows(step("ok", "Read src/errors.rs")) : "",
+      thinkV ? dHead("Read 1 file", { act: `dset:agpretools:${S.d.agpretools ? "" : "1"}`, open: !!S.d.agpretools }) + (S.d.agpretools ? dRows(step("ok", "Read src/errors.rs")) : "") : "",
+      thinkV && v !== "thinking" ? tk(false, false, "Thought for 4s", "thoughtopen", T2) + dHead("Ran 1 command", { act: "dset:agpretools:1" }) : "",
       subs ? group : thinkV && v !== "thinking" ? dRows(step("run", "Running cargo test -p widget-core")) : thinkV ? "" : dRows(step("run", asks ? "Run rm -rf target && cargo build --release" : "Running cargo test -p widget-core")),
       v === "thinking" ? dThink({ live: true, text: T2 }) : "",
       dLive(asks ? "Waiting for you" : v === "thinking" ? "Thinking" : "Working", "48s", { doing: asks || subs || thinkV ? "" : "Checking why the error text changed" }),
@@ -670,7 +674,7 @@ expected 200, got 401</pre></details></span></div>`;
       rw("run", "Ran", "cargo test -p invites", { mt: '<span class="mi">exit 101</span>', st: "bad", open: opened, body: `<pre class="cmd"><span class="k">python3</span> - &lt;&lt;<span class="s">'PY'</span>\n<span class="k">import</span> json\n<span class="c"># read the report</span>\nprint(<span class="s">"failed"</span>, <span class="n">1</span>)\nPY</pre>` + outBox(testOut) }),
       rw("web", "Fetched", "docs.rs/tokio/latest/tokio/time", { mt: "200 · 14 KB" }),
       rw("mcp", "linear", "get_issue INV-142", { mt: "MCP" }),
-      doneRich ? rw("run", "Ran", "cargo test -p invites", { mt: "14 passed" }) : rw("run", "Running", "cargo test -p invites delivery", { st: "run" }),
+      doneRich ? rw("run", "Ran", "cargo test -p invites", { mt: "14 passed" }) : rw("run", "Running", "cargo test -p invites delivery", { st: "run", mt: "12s" }),
       doneRich ? "" : v === "richthink"
         ? `<div class="dthink open"><button aria-expanded="true"><span class="lb">Thought</span><span class="cv">${SG.chev}</span></button><div class="bd"><div><div class="tx"><div class="kk" data-kkdemo></div></div></div></div></div>`
         : v === "richthought"
@@ -711,7 +715,8 @@ expected 200, got 401</pre></details></span></div>`;
     const q = asks ? `<div class="q"><b style="font-weight:600">Run this command?</b><code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">rm -rf target &amp;&amp; cargo build --release</code>
         <div class="dups"><button class="dbtn pri" data-toast="Allowed">Allow<kbd>⌘${DI.ret}</kbd></button><button class="dbtn" data-toast="Allowed for this session">Allow for this session</button><button class="dbtn warn" data-toast="Denied">Deny<kbd>⌘D</kbd></button></div></div>` : "";
     // The card sits under the log, next to the field: the question, the plan.
-    const card = q || plan ? `<div class="dcard dcoder">${q}${plan}<div style="height:12px"></div></div>` : "";
+    const remoteQueue = v === "queued" ? `<div class="row note"><b>Waiting to send</b><div>Check the failing test output</div></div>` : "";
+    const card = q || plan || remoteQueue ? `<div class="dcard dcoder">${q}${plan}${remoteQueue}<div style="height:12px"></div></div>` : "";
     const qatt = (p) => `<span class="ag-qatt" title="Goes with it as @${p}">${p}</span>`;
     const steerRow = v === "steered"
       ? `<div class="ag-queue done"><span class="lbl">Steered</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">delivered after cargo test</span></div>`
@@ -752,7 +757,7 @@ expected 200, got 401</pre></details></span></div>`;
       : done ? [...(image ? [] : [["⌘V", "paste an image"]]), [DI.ret, "send"], ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]
       : stopping ? [[DI.ret, "steer"], [`⌥${DI.ret}`, "queue"]]
       : [[DI.ret, "steer"], [`⌥${DI.ret}`, "queue"], ["⇧Tab", "mode"], ["⌘.", queued ? "stop and send queued" : "stop"], ["esc", "back"]];
-    const slim = `<div class="dhints slim">${keys.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}</div>`;
+    const slim = `<div class="dhints slim">${keys.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}<details class="ag-shortcuts"><summary>Show more</summary><div><span><kbd>⌘1</kbd>chat</span><span><kbd>⌘2</kbd>files</span><span><kbd>⌘3</kbd>changes</span><span><kbd>⌘4</kbd>artifacts</span><span><kbd>⇧↩</kbd>new line</span><span><kbd>⌘U</kbd>thoughts</span><span><kbd>⌘Y</kbd>commands</span></div></details></div>`;
     const why = "";
     // The media pane beside or under the conversation. Each file the agent
     // made or looked at opens as a tab, next to Subagents while there are
@@ -1010,7 +1015,7 @@ expected 200, got 401</pre></details></span></div>`;
       try { out = base(); } finally { S.d.ags = st; }
       const form = (D.dWinProject().match(/<form class="cc-pjc"[\s\S]*?<\/form>/) || [""])[0];
       if (!form) throw new Error("project start input not found");
-      const keys = [["⏎", "start"], ["⌘T", "terminal"], ["⌘1", "files"], ["esc", "back"]];
+      const keys = [["⏎", "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]];
       const slim = `<div class="dhints slim">${keys.map(([k, t], i) => `<span${i >= 3 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}</div>`;
       const conv = `<div class="ag-conv"><div class="dbody" id="agbody"><div class="dagmain"><div class="ag-empty">New session in acme/widget</div></div></div>${form}${slim}</div>`;
       const head = `<div class="dhead"><span class="tt"><b><button class="agproj" data-dgo="dWinProject">acme/widget</button></b><small title="/srv/project">build-box</small></span><span id="agstate"></span><button class="dbtn quiet" title="Open in Zed (⌘O)" data-toast="Opens ~/Projects/widget in Zed">Open in Zed</button></div>`;

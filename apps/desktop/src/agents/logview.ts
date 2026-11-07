@@ -1,7 +1,7 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
-import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, runningSteps, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
@@ -34,6 +34,9 @@ import { ICON } from "../ui/icons.ts";
 /// A step's mark: done, failed, running or did not finish.
 const mark = (status: string) => stepMark(status, AGENT_ACTIVE.has(AG.page?.session.status));
 
+// Entries do not carry start times. Remember when this window first saw each call.
+const toolStarts = new Map<string, number>();
+
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
 export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
@@ -53,6 +56,10 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
   const parts = rowParts(en.text, live, open);
+  const key = `${AG.open?.machine_id ?? ""}\n${AG.open?.session ?? ""}\n${at}`;
+  if (live && !toolStarts.has(key)) toolStarts.set(key, Date.now());
+  const since = live ? toolStarts.get(key) : undefined;
+  if (!live) toolStarts.delete(key);
   // A command may be cut at any width, so it always opens.
   const opens = !!output || long || (beep ? !!beep.detail : parts.kind === "command");
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
@@ -60,18 +67,22 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
   if (beep) {
     return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
-      + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open)}`
+      + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open, since)}`
       + mediaButtons(title) + body + pics + "</div>";
   }
   // Opened, a command or a long title leaves the row's one line and shows whole under it.
   const wrapped = open && (parts.kind === "command" || long);
   const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
   return toolRowHtml({
-    ...parts, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
+    ...parts, since, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
     attrs: ` data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}`,
     after: mediaButtons(title) + rowBody + pics,
   });
+}
+
+function commandClock(since: number) {
+  return `<span data-since="${since}" title="Time since this window saw the tool running">${duration(Date.now() - since)}</span>`;
 }
 
 /// What an opened call shows: each diff as its changed lines, then the
@@ -87,11 +98,11 @@ function toolBody(output: string) {
 /// A call to the session's Beep tools: what it did, the machine as a chip,
 /// the first line of its command or prompt, then the file count and how it
 /// stands on the right. Opened, the command or prompt is under it instead.
-function beepHead(beep: BeepCall, title: string, state: string, live: boolean, open: boolean) {
+function beepHead(beep: BeepCall, title: string, state: string, live: boolean, open: boolean, since?: number) {
   return `<span class="tt bp" title="${esc(beepLine(title) ?? title)}"><span class="bi">${KIND_ICONS.beep}</span><span class="v">${esc(live ? beep.doing : beep.done)}</span>`
     + (beep.machine ? `<span class="mc">${esc(beep.machine)}</span>` : "")
     + (beep.detail && !open ? `<code>${esc(beep.detail.split("\n")[0])}</code>` : "") + "</span>"
-    + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}</span>`;
+    + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}${since != null ? ` · ${commandClock(since)}` : ""}</span>`;
 }
 
 /// A button for each media file a step's title names (at most three),
@@ -420,14 +431,15 @@ function turnUnits(p: AgentPage): Unit[] {
     if (start != null) turnStarts.set(t.key, start);
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
-    // The newest step of a running turn, shown as it goes.
-    const newest = running ? [...t.steps].reverse().find(at => entry(at).kind === "tool") : undefined;
+    // The last tool may need to open on failure; running calls stay visible.
+    const lastStep = t.steps.at(-1);
+    const newest = running && lastStep != null && entry(lastStep).kind === "tool" ? lastStep : undefined;
+    const liveSteps = new Set(running ? runningSteps(p.entries, t, p.earlier) : []);
     if (newest != null) newestStep = newest;
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
-    // What it does now is its last thought; the agent's own status line
-    // (Codex sends the running command) only until it has one.
-    const thought = running ? [...t.steps].reverse().find(at => entry(at).kind === "thought") : undefined;
+    // Use the last thought only while it is the latest step.
+    const thought = running && lastStep != null && entry(lastStep).kind === "thought" ? lastStep : undefined;
     const status = s.doing?.split("\n")[0].trim() ?? "";
     const doing = (thought != null ? thoughtLine(entry(thought).text) : "") || status;
     if (running) thinking = liveAt != null || status === "Thinking";
@@ -437,7 +449,7 @@ function turnUnits(p: AgentPage): Unit[] {
         const key = section.ats[0], opened = m.opened.has(key);
         const group: Turn = { key, user: null, steps: section.ats, answer: [] };
         const kept = new Set(keptSteps(p.entries, group, p.earlier, openedSteps()));
-        if (newest != null && section.ats.includes(newest)) kept.add(newest);
+        for (const at of section.ats) if (liveSteps.has(at)) kept.add(at);
         const folding = section.ats.filter(at => !kept.has(at));
         const stats = summary(p.entries, group, p.earlier, opened ? section.ats : folding);
         const head = folding.length || opened
@@ -532,9 +544,17 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const question = q && AG.modes?.plan == null ? questionCard(q) : "";
   const plan = planHtml(p.plan, s.status === "asking");
   const files = filesHtml(p.files, 12);
-  // Steers sent from here show above the field; this counts the others.
-  const others = p.queued - AG.queue.filter(q => q.state === "sent" || q.state === "sending").length;
-  const queued = others > 0 ? `<div class="row note">${others === 1 ? "1 message waits" : `${others} messages wait`} for the turn to end</div>` : "";
+  // Messages sent here already have their own rows above the field.
+  const local = AG.queue.filter(q => q.state === "sent" || q.state === "sending").map(q => [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n"));
+  const remote = (p.queued_messages ?? []).filter(message => {
+    const i = local.indexOf(message);
+    if (i < 0) return true;
+    local.splice(i, 1);
+    return false;
+  });
+  const missing = Math.max(0, p.queued - (p.queued_messages?.length ?? 0) - local.length);
+  const queued = remote.map(message => `<div class="row note"><b>Waiting to send</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(message)}</div></div>`).join("")
+    + (missing ? `<div class="row note">${missing === 1 ? "1 message waits" : `${missing} messages wait`} for the turn to end</div>` : "");
   // The question, plan and files sit under the log, by the field.
   const card = question || plan || files || queued
     ? `<div class="dcard dcoder">${question}${plan}${files}${queued}</div>` : "";

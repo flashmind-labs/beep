@@ -223,6 +223,9 @@ pub struct State {
     /// The commands the agent runs in the background, oldest first. Only
     /// an agent that reports them has any; a task stays after it ended.
     pub tasks: Vec<Task>,
+    /// Text of messages waiting to be delivered, in delivery order.
+    #[serde(default)]
+    pub queued_messages: Vec<String>,
 }
 
 /// A command the agent left running in the background.

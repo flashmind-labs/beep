@@ -163,6 +163,7 @@ impl Connected {
                 files: vec![],
                 error: None,
                 queued: 0,
+                queued_messages: Vec::new(),
                 turns: 0,
                 entries: vec![],
                 earlier: 0,
