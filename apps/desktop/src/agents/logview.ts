@@ -12,10 +12,11 @@ import { attachLive } from "./thoughtlive.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { fillLog, pinEnd, type Unit } from "./logwindow.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
-import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
+import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
-import { parentRow } from "./nesting-state.ts";
+import { childRow, parentRow } from "./nesting-state.ts";
+import { childReplyHtml } from "./childreply-state.ts";
 import { sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
 import { picTile } from "./pic-state.ts";
@@ -251,12 +252,18 @@ export function entryRow(en: AgentEntry, at: number) {
     // Beep's context, what another session sent and what a child came to
     // get rows of their own, never the user's box.
     const parts = promptParts(en.text);
+    let child = 0;
     const others = parts.map(p => p.kind === "context"
       ? `<details class="dcoderen beepctx"><summary>Beep context</summary><pre>${esc(p.text)}</pre></details>`
       : p.kind === "session"
         ? `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`
         : p.kind === "child"
-          ? `<div class="dcoderen fromsession"><b>${esc(p.name || "Child")} ${p.state === "asking" ? "waiting on you" : p.state === "stopped" || p.state === "closed" ? "stopped by you" : "finished"}</b><span>${linkified(p.text)}</span></div>`
+          ? (() => {
+            const row = childRow(sessions, p.id);
+            const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
+            const body = en.child_html?.[child++];
+            return childReplyHtml(p, body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, row ? agentAvatar(row.agent) : SUB_ICON, meta);
+          })()
           : "").join("");
     const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
     if (!own && others) return others;
