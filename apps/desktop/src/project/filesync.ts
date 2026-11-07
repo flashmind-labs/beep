@@ -244,6 +244,15 @@ export function conflictList(d: Pick<SyncDetail, "machines"> | null | undefined)
   return [...out.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/// What a conflict row says under its path: the project, what the copy is
+/// and the machines that have it.
+export function conflictSub(name: string | null, c: Conflict, machines: readonly Pick<MachineDetail, "machine_id" | "machine_name">[]) {
+  const where = c.on.map(id => machines.find(m => m.machine_id === id)?.machine_name || "").filter(Boolean).join(", ");
+  const git = gitConflict(c.path);
+  const what = git ? `Another commit of ${git.original.replace(/^refs\/heads\//, "")}` : `Another copy of ${c.original}`;
+  return `${name ? `${name} · ` : ""}${what}${where ? ` · on ${where}` : ""}`;
+}
+
 /// Conflicts across projects, for the sidebar. Projects not read yet count none.
 export function conflictTotal(details: readonly (Pick<SyncDetail, "machines"> | null | undefined)[]) {
   return details.reduce((n, d) => n + conflictList(d).length, 0);
@@ -452,9 +461,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   function conflictRow(name: string, c: Conflict, machines: readonly MachineDetail[], project = false) {
     const s = of(name);
     const where = c.on.map(id => machines.find(m => m.machine_id === id)?.machine_name || "").filter(Boolean).join(", ");
-    const git = gitConflict(c.path);
-    const what = git ? `Another commit of ${git.original.replace(/^refs\/heads\//, "")}` : `Another copy of ${c.original}`;
-    const text = h("span", "t", h("code", "", c.path), h("span", "", `${project ? `${name} · ` : ""}${what}${where ? ` · on ${where}` : ""}`));
+    const text = h("span", "t", h("code", "", c.path), h("span", "", conflictSub(project ? name : null, c, machines)));
     const busy = s.busy === c.path;
     let acts: HTMLElement;
     if (c.resolver) {
