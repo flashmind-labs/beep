@@ -238,29 +238,6 @@ function growBarField(input: HTMLTextAreaElement) {
   input.style.overflowY = input.scrollHeight > BAR_FIELD_MAX ? "auto" : "hidden";
 }
 
-/// Watches the split's list column, if the page shows one, so the floating
-/// bar starts where it ends: a list wider or narrower than its share still
-/// leaves the bar beside it. The page calls it after each draw.
-const listSeen = new ResizeObserver(() => placeBar(projectComp.form));
-let listWatched: Element | null = null;
-export function followSplit() {
-  const list = projectComp.form.parentElement?.querySelector(".pj-split > .pj-list") ?? null;
-  if (list !== listWatched) {
-    if (listWatched) listSeen.unobserve(listWatched);
-    listWatched = list;
-    if (list) listSeen.observe(list);
-  }
-  placeBar(projectComp.form);
-}
-
-/// Sets the floating bar's left edge to the split's list column's right edge.
-function placeBar(form: HTMLElement) {
-  const list = form.parentElement?.querySelector(".pj-split > .pj-list");
-  const box = form.offsetParent;
-  if (!list || !box) return form.style.removeProperty("left");
-  form.style.left = `${Math.round(list.getBoundingClientRect().right - box.getBoundingClientRect().left)}px`;
-}
-
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
   const c = projectComp;
