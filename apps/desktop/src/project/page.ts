@@ -108,7 +108,7 @@ registerView("projects", {
       more.setAttribute("aria-label", "More");
       tools.push(more);
     }
-    return { title: state.picked, sub: projectLine(p, state.home?.projects, Date.now()), tools };
+    return { title: state.picked, sub: projectLine(p), tools };
   },
   mount(el, arg) {
     state.picked = (arg as ProjectsArg | undefined)?.project || null;
