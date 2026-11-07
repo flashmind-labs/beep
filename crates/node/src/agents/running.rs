@@ -302,13 +302,16 @@ impl Agents {
         find_session(&self.lock(), id)
     }
 
-    /// Every session but the reviewers, oldest first.
+    /// Every named session but the reviewers, oldest first.
     pub(super) fn list(&self) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self
             .lock()
             .values()
             .filter(|s| !s.reviewer)
-            .map(|s| s.info())
+            .filter_map(|s| {
+                let live = s.live.borrow();
+                live.agent_session.as_ref().map(|_| live.info.clone())
+            })
             .collect();
         sessions.sort_by_key(|info| info.started_at);
         sessions
@@ -374,8 +377,8 @@ impl Agents {
                 sessions.remove(&oldest);
             }
         }
-        // A resumed session goes by the agent's id from the start; a new
-        // one by a short id until the agent gives its own.
+        // A new process needs a private handle before ACP names its session.
+        // Only ACP's id is published in SessionInfo.
         let id = match &begin.resume {
             Some(resume) => {
                 // Ended under that id before: the new run takes its place.

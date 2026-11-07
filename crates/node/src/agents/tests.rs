@@ -403,6 +403,11 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     let agents = Agents::new(vec![kind.clone()]);
     let begin = Begin::default();
     let session = agents.start(&kind, Some("/"), begin).unwrap();
+    assert!(session.info().id.is_empty());
+    assert!(
+        agents.list().is_empty(),
+        "ACP has not named this session yet"
+    );
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -412,6 +417,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     .expect("the agent gives its id")
     .expect("the session is still there");
     assert_eq!(session.info().id, AGENT_ID);
+    assert_eq!(agents.list()[0].id, AGENT_ID);
     assert!(Arc::ptr_eq(&agents.get(AGENT_ID).unwrap(), &session));
     agents.shutdown().await;
     let ended = session.info();
