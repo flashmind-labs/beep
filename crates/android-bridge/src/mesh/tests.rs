@@ -10,6 +10,7 @@ use beep_proto::{
         },
         link,
         mesh_state::{Place, ProjectRecord, StateValue},
+        terminal::Size,
     },
 };
 use iroh_tickets::Ticket;
@@ -74,7 +75,11 @@ fn info() -> SessionInfo {
     }
 }
 
-async fn serve(stream: PeerStream, session: Arc<Mutex<SessionInfo>>) -> anyhow::Result<()> {
+async fn serve(
+    stream: PeerStream,
+    session: Arc<Mutex<SessionInfo>>,
+    sizes: Arc<Mutex<Vec<Size>>>,
+) -> anyhow::Result<()> {
     let (mut tx, mut rx) = link(stream.send, stream.recv);
     let open = rx.recv::<Open>().await?.unwrap();
     tx.send(&Opened::Ready {}).await?;
@@ -120,12 +125,17 @@ async fn serve(stream: PeerStream, session: Arc<Mutex<SessionInfo>>) -> anyhow::
                     data: b"ready".to_vec().into(),
                 })
                 .await?;
-                assert!(matches!(
-                    rx.recv::<Request>().await?,
-                    Some(Request::Resize { .. })
-                ));
-                if let Some(Request::Input { data }) = rx.recv::<Request>().await? {
-                    tx.send(&Reply::Output { at: 5, data }).await?;
+                let mut at = 5;
+                while let Some(request) = rx.recv::<Request>().await? {
+                    match request {
+                        Request::Resize { size } => sizes.lock().unwrap().push(size),
+                        Request::Input { data } => {
+                            let len = data.len() as u64;
+                            tx.send(&Reply::Output { at, data }).await?;
+                            at += len;
+                        }
+                        _ => {}
+                    }
                 }
             }
             _ => anyhow::bail!("Unsupported test terminal request"),
@@ -215,11 +225,13 @@ async fn node_session_and_project_changes_survive_desktop_disconnect_and_phone_r
         .await
         .unwrap();
     let session = Arc::new(Mutex::new(info()));
+    let sizes = Arc::new(Mutex::new(Vec::new()));
     let (peer, _) = node.protocols();
     peer.on_stream(Arc::new(move |stream| {
         let session = session.clone();
+        let sizes = sizes.clone();
         Box::pin(async move {
-            serve(stream, session).await.unwrap();
+            serve(stream, session, sizes).await.unwrap();
         })
     }));
     let node_router = router(&node_endpoint, &node);
@@ -341,7 +353,7 @@ async fn node_session_and_project_changes_survive_desktop_disconnect_and_phone_r
 
     assert_eq!(client.all_terminals().await.unwrap()[0].id, terminal_id);
     let terminal = client
-        .attach_terminal(terminal_id.to_string())
+        .attach_terminal(terminal_id.to_string(), 80, 24)
         .await
         .unwrap();
     assert_eq!(terminal.next().await.unwrap().unwrap().data, b"ready");
@@ -589,4 +601,159 @@ async fn server_features_stay_disabled_with_or_without_a_workspace() {
         Err(BeepError::BadRequest { .. })
     ));
     assert!(client.follow.get().is_none());
+}
+
+struct TerminalFixture {
+    client: Arc<BeepClient>,
+    terminal_id: uuid::Uuid,
+    sizes: Arc<Mutex<Vec<Size>>>,
+    _keep: (Mesh, Mesh, Router, Router, TempDir, TempDir, TempDir),
+}
+
+/// A phone linked to a desktop and a fake node that records terminal sizes.
+async fn terminal_fixture(pty: bool) -> TerminalFixture {
+    let desktop_dir = TempDir::new().unwrap();
+    let desktop_endpoint = endpoint(&SecretKey::generate()).await;
+    let desktop = Mesh::create(desktop_dir.path(), desktop_endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let desktop_router = router(&desktop_endpoint, &desktop);
+    let node_dir = TempDir::new().unwrap();
+    let node_endpoint = endpoint(&SecretKey::generate()).await;
+    let ticket = desktop
+        .invite(DeviceKind::Node, Duration::from_secs(60))
+        .await
+        .unwrap();
+    let node = Mesh::join(node_dir.path(), node_endpoint.clone(), &ticket, "node")
+        .await
+        .unwrap();
+    let session = Arc::new(Mutex::new(info()));
+    let sizes = Arc::new(Mutex::new(Vec::new()));
+    let (peer, _) = node.protocols();
+    let recorded = sizes.clone();
+    peer.on_stream(Arc::new(move |stream| {
+        let session = session.clone();
+        let sizes = recorded.clone();
+        Box::pin(async move {
+            serve(stream, session, sizes).await.unwrap();
+        })
+    }));
+    let node_router = router(&node_endpoint, &node);
+    let terminal_id = uuid::Uuid::new_v4();
+    let terminal_key = Key::Terminal(terminal_id.to_string());
+    desktop
+        .set(
+            terminal_key.clone(),
+            Some(
+                beep_proto::node::mesh_state::TerminalRecord {
+                    project: "example/project".into(),
+                    machine: node.me(),
+                    task: 7,
+                    pty,
+                    name: "Shell".into(),
+                    command: "shell".into(),
+                    cwd: "/srv/project".into(),
+                    started_at: 1,
+                }
+                .to_bytes()
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+    let phone_dir = TempDir::new().unwrap();
+    let key = SecretKey::generate();
+    let client = phone(&phone_dir, &key).await;
+    let ticket = desktop
+        .invite(DeviceKind::Desktop, Duration::from_secs(60))
+        .await
+        .unwrap();
+    client
+        .join_workspace(ticket.encode_string(), "phone".into())
+        .await
+        .unwrap();
+    let connected = client.mesh().await.unwrap().unwrap();
+    until(&connected.mesh, || {
+        connected.mesh.peer(node.me()).is_some() && connected.mesh.get(&terminal_key).is_some()
+    })
+    .await;
+    TerminalFixture {
+        client,
+        terminal_id,
+        sizes,
+        _keep: (
+            desktop,
+            node,
+            desktop_router,
+            node_router,
+            desktop_dir,
+            node_dir,
+            phone_dir,
+        ),
+    }
+}
+
+async fn sizes_reach(sizes: &Mutex<Vec<Size>>, count: usize) -> Vec<Size> {
+    timeout(Duration::from_secs(10), async {
+        loop {
+            {
+                let seen = sizes.lock().unwrap();
+                if seen.len() >= count {
+                    return seen.clone();
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("terminal sizes")
+}
+
+#[tokio::test]
+async fn attach_uses_given_size() {
+    let fixture = terminal_fixture(true).await;
+    let terminal = fixture
+        .client
+        .attach_terminal(fixture.terminal_id.to_string(), 54, 31)
+        .await
+        .unwrap();
+    assert_eq!(terminal.next().await.unwrap().unwrap().data, b"ready");
+    assert_eq!(
+        sizes_reach(&fixture.sizes, 1).await,
+        vec![Size { cols: 54, rows: 31 }]
+    );
+}
+
+#[tokio::test]
+async fn resize_sends_new_size() {
+    let fixture = terminal_fixture(true).await;
+    let terminal = fixture
+        .client
+        .attach_terminal(fixture.terminal_id.to_string(), 54, 31)
+        .await
+        .unwrap();
+    terminal.resize(100, 40).await.unwrap();
+    terminal.resize(0, 900).await.unwrap();
+    assert_eq!(
+        sizes_reach(&fixture.sizes, 3).await,
+        vec![
+            Size { cols: 54, rows: 31 },
+            Size {
+                cols: 100,
+                rows: 40
+            },
+            Size { cols: 1, rows: 500 },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn resize_on_view_only_is_ok() {
+    let fixture = terminal_fixture(false).await;
+    let terminal = fixture
+        .client
+        .attach_terminal(fixture.terminal_id.to_string(), 54, 31)
+        .await
+        .unwrap();
+    terminal.resize(100, 40).await.unwrap();
 }
