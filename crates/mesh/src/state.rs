@@ -51,6 +51,8 @@ pub enum Key {
     Credential(String),
     Harness(String),
     Flsh,
+    /// Whether coding agent skills sync across the mesh: `skills/sync`.
+    SkillSync,
     /// One saved version of the user's instructions: `instructions/<ms>.<id>`.
     InstructionVersion(String),
     /// A terminal kept running on a machine: `terminal/<id>`.
@@ -79,6 +81,7 @@ impl fmt::Display for Key {
             Key::Credential(n) => write!(f, "credential/{n}"),
             Key::Harness(n) => write!(f, "harness/{n}"),
             Key::Flsh => f.write_str("flsh"),
+            Key::SkillSync => f.write_str("skills/sync"),
             Key::InstructionVersion(n) => write!(f, "instructions/{n}"),
             Key::Terminal(n) => write!(f, "terminal/{n}"),
             Key::SessionMove(n) => write!(f, "session-move/{n}"),
@@ -96,6 +99,9 @@ impl FromStr for Key {
         let bad = || MeshError::BadKey(s.to_owned());
         if s == "flsh" {
             return Ok(Key::Flsh);
+        }
+        if s == "skills/sync" {
+            return Ok(Key::SkillSync);
         }
         let (kind, name) = s.split_once('/').ok_or_else(bad)?;
         if name.is_empty() {
@@ -707,6 +713,7 @@ mod tests {
             Key::Credential("c".into()),
             Key::Harness("claude".into()),
             Key::Flsh,
+            Key::SkillSync,
             Key::InstructionVersion("1793000000000.a".into()),
             Key::Terminal("t1".into()),
             Key::SessionMove("0b1c2d3e".into()),

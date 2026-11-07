@@ -454,6 +454,8 @@ fn main() {
             settings::routines::toggle_cron,
             settings::routines::update_cron,
             settings::skills::delete_skill,
+            settings::skill_sync::skill_sync_get,
+            settings::skill_sync::skill_sync_set,
             settings::skills::list_skills,
             settings::skills::undo_skill,
             settings::skills::update_skill,
