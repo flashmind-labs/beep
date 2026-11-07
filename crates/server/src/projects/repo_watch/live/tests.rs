@@ -84,12 +84,12 @@ async fn hosts(forgejo: fn(&str) -> Reply) -> (TestHost, TestHost) {
 
 fn forgejo_ok(path: &str) -> Reply {
     match path {
-        "/repos/mirrors/widget/actions/runs?limit=20" => Reply::ok(FORGEJO_RUNS),
+        "/repos/mirrors/widget/actions/runs?limit=20&page=1" => Reply::ok(FORGEJO_RUNS),
         "/repos/mirrors/widget/actions/runs/77" => Reply::ok(
             r#"{"id": 77, "index_in_repo": 4, "workflow_id": "ci.yml", "event": "push",
                 "status": "failure", "prettyref": "main"}"#,
         ),
-        "/repos/mirrors/widget/actions/runs/77/jobs?limit=50" => Reply::ok(JOBS),
+        "/repos/mirrors/widget/actions/runs/77/jobs?limit=50&page=1" => Reply::ok(JOBS),
         _ => Reply::status("404 Not Found"),
     }
 }
@@ -224,7 +224,7 @@ async fn a_run_opened_on_the_mirror_is_read_from_the_mirror() {
     assert!(
         fj.seen()
             .iter()
-            .any(|seen| seen.path == "/repos/mirrors/widget/actions/runs/77/jobs?limit=50")
+            .any(|seen| seen.path == "/repos/mirrors/widget/actions/runs/77/jobs?limit=50&page=1")
     );
     // A host the project is not on has no slot.
     let other = IssueHost::Forgejo(ForgejoHost::parse("elsewhere.example.com").expect("a host"));
