@@ -25,6 +25,7 @@ pub(crate) const PREFIX: &str = "Beep: ";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tool {
     ListMachines,
+    HarnessInfo,
     RunOn,
     SyncProject,
     SendFiles,
@@ -45,6 +46,7 @@ impl Tool {
     fn named(name: &str) -> Option<Self> {
         Some(match name {
             "list_machines" => Self::ListMachines,
+            "harness_info" => Self::HarnessInfo,
             "remote_run" => Self::RunOn,
             "sync_project" => Self::SyncProject,
             "send_files" => Self::SendFiles,
@@ -128,6 +130,13 @@ impl Tool {
         };
         match self {
             Self::ListMachines => format!("{PREFIX}List machines"),
+            Self::HarnessInfo => {
+                let harness = text("harness").unwrap_or("a harness");
+                match machine {
+                    Some(machine) => format!("{PREFIX}Query {harness} on {machine}"),
+                    None => format!("{PREFIX}Query {harness}"),
+                }
+            }
             Self::RunOn => with(on("Run"), text("command")),
             Self::SyncProject => {
                 let project = text("project").unwrap_or("a project");
