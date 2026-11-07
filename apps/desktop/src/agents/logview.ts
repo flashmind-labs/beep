@@ -454,7 +454,9 @@ function turnUnits(p: AgentPage): Unit[] {
         state, thinking: thinking, start,
         doing: state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "",
       }) : "";
-      return [user(), head, ...work, ...t.answer.map(row), live].filter(Boolean);
+      const collapse = opened && t.steps.length
+        ? `<div><button class="dbtn quiet" data-turn="${t.key}" data-collapse>Collapse</button></div>` : "";
+      return [user(), head, ...work, collapse, ...t.answer.map(row), live].filter(Boolean);
     };
   }
 }
