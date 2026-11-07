@@ -2,7 +2,7 @@ name: Beep
 packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
-    exactVersion: 1.99.3
+    exactVersion: 1.18.0
 options:
   bundleIdPrefix: com.flashmind
   deploymentTarget:
