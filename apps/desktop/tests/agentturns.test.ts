@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, runningSteps, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
+import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, runningSteps, span, splitTurns, stepLabel, stepOpen, summary, progressSummary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -173,16 +173,16 @@ test("a row the reader opened is not folded into a group or the turn's heading",
 });
 
 
-test("responses and thoughts separate independently folded tool sections", () => {
+test("agent output separates progress groups containing thoughts and tools", () => {
   const log = [u("go"), { kind: "thought", text: "check" }, t("ls [completed]"), t("pwd [completed]"),
     a("Found it."), t("cargo test [completed]"), a("All passed."), a("Done.")];
   assert.deepEqual(turnSections(log, splitTurns(log)[0]), [
-    { tools: false, ats: [1] }, { tools: true, ats: [2, 3] },
-    { tools: false, ats: [4] }, { tools: true, ats: [5] }, { tools: false, ats: [6, 7] },
+    { progress: true, ats: [1, 2, 3] },
+    { progress: false, ats: [4] }, { progress: true, ats: [5] }, { progress: false, ats: [6, 7] },
   ]);
   const partial = log.slice(2, 6);
   assert.deepEqual(turnSections(partial, splitTurns(partial, 42)[0], 42), [
-    { tools: true, ats: [42, 43] }, { tools: false, ats: [44] }, { tools: true, ats: [45] },
+    { progress: true, ats: [42, 43] }, { progress: false, ats: [44] }, { progress: true, ats: [45] },
   ]);
 });
 
@@ -193,15 +193,36 @@ test("a response stays outside the fold when more tools arrive", () => {
   log.push(t("cargo test [in_progress]"));
   const after = turnSections(log, splitTurns(log)[0]);
   assert.deepEqual(after.slice(0, 2), before);
-  assert.deepEqual(after[2], { tools: true, ats: [3] });
+  assert.deepEqual(after[2], { progress: true, ats: [3] });
 });
 
-test("only running tool calls stay visible between thoughts", () => {
+test("alternating thoughts and tool calls accumulate in one progress group", () => {
   const log = [u("go"), { kind: "thought", text: "one" }, t("ls [completed]"),
     { kind: "thought", text: "two" }, t("Read file [completed]"), t("cargo test [in_progress]")];
   const turn = splitTurns(log)[0];
-  assert.deepEqual(turnSections(log, turn).map(section => section.ats), [[1], [2], [3], [4, 5]]);
+  assert.deepEqual(turnSections(log, turn).map(section => section.ats), [[1, 2, 3, 4, 5]]);
   assert.deepEqual(runningSteps(log, turn), [5]);
   log[5] = t("cargo test [completed]");
   assert.deepEqual(runningSteps(log, splitTurns(log)[0]), []);
+});
+
+
+test("progress groups keep their key as thoughts and tools arrive, including partial logs", () => {
+  const log = [th("First", 8000), t("ls [completed]"), th("Next", 6000), t("pwd [in_progress]")];
+  assert.deepEqual(turnSections(log, splitTurns(log, 40)[0], 40), [{ progress: true, ats: [40, 41, 42, 43] }]);
+  log.push(a("Found it."), th("Checking", 1000), t("cargo test [completed]"), { kind: "other", text: "Compacted" }, th("Continuing"));
+  assert.deepEqual(turnSections(log, splitTurns(log, 40)[0], 40), [
+    { progress: true, ats: [40, 41, 42, 43] }, { progress: false, ats: [44] },
+    { progress: true, ats: [45, 46] }, { progress: false, ats: [47] }, { progress: true, ats: [48] },
+  ]);
+});
+
+test("progress summary combines known thought time and tool results", () => {
+  const log = [th("First", 8000), t("ls [completed]"), th("Next", 6000), t("cargo test [failed]\nexit 1")];
+  assert.equal(progressSummary(log, splitTurns(log)[0]), "Thought for 14s · Ran 1 command (1 failed), searched once");
+  const thoughts = [th("Reading", 12000), th("Checking")];
+  assert.equal(progressSummary(thoughts, splitTurns(thoughts)[0]), "Thought for 12s");
+  assert.equal(progressSummary([th("Unknown")], splitTurns([th("Unknown")])[0]), "Thought");
+  const tools = [t("cargo test [completed]")];
+  assert.equal(progressSummary(tools, splitTurns(tools, 20)[0], 20), "Ran 1 command");
 });
