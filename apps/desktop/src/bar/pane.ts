@@ -110,12 +110,11 @@ export const pane = {
       }
       if ("draft" in target) {
         // Loaded when needed: it brings in the project page, which only the command center has.
-        void import("../agents/draft.ts").then(m => {
+        return import("../agents/draft.ts").then(m => {
           m.openDraft(target.draft.project, target.draft.machine);
           const { terminal } = target.draft;
           if (terminal === true) newTerminal(undefined, true); else if (terminal) openTerminal(terminal);
         });
-        return;
       }
       if ("agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
     }

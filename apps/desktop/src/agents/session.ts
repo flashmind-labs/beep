@@ -28,7 +28,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
-import { invoke, listen, logError, logInfo } from "../ui/tauri.ts";
+import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
@@ -41,6 +41,13 @@ import { movedTo } from "./move-state.ts";
 import { placeName, placeRepo } from "./place-state.ts";
 import { sameSession } from "./running-state.ts";
 
+let firstRead: { open: OpenAgent; at: number } | null = null;
+function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
+  if (!firstRead || firstRead.open !== open) return;
+  recordTiming("data", "agent", performance.now() - firstRead.at, outcome);
+  firstRead = null;
+}
+
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
 /// the empty view that started it becomes the session in place: its pane, terminal
 /// tabs included, stays as it is.
@@ -48,6 +55,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   traceSession("opening", { machine_id: s.machine_id, agent: s.agent, session: s.id }, { status: s.status, adopt });
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
+    if (AG.open) firstRead = { open: AG.open, at: performance.now() };
     if (from !== undefined) AG.back = from;
     // Its log may come back from a hidden page, which WebKit shows scrolled
     // to the top: it goes back to its end, or where the reader left it,
@@ -76,6 +84,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
+  if (AG.open) firstRead = { open: AG.open, at: performance.now() };
   drawAgentFrame(inPlace);
   watchRead(AG.open!);
   pollAgent(true);
@@ -183,6 +192,7 @@ export async function pollAgent(readNow = false) {
       // Nothing the log shows changed: no draw.
       const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.paused, AG.answering, AG.child, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
       if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
+      finishFirstRead(o, "ok");
       if (trace) traceSession("read-applied", o, { status: page.session.status, entries: page.entries.length, ms: Date.now() - current.at });
       void readUsage(o, page);
       flushQueue();
@@ -199,6 +209,7 @@ export async function pollAgent(readNow = false) {
       AG.readError = AG.note = failed.note;
       if (failed.link.ended && AG.page) AG.page = endedPage(AG.page);
       drawAgentBody();
+      finishFirstRead(o, "error");
     }
   } finally {
     if (AG.inflight === o) AG.inflight = null;

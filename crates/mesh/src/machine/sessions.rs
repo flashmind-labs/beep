@@ -16,6 +16,7 @@ use beep_proto::{
     },
 };
 use std::{future::Future, time::Duration};
+use tracing::Instrument;
 
 /// How long an ordinary read of the node's sessions may take.
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -49,7 +50,14 @@ impl Sessions for PeerClient {
         request: SessionsRequest,
         limit: Duration,
     ) -> Result<SessionsReply, MeshError> {
-        self.call_within(limit, SESSIONS_PROTOCOL, &request).await
+        let operation = match &request {
+            SessionsRequest::List {} => "list",
+            SessionsRequest::Transcript { .. } => "transcript",
+            _ => "other",
+        };
+        self.call_within(limit, SESSIONS_PROTOCOL, &request)
+            .instrument(tracing::info_span!("agent_request", operation))
+            .await
     }
 }
 

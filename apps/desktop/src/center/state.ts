@@ -34,7 +34,7 @@ export interface ViewHead { title: string; sub?: string; tools?: Node[]; scope?:
 export interface CenterView {
   el?: HTMLElement;
   title?: string | (() => ViewHead);
-  mount(el: HTMLElement, arg: ViewArg): void;
+  mount(el: HTMLElement, arg: ViewArg): void | Promise<void>;
   unmount?(): void;
 }
 

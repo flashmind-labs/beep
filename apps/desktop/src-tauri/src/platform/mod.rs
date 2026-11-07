@@ -3,4 +3,5 @@
 pub(crate) mod editors;
 pub(crate) mod logfile;
 pub(crate) mod login_path;
+pub(crate) mod metrics;
 pub(crate) mod update;
