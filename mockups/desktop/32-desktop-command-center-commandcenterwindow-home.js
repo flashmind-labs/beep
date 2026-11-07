@@ -88,7 +88,7 @@
 .mac .cc-row.cc-gr.it { padding-top: 5px; padding-bottom: 5px; grid-template-columns: 16px minmax(0, 1fr) auto }
 .mac .cc-row.cc-gr.it + .cc-row.cc-gr.it { border-top-color: rgba(255,255,255,.04) }
 .mac .cc-ag { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 10.5px; font-weight: 600; border: 1px solid var(--d-border); background: var(--d-elev) }
-.mac .cc-ag.claude { color: #F2A27A } .mac .cc-ag.codex { color: #8A9CF0 }
+.mac .cc-ag.claude { color: #F2A27A } .mac .cc-ag.codex { color: var(--d-fg) }
 .mac .cc-ag.beep { color: var(--d-muted) }
 .mac .cc-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 500; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-muted); white-space: nowrap }
 .mac .cc-tag.run { color: var(--d-emerald); border-color: rgba(94,106,210,.45) }
