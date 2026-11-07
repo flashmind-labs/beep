@@ -389,6 +389,13 @@ export async function loadWhere(name: string) {
 const SESSIONS_SHOWN = 5;
 
 export function sessionsSection(p: Project, running: RunningAgent[]) {
+  const { body, note, count } = sessionsList(p, running, false);
+  return section("sec-sessions", "Past sessions", count || "", null, body, note);
+}
+
+/// The project's past sessions, newest first: five rows tall unless `all`,
+/// with the note that they are being read again.
+export function sessionsList(p: Project, running: RunningAgent[], all: boolean) {
   const sessions = state.sessions.get(p.name);
   const past = pastSessions(sessions, running).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
@@ -397,12 +404,12 @@ export function sessionsSection(p: Project, running: RunningAgent[]) {
   else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
   else {
     body = past.length
-      ? h("div", "cc-panel", fitRows(past.map(sessionRow), SESSIONS_SHOWN))
+      ? h("div", "cc-panel", ...(all ? past.map(sessionRow) : [fitRows(past.map(sessionRow), SESSIONS_SHOWN)]))
       : emptyPanel(h("span", "", "No past sessions yet."));
   }
   const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;
   note?.classList.add("ss-updating");
-  return section("sec-sessions", "Past sessions", past.length || "", null, body, note);
+  return { body, note, count: past.length };
 }
 
 /// The agent view for a session row.
