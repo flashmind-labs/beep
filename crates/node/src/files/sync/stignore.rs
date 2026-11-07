@@ -3,6 +3,7 @@
 //! Beep's sync would send what the user told Syncthing to leave out. Everything
 //! here blocks.
 
+use crate::files::syncthing::{PROJECT_IGNORE_BEGIN, PROJECT_IGNORE_END};
 use anyhow::{Context, Result, bail};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::{
@@ -11,6 +12,40 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
 };
+
+/// Whether Syncthing excludes the project's directory, including an
+/// exclusion for every child of a project that is itself a shared folder.
+pub(crate) fn project_ignored(project: &Path, share: &Path) -> Result<bool> {
+    let file = share.join(STIGNORE);
+    if !file.exists() {
+        return Ok(false);
+    }
+    let mut lines = Vec::new();
+    read_lines_for_project(&file, &mut HashSet::new(), &mut lines, None)?;
+    let relative = project.strip_prefix(share)?;
+    // A preceding exception may include a child even when its directory
+    // matches the blanket rule. Keep ownership with Syncthing in that case.
+    let mut exception = false;
+    for line in lines {
+        if line.starts_with('!') {
+            exception = true;
+            continue;
+        }
+        let mut builder = GitignoreBuilder::new(share);
+        builder.add_line(None, &line)?;
+        let matcher = builder.build()?;
+        let whole_share =
+            relative.as_os_str().is_empty() && matches!(line.as_str(), "/**" | "**" | "*");
+        if whole_share
+            || matcher
+                .matched_path_or_any_parents(relative, true)
+                .is_ignore()
+        {
+            return Ok(!exception);
+        }
+    }
+    Ok(false)
+}
 
 pub(super) const STIGNORE: &str = ".stignore";
 /// How deep `#include`s may nest.
@@ -36,7 +71,7 @@ impl Stignore {
             if !fs::symlink_metadata(&file).is_ok_and(|meta| meta.is_file()) {
                 continue;
             }
-            let matcher = parse_file(&file, folder).with_context(|| {
+            let matcher = parse_for_project(&file, folder, Some(root)).with_context(|| {
                 format!(
                     "{} has rules Beep cannot follow, so it does not take over from Syncthing",
                     file.display()
@@ -58,10 +93,10 @@ impl Stignore {
     }
 }
 
-fn parse_file(file: &Path, folder: &Path) -> Result<Gitignore> {
+fn parse_for_project(file: &Path, folder: &Path, project: Option<&Path>) -> Result<Gitignore> {
     let mut lines = Vec::new();
     let mut open = HashSet::new();
-    read_lines(file, &mut open, &mut lines)?;
+    read_lines_for_project(file, &mut open, &mut lines, project)?;
     let mut builder = GitignoreBuilder::new(folder);
     // Syncthing's first match wins, and gitignore's last.
     for line in lines.iter().rev() {
@@ -72,7 +107,12 @@ fn parse_file(file: &Path, folder: &Path) -> Result<Gitignore> {
     Ok(builder.build()?)
 }
 
-fn read_lines(file: &Path, open: &mut HashSet<PathBuf>, out: &mut Vec<String>) -> Result<()> {
+fn read_lines_for_project(
+    file: &Path,
+    open: &mut HashSet<PathBuf>,
+    out: &mut Vec<String>,
+    project: Option<&Path>,
+) -> Result<()> {
     if open.len() >= MAX_INCLUDES || !open.insert(file.to_owned()) {
         bail!("#include of {} goes around or too deep", file.display());
     }
@@ -81,14 +121,37 @@ fn read_lines(file: &Path, open: &mut HashSet<PathBuf>, out: &mut Vec<String>) -
         Err(e) if e.kind() == ErrorKind::NotFound => bail!("{} is missing", file.display()),
         Err(e) => return Err(e).with_context(|| format!("reading {}", file.display())),
     };
-    for line in text.trim_start_matches('\u{feff}').lines() {
+    let lines: Vec<_> = text.trim_start_matches('\u{feff}').lines().collect();
+    for (at, line) in lines.iter().enumerate() {
+        // Only Beep's own whole-project exclusion is omitted. User rules,
+        // including identical patterns, still apply to Beep's file list.
+        if project.is_some_and(|project| {
+            let Some(parent) = file.parent() else {
+                return false;
+            };
+            let Ok(relative) = project.strip_prefix(parent) else {
+                return false;
+            };
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            let pattern = if relative.is_empty() {
+                "/**".to_owned()
+            } else {
+                format!("/{relative}")
+            };
+            *line == pattern
+                && at > 0
+                && lines[at - 1] == PROJECT_IGNORE_BEGIN
+                && lines.get(at + 1) == Some(&PROJECT_IGNORE_END)
+        }) {
+            continue;
+        }
         let line = line.trim();
         if line.is_empty() || line.starts_with("//") {
             continue;
         }
         if let Some(name) = line.strip_prefix("#include ") {
             let parent = file.parent().unwrap_or(Path::new(""));
-            read_lines(&parent.join(name.trim()), open, out)?;
+            read_lines_for_project(&parent.join(name.trim()), open, out, project)?;
         } else if line.starts_with("#escape") {
             bail!("the directive {line}");
         } else if line.starts_with('#') {
@@ -233,6 +296,49 @@ mod tests {
         let (_dir, rules) = rules("# build output\n*.raw\n#also a note\n");
         assert!(ignored(&rules, "a.raw"));
         assert!(!ignored(&rules, "build output"));
+    }
+
+    #[test]
+    fn a_project_exclusion_hands_ownership_to_beep_and_keeps_user_rules() {
+        let dir = TempDir::new().unwrap();
+        let project = dir.path().join("owner/widget");
+        let other = dir.path().join("owner/other");
+        fs::create_dir_all(&project).unwrap();
+        fs::create_dir_all(&other).unwrap();
+        fs::write(
+            dir.path().join(STIGNORE),
+            format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n{PROJECT_IGNORE_END}\n*.tmp\n"),
+        )
+        .unwrap();
+        assert!(project_ignored(&project, dir.path()).unwrap());
+        assert!(!project_ignored(&other, dir.path()).unwrap());
+        let rules = Stignore::load_above(&project).unwrap();
+        assert!(!ignored(&rules, "src/main.rs"));
+        assert!(ignored(&rules, "cache.tmp"));
+        // A matching rule written by the user still belongs to the user.
+        fs::write(
+            dir.path().join(STIGNORE),
+            format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n{PROJECT_IGNORE_END}\n/owner/widget\n"),
+        )
+        .unwrap();
+        assert!(ignored(
+            &Stignore::load_above(&project).unwrap(),
+            "src/main.rs"
+        ));
+    }
+
+    #[test]
+    fn exceptions_and_rules_outside_the_share_cannot_release_ownership() {
+        let dir = TempDir::new().unwrap();
+        let share = dir.path().join("share");
+        let project = share.join("widget");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(dir.path().join(STIGNORE), "/share\n").unwrap();
+        assert!(!project_ignored(&project, &share).unwrap());
+        fs::write(share.join(STIGNORE), "!/widget/keep.txt\n/widget\n").unwrap();
+        assert!(!project_ignored(&project, &share).unwrap());
+        fs::write(share.join(STIGNORE), "/**\n").unwrap();
+        assert!(project_ignored(&share, &share).unwrap());
     }
 
     #[test]

@@ -40,6 +40,9 @@ impl Default for SkillSync {
 pub struct ProjectRecord {
     /// The repository's web page.
     pub url: String,
+    /// Project-wide Syncthing preference; absent preserves existing settings.
+    #[serde(default)]
+    pub syncthing_files: Option<bool>,
 }
 
 /// `project/<org/repo>/<machine>`: one machine's checkout of a project.

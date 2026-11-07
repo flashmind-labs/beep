@@ -72,12 +72,20 @@ async fn look_at(seen: &Seen, folder: &str) -> Result<(FolderPath, MachineFolder
 
 /// The folder's path, refused when Syncthing keeps it in step there: Beep's sync would hold it,
 /// so nothing would ever arrive.
-fn refuse_syncthing(seen: &Seen, there: MachineFolder) -> Result<String> {
+async fn refuse_syncthing(desk: &Desk, seen: &Seen, there: MachineFolder) -> Result<String> {
     if seen
         .env
         .as_ref()
         .is_some_and(|env| env.syncthing_folder(&there.path).is_some())
     {
+        if there.exists
+            && desk
+                .syncthing_files(&seen.machine.id, &there.path, None)
+                .await
+                .is_ok_and(|files| files.available && !files.enabled)
+        {
+            return Ok(there.path);
+        }
         return Err(FleetError::refused(format!(
             "Syncthing keeps {} in step on {}. Choose another folder.",
             there.path, seen.machine.name
@@ -511,7 +519,7 @@ impl Desk {
                 there.path
             )));
         }
-        let path = refuse_syncthing(&seen, there)?;
+        let path = refuse_syncthing(self, &seen, there).await?;
         folder::make(seen.machine.shell()?, name, &asked).await?;
 
         let _write = WRITES.lock().await;
@@ -577,7 +585,7 @@ impl Desk {
             )));
         }
         let exists = there.exists;
-        let path = refuse_syncthing(&seen, there)?;
+        let path = refuse_syncthing(self, &seen, there).await?;
         if !exists {
             folder::make(seen.machine.shell()?, name, &asked).await?;
         }

@@ -18,6 +18,7 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
@@ -193,7 +194,7 @@ impl Oid {
 
 /// The checkout advertised alongside a file list. An unborn repository has
 /// no commit, while a folder without Git has no repository at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Checkout {
     pub(super) commit: Option<Oid>,
     pub(super) present: bool,
@@ -209,6 +210,43 @@ impl Checkout {
 
     pub(super) fn differs(self, other: Self) -> bool {
         self.present && other.present && self.commit != other.commit
+    }
+}
+
+/// Holds Git's index lock only while files enter the working tree. Git
+/// checkout, merge and commit cannot update the index during that batch.
+pub(super) struct WriteGuard(Option<PathBuf>);
+
+impl WriteGuard {
+    pub(super) fn acquire(root: &Path, expected: Option<Checkout>) -> Result<Self> {
+        let mut guard = Self(None);
+        let Some(expected) = expected else {
+            return Ok(guard);
+        };
+        if is_busy(root) {
+            bail!("waiting for the Git operation running on this machine");
+        }
+        if expected.present {
+            let lock = root.join(GIT).join("index.lock");
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock)
+                .context("waiting for Git's index lock")?;
+            guard.0 = Some(lock);
+        }
+        if Checkout::read(root) != expected {
+            bail!("the Git checkout changed before this batch could be applied");
+        }
+        Ok(guard)
+    }
+}
+
+impl Drop for WriteGuard {
+    fn drop(&mut self) {
+        if let Some(lock) = &self.0 {
+            let _ = fs::remove_file(lock);
+        }
     }
 }
 
@@ -320,7 +358,115 @@ pub(super) struct Repo {
     root: PathBuf,
 }
 
+#[derive(Default)]
+pub(super) struct CheckoutPaths {
+    pub(super) clean: HashSet<String>,
+    pub(super) changed: HashSet<String>,
+}
+
 impl Repo {
+    /// Tracked paths that match HEAD in both the index and working tree.
+    pub(super) fn checkout_paths(&self) -> Result<CheckoutPaths> {
+        let dirty = self.run(&[
+            "diff",
+            "HEAD",
+            "--name-only",
+            "-z",
+            "--ignore-submodules=none",
+        ])?;
+        let changed: HashSet<_> = dirty
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|path| !path.is_empty())
+            .map(|path| String::from_utf8(path.to_vec()))
+            .collect::<std::result::Result<_, _>>()?;
+        let clean = self
+            .tracked()?
+            .into_iter()
+            .filter(|path| !changed.contains(path))
+            .collect();
+        Ok(CheckoutPaths { clean, changed })
+    }
+
+    /// Fetches the configured upstream without asking for credentials. The
+    /// caller owns the project's scan/apply task while this runs.
+    pub(super) fn upstream_fetch(&self) -> Result<(Command, String)> {
+        self.require_clean()?;
+        let branch = self
+            .head_ref()
+            .context("detached HEAD; choose a branch before syncing")?;
+        let branch_name = branch
+            .strip_prefix("refs/heads/")
+            .context("HEAD is not a branch")?;
+        let remote = self.run(&["config", "--get", &format!("branch.{branch_name}.remote")])?;
+        let remote = std::str::from_utf8(&remote.stdout)?.trim();
+        self.run(&["rev-parse", "--verify", "@{upstream}"])
+            .context("configure an upstream before syncing different commits")?;
+        let mut command = self.git();
+        command
+            .args([
+                "fetch",
+                "--no-tags",
+                "--recurse-submodules=no",
+                "--",
+                remote,
+            ])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GCM_INTERACTIVE", "never")
+            .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes -oConnectTimeout=15");
+        Ok((command, branch))
+    }
+
+    pub(super) fn require_clean(&self) -> Result<()> {
+        if is_busy(&self.root) {
+            bail!("waiting for the Git operation running on this machine");
+        }
+        let status = self.run(&[
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ])?;
+        if !status.stdout.is_empty() {
+            bail!(
+                "Git commits differ; commit or stash staged, unstaged and untracked changes before syncing"
+            );
+        }
+        Ok(())
+    }
+
+    /// Moves only to the advertised commit, and only through the configured
+    /// upstream. Never merges divergent histories or checks out another branch.
+    pub(super) fn fast_forward(&self, before: Checkout, target: Oid, branch: &str) -> Result<()> {
+        self.require_clean()?;
+        if Checkout::read(&self.root) != before || self.head_ref().as_deref() != Some(branch) {
+            bail!("the Git checkout changed while fetching; retrying sync");
+        }
+        let upstream = self.run(&["rev-parse", "--verify", "@{upstream}^{commit}"])?;
+        let upstream = Oid::parse(std::str::from_utf8(&upstream.stdout)?.trim())
+            .context("the upstream has no commit")?;
+        if self.is_ancestor(target, upstream) != Some(true) {
+            bail!(
+                "Git commits differ; the peer's commit is not available from the configured upstream"
+            );
+        }
+        if before
+            .commit
+            .is_none_or(|own| self.is_ancestor(own, target) != Some(true))
+        {
+            bail!("Git commits differ; histories diverged or this checkout is ahead");
+        }
+        self.run(&[
+            "-c",
+            "merge.autostash=false",
+            "merge",
+            "--ff-only",
+            "--no-edit",
+            &target.hex(),
+        ])?;
+        Ok(())
+    }
+
     /// The repository in `root`, once its `.git` has a `HEAD`. The root is
     /// kept plain: Git for Windows takes no `\\?\` path.
     pub(super) fn open(root: &Path) -> Option<Self> {
@@ -332,7 +478,7 @@ impl Repo {
     /// `git` on exactly this repository, however the node was started: never
     /// one found above a `.git` that is not complete yet. Hooks stay off, as
     /// this is sync moving what the user's git already did elsewhere.
-    fn git(&self) -> Command {
+    pub(super) fn git(&self) -> Command {
         let mut command = Command::new("git");
         for name in [
             "GIT_DIR",
@@ -345,6 +491,7 @@ impl Repo {
             command.env_remove(name);
         }
         command
+            .env("GIT_OPTIONAL_LOCKS", "0")
             .current_dir(&self.root)
             .arg("--git-dir")
             .arg(self.root.join(GIT))
@@ -360,7 +507,7 @@ impl Repo {
         command
     }
 
-    fn run(&self, args: &[&str]) -> Result<Output> {
+    pub(super) fn run(&self, args: &[&str]) -> Result<Output> {
         let output = self
             .git()
             .args(args)
@@ -510,6 +657,12 @@ impl Repo {
         !self.root.join(GIT).join("index").exists()
     }
 
+    /// Creates the committed working tree after bootstrap, without overwriting files.
+    pub(super) fn materialize_checkout(&self) -> Result<()> {
+        self.run(&["checkout-index", "--all"])?;
+        Ok(())
+    }
+
     /// Makes the index HEAD's tree, with this machine's stat data, and puts
     /// tracked links back, which sync does not carry as files. Staged changes
     /// on this machine become unstaged; the files stay as they are.
@@ -589,6 +742,25 @@ mod tests {
         ] {
             assert_eq!(kind(path), want, "{path}");
         }
+    }
+
+    #[test]
+    fn a_batch_owns_the_index_lock_and_never_removes_another_operations_lock() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir(dir.path().join(GIT)).unwrap();
+        let checkout = Checkout::read(dir.path());
+        let guard = WriteGuard::acquire(dir.path(), Some(checkout)).unwrap();
+        assert!(is_busy(dir.path()));
+        assert!(WriteGuard::acquire(dir.path(), Some(checkout)).is_err());
+        assert!(dir.path().join(GIT).join("index.lock").exists());
+        drop(guard);
+        assert!(!is_busy(dir.path()));
+        fs::write(dir.path().join(GIT).join("index.lock"), "another operation").unwrap();
+        assert!(WriteGuard::acquire(dir.path(), Some(checkout)).is_err());
+        assert_eq!(
+            fs::read_to_string(dir.path().join(GIT).join("index.lock")).unwrap(),
+            "another operation"
+        );
     }
 
     #[test]

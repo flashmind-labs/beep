@@ -17,7 +17,7 @@ use beep_proto::{
     node::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
-        mesh_state::{Credential, StateValue, SyncSpec},
+        mesh_state::{Credential, Place, ProjectRecord, StateValue, SyncSpec},
         sync::Project,
     },
 };
@@ -64,6 +64,19 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
     let mut changes = mesh.changes();
     let mut updates = mesh.updates();
     let mut applied = Applied::default();
+    // Slow or stopped Syncthing must not delay credentials and project membership.
+    let preferences_mesh = mesh.clone();
+    let preferences_offers = offers.clone();
+    let _preferences = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+        let mut changes = preferences_mesh.changes();
+        loop {
+            apply_syncthing(&preferences_mesh, me, &preferences_offers).await;
+            tokio::select! {
+                change = changes.recv() => if matches!(change, Err(RecvError::Closed)) { return; },
+                () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {},
+            }
+        }
+    }));
     loop {
         applied.apply(&mesh, me, &offers).await;
         tokio::select! {
@@ -75,6 +88,40 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             moved = updates.changed() => if moved.is_err() {
                 return;
             },
+        }
+    }
+}
+
+/// Each machine applies the replicated preference to its own local share.
+async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
+    let Some(transfers) = offers.transfers.get() else {
+        return;
+    };
+    let syncs = transfers.syncs();
+    for (key, bytes) in mesh.scan("project/") {
+        let Key::Project(name) = key else {
+            continue;
+        };
+        let Ok(record) = ProjectRecord::from_bytes(&bytes) else {
+            continue;
+        };
+        let Some(enabled) = record.syncthing_files else {
+            continue;
+        };
+        let Some(bytes) = mesh.get(&Key::Project(format!("{name}/{me}"))) else {
+            continue;
+        };
+        let Ok(place) = Place::from_bytes(&bytes) else {
+            continue;
+        };
+        match syncs.syncthing_files(&place.folder, None).await {
+            Ok(files) if !files.available || files.enabled == enabled => {}
+            Ok(_) => {
+                if let Err(e) = syncs.syncthing_files(&place.folder, Some(enabled)).await {
+                    log::warn!("project Syncthing preference is pending: {e:#}");
+                }
+            }
+            Err(e) => log::debug!("project Syncthing preference could not be checked: {e:#}"),
         }
     }
 }

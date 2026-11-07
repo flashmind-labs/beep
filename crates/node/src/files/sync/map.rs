@@ -324,6 +324,22 @@ impl Map {
         self.by_seq.insert(seq, path);
     }
 
+    /// A clean fast-forward changes the checkout's base, without creating
+    /// a concurrent working edit. Keep the version the old checkout saw.
+    pub(super) fn baseline(
+        &mut self,
+        path: &str,
+        version: Version,
+        file: Option<FileMeta>,
+    ) -> Version {
+        self.put(Entry {
+            path: path.to_owned(),
+            version: version.clone(),
+            file,
+        });
+        version
+    }
+
     /// Merges an entry another node sent, giving the paths that changed.
     pub(super) fn merge(&mut self, incoming: &Entry) -> Vec<String> {
         // Its own counts, seen again after a restore, are never reused.

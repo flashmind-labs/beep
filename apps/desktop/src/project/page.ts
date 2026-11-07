@@ -6,6 +6,7 @@ import { dbtn as button, emptyPanel, svgEl as icon } from "../ui/parts.ts";
 import { filterProjects, whereRows, forgeLinks, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
+import { openProjectMenu } from "./syncthing.ts";
 import { editorTools } from "./editors.ts";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor, pageAgent } from "./agent.ts";
@@ -103,7 +104,8 @@ registerView("projects", {
         const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(p.name, !on) }];
         if (!windowProject) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(p.name) }, { label: "All projects", on: () => openProjects() });
         if (p.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(p.name) });
-        openMenu(e, p.name, items);
+        if (p.imported) openProjectMenu(e, p, items, () => { whereDue.add(p.name); revalidate(p.name); });
+        else openMenu(e, p.name, items);
       });
       more.title = "More";
       more.setAttribute("aria-label", "More");

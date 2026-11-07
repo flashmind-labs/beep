@@ -64,7 +64,7 @@ change `SIGN_DOMAIN`, mesh ALPNs and `MESH_DIR` together. Terminal host
 `Request`, `Reply` and `Hello`, and transfer `Manifest`, cannot gain fields
 while released readers using plain `rmp_serde` remain reachable. Change a
 protocol's bytes only with a protocol name bump. The current mesh ALPNs are `beep-peer/2` and `beep-join/2`; sync uses
-`beep-sync/4`.
+`beep-sync/6`.
 
 ## Reports
 
@@ -98,7 +98,9 @@ A desktop creates one-use pairing tickets. Nodes join the mesh and never mint
 tickets. A temporary machine is removed after 24 hours offline; other machines
 are not removed automatically.
 
-A new project folder copies the checkout and Git metadata once. After that,
-Git metadata stays local and file sync waits for matching commits. Linked
-worktrees and submodules stay on their machine. Syncthing-held folders wait for
-Syncthing to pause or release them.
+A new Git project copies the committed checkout and Git metadata once. After
+that, repositories exchange commits through Git. Uncommitted edits stay local
+until an explicit handoff to a clean checkout at the same commit. Non-Git
+folders keep file sync. Linked worktrees and submodules stay on their machine.
+Syncthing project exclusions apply on every imported machine, including when
+offline machines reconnect; the shared folder is never paused.

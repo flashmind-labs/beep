@@ -9,7 +9,7 @@ use super::{
 use crate::files::sync::{
     disk::{self},
     gitconfig,
-    gitdir::{self, Kind, Oid, RefMove, Repo, Stay, ref_stat},
+    gitdir::{self, Checkout, Kind, Oid, RefMove, Repo, Stay, WriteGuard, ref_stat},
     map::{FileMeta, is_conflict, original_of},
     progress::{self, Meter},
     root::{Checked, exclude_from_git},
@@ -55,6 +55,7 @@ struct Sealed {
 
 /// How a round stands.
 struct Round {
+    checkout: Checkout,
     partial: Option<Partial>,
     /// Written, and not yet in place or on the list as seen.
     batch: Vec<Sealed>,
@@ -149,7 +150,11 @@ impl Task {
             self.publish_status(None);
             return false;
         }
-        if let Err(e) = self.shared.check_git().await {
+        let aligned = self.shared.align_git().await;
+        if matches!(aligned, Ok(true)) {
+            self.scan().await;
+        }
+        if let Err(e) = aligned.and(self.shared.check_git().await) {
             self.pending = 1;
             self.fail("waiting for Git", &e);
             self.publish_status(None);
@@ -163,19 +168,47 @@ impl Task {
             self.error = None;
         }
         let copies_git = self.shared.copies_git();
+        if !copies_git && (self.scan_failed || self.shared.list_checkout().await.is_err()) {
+            self.scan().await;
+            if self.scan_failed {
+                self.pending = 1;
+                return false;
+            }
+        }
         // Persist the bootstrap phase before a partial .git can appear.
         if copies_git && !self.save(true).await {
             self.pending = 1;
             self.publish_status(None);
             return false;
         }
-        let work = {
+        // A Git checkout exchanges commits, never live working-tree files.
+        if !copies_git && self.shared.head().await.is_ok_and(|head| head.present)
+            || !copies_git && self.shared.lock().saved.git_only
+        {
+            self.pending = 0;
+            self.waiting.clear();
+            self.publish_status(None);
+            return true;
+        }
+        let (work, checkout) = {
             let state = self.shared.lock();
             let rules = read_lock(&self.shared.rules);
-            plan(&state, &rules)
+            let work = plan(&state, &rules)
                 .into_iter()
-                .filter(|work| copies_git || !gitdir::in_git(&work.path))
-                .collect::<Vec<_>>()
+                .filter(|work| {
+                    if copies_git
+                        && matches!(
+                            state.saved.git_copy,
+                            Some(GitCopy::Pending { peer: Some(_) })
+                        )
+                    {
+                        gitdir::in_git(&work.path)
+                    } else {
+                        !gitdir::in_git(&work.path)
+                    }
+                })
+                .collect::<Vec<_>>();
+            (work, state.saved.checkout)
         };
         let wanted: HashSet<Hash> = work
             .iter()
@@ -210,6 +243,13 @@ impl Task {
             .collect();
         let mut ahead = Ahead::new(self.fetcher.clone(), fetches);
         let mut round = Round {
+            checkout: match checkout {
+                Some(checkout) => checkout,
+                None => {
+                    self.pending = 1;
+                    return false;
+                }
+            },
             partial: None,
             batch: Vec::new(),
             batch_bytes: 0,
@@ -321,12 +361,20 @@ impl Task {
         };
         let started = Instant::now();
         let batch = mem::take(&mut round.batch);
+        if let Err(e) = self.check_round_git(round).await {
+            for sealed in batch {
+                self.note_failure(round, sealed.work.path, sealed.size, &e);
+            }
+            return;
+        }
         round.batch_bytes = 0;
         let (root, dir) = (self.shared.root.clone(), partial.dir().try_clone());
+        let checkout = (!self.shared.copies_git()).then_some(round.checkout);
         let placed = spawn_blocking(move || {
-            let placed = dir
-                .map_err(anyhow::Error::from)
-                .and_then(|dir| place_all(&root, &dir, &batch));
+            let placed = dir.map_err(anyhow::Error::from).and_then(|dir| {
+                let _git = WriteGuard::acquire(root.path(), checkout)?;
+                place_all(&root, &dir, &batch)
+            });
             (batch, placed)
         })
         .await;
@@ -392,7 +440,14 @@ impl Task {
         {
             self.flush(round).await;
             round.unsynced = true;
-            self.keep_as(&work.path, &keep_as, expected).await?;
+            self.check_round_git(round).await?;
+            self.keep_as(
+                &work.path,
+                &keep_as,
+                expected,
+                (!self.shared.copies_git()).then_some(round.checkout),
+            )
+            .await?;
             if work.file.is_none() {
                 return Ok(true);
             }
@@ -404,7 +459,9 @@ impl Task {
         }
         let Some(file) = work.file.clone() else {
             round.unsynced = true;
-            self.delete(&work).await?;
+            self.check_round_git(round).await?;
+            self.delete(&work, (!self.shared.copies_git()).then_some(round.checkout))
+                .await?;
             return Ok(true);
         };
         if !self.still_wanted(&work) {
@@ -475,6 +532,17 @@ impl Task {
             _fetched: fetched,
         });
         Ok(false)
+    }
+
+    async fn check_round_git(&self, round: &Round) -> Result<()> {
+        if self.shared.copies_git() {
+            return Ok(());
+        }
+        self.shared.check_git().await?;
+        if self.shared.head().await? != round.checkout {
+            bail!("the Git checkout changed while syncing; retrying from its new base");
+        }
+        Ok(())
     }
 
     /// Waits for what `ahead` gets of `hash`, putting the batch in place
@@ -568,6 +636,7 @@ impl Task {
                 bail!("waiting for the git operation running on this machine");
             }
             repo.rebuild_index()?;
+            repo.materialize_checkout()?;
             exclude_from_git(&root);
             Ok(true)
         })
@@ -720,10 +789,20 @@ impl Task {
         move_target(&state, &rules, path)
     }
 
-    async fn keep_as(&mut self, path: &str, to: &str, expected: Stat) -> Result<()> {
+    async fn keep_as(
+        &mut self,
+        path: &str,
+        to: &str,
+        expected: Stat,
+        checkout: Option<Checkout>,
+    ) -> Result<()> {
         let moved = {
             let (root, from, to_path) = (self.shared.root.clone(), path.to_owned(), to.to_owned());
-            spawn_blocking(move || disk::rename(&root, &from, &to_path, &expected)).await??
+            spawn_blocking(move || {
+                let _git = WriteGuard::acquire(root.path(), checkout)?;
+                disk::rename(&root, &from, &to_path, &expected)
+            })
+            .await??
         };
         let Some(stat) = moved else {
             bail!("{path} changed on this machine; it is merged on the next scan");
@@ -759,7 +838,7 @@ impl Task {
         Ok(())
     }
 
-    async fn delete(&mut self, work: &Work) -> Result<()> {
+    async fn delete(&mut self, work: &Work, checkout: Option<Checkout>) -> Result<()> {
         let Some(expected) = work.expected else {
             return Ok(());
         };
@@ -768,7 +847,11 @@ impl Task {
         }
         let removed = {
             let (root, path) = (self.shared.root.clone(), work.path.clone());
-            spawn_blocking(move || disk::remove(&root, &path, &expected)).await??
+            spawn_blocking(move || {
+                let _git = WriteGuard::acquire(root.path(), checkout)?;
+                disk::remove(&root, &path, &expected)
+            })
+            .await??
         };
         if removed {
             self.shared.lock().remove_seen(&work.path);

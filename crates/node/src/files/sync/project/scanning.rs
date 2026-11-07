@@ -7,13 +7,13 @@ use super::{
 };
 use crate::files::sync::{
     disk::{self, Found as OnDisk, same},
-    gitdir::{self, Repo},
+    gitdir::{self, Checkout, CheckoutPaths, Repo},
     root::{self, Checked, RootId},
     rules::{MARKER, Rules},
     scan,
 };
 use crate::{read_lock, write_lock};
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::State as SyncState;
 use futures::future::join_all;
 use iroh_blobs::Hash;
@@ -46,6 +46,16 @@ impl Task {
     async fn try_scan(&mut self) -> Result<()> {
         let checked = self.check_root().await?;
         let root = self.shared.root().to_owned();
+        let checkout = {
+            let root = root.clone();
+            spawn_blocking(move || -> Result<_> {
+                if gitdir::is_busy(&root) {
+                    bail!("waiting for the Git operation running on this machine");
+                }
+                Ok(Checkout::read(&root))
+            })
+            .await??
+        };
         let rules = {
             let root = root.clone();
             spawn_blocking(move || Rules::load(&root)).await??
@@ -58,6 +68,11 @@ impl Task {
                 state.saved.git_copy = Some(GitCopy::Finished);
                 state.unsaved = true;
             }
+        }
+        if checkout.present {
+            let mut state = self.shared.lock();
+            state.saved.git_only = true;
+            state.unsaved = true;
         }
         let syncs_git = rules.syncs_git();
         *write_lock(&self.shared.rules) = rules;
@@ -89,11 +104,16 @@ impl Task {
         // No repository to read: its files missing are not deletes.
         let repo_gone = repo.is_none();
         let refs = repo.unwrap_or_default();
+        let git_only = self.shared.lock().saved.git_only;
         let walked = {
             let (root, rules) = (root.clone(), self.shared.rules.clone());
             spawn_blocking(move || {
                 let rules = read_lock(&rules);
-                scan::walk(&root, &rules, 0)
+                if git_only {
+                    scan::walk_git(&root, &rules)
+                } else {
+                    scan::walk(&root, &rules, 0)
+                }
             })
             .await??
         };
@@ -226,26 +246,70 @@ impl Task {
             );
         }
         let mut held = BTreeSet::new();
-        let (before, seq) = {
+        let git_advanced = self
+            .shared
+            .lock()
+            .saved
+            .fast_forward
+            .is_some_and(|target| checkout.commit == Some(target));
+        let checkout_paths = if git_advanced {
+            let root = root.clone();
+            spawn_blocking(move || {
+                Repo::open(&root)
+                    .context("the Git checkout disappeared")?
+                    .checkout_paths()
+            })
+            .await??
+        } else {
+            CheckoutPaths::default()
+        };
+        let stable = {
+            let root = root.clone();
+            spawn_blocking(move || !gitdir::is_busy(&root) && Checkout::read(&root) == checkout)
+                .await?
+        };
+        if !stable {
+            bail!("the Git checkout changed during the scan; retrying sync");
+        }
+        let (before, seq, checkout_changed) = {
             let mut state = self.shared.lock();
             let before = state.saved.map.seq();
+            let checkout_changed = state.saved.checkout != Some(checkout);
             for (found, hash, prior) in hashed {
-                record(&mut state, found, hash, prior);
+                record(
+                    &mut state,
+                    found,
+                    hash,
+                    prior,
+                    checkout_paths.clean.contains(&found.path),
+                );
             }
             for (path, missing) in deleted {
                 // Kept as seen, and sent by `send_deletes` once the
                 // folder settled and is still the one synced.
                 if missing && baseline {
-                    held.insert(path);
+                    if git_advanced
+                        && !gitdir::in_git(&path)
+                        && !checkout_paths.changed.contains(&path)
+                    {
+                        if let Some(seen) = state.remove_seen(&path) {
+                            state.saved.map.baseline(&path, seen.version, None);
+                        }
+                    } else {
+                        held.insert(path);
+                    }
                 } else {
                     state.remove_seen(&path);
                 }
             }
-            (before, state.saved.map.seq())
+            state.saved.checkout = Some(checkout);
+            state.saved.fast_forward = None;
+            state.unsaved = true;
+            (before, state.saved.map.seq(), checkout_changed)
         };
         self.held = held;
         self.first = false;
-        if seq != before {
+        if seq != before || checkout_changed {
             self.shared.seq.send_replace(seq);
         }
         self.protect().await?;

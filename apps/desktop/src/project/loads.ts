@@ -30,6 +30,7 @@ import { placeOf } from "../agents/place.ts";
 import { placeSub } from "../agents/place-state.ts";
 import { agentCanFix, fixPrompt, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { IC } from "../ui/icons.ts";
+import { openHandoff } from "./handoff.ts";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the
@@ -254,6 +255,9 @@ function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons:
   if (!line.buttons) return { note, buttons: [] };
   const mv = moves.get(moveKey(p.name, m.id));
   const buttons = [moveButton(p, m, row, "pull", line.pull, mv?.moving), moveButton(p, m, row, "push", line.push, mv?.moving)];
+  if (p.machines.length > 1 && !m.syncthing) {
+    buttons.push(button("Bring work here", "small", () => openHandoff(p, m.id, () => { loadGit(p.name); refresh(); })));
+  }
   if (mv?.failed) {
     const why = h("small", "gs err", mv.failed);
     note.append(h("br"), why);
