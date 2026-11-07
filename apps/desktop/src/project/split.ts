@@ -14,17 +14,16 @@ import { issueMeta, prChip, prMeta } from "./threads.ts";
 import { arranged, listControls, pickBox, startBar } from "./openlist.ts";
 import type { StartEntry } from "./openlist-state.ts";
 import { state } from "../center/state.ts";
-import { tag, line, section } from "../ui/pieces.ts";
-import { homeBox } from "../center/home.ts";
+import { line, section } from "../ui/pieces.ts";
+import { homeBox, runningStatus } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { closingNote } from "../agents/closing.ts";
 import { customAgentsSection, whereSection, agentsSection } from "./projects.ts";
 import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsDue, loadSessions } from "./loads.ts";
 import { IC } from "../ui/icons.ts";
-import { byRecent, type RunningAgent, runningKey, runningWhen } from "../agents/running-state.ts";
+import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 
 /// The split shows for an imported project whose agent's view has loaded, and with no
@@ -149,7 +148,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   }
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLineAt(r, state.home?.projects || []),
-    right: closingNote(r) ?? (r.status === "asking" ? tag("wait", "needs you") : runningWhen(r)), open: () => go("pane", { agent: r }),
+    right: runningStatus(r), open: () => go("pane", { agent: r }),
     menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));
   if (runItems.length) groups.push({ title: "Running", items: runItems });
