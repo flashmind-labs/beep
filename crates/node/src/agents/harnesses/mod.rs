@@ -9,12 +9,14 @@ use crate::{
     AsyncMutex, lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
     machine::provision::spawn_env::{self, Scope},
+    machine::tls,
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::harness::{
     AgentSettings, HARNESSES, HarnessConfig, HarnessInfo, HarnessReport, harness, parse_version,
 };
 use beep_proto::{AgentSlug, FlshSettings};
+use reqwest::Client;
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -221,7 +223,13 @@ impl Latest {
             }
         }
         let has_npm = find("npm").is_some();
-        let http = reqwest::Client::builder().timeout(NPM_TIMEOUT).build().ok();
+        let http = tls::config().ok().and_then(|tls| {
+            Client::builder()
+                .tls_backend_preconfigured(tls)
+                .timeout(NPM_TIMEOUT)
+                .build()
+                .ok()
+        });
         let looked = futures::future::join_all(packages.iter().map(|package| {
             let http = http.as_ref();
             async move {
@@ -254,7 +262,7 @@ impl Latest {
 }
 
 /// The public npm registry also lists releases when npm is not installed.
-async fn registry_version(http: &reqwest::Client, package: &str) -> Option<String> {
+async fn registry_version(http: &Client, package: &str) -> Option<String> {
     let package = package.replace('/', "%2F");
     let response = http
         .get(format!("https://registry.npmjs.org/{package}/latest"))
@@ -639,5 +647,15 @@ mod tests {
             Some(false)
         );
         assert_eq!(read_sign_in("pi", true, "").signed_in, None);
+    }
+
+    #[tokio::test]
+    async fn version_check_configures_tls_without_a_global_provider() {
+        assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+        let latest = Latest::default();
+        let (versions, checked_at) = latest.versions(&[], true).await;
+        assert!(versions.is_empty());
+        assert!(checked_at > 0);
+        assert!(rustls::crypto::CryptoProvider::get_default().is_none());
     }
 }
