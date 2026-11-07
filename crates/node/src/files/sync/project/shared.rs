@@ -2,11 +2,11 @@
 
 use super::{
     list::merge_peer,
-    state::{Cursor, State, read_saved},
+    state::{Cursor, GitCopy, State, read_saved},
 };
 use crate::files::sync::{
     disk::{self},
-    gitdir::{self, Oid, Repo},
+    gitdir::{self, Checkout, Oid, Repo},
     map::{Changes, Entry, Replica, is_conflict, original_of, valid_path},
     rules::Rules,
     scan::{MAX_FILES, Stat},
@@ -63,6 +63,8 @@ pub(in crate::files::sync) struct Shared {
     /// When each peer last sent all it had, from a pull that went through.
     /// Unlike `unheard`, a pull that failed does not set it.
     caught: Mutex<HashMap<EndpointId, Instant>>,
+    /// Commits peers advertised on their current pulls.
+    peer_heads: Mutex<HashMap<EndpointId, Checkout>>,
     /// When the last round that brought the folder in line with the list
     /// began. It saw every merge made before that.
     applied: Mutex<Instant>,
@@ -84,10 +86,22 @@ pub(in crate::files::sync) struct Start {
 impl Shared {
     /// Loads the project's state; blocks.
     pub(in crate::files::sync) fn load(start: Start) -> Result<Arc<Self>> {
-        let saved = read_saved(&start.file);
+        let mut saved = read_saved(&start.file);
+        let migrated = saved.git_copy.is_none();
+        if migrated {
+            saved.git_copy = Some(if start.root.path().join(gitdir::GIT).exists() {
+                GitCopy::Finished
+            } else {
+                GitCopy::Pending { peer: None }
+            });
+            // Existing indexes, including staged work, stay owned by Git.
+            saved.index_stale = false;
+        }
+        let mut state = State::new(saved);
+        state.unsaved |= migrated;
         let rules = Rules::load(start.root.path())?;
-        let replica = saved.map.replica();
-        let seq = saved.map.seq();
+        let replica = state.saved.map.replica();
+        let seq = state.saved.map.seq();
         let unheard = start.peers.iter().map(|addr| addr.id).collect();
         let status = ProjectStatus {
             name: start.name.clone(),
@@ -100,7 +114,7 @@ impl Shared {
             root: start.root,
             file: start.file,
             replica,
-            state: Mutex::new(State::new(saved)),
+            state: Mutex::new(state),
             rules: Arc::new(RwLock::new(rules)),
             seq: watch::Sender::new(seq),
             status: watch::Sender::new(status),
@@ -113,6 +127,7 @@ impl Shared {
             stop: CancellationToken::new(),
             unheard: Mutex::new(unheard),
             caught: Mutex::default(),
+            peer_heads: Mutex::default(),
             applied: Mutex::new(Instant::now()),
             pull_again: watch::Sender::new(0),
         }))
@@ -259,30 +274,87 @@ impl Shared {
             .unwrap_or_default()
     }
 
-    /// The commit this checkout is at, if `.git` syncs and has one.
-    pub(in crate::files::sync) async fn head(&self) -> Result<Option<Oid>> {
-        if !crate::read_lock(&self.rules).syncs_git() {
-            return Ok(None);
-        }
+    /// The commit this checkout is at, even when Git files stay local.
+    pub(in crate::files::sync) async fn head(&self) -> Result<Checkout> {
         let root = self.root().to_owned();
-        let head = spawn_blocking(move || Repo::open(&root).and_then(|repo| repo.head())).await?;
+        let head = spawn_blocking(move || Checkout::read(&root)).await?;
         Ok(head)
     }
 
-    /// Marks `peer` as merged with from now on, after a scan. Commits play no
-    /// part: as with Syncthing, the newer version of a file wins and the other
-    /// becomes a conflict copy, and a branch follows its later commit.
-    pub(in crate::files::sync) async fn first_contact(&self, peer: &EndpointId) -> Result<()> {
-        if self.is_matched(peer) {
-            return Ok(());
-        }
+    /// Whether this folder still needs its first Git copy.
+    pub(in crate::files::sync) fn copies_git(&self) -> bool {
+        matches!(self.lock().saved.git_copy, Some(GitCopy::Pending { .. }))
+            && crate::read_lock(&self.rules).syncs_git()
+    }
+
+    /// Checks the checkout before accepting a peer's files. Different
+    /// commits wait for the user or an agent to push and pull through Git.
+    pub(in crate::files::sync) async fn first_contact(
+        &self,
+        peer: &EndpointId,
+        checkout: Checkout,
+    ) -> Result<()> {
         self.scan_before_matching().await?;
+        let own = self.head().await?;
+        crate::lock(&self.peer_heads).insert(*peer, checkout);
+        self.merged.notify_one();
+        let copies_git = self.copies_git();
         let mut state = self.lock();
+        if copies_git {
+            if let Some(GitCopy::Pending { peer: donor }) = &mut state.saved.git_copy {
+                if donor
+                    .as_ref()
+                    .is_some_and(|donor| donor != &peer.to_string())
+                {
+                    bail!("waiting for the first Git copy from another peer");
+                }
+                if checkout.present && donor.is_none() {
+                    *donor = Some(peer.to_string());
+                    state.unsaved = true;
+                }
+            }
+        } else if own.differs(checkout) {
+            bail!("Git commits differ; push and pull through Git before syncing files");
+        }
         state.saved.matched.insert(peer.to_string());
         state.unsaved = true;
         drop(state);
         self.merged.notify_one();
         Ok(())
+    }
+
+    /// Whether an established checkout must wait for Git before writing files.
+    pub(super) async fn check_git(&self) -> Result<()> {
+        if self.copies_git() {
+            return Ok(());
+        }
+        let root = self.root().to_owned();
+        let own = spawn_blocking(move || -> Result<Checkout> {
+            if gitdir::is_busy(&root) {
+                bail!("waiting for the Git operation running on this machine");
+            }
+            Ok(Checkout::read(&root))
+        })
+        .await??;
+        let heads = crate::lock(&self.peer_heads);
+        if heads
+            .iter()
+            .any(|(peer, head)| self.has_peer(peer) && own.differs(*head))
+        {
+            bail!("Git commits differ; push and pull through Git before syncing files");
+        }
+        Ok(())
+    }
+
+    /// The initial donor has sent its whole list successfully.
+    pub(super) fn git_copy_received(&self) -> bool {
+        let state = self.lock();
+        match &state.saved.git_copy {
+            Some(GitCopy::Pending { peer: Some(peer) }) => crate::lock(&self.caught)
+                .keys()
+                .any(|id| id.to_string() == *peer),
+            _ => false,
+        }
     }
 
     /// Whether this checkout has merged with `peer` before.
@@ -308,8 +380,26 @@ impl Shared {
         entries: &[Entry],
         cursor: Cursor,
     ) {
+        let allowed_git = crate::read_lock(&self.rules).syncs_git();
         let mut state = self.lock();
-        let merged = merge_peer(&mut state.saved.map, entries);
+        let copies_git =
+            allowed_git && matches!(state.saved.git_copy, Some(GitCopy::Pending { .. }));
+        if copies_git && let Some(GitCopy::Pending { peer: donor }) = &mut state.saved.git_copy {
+            match donor {
+                Some(donor) if donor != &peer.to_string() => return,
+                None if entries.iter().any(|entry| gitdir::in_git(&entry.path)) => {
+                    *donor = Some(peer.to_string());
+                    state.unsaved = true;
+                }
+                _ => {}
+            }
+        }
+        let entries: Vec<_> = entries
+            .iter()
+            .filter(|entry| copies_git || !gitdir::in_git(&entry.path))
+            .cloned()
+            .collect();
+        let merged = merge_peer(&mut state.saved.map, &entries);
         if merged.refused > 0 {
             log::warn!(
                 "{}: left out {} entries from {peer}: bad paths, or past {MAX_FILES} files",
@@ -370,6 +460,9 @@ impl Shared {
                 "sync of {} is paused; resume it to settle conflicts",
                 self.name
             );
+        }
+        if gitdir::in_git(path) && !self.copies_git() {
+            bail!("resolve Git conflicts through Git on this machine");
         }
         if !valid_path(path) || !is_conflict(path) {
             bail!("{path} is not a conflict copy");

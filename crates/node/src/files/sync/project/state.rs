@@ -29,6 +29,13 @@ pub(super) struct Seen {
     pub(super) version: Version,
 }
 
+/// Whether Git belongs to this machine or is still being copied initially.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) enum GitCopy {
+    Pending { peer: Option<String> },
+    Finished,
+}
+
 /// What a project keeps on disk between runs.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(super) struct Saved {
@@ -46,6 +53,9 @@ pub(super) struct Saved {
     /// A ref HEAD names moved, and the index is not rebuilt yet.
     #[serde(default)]
     pub(super) index_stale: bool,
+    /// Missing in state written before Git became local after the first copy.
+    #[serde(default)]
+    pub(super) git_copy: Option<GitCopy>,
 }
 
 pub(super) struct State {

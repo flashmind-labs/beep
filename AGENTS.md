@@ -284,7 +284,7 @@ Exceptions to the field rule:
 
 ALPNs: `beep-peer/2` and `beep-join/2` (a mesh from before them is in `mesh`,
 never read; the device joins again with a new ticket, kept in `mesh2`),
-and `beep-sync/3`. `beep-node/1` and `/2` were the retired node-server
+and `beep-sync/4`. `beep-node/1` and `/2` were the retired node-server
 link. Change a protocol's bytes, bump its name.
 
 ## Desktop app
@@ -425,25 +425,17 @@ their own.
 
 ## beep-sync and git
 
-The whole checkout syncs: tracked files, ignored files and `.git`
-(`crates/node/src/files/sync/gitdir.rs` says what each path in `.git` does).
-`.beepignore` and the built-in defaults still apply, except that a tracked file
-stays in spite of a default. The `.stignore` of any folder at or above a project
-applies too; one it cannot read refuses the folder and says why.
+A new folder takes the checkout and `.git` once. After that, Git metadata
+stays local, including refs, objects, config and the index. Use Git push and
+pull to exchange commits. Regular file sync waits when checkouts have different
+commits; it never moves a branch or rebuilds an existing index.
 
-- Objects add up: a peer's `git gc` deletes nothing here. Refs are read from git
-  and written with `git update-ref`, once all they name is here, so the reflog
-  keeps a ref moved backwards. Each machine rebuilds its own index.
-- Commits on both sides of a branch: the later commit keeps the branch, and the
-  other stays as `refs/beep-conflicts/<ref>-<tag>`, listed as a conflict. If one
-  is an ancestor of the other, the branch moves forward and the ref goes.
-- Two checkouts merge whatever commits they are at, as with Syncthing: the newer
-  version of a file wins and the other becomes a conflict copy.
-- Locks, `FETCH_HEAD`, reflogs, hooks and `.git/worktrees` stay on their
-  machine, and so does any folder whose `.git` is a file (a linked worktree or
-  a submodule). Its branch still travels; it waits on a machine that has it
-  checked out in a linked worktree.
-- Peers talk `beep-sync/3`. Nodes on `beep-sync/1` or `/2` do not sync with it.
+`.beepignore`, the built-in defaults and ancestor `.stignore` files still apply.
+A Syncthing `.git` exclusion does not prevent Beep's initial Git copy. Linked
+worktrees and submodules stay on their machine. Interrupted initial copies
+resume after restart; a completed copy never starts again after `.git` is deleted.
+
+- Peers talk `beep-sync/4`. Nodes on earlier sync protocols do not sync with it.
 - Add on a project's machine row makes the folder there and joins sync: the empty
   folder takes the files and `.git` from the others (`Desk::add_to_machine`).
 - Change folder on a row points the machine at another folder, empty (filled as by Add)

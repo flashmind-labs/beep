@@ -4,7 +4,7 @@
 
 use super::{
     Syncs,
-    gitdir::Oid,
+    gitdir::{Checkout, Oid},
     map::{Entry, Replica},
     project::{Cursor, Shared},
 };
@@ -22,11 +22,9 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-/// `beep-sync/1` nodes leave `.git` and tracked files out and would write
-/// tracked files into a checkout git owns there, and `beep-sync/2` nodes
-/// write maps where this version writes compact arrays, so none of them sync
-/// with each other: a node syncs again once both run this version.
-pub(crate) const ALPN: &[u8] = b"beep-sync/3";
+/// Earlier versions keep moving Git refs through the file list. They must
+/// not sync with a node whose checkout belongs to Git after its first copy.
+pub(crate) const ALPN: &[u8] = b"beep-sync/4";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
@@ -47,6 +45,8 @@ enum Request {
         project: String,
         replica: Replica,
         since: u64,
+        #[serde(default)]
+        copy_git: bool,
     },
 }
 
@@ -61,6 +61,8 @@ enum Reply {
         /// field leave it out.
         #[serde(default)]
         behind: Option<u64>,
+        #[serde(default)]
+        has_git: bool,
     },
     /// Changes of `replica` up to its change `upto`.
     Changes {
@@ -129,6 +131,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
         project,
         replica,
         since,
+        copy_git,
     }) = rx.recv::<Request>().await?
     else {
         return Ok(());
@@ -160,9 +163,11 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     } else {
         0
     };
+    let mut head = shared.head().await?;
     tx.send(&Reply::Head {
-        commit: shared.head().await?,
+        commit: head.commit,
         behind: shared.last_change_after(since),
+        has_git: head.present,
     })
     .await?;
     let mut seq = shared.subscribe();
@@ -172,9 +177,24 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
         if !syncs.allows(&peer) {
             return Ok(());
         }
-        let changes = shared.changes(since, BATCH);
+        let now = shared.head().await?;
+        if now != head {
+            head = now;
+            tx.send(&Reply::Head {
+                commit: head.commit,
+                behind: shared.last_change_after(since),
+                has_git: head.present,
+            })
+            .await?;
+        }
+        let mut changes = shared.changes(since, BATCH);
         if !changes.entries.is_empty() {
             since = changes.upto;
+            if !copy_git {
+                changes
+                    .entries
+                    .retain(|entry| !super::gitdir::in_git(&entry.path));
+            }
             tx.send(&Reply::Changes {
                 replica: shared.replica(),
                 entries: changes.entries,
@@ -237,6 +257,7 @@ async fn pull_once(
         project: shared.name().to_owned(),
         replica: cursor.replica,
         since: cursor.seq,
+        copy_git: shared.copies_git(),
     })
     .await?;
     let mut last = None;
@@ -252,7 +273,11 @@ async fn pull_once(
             break;
         };
         match reply {
-            Reply::Head { behind, .. } => {
+            Reply::Head {
+                commit,
+                behind,
+                has_git,
+            } => {
                 // A connection that worked: losing it is no reason to wait long.
                 *wait = FIRST_RETRY;
                 log::debug!(
@@ -261,7 +286,15 @@ async fn pull_once(
                     peer.id,
                     started.elapsed()
                 );
-                shared.first_contact(&peer.id).await?;
+                shared
+                    .first_contact(
+                        &peer.id,
+                        Checkout {
+                            commit,
+                            present: has_git,
+                        },
+                    )
+                    .await?;
                 last = behind;
                 if last.is_none() {
                     shared.heard(&peer.id);
@@ -298,21 +331,23 @@ mod tests {
 
     #[test]
     fn head_stays_readable_both_ways_within_the_alpn() {
-        let new = rmp_serde::to_vec_named(&Reply::Head {
+        let new = rmp_serde::to_vec(&Reply::Head {
             commit: None,
             behind: Some(7),
+            has_git: true,
         })
         .unwrap();
         assert_eq!(
-            rmp_serde::from_slice::<OldReply>(&new).unwrap(),
+            beep_proto::lenient::from_slice::<OldReply>(&new).unwrap(),
             OldReply::Head { commit: None }
         );
-        let old = rmp_serde::to_vec_named(&OldReply::Head { commit: None }).unwrap();
+        let old = rmp_serde::to_vec(&OldReply::Head { commit: None }).unwrap();
         assert_eq!(
-            rmp_serde::from_slice::<Reply>(&old).unwrap(),
+            beep_proto::lenient::from_slice::<Reply>(&old).unwrap(),
             Reply::Head {
                 commit: None,
-                behind: None
+                behind: None,
+                has_git: false,
             }
         );
     }

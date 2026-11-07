@@ -1283,7 +1283,7 @@ async fn a_node_the_record_drops_stops_syncing_and_keeps_its_files() {
 }
 
 #[tokio::test]
-async fn checkouts_at_other_commits_merge_when_the_mesh_names_them() {
+async fn checkouts_at_other_commits_wait_for_git_when_the_mesh_names_them() {
     let (a, root, folder) = bare_node().await;
     let mut pair = bare_nodes(a, root, folder).await;
     for (folder, file) in [(&pair.a_folder, "a.txt"), (&pair.b_folder, "b.txt")] {
@@ -1297,28 +1297,27 @@ async fn checkouts_at_other_commits_merge_when_the_mesh_names_them() {
     }
     pair.sync().await;
 
-    for (folder, theirs) in [(&pair.a_folder, "b.txt"), (&pair.b_folder, "a.txt")] {
-        has_text(&folder.join(theirs), "only here").await;
+    for node in [&pair.a, &pair.b] {
+        let conn = pair.desktop.reach(node.id).await;
+        until_status(&conn, |status| {
+            status
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Git commits differ"))
+        })
+        .await;
     }
-    // Neither side's edit is lost: one is the file, the other a conflict copy.
-    timeout(LIMIT, async {
-        loop {
-            let holds = |folder: &Path, text: &str| {
-                fs::read_dir(folder)
-                    .expect("the folder reads")
-                    .flatten()
-                    .any(|file| fs::read_to_string(file.path()).is_ok_and(|read| read == text))
-            };
-            if [&pair.a_folder, &pair.b_folder].iter().all(|folder| {
-                holds(folder, "edited beside a.txt") && holds(folder, "edited beside b.txt")
-            }) {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("both edits are kept on both machines");
+    for (folder, own, other) in [
+        (&pair.a_folder, "a.txt", "b.txt"),
+        (&pair.b_folder, "b.txt", "a.txt"),
+    ] {
+        assert!(!folder.join(other).exists());
+        assert_eq!(
+            fs::read_to_string(folder.join("same.txt")).unwrap(),
+            format!("edited beside {own}")
+        );
+        assert!(git_in(folder, &["for-each-ref", "refs/beep-conflicts"]).is_empty());
+    }
 }
 
 #[tokio::test]

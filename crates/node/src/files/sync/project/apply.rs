@@ -3,7 +3,7 @@
 use super::{
     fetch::{Ahead, Fetched, Wanted, copy_out, read_store},
     list::{Work, move_target, plan, turn},
-    state::Seen,
+    state::{GitCopy, Seen},
     task::Task,
 };
 use crate::files::sync::{
@@ -149,10 +149,26 @@ impl Task {
             self.publish_status(None);
             return false;
         }
+        if let Err(e) = self.shared.check_git().await {
+            self.pending = 1;
+            self.fail("waiting for Git", &e);
+            self.publish_status(None);
+            return false;
+        }
+        let copies_git = self.shared.copies_git();
+        // Persist the bootstrap phase before a partial .git can appear.
+        if copies_git && !self.save(true).await {
+            self.pending = 1;
+            self.publish_status(None);
+            return false;
+        }
         let work = {
             let state = self.shared.lock();
             let rules = read_lock(&self.shared.rules);
             plan(&state, &rules)
+                .into_iter()
+                .filter(|work| copies_git || !gitdir::in_git(&work.path))
+                .collect::<Vec<_>>()
         };
         let wanted: HashSet<Hash> = work
             .iter()
@@ -528,7 +544,7 @@ impl Task {
     /// What follows a round in a repository: refs settled, and the index
     /// rebuilt if HEAD now names another commit.
     async fn finish_git(&mut self) {
-        if !read_lock(&self.shared.rules).syncs_git() {
+        if !self.shared.copies_git() {
             return;
         }
         self.settle_refs().await;
@@ -564,6 +580,40 @@ impl Task {
             Err(e) => {
                 self.pending += 1;
                 self.fail("rebuilding the git index failed", &e);
+            }
+        }
+        let finished = self.pending == 0 && self.shared.git_copy_received();
+        if finished {
+            let root = self.shared.root().to_owned();
+            let complete = spawn_blocking(move || {
+                Repo::open(&root).map(|repo| repo.finish_copy()).transpose()
+            })
+            .await;
+            let complete = match complete {
+                Ok(Ok(Some(complete))) => complete,
+                Ok(Err(e)) => {
+                    self.fail("finishing the first Git copy failed", &e);
+                    false
+                }
+                _ => false,
+            };
+            if complete {
+                let copying = self.shared.lock().saved.git_copy.clone();
+                {
+                    let mut state = self.shared.lock();
+                    state.saved.git_copy = Some(GitCopy::Finished);
+                    state.unsaved = true;
+                }
+                if self.save(true).await {
+                    self.shared.pull_again();
+                } else {
+                    let mut state = self.shared.lock();
+                    state.saved.git_copy = copying;
+                    state.unsaved = true;
+                    self.pending += 1;
+                }
+            } else {
+                self.pending += 1;
             }
         }
     }

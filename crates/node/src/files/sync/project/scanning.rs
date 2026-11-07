@@ -1,6 +1,10 @@
 //! Scanning the folder for edits, and sending held deletes.
 
-use super::{list::record, state::Seen, task::Task};
+use super::{
+    list::record,
+    state::{GitCopy, Seen},
+    task::Task,
+};
 use crate::files::sync::{
     disk::{self, Found as OnDisk, same},
     gitdir::{self, Repo},
@@ -46,6 +50,15 @@ impl Task {
             let root = root.clone();
             spawn_blocking(move || Rules::load(&root)).await??
         };
+        // A repository created locally before any donor was selected is
+        // already owned by Git and must never receive a raw Git copy.
+        if root.join(gitdir::GIT).exists() {
+            let mut state = self.shared.lock();
+            if matches!(state.saved.git_copy, Some(GitCopy::Pending { peer: None })) {
+                state.saved.git_copy = Some(GitCopy::Finished);
+                state.unsaved = true;
+            }
+        }
         let syncs_git = rules.syncs_git();
         *write_lock(&self.shared.rules) = rules;
         // Before the walk: git writes objects before the refs that name
