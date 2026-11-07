@@ -120,6 +120,27 @@ impl Project {
 const COPY: &str = "docs/notes (conflict 1a2b3c4d).txt";
 
 #[tokio::test]
+async fn an_idle_round_clears_a_resolved_git_error() {
+    let mut project = Project::new(&["notes.txt"]).await;
+    project.task.error = Some("waiting for Git: Git commits differ".into());
+    project.task.pending = 1;
+
+    project.task.apply().await;
+
+    assert_eq!(project.task.pending, 0);
+    assert_eq!(project.task.error, None);
+    assert_eq!(project.task.shared.status().error, None);
+
+    project.task.error = Some("scanning failed: cannot read the folder".into());
+    project.task.apply().await;
+    assert_eq!(
+        project.task.error.as_deref(),
+        Some("scanning failed: cannot read the folder")
+    );
+    project.stop().await;
+}
+
+#[tokio::test]
 async fn keeping_the_copy_puts_it_in_place_of_the_file() {
     let mut project = Project::new(&["docs/notes.txt", COPY]).await;
     project.task.shared.resolve(COPY, Keep::Copy).await.unwrap();

@@ -155,6 +155,13 @@ impl Task {
             self.publish_status(None);
             return false;
         }
+        if self
+            .error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("waiting for Git: "))
+        {
+            self.error = None;
+        }
         let copies_git = self.shared.copies_git();
         // Persist the bootstrap phase before a partial .git can appear.
         if copies_git && !self.save(true).await {
