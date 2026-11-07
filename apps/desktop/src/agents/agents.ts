@@ -112,6 +112,7 @@ export interface AgentPage {
   last_message: string;
   error: string | null;
   queued: number;
+  queued_messages?: string[];
   turns: number;
   /// The entries held, newest last, and how many came before them. A read
   /// brings the newest; older ones are joined on as the reader goes up.

@@ -191,11 +191,33 @@ impl Actor {
             .unwrap_or(u32::MAX)
     }
 
+    fn waiting_messages(&self) -> Vec<String> {
+        self.steering
+            .iter()
+            .map(|steer| &steer.prompt)
+            .chain(self.steers.iter())
+            .chain(self.queued.iter())
+            .map(|prompt| {
+                let mut text = prompt.text.clone();
+                for image in &prompt.images {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(&format!("[Image: {}]", image.name));
+                }
+                text
+            })
+            .collect()
+    }
+
     pub(super) fn show_queued(&mut self) {
         let queued = self.waiting();
+        let messages = self.waiting_messages();
         self.live.send_if_modified(|live| {
-            let changed = live.info.state.queued != queued;
+            let changed =
+                live.info.state.queued != queued || live.info.state.queued_messages != messages;
             live.info.state.queued = queued;
+            live.info.state.queued_messages = messages;
             changed
         });
     }
@@ -403,12 +425,14 @@ impl Actor {
         self.sent += 1;
         self.turn = Some(self.sent);
         let queued = self.waiting();
+        let messages = self.waiting_messages();
         self.live.send_modify(|live| {
             for picture in prompt.pictures() {
                 live.keep(picture);
             }
             live.prompted(&prompt.shown());
             live.info.state.queued = queued;
+            live.info.state.queued_messages = messages;
         });
     }
 }

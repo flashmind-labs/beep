@@ -104,6 +104,9 @@ ffi_structs! {
         pub entries: Vec<AgentEntry>,
         /// Transcript entries before `entries`.
         pub earlier: u32,
+        /// Text of messages waiting to be delivered.
+        #[serde(default)]
+        pub queued_messages: Vec<String>,
     }
 
     /// What a session Beep runs has used, as `GetAgentSessionUsage` gives it.
