@@ -160,6 +160,13 @@ impl Task {
             self.publish_status(None);
             return false;
         }
+        if self
+            .error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("waiting for Git: "))
+        {
+            self.error = None;
+        }
         let copies_git = self.shared.copies_git();
         if !copies_git && (self.scan_failed || self.shared.list_checkout().await.is_err()) {
             self.scan().await;

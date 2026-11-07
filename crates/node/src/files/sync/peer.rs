@@ -146,7 +146,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     };
     let _serving = syncs.serving();
     let mut peers = shared.watch_peers();
-    while !shared.is_matched(&peer) {
+    loop {
         tokio::select! {
             scanned = shared.scan_before_matching() => {
                 scanned?;
@@ -186,7 +186,8 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             }
         };
         if now != head {
-            head = now;
+            shared.scan_before_matching().await?;
+            head = shared.head().await?;
             tx.send(&Reply::Head {
                 commit: head.commit,
                 behind: shared.last_change_after(since),

@@ -2,6 +2,7 @@
 // tests of terminals.ts load without a page.
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { outputBatch } from "./output-batch.ts";
 import { leavesTerminal } from "../agentpane/media-state.ts";
 import { wordKeyBytes } from "./keys-state.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
@@ -46,6 +47,7 @@ export function makeScreen(): Screen {
     escape();
     return false;
   });
+  const output = outputBatch(data => term.write(data));
   const fit = new FitAddon();
   term.loadAddon(fit);
   let opened = false;
@@ -68,8 +70,8 @@ export function makeScreen(): Screen {
   window.addEventListener(ZOOMED, fitNow);
   return {
     el,
-    write: data => term.write(data),
-    note: text => term.write(`\r\n\x1b[2m${text}\x1b[0m\r\n`),
+    write: data => output.write(data),
+    note: text => output.write(`\r\n\x1b[2m${text}\x1b[0m\r\n`),
     size: () => ({ cols: term.cols, rows: term.rows }),
     fit: fitNow,
     focus: () => { if (opened) term.focus(); else wantFocus = true; },
@@ -82,6 +84,7 @@ export function makeScreen(): Screen {
       term.options.cursorBlink = on;
     },
     dispose: () => {
+      output.dispose();
       resized.disconnect();
       window.removeEventListener(ZOOMED, fitNow);
       term.dispose();

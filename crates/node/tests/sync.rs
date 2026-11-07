@@ -1,4 +1,4 @@
-//! Two real nodes in this process sync one project folder node to node:
+//! Real nodes in this process sync one project folder node to node:
 //! files go both ways, build output stays, deletes and conflicts carry
 //! over, and a node that restarts mid-sync finishes without conflicts.
 //!
@@ -24,6 +24,11 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
+use tracing::{
+    Event, Subscriber,
+    field::{Field, Visit},
+};
+use tracing_subscriber::{Layer, layer::Context, prelude::*};
 
 const PROJECT: &str = "game";
 const LIMIT: Duration = Duration::from_secs(60);
@@ -1091,6 +1096,568 @@ async fn divergent_commits_wait_until_git_merges_them() {
         &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
     );
     in_step(&a, &b).await;
+}
+
+async fn configure_three(nodes: &[Node; 3], paused: bool) {
+    for (i, node) in nodes.iter().enumerate() {
+        let peers = nodes
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, peer)| peer.addr())
+            .collect();
+        assert!(node.configure_paused(peers, paused).await.is_empty());
+    }
+    eventually("all three nodes to acknowledge pause or resume", || {
+        nodes.iter().all(|node| node.status().paused == paused)
+    })
+    .await;
+}
+
+fn conflict_refs(node: &Node) -> String {
+    git(
+        &node.folder(),
+        &[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/beep-conflicts",
+        ],
+    )
+}
+
+fn working_files(node: &Node) -> Option<Vec<(String, Vec<u8>)>> {
+    let root = node.folder();
+    let mut stack = vec![root.clone()];
+    let mut out = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(dir).ok()? {
+            let entry = entry.ok()?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // The observer must not walk git's locks or sync's temporary
+            // folders, which can disappear while a transfer finishes.
+            if name == ".git" || name.starts_with(".beep-") {
+                continue;
+            }
+            if entry.file_type().ok()?.is_dir() {
+                stack.push(entry.path());
+            } else {
+                let path = entry.path();
+                out.push((
+                    path.strip_prefix(&root)
+                        .ok()?
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    fs::read(&path).ok()?,
+                ));
+            }
+        }
+    }
+    out.sort();
+    Some(out)
+}
+
+/// Commits start at a barrier while sync is paused, so all three branch
+/// from the same tip before any peer sees another writer's changes.
+fn concurrent_commits(nodes: &[Node; 3], round: usize, shared: bool, tied: bool) -> Vec<String> {
+    let barrier = std::sync::Barrier::new(3);
+    std::thread::scope(|scope| {
+        let jobs: Vec<_> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| {
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    let own = format!("host-{i}/round-{round}.txt");
+                    let common = format!("shared-{round}.txt");
+                    let text = format!("round {round}, host {i}\n");
+                    // Adjacent and equal timestamps must both require Git
+                    // reconciliation rather than choosing the latest writer.
+                    let seconds =
+                        2_000_000_000 + round as u64 * 10 + if tied { 0 } else { i as u64 };
+                    write(&node.path(&own), &text);
+                    set_mtime(&node.path(&own), seconds);
+                    let mut paths = vec![own.as_str()];
+                    if shared {
+                        write(&node.path(&common), &text);
+                        set_mtime(&node.path(&common), seconds);
+                        paths.push(common.as_str());
+                    }
+                    let mut add = vec!["add", "--"];
+                    add.extend(paths);
+                    git(&node.folder(), &add);
+                    let date = format!("{seconds} +0000");
+                    let output = Command::new("git")
+                        .current_dir(node.folder())
+                        .env("GIT_AUTHOR_DATE", &date)
+                        .env("GIT_COMMITTER_DATE", &date)
+                        .args([
+                            "-c",
+                            "user.name=test",
+                            "-c",
+                            "user.email=test@example.com",
+                            "-c",
+                            "commit.gpgsign=false",
+                            "commit",
+                            "-q",
+                            "-m",
+                            &text,
+                        ])
+                        .output()
+                        .unwrap();
+                    assert!(
+                        output.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    head(node).unwrap()
+                })
+            })
+            .collect();
+        jobs.into_iter().map(|job| job.join().unwrap()).collect()
+    })
+}
+
+async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
+    let mut nodes = [Node::new().await, Node::new().await, Node::new().await];
+    new_repo(&nodes[0]);
+    for round in 0..3 {
+        write(&nodes[0].path(&format!("shared-{round}.txt")), "baseline\n");
+    }
+    git(
+        &nodes[0].folder(),
+        &["add", "--", "shared-0.txt", "shared-1.txt", "shared-2.txt"],
+    );
+    git(
+        &nodes[0].folder(),
+        &["commit", "-q", "-m", "shared baseline"],
+    );
+    configure_three(&nodes, false).await;
+    eventually("three clean initial Git copies", || {
+        let tip = head(&nodes[0]);
+        tip.is_some()
+            && nodes
+                .iter()
+                .all(|node| head(node) == tip && is_clean(node) && node.status().error.is_none())
+    })
+    .await;
+
+    for round in 0..3 {
+        configure_three(&nodes, true).await;
+        let tips = concurrent_commits(&nodes, round, shared, tied);
+        let trees: Vec<_> = nodes.iter().map(working_files).collect();
+        let indexes: Vec<_> = nodes
+            .iter()
+            .map(|node| read(&node.path(".git/index")))
+            .collect();
+        assert!(trees.iter().all(Option::is_some));
+        assert!(indexes.iter().all(Option::is_some));
+        configure_three(&nodes, false).await;
+        eventually("all three divergent checkouts to wait for Git", || {
+            nodes.iter().all(|node| {
+                node.status()
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("Git commits differ"))
+            })
+        })
+        .await;
+        if round == 1 {
+            nodes[2].stop().await;
+            nodes[2].start().await;
+            configure_three(&nodes, false).await;
+            eventually("the restarted node to keep waiting for Git", || {
+                nodes[2]
+                    .status()
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("Git commits differ"))
+            })
+            .await;
+        }
+        for (i, node) in nodes.iter().enumerate() {
+            assert_eq!(head(node).as_ref(), tips.get(i));
+            assert_eq!(working_files(node), trees[i]);
+            assert_eq!(read(&node.path(".git/index")), indexes[i]);
+            assert!(conflict_refs(node).is_empty());
+            assert!(node.status().conflicts.is_empty());
+            assert_sound(node);
+        }
+        println!(
+            "three hosts, shared={shared}, tied={tied}, round={round}: commits differ, file sync waits; each HEAD, index and working tree unchanged"
+        );
+
+        // Reconcile through Git, resolving shared-file conflicts explicitly.
+        // File sync must neither choose a branch tip nor resolve the merge.
+        configure_three(&nodes, true).await;
+        for peer in &nodes[1..] {
+            git(
+                &nodes[0].folder(),
+                &["fetch", &peer.folder().to_string_lossy(), "main"],
+            );
+            let merge = try_git(&nodes[0].folder(), &["merge", "--no-edit", "FETCH_HEAD"]);
+            if shared {
+                assert_eq!(
+                    merge.status.code(),
+                    Some(1),
+                    "{}",
+                    String::from_utf8_lossy(&merge.stderr)
+                );
+                let common = format!("shared-{round}.txt");
+                assert_eq!(
+                    git(
+                        &nodes[0].folder(),
+                        &["diff", "--name-only", "--diff-filter=U"]
+                    ),
+                    common
+                );
+                let text = format!("resolved round {round}\n");
+                write(&nodes[0].path(&common), text);
+                git(&nodes[0].folder(), &["add", "--", &common]);
+                git(
+                    &nodes[0].folder(),
+                    &["commit", "-q", "-m", "resolve shared file"],
+                );
+            } else {
+                assert!(
+                    merge.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&merge.stderr)
+                );
+            }
+        }
+        for peer in &nodes[1..] {
+            git(
+                &peer.folder(),
+                &[
+                    "pull",
+                    "--ff-only",
+                    &nodes[0].folder().to_string_lossy(),
+                    "main",
+                ],
+            );
+        }
+        configure_three(&nodes, false).await;
+        eventually(
+            "file sync to resume after Git agrees on all three hosts",
+            || {
+                let tip = head(&nodes[0]);
+                tip.is_some()
+                    && nodes.iter().all(|node| {
+                        head(node) == tip
+                            && is_clean(node)
+                            && node.status().pending == 0
+                            && node.status().error.is_none()
+                    })
+            },
+        )
+        .await;
+        for node in &nodes {
+            let history = git(&node.folder(), &["log", "--all", "--format=%H"]);
+            assert!(
+                tips.iter()
+                    .all(|tip| history.lines().any(|line| line == tip))
+            );
+            for i in 0..3 {
+                assert_eq!(
+                    read(&node.path(&format!("host-{i}/round-{round}.txt"))),
+                    Some(format!("round {round}, host {i}\n").into_bytes())
+                );
+            }
+            assert!(conflict_refs(node).is_empty());
+            assert!(node.status().conflicts.is_empty());
+            assert_sound(node);
+        }
+        println!(
+            "three hosts, round={round}: Git merged all three commits; all checkouts clean, no sync conflict copies or refs"
+        );
+    }
+    let heads: Vec<_> = nodes.iter().map(head).collect();
+    write(&nodes[0].path("resumed.txt"), "file sync resumed\n");
+    eventually("ordinary file edits to sync again", || {
+        nodes.iter().all(|node| {
+            read(&node.path("resumed.txt")).as_deref() == Some(b"file sync resumed\n".as_slice())
+        })
+    })
+    .await;
+    for (i, node) in nodes.iter_mut().enumerate() {
+        assert_eq!(head(node), heads[i]);
+        assert_sound(node);
+        node.stop().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_hosts_with_separate_file_commits_wait_for_git() {
+    three_host_commits_wait_for_git(false, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_hosts_with_shared_file_commits_wait_for_git() {
+    three_host_commits_wait_for_git(true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_hosts_with_equal_commit_times_wait_for_git() {
+    three_host_commits_wait_for_git(true, true).await;
+}
+
+#[derive(Clone, Default)]
+struct BlobRequests(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+#[derive(Default)]
+struct RequestFields {
+    hash: Option<String>,
+    message: String,
+}
+
+impl Visit for RequestFields {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        match field.name() {
+            "hash" => self.hash = Some(format!("{value:?}")),
+            "message" => self.message = format!("{value:?}"),
+            _ => {}
+        }
+    }
+}
+
+impl<S: Subscriber> Layer<S> for BlobRequests {
+    fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
+        let mut fields = RequestFields::default();
+        event.record(&mut fields);
+        if fields.message.contains("get received request")
+            && let Some(hash) = fields.hash
+        {
+            self.0.lock().unwrap().push(hash);
+        }
+    }
+}
+
+impl BlobRequests {
+    fn count(&self, bytes: &[u8]) -> usize {
+        let hash = iroh_blobs::Hash::new(bytes).to_string();
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|seen| **seen == hash)
+            .count()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
+    let requests = BlobRequests::default();
+    let filter = tracing_subscriber::filter::filter_fn(|metadata| {
+        metadata.target() == "iroh_blobs::provider"
+    });
+    let subscriber = tracing_subscriber::registry().with(requests.clone().with_filter(filter));
+    tracing::subscriber::set_global_default(subscriber).expect("install the request observer");
+
+    let mut nodes = [Node::new().await, Node::new().await, Node::new().await];
+    new_repo(&nodes[0]);
+    let original = data(1_000_000, 7);
+    write(&nodes[0].path("tracked.bin"), &original);
+    write(&nodes[0].path(".gitignore"), "ignored-*.bin\n");
+    git(
+        &nodes[0].folder(),
+        &["add", "--", "tracked.bin", ".gitignore"],
+    );
+    git(
+        &nodes[0].folder(),
+        &["commit", "-q", "-m", "add tracked file"],
+    );
+    configure_three(&nodes, false).await;
+    eventually("all nodes to receive the original checkout", || {
+        let tip = head(&nodes[0]);
+        tip.is_some()
+            && nodes
+                .iter()
+                .all(|node| head(node) == tip && is_clean(node) && node.status().error.is_none())
+    })
+    .await;
+
+    // Commit while disconnected, then let sync observe the different tips.
+    configure_three(&nodes, true).await;
+    let changed = data(1_000_000, 42);
+    write(&nodes[0].path("tracked.bin"), &changed);
+    git(&nodes[0].folder(), &["add", "--", "tracked.bin"]);
+    git(
+        &nodes[0].folder(),
+        &["commit", "-q", "-m", "change tracked file"],
+    );
+    configure_three(&nodes, false).await;
+    eventually("all nodes to wait for Git", || {
+        nodes.iter().all(|node| {
+            node.status()
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Git commits differ"))
+        })
+    })
+    .await;
+    assert_eq!(
+        requests.count(&changed),
+        0,
+        "sync must wait while commits differ"
+    );
+
+    // Pause only while Git pulls, so requests made after the pulls are
+    // measured separately from the Git transfer itself.
+    configure_three(&nodes, true).await;
+    for peer in &nodes[1..] {
+        git(
+            &peer.folder(),
+            &[
+                "pull",
+                "--ff-only",
+                &nodes[0].folder().to_string_lossy(),
+                "main",
+            ],
+        );
+    }
+    let modified: Vec<_> = nodes
+        .iter()
+        .map(|node| {
+            fs::metadata(node.path("tracked.bin"))
+                .unwrap()
+                .modified()
+                .unwrap()
+        })
+        .collect();
+    let since = tokio::time::Instant::now();
+    configure_three(&nodes, false).await;
+    for (i, node) in nodes.iter().enumerate() {
+        for (j, peer) in nodes.iter().enumerate() {
+            if i != j {
+                timeout(
+                    LIMIT,
+                    node.running().transfers.syncs().have_all_from(
+                        PROJECT,
+                        &peer.addr().id,
+                        since,
+                        |_| {},
+                    ),
+                )
+                .await
+                .expect("the peer responds in time")
+                .expect("the peer is in sync");
+            }
+        }
+        assert_eq!(
+            read(&node.path("tracked.bin")).as_deref(),
+            Some(changed.as_slice())
+        );
+        assert_eq!(
+            fs::metadata(node.path("tracked.bin"))
+                .unwrap()
+                .modified()
+                .unwrap(),
+            modified[i]
+        );
+        assert!(is_clean(node));
+        assert!(node.status().conflicts.is_empty());
+    }
+    assert_eq!(
+        requests.count(&changed),
+        0,
+        "sync requested a file Git already supplied"
+    );
+
+    // A different, untracked file must trigger the observer and reach both
+    // peers, proving that the zero above was not a disabled observer.
+    let control = data(1_000_000, 99);
+    write(&nodes[0].path("ignored-control.bin"), &control);
+    eventually("the control file to reach both peers", || {
+        nodes.iter().all(|node| {
+            read(&node.path("ignored-control.bin")).as_deref() == Some(control.as_slice())
+        })
+    })
+    .await;
+    assert!(
+        requests.count(&control) > 0,
+        "the observer did not see the control transfer"
+    );
+    println!(
+        "after Git pull: {} requests for the matching file; {} requests for the control file",
+        requests.count(&changed),
+        requests.count(&control)
+    );
+    // Wait for every peer to record the common file before editing it apart.
+    let since = tokio::time::Instant::now();
+    for (i, node) in nodes.iter().enumerate() {
+        for (j, peer) in nodes.iter().enumerate() {
+            if i != j {
+                timeout(
+                    LIMIT,
+                    node.running().transfers.syncs().have_all_from(
+                        PROJECT,
+                        &peer.addr().id,
+                        since,
+                        |_| {},
+                    ),
+                )
+                .await
+                .expect("the peer responds in time")
+                .expect("the peer is in sync");
+            }
+        }
+        assert!(
+            try_git(
+                &node.folder(),
+                &["check-ignore", "-q", "ignored-control.bin"]
+            )
+            .status
+            .success()
+        );
+    }
+    configure_three(&nodes, true).await;
+    for (i, node) in nodes.iter().enumerate() {
+        for name in ["tracked.bin", "ignored-control.bin"] {
+            write(&node.path(name), format!("{name} from host {i}\n"));
+            set_mtime(&node.path(name), 2_000_000_000 + i as u64);
+        }
+    }
+    configure_three(&nodes, false).await;
+    eventually("all uncommitted and ignored edits to survive", || {
+        nodes.iter().all(|node| {
+            let Some(files) = working_files(node) else {
+                return false;
+            };
+            ["tracked", "ignored-control"].iter().all(|stem| {
+                let mut versions: Vec<_> = files
+                    .iter()
+                    .filter(|(name, _)| {
+                        name == &format!("{stem}.bin")
+                            || name.starts_with(&format!("{stem} (conflict "))
+                    })
+                    .map(|(_, data)| data.clone())
+                    .collect();
+                versions.sort();
+                let mut expected: Vec<_> = (0..3)
+                    .map(|i| format!("{stem}.bin from host {i}\n").into_bytes())
+                    .collect();
+                expected.sort();
+                versions == expected
+            }) && node.status().conflicts.len() == 4
+        })
+    })
+    .await;
+    for node in &nodes {
+        for name in ["tracked.bin", "ignored-control.bin"] {
+            assert_eq!(
+                read(&node.path(name)),
+                Some(format!("{name} from host 2\n").into_bytes())
+            );
+        }
+    }
+    println!(
+        "uncommitted and Git-ignored edits: all versions preserved, with four conflict copies per node"
+    );
+    for node in &mut nodes {
+        node.stop().await;
+    }
 }
 
 /// Two checkouts of one commit, as Syncthing leaves them when it pauses.
