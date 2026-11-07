@@ -124,7 +124,16 @@ fn update(lines: &[String], pattern: &str, enabled: bool) -> Vec<String> {
         }
     }
     if !enabled {
-        out.splice(0..0, [BEGIN.to_owned(), pattern.to_owned(), END.to_owned()]);
+        let git_rules: Vec<_> = super::LOCAL_GIT.lines().map(str::to_owned).collect();
+        let at = if out.starts_with(&git_rules) {
+            git_rules.len()
+        } else {
+            0
+        };
+        out.splice(
+            at..at,
+            [BEGIN.to_owned(), pattern.to_owned(), END.to_owned()],
+        );
     }
     out
 }
@@ -239,8 +248,20 @@ mod tests {
         assert!(syncthing.check(&project).await.is_some());
         assert_eq!(
             std::fs::read_to_string(share.join(".stignore")).unwrap(),
-            "*.tmp\n"
+            format!("{}*.tmp\n", super::super::LOCAL_GIT)
         );
+    }
+
+    #[test]
+    fn project_toggles_keep_git_protection_first_without_duplicating_it() {
+        let original: Vec<String> = format!("{}!keep\n*.tmp\n", super::super::LOCAL_GIT)
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        let disabled = update(&original, "/owner/widget", false);
+        assert!(disabled.join("\n").starts_with(super::super::LOCAL_GIT));
+        assert_eq!(update(&disabled, "/owner/widget", false), disabled);
+        assert_eq!(update(&disabled, "/owner/widget", true), original);
     }
 
     #[test]

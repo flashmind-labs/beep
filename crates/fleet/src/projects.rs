@@ -36,7 +36,8 @@ use beep_projects::{
 };
 use beep_proto::{
     BranchPlace, CheckoutFailure, CreateProject, CreatedProject, FoundProject, HostRepos,
-    ImportFork, ImportPreview, ImportedProject, MachineFolder, ProjectForge, ProjectGroup,
+    ImportFork, ImportPreview, ImportedProject, MachineFolder, ProjectBranches, ProjectForge,
+    ProjectGroup,
     groups::{group_name, group_paths},
     node::mesh_state::SyncSpec,
 };
@@ -365,6 +366,35 @@ pub struct ImportJob<'a> {
 }
 
 impl Desk {
+    /// Reads branches from an online checkout, nearest first.
+    pub async fn branches(&self, project: &str) -> Result<ProjectBranches> {
+        let mut places = crate::places(&self.mesh, project);
+        crate::nearest_first(&self.mesh, &mut places, |(machine, _)| *machine);
+        for (id, folder) in places {
+            let Some(seen) = self.seen_one(id).await else {
+                continue;
+            };
+            if !seen.machine.online {
+                continue;
+            }
+            let (default_branch, branches) = beep_projects::branches::read_branches(
+                seen.machine.shell()?,
+                &folder,
+                FALLBACK_DEFAULT,
+            )
+            .await?;
+            return Ok(ProjectBranches {
+                machine_id: id.to_string(),
+                machine_name: seen.machine.name,
+                default_branch,
+                branches,
+            });
+        }
+        Err(FleetError::refused(
+            "No machine with a checkout of the project is online.",
+        ))
+    }
+
     /// The imported projects, one row per machine that has one.
     pub async fn imported(&self) -> Vec<ImportedProject> {
         let names: HashMap<EndpointId, String> = self

@@ -1,10 +1,39 @@
 //! A folder as a transcript names it: a path, or a `file://` URI.
 
-use std::{fmt::Write, path::Path};
+use std::{
+    fmt::Write,
+    path::{Path, PathBuf},
+};
+
+/// A session's folders before and after moving between machines.
+#[derive(Clone)]
+pub(super) struct Folders {
+    pub(super) old: PathBuf,
+    pub(super) new: PathBuf,
+    /// The original checkout, when the session later entered a worktree.
+    pub(super) workspace: Option<Workspace>,
+}
+
+#[derive(Clone)]
+pub(super) struct Workspace {
+    pub(super) checkout: PathBuf,
+    pub(super) old: PathBuf,
+    pub(super) new: PathBuf,
+}
+
+impl Folders {
+    pub(super) fn remap(&self, value: &str) -> Option<String> {
+        match &self.workspace {
+            Some(workspace) => remap(value, &workspace.old, &workspace.new)
+                .or_else(|| remap(value, &workspace.checkout, &workspace.new)),
+            None => remap(value, &self.old, &self.new),
+        }
+    }
+}
 
 /// `value` with the folder `old` swapped for `new`, when it is `old` or
 /// inside it; `None` for any other value.
-pub(super) fn remap(value: &str, old: &Path, new: &Path) -> Option<String> {
+fn remap(value: &str, old: &Path, new: &Path) -> Option<String> {
     match value.strip_prefix("file://") {
         Some(rest) => {
             let moved = under(&decode(rest)?, old, new)?;
@@ -52,4 +81,37 @@ fn decode(text: &str) -> Option<String> {
         }
     }
     String::from_utf8(out).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worktree_roots_and_siblings_move_even_when_the_session_is_in_a_subfolder() {
+        for target in ["/srv/target/project", "/srv/source/project"] {
+            let tree = Path::new(target).join(".worktrees/fix");
+            let folders = Folders {
+                old: PathBuf::from("/srv/source/project/.worktrees/fix/src"),
+                new: tree.join("src"),
+                workspace: Some(Workspace {
+                    checkout: PathBuf::from("/srv/source/project"),
+                    old: PathBuf::from("/srv/source/project/.worktrees/fix"),
+                    new: tree.clone(),
+                }),
+            };
+            for (old, relative) in [
+                ("/srv/source/project", ""),
+                ("/srv/source/project/.worktrees/fix", ""),
+                ("/srv/source/project/.worktrees/fix/src", "src"),
+                ("/srv/source/project/.worktrees/fix/assets", "assets"),
+            ] {
+                assert_eq!(
+                    PathBuf::from(folders.remap(old).unwrap()),
+                    tree.join(relative)
+                );
+            }
+            assert!(folders.remap("/srv/other").is_none());
+        }
+    }
 }

@@ -16,6 +16,8 @@ object BeepClients {
         val version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
         return BeepClient(config.serverUrl, identity, version).also {
             it.setListener(Notices)
+            val app = checkNotNull(BeepApplication.instance)
+            it.configureWorkspace(java.io.File(app.filesDir, "workspace").absolutePath, LocalStorage(app).workspaceIdentity(identity))
             cached = Cached(config, identity, it)
         }
     }
@@ -32,6 +34,6 @@ fun userMessage(error: Throwable): String = when (error) {
     is BeepException.Conflict -> "This conversation is busy. Retry shortly."
     is BeepException.BadRequest -> error.reason
     is BeepException.Internal -> "The server hit an error. Try again."
-    is BeepException.Connection -> "Can't reach your server: ${error.reason}"
+    is BeepException.Connection -> "Can't connect: ${error.reason}"
     else -> error.message ?: "Something went wrong."
 }

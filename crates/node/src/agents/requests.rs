@@ -367,9 +367,12 @@ pub async fn serve_sessions(
         SessionsRequest::MoveProgress { session } => SessionsReply::Moving {
             progress: agents.moves.progress(&session),
         },
-        SessionsRequest::MoveCheck { project, branch } => SessionsReply::MoveChecked {
-            ignored: agents.moves.ignores_worktree(&project, &branch).await,
-        },
+        SessionsRequest::MoveCheck { project, branch: _ } => {
+            match agents.moves.prepare_worktree(&project).await {
+                Ok(()) => SessionsReply::MoveChecked { ignored: false },
+                Err(e) => failed(e),
+            }
+        }
         SessionsRequest::Copies {} => SessionsReply::Copies {
             copies: agents.moves.copies().await,
         },

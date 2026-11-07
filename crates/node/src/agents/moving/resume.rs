@@ -40,12 +40,7 @@ pub(super) struct Arrival<'a> {
     pub(super) how: How,
 }
 
-/// The folder the session worked in on the other machine and the folder it
-/// works in here.
-pub(super) struct Folders {
-    pub(super) old: PathBuf,
-    pub(super) new: PathBuf,
-}
+pub(super) use super::folder::{Folders, Workspace};
 
 /// Writes `copy` (a transcript the other machine named `file_name`) into the
 /// store and starts the session in `folders.new`.
@@ -64,11 +59,8 @@ pub(super) async fn resume(
         .and_then(Harness::of)
         .with_context(|| format!("{} sessions cannot move yet", kind.name))?;
     let stored = {
-        let (id, old, new) = (
-            arrival.id.to_owned(),
-            folders.old.clone(),
-            folders.new.clone(),
-        );
+        let id = arrival.id.to_owned();
+        let folders = folders.clone();
         spawn_blocking(move || -> Result<_> {
             let bytes = std::fs::read(&copy)?;
             // A copy cut off mid-line (a pull that was interrupted) ends at
@@ -77,14 +69,7 @@ pub(super) async fn resume(
                 .iter()
                 .rposition(|b| *b == b'\n')
                 .map_or(0, |at| at + 1);
-            Ok(rewrite(
-                harness,
-                &bytes[..whole],
-                &id,
-                &file_name,
-                &old,
-                &new,
-            ))
+            Ok(rewrite(harness, &bytes[..whole], &id, &file_name, &folders))
         })
         .await??
     };
@@ -254,5 +239,43 @@ fn continued_folders(env: &Env, meta: &Meta) -> Result<Folders> {
     Ok(Folders {
         old: Path::new(&theirs).join(relative),
         new: Path::new(&mine).join(relative),
+        workspace: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_started_in_the_main_checkout_resumes_in_its_moved_worktree() {
+        let folders = Folders {
+            old: PathBuf::from("/srv/source/project/.worktrees/fix/src"),
+            new: PathBuf::from("/srv/target/project/.worktrees/fix/src"),
+            workspace: Some(Workspace {
+                checkout: PathBuf::from("/srv/source/project"),
+                old: PathBuf::from("/srv/source/project/.worktrees/fix"),
+                new: PathBuf::from("/srv/target/project/.worktrees/fix"),
+            }),
+        };
+        let input = concat!(
+            "{\"type\":\"session_meta\",\"payload\":{\"cwd\":\"/srv/source/project\",\"runtime_workspace_roots\":[\"/srv/source/project\"]}}\n",
+            "{\"type\":\"turn_context\",\"payload\":{\"cwd\":\"/srv/source/project/.worktrees/fix/src\"}}\n",
+        );
+        let stored = rewrite(
+            Harness::Codex,
+            input.as_bytes(),
+            "session",
+            "rollout-2026-11-04T00-00-00-session.jsonl",
+            &folders,
+        );
+        let text = String::from_utf8(stored.bytes).unwrap();
+        assert!(!text.contains("/srv/source/"));
+        assert!(text.contains(r#""cwd":"/srv/target/project/.worktrees/fix""#));
+        assert!(text.contains(r#""cwd":"/srv/target/project/.worktrees/fix/src""#));
+        assert!(
+            text.contains(r#""runtime_workspace_roots":["/srv/target/project/.worktrees/fix"]"#)
+        );
+        assert!(!text.contains(".worktrees/fix/.worktrees/fix"));
+    }
 }

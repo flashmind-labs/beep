@@ -26,18 +26,20 @@ export function withSearch(command: string, typed: string) {
 }
 
 /// What a ticket is for: a node, a container (a node removed after a day
-/// offline), or another Mac.
-export type TicketKind = "node" | "container" | "desktop";
+/// offline), another Mac, or a phone.
+export type TicketKind = "node" | "container" | "desktop" | "phone";
 
 /// The kinds the sheet offers, in order, with their one line.
 export const KINDS: readonly { kind: TicketKind; title: string; sub: string }[] = [
   { kind: "node", title: "Node", sub: "A server or any always-on box" },
   { kind: "container", title: "Container", sub: "Removed after a day offline" },
   { kind: "desktop", title: "Desktop", sub: "Another Mac" },
+  { kind: "phone", title: "Phone", sub: "Android or iPhone, over iroh" },
 ];
 
 /// What `mesh_invite` takes for a ticket of `kind`.
 export function inviteArgs(kind: TicketKind) {
+  if (kind === "phone") return { kind: "Desktop", temporary: false, phone: true };
   return kind === "desktop" ? { kind: "Desktop", temporary: false } : { kind: "Node", temporary: kind === "container" };
 }
 

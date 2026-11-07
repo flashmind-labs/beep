@@ -87,9 +87,9 @@ test("past sessions leave out the running ones, newest first", () => {
   const running = [agent("m1", "/home/user/proj/sub", 5)];
   running[0].id = "s1";
   const sessions = [
-    { machine_id: "m1", id: "s0", last_activity: 1 },
-    { machine_id: "m1", id: "s1", last_activity: 9 },
-    { machine_id: "m1", id: "s2", last_activity: 4 },
+    { machine_id: "m1", id: "s0", status: "ended", last_activity: 1 },
+    { machine_id: "m1", id: "s1", status: "ended", last_activity: 9 },
+    { machine_id: "m1", id: "s2", status: "ended", last_activity: 4 },
   ];
   assert.deepEqual(pastSessions(sessions, [running[0]]).map(s => s.id), ["s2", "s0"]);
 });
@@ -102,6 +102,8 @@ test("live project sessions move to Running before Home catches up", () => {
     external: false, question: null, ...more,
   });
   const sessions = ["starting", "working", "running", "asking", "waiting", "idle", "ended"].map(status => session(status, status));
+  assert.deepEqual(pastSessions(sessions, []).map(s => s.id), ["ended"], "live statuses stay out of history before Running loads");
+  assert.deepEqual(pastSessions(sessions, null).map(s => s.id), ["ended"]);
   const running = projectRunning(project, [], sessions);
   assert.deepEqual(running.map(s => s.id), sessions.slice(0, -1).map(s => s.id));
   assert.deepEqual(pastSessions(sessions, running).map(s => s.id), ["ended"]);

@@ -15,6 +15,48 @@ use std::{
 /// The largest patch of uncommitted work that moves.
 pub(super) const MAX_PATCH: usize = 64 * 1024 * 1024;
 
+/// The largest commit history sent for a move.
+pub(super) const MAX_BUNDLE: usize = 256 * 1024 * 1024;
+
+/// A bundle of the worktree's history, without any machine's Git metadata.
+pub(super) fn bundle(dir: &Path, head: &str) -> Result<Vec<u8>> {
+    if text(dir, &["rev-parse", "HEAD"])? != head {
+        bail!("the worktree's commit changed during the move");
+    }
+    let bytes = capped(dir, &["bundle", "create", "-", "HEAD"], MAX_BUNDLE, &[])?;
+    if text(dir, &["rev-parse", "HEAD"])? != head {
+        bail!("the worktree's commit changed during the move");
+    }
+    Ok(bytes)
+}
+
+pub(super) fn has_commit(main: &Path, head: &str) -> bool {
+    !head.is_empty()
+        && head.bytes().all(|b| b.is_ascii_hexdigit())
+        && run(
+            main,
+            &["cat-file", "-e", &format!("{head}^{{commit}}")],
+            None,
+        )
+        .is_ok()
+}
+
+/// Imports objects only. Local branches and worktree registrations stay local.
+pub(super) fn import(main: &Path, head: &str, bytes: &[u8]) -> Result<()> {
+    let common = text(
+        main,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
+    let mut file = tempfile::NamedTempFile::new_in(common)?;
+    file.write_all(bytes)?;
+    let path = file.path().to_string_lossy();
+    run(main, &["bundle", "unbundle", &path], None).context("importing the worktree's commits")?;
+    if !has_commit(main, head) {
+        bail!("the source did not send the worktree's commit");
+    }
+    Ok(())
+}
+
 /// What a worktree holds beyond its branch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Work {
@@ -947,5 +989,56 @@ mod tests {
         let (_dir3, wt3) = source();
         assert!(!detach_clean(&wt3, None).expect("detached"));
         assert!(wt3.join("new.txt").exists());
+    }
+    #[test]
+    fn a_move_carries_commits_and_changes_between_independent_checkouts() {
+        let (dir, wt) = source();
+        let main = dir.path().join("main");
+        let copy = dir.path().join("copy");
+        git(
+            dir.path(),
+            &[
+                "clone",
+                "--quiet",
+                "--no-local",
+                "--single-branch",
+                "--branch",
+                "main",
+                main.to_str().unwrap(),
+                copy.to_str().unwrap(),
+            ],
+        );
+        fs::write(wt.join("branch.txt"), "only on the branch\n").unwrap();
+        git(&wt, &["add", "branch.txt"]);
+        git(
+            &wt,
+            &["commit", "-q", "--only", "-m", "branch work", "branch.txt"],
+        );
+        let work = snapshot(&wt).expect("the worktree state");
+        assert!(!has_commit(&copy, &work.head), "the commit is not on main");
+        let bytes = bundle(&wt, &work.head).expect("its history");
+        let old_head = git(&copy, &["rev-parse", "HEAD"]);
+        import(&copy, &work.head, &bytes).expect("the history imports");
+        assert_eq!(git(&copy, &["rev-parse", "HEAD"]), old_head);
+        assert!(run(&copy, &["rev-parse", "--verify", "refs/heads/feat"], None).is_err());
+        let target = copy.join(".worktrees/feat");
+        attach(&copy, &target, "feat", &work, false).expect("the worktree moves");
+        assert_eq!(git(&target, &["rev-parse", "HEAD"]), work.head);
+        assert_eq!(fs::read_to_string(target.join("a.txt")).unwrap(), "two\n");
+        assert!(target.join("new.txt").exists());
+        assert!(!target.join("gone.txt").exists());
+        assert_eq!(fs::read(target.join("bin.dat")).unwrap(), [9, 8, 7]);
+        let common = git(
+            &target,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        );
+        assert_eq!(PathBuf::from(common), copy.join(".git"));
+        assert_eq!(git(&wt, &["symbolic-ref", "--short", "HEAD"]), "feat");
+    }
+
+    #[test]
+    fn a_bundle_refuses_a_changed_commit() {
+        let (_dir, wt) = source();
+        assert!(bundle(&wt, "deadbeef").is_err());
     }
 }

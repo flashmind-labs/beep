@@ -21,8 +21,9 @@ const POLL_MS = 2000;
 const TICK_MS = 1000;
 
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START;
-/// What the ticket is for: a node, a container, or another Mac.
+/// What the ticket is for: a node, a container, another Mac, or a phone.
 let kind: TicketKind = "node";
+let creation = 0;
 let ticker: Timer, poller: Timer, close: (() => void) | null = null, onClose: (() => void) | null = null;
 /// `onClose` of the sheet that opened, for the join sheet it hands over to.
 let onCloseAgain: (() => void) | null = null;
@@ -74,6 +75,7 @@ export function closeAddMachine() {
 }
 
 function closed() {
+  creation++;
   clearInterval(ticker);
   clearInterval(poller);
   clearInterval(macPoller);
@@ -87,15 +89,17 @@ function closed() {
 
 /// Asks for a token.
 async function start() {
+  const requested = ++creation;
   update({ type: "renew" });
   clearInterval(poller);
   poller = undefined;
   try {
     const made = await invoke<NodeToken>("mesh_invite", inviteArgs(kind));
-    if (!root) return;
+    if (!root || requested !== creation) return;
     update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at });
     poller = setInterval(poll, POLL_MS);
   } catch (e) {
+    if (!root || requested !== creation) return;
     update({ type: "failed", message: String(e) });
   }
 }
@@ -152,7 +156,7 @@ function statusLine() {
   if (state.step !== "waiting") return el("div", "am-status");
   return el("div", "am-status am-wait",
     el("span", "dspin"),
-    `Waiting for ${kind === "desktop" ? "the other Mac" : "the machine"} · works once, `,
+    `Waiting for ${kind === "phone" ? "the phone" : kind === "desktop" ? "the other Mac" : "the machine"} · works once, `,
     el("span", "left", `${timeLeft(state.expiresAt, Date.now())} left`),
     el("span", "end", button("Cancel", "dbtn quiet", closeAddMachine)));
 }
@@ -200,7 +204,7 @@ function draw() {
   if (first && !box.contains(document.activeElement)) first.focus();
 }
 
-/// Node, Container or Desktop: what the ticket is for.
+/// What the ticket is for.
 function kindPicker() {
   const card = (k: TicketKind, title: string, sub: string) => {
     const b = el("button", "dbtn am-kind", el("b", "", title), el("span", "", sub));
@@ -221,11 +225,13 @@ function body() {
     case "loading":
       return [el("div", "am-wait", el("span", "dspin"), "Making a ticket")];
     case "waiting":
-      if (kind === "desktop") {
+      if (kind === "desktop" || kind === "phone") {
         return present([
           el("div", "am-label", "Ticket"),
           codeLine(state.command),
-          el("div", "am-os", "Paste it into Beep on the other Mac, under Join with a ticket."),
+          el("div", "am-os", kind === "phone"
+            ? "On your phone, open Devices and paste this ticket. It proves the phone may join, works once and expires in 5 minutes. Keep it private."
+            : "Paste it into Beep on the other Mac, under Join with a ticket."),
           statusLine(),
         ]);
       }

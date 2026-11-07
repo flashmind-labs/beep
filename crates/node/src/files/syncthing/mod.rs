@@ -50,6 +50,12 @@ pub struct Managed {
 }
 
 impl Managed {
+    /// Keeps Git metadata and linked worktrees local to this machine.
+    pub(crate) async fn protect_checkout(&self) -> Result<()> {
+        let root = self.root.clone();
+        spawn_blocking(move || protect_checkout(&root)).await?
+    }
+
     /// Why Beep does not sync the folder.
     pub fn reason(&self) -> String {
         format!("Already synced by Syncthing ({})", self.label)
@@ -198,6 +204,11 @@ impl Syncthing {
                 Some(listed) => holding(&listed, &folder),
                 None => marked(&folder, home.as_deref()),
             };
+            if let Some(managed) = &managed
+                && let Err(e) = protect_checkout(&managed.root)
+            {
+                log::warn!("Syncthing ignore rules could not be updated: {e:#}");
+            }
             // An unreadable ignore file leaves ownership with Syncthing.
             managed.filter(|managed| {
                 !crate::files::sync::stignore::project_ignored(&folder, &managed.root)
@@ -243,6 +254,35 @@ impl Syncthing {
             }
         }
     }
+}
+
+/// These rules go first because Syncthing uses the first matching rule.
+const LOCAL_GIT: &str =
+    "// Beep: Git metadata and worktrees stay on this machine.\n.git\n.worktrees\n";
+
+fn protect_checkout(root: &Path) -> Result<()> {
+    use std::io::{ErrorKind, Write};
+
+    let path = root.join(".stignore");
+    let old = match fs::read_to_string(&path) {
+        Ok(old) => old,
+        Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).context("reading Syncthing ignore rules"),
+    };
+    let text = old.trim_start_matches('\u{feff}');
+    if text.starts_with(LOCAL_GIT) {
+        return Ok(());
+    }
+    let mut temp = tempfile::NamedTempFile::new_in(root)?;
+    if let Ok(meta) = fs::metadata(&path) {
+        temp.as_file().set_permissions(meta.permissions())?;
+    }
+    temp.write_all(LOCAL_GIT.as_bytes())?;
+    temp.write_all(text.as_bytes())?;
+    temp.as_file().sync_all()?;
+    temp.persist(&path)
+        .context("saving Syncthing ignore rules")?;
+    Ok(())
 }
 
 /// Where Syncthing keeps `config.xml` on this OS, most likely first.

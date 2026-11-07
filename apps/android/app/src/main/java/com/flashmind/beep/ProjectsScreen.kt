@@ -27,8 +27,9 @@ import kotlinx.coroutines.sync.withPermit
 @Composable
 internal fun ProjectsScreen(repository: ChatRepository, onBack: () -> Unit) {
     val api = repository.workspaceApi()
-    val projects = workspaceLoad(repository) { api.listProjects() }
-    val imports = workspaceLoad(repository) { api.listImportedProjects() }
+    val projects = workspaceLoad(repository, poll = true) { api.listProjects() }
+    val pins = workspaceLoad("project-pins", poll = true) { api.projectsOnTop() }
+    val imports = workspaceLoad(repository, poll = true) { api.listImportedProjects() }
     val ids = projects.value.orEmpty().map { it.projectId }
     val counts = workspaceLoad(ids) {
         coroutineScope {
@@ -57,7 +58,7 @@ internal fun ProjectsScreen(repository: ChatRepository, onBack: () -> Unit) {
     val name = selected
     if (name != null) { ProjectScreen(repository, name, onBack = { selected = null; projects.refresh() }); return }
     fun refresh() { projects.refresh(); imports.refresh(); counts.refresh(); sessions.refresh(); machines.refresh() }
-    val names = (projects.value.orEmpty().map { it.name } + imports.value.orEmpty().map { it.project }).distinct().sorted()
+    val names = (projects.value.orEmpty().map { it.name } + imports.value.orEmpty().map { it.project }).distinct().sortedWith(compareBy<String> { if (it in pins.value.orEmpty()) 0 else 1 }.thenBy { it })
     WorkspacePage("Projects", onBack, ::refresh, actions = { TextButton(onClick = { allAgents = true }) { Text("Agents", fontSize = 12.sp) } }) {
         WorkspaceBody {
             WorkspaceSearch(query, "Filter projects") { query = it }
@@ -154,14 +155,47 @@ private fun ProjectScreen(repository: ChatRepository, name: String, onBack: () -
     val runs = workspaceLoad(id) { id?.let { api.projectRuns(it, refreshHost) } }
     val branches = workspaceLoad(name) { api.projectBranches(name) }
     val machines = workspaceLoad(name) { api.projectMachines(name) }
-    val sessions = workspaceLoad(name) { api.codingSessions(name) }
+    val sessions = workspaceLoad(name, poll = true) { api.codingSessions(name) }
+    val pins = workspaceLoad(name) { api.projectsOnTop() }
+    val sync = workspaceLoad(name) { api.projectSync(name) }
+    var managing by remember(name) { mutableStateOf(false) }
+    var removing by remember(name) { mutableStateOf(false) }
+    var manageError by remember(name) { mutableStateOf<String?>(null) }
+    var saving by remember(name) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    fun manage(action: suspend () -> Unit) {
+        saving = true
+        scope.launch {
+            try { action(); pins.refresh(); sync.refresh(); manageError = null }
+            catch (failure: Exception) { manageError = userMessage(failure) }
+            finally { saving = false }
+        }
+    }
+    if (removing) AlertDialog(onDismissRequest = { if (!saving) removing = false },
+        title = { Text("Remove project?") }, text = { Column { Text("Remove this project from the shared workspace. Checkout files and running sessions stay on their machines."); WorkspaceError(manageError) } },
+        confirmButton = { TextButton(enabled = !saving, onClick = { manage { api.removeProject(name); removing = false; onBack() } }) { Text("Remove") } },
+        dismissButton = { TextButton(enabled = !saving, onClick = { removing = false }) { Text("Cancel") } })
     var query by rememberSaveable(tab) { mutableStateOf("") }
     fun refresh() { refreshHost = true; project.refresh(); lists.refresh(); runs.refresh(); branches.refresh(); machines.refresh(); sessions.refresh() }
     WorkspacePage(name.substringAfterLast('/'), onBack, ::refresh,
         tabs = { WorkspaceTabs(tab, listOf("Overview", "PRs", "Issues", "CI runs", "Agents", "Terminals", "Activity")) { tab = it } },
-        actions = { TextButton(onClick = { startingAgent = true }) { Text("Start agent", fontSize = 12.sp) } }) {
+        actions = {
+            TextButton(onClick = { startingAgent = true }) { Text("Start agent", fontSize = 12.sp) }
+            Box {
+                IconButton(onClick = { managing = true }) { Icon(Icons.Outlined.MoreVert, "Manage project") }
+                DropdownMenu(expanded = managing, onDismissRequest = { managing = false }) {
+                    DropdownMenuItem(text = { Text(if (name in pins.value.orEmpty()) "Unpin" else "Pin to top") }, enabled = !saving && pins.value != null,
+                        onClick = { managing = false; manage { api.pinProject(name, name !in pins.value.orEmpty()) } })
+                    DropdownMenuItem(text = { Text(if (sync.value?.paused == true) "Resume sync" else "Pause sync") }, enabled = !saving && sync.value != null,
+                        onClick = { managing = false; manage { api.pauseProjectSync(name, sync.value?.paused != true) } })
+                    DropdownMenuItem(text = { Text("Remove from workspace") }, enabled = !saving,
+                        onClick = { managing = false; removing = true })
+                }
+            }
+        }) {
         WorkspaceBody {
             WorkspaceError(project.error, project::refresh)
+            WorkspaceError(manageError)
             if (project.loading && project.value == null) WorkspaceLoading()
             when (tab) {
                 "Overview" -> {

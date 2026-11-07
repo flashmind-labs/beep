@@ -1,4 +1,6 @@
+use super::folder::Folders;
 use super::*;
+use std::path::Path;
 
 const ID: &str = "0b1c2d3e-0000-4000-8000-0123456789ab";
 
@@ -8,8 +10,11 @@ fn move_with(harness: Harness, transcript: &str, file: &str) -> Stored {
         transcript.as_bytes(),
         ID,
         file,
-        Path::new("/srv/laptop/app"),
-        Path::new("/work/app"),
+        &Folders {
+            old: PathBuf::from("/srv/laptop/app"),
+            new: PathBuf::from("/work/app"),
+            workspace: None,
+        },
     )
 }
 
@@ -108,4 +113,61 @@ fn flsh_changes_the_header_folder_only_and_files_under_flshs_names() {
     // for session `ID`'s file.
     let name = "6d1024705c6059e7586a8d74fd797093cef21babfe58070e31ad35f6b58a86d7.jsonl";
     assert_eq!(out.path, PathBuf::from("455e16743bf22d19").join(name));
+}
+
+#[test]
+fn worktree_session_paths_follow_the_destination_for_every_harness() {
+    let old = Path::new("/srv/source/project/.worktrees/fix/src");
+    let new = Path::new("/srv/target/project/.worktrees/fix/src");
+    let file = format!("rollout-2026-11-04T09-30-00-{ID}.jsonl");
+    for (harness, input) in [
+        (
+            Harness::Claude,
+            format!(r#"{{"type":"user","cwd":"{}"}}"#, old.display()),
+        ),
+        (
+            Harness::Codex,
+            format!(
+                r#"{{"type":"session_meta","payload":{{"id":"{ID}","cwd":"{}","runtime_workspace_roots":["{}"]}}}}"#,
+                old.display(),
+                old.display()
+            ),
+        ),
+        (
+            Harness::Pi,
+            format!(
+                r#"{{"type":"session","version":3,"id":"{ID}","cwd":"{}"}}"#,
+                old.display()
+            ),
+        ),
+        (
+            Harness::Flsh,
+            format!(
+                r#"{{"type":"session_metadata","metadata":{{"id":"{ID}","working_dir":"{}"}}}}"#,
+                old.display()
+            ),
+        ),
+    ] {
+        let out = rewrite(
+            harness,
+            input.as_bytes(),
+            ID,
+            &file,
+            &Folders {
+                old: old.to_owned(),
+                new: new.to_owned(),
+                workspace: None,
+            },
+        );
+        assert!(
+            text(&out).contains(new.to_str().unwrap()),
+            "{harness:?}: {}",
+            text(&out)
+        );
+        assert!(
+            !text(&out).contains(old.to_str().unwrap()),
+            "{harness:?}: {}",
+            text(&out)
+        );
+    }
 }
