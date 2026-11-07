@@ -323,6 +323,19 @@ pub mod tool_update {
         }
     }
 
+    /// Reports the node's periodically checked tool updates.
+    pub const CHECK: &str = "tool-updates/1";
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Check {}
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Available {
+        pub tool: Tool,
+        pub version: String,
+        pub latest: String,
+    }
+
     /// What the server sends.
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[non_exhaustive]

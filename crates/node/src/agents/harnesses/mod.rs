@@ -27,8 +27,8 @@ use tokio::{sync::OnceCell, time::timeout};
 
 /// How long the newest versions found are kept before being looked up
 /// again.
-const LATEST_FOR: Duration = Duration::from_secs(6 * 60 * 60);
-/// How long one `npm view` may take.
+const LATEST_FOR: Duration = Duration::from_secs(55 * 60);
+/// How long a registry lookup may take.
 const NPM_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long a sign-in status command may take.
 const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
@@ -161,6 +161,8 @@ fn expand_home(path: &str) -> String {
 #[derive(Default)]
 pub(super) struct Latest {
     found: Mutex<LatestFound>,
+    /// flsh publishes releases outside npm.
+    flsh: beep_mesh::machine::releases::ToolReleases,
     /// One update at a time: two installs of one package would race.
     updating: AsyncMutex<()>,
     /// npm's global folders, looked up once.
@@ -217,18 +219,25 @@ impl Latest {
                 return (found.versions.clone(), found.checked_at);
             }
         }
-        if find("npm").is_none() {
-            let found = lock(&self.found);
-            return (found.versions.clone(), found.checked_at);
-        }
-        let looked = futures::future::join_all(packages.iter().map(|package| async move {
-            let version = timeout(NPM_TIMEOUT, output("npm", &["view", package, "version"]))
-                .await
-                .ok()
-                .flatten()
-                .as_deref()
-                .and_then(parse_version);
-            (*package, version)
+        let has_npm = find("npm").is_some();
+        let http = reqwest::Client::builder().timeout(NPM_TIMEOUT).build().ok();
+        let looked = futures::future::join_all(packages.iter().map(|package| {
+            let http = http.as_ref();
+            async move {
+                let version = if has_npm {
+                    timeout(NPM_TIMEOUT, output("npm", &["view", package, "version"]))
+                        .await
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        .and_then(parse_version)
+                } else if let Some(http) = http {
+                    registry_version(http, package).await
+                } else {
+                    None
+                };
+                (*package, version)
+            }
         }))
         .await;
         let mut found = lock(&self.found);
@@ -241,6 +250,21 @@ impl Latest {
         found.checked_at = unix_now();
         (found.versions.clone(), found.checked_at)
     }
+}
+
+/// The public npm registry also lists releases when npm is not installed.
+async fn registry_version(http: &reqwest::Client, package: &str) -> Option<String> {
+    let package = package.replace('/', "%2F");
+    let response = http
+        .get(format!("https://registry.npmjs.org/{package}/latest"))
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?;
+    let body = response.text().await.ok()?;
+    let metadata: serde_json::Value = serde_json::from_str(&body).ok()?;
+    parse_version(metadata.get("version")?.as_str()?)
 }
 
 /// Where `program` is found, as the processes the node starts find it.
@@ -307,6 +331,16 @@ fn update_steps(found: &Found, npm: &install::Npm) -> Vec<install::Step> {
     install::plan(&target, npm)
 }
 
+/// Refreshes the versions of installed harnesses without probing sign-ins.
+pub(super) async fn refresh_versions(kinds: &[AgentKind], latest: &Latest) {
+    let packages: Vec<_> = found(kinds)
+        .iter()
+        .filter(|found| found.cli.is_some())
+        .filter_map(|found| harness(&found.agent)?.npm)
+        .collect();
+    latest.versions(&packages, false).await;
+}
+
 /// What the node finds of every harness, with the newest versions looked
 /// up again when `refresh` says so.
 pub(super) async fn report(
@@ -322,8 +356,21 @@ pub(super) async fn report(
         .filter(|found| found.cli.is_some())
         .filter_map(|found| harness(&found.agent)?.npm)
         .collect();
-    let ((newest, checked_at), harnesses) = tokio::join!(
+    let flsh_installed = found
+        .iter()
+        .any(|item| item.agent == "flsh" && item.cli.is_some());
+    let ((newest, checked_at), flsh, harnesses) = tokio::join!(
         latest.versions(&packages, refresh),
+        async {
+            if flsh_installed {
+                latest
+                    .flsh
+                    .latest(beep_proto::node::tool_update::Tool::Flsh)
+                    .await
+            } else {
+                None
+            }
+        },
         futures::future::join_all(found.iter().map(|found| info(
             found,
             settings.get(&found.agent),
@@ -333,9 +380,13 @@ pub(super) async fn report(
     let harnesses = harnesses
         .into_iter()
         .map(|mut info| {
-            info.latest = harness(&info.agent)
-                .and_then(|known| known.npm)
-                .and_then(|package| newest.get(package).cloned());
+            info.latest = if info.agent == "flsh" {
+                flsh.clone()
+            } else {
+                harness(&info.agent)
+                    .and_then(|known| known.npm)
+                    .and_then(|package| newest.get(package).cloned())
+            };
             info
         })
         .collect();
