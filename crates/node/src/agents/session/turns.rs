@@ -2,7 +2,7 @@
 
 use super::{
     MAX_RUNNING_TOOLS,
-    actor::{Actor, Reply, Stopping},
+    actor::{Actor, PendingSteer, Reply, Stopping},
 };
 use crate::agents::{
     acp::{self, Prompt},
@@ -78,13 +78,14 @@ impl Actor {
         }
     }
 
-    /// A tool call finished with a steer waiting: ends the turn there, and
-    /// the steer goes as the next prompt once the agent says it ended. Not
-    /// while a question waits, which the turn needs answered first.
+    /// Delivers at a tool boundary, injecting when supported, otherwise
+    /// ending the turn so the steer can go as the next prompt.
     pub(super) fn steer_now(&mut self, cx: &ConnectionTo<Agent>) -> Result<()> {
         if self.steers.is_empty()
             || self.turn.is_none()
             || self.stopping.is_some()
+            || self.steering.is_some()
+            || self.steer_after_turn
             || !self.asked.is_empty()
         {
             return Ok(());
@@ -92,15 +93,102 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return Ok(());
         };
+        if self.takes_steering {
+            let Some(prompt) = self.steers.pop_front() else {
+                return Ok(());
+            };
+            let request = acp::steering(&session, &prompt)?;
+            self.steering = Some(PendingSteer {
+                prompt,
+                shown: false,
+            });
+            self.send(cx, request, Reply::Steered);
+            return Ok(());
+        }
         cx.send_notification(CancelNotification::new(session))?;
         self.stopping = Some(Stopping::Steer);
         self.show_stopping(Stopping::Steer);
         Ok(())
     }
 
+    pub(super) fn show_steer(&mut self) {
+        let Some(steer) = self.steering.as_mut().filter(|steer| !steer.shown) else {
+            return;
+        };
+        steer.shown = true;
+        self.live.send_modify(|live| {
+            for picture in steer.prompt.pictures() {
+                live.keep(picture);
+            }
+            live.steered(&steer.prompt.shown());
+        });
+    }
+
+    pub(super) fn steered(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        result: Result<Value, agent_client_protocol::Error>,
+    ) -> Result<()> {
+        let outcome = result.and_then(|value| {
+            serde_json::from_value::<acp::SteeringOutcome>(value)
+                .map_err(|e| agent_client_protocol::Error::internal_error().data(e.to_string()))
+        });
+        if matches!(outcome, Ok(acp::SteeringOutcome::Injected)) {
+            self.show_steer();
+        }
+        let Some(steer) = self.steering.take() else {
+            return Ok(());
+        };
+        match outcome {
+            Ok(acp::SteeringOutcome::Injected) => {}
+            Ok(acp::SteeringOutcome::PromptRequired) => {
+                self.steers.push_front(steer.prompt);
+                self.steer_after_turn = self.turn.is_some();
+                // Wait for the owning prompt's terminal reply. Sending it
+                // again now would race the adapter's end-of-turn handling.
+                self.show_queued();
+                if self.turn.is_none() {
+                    self.next_prompt(cx);
+                }
+                return Ok(());
+            }
+            Err(e) if steer.shown => {
+                self.note(&format!(
+                    "The agent echoed the steer but its delivery reply failed: {e}"
+                ));
+            }
+            Ok(acp::SteeringOutcome::Failed) | Err(_) => {
+                let reason = outcome.err().map(|e| format!(": {e}")).unwrap_or_default();
+                self.note(&format!(
+                    "The agent could not inject the message{reason}; it will go as the next prompt"
+                ));
+                self.takes_steering = false;
+                self.steers.push_front(steer.prompt);
+            }
+        }
+        self.show_queued();
+        if self.turn.is_none() {
+            if self.waiting() == 0 {
+                let live = self.live.borrow();
+                if let Some(stop_reason) = live.last_stop {
+                    self.alert(AlertKind::TurnEnded {
+                        stop_reason,
+                        last_message: live.info.last_message.clone(),
+                        error: live.info.state.error.clone(),
+                    });
+                }
+            }
+            self.next_prompt(cx);
+        } else if self.running.is_empty() {
+            self.steer_now(cx)?;
+        }
+        Ok(())
+    }
+
     /// Prompts and steers waiting, as the state counts them.
     fn waiting(&self) -> u32 {
-        u32::try_from(self.queued.len() + self.steers.len()).unwrap_or(u32::MAX)
+        u32::try_from(self.queued.len() + self.steers.len() + usize::from(self.steering.is_some()))
+            .unwrap_or(u32::MAX)
     }
 
     pub(super) fn show_queued(&mut self) {
@@ -126,7 +214,7 @@ impl Actor {
             }
         }
         // Prompts queued behind the turn run first: one alert for the lot.
-        if self.queued.is_empty() && self.steers.is_empty() {
+        if self.waiting() == 0 {
             let last_message = self.live.borrow().info.last_message.clone();
             self.alert(AlertKind::TurnEnded {
                 stop_reason: stop,
@@ -281,7 +369,7 @@ impl Actor {
         // Held for an update; they go when the hold ends, or after the
         // restart. A session that moves still runs what waited before the
         // move: nothing new comes in, and it ends once the queue is empty.
-        if *self.holding.borrow() {
+        if *self.holding.borrow() || self.steering.is_some() {
             return;
         }
         if self.queued.is_empty() && self.steers.is_empty() {

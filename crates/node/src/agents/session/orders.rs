@@ -40,7 +40,13 @@ impl Actor {
                 if let Err(refused) = self.can_take(&prompt) {
                     return Ok(Err(refused));
                 }
-                if let Err(full) = queue_room(self.queued.iter().chain(&self.steers), &prompt) {
+                if let Err(full) = queue_room(
+                    self.queued
+                        .iter()
+                        .chain(&self.steers)
+                        .chain(self.steering.iter().map(|steer| &steer.prompt)),
+                    &prompt,
+                ) {
                     return Ok(Err(full));
                 }
                 self.queued.push_back(prompt);
@@ -57,13 +63,21 @@ impl Actor {
                 if let Err(refused) = self.can_take(&prompt) {
                     return Ok(Err(refused));
                 }
-                if let Err(full) = queue_room(self.queued.iter().chain(&self.steers), &prompt) {
+                if let Err(full) = queue_room(
+                    self.queued
+                        .iter()
+                        .chain(&self.steers)
+                        .chain(self.steering.iter().map(|steer| &steer.prompt)),
+                    &prompt,
+                ) {
                     return Ok(Err(full));
                 }
                 self.steers.push_back(prompt);
                 self.show_queued();
                 if self.live.borrow().status() == Status::Idle {
                     self.next_prompt(cx);
+                } else if self.takes_steering && self.running.is_empty() {
+                    self.steer_now(cx)?;
                 }
                 Ok(Ok(()))
             }

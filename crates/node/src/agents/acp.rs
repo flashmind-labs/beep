@@ -536,6 +536,58 @@ pub(super) fn takes_images(initialized: &InitializeResponse) -> bool {
     initialized.agent_capabilities.prompt_capabilities.image
 }
 
+/// Only versions with the host-owned idle fallback can safely steer: older
+/// adapters may start a detached turn when the running prompt just ended.
+pub(super) fn takes_steering(initialized: &InitializeResponse) -> bool {
+    let advertised = initialized
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("steering"))
+        .is_some_and(|steering| steering["supported"] == true);
+    let Some(agent) = initialized.agent_info.as_ref().filter(|_| advertised) else {
+        return false;
+    };
+    let minimum = match agent.name.as_str() {
+        "@agentclientprotocol/codex-acp" => (2, 4, 0),
+        "@agentclientprotocol/claude-agent-acp" => (0, 65, 0),
+        "flsh" => (0, 2, 14),
+        _ => return false,
+    };
+    let mut parts = agent.version.split('.');
+    let version = (|| {
+        Some((
+            parts.next()?.parse::<u32>().ok()?,
+            parts.next()?.parse::<u32>().ok()?,
+            parts.next()?.parse::<u32>().ok()?,
+        ))
+    })();
+    parts.next().is_none() && version.is_some_and(|version| version >= minimum)
+}
+
+/// Inject into the running turn, leaving an idle session's input with us.
+pub(super) fn steering(
+    session: &SessionId,
+    input: &Prompt,
+) -> Result<UntypedMessage, agent_client_protocol::Error> {
+    let request = prompt(session, input, None);
+    UntypedMessage::new(
+        "_session/steering",
+        json!({
+            "sessionId": session,
+            "prompt": request.prompt,
+            "_meta": {"steering": {"idleBehavior": "promptRequired"}},
+        }),
+    )
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub(super) enum SteeringOutcome {
+    Injected,
+    PromptRequired,
+    Failed,
+}
+
 /// `session/prompt` with `brief` (Beep's word to the agent, tagged) and the text
 /// first, then each image as an image block. Only images go when there is
 /// no text.
@@ -935,5 +987,44 @@ mod tests {
         let broken = serde_json::json!({"sessionId": "s1", "models": {"availableModels": 3}});
         assert_eq!(offered_models(&broken), Offered::default());
         assert!(session_created(broken).is_ok());
+    }
+    #[test]
+    fn steering_requires_advertising_and_a_version_with_the_idle_fallback() {
+        for (name, version, supported, expected) in [
+            ("@agentclientprotocol/codex-acp", "2.4.0", true, true),
+            ("@agentclientprotocol/codex-acp", "2.3.0", true, false),
+            (
+                "@agentclientprotocol/claude-agent-acp",
+                "0.65.0",
+                true,
+                true,
+            ),
+            (
+                "@agentclientprotocol/claude-agent-acp",
+                "0.64.0",
+                true,
+                false,
+            ),
+            ("@agentclientprotocol/codex-acp", "2.4.0", false, false),
+            (
+                "@agentclientprotocol/codex-acp",
+                "2.4.0-beta.1",
+                true,
+                false,
+            ),
+            ("other-agent", "3.0.0", true, false),
+            ("flsh", "0.2.13", true, false),
+            ("flsh", "0.2.14", true, true),
+            ("flsh", "0.2.14", false, false),
+        ] {
+            let initialized = serde_json::from_value(json!({
+                "protocolVersion": 1,
+                "agentCapabilities": {},
+                "agentInfo": {"name": name, "version": version},
+                "_meta": {"steering": {"supported": supported}},
+            }))
+            .unwrap();
+            assert_eq!(takes_steering(&initialized), expected, "{name} {version}");
+        }
     }
 }

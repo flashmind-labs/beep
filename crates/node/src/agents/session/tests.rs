@@ -16,6 +16,7 @@ use beep_proto::node::{
 };
 use beep_proto::{MAX_AGENT_IMAGES, Upload};
 use serde_json::Value;
+use std::path::PathBuf;
 
 fn options() -> Vec<AnswerOption> {
     let option = |id: &str, name: &str, kind| AnswerOption {
@@ -1723,4 +1724,150 @@ cat >/dev/null
     })
     .await
     .expect("the escaped child stopped, including one ignoring TERM");
+}
+
+/// Holds the tool completion and original turn's end on separate FIFO reads.
+const INJECTING_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentInfo":{"name":"@agentclientprotocol/codex-acp","version":"2.4.0"},"agentCapabilities":{"promptCapabilities":{"image":true}},"_meta":{"steering":{"supported":true}}}'
+read -r line; log "$1"; reply '{"sessionId":"s"}'
+read -r line; log "$1"; prompt=$(id)
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running tests","status":"in_progress"}}}'
+read -r go < "$3"
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
+read -r line; log "$1"
+case "$2" in
+    injected)
+        echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"make it blue"}}}}'
+        echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Adjusted."}}}}'
+        reply '{"outcome":"injected"}'
+        read -r go < "$3"
+        ;;
+    idle-first)
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+        reply '{"outcome":"promptRequired","reason":"noRunningTurn"}'
+        ;;
+    idle-last)
+        reply '{"outcome":"promptRequired","reason":"noRunningTurn"}'
+        echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"session_info_update","title":"Settling"}}}'
+        read -r go < "$3"
+        ;;
+    rejected)
+        printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$(id)"
+        read -r line; log "$1"
+        ;;
+esac
+if [ "$2" != idle-first ]; then
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+fi
+while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
+"#;
+
+#[cfg(unix)]
+fn injecting(dir: &Path, outcome: &str) -> (AgentKind, PathBuf, PathBuf) {
+    let log = dir.join("sent.jsonl");
+    let fifo = dir.join("go");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mut kind = script("codex", INJECTING_ADAPTER, &log);
+    kind.args
+        .extend([outcome.to_owned(), fifo.display().to_string()]);
+    (kind, log, fifo)
+}
+
+#[cfg(unix)]
+async fn release(fifo: &Path) {
+    let fifo = fifo.to_owned();
+    tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n"))
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_steer_injects_at_tool_completion_without_cancelling_the_turn() {
+    let temp = tempfile::tempdir().unwrap();
+    let (kind, log, fifo) = injecting(temp.path(), "injected");
+    let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
+    until(&session, |live| live.info.state.summary == "Running tests").await;
+    let mut steer = shot();
+    steer.text = "make it blue".into();
+    session.order(Command::Steer(steer)).await.unwrap();
+    assert_eq!(sent(&log).len(), 3, "nothing goes while the tool runs");
+    release(&fifo).await;
+    until(&session, |live| live.info.state.queued == 0).await;
+    let requests = sent(&log);
+    assert_eq!(requests.len(), 4);
+    assert_eq!(requests[3]["method"], "_session/steering");
+    assert_eq!(requests[3]["params"]["prompt"][0]["text"], "make it blue");
+    assert_eq!(requests[3]["params"]["prompt"][1]["type"], "image");
+    assert_eq!(
+        requests[3]["params"]["_meta"]["steering"]["idleBehavior"],
+        "promptRequired"
+    );
+    assert_eq!(session.info().turns, 0);
+    assert_eq!(session.info().state.status, Status::Working);
+    let (entries, _) = session.live.borrow().transcript(20);
+    assert_eq!(
+        entries.iter().filter(|e| e.kind == EntryKind::User).count(),
+        2
+    );
+    assert_eq!(entries.last().unwrap().text, "Adjusted.");
+    release(&fifo).await;
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1);
+    assert_eq!(prompts(&log), ["go"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_idle_injection_is_sent_once_as_a_prompt_in_either_reply_order() {
+    for outcome in ["idle-first", "idle-last", "rejected"] {
+        let temp = tempfile::tempdir().unwrap();
+        let (kind, log, fifo) = injecting(temp.path(), outcome);
+        let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
+        until(&session, |live| live.info.state.summary == "Running tests").await;
+        session
+            .order(Command::Steer("correction".to_owned().into()))
+            .await
+            .unwrap();
+        session
+            .order(Command::Prompt("later".to_owned().into()))
+            .await
+            .unwrap();
+        release(&fifo).await;
+        if outcome == "idle-last" {
+            until(&session, |live| {
+                live.info.title.as_deref() == Some("Settling")
+            })
+            .await;
+            assert_eq!(session.info().state.queued, 2);
+            assert_eq!(sent(&log).len(), 4, "wait for the original prompt to end");
+            release(&fifo).await;
+        }
+        until(&session, |live| live.info.turns >= 3).await;
+        assert_eq!(prompts(&log), ["go", "correction", "later"], "{outcome}");
+        let requests = sent(&log);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|r| r["method"] == "_session/steering")
+                .count(),
+            1
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|r| r["method"] == "session/cancel")
+                .count(),
+            usize::from(outcome == "rejected")
+        );
+        assert_eq!(session.info().state.queued, 0);
+    }
 }
