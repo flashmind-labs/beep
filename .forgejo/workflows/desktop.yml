@@ -82,7 +82,7 @@ jobs:
           set -euo pipefail
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
-          cargo test
+          cargo test -- --test-threads=2
 
       - name: Import signing credentials
         env:
