@@ -425,17 +425,17 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
   const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
-  // Without a subscription these work over the mesh; the rest is the assistant's.
+  const sub = SET.path?.sub;
+  const agents: [SettingsPage, string] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
+    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}${linked ? `<div id="set-agents">${setAgentsHtml()}</div>` : ""}${sheet ? codingAgentsHtml() : ""}</section>`];
+  // These settings work over the mesh without the server.
   const thisMacSec: [SettingsPage, string][] = mac ? [["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]] : [];
-  if (!linked) return [...out, ...thisMacSec, creds, machines, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
+  if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
   out.push(...thisMacSec);
   out.push(machines);
-  // The Coding agents rows sit outside #set-agents, which redraws alone.
-  const sub = SET.path?.sub;
-  out.push(["agents", sheet && sub?.kind === "agent" ? host("agents")
-    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">Agent accounts</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}<div id="set-agents">${setAgentsHtml()}</div>${sheet ? codingAgentsHtml() : ""}</section>`]);
+  out.push(agents);
   out.push(creds, instr);
   out.push(["devices", sec("devices", "Beep server", setServerHtml(set))]);
   return out;
@@ -483,11 +483,15 @@ function navCount(page: SettingsPage) {
   return n ? `<span class="n">${n}</span>` : "";
 }
 
+function settingsPageLabel(page: SettingsPage) {
+  return page === "agents" && !SET.local?.linked ? "Coding agents" : pageLabel(page);
+}
+
 function navHtml(shown: SettingsPage[], path: SettingsPath) {
   return navEntries(shown, path, subEntries).map(({ page, sub, current }) => {
     const on = current ? ' aria-current="true"' : "";
     if (sub) return `<button class="cc-si sub" data-sub="${esc(subKey(sub))}"${on}><span class="tt">${esc(subLabel(sub))}</span></button>`;
-    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(pageLabel(page))}</span>${navCount(page)}</button>`;
+    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(settingsPageLabel(page))}</span>${navCount(page)}</button>`;
   }).join("");
 }
 
@@ -495,7 +499,8 @@ const BACK_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" s
 
 /// The breadcrumb atop the right pane, with a back link on a subpage.
 function crumbsHtml(path: SettingsPath) {
-  const [page, sub] = crumbs(path, subLabel);
+  const [, sub] = crumbs(path, subLabel);
+  const page = settingsPageLabel(path.page);
   if (sub === undefined) return `<b>${esc(page)}</b>`;
   return `<button class="dset-back" data-goto="${path.page}" aria-label="Back to ${esc(page)}">${BACK_ICON}</button>`
     + `<button class="dset-crumb" data-goto="${path.page}">${esc(page)}</button>${ICON.chev}<b>${esc(sub)}</b>`;
