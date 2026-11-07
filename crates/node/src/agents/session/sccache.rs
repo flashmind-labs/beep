@@ -63,7 +63,7 @@ fn configured(path: &Path) -> bool {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return false,
         Err(_) => return true,
     };
-    let Ok(config) = text.parse::<toml::Value>() else {
+    let Ok(config) = toml::from_str::<toml::Value>(&text) else {
         return true;
     };
     config.get("include").is_some()
