@@ -64,7 +64,7 @@ pub(in crate::files::sync) struct Shared {
     /// Unlike `unheard`, a pull that failed does not set it.
     caught: Mutex<HashMap<EndpointId, Instant>>,
     /// Commits peers advertised on their current pulls.
-    peer_heads: Mutex<HashMap<EndpointId, Checkout>>,
+    peer_heads: Mutex<HashMap<EndpointId, (Checkout, Option<String>)>>,
     /// When the last round that brought the folder in line with the list
     /// began. It saw every merge made before that.
     applied: Mutex<Instant>,
@@ -306,17 +306,27 @@ impl Shared {
             && crate::read_lock(&self.rules).syncs_git()
     }
 
+    pub(in crate::files::sync) fn observe_head(
+        &self,
+        peer: &EndpointId,
+        checkout: Checkout,
+        branch: Option<String>,
+    ) {
+        crate::lock(&self.peer_heads).insert(*peer, (checkout, branch));
+        self.merged.notify_one();
+    }
+
     /// Checks the checkout before accepting a peer's files. Different
     /// commits wait for the user or an agent to push and pull through Git.
     pub(in crate::files::sync) async fn first_contact(
         &self,
         peer: &EndpointId,
         checkout: Checkout,
+        branch: Option<String>,
     ) -> Result<()> {
         self.scan_before_matching().await?;
         let own = self.head().await?;
-        crate::lock(&self.peer_heads).insert(*peer, checkout);
-        self.merged.notify_one();
+        self.observe_head(peer, checkout, branch);
         let copies_git = self.copies_git();
         let mut state = self.lock();
         if copies_git {
@@ -361,7 +371,7 @@ impl Shared {
         let heads = crate::lock(&self.peer_heads);
         if heads
             .iter()
-            .any(|(peer, head)| self.has_peer(peer) && own.differs(*head))
+            .any(|(peer, head)| self.has_peer(peer) && own.differs(head.0))
         {
             bail!("Git commits differ; push and pull through Git before syncing files");
         }
@@ -375,46 +385,56 @@ impl Shared {
             return Ok(false);
         }
         let own = self.head().await?;
-        let target = {
+        let candidates: Vec<_> = {
             let heads = crate::lock(&self.peer_heads);
-            let mut targets = heads
+            heads
                 .iter()
-                .filter(|(peer, head)| self.has_peer(peer) && own.differs(**head))
-                .map(|(_, head)| head.commit);
-            let Some(Some(target)) = targets.next() else {
-                return Ok(false);
-            };
-            if targets.any(|other| other != Some(target)) {
-                bail!(
-                    "Git commits differ between peers; align them through Git before syncing files"
-                );
-            }
-            target
+                .filter(|(peer, head)| self.has_peer(peer) && own.differs(head.0))
+                .map(|(_, head)| (head.0.commit, head.1.clone()))
+                .collect()
         };
+        if candidates.is_empty() {
+            return Ok(false);
+        }
         let repo = Repo::open(self.root())
             .context("Git commits differ; the local repository is unavailable")?;
-        let (repo, command, branch) = spawn_blocking(move || -> Result<_> {
-            if own
+        let (repo, branch, target) = spawn_blocking(move || -> Result<_> {
+            repo.require_clean()?;
+            let branch = repo
+                .head_ref()
+                .context("Git commits differ; checkout is detached")?;
+            let own_commit = own
                 .commit
-                .is_some_and(|commit| repo.is_ancestor(target, commit) == Some(true))
-            {
-                bail!("Git commits differ; this checkout is ahead of the peer");
+                .context("Git commits differ; checkout has no commit")?;
+            let mut target = None;
+            for (candidate, peer_branch) in candidates {
+                if peer_branch.as_deref() != Some(branch.as_str()) {
+                    bail!("Git commits differ between branches");
+                }
+                let candidate = candidate.context("Git commits differ; peer has no commit")?;
+                if repo.is_ancestor(candidate, own_commit) == Some(true) {
+                    continue;
+                }
+                if repo.is_ancestor(own_commit, candidate) != Some(true) {
+                    bail!(
+                        "Git commits differ; histories diverged or peer commits have not arrived"
+                    );
+                }
+                if let Some(previous) = target {
+                    if repo.is_ancestor(candidate, previous) == Some(true) {
+                        continue;
+                    }
+                    if repo.is_ancestor(previous, candidate) != Some(true) {
+                        bail!("Git commits differ between peers");
+                    }
+                }
+                target = Some(candidate);
             }
-            let (command, branch) = repo.upstream_fetch()?;
-            Ok((repo, command, branch))
+            let target =
+                target.context("Git commits differ; this checkout is ahead of the peers")?;
+            Ok((repo, branch, target))
         })
-        .await?
-        .context("Git commits differ; automatic fetch could not complete")?;
-        let mut command = tokio::process::Command::from(command);
-        command.kill_on_drop(true);
-        let output = timeout(Duration::from_secs(30), command.output())
-            .await
-            .context("Git commits differ; fetching the upstream timed out")??;
-        if !output.status.success() {
-            bail!(
-                "Git commits differ; fetching the upstream failed; fetch it manually before syncing"
-            );
-        }
+        .await??;
         let (snapshot, file) = {
             let mut state = self.lock();
             state.saved.fast_forward = Some(target);
