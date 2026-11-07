@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 /// The phone and the computers linked to its account, as on Android. A computer with no
 /// account shows a link code; scanning it here asks first, then links it. A computer with its
@@ -125,6 +126,7 @@ private struct WorkspaceLinkView: View {
     @State private var linked = false
     @State private var adding = false
     @State private var ticket = ""
+    @State private var scanning = false
     @State private var busy = false
     @State private var error = ""
 
@@ -145,26 +147,50 @@ private struct WorkspaceLinkView: View {
         .sheet(isPresented: $adding) {
             NavigationStack {
                 Form {
-                    Text("On desktop, open Machines, Add a machine, then choose Phone. Copy its ticket here.")
+                    Text("On desktop, open Machines, Add a machine, then choose Phone. Scan the QR code it shows.")
+                    if QRScanner.supported {
+                        Button("Scan QR code") { startScanning() }.disabled(busy)
+                    }
                     TextField("Phone pairing ticket", text: $ticket, axis: .vertical)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(busy)
                     Text("This phone gets project controls, node sessions and shared credentials.")
                     WorkspaceError(text: error)
-                    Button(busy ? "Linking…" : "Link workspace") {
-                        busy = true
-                        Task {
-                            defer { busy = false }
-                            do {
-                                try await model.workspace.client().joinWorkspace(ticket: ticket.trimmingCharacters(in: .whitespacesAndNewlines), name: UIDevice.current.name)
-                                linked = true; adding = false; ticket = ""; error = ""
-                                await model.workspace.refresh()
-                            } catch { self.error = describe(error) }
-                        }
-                    }.disabled(busy || ticket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(busy ? "Linking…" : "Link workspace") { join(ticket) }
+                        .disabled(busy || ticket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .qrScanner(isPresented: $scanning) { code in
+                    ticket = code
+                    join(code)
                 }
                 .navigationTitle("Link workspace")
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { adding = false }.disabled(busy) } }
             }.interactiveDismissDisabled(busy)
+        }
+    }
+
+    private func startScanning() {
+        Task {
+            let allowed = await AVCaptureDevice.requestAccess(for: .video)
+            if allowed && QRScanner.available {
+                scanning = true
+            } else {
+                error = "Camera unavailable. Allow camera access in Settings, or paste the ticket below."
+            }
+        }
+    }
+
+    private func join(_ code: String) {
+        let value = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !busy, !value.isEmpty else { return }
+        busy = true
+        error = ""
+        Task {
+            defer { busy = false }
+            do {
+                try await model.workspace.client().joinWorkspace(ticket: value, name: UIDevice.current.name)
+                linked = true; adding = false; ticket = ""
+                await model.workspace.refresh()
+            } catch { self.error = describe(error) }
         }
     }
 }

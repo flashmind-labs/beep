@@ -140,13 +140,13 @@
     if (s === "joined") body = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>${who} joined</b></div>
        <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${box ? "Linux, Claude Code. It shows under Machines and can run agents now." : node ? "Linux, Docker, Claude Code, Codex. It shows under Machines and can run agents now." : "macOS, Claude Code, Codex. It shows under Machines and can run agents now."}</div>
        <button class="dbtn pri" ${go("ns", "machines")}>Done</button>`;
-    else if (s === "expired") body = `<div style="font-size:13px;margin-bottom:12px">This ticket expired. A ticket works once and lasts an hour.</div><button class="dbtn pri" data-dact="dset:ts:ready" data-dgo="dAddTicket">New ticket</button>`;
+    else if (s === "expired") body = `<div style="font-size:13px;margin-bottom:12px">${k === "phone" ? "This code expired. Phone codes work once and last 5 minutes." : "This ticket expired. A ticket works once and lasts an hour."}</div><button class="dbtn pri" data-dact="dset:ts:ready" data-dgo="dAddTicket">New ticket</button>`;
     else if (node) body = `${step("1. Install beep-node on the machine")}
        ${line("curl -fsSL https://releases.flashmind.com/beep/node/install.sh | sh", "Copied")}
        ${step("2. Run this there")}
        ${line(`beep-node mesh join ${TICKET}`, "Copied")}
        ${s === "waiting" ? waiting("the machine") : note}`;
-    else if (k === "phone") body = `${step("Phone pairing ticket")}${line(TICKET, "Copied")}<p>In Beep on your phone, open Devices and paste this ticket. The phone must prove it has this one-use secret over iroh.</p><p>Expires in 5 minutes. Keep this ticket private.</p>${waiting("the phone")}`;
+    else if (k === "phone") body = `${step("Scan with your phone")}<div style="width:200px;height:200px;background:#fff;color:#111;display:grid;place-items:center;margin:12px auto" aria-label="Phone pairing QR code">QR code</div><p>In Beep on your phone, open Linked devices and scan this code.</p><details><summary>Copy ticket instead</summary>${line(TICKET, "Copied")}</details><p>Expires in 5 minutes. Keep this ticket private.</p>${waiting("the phone")}`;
     else body = `${step("Ticket")}
        ${line(TICKET, "Copied")}
        <div style="font-size:12.5px;color:var(--d-muted);margin-bottom:12px">Paste it into Beep on the other Mac, under Join with a ticket.</div>
