@@ -3,6 +3,7 @@
 
 pub(crate) mod accounts;
 pub(crate) mod artifacts;
+mod child_reply;
 pub(crate) mod custom;
 pub(crate) mod diff;
 pub(crate) mod files;
