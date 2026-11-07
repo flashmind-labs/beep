@@ -148,3 +148,8 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .ks-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; line-height: 26px }
 .ks-keys { display: flex; align-items: center; gap: 4px; flex: none }
 .ks-keys i { font-style: normal; font-size: 11px; color: var(--dim); padding: 0 2px }
+
+.am-phone-qr { width: 220px; height: 220px; padding: 16px; margin: 12px auto; box-sizing: content-box; background: #F4F8F5 }
+.am-phone-qr svg { display: block; width: 100%; height: 100% }
+.am-phone-manual { margin: 10px 0; font-size: 12px }
+.am-phone-manual summary { cursor: pointer; margin-bottom: 8px }

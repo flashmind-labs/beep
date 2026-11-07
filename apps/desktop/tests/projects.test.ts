@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { awaitsView, foundFor, mergeProjects, plainPath, projectRunning, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
+import { overviewGroups, overviewSub, awaitsView, foundFor, mergeProjects, plainPath, projectRunning, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
 
 const imported = [
@@ -290,4 +290,34 @@ test("the header has one button per forge, the project's own first, one per serv
     ]).map(f => f.label),
     ["forge.example.com", "git.example.org"],
   );
+});
+
+
+test("overview cards keep local groups, pins and live agents without task summaries", () => {
+  const rows = [
+    { name: "acme/widget", machines: [{ folder: "~/work/widget" }], agents: 2 },
+    { name: "acme/relay", machines: [], agents: 1 },
+    { name: "acme/pines", machines: [], agents: 0 },
+    { name: "notes", machines: [], agents: 0 },
+  ];
+  for (const summaries of [undefined, null, []]) {
+    const groups = overviewGroups(rows, summaries, ["acme/pines"], [field]);
+    assert.deepEqual(groups.map(g => [g.group?.name ?? g.org, g.cards.map(c => c.name)]), [
+      ["work", ["acme/widget"]],
+      ["acme", ["acme/pines", "acme/relay"]],
+      [null, ["notes"]],
+    ]);
+    assert.equal(groups[0].cards[0].repo, "acme/widget");
+    assert.equal(groups[1].cards[0].pinned, true);
+    assert.ok(groups.flatMap(g => g.cards).every(c => c.sum === null));
+    assert.equal(overviewSub(groups), "4 projects in 1 group and 1 org, 3 agents running");
+  }
+});
+
+test("overview headings use task workers when available, without counting agents twice", () => {
+  const rows = [{ name: "acme/widget", agents: 5 }, { name: "acme/relay", agents: 2 }];
+  const groups = overviewGroups(rows, [{ name: "acme/widget", workers: 1 }], [], []);
+  assert.equal(overviewSub(groups), "2 projects in 1 org, 3 workers running");
+  assert.equal(overviewSub(overviewGroups(rows, [{ name: "acme/widget", workers: 0 }], [], [])), "2 projects in 1 org, 2 workers running");
+  assert.equal(overviewSub(overviewGroups<{ name: string; agents: number }>([{ name: "notes", agents: 0 }], null, [], [])), "1 project, no agents running");
 });

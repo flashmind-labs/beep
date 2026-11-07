@@ -1,6 +1,6 @@
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
-import { ago, plural } from "../ui/format.ts";
+import { ago, plural, since } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, headedTable, freshNote, svgEl as icon } from "../ui/parts.ts";
 import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
@@ -167,8 +167,9 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
     const latest = c.sum.latest;
     card.append(h("span", "line", latestLine(latest), latest ? h("small", "", ` · ${ago(latest.updated_at)}`) : null));
   } else {
-    card.append(h("span", "line", c.imported ? "No project agent yet" : "From running agents"));
+    card.append(h("span", "line", c.last ? `Last activity ${since(c.last)}` : "No recent activity"));
   }
+  if (c.machines.length) card.append(h("span", "line sync", `on ${c.machines.map(m => m.name).join(", ")}`));
   // Only a project's page reads what Syncthing keeps, so that is what shows
   // here: no read per card.
   const sync = syncedBy(c.name, state.sync, state.where.get(c.name) ?? pages.get<ProjectMachineRow[]>("where", c.name));
@@ -176,12 +177,12 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   const open = () => openProjects(c.name);
   newWindowOn(card, card, c.name);
   card.addEventListener("click", open);
-  card.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  card.addEventListener("keydown", e => { if (e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } });
   return card;
 }
 
-/// The overview's cards; `null` from a server too old to sum projects up,
-/// when the page keeps its table.
+/// Optional task summaries for the cards. Local projects draw before this
+/// read and remain visible if it fails or the server has no summaries.
 export const loadOverview = single(async () => {
   try {
     state.overview = await invoke<OverviewCard[] | null>("project_overview");

@@ -4,7 +4,7 @@
 //! Only a desktop mints tickets: the server never does.
 
 use crate::{
-    beep::{Service, identity::computer_name},
+    beep::{Service, identity::computer_name, qr_svg},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
@@ -22,6 +22,8 @@ pub struct TokenView {
     token: String,
     /// What to copy: `beep-node mesh join <ticket>` for a node, the ticket for another Mac.
     command: String,
+    /// QR code for a phone ticket.
+    qr_svg: Option<String>,
     /// In milliseconds since the Unix epoch.
     expires_at: u64,
 }
@@ -58,8 +60,14 @@ pub async fn mesh_invite(
         DeviceKind::Node => format!("beep-node mesh join {token}"),
         DeviceKind::Desktop => token.clone(),
     };
+    let qr_svg = if phone.unwrap_or(false) {
+        Some(qr_svg(&token)?)
+    } else {
+        None
+    };
     Ok(TokenView {
         token,
+        qr_svg,
         command,
         expires_at: ticket.expires_ms,
     })

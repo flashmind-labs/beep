@@ -51,15 +51,16 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
   return turns;
 }
 
-/// Consecutive tools fold together. Responses, thoughts and notes stay in
-/// order outside those folds, including text followed by more tool calls.
-export function turnSections(entries: LogEntry[], t: Turn, offset = 0): { tools: boolean; ats: number[] }[] {
-  const sections: { tools: boolean; ats: number[] }[] = [];
+/// Consecutive thoughts and tools share a progress fold. Agent output and
+/// notes stay outside it and start a new group for subsequent activity.
+export function turnSections(entries: LogEntry[], t: Turn, offset = 0): { progress: boolean; ats: number[] }[] {
+  const sections: { progress: boolean; ats: number[] }[] = [];
   for (const at of [...t.steps, ...t.answer]) {
-    const tools = entries[at - offset].kind === "tool";
+    const kind = entries[at - offset].kind;
+    const progress = kind === "tool" || kind === "thought";
     const last = sections.at(-1);
-    if (last && last.tools === tools) last.ats.push(at);
-    else sections.push({ tools, ats: [at] });
+    if (last && last.progress === progress) last.ats.push(at);
+    else sections.push({ progress, ats: [at] });
   }
   return sections;
 }
@@ -313,6 +314,15 @@ export function summary(entries: LogEntry[], t: Turn, offset = 0, steps = t.step
     rest.length && withFailed(`performed ${plural(rest.length, "other action", "other actions")}`, rest)].filter(Boolean).join(", ");
   const line = parts || plural(steps.length, "step", "steps");
   return line[0].toUpperCase() + line.slice(1);
+}
+
+/// The activity group's thought time and tool summary, using only known durations.
+export function progressSummary(entries: LogEntry[], t: Turn, offset = 0, steps = t.steps) {
+  const thoughts = steps.map(at => entries[at - offset]).filter(en => en.kind === "thought");
+  const ms = thoughts.reduce((total, en) => total + (en.ms ?? 0), 0);
+  const thought = thoughts.length ? thoughtLabel(ms > 0 ? ms : null) : "";
+  const tools = steps.some(at => entries[at - offset].kind === "tool") ? summary(entries, t, offset, steps) : "";
+  return [thought, tools].filter(Boolean).join(" · ");
 }
 
 /// A step as one short line: "Ran cargo test", "Read src/x.rs", "Running cargo
