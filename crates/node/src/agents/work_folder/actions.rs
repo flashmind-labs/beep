@@ -1,0 +1,443 @@
+//! File browser mutations, anchored to open directories and never overwriting a destination.
+
+use super::{WorkRoot, names};
+use crate::files::fsat::{self, Dir};
+use anyhow::{Context, Result, bail};
+use beep_proto::node::agent::FileAction;
+use std::{
+    collections::HashSet,
+    ffi::OsStr,
+    io,
+    path::{Path, PathBuf},
+};
+
+const MAX_ITEMS: usize = 50_000;
+const MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+#[derive(Default)]
+struct CopyBudget {
+    count: usize,
+    bytes: u64,
+}
+
+fn checked(path: &str) -> Result<PathBuf> {
+    if path.starts_with('/') || path.contains('\\') || path.contains(':') {
+        bail!("Use a relative path inside the working folder");
+    }
+    let path = names(path)?;
+    if path.as_os_str().is_empty()
+        || path
+            .components()
+            .any(|p| p.as_os_str().eq_ignore_ascii_case(".git"))
+    {
+        bail!("The working folder and Git metadata cannot be changed here");
+    }
+    Ok(path)
+}
+
+fn folder(root: &WorkRoot, rel: &Path) -> Result<Dir> {
+    let mut dir = Dir::open(&root.root)?;
+    for part in rel.components() {
+        dir = dir.open_dir(part.as_os_str())?;
+    }
+    Ok(dir)
+}
+
+fn parent(root: &WorkRoot, path: &Path) -> Result<Dir> {
+    folder(root, path.parent().context("A file name is required")?)
+}
+
+fn name(path: &Path) -> Result<&OsStr> {
+    path.file_name().context("A file name is required")
+}
+
+/// Removes descendants when their parent is selected, preserving selection order.
+fn roots(paths: &[String]) -> Result<Vec<PathBuf>> {
+    if paths.is_empty() || paths.len() > MAX_ITEMS {
+        bail!("Select between 1 and {MAX_ITEMS} items");
+    }
+    let all = paths
+        .iter()
+        .map(|p| checked(p))
+        .collect::<Result<Vec<_>>>()?;
+    let lookup: HashSet<_> = all.iter().cloned().collect();
+    let mut seen = HashSet::new();
+    Ok(all
+        .iter()
+        .filter(|p| !p.ancestors().skip(1).any(|parent| lookup.contains(parent)))
+        .filter(|p| seen.insert((*p).clone()))
+        .cloned()
+        .collect())
+}
+
+/// Checks a copy before creating anything. Links and special files are refused.
+fn measure(
+    dir: &Dir,
+    entry: &OsStr,
+    count: &mut usize,
+    bytes: &mut u64,
+    depth: usize,
+) -> Result<()> {
+    if depth > 128 || entry.eq_ignore_ascii_case(".git") {
+        bail!("Cannot copy Git metadata or folders nested over 128 levels");
+    }
+    *count += 1;
+    if *count > MAX_ITEMS {
+        bail!("Copy at most {MAX_ITEMS} items at once");
+    }
+    let meta = dir.metadata(entry)?.context("An item is no longer there")?;
+    if meta.is_dir() {
+        let child = dir.open_dir(entry)?;
+        for name in child.entries()? {
+            measure(&child, &name, count, bytes, depth + 1)?;
+        }
+    } else if meta.is_file() {
+        *bytes = bytes
+            .checked_add(meta.len())
+            .context("The copy is too large")?;
+        if *bytes > MAX_BYTES {
+            bail!("Copy at most 256 MB at once");
+        }
+    } else {
+        bail!("Only regular files and folders can be copied");
+    }
+    Ok(())
+}
+
+fn copy_entry(
+    from: &Dir,
+    source: &OsStr,
+    to: &Dir,
+    dest: &OsStr,
+    budget: &mut CopyBudget,
+    depth: usize,
+) -> Result<()> {
+    // Repeat the bounds while copying: another process may have changed the source.
+    if depth > 128 || source.eq_ignore_ascii_case(".git") {
+        bail!("Cannot copy this folder");
+    }
+    budget.count += 1;
+    if budget.count > MAX_ITEMS {
+        bail!("Too many items to copy");
+    }
+    let meta = from
+        .metadata(source)?
+        .context("An item is no longer there")?;
+    if meta.is_dir() {
+        let src = from.open_dir(source)?;
+        to.make_dir(dest, false)?;
+        let dst = to.open_dir(dest)?;
+        for entry in src.entries()? {
+            copy_entry(&src, &entry, &dst, &entry, budget, depth + 1)?;
+        }
+    } else if meta.is_file() {
+        let mut src = from.read_file(source)?;
+        let mut dst = to.create_file(dest, fsat::is_executable(&meta))?;
+        use std::io::Read;
+        let copied = io::copy(
+            &mut (&mut src).take(MAX_BYTES.saturating_sub(budget.bytes) + 1),
+            &mut dst,
+        )?;
+        budget.bytes = budget
+            .bytes
+            .checked_add(copied)
+            .context("The copy is too large")?;
+        if budget.bytes > MAX_BYTES {
+            bail!("Copy at most 256 MB at once");
+        }
+    } else {
+        bail!("Only regular files and folders can be copied");
+    }
+    Ok(())
+}
+
+pub(in crate::agents) fn edit(root: &WorkRoot, action: &FileAction) -> Result<()> {
+    match action {
+        FileAction::CreateFile { path } | FileAction::CreateFolder { path } => {
+            let path = checked(path)?;
+            let dir = parent(root, &path)?;
+            if matches!(action, FileAction::CreateFolder { .. }) {
+                dir.make_dir(name(&path)?, false)?;
+            } else {
+                dir.create_file(name(&path)?, false)?;
+            }
+        }
+        FileAction::Rename { path, to } => {
+            let (path, to) = (checked(path)?, checked(to)?);
+            if to.starts_with(&path) {
+                bail!("An item cannot be moved into itself");
+            }
+            let (src, dst) = (parent(root, &path)?, parent(root, &to)?);
+            let meta = src
+                .metadata(name(&path)?)?
+                .context("The item is no longer there")?;
+            fsat::rename_new(&src, name(&path)?, &dst, name(&to)?, meta.is_dir())?;
+        }
+        FileAction::Copy {
+            paths,
+            folder: dest,
+        }
+        | FileAction::Move {
+            paths,
+            folder: dest,
+        } => {
+            let paths = roots(paths)?;
+            let dest = if dest.is_empty() {
+                PathBuf::new()
+            } else {
+                checked(dest)?
+            };
+            let dst = folder(root, &dest)?;
+            let mut taken = HashSet::new();
+            let (mut count, mut bytes) = (0, 0);
+            // Validate the whole selection before the first mutation.
+            for path in &paths {
+                let entry = name(path)?;
+                if dest.starts_with(path) {
+                    bail!("A folder cannot be placed inside itself");
+                }
+                if !taken.insert(entry.to_owned()) || dst.metadata(entry)?.is_some() {
+                    bail!(
+                        "{} already exists in the destination",
+                        entry.to_string_lossy()
+                    );
+                }
+                let src = parent(root, path)?;
+                src.metadata(entry)?.context("An item is no longer there")?;
+                if matches!(action, FileAction::Copy { .. }) {
+                    measure(&src, entry, &mut count, &mut bytes, 0)?;
+                }
+            }
+            let mut budget = CopyBudget::default();
+            for path in &paths {
+                let src = parent(root, path)?;
+                let entry = name(path)?;
+                let result = if matches!(action, FileAction::Copy { .. }) {
+                    copy_entry(&src, entry, &dst, entry, &mut budget, 0)
+                } else {
+                    let meta = src.metadata(entry)?.context("An item is no longer there")?;
+                    fsat::rename_new(&src, entry, &dst, entry, meta.is_dir()).map_err(Into::into)
+                };
+                result.with_context(|| format!("Could not transfer {}. Some items may be incomplete or already transferred; refresh before retrying", path.display()))?;
+            }
+        }
+        FileAction::Delete { paths } => {
+            let paths = roots(paths)?;
+            for path in &paths {
+                parent(root, path)?;
+            }
+            for path in &paths {
+                parent(root, path)?
+                    .remove_tree(name(path)?)
+                    .with_context(|| {
+                        format!(
+                            "Could not delete {}. Earlier items may have been deleted",
+                            path.display()
+                        )
+                    })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    fn root(temp: &tempfile::TempDir) -> WorkRoot {
+        WorkRoot::at(&fs::canonicalize(temp.path()).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn creates_renames_copies_moves_and_deletes_without_overwriting() {
+        let t = tempfile::tempdir().unwrap();
+        let r = root(&t);
+        edit(&r, &FileAction::CreateFolder { path: "src".into() }).unwrap();
+        edit(
+            &r,
+            &FileAction::CreateFile {
+                path: "src/a".into(),
+            },
+        )
+        .unwrap();
+        fs::write(t.path().join("src/a"), "hello").unwrap();
+        edit(
+            &r,
+            &FileAction::Rename {
+                path: "src/a".into(),
+                to: "src/b".into(),
+            },
+        )
+        .unwrap();
+        edit(
+            &r,
+            &FileAction::Copy {
+                paths: vec!["src/b".into()],
+                folder: "".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(fs::read(t.path().join("b")).unwrap(), b"hello");
+        assert!(
+            edit(
+                &r,
+                &FileAction::Move {
+                    paths: vec!["b".into()],
+                    folder: "src".into()
+                }
+            )
+            .is_err()
+        );
+        edit(
+            &r,
+            &FileAction::Rename {
+                path: "b".into(),
+                to: "c".into(),
+            },
+        )
+        .unwrap();
+        edit(
+            &r,
+            &FileAction::Move {
+                paths: vec!["c".into()],
+                folder: "src".into(),
+            },
+        )
+        .unwrap();
+        edit(
+            &r,
+            &FileAction::Delete {
+                paths: vec!["src".into(), "src/b".into()],
+            },
+        )
+        .unwrap();
+        assert!(!t.path().join("src").exists());
+    }
+
+    #[test]
+    fn recursive_copy_keeps_contents_and_does_not_repeat_selected_children() {
+        let t = tempfile::tempdir().unwrap();
+        let r = root(&t);
+        fs::create_dir_all(t.path().join("src/nested")).unwrap();
+        fs::create_dir(t.path().join("dest")).unwrap();
+        fs::write(t.path().join("src/nested/a"), b"contents").unwrap();
+        edit(
+            &r,
+            &FileAction::Copy {
+                paths: vec!["src/nested/a".into(), "src".into()],
+                folder: "dest".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(t.path().join("dest/src/nested/a")).unwrap(),
+            b"contents"
+        );
+        assert!(
+            edit(
+                &r,
+                &FileAction::Copy {
+                    paths: vec!["src".into()],
+                    folder: "dest".into()
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fs::read(t.path().join("dest/src/nested/a")).unwrap(),
+            b"contents"
+        );
+    }
+
+    #[test]
+    fn refuses_escape_metadata_self_copy_and_batch_collisions() {
+        let t = tempfile::tempdir().unwrap();
+        let r = root(&t);
+        for path in [
+            "",
+            "..",
+            "../a",
+            "/a",
+            ".git",
+            "a/.GIT/config",
+            "C:/a",
+            "a\\b",
+        ] {
+            assert!(
+                edit(&r, &FileAction::CreateFile { path: path.into() }).is_err(),
+                "{path}"
+            );
+        }
+        fs::create_dir(t.path().join("src")).unwrap();
+        fs::write(t.path().join("src/a"), "kept").unwrap();
+        assert!(
+            edit(
+                &r,
+                &FileAction::Copy {
+                    paths: vec!["src".into()],
+                    folder: "src".into()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            edit(
+                &r,
+                &FileAction::Copy {
+                    paths: vec!["src/a".into(), "src/missing".into()],
+                    folder: "".into()
+                }
+            )
+            .is_err()
+        );
+        assert!(!t.path().join("a").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_cannot_redirect_mutations_or_copy_reads() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let r = root(&t);
+        fs::write(outside.path().join("keep"), "kept").unwrap();
+        symlink(outside.path(), t.path().join("link")).unwrap();
+        assert!(
+            edit(
+                &r,
+                &FileAction::CreateFile {
+                    path: "link/new".into()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            edit(
+                &r,
+                &FileAction::Delete {
+                    paths: vec!["link/keep".into()]
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            edit(
+                &r,
+                &FileAction::Copy {
+                    paths: vec!["link".into()],
+                    folder: "".into()
+                }
+            )
+            .is_err()
+        );
+        edit(
+            &r,
+            &FileAction::Delete {
+                paths: vec!["link".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(fs::read(outside.path().join("keep")).unwrap(), b"kept");
+    }
+}

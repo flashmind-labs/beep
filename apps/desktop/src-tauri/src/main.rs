@@ -150,6 +150,8 @@ fn main() {
             agents::moving::session_move_progress,
             agents::moving::session_moves,
             agents::files::agent_tree,
+            agents::files::agent_tree_edit,
+            agents::files::agent_tree_save_many,
             agents::files::agent_tree_save,
             agents::files::agent_tree_text,
             agents::files::agent_tree_upload,

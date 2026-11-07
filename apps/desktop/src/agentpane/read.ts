@@ -80,8 +80,11 @@ export async function startTerminal(t: MediaTab) {
     // One that runs already is followed; a new one starts where the tab was opened.
     const term = await (t.existing ? followTerm(t.existing, hooks) : openTerm({ ...t.at!, name: t.name }, hooks));
     if (!P.tabs.includes(t)) {
-      // Its tab was closed while it started: it ends; one left with the session keeps running.
-      if (t.closed) return killTerm(term).catch(e => console.warn("stopping a terminal whose tab closed:", e));
+      // Its tab or session was closed while it started.
+      if (t.closed) {
+        dropTerm(term);
+        return killTerm(term).catch(e => console.warn("stopping a terminal whose tab closed:", e));
+      }
       return dropTerm(term);
     }
     t.term = term;

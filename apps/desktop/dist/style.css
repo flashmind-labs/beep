@@ -1330,3 +1330,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agkeys-list section { display: grid; align-content: start; gap: 6px }
 .agkeys-list section > b { color: var(--fg) }
 .agkeys-list section > span { display: flex; align-items: center; gap: 6px }
+
+.agfbar { flex-wrap: wrap }
+.agtree:focus-visible .agtr[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px }
+.agctx button.warn { color: var(--hot) }

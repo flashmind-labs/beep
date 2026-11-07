@@ -1,3 +1,4 @@
+import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
 import { markDelivered, stopPending } from "./agentqueue.ts";
@@ -54,6 +55,7 @@ function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
 /// the empty view that started it becomes the session in place: its pane, terminal
 /// tabs included, stays as it is.
 export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: string | BackTo; adopt?: boolean } = {}) {
+  conversationHistory.visit(s);
   traceSession("opening", { machine_id: s.machine_id, agent: s.agent, session: s.id }, { status: s.status, adopt });
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
@@ -295,6 +297,8 @@ export function agentHints() {
 
 /// Puts the session's key hints in place of those on screen.
 export function redrawAgentHints() {
+  const input = $<HTMLTextAreaElement>("#agmsg"), s = AG.page?.session;
+  if (input && s) input.placeholder = AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
   const hint = $("#agconv > .agkeys");
   if (hint) hint.replaceWith(h(agentHints()));
 }

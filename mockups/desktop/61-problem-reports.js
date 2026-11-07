@@ -113,7 +113,7 @@ sync: 1 project paused`],
 // (the assistant, live mode) are left out while those are off. The filter matches keys and words.
 (() => {
   const SECTIONS = [
-    ["Anywhere", [["⌥ ⌥", "Open or hide the quick bar"]]],
+    ["Anywhere", [["⌥ ⌥", "Open or hide the quick bar"], ["⌥Tab", "Switch active conversations; hold Option to choose"], ["⌥⇧Tab", "Previous active conversation"]]],
     ["Window", [["⌘K", "Search"], ["⌘,", "Settings"], ["⌘/", "Keyboard shortcuts"], ["⌘N", "New agent session"], ["⌘[  ⌘]", "Back, forward"], ["⌘W", "Close the tab, else hide the window"], ["esc", "Up one page"]]],
     ["Projects", [["⇧⌘N", "Open the project in its own window"], ["⌘N", "New session in this project"], ["⌘T", "New terminal in this project"]]],
     ["Agent session", [["↩", "Send; while it works, steer"], ["⌥↩", "Queue for after the turn"], ["⇧↩", "New line"], ["⇧tab", "Cycle the mode"], ["⌘↩", "Allow"], ["⌘D", "Deny"], ["⌘.", "Stop the turn"], ["⌘1  ⌘2  ⌘3  ⌘4", "Chat, Files, Changes, Artifacts"], ["⌘O", "Open the folder in the editor"], ["⌘U", "Open or fold every thought"], ["⌘Y", "Open or fold every command"], ["⌘↑  ⌘↓", "Start, end of the log"], ["⌃`", "New terminal in the session folder"]]],

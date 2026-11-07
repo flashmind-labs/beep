@@ -1530,6 +1530,51 @@ mod agent {
         }
 
         #[test]
+        fn file_edits_roundtrip_and_are_never_retried() {
+            use beep_proto::node::agent::FileAction;
+            for action in [
+                FileAction::CreateFile {
+                    path: "notes.txt".into(),
+                },
+                FileAction::CreateFolder {
+                    path: "drafts".into(),
+                },
+                FileAction::Rename {
+                    path: "notes.txt".into(),
+                    to: "draft.txt".into(),
+                },
+                FileAction::Copy {
+                    paths: vec!["notes.txt".into()],
+                    folder: "drafts".into(),
+                },
+                FileAction::Move {
+                    paths: vec!["notes.txt".into()],
+                    folder: "drafts".into(),
+                },
+                FileAction::Delete {
+                    paths: vec!["notes.txt".into()],
+                },
+            ] {
+                let request = SessionsRequest::EditFiles {
+                    root: "/srv/project".into(),
+                    action,
+                };
+                assert!(!request.is_read());
+                let bytes = rmp_serde::to_vec(&request).expect("encodes");
+                assert_eq!(
+                    beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).expect("decodes"),
+                    request
+                );
+            }
+            let reply = SessionsReply::FilesEdited {};
+            let bytes = rmp_serde::to_vec(&reply).expect("encodes");
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsReply>(&bytes).expect("decodes"),
+                reply
+            );
+        }
+
+        #[test]
         fn only_one_shot_reads_may_be_asked_again() {
             let folder = SessionsRequest::Folder {
                 root: "/srv/project".into(),

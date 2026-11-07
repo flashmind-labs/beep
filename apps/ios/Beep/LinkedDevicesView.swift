@@ -15,6 +15,15 @@ struct LinkedDevicesView: View {
     @State private var error = ""
 
     var body: some View {
+        if home && !serverEnabled() {
+            WorkspaceLinkView(firstRun: true)
+                .toolbar(.hidden, for: .navigationBar)
+        } else {
+            devicesPage
+        }
+    }
+
+    private var devicesPage: some View {
         VStack(spacing: 0) {
             BackBar(title: "Linked devices", back: back, showsBack: !home)
             ScrollView {
@@ -123,6 +132,8 @@ struct LinkedDevicesView: View {
 
 private struct WorkspaceLinkView: View {
     @Environment(AppModel.self) private var model
+    var firstRun = false
+    @State private var scanningFirstRun = false
     @State private var linked = false
     @State private var adding = false
     @State private var ticket = ""
@@ -131,6 +142,90 @@ private struct WorkspaceLinkView: View {
     @State private var error = ""
 
     var body: some View {
+        SwiftUI.Group {
+            if firstRun { welcome } else { workspaceSummary }
+        }
+        .background(Mint.page)
+        .qrScanner(isPresented: $scanningFirstRun) { code in join(code) }
+        .task {
+            if !serverEnabled() { model.connect() }
+            do { linked = try await model.workspace.client().workspaceLinked() } catch { self.error = describe(error) }
+        }
+        .sheet(isPresented: $adding) { pairingSheet }
+    }
+
+    private var welcome: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Image("flashmind_mark")
+                    .resizable().scaledToFit()
+                    .frame(width: 32, height: 32)
+                    .foregroundStyle(Mint.brand)
+                    .frame(width: 64, height: 64)
+                    .background(Mint.raised, in: RoundedRectangle(cornerRadius: 16))
+                    .accessibilityHidden(true)
+                Text("Connect your computer")
+                    .font(.system(.largeTitle, design: .default, weight: .semibold))
+                    .foregroundStyle(Mint.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Run coding agents, follow their progress and manage your projects from your phone.")
+                    .font(.system(.body)).foregroundStyle(Mint.muted)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("On your computer").font(.system(.subheadline, weight: .semibold))
+                        .accessibilityAddTraits(.isHeader)
+                    step(1, "Open Beep on your desktop.")
+                    step(2, "Open **Machines**, then **Add a machine**.")
+                    step(3, "Choose **Phone** to show a QR code.")
+                    Text("Pairing codes work once and expire after 5 minutes.")
+                        .font(.system(.footnote)).foregroundStyle(Mint.muted)
+                }
+                .foregroundStyle(Mint.ink)
+                if let download = URL(string: "https://releases.flashmind.com/beep/macos/Beep-latest.dmg") {
+                    ShareLink("Get Beep for Mac", item: download)
+                        .font(.system(.subheadline)).tint(Mint.brand)
+                        .frame(minHeight: 48)
+                        .accessibilityHint("Share the download link with your Mac")
+                }
+                if !QRScanner.supported {
+                    Text("Camera unavailable on this device. Paste a pairing code instead.")
+                        .font(.system(.footnote)).foregroundStyle(Mint.muted)
+                }
+                WorkspaceError(text: error)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 8) {
+                Button { startScanning() } label: {
+                    if busy { ProgressView("Connecting computer").tint(Mint.onAccent) }
+                    else { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
+                }
+                .buttonStyle(PrimaryButton())
+                .disabled(busy || !QRScanner.supported)
+                Button("Paste pairing code") { error = ""; adding = true }
+                    .buttonStyle(TextAction())
+                    .frame(minHeight: 48)
+                    .disabled(busy)
+                Text("Connect once. Then reach your nodes even when the desktop is offline.")
+                    .font(.system(.footnote)).foregroundStyle(Mint.muted)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 16)
+            .background(Mint.page)
+        }
+    }
+
+    private func step(_ number: Int, _ text: LocalizedStringKey) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number).").foregroundStyle(Mint.muted)
+            Text(text).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(.subheadline))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var workspaceSummary: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Workspace").font(.body(12, .semibold)).foregroundStyle(Mint.muted)
             Text(linked ? "Workspace linked. Projects and node sessions connect directly." :
@@ -140,41 +235,41 @@ private struct WorkspaceLinkView: View {
             if !linked { Button("Link workspace") { adding = true }.buttonStyle(TextAction()) }
             Divider().overlay(Mint.soft)
         }
-        .task {
-            if !serverEnabled() { model.connect() }
-            do { linked = try await model.workspace.client().workspaceLinked() } catch { self.error = describe(error) }
-        }
-        .sheet(isPresented: $adding) {
-            NavigationStack {
-                Form {
-                    Text("On desktop, open Machines, Add a machine, then choose Phone. Scan the QR code it shows.")
-                    if QRScanner.supported {
-                        Button("Scan QR code") { startScanning() }.disabled(busy)
-                    }
-                    TextField("Phone pairing ticket", text: $ticket, axis: .vertical)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(busy)
-                    Text("This phone gets project controls, node sessions and shared credentials.")
-                    WorkspaceError(text: error)
-                    Button(busy ? "Linking…" : "Link workspace") { join(ticket) }
-                        .disabled(busy || ticket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private var pairingSheet: some View {
+        NavigationStack {
+            Form {
+                Text(firstRun ? "Copy the phone pairing code shown in Beep on your desktop." :
+                    "On desktop, open Machines, Add a machine, then choose Phone. Scan the QR code it shows.")
+                if !firstRun && QRScanner.supported {
+                    Button("Scan QR code") { startScanning() }.disabled(busy)
                 }
-                .qrScanner(isPresented: $scanning) { code in
-                    ticket = code
-                    join(code)
-                }
-                .navigationTitle("Link workspace")
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { adding = false }.disabled(busy) } }
-            }.interactiveDismissDisabled(busy)
-        }
+                TextField(firstRun ? "Paste pairing code" : "Phone pairing ticket", text: $ticket, axis: .vertical)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(busy)
+                Text("This phone gets project controls, node sessions and shared credentials. Only pair with a computer you trust.")
+                WorkspaceError(text: error)
+                Button(busy ? "Connecting…" : firstRun ? "Connect computer" : "Link workspace") { join(ticket) }
+                    .disabled(busy || ticket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .qrScanner(isPresented: $scanning) { code in
+                ticket = code
+                join(code)
+            }
+            .navigationTitle(firstRun ? "Paste pairing code" : "Link workspace")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { adding = false }.disabled(busy) } }
+        }.interactiveDismissDisabled(busy)
     }
 
     private func startScanning() {
+        error = ""
         Task {
             let allowed = await AVCaptureDevice.requestAccess(for: .video)
             if allowed && QRScanner.available {
-                scanning = true
+                if firstRun { scanningFirstRun = true } else { scanning = true }
             } else {
-                error = "Camera unavailable. Allow camera access in Settings, or paste the ticket below."
+                error = "Camera unavailable. Allow camera access in Settings, or paste a pairing code."
             }
         }
     }

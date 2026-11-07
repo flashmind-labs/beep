@@ -41,6 +41,20 @@ impl Dir {
         })
     }
 
+    pub(crate) fn entries(&self) -> io::Result<Vec<std::ffi::OsString>> {
+        fs::read_dir(&self.path)?
+            .map(|e| e.map(|e| e.file_name()))
+            .collect()
+    }
+
+    pub(crate) fn read_file(&self, name: &OsStr) -> io::Result<File> {
+        let file = open_read(&self.path.join(name))?;
+        if !file.metadata()?.is_file() {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        Ok(file)
+    }
+
     /// There is no flush of a whole disk here: each file is flushed on its
     /// own instead.
     pub(crate) fn sync_disk(&self) -> io::Result<()> {

@@ -314,7 +314,7 @@ pub(crate) async fn start(
     images: Vec<Upload>,
 ) -> Result<StartedAgent> {
     let prompt = start.prompt.trim().to_owned();
-    if prompt.is_empty() {
+    if prompt.is_empty() && images.is_empty() {
         return Err(ApiError::bad_request("Say what the agent should do.").into());
     }
     let model = machine::picked_model(start.model.as_deref())?;
