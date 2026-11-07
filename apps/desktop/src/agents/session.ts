@@ -43,6 +43,7 @@ import { MV, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
 import { placeName, placeRepo } from "./place-state.ts";
 import { sameSession } from "./running-state.ts";
+import { imageLines } from "./agentlog.ts";
 
 let firstRead: { open: OpenAgent; at: number } | null = null;
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
@@ -680,15 +681,5 @@ function agentClick(e: MouseEvent) {
   if (target.closest("#agstop")) return void interruptAgent();
 }
 
-/// A user entry's text and the images it carried: the node writes each
-/// as a line `[image: name]` after the text.
-export function userImages(text: string) {
-  const lines = String(text).split("\n"), names: string[] = [];
-  while (lines.length) {
-    const m = /^\[image: (.+)\]$/.exec(lines[lines.length - 1]);
-    if (!m) break;
-    names.unshift(m[1]);
-    lines.pop();
-  }
-  return { text: lines.join("\n"), names };
-}
+/// Replayed prompts can have more text after their image lines.
+export const userImages = imageLines;
