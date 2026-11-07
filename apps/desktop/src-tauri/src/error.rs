@@ -67,6 +67,7 @@ impl From<beep_fleet::FleetError> for DesktopError {
             FleetError::Mesh(e) => Self::Mesh(e),
             FleetError::NeedsServer => Self::NoServer,
             FleetError::NotFound => Self::Api(ApiError::NotFound {}),
+            FleetError::Conflict(message) => Self::Api(ApiError::Conflict { message }),
             FleetError::Refused(text) => Self::BadRequest(text),
             FleetError::Import(e) => Self::BadRequest(e.to_string()),
             FleetError::Other(e) => Self::Other(e),

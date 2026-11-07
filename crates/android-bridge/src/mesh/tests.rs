@@ -1,4 +1,5 @@
 use super::*;
+use crate::mesh::alerts::NoticeKind;
 use beep_mesh::{Key, PeerStream};
 use beep_proto::{
     AgentSteer,
@@ -141,7 +142,19 @@ async fn serve(
             _ => anyhow::bail!("Unsupported test terminal request"),
         }
     } else if open.protocol == agent::SESSIONS_PROTOCOL {
-        let reply = match rx.recv::<SessionsRequest>().await?.unwrap() {
+        let request = rx.recv::<SessionsRequest>().await?.unwrap();
+        if matches!(
+            request,
+            SessionsRequest::FollowAlerts {} | SessionsRequest::FollowRuns {}
+        ) {
+            if matches!(request, SessionsRequest::FollowAlerts {}) {
+                tx.send(&SessionsReply::Alert { alert: asking() }).await?;
+            }
+            // Held open until the follower goes.
+            while rx.recv::<Open>().await.is_ok_and(|open| open.is_some()) {}
+            return Ok(());
+        }
+        let reply = match request {
             SessionsRequest::List {} => SessionsReply::Sessions {
                 sessions: vec![session.lock().unwrap().clone()],
             },
@@ -181,6 +194,35 @@ async fn serve(
     }
     tx.finish().await?;
     Ok(())
+}
+
+fn asking() -> beep_proto::node::agent::Alert {
+    use beep_proto::node::agent::{Alert, AlertKind, AnswerOption, OptionKind, Question};
+    Alert {
+        session: "session-one".into(),
+        agent: "codex".into(),
+        title: None,
+        cwd: "/srv/project".into(),
+        kind: AlertKind::Asks {
+            question: Question {
+                id: 3,
+                text: "Run cargo test".into(),
+                detail: None,
+                options: vec![
+                    AnswerOption {
+                        id: "allow".into(),
+                        name: "Allow".into(),
+                        kind: OptionKind::AllowOnce,
+                    },
+                    AnswerOption {
+                        id: "deny".into(),
+                        name: "Deny".into(),
+                        kind: OptionKind::RejectOnce,
+                    },
+                ],
+            },
+        },
+    }
 }
 
 async fn phone(directory: &TempDir, key: &SecretKey) -> Arc<BeepClient> {
@@ -756,4 +798,61 @@ async fn resize_on_view_only_is_ok() {
         .await
         .unwrap();
     terminal.resize(100, 40).await.unwrap();
+}
+
+#[tokio::test]
+async fn ask_feed_delivers_question() {
+    let desktop_dir = TempDir::new().unwrap();
+    let desktop_endpoint = endpoint(&SecretKey::generate()).await;
+    let desktop = Mesh::create(desktop_dir.path(), desktop_endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let _desktop_router = router(&desktop_endpoint, &desktop);
+    let node_dir = TempDir::new().unwrap();
+    let node_endpoint = endpoint(&SecretKey::generate()).await;
+    let ticket = desktop
+        .invite(DeviceKind::Node, Duration::from_secs(60))
+        .await
+        .unwrap();
+    let node = Mesh::join(node_dir.path(), node_endpoint.clone(), &ticket, "build-box")
+        .await
+        .unwrap();
+    let session = Arc::new(Mutex::new(info()));
+    let sizes = Arc::new(Mutex::new(Vec::new()));
+    let (peer, _) = node.protocols();
+    peer.on_stream(Arc::new(move |stream| {
+        let session = session.clone();
+        let sizes = sizes.clone();
+        Box::pin(async move {
+            serve(stream, session, sizes).await.unwrap();
+        })
+    }));
+    let _node_router = router(&node_endpoint, &node);
+    let phone_dir = TempDir::new().unwrap();
+    let client = phone(&phone_dir, &SecretKey::generate()).await;
+    let ticket = desktop
+        .invite(DeviceKind::Desktop, Duration::from_secs(60))
+        .await
+        .unwrap();
+    client
+        .join_workspace(ticket.encode_string(), "phone".into())
+        .await
+        .unwrap();
+    let connected = client.mesh().await.unwrap().unwrap();
+    until(&connected.mesh, || connected.mesh.peer(node.me()).is_some()).await;
+
+    let feed = client.follow_asks().await.unwrap();
+    let notice = timeout(Duration::from_secs(30), feed.next())
+        .await
+        .expect("a notice came in time")
+        .unwrap()
+        .unwrap();
+    assert_eq!(notice.kind, NoticeKind::Ask);
+    assert_eq!(notice.question, Some(3));
+    assert_eq!(notice.machine_id, node.me().to_string());
+    assert_eq!(notice.agent, "codex");
+    assert_eq!(notice.session, "session-one");
+    assert_eq!(notice.title, "Codex on build-box asks");
+    assert_eq!(notice.options.len(), 2);
+    assert!(notice.options[0].allow && !notice.options[1].allow);
 }

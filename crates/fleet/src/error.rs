@@ -19,6 +19,9 @@ pub enum FleetError {
     /// A request that cannot be done, in words for the user.
     #[error("{0}")]
     Refused(String),
+    /// A request that no longer fits what the machine holds, in words for the user.
+    #[error("{0}")]
+    Conflict(String),
     #[error("not found")]
     NotFound,
     /// A call only a server answers, made with none.
