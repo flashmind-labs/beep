@@ -270,11 +270,11 @@ const SETV = (() => {
   };
 
   // Appearance
-  const SK = [["linear", "Linear", "#151617"], ["classic", "Classic", "#1a2a23"], ["quiet", "Quiet", "#161b18"], ["github", "GitHub dark", "#161b22"], ["zed", "Zed", "#2f343e"], ["tokyo", "Tokyo Night", "#1f2335"], ["mocha", "Catppuccin Mocha", "#313244"], ["nord", "Nord", "#3b4252"], ["gruvbox", "Gruvbox", "#3c3836"], ["rosepine", "Rose Pine", "#26233a"], ["geist", "Geist", "#000"], ["mono", "High contrast", "#000"]];
+  const SK = [["flashmind", "Flashmind", "#0d161e"], ["linear", "Linear", "#151617"], ["classic", "Classic", "#1a2a23"], ["quiet", "Quiet", "#161b18"], ["github", "GitHub dark", "#161b22"], ["zed", "Zed", "#2f343e"], ["tokyo", "Tokyo Night", "#1f2335"], ["mocha", "Catppuccin Mocha", "#313244"], ["nord", "Nord", "#3b4252"], ["gruvbox", "Gruvbox", "#3c3836"], ["rosepine", "Rose Pine", "#26233a"], ["geist", "Geist", "#000"], ["mono", "High contrast", "#000"]];
   const SKL = [["paper", "Light", "#f3f3f1"], ["solarized", "Solarized", "#eee8d5"], ["macos", "macOS", "#e9e7ea"], ["warm", "Warm", "#f3efe8"]];
   const skinsHtml = () => {
     const on = S.d.skin || "linear";
-    const group = (title, list) => `<div class="dskins"><small>${title}</small><div>${list.map(([id, n, c]) => `<button class="dskin" aria-pressed="${id === on}" ${id === "linear" || id === "paper" ? `data-dact="dset:skin:${id === "paper" ? "paper" : ""}" data-dgo="dAppearance"` : `data-toast="Skin: ${n}"`}><i style="background:${c}"></i>${n}</button>`).join("")}</div></div>`;
+    const group = (title, list) => `<div class="dskins"><small>${title}</small><div>${list.map(([id, n, c]) => `<button class="dskin" aria-pressed="${id === on}" ${id === "linear" || id === "paper" || id === "flashmind" ? `data-dact="dset:skin:${id === "linear" ? "" : id}" data-dgo="dAppearance"` : `data-toast="Skin: ${n}"`}><i style="background:${c}"></i>${n}</button>`).join("")}</div></div>`;
     return group("Dark", SK) + group("Light", SKL);
   };
 
