@@ -1,8 +1,9 @@
+import { nextSessionIntro } from "./session-intro.ts";
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutLabel, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, formTitle, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, checkoutLabel, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type BackTo, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../project/projects-state.ts";
@@ -63,6 +64,7 @@ export function keepMachine(project: string | null | undefined, machine: string)
 /// Every machine of the user's, online or not, for the Machine menu; null
 /// until read.
 let KNOWN: Machine[] | null = null;
+let welcome = "";
 
 /// Each project's branches for the Base menu, by project: `undefined`
 /// while asked, `null` when the server cannot list them.
@@ -106,6 +108,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   AG.error = "";
   AG.busy = false;
+  welcome = nextSessionIntro();
   drawFrame();
   $("#agprompt")?.focus();
   loadAgentHosts();
@@ -149,7 +152,8 @@ function drawFrame() {
   const head = PANE ? "" : `<div class="dhead"><span class="tt"><b>Start a coding agent</b><small>It runs on your machine; follow it and answer it here</small></span>
       <button class="dbtn quiet" id="agList">All sessions</button></div>`;
   bar.innerHTML = `${head}<div class="agc-wrap" id="agwrap"><div class="agc">
-      <h3 id="agtitle"></h3>
+      <div class="agc-intro"><h3 id="agtitle" aria-label="${esc(welcome)}"><span aria-hidden="true">${welcome.split(" ").map((word, i) => `<span class="agc-word" style="--word:${i}">${esc(word)}</span>`).join(" ")}</span></h3>
+        <p>A fresh idea. A tricky bug. A place to start.</p></div>
       <div class="agc-box" id="agbox">
         <textarea id="agprompt" rows="3" placeholder="${esc(taskHint(false))}" aria-label="What should the agent do?">${esc(f.prompt)}</textarea>
         <div class="agc-row"><span class="sp"></span><span id="agpill"></span>
@@ -191,8 +195,6 @@ function drawParts() {
   // The search and the folder field are drawn again; they keep the keys.
   const active = document.activeElement;
   const focused = active?.closest("#agpick") ? "#agpick .agc-search" : active?.id ? `#${active.id}` : "";
-  const title = formTitle(f.project);
-  $$("#agtitle").innerHTML = title.name ? `${esc(title.lead)} <b>${esc(title.name)}</b>?` : esc(title.lead);
   const go = $$<HTMLButtonElement>("#aggo");
   go.disabled = AG.busy || !hosts.length || !f.machine || !f.project;
   go.title = !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (⌘↩)";
