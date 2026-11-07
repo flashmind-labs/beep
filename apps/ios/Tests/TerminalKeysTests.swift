@@ -33,3 +33,21 @@ final class TerminalKeysTests: XCTestCase {
         XCTAssertEqual(bytes(for: .tab, mods: []), [0x09])
     }
 }
+
+final class TerminalTypedInputTests: XCTestCase {
+    func test_armed_ctrl_applies_to_one_typed_byte() {
+        var keys = TermKeyState()
+        keys.toggle(.ctrl)
+        XCTAssertEqual(keys.applyTyped([0x63]), [0x03])
+        XCTAssertTrue(keys.mods.isEmpty)
+    }
+
+    func test_emulator_replies_and_pastes_pass_unchanged() {
+        var keys = TermKeyState()
+        keys.toggle(.ctrl)
+        let reply = Array("\u{1b}[?62;c".utf8)
+        XCTAssertEqual(keys.applyTyped(reply), reply)
+        XCTAssertEqual(keys.applyTyped(Array("ls".utf8)), Array("ls".utf8))
+        XCTAssertTrue(keys.mods.contains(.ctrl))
+    }
+}

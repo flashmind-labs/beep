@@ -42,6 +42,14 @@ struct TermKeyState {
         if mods.contains(mod) { mods.remove(mod) } else { mods.insert(mod) }
     }
 
+    /// Bytes from the soft keyboard. Only a lone printable ASCII byte takes the armed modifiers;
+    /// anything longer (pastes, mouse and device replies from the emulator) passes unchanged and
+    /// leaves them armed.
+    mutating func applyTyped(_ typed: [UInt8]) -> [UInt8] {
+        guard !mods.isEmpty, typed.count == 1, typed[0] >= 0x20, typed[0] < 0x7f else { return typed }
+        return press(.char(Character(UnicodeScalar(typed[0]))))
+    }
+
     mutating func press(_ key: TermKey) -> [UInt8] {
         defer { mods = [] }
         return bytes(for: key, mods: mods)
@@ -125,10 +133,8 @@ final class TerminalKeyBar: UIView {
         for (mod, item) in modButtons { paint(item, on: state.mods.contains(mod)) }
     }
 
-    /// Soft-keyboard text goes through the armed modifiers too.
     func apply(_ typed: [UInt8]) -> [UInt8] {
-        guard !state.mods.isEmpty, typed.count == 1, typed[0] >= 0x20, typed[0] < 0x7f else { return typed }
         defer { refresh() }
-        return state.press(.char(Character(UnicodeScalar(typed[0]))))
+        return state.applyTyped(typed)
     }
 }

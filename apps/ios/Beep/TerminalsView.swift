@@ -163,7 +163,7 @@ private struct NewTerminalView: View {
 
 /// How the attached screen stands: the header bar and the key bar follow it.
 private enum TerminalPhase: Equatable {
-    case connecting, attached, viewOnly, ended(String)
+    case connecting, attached, viewOnly, ended(String), disconnected
 }
 
 struct TerminalView: View {
@@ -189,8 +189,10 @@ struct TerminalView: View {
                 Spacer()
                 switch phase {
                 case .ended: CCButton(title: "Close", action: back)
-                case .viewOnly: CCButton(title: "Take control") { attempt += 1 }
-                case .attached, .connecting: CCButton(title: "View only") { setViewOnly() }
+                case .disconnected: CCButton(title: "Retry") { attempt += 1 }
+                case .viewOnly: CCButton(title: "Take control", action: takeControl)
+                case .attached: CCButton(title: "View only") { phase = .viewOnly; emulator.setReadOnly(true) }
+                case .connecting: EmptyView()
                 }
                 if !isEnded { CCButton(title: "Close…", style: .danger) { confirmingClose = true }.disabled(closing) }
             }
@@ -203,7 +205,7 @@ struct TerminalView: View {
         .background(Mint.page)
         .toolbar(.hidden, for: .navigationBar)
         .task(id: attempt) { await attach() }
-        .onDisappear { connection = nil; writer.stop() }
+        .onDisappear { drop(); writer.stop() }
         .alert("Close terminal?", isPresented: $confirmingClose) {
             Button("Cancel", role: .cancel) {}
             Button("Close terminal", role: .destructive) {
@@ -224,12 +226,21 @@ struct TerminalView: View {
         case .connecting: "Connecting"
         case .attached: "Attached · \(emulator.cols)×\(emulator.rows)"
         case .viewOnly: "View only"
+        case .disconnected: "Disconnected"
         case .ended(let text): text
         }
     }
 
-    private func setViewOnly() {
-        connection = nil; phase = .viewOnly; emulator.setReadOnly(true)
+    /// Drops the stream and everything that could still write to it.
+    private func drop() {
+        connection = nil
+        emulator.disconnect()
+        emulator.setReadOnly(true)
+    }
+
+    private func takeControl() {
+        if connection != nil { phase = .attached; emulator.setReadOnly(false) }
+        else { attempt += 1 }
     }
 
     private func endedText(_ terminal: Terminal?) -> String {
@@ -238,7 +249,8 @@ struct TerminalView: View {
     }
 
     private func attach() async {
-        connection = nil; error = ""
+        drop(); writer.stop(); error = ""
+        phase = .connecting
         emulator.reset()
         do {
             let client = try model.workspace.client()
@@ -246,33 +258,31 @@ struct TerminalView: View {
             terminal = snapshot.terminal
             guard snapshot.terminal.state == .running else {
                 emulator.feed(Array(snapshot.lines.joined(separator: "\r\n").utf8))
-                emulator.setReadOnly(true)
                 phase = .ended(endedText(snapshot.terminal)); return
             }
-            emulator.setReadOnly(false)
-            let (cols, rows) = await emulator.size()
+            guard let (cols, rows) = await emulator.size() else { return }
             let stream = try await client.attachTerminal(id: id, cols: UInt16(clamping: cols), rows: UInt16(clamping: rows))
             connection = stream; phase = .attached
             writer.start(send: { try await stream.keys(text: $0) }, failed: { error = describe($0) })
-            emulator.onInput = { writer.send($0) }
-            emulator.onResize = { cols, rows in
+            emulator.connect(attachedAt: (cols, rows), input: { writer.send($0) }, resize: { cols, rows in
                 Task { try? await stream.resize(cols: UInt16(clamping: cols), rows: UInt16(clamping: rows)) }
-            }
+            })
+            emulator.setReadOnly(false)
             while !Task.isCancelled, let frame = try await stream.next() {
                 if frame.ended {
-                    connection = nil
-                    emulator.setReadOnly(true)
-                    phase = .ended(endedText(try await client.terminalOutput(id: id).terminal)); return
+                    drop(); writer.stop()
+                    phase = .ended("Ended")
+                    if let latest = try? await client.terminalOutput(id: id).terminal { terminal = latest; phase = .ended(endedText(latest)) }
+                    return
                 }
                 if frame.viewOnly {
-                    connection = nil
-                    emulator.reset()
-                    emulator.feed(Array(snapshot.lines.joined(separator: "\r\n").utf8))
-                    emulator.setReadOnly(true); phase = .viewOnly; return
+                    drop(); writer.stop(); phase = .viewOnly; return
                 }
                 emulator.feed(Array(frame.data))
             }
-            if !Task.isCancelled { connection = nil; emulator.setReadOnly(true); phase = .ended("Disconnected") }
-        } catch { if !Task.isCancelled { self.error = describe(error) } }
+            if !Task.isCancelled { drop(); writer.stop(); phase = .disconnected }
+        } catch {
+            if !Task.isCancelled { drop(); writer.stop(); phase = .disconnected; self.error = describe(error) }
+        }
     }
 }
