@@ -6,7 +6,7 @@
   const ios = true, views = ios ? P : R, catalog = ios ? IOS_SCREENS : SCREENS;
   const C = {
     homeTab: "overview", needs: "some", prTab: "prs", prFilter: "All", agentsTab: "running",
-    session: "ask", pane: "log", term: "shell", ctrl: false, termMode: "control",
+    session: "ask", pane: "log", term: "shell", mods: [], termMode: "control",
     addKind: "node", skin: "system", sheet: null, stay: false, machine: "build-box", answered: "",
   };
   const P_ = {
@@ -290,12 +290,14 @@ $ <span class="cur"> </span>`,
 
 <span class="inv">F1</span>Help <span class="inv">F2</span>Setup <span class="inv">F3</span>Search <span class="inv">F9</span>Kill <span class="inv">F10</span>Quit`,
   };
+  // Sticky modifiers: a tap holds one for the next key, as on the desktop keyboard.
+  const MODS = ["Ctrl", "Alt", "Shift"];
   views.ccTerminal = () => {
     const view = C.termMode === "view", ended = C.termMode === "ended";
     return screen("", top(C.term === "htop" ? "htop" : "shell", `<button class="cc-ib" ${toast("Detached; it keeps running")} aria-label="More">${ic("dots", 20)}</button>`, "ccTerminals", `${C.term === "htop" ? "gpu-box · ~" : "build-box · ~/src/sample-project"}`) +
       `<div class="cc-termbar"><span class="cc-dot${ended ? " off" : ""}"></span><span>${ended ? "Ended · exit 0" : view ? "View only" : "Attached · 54×31"}</span><span class="sp"></span>${ended ? btn("Close") : btn(view ? "Take control" : "View only", "", act("seg", "termMode:" + (view ? "control" : "view")))}${ended ? "" : btn("Close…", "danger")}</div>` +
       `<div class="cc-term">${TERM[C.term]}</div>` +
-      (view || ended ? "" : `<div class="cc-keys">${["Esc", "Tab", "Ctrl", "Alt", "←", "↑", "↓", "→", "|", "/", "~", "-"].map(k => `<button ${k === "Ctrl" ? act("ctrl") + ` aria-pressed="${C.ctrl}"` : ""}>${k}</button>`).join("")}<button aria-label="Hide keyboard">${ic("kbd", 16)}</button></div><div class="cc-kbd">Keyboard</div>`));
+      (view || ended ? "" : `<div class="cc-keys">${["Esc", "Tab", "Ctrl", "Alt", "Shift", "←", "↑", "↓", "→", "|", "/", "~", "-"].map(k => `<button ${MODS.includes(k) ? act("mod", k) + ` aria-pressed="${C.mods.includes(k)}"` : ""}>${k}</button>`).join("")}<button aria-label="Hide keyboard">${ic("kbd", 16)}</button></div><div class="cc-kbd">Keyboard</div>`));
   };
   VAR("ccTerminal", [["Shell", () => { C.term = "shell"; C.termMode = "control"; }, () => C.term === "shell" && C.termMode === "control"], ["htop", () => { C.term = "htop"; C.termMode = "control"; }, () => C.term === "htop" && C.termMode === "control"], ["View only", () => C.termMode = "view", () => C.termMode === "view"], ["Ended", () => C.termMode = "ended", () => C.termMode === "ended"]]);
 
@@ -389,7 +391,7 @@ $ <span class="cur"> </span>`,
     if (a === "machine") { C.machine = v; C.sheet = null; window.go("ccMachine"); return; }
     if (a === "answer") { C.answered = v; C.sheet = null; if (S.screen === "ccSession") C.session = "working"; window.toast(v); }
     if (a === "skin") C.skin = v;
-    if (a === "ctrl") C.ctrl = !C.ctrl;
+    if (a === "mod") C.mods = C.mods.includes(v) ? C.mods.filter(m => m !== v) : [...C.mods, v];
     if (a === "stay") C.stay = !C.stay;
     render();
   }, true);
