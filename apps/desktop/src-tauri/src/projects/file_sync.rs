@@ -21,6 +21,31 @@ use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
+pub async fn project_syncthing_mode(
+    fleet: FleetState<'_>,
+    project: String,
+    enabled: Option<bool>,
+) -> Result<Option<bool>> {
+    Ok(desk(&fleet)
+        .await?
+        .project_syncthing_mode(&project, enabled)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn project_handoff_work(
+    fleet: FleetState<'_>,
+    project: String,
+    from: String,
+    to: String,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .handoff_work(&project, &from, &to)
+        .await?)
+}
+
+#[tauri::command]
 pub async fn project_syncthing_files(
     fleet: FleetState<'_>,
     machine_id: String,
@@ -141,6 +166,7 @@ pub struct MachineDetailRow {
     paused: bool,
     progress: Option<ProgressRow>,
     waiting: Vec<String>,
+    git_only: bool,
     can_resolve: bool,
 }
 
@@ -177,6 +203,7 @@ impl From<MachineSyncDetail> for MachineDetailRow {
             machine_name: m.machine_name,
             folder: plain_path(&m.folder).into_owned(),
             status: shown(m.status, m.error.as_deref()),
+            git_only: m.git_only,
             files: m.files,
             bytes: m.bytes,
             pending: m.pending,
@@ -290,6 +317,7 @@ mod tests {
 
     fn machine(id: &str, status: SyncStatus) -> MachineSync {
         MachineSync {
+            git_only: false,
             machine_id: id.into(),
             machine_name: id.into(),
             folder: "/srv/project".into(),

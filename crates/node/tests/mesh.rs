@@ -1321,7 +1321,7 @@ async fn checkouts_at_other_commits_wait_for_git_when_the_mesh_names_them() {
 }
 
 #[tokio::test]
-async fn a_new_empty_folder_takes_the_whole_checkout_with_its_git() {
+async fn a_new_empty_folder_takes_only_the_committed_checkout_with_its_git() {
     let (a, root, folder) = bare_node().await;
     let mut pair = bare_nodes(a, root, folder).await;
     let (from, to) = (pair.a_folder.clone(), pair.b_folder.clone());
@@ -1353,7 +1353,7 @@ async fn a_new_empty_folder_takes_the_whole_checkout_with_its_git() {
 
     let conn_b = pair.desktop.reach(pair.b.id).await;
     timeout(LIMIT, async {
-        while !git_is_at(&to, &head) || git_in(&to, &["status", "--porcelain"]) != "M src/main.rs" {
+        while !git_is_at(&to, &head) || !git_in(&to, &["status", "--porcelain"]).is_empty() {
             tokio::task::yield_now().await;
         }
     })
@@ -1370,8 +1370,8 @@ async fn a_new_empty_folder_takes_the_whole_checkout_with_its_git() {
         "https://example.com/acme/widget.git"
     );
     assert!(git_in(&to, &["for-each-ref", "refs/beep-conflicts"]).is_empty());
-    has_text(&to.join("src/main.rs"), "fn main() { todo!() }\n").await;
-    has_text(&to.join("local.env"), "ignored").await;
+    has_text(&to.join("src/main.rs"), "fn main() {}\n").await;
+    assert!(!to.join("local.env").exists());
     assert_eq!(
         fs::read_to_string(from.join("src/main.rs")).expect("the edit stays"),
         "fn main() { todo!() }\n"
@@ -1383,7 +1383,7 @@ async fn a_new_empty_folder_takes_the_whole_checkout_with_its_git() {
     .await;
     let source = proj_status(&conn_a).await.expect("a status");
     let target = proj_status(&conn_b).await.expect("a status");
-    assert_eq!(target.files, source.files);
+    assert!(target.git_only && source.git_only);
 }
 
 /// What a fake Syncthing says of its one folder: paused or not, and the
@@ -3149,7 +3149,7 @@ async fn run_session_in(conn: &Link, cwd: &Path) {
 fn repo_with_dirty_worktree(folder: &Path) -> PathBuf {
     git_in(folder, &["init", "-q", "--initial-branch=main"]);
     fs::write(folder.join("main.rs"), "fn main() {}\n").expect("a file");
-    git_in(folder, &["add", "."]);
+    git_in(folder, &["add", "main.rs"]);
     git_in(folder, &["commit", "-q", "-m", "first"]);
     git_in(folder, &["branch", "feat"]);
     let worktree = folder.join(".worktrees/feat");
@@ -3173,16 +3173,16 @@ fn repo_with_dirty_worktree(folder: &Path) -> PathBuf {
 async fn a_session_in_a_worktree_moves_with_its_branch_and_uncommitted_work() {
     let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
     let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
-    // The checkout and its branches reach `b`; the worktree folder does not.
-    timeout(LIMIT, async {
-        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .expect("the branch reached the other machine");
     let conn_a = pair.desktop.reach(pair.a.id).await;
     let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The initial checkout must finish; a worktree move fetches its own branch through Git.
+    until_status(&conn_b, |s| {
+        s.git_only
+            && s.pending == 0
+            && s.error.is_none()
+            && s.state == beep_proto::node::sync::State::Idle
+    })
+    .await;
     run_session_in(&conn_a, &a_worktree).await;
     rollout_on(&pair.a, &a_worktree);
 
@@ -4015,15 +4015,15 @@ async fn a_session_a_move_names_is_not_filed_as_lost_by_the_note_of_an_earlier_c
 async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
     let pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
     let a_worktree = repo_with_dirty_worktree(&pair.a_folder);
-    timeout(LIMIT, async {
-        while !pair.b_folder.join(".git/refs/heads/feat").exists() {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .expect("the branch reached the other machine");
     let conn_a = pair.desktop.reach(pair.a.id).await;
     let conn_b = pair.desktop.reach(pair.b.id).await;
+    until_status(&conn_b, |s| {
+        s.git_only
+            && s.pending == 0
+            && s.error.is_none()
+            && s.state == beep_proto::node::sync::State::Idle
+    })
+    .await;
     run_session_in(&conn_a, &a_worktree).await;
     rollout_on(&pair.a, &a_worktree);
     ask_to_move_worktree(&pair.desktop, pair.a.id, pair.b.id, "feat", &a_worktree, 1).await;

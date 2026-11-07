@@ -1,7 +1,7 @@
-// Syncthing's per-checkout switch, shared by project import and settings.
+// A project-wide Syncthing preference, applied by each machine.
 import { invoke } from "../ui/tauri.ts";
-import { button, el } from "../ui/dom.ts";
-import { openSheet } from "../ui/parts.ts";
+import { el } from "../ui/dom.ts";
+import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { reason } from "../ui/format.ts";
 import type { Project } from "./projects-state.ts";
 
@@ -20,8 +20,8 @@ export function syncthingImportChoice() {
   checkbox.indeterminate = true;
   checkbox.addEventListener("change", () => { value = checkbox.checked; });
   const node = el("div", "",
-    el("label", "am-line", checkbox, "Use Syncthing file sync"),
-    el("div", "am-sub", "Keep the current setting, or turn off to let Beep sync this project. Other projects in the shared folder keep syncing."));
+    el("label", "am-line", checkbox, "Keep Syncthing file sync"),
+    el("div", "am-sub", "If Syncthing manages this folder, turn this off to use Beep on all machines. Git projects sync commits; uncommitted edits need a handoff. Other projects keep syncing."));
   let lookup = 0, lastTarget = "";
   async function follow(machine: string | null, folder: string | null) {
     const target = `${machine ?? ""}\0${folder ?? ""}`;
@@ -44,55 +44,21 @@ export function syncthingImportChoice() {
   return { node, value: () => value, follow };
 }
 
-export function openProjectSettings(project: Project, onChanged: () => void = () => {}) {
-  let closed = false;
-  const { sheet } = openSheet("Project settings", "am-sheet ip-sheet", { onClose: () => { closed = true; } });
-  sheet.append(el("div", "am-head", el("b", "", "Project settings"), el("kbd", "", "esc")),
-    el("div", "am-sub", "Syncthing file sync is set separately on each machine."));
-  for (const place of project.machines) {
-    const row = el("div", "", el("div", "am-label", place.name));
-    const info = el("div", "am-sub", "Reading Syncthing settings...");
-    const toggle = button("Syncthing file sync", "dbtn", () => save());
-    toggle.setAttribute("role", "switch");
-    toggle.disabled = true;
-    row.append(toggle, info);
-    sheet.append(row);
-    let current: SyncthingFiles | null = null;
-    const args = { machineId: place.id, folder: place.folder };
-    function show(files: SyncthingFiles) {
-      current = files;
-      toggle.disabled = !files.available;
-      toggle.setAttribute("aria-checked", String(files.enabled));
-      toggle.textContent = `Syncthing file sync: ${files.enabled ? "On" : "Off"}`;
-      info.textContent = !files.available ? "This folder is outside Syncthing's shared folders."
-        : files.enabled ? "Syncthing syncs this project. Beep leaves it alone."
-        : "Syncthing excludes this project. Beep can sync it; other projects keep syncing.";
-    }
-    async function save() {
-      if (!current) return;
-      toggle.disabled = true;
-      info.textContent = "Saving...";
+/// The existing project menu holds the project-wide Syncthing toggle.
+export function openProjectMenu(event: MouseEvent, project: Project, items: MenuItem[], onChanged: () => void) {
+  const replace = openMenu(event, project.name, items);
+  const insert = (item: MenuItem) => replace([...items.slice(0, -1), item, ...items.slice(-1)]);
+  invoke<boolean | null>("project_syncthing_mode", { project: project.name }).then(enabled => {
+    const next = enabled !== false ? false : true;
+    const change = async () => {
       try {
-        const files = await invoke<SyncthingFiles>("project_syncthing_files", { ...args, enabled: !current.enabled });
-        if (closed) return;
-        const changed = files.enabled !== current.enabled;
-        show(files);
+        await invoke("project_syncthing_mode", { project: project.name, enabled: next });
         onChanged();
-        if (!changed) info.textContent = "Another Syncthing ignore rule still excludes this project. Edit that rule in Syncthing to enable file sync.";
       } catch (e) {
-        if (closed) return;
-        info.textContent = reason(e);
-        toggle.disabled = false;
+        openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]);
       }
-    }
-    invoke<SyncthingFiles>("project_syncthing_files", args).then(files => {
-      if (!closed) show(files);
-    }, e => {
-      if (!closed) {
-        info.replaceChildren(el("span", "", reason(e)), button("Retry", "dbtn quiet", () => {
-          invoke<SyncthingFiles>("project_syncthing_files", args).then(show, e => { info.textContent = reason(e); });
-        }));
-      }
-    });
-  }
+    };
+    insert({ label: enabled === null ? "Use Beep sync (exclude from Syncthing)"
+      : `Syncthing file sync: ${enabled ? "On" : "Off"} (all machines)`, on: change });
+  }, e => insert({ label: `Syncthing: ${reason(e)} (retry)`, on: () => openProjectMenu(event, project, items, onChanged) }));
 }

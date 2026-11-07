@@ -417,7 +417,7 @@ impl Repo {
         Ok((command, branch))
     }
 
-    fn require_clean(&self) -> Result<()> {
+    pub(super) fn require_clean(&self) -> Result<()> {
         if is_busy(&self.root) {
             bail!("waiting for the Git operation running on this machine");
         }
@@ -478,7 +478,7 @@ impl Repo {
     /// `git` on exactly this repository, however the node was started: never
     /// one found above a `.git` that is not complete yet. Hooks stay off, as
     /// this is sync moving what the user's git already did elsewhere.
-    fn git(&self) -> Command {
+    pub(super) fn git(&self) -> Command {
         let mut command = Command::new("git");
         for name in [
             "GIT_DIR",
@@ -491,6 +491,7 @@ impl Repo {
             command.env_remove(name);
         }
         command
+            .env("GIT_OPTIONAL_LOCKS", "0")
             .current_dir(&self.root)
             .arg("--git-dir")
             .arg(self.root.join(GIT))
@@ -506,7 +507,7 @@ impl Repo {
         command
     }
 
-    fn run(&self, args: &[&str]) -> Result<Output> {
+    pub(super) fn run(&self, args: &[&str]) -> Result<Output> {
         let output = self
             .git()
             .args(args)
@@ -654,6 +655,12 @@ impl Repo {
 
     pub(super) fn has_no_index(&self) -> bool {
         !self.root.join(GIT).join("index").exists()
+    }
+
+    /// Creates the committed working tree after bootstrap, without overwriting files.
+    pub(super) fn materialize_checkout(&self) -> Result<()> {
+        self.run(&["checkout-index", "--all"])?;
+        Ok(())
     }
 
     /// Makes the index HEAD's tree, with this machine's stat data, and puts

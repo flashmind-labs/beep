@@ -4,7 +4,7 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    records::{WRITES, find_project, read, scan, write},
+    records::{WRITES, find_project, project_key, read, scan, write},
 };
 use beep_mesh::Key;
 use beep_projects::model::plain_path;
@@ -41,6 +41,72 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 }
 
 impl Desk {
+    /// A replicated choice, applied on each machine when it is reachable.
+    pub async fn project_syncthing_mode(
+        &self,
+        project: &str,
+        enabled: Option<bool>,
+    ) -> Result<Option<bool>> {
+        let _write = WRITES.lock().await;
+        let mut stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        if let Some(enabled) = enabled {
+            stored.record.syncthing_files = Some(enabled);
+            write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
+        }
+        Ok(stored.record.syncthing_files)
+    }
+
+    /// Brings an explicit snapshot to a clean checkout. The source stays intact.
+    pub async fn handoff_work(&self, project: &str, from: &str, to: &str) -> Result<()> {
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        let from: EndpointId = from
+            .parse()
+            .map_err(|_| FleetError::refused("Invalid source machine."))?;
+        let to: EndpointId = to
+            .parse()
+            .map_err(|_| FleetError::refused("Invalid destination machine."))?;
+        if from == to || !stored.places.contains_key(&from) || !stored.places.contains_key(&to) {
+            return Err(FleetError::refused(
+                "Choose two machines with checkouts of this project.",
+            ));
+        }
+        let source = self.peers.client(from).await?;
+        let reply: Reply = source
+            .call(
+                PROTOCOL,
+                &Request::HandoffSnapshot {
+                    project: stored.name.clone(),
+                },
+            )
+            .await?;
+        let snapshot = match reply {
+            Reply::HandoffSnapshot { snapshot } => snapshot,
+            Reply::Error { message } => return Err(FleetError::Refused(message)),
+            _ => {
+                return Err(FleetError::refused(
+                    "Update the source machine to hand off work.",
+                ));
+            }
+        };
+        let target = self.peers.client(to).await?;
+        let reply: Reply = target
+            .call(
+                PROTOCOL,
+                &Request::HandoffApply {
+                    project: stored.name,
+                    snapshot,
+                },
+            )
+            .await?;
+        match reply {
+            Reply::HandoffApplied {} => Ok(()),
+            Reply::Error { message } => Err(FleetError::Refused(message)),
+            _ => Err(FleetError::refused(
+                "Update the destination machine to hand off work.",
+            )),
+        }
+    }
+
     /// Changes only the selected project's path in this machine's Syncthing share.
     pub async fn syncthing_files(
         &self,
@@ -122,6 +188,7 @@ impl Desk {
             .cloned();
         let sync = match &seen {
             Some(status) => MachineSync {
+                git_only: status.git_only,
                 machine_id: machine.to_string(),
                 machine_name: self.name_of(machine),
                 folder: folder.to_owned(),
@@ -135,6 +202,7 @@ impl Desk {
                 error: status.error.clone(),
             },
             None => MachineSync {
+                git_only: false,
                 machine_id: machine.to_string(),
                 machine_name: self.name_of(machine),
                 folder: folder.to_owned(),

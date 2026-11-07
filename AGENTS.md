@@ -12,9 +12,7 @@ Assistant API keys belong only on the server. Agent and forge credentials may
 be shared with nodes. Assistant, server and live voice features are disabled
 on desktop and phones by `SERVER_ENABLED` and the live voice guards.
 
-See [AGENT_REFERENCE.md](AGENT_REFERENCE.md) for feature behavior, code maps,
-protocols, deployment and release details. Check the implementation when
-changing those features; the reference may lag behind the code.
+Check the implementation when changing a feature; these notes may lag behind it.
 
 ## UI
 
@@ -40,8 +38,7 @@ Update the platform mock before changing an app's UI, then match the app to it:
 
 Apps remain on 0.x until production, with minor or patch bumps only. Do not run
 a release recipe, tag or upload a build without cutting a new version for that
-app. Release recipes commit and tag; `just release` also pushes. See the
-reference and the recipes before running them.
+app. Release recipes commit and tag; `just release` also pushes. Read the recipes and workflows before running them.
 
 Production is deployed from the private ops repo. Ask before deploying the
 server, and before stopping or recreating it. The on-prem bundle is retired.
@@ -66,15 +63,8 @@ Signed mesh types (`Device`, `OpBody`, `Signed`) cannot gain fields in place:
 change `SIGN_DOMAIN`, mesh ALPNs and `MESH_DIR` together. Terminal host
 `Request`, `Reply` and `Hello`, and transfer `Manifest`, cannot gain fields
 while released readers using plain `rmp_serde` remain reachable. Change a
-protocol's bytes only with a protocol name bump. See the reference for current
-ALPNs and exceptions.
-
-## Project sync
-
-After the initial checkout copy, Git metadata is local. Exchange commits with
-Git; file sync waits when checkouts have different commits. Linked worktrees and
-submodules stay on their machine. Syncthing-held folders follow Syncthing until
-it pauses or releases them.
+protocol's bytes only with a protocol name bump. The current mesh ALPNs are `beep-peer/2` and `beep-join/2`; sync uses
+`beep-sync/6`.
 
 ## Reports
 
@@ -82,3 +72,35 @@ Use Beep MCP `beep_status` and `beep_logs` to debug; `file_report` asks the user
 before sending. Reports contain private logs: issues must contain only the
 report reference, never logs or names. `just reports`, `just report <reference>`
 and `just report-solved <reference>` manage stored reports.
+
+
+## Code map
+
+- `crates/mesh`: signed membership, tickets and replicated state.
+- `crates/fleet`: desktop-side projects, credentials, settings and mesh operations.
+- `crates/node`: agents and their MCP tools, files and sync, mesh, machines and processes.
+- `crates/proto`: app messages and wire compatibility fixtures.
+- `crates/server`: server API, agents, app tools, storage, memory and voice.
+- `apps/desktop/src`: UI grouped by feature; `*-state.ts` contains tested logic.
+  `apps/desktop/src-tauri/src` contains the desktop commands and mesh integration.
+- `apps/android` and `apps/ios`: phone apps; `crates/android-bridge` serves both.
+
+## Release details
+
+Android and iOS release tags trigger Play and TestFlight builds. Desktop and
+node tags trigger signed builds and release uploads. Read the relevant
+`.forgejo/workflows/` file and `justfile` before releasing. Android releases
+stay off production while apps are on 0.x.
+
+## Mesh operations
+
+A desktop creates one-use pairing tickets. Nodes join the mesh and never mint
+tickets. A temporary machine is removed after 24 hours offline; other machines
+are not removed automatically.
+
+A new Git project copies the committed checkout and Git metadata once. After
+that, repositories exchange commits through Git. Uncommitted edits stay local
+until an explicit handoff to a clean checkout at the same commit. Non-Git
+folders keep file sync. Linked worktrees and submodules stay on their machine.
+Syncthing project exclusions apply on every imported machine, including when
+offline machines reconnect; the shared folder is never paused.

@@ -871,14 +871,14 @@ async fn a_round_that_could_not_check_its_folder_does_not_count_as_applied() {
 }
 
 #[tokio::test]
-async fn refs_git_cannot_read_leave_the_files_to_sync() {
+async fn unreadable_git_does_not_enable_file_sync() {
     // A `.git` with a `HEAD` git refuses, as Git for Windows refuses a
-    // verbatim root: the files are still scanned and nothing is deleted.
+    // verbatim root: working files stay local and nothing is deleted.
     let project = Project::new(&["a.txt", "src/b.rs", ".git/HEAD"]).await;
     {
         let state = project.task.shared.lock();
-        assert!(state.saved.seen.contains_key("a.txt"));
-        assert!(state.saved.seen.contains_key("src/b.rs"));
+        assert!(!state.saved.seen.contains_key("a.txt"));
+        assert!(!state.saved.seen.contains_key("src/b.rs"));
     }
     assert_eq!(project.deleted(), Vec::<String>::new());
     project.stop().await;

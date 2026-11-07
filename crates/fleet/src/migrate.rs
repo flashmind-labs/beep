@@ -211,6 +211,7 @@ async fn projects(out: &mut Writer<'_>, imports: &[ImportedProject]) -> Result<(
             .map_or_else(|| import.project.clone(), |stored| stored.name);
         let record = ProjectRecord {
             url: import.url.clone(),
+            ..ProjectRecord::default()
         };
         out.absent(project_key(&name), &record).await?;
         let place = Place {

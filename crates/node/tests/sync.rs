@@ -276,6 +276,12 @@ async fn a_node_does_not_count_a_peer_it_cannot_reach_as_caught_up() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_syncs_both_ways_and_build_output_stays() {
     let (a, b) = pair().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    eventually("both nodes to pause before preparing metadata", || {
+        a.status().paused && b.status().paused
+    })
+    .await;
     write(&a.path("Cargo.toml"), "[package]\nname = \"game\"\n");
     write(&a.path("src/main.rs"), "fn main() {}\n");
     write(&a.path("assets/big.bin"), data(300_000, 1));
@@ -288,6 +294,8 @@ async fn a_folder_syncs_both_ways_and_build_output_stays() {
     .unwrap();
     set_mtime(&a.path("assets/big.bin"), 1_700_000_000);
 
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
     eventually("the files to reach the other node", || {
         read(&b.path("assets/big.bin")) == Some(data(300_000, 1))
             && read(&b.path("src/main.rs")).is_some()
@@ -355,6 +363,7 @@ async fn a_delete_carries_over_and_clears_its_folder() {
         !b.path("notes/today.txt").exists()
     })
     .await;
+    file_round(&a, &b).await;
     assert!(!b.path("notes").exists(), "the empty folder goes too");
     assert_eq!(
         read(&b.path("keep.txt")).as_deref(),
@@ -969,6 +978,29 @@ fn assert_sound(node: &Node) {
     );
 }
 
+/// Complete a fresh peer round before asserting that edits stayed local.
+async fn file_round(source: &Node, target: &Node) {
+    source
+        .running()
+        .transfers
+        .syncs()
+        .rescan(PROJECT)
+        .await
+        .unwrap();
+    timeout(
+        LIMIT,
+        target.running().transfers.syncs().have_all_from(
+            PROJECT,
+            &source.addr().id,
+            tokio::time::Instant::now(),
+            |_| {},
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+}
+
 async fn in_step(a: &Node, b: &Node) {
     eventually("the checkouts to reach one commit and be clean", || {
         head(a).is_some() && head(a) == head(b) && is_clean(a) && is_clean(b)
@@ -997,7 +1029,7 @@ async fn git_copies_once_then_commits_need_git_pull_and_staging_stays_local() {
     write(&a.shared.path().join(".stignore"), ".git/\n");
     write(&b.shared.path().join(".stignore"), ".git/\n");
     write(&a.path(".gitignore"), "local.env\ntarget/built.o\n");
-    write(&a.path("local.env"), "ignored, and still carried\n");
+    write(&a.path("local.env"), "ignored, and stays local\n");
     // Tracked, in a folder a default leaves out: `git status` would say
     // deleted without it.
     write(&a.path("target/kept.txt"), "tracked\n");
@@ -1013,10 +1045,7 @@ async fn git_copies_once_then_commits_need_git_pull_and_staging_stays_local() {
     a.sync_with(&b).await;
     b.sync_with(&a).await;
     in_step(&a, &b).await;
-    eventually("the ignored file to arrive", || {
-        read(&b.path("local.env")).as_deref() == Some(b"ignored, and still carried\n".as_slice())
-    })
-    .await;
+    assert!(!b.path("local.env").exists());
     assert!(read(&b.path("target/built.o")).is_none());
     assert!(!b.path(".git/index.lock").exists());
 
@@ -1039,18 +1068,19 @@ async fn git_copies_once_then_commits_need_git_pull_and_staging_stays_local() {
     in_step(&a, &b).await;
     assert_eq!(head(&b).as_deref(), Some(there.as_str()));
 
-    // A file round still runs, but branches, tags, config and the index stay local.
+    // Working edits, branches, tags, config and the index stay local.
     git(&b.folder(), &["tag", "v1"]);
     git(&b.folder(), &["branch", "side"]);
     git(&b.folder(), &["pack-refs", "--all"]);
     write(&b.path("README.md"), "staged here\n");
     git(&b.folder(), &["add", "README.md"]);
     write(&b.path("local.env"), "after Git changes\n");
-    eventually("working files to arrive without Git metadata", || {
-        read(&a.path("local.env")).as_deref() == Some(b"after Git changes\n".as_slice())
-            && read(&a.path("README.md")).as_deref() == Some(b"staged here\n".as_slice())
-    })
-    .await;
+    file_round(&b, &a).await;
+    assert_eq!(
+        read(&a.path("local.env")).as_deref(),
+        Some(b"ignored, and stays local\n".as_slice())
+    );
+    assert_ne!(read(&a.path("README.md")), read(&b.path("README.md")));
     assert!(!has_ref(&a, "refs/tags/v1"));
     assert!(!has_ref(&a, "refs/heads/side"));
     assert!(git(&a.folder(), &["diff", "--cached", "--name-only"]).is_empty());
@@ -1375,12 +1405,10 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
     }
     let heads: Vec<_> = nodes.iter().map(head).collect();
     write(&nodes[0].path("resumed.txt"), "file sync resumed\n");
-    eventually("ordinary file edits to sync again", || {
-        nodes.iter().all(|node| {
-            read(&node.path("resumed.txt")).as_deref() == Some(b"file sync resumed\n".as_slice())
-        })
-    })
-    .await;
+    for node in &nodes[1..] {
+        file_round(&nodes[0], node).await;
+        assert!(!node.path("resumed.txt").exists());
+    }
     for (i, node) in nodes.iter_mut().enumerate() {
         assert_eq!(head(node), heads[i]);
         assert_sound(node);
@@ -1565,24 +1593,18 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
         "sync requested a file Git already supplied"
     );
 
-    // A different, untracked file must trigger the observer and reach both
-    // peers, proving that the zero above was not a disabled observer.
+    // A non-Git folder still transfers files and exercises the blob observer.
     let control = data(1_000_000, 99);
-    write(&nodes[0].path("ignored-control.bin"), &control);
-    eventually("the control file to reach both peers", || {
-        nodes.iter().all(|node| {
-            read(&node.path("ignored-control.bin")).as_deref() == Some(control.as_slice())
-        })
-    })
-    .await;
+    let (control_source, control_target) = pair().await;
+    write(&control_source.path("control.bin"), &control);
+    file_round(&control_source, &control_target).await;
+    assert_eq!(
+        read(&control_target.path("control.bin")).as_deref(),
+        Some(control.as_slice())
+    );
     assert!(
         requests.count(&control) > 0,
-        "the observer did not see the control transfer"
-    );
-    println!(
-        "after Git pull: {} requests for the matching file; {} requests for the control file",
-        requests.count(&changed),
-        requests.count(&control)
+        "the observer did not see the non-Git transfer"
     );
     // Wait for every peer to record the common file before editing it apart.
     let since = tokio::time::Instant::now();
@@ -1620,41 +1642,20 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
         }
     }
     configure_three(&nodes, false).await;
-    eventually("all uncommitted and ignored edits to survive", || {
-        nodes.iter().all(|node| {
-            let Some(files) = working_files(node) else {
-                return false;
-            };
-            ["tracked", "ignored-control"].iter().all(|stem| {
-                let mut versions: Vec<_> = files
-                    .iter()
-                    .filter(|(name, _)| {
-                        name == &format!("{stem}.bin")
-                            || name.starts_with(&format!("{stem} (conflict "))
-                    })
-                    .map(|(_, data)| data.clone())
-                    .collect();
-                versions.sort();
-                let mut expected: Vec<_> = (0..3)
-                    .map(|i| format!("{stem}.bin from host {i}\n").into_bytes())
-                    .collect();
-                expected.sort();
-                versions == expected
-            }) && node.status().conflicts.len() == 4
-        })
-    })
-    .await;
-    for node in &nodes {
+    for (i, node) in nodes.iter().enumerate() {
+        for (j, peer) in nodes.iter().enumerate() {
+            if i != j {
+                file_round(peer, node).await;
+            }
+        }
         for name in ["tracked.bin", "ignored-control.bin"] {
             assert_eq!(
                 read(&node.path(name)),
-                Some(format!("{name} from host 2\n").into_bytes())
+                Some(format!("{name} from host {i}\n").into_bytes())
             );
         }
+        assert!(node.status().conflicts.is_empty());
     }
-    println!(
-        "uncommitted and Git-ignored edits: all versions preserved, with four conflict copies per node"
-    );
     for node in &mut nodes {
         node.stop().await;
     }
@@ -1686,10 +1687,8 @@ async fn existing_checkouts_keep_their_own_branches_and_indexes() {
     git(&b.folder(), &["add", "README.md"]);
     a.sync_with(&b).await;
     b.sync_with(&a).await;
-    eventually("the staged file to sync without its index", || {
-        read(&a.path("README.md")).as_deref() == Some(b"staged locally\n".as_slice())
-    })
-    .await;
+    file_round(&b, &a).await;
+    assert_ne!(read(&a.path("README.md")), read(&b.path("README.md")));
     assert_eq!(git(&a.folder(), &["rev-parse", "refs/heads/side"]), ahead);
     assert_eq!(
         git(&b.folder(), &["rev-parse", "refs/heads/side"]),
@@ -1807,10 +1806,11 @@ async fn gc_and_new_objects_stay_local_after_the_first_copy() {
     let before = files(&b.path(".git/objects"));
     git(&a.folder(), &["gc", "-q", "--prune=now"]);
     write(&a.path("round.txt"), "after gc\n");
-    eventually("a file round after gc", || b.path("round.txt").exists()).await;
+    file_round(&a, &b).await;
+    assert!(!b.path("round.txt").exists());
     assert_eq!(files(&b.path(".git/objects")), before);
     fs::remove_file(a.path("round.txt")).unwrap();
-    fs::remove_file(b.path("round.txt")).unwrap();
+
     assert_sound(&a);
     assert_sound(&b);
     let original = head(&b).unwrap();
@@ -1836,7 +1836,13 @@ async fn gc_and_new_objects_stay_local_after_the_first_copy() {
 async fn a_node_on_the_old_protocol_is_turned_away() {
     let (a, b) = synced_repo().await;
     let refs = git(&a.folder(), &["show-ref"]);
-    for alpn in [&b"beep-sync/1"[..], b"beep-sync/2", b"beep-sync/3"] {
+    for alpn in [
+        &b"beep-sync/1"[..],
+        b"beep-sync/2",
+        b"beep-sync/3",
+        b"beep-sync/4",
+        b"beep-sync/5",
+    ] {
         let old = b.running().endpoint.connect(a.addr(), alpn).await;
         assert!(old.is_err(), "an old node is not served");
     }
@@ -1856,10 +1862,10 @@ async fn a_peer_that_never_reported_git_deletes_nothing_of_it() {
     write(&b.path("theirs.txt"), "from a peer without git\n");
     a.sync_with(&b).await;
     b.sync_with(&a).await;
-    eventually("the peer's files to arrive", || {
-        read(&a.path("theirs.txt")).is_some() && read(&b.path("README.md")).is_some()
-    })
-    .await;
+    file_round(&b, &a).await;
+    file_round(&a, &b).await;
+    assert!(!a.path("theirs.txt").exists());
+    assert!(!b.path("README.md").exists());
     assert_sound(&a);
     assert_eq!(git(&a.folder(), &["show-ref"]), refs);
     assert!(!b.path(".git").exists());
@@ -1875,7 +1881,9 @@ async fn git_is_not_copied_again_after_it_was_removed_locally() {
     a.sync_with(&b).await;
     b.sync_with(&a).await;
     write(&b.path("later.txt"), "a later round\n");
-    eventually("the later file round", || a.path("later.txt").exists()).await;
+    b.running().transfers.syncs().rescan(PROJECT).await.unwrap();
+    a.running().transfers.syncs().rescan(PROJECT).await.unwrap();
+    assert!(!a.path("later.txt").exists());
     assert!(!a.path(".git").exists());
     assert_eq!(head(&b), there);
     assert_sound(&b);
@@ -2047,7 +2055,7 @@ async fn an_unborn_repository_is_copied_only_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_clean_checkout_fetches_and_fast_forwards_before_file_sync() {
+async fn a_clean_checkout_fetches_commits_without_copying_uncommitted_edits() {
     let (a, b) = synced_repo().await;
     a.pause(&b, true).await;
     b.pause(&a, true).await;
@@ -2067,9 +2075,9 @@ async fn a_clean_checkout_fetches_and_fast_forwards_before_file_sync() {
     write(&a.path("README.md"), "work after the commit\n");
     a.pause(&b, false).await;
     b.pause(&a, false).await;
-    eventually("Git to catch up before carrying the working edit", || {
+    eventually("Git to catch up without carrying the working edit", || {
         head(&b).as_deref() == Some(target.as_str())
-            && read(&b.path("README.md")).as_deref() == Some(b"work after the commit\n".as_slice())
+            && read(&b.path("README.md")).as_deref() == Some(b"committed change\n".as_slice())
             && b.status().pending == 0
     })
     .await;
@@ -2121,4 +2129,39 @@ async fn automatic_git_catchup_preserves_unstaged_staged_and_untracked_work() {
         );
         assert_eq!(git(&b.folder(), &["status", "--porcelain"]), status);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_handoff_brings_edits_and_live_sync_does_not_undo_them() {
+    let (a, b) = synced_repo().await;
+    write(&a.path("README.md"), "work in progress\n");
+    git(&a.folder(), &["add", "README.md"]);
+    write(&a.path("new.bin"), [0, 1, 255]);
+    file_round(&a, &b).await;
+    assert_ne!(read(&a.path("README.md")), read(&b.path("README.md")));
+    assert!(!b.path("new.bin").exists());
+    let snapshot = a
+        .running()
+        .transfers
+        .syncs()
+        .handoff_snapshot(PROJECT)
+        .await
+        .unwrap();
+    b.running()
+        .transfers
+        .syncs()
+        .handoff_apply(PROJECT, snapshot)
+        .await
+        .unwrap();
+    file_round(&a, &b).await;
+    file_round(&b, &a).await;
+    assert_eq!(read(&a.path("README.md")), read(&b.path("README.md")));
+    assert_eq!(read(&b.path("new.bin")), Some(vec![0, 1, 255]));
+    assert_eq!(
+        git(&a.folder(), &["diff", "--cached", "--name-only"]),
+        "README.md"
+    );
+    assert!(git(&b.folder(), &["diff", "--cached", "--name-only"]).is_empty());
+    assert!(a.status().conflicts.is_empty());
+    assert!(b.status().conflicts.is_empty());
 }

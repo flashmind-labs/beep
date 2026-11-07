@@ -570,5 +570,11 @@ async fn files(
                 progress.reason = reason;
             });
         })
-        .await
+        .await?;
+    if record.worktree.is_none() {
+        syncs
+            .handoff_for_move(&record.project, &record.from)
+            .await?;
+    }
+    Ok(())
 }
