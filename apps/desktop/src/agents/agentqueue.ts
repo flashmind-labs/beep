@@ -70,3 +70,8 @@ export function markDelivered(items: Waiting[], waiting: number, read: number, n
 export function dropDelivered(items: Waiting[], now = Date.now()) {
   items.splice(0, items.length, ...items.filter(q => q.state !== "delivered" || now - (q.at ?? now) < DELIVERED_SHOWN_MS));
 }
+
+/// A stop ends when its turn finishes, even if the next turn starts before a read.
+export function stopPending(stop: { id: string; turns: number } | null, id: string, active: boolean, turns: number) {
+  return stop?.id === id && active && turns <= stop.turns ? stop : null;
+}

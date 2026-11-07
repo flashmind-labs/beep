@@ -1,6 +1,6 @@
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
-import { markDelivered } from "./agentqueue.ts";
+import { markDelivered, stopPending } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
@@ -188,7 +188,7 @@ export async function pollAgent(readNow = false) {
       AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
       AG.readError = "";
       AG.link = LINKED;
-      if (!AGENT_ACTIVE.has(page.session.status)) AG.stopping = null;
+      AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
       markDelivered(AG.queue, page.queued, read);
       // Nothing the log shows changed: no draw.
       const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.paused, AG.answering, AG.child, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
@@ -263,7 +263,7 @@ export const turnRuns = () => {
 /// Whether the user stopped the open session's turn and it has not ended.
 export const stoppingNow = () => {
   const s = AG.page?.session;
-  return !!s && AG.stopping === s.id && AGENT_ACTIVE.has(s.status);
+  return !!s && AG.stopping?.id === s.id && AGENT_ACTIVE.has(s.status);
 };
 
 /// The session's keys on one small line.

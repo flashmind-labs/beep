@@ -218,7 +218,7 @@ test("Esc stops at once and sends the queue, leaving steers to the node (#378)",
   show({ "#agmsg": field() });
   AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }, words("then this")];
   assert.equal(interruptAgent(), true);
-  assert.equal(AG.stopping, "s1");
+  assert.deepEqual(AG.stopping, { id: "s1", turns: 0 });
   assert.doesNotMatch(agentHints(), /interrupt/, "already stopping");
   await settle();
   assert.deepEqual(steers(), ["cancel"]);
