@@ -250,3 +250,42 @@ async fn a_refused_key_or_no_config_falls_back_to_markers() {
     fs::write(home.config_dir().join(CONFIG), wrong).unwrap();
     assert_eq!(home.syncthing().check(&sync).await.unwrap().label, "sync");
 }
+
+#[test]
+fn git_ignores_precede_exceptions_and_preserve_existing_rules() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join(".stignore");
+    let existing = "\u{feff}!**\n#include custom-ignore\ncache\n";
+    fs::write(&path, existing).unwrap();
+    protect_checkout(dir.path()).unwrap();
+    let protected = fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        protected,
+        format!("{LOCAL_GIT}{}", existing.trim_start_matches('\u{feff}'))
+    );
+    protect_checkout(dir.path()).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), protected);
+}
+
+#[tokio::test]
+async fn detecting_a_syncthing_share_protects_git_and_worktrees() {
+    let home = Home::new();
+    let share = home.mkdir("share");
+    fs::create_dir(share.join(MARKER)).unwrap();
+    let project = home.mkdir("share/project");
+    home.syncthing().check(&project).await.unwrap();
+    assert_eq!(
+        fs::read_to_string(share.join(".stignore")).unwrap(),
+        LOCAL_GIT
+    );
+    assert!(!project.join(".stignore").exists());
+}
+
+#[test]
+fn unreadable_ignore_rules_are_left_alone() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join(".stignore");
+    fs::write(&path, [0xff]).unwrap();
+    assert!(protect_checkout(dir.path()).is_err());
+    assert_eq!(fs::read(&path).unwrap(), [0xff]);
+}

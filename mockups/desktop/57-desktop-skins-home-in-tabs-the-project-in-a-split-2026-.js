@@ -456,6 +456,8 @@
 .mac .pj-tag.lab.on { color: var(--d-fg); border-color: var(--d-emerald) }
 .mac .cc-open > .pj-labels { padding: 8px 12px 4px }
 .mac .pj-li .r { font-size: 11.5px; color: var(--d-muted); white-space: nowrap }
+.mac .cc-running { display: inline-flex; align-items: center; gap: 8px }
+.mac .cc-running .dspin { width: 10px; height: 10px; flex: none }
 .mac .pj-det { overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; scrollbar-width: thin }
 .mac .pj-det > * { flex: none }
 .mac .pj-dh { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--d-border) }
@@ -728,8 +730,8 @@
     { title: "", items: [{ id: "overview", t: "Overview", sub: "2 running · 2 PRs · 2 issues" }] },
     { title: "Needs you", items: [{ id: "card", t: "The project agent waits on you", sub: "1 card" }] },
     { title: "Running", items: [
-      { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: "1 min" },
-      { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "4 min" }] },
+      { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: '<span class="cc-running"><span class="dspin" role="img" aria-label="Working"></span>now</span>' },
+      { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "idle" }] },
     { title: "Project", items: [
       { id: "actions", t: "Actions", sub: "1 failed" },
       { id: "machines", t: "Machines", sub: "2/3 · 1 terminal" },
@@ -781,7 +783,7 @@
         <div class="pj-node child link">${hc("codex")}<span class="t"><b>Fix the device build script</b><span>Codex on studio · running 4 min</span></span><span class="acts">${pb("Stop", "quiet small")}</span></div></div>`)}</div>`,
     agents: () => csec("Agents", 2, panel(ln(hc("claude"), "Swipeable approval strip", "build-box · fix-approval", "1 min", 'data-dgo="dAgentSession"') + ln(hc("codex"), "Fix the device build script", "studio · main", "4 min", 'data-dgo="dAgentSession"')))
       + csec("Custom agents", 1, `<div class="cc-panel pv-scroll"><div class="pj-task ca-row"><span class="t">${hc("claude").replace('cc-ag', 'cc-ag ca-ic')}<b>reviewer</b> <span class="ca-desc">Reads a diff and lists what is wrong</span></span><span class="m"><span>sonnet</span><code>.claude/agents/reviewer.md</code></span><span class="acts">${pb("Start", "small")}</span></div></div>`, pb("Reload", "quiet small"))
-      + csec("Sessions", 2, `<div class="cc-panel">
+      + csec("Past sessions", 2, `<div class="cc-panel">
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div>
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`),
     branches: () => {
@@ -856,7 +858,7 @@ Error: Process completed with exit code 101.</pre></span>
     const tagged = i => [i.r || "", ...(i.tags || []).slice(0, 3).map(l => `<i class="pj-tag">${l}</i>`)].join("");
     const scroll = (rows, go) => rows.map(i => ln(i.lead, i.t, i.sub, tagged(i), pick(i.id))).join("");
     return `<div class="pj-ov"><div>${box("Running", 2, "agents", rowsOf("Running"))}
-      ${csec("Sessions", 2, panel(ln("", "Retry uploads when the token expires", "Claude Code · build-box · ended 2 h ago", "") + ln("", "Bump the sync crate", "Codex · studio · ended 9 d ago", "")))}
+      ${csec("Past sessions", 2, panel(ln("", "Retry uploads when the token expires", "Claude Code · build-box · ended 2 h ago", "") + ln("", "Bump the sync crate", "Codex · studio · ended 9 d ago", "")))}
       ${box("Actions", "1 running · 1 failed", "actions", ln("", "Fix the device build script", "build.yml #353", chip("running", "running", true), pick("actions")) + ln("", "Cut the cache warm-up in half", "build.yml #351", chip("blocked", "failed"), pick("ci351")) + ln("", "Bump the sync crate", "build.yml #347", chip("done", "passed"), pick("actions")))}
       ${box("Machines", "2/3", "machines", ln(dot(), "build-box", "main", "", pick("machines")) + ln(dot(), "studio", "fix-approval", "", pick("machines")) + ln(dot(true), "laptop", "not cloned", "", pick("machines")))}
       ${box("Terminals", 1, "machines", ln(dot(), "cargo watch", "build-box · acme/widget · ~/code/widget", "3 h", 'data-dact="dset:ags:drafterm" data-dgo="dAgentSession"'))}</div>
@@ -964,7 +966,7 @@ Error: Process completed with exit code 101.</pre></span>
     ["Project menu", () => { S.d.psel = "overview"; S.d.pmenu = "1"; render(); }, () => !!S.d.pmenu],
     ...skinVariants].map(([l, f, on]) => l === "Project menu" ? [l, f, on] : [l, () => { S.d.pmenu = ""; f(); }, on]);
   // A project with no project agent: its sessions, where it lives, what runs there.
-  window.__pjOne = () => `<div class="pj-cols pj-half">${csec("Sessions", 2, `<div class="cc-panel"><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`)}<div class="ca-col">${details.machines()}${csec("Agents", "", '<div class="cc-panel cc-empty"><span>No agent is working in this project right now.</span></div>')}${csec("Custom agents", "", '<div class="cc-panel cc-empty"><span>No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.</span></div>', pb("Reload", "quiet small"))}</div></div>`;
+  window.__pjOne = () => `<div class="pj-cols pj-half">${csec("Past sessions", 2, `<div class="cc-panel"><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`)}<div class="ca-col">${details.machines()}${csec("Agents", "", '<div class="cc-panel cc-empty"><span>No agent is working in this project right now.</span></div>')}${csec("Custom agents", "", '<div class="cc-panel cc-empty"><span>No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.</span></div>', pb("Reload", "quiet small"))}</div></div>`;
 
   // ---- Settings, Appearance: the skin picker ----
   const SK = [["Linear", "#151617"], ["Classic", "#1a2a23"], ["Quiet", "#161b18"], ["GitHub dark", "#161b22"], ["Zed", "#2f343e"], ["Tokyo Night", "#1f2335"], ["Catppuccin Mocha", "#313244"], ["Nord", "#3b4252"], ["Gruvbox", "#3c3836"], ["Rose Pine", "#26233a"], ["Geist", "#000"], ["High contrast", "#000"]];

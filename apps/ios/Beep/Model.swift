@@ -245,6 +245,10 @@ final class AppModel {
 
     // MARK: Connection
 
+    private static var workspaceDirectory: String {
+        URL.applicationSupportDirectory.appendingPathComponent("workspace", isDirectory: true).path
+    }
+
     /// The app's version as the server logs it, such as "0.1.0 (1)".
     static let appVersion: String = {
         let info = Bundle.main.infoDictionary
@@ -256,6 +260,19 @@ final class AppModel {
     /// Connects to the server, retrying with backoff until it answers. It keeps trying for as
     /// long as the app runs; iOS pauses the retries while the app is in the background.
     func connect() {
+        if !serverEnabled() {
+            do {
+                if client == nil {
+                    let fresh = try BeepClient(serverUrl: BeepConfig.serverUrl, identity: identity, appVersion: Self.appVersion)
+                    try fresh.configureWorkspace(directory: Self.workspaceDirectory, identity: Identity.workspaceKey(for: identity))
+                    client = fresh
+                }
+                connecting = false
+                connectionError = ""
+                Task { await workspace.refresh() }
+            } catch { connecting = false; connectionError = describe(error) }
+            return
+        }
         connectTask?.cancel()
         connecting = true
         connectTask = Task {
@@ -264,8 +281,12 @@ final class AppModel {
                 attempt += 1
                 do {
                     let fresh = try client ?? BeepClient(serverUrl: BeepConfig.serverUrl, identity: identity, appVersion: Self.appVersion)
-                    if client == nil { fresh.setListener(listener: notifier) }
+                    if client == nil {
+                        fresh.setListener(listener: notifier)
+                        try fresh.configureWorkspace(directory: Self.workspaceDirectory, identity: Identity.workspaceKey(for: identity))
+                    }
                     client = fresh
+                    if attempt == 1, (try? await fresh.workspaceLinked()) == true { await workspace.refresh() }
                     try await fresh.health()
                     connected = true
                     connecting = false
@@ -287,6 +308,7 @@ final class AppModel {
     /// be down, and after a failed check when it only looks up, since a connection can die
     /// while the app is suspended.
     func ensureConnected() {
+        if !serverEnabled() { connect(); return }
         guard connectTask == nil else { return }
         guard connected, let client else { return connect() }
         Task {
@@ -1555,6 +1577,7 @@ final class AppModel {
         if key == identity { return }
         let trial = try BeepClient(serverUrl: BeepConfig.serverUrl, identity: key, appVersion: Self.appVersion)
         trial.setListener(listener: notifier)
+        try trial.configureWorkspace(directory: Self.workspaceDirectory, identity: Identity.workspaceKey(for: key))
         try await trial.health()
         Identity.save(key)
         identity = key
@@ -1775,7 +1798,7 @@ func explain(_ error: Error) -> String {
 func describe(_ error: Error) -> String {
     switch error {
     case BeepError.BadRequest(let reason), BeepError.Conflict(let reason): reason
-    case BeepError.Connection: "Can't reach the server."
+    case BeepError.Connection(let reason): "Can't connect: " + reason
     case BeepError.Unauthorized: "The server did not accept this account."
     case BeepError.NotFound: "Not found."
     case BeepError.Internal: "Something went wrong on the server."

@@ -57,6 +57,28 @@ enum Identity {
         SecItemUpdate(query as CFDictionary, change as CFDictionary)
     }
 
+    /// A key unique to this installation, separate from the backed-up server account.
+    static func workspaceKey(for key: Data) throws -> Data {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: "workspace-" + name(key),
+        ]
+        var read = query
+        read[kSecReturnData as String] = true
+        read[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(read as CFDictionary, &item)
+        if status == errSecSuccess, let saved = item as? Data, saved.count == 32 { return saved }
+        guard status == errSecItemNotFound else { throw BeepError.Connection(reason: "Could not read workspace identity") }
+        let fresh = newIdentity()
+        var add = query
+        add[kSecValueData as String] = fresh
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else { throw BeepError.Connection(reason: "Could not save workspace identity") }
+        return fresh
+    }
+
     /// The key file the Android app also reads and writes: the server's address and the key as hex.
     static func export(_ key: Data) -> String {
         let hex = key.map { String(format: "%02x", $0) }.joined()

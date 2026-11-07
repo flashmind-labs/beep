@@ -598,3 +598,23 @@ async fn a_flsh_session_file_is_read_and_one_in_an_old_database_is_refused() {
         "{err:#}"
     );
 }
+
+#[tokio::test]
+async fn a_device_no_move_names_cannot_read_a_worktree_bundle() {
+    let source = source(&header(""));
+    let server = Router::builder(endpoint().await)
+        .accept(ALPN, Strict(source.agents.clone()))
+        .spawn();
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .unwrap();
+    let (send, recv) = connection.open_bi().await.unwrap();
+    let (tx, rx) = link(send, recv);
+    let error = super::read::pull_bundle(tx, rx, ID, "deadbeef")
+        .await
+        .unwrap_err();
+    assert!(error.is::<super::read::Refused>());
+    assert!(error.to_string().contains("no move"));
+}
