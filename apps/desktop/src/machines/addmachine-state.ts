@@ -50,14 +50,14 @@ type Machine = Pick<MachineView, "id" | "name"> & { env?: Pick<MachineEnv, "os" 
 /// linked, or why it stopped.
 export type AddState =
   | { step: "loading" }
-  | { step: "waiting"; token: string; command: string; expiresAt: number }
+  | { step: "waiting"; token: string; command: string; expiresAt: number; qrSvg?: string }
   | { step: "linked"; machine: Machine }
   | { step: "expired" }
   | { step: "error"; message: string };
 
 /// What changes the sheet's state; see `next`.
 export type AddEvent =
-  | { type: "created"; token: string; command: string; expiresAt: number }
+  | { type: "created"; token: string; command: string; expiresAt: number; qrSvg?: string }
   | { type: "failed"; message: string }
   | { type: "tick"; now: number }
   | { type: "found"; machine: Machine }
@@ -76,7 +76,7 @@ export function next(state: AddState, event: AddEvent): AddState {
   switch (event.type) {
     case "created":
       if (state.step !== "loading") return state;
-      return { step: "waiting", token: event.token, command: event.command, expiresAt: event.expiresAt };
+      return { step: "waiting", token: event.token, command: event.command, expiresAt: event.expiresAt, qrSvg: event.qrSvg };
     case "failed":
       if (state.step !== "loading") return state;
       return { step: "error", message: event.message };

@@ -5,7 +5,8 @@
     <div class="label">Workspace</div><p class="muted">Projects and node sessions connect directly. Your desktop can be offline.</p>
     <button class="primary" data-igo="iWorkspaceLink">Link workspace</button>`);
   P.iWorkspaceLink = () => iBack('Link workspace', 'iSettings') + `<div class="body">
-    <p>On desktop, open Machines, Add a machine, then choose Phone. Copy its ticket here.</p>
+    <p>On desktop, open Machines, Add a machine, then choose Phone. Scan the QR code with your phone.</p>
+    <button class="primary" data-itoast="Camera scanner opened">Scan QR code</button><p class="muted">Or paste a ticket below.</p>
     <label for="mesh-ticket">Phone pairing ticket</label><textarea class="field" id="mesh-ticket" placeholder="beepjoin2..."></textarea>
     <p class="muted">This phone gets project controls, node sessions and shared credentials.</p>
     <button class="primary" data-work-go="workProjects" data-itoast="Workspace linked">Link workspace</button></div>`;

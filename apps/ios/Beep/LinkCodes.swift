@@ -7,7 +7,8 @@ struct QRScanner: View {
     let found: (String) -> Void
 
     /// False on the simulator and on phones without a usable camera.
-    static var available: Bool { DataScannerViewController.isSupported && DataScannerViewController.isAvailable }
+    static var supported: Bool { DataScannerViewController.isSupported }
+    static var available: Bool { supported && DataScannerViewController.isAvailable }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
