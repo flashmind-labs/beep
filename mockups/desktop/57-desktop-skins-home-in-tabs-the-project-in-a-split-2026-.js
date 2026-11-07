@@ -338,6 +338,7 @@
 .mac .cc-pjc .pill small { color: var(--d-muted); font-size: 12px }
 .mac .cc-pjc .pill .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8.5px; flex: none }
 .mac .cc-pjc .pill svg { color: var(--d-muted); flex: none }
+.mac .cc-pjc .pill .cc-ag.codex svg { color: inherit }
 .mac .cc-pjc .pill[aria-expanded="true"] { background: color-mix(in srgb, var(--d-fg) 6%, transparent) }
 .mac .cc-pjc .note { padding: 0 4px; font-size: 11.5px; color: var(--d-muted) }
 .mac .cc-pjc .cc-err:empty { display: none }
