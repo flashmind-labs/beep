@@ -14,29 +14,43 @@ const MAX_SOCKET_PATH: usize = 103;
 /// The socket for the node in `dir`. The node hands sessions the path it
 /// bound in `SOCKET_ENV`, so the connecting side never works it out again.
 pub fn path_for(dir: &Path) -> PathBuf {
+    path_for_named(dir, SOCKET)
+}
+
+pub(super) fn path_for_named(dir: &Path, name: &str) -> PathBuf {
     #[cfg(unix)]
     {
         let tmp = std::env::var_os("TMPDIR").map(PathBuf::from);
-        choose(dir, tmp.as_deref(), rustix::process::getuid().as_raw())
+        choose_named(
+            dir,
+            tmp.as_deref(),
+            rustix::process::getuid().as_raw(),
+            name,
+        )
     }
     #[cfg(not(unix))]
     {
         // A named pipe's name has no such limit.
-        dir.join(SOCKET)
+        dir.join(name)
     }
 }
 
 /// The socket for `dir`: in it when that fits, else a short one named by a
 /// hash of `dir` (so two nodes never share it) in `beep-<uid>` under `tmp`,
 /// or under `/tmp` when `tmp` is long too.
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn choose(dir: &Path, tmp: Option<&Path>, uid: u32) -> PathBuf {
-    let inside = dir.join(SOCKET);
+    choose_named(dir, tmp, uid, SOCKET)
+}
+
+#[cfg(unix)]
+fn choose_named(dir: &Path, tmp: Option<&Path>, uid: u32, name: &str) -> PathBuf {
+    let inside = dir.join(name);
     if fits(&inside) {
         return inside;
     }
     let hash = blake3::hash(dir.as_os_str().as_encoded_bytes()).to_hex();
-    let name = format!("mcp-{}.sock", &hash[..16]);
+    let name = format!("{}-{}.sock", name.trim_end_matches(".sock"), &hash[..16]);
     let short = |base: &Path| base.join(format!("beep-{uid}")).join(&name);
     tmp.filter(|tmp| tmp.is_absolute())
         .map(short)

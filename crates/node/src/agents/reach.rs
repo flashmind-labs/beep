@@ -148,6 +148,13 @@ impl Agents {
             .map(|session| PathBuf::from(session.info().cwd))
             .collect();
         sessions.extend(sighted);
+        sessions.extend(
+            self.presence
+                .snapshot()
+                .into_iter()
+                .filter(|s| s.presence.is_live())
+                .map(|s| PathBuf::from(s.cwd)),
+        );
         work.extend(sessions.iter().cloned());
         let logs = LogRoots::locate();
         let read = [

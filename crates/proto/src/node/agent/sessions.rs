@@ -286,6 +286,9 @@ pub enum SessionsRequest {
     /// the next hourly try. Answered with `AdaptersInstalling` at once; how
     /// it goes comes in the node's `EnvReport::adapters`.
     InstallAdapters {},
+    /// Known native sessions first, then whenever a local CLI opens,
+    /// updates or closes one, as `External` snapshots.
+    FollowPresence {},
 }
 
 /// The most paths one `Present` asks about.
@@ -323,6 +326,7 @@ impl SessionsRequest {
             | Self::Processes { .. }
             | Self::Live { .. } => true,
             Self::Watch { .. }
+            | Self::FollowPresence {}
             | Self::Steer { .. }
             | Self::UpdateHarness { .. }
             | Self::FollowImages {}
