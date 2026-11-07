@@ -10,7 +10,16 @@ import com.flashmind.beep.proto.AgentOption
 import com.flashmind.beep.proto.AgentQuestion
 import com.flashmind.beep.proto.AgentStatus
 import com.flashmind.beep.proto.MachineSession
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -58,6 +67,30 @@ class HomeStateTest {
         model.answer(session, session.question!!.options[0])
         assertEquals(1, model.badge)
         assertTrue(model.error.isNotEmpty())
+    }
+
+    @Test fun the_send_completes_when_the_caller_is_cancelled() = runBlocking {
+        val session = ask(1u).session
+        val gate = CompletableDeferred<Unit>()
+        var sent = false
+        val model = HomeModel(load = { home(ask(1u)) }, send = { _, _, _, _, _ -> gate.await(); sent = true },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default))
+        model.refresh()
+        val caller = CoroutineScope(Job())
+        val job = caller.launch { model.submit(session, session.question!!.options[0]) }
+        job.join()
+        caller.cancel()
+        gate.complete(Unit)
+        withTimeout(5_000) { while (!sent) delay(10) }
+        assertTrue(sent)
+        assertEquals(0, model.badge)
+    }
+
+    @Test fun keepAsks_spares_asks_newer_than_the_read() {
+        val log = BellLog().add(MobileNotice("a", NoticeKind.ASK, "t", "", "m1", "claude", "a", 1u, emptyList(), 100uL))
+            .add(MobileNotice("b", NoticeKind.ASK, "t", "", "m1", "claude", "b", 2u, emptyList(), 300uL))
+        val kept = log.keepAsks(emptySet(), 200uL)
+        assertEquals(listOf("b"), kept.notices.map { it.id })
     }
 
     @Test fun bell_keeps_last_hundred() {

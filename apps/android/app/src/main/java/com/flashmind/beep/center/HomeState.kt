@@ -11,6 +11,11 @@ import com.flashmind.beep.proto.AgentOption
 import com.flashmind.beep.proto.MachineSession
 import com.flashmind.beep.userMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** The key a question is known by, in the bell, on Home and in the seen list. */
 internal fun questionKey(machine: String, agent: String, session: String, question: UInt): String =
@@ -33,9 +38,10 @@ internal data class BellLog(val notices: List<MobileNotice> = emptyList()) {
 
     fun remove(id: String) = BellLog(notices.filter { it.id != id })
 
-    /** Drops questions that no longer wait, given the keys that still do. */
-    fun keepAsks(waiting: Set<String>) =
-        BellLog(notices.filter { it.kind != NoticeKind.ASK || it.askKey in waiting })
+    /** Drops questions that no longer wait, given the keys that still do. Only those older than
+     *  `before` go: a newer one may have arrived after the read that listed `waiting`. */
+    fun keepAsks(waiting: Set<String>, before: ULong) =
+        BellLog(notices.filter { it.kind != NoticeKind.ASK || it.atMs >= before || it.askKey in waiting })
 
     companion object { const val LIMIT = 100 }
 }
@@ -43,7 +49,12 @@ internal data class BellLog(val notices: List<MobileNotice> = emptyList()) {
 internal typealias AnswerCoding = suspend (machine: String, agent: String, session: String, question: UInt, reply: String) -> Unit
 
 /** What Home shows. An answered question leaves the list at once and comes back if the send fails. */
-internal class HomeModel(private val load: suspend () -> MobileHome, private val send: AnswerCoding) {
+internal class HomeModel(
+    private val load: suspend () -> MobileHome,
+    private val send: AnswerCoding,
+    /** Answers run here, so a row leaving the screen does not cancel its send. */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+) {
     var home by mutableStateOf<MobileHome?>(null)
         private set
     var error by mutableStateOf("")
@@ -74,6 +85,8 @@ internal class HomeModel(private val load: suspend () -> MobileHome, private val
             error = userMessage(failed)
         }
     }
+
+    fun submit(session: MachineSession, option: AgentOption): Job = scope.launch { answer(session, option) }
 
     suspend fun answer(session: MachineSession, option: AgentOption) {
         val question = session.question ?: return

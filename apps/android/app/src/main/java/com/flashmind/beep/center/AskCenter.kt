@@ -23,6 +23,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -143,8 +145,12 @@ class AskReceiver : BroadcastReceiver() {
         val repository = (context.applicationContext as BeepApplication).repository
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                repository.workspaceApi().answerCoding(machine, agent, session, question, reply)
+                withTimeout(8_000) { repository.workspaceApi().answerCoding(machine, agent, session, question, reply) }
                 AskAlerts.cancel(context, key)
+                AskCenter.removeAsk(key)
+            } catch (timedOut: TimeoutCancellationException) {
+                AskAlerts.forget(context, key)
+                AskAlerts.postFailure(context, "The machine did not answer in time.")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failed: Exception) {
@@ -227,10 +233,15 @@ internal object AskCenter {
     fun clear() = _log.update { BellLog() }
 
     /** Drops the questions that no longer wait. */
-    fun keepAsks(context: Context, waiting: Set<String>) {
-        _log.update { it.keepAsks(waiting) }
-        AskAlerts.keepSeen(context, waiting)
+    fun keepAsks(context: Context, waiting: Set<String>, before: ULong) {
+        _log.update { it.keepAsks(waiting, before) }
+        // Asks newer than the read stay seen too: the read could not have listed them.
+        val recent = _log.value.notices.filter { it.kind == NoticeKind.ASK && it.atMs >= before }.mapNotNull { it.askKey }
+        AskAlerts.keepSeen(context, waiting + recent)
     }
+
+    /** The bell row of an answered question leaves. */
+    fun removeAsk(key: String) = _log.update { log -> BellLog(log.notices.filter { it.askKey != key }) }
 
     /** The row leaves the bell at once and comes back if the answer does not go through. */
     suspend fun answer(context: Context, notice: MobileNotice, option: AskOption): String? {

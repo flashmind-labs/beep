@@ -91,6 +91,17 @@ internal fun CenterRoot(repository: ChatRepository) {
     }
 
     BackHandler(enabled = stack.isEmpty() && tab != CenterTab.Home) { tab = CenterTab.Home }
+    // Until a desktop workspace is linked there is nothing to show but the link screen.
+    var linked by remember(repository) { mutableStateOf<Boolean?>(null) }
+    var recheck by remember { mutableIntStateOf(0) }
+    LaunchedEffect(repository, recheck) {
+        linked = try { repository.workspaceApi().workspaceLinked() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
+    }
+    when (linked) {
+        null -> { Box(Modifier.fillMaxSize().background(Beep.colors.page).systemBarsPadding().padding(16.dp)) { WorkspaceLoading() }; return }
+        false -> { LinkedDevicesScreen(repository, onBack = {}, onWorkspaceLinked = { recheck++ }); return }
+        else -> {}
+    }
     val top = stack.lastOrNull()
     if (top != null) {
         Box(Modifier.fillMaxSize().background(Beep.colors.page)) {
