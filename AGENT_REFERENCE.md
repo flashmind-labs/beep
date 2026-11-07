@@ -297,7 +297,7 @@ Exceptions to the field rule:
 
 ALPNs: `beep-peer/2` and `beep-join/2` (a mesh from before them is in `mesh`,
 never read; the device joins again with a new ticket, kept in `mesh2`),
-and `beep-sync/4`. `beep-node/1` and `/2` were the retired node-server
+and `beep-sync/5`. `beep-node/1` and `/2` were the retired node-server
 link. Change a protocol's bytes, bump its name.
 
 ## Desktop app
@@ -440,15 +440,23 @@ their own.
 
 A new folder takes the checkout and `.git` once. After that, Git metadata
 stays local, including refs, objects, config and the index. Use Git push and
-pull to exchange commits. Regular file sync waits when checkouts have different
-commits; it never moves a branch or rebuilds an existing index.
+pull to exchange commits. When checkouts differ, a clean checkout fetches its
+configured upstream and fast-forwards to the peer's exact commit. Local edits,
+divergent histories and commits unavailable upstream wait for manual Git work.
+Every file batch names its scanned commit and checks it before applying; the
+index stays local.
 
 `.beepignore`, the built-in defaults and ancestor `.stignore` files still apply.
 A Syncthing `.git` exclusion does not prevent Beep's initial Git copy. Linked
 worktrees and submodules stay on their machine. Interrupted initial copies
 resume after restart; a completed copy never starts again after `.git` is deleted.
 
-- Peers talk `beep-sync/4`. Nodes on earlier sync protocols do not sync with it.
+Desktop import and Project settings can turn off Syncthing file sync for one
+project by adding its path to the share's ignore rules. Beep then syncs that
+project, preserving other ignore rules and leaving the shared folder running.
+Turning it back on stops Beep's writes before removing its project exclusion.
+
+- Peers talk `beep-sync/5`. Nodes on earlier sync protocols do not sync with it.
 - Add on a project's machine row makes the folder there and joins sync: the empty
   folder takes the files and `.git` from the others (`Desk::add_to_machine`).
 - Change folder on a row points the machine at another folder, empty (filled as by Add)
