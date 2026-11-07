@@ -1022,20 +1022,37 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dskel-rows { display: grid; gap: 12px; padding: 10px 0 12px }
 .dskel { height: 10px; border-radius: 5px; background: var(--elev) }
 
-/* Start a coding agent: a composer with one pill for harness, model and thinking */
-.agc-wrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 14px 14px 16px; display: flex; flex-direction: column }
-.agc { max-width: 760px; width: 100%; box-sizing: border-box; margin: auto auto 18px; display: grid; gap: 10px }
-.agc h3 { margin: 0 0 14px; text-align: center; font-size: 22px; font-weight: 500; letter-spacing: -.01em }
-.dbar[data-mode="window"] .agc h3 { font-size: 26px }
-.agc h3 b { font-weight: 600 }
-.agc-box { position: relative; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 14px 14px 10px }
-.agc-box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.agc-box.err { border-color: var(--err) }
-.agc-box textarea { display: block; width: 100%; min-height: 58px; max-height: 40vh; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14.5px; line-height: 21px; resize: none; padding: 0; caret-color: var(--accent); field-sizing: content }
-.agc-box textarea::placeholder { color: var(--dim) }
-.agc-box.err textarea::placeholder { color: var(--err) }
-.agc-row { display: flex; align-items: center; gap: 8px; margin-top: 6px }
-.agc-row .sp { flex: 1 }
+/* At most 760px wide, centered; a narrow window keeps the 16px gutter. */
+.cc-pjc { flex: none; margin: 0 max(16px, calc((100% - 760px) / 2)) 14px; display: grid; gap: 6px }
+.cc-pjc .box { position: relative; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
+.cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
+.cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; min-width: 0; user-select: text }
+.cc-pjc input::placeholder, .cc-pjc textarea::placeholder { color: var(--dim) }
+.cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+.cc-pjc .choices { display: contents }
+.cc-pjc .sp { flex: 1 }
+.cc-pjc .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; max-width: 100% }
+.cc-pjc .pill[hidden] { display: none }
+.cc-pjc .pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.cc-pjc .pill:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
+.cc-pjc .pill[disabled] { color: var(--dim); cursor: default; background: transparent }
+.cc-pjc .pill small { color: var(--muted); font-size: 12px }
+.cc-pjc .pill .cc-ag { display: grid; place-items: center; border: 1px solid var(--border); background: var(--elev); width: 18px; height: 18px; border-radius: 5px; font-size: 8.5px; flex: none }
+.cc-pjc .pill svg { color: var(--muted); flex: none }
+.cc-pjc .pill .cc-ag.claude { color: #F2A27A }
+.cc-pjc .pill .cc-ag.codex svg { color: inherit }
+.cc-pjc .pill[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent) }
+.cc-pjc .note { padding: 0 4px; font-size: 11.5px; color: var(--muted) }
+.cc-pjc .cc-err { color: var(--err); font-size: 12px }
+.cc-pjc .cc-err:empty { display: none }
+.cc-pjc .ag-att { padding: 0 }
+.cc-pjc .ag-att[hidden] { display: none }
+.cc-pjc .box.dropping { border-color: var(--accent) }
+.cc-pjc input.branch { height: 28px; width: 30ch; max-width: 100%; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace }
+.cc-pjc input.branch:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+
+/* Harness picker and start menus. */
 .agc-pill { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 13px; color: var(--fg); min-width: 0; white-space: nowrap }
 .agc-pill:hover, .agc-pill[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .agc-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
@@ -1043,16 +1060,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agc-pill small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis }
 .agc-pill svg { color: var(--muted); flex: none }
 .agc-pill .mono, .agc-menu .mono, .agc-list .mono { font-family: var(--mono); font-size: 12px }
-:is(.agc, #agmodel, #agpickm) .cc-ag { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 9.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev); flex: none }
-:is(.agc, #agmodel, #agpickm) .cc-ag.claude { color: #F2A27A } :is(.agc, #agmodel, #agpickm) .cc-ag.codex { color: var(--fg) }
+.cc-pjc .cc-ag, :is(#agmodel, #agpickm) .cc-ag { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 9.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev); flex: none }
+.cc-pjc .cc-ag.claude, :is(#agmodel, #agpickm) .cc-ag.claude { color: #F2A27A } .cc-pjc .cc-ag.codex, :is(#agmodel, #agpickm) .cc-ag.codex { color: var(--fg) }
 .agc-pill .cc-ag.codex svg { color: inherit }
-.agc-send { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); flex: none }
-.agc-send[disabled] { background: var(--elev); color: var(--dim); cursor: default }
-.agc-send:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px }
-.agc-under { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 0 6px; font-size: 12.5px; color: var(--muted); position: relative }
-.agc-under .agc-pill { font-size: 12.5px; color: var(--muted); padding: 4px 8px; max-width: 100% }
-.agc-under .agc-pill small { color: var(--dim); font-size: 11.5px }
-.agc-under .bar { width: 1px; height: 14px; background: var(--border) }
 .agc-type { position: relative; flex: 1; min-width: 200px }
 .agc-type input { width: 100%; box-sizing: border-box; padding: 5px 9px; border-radius: var(--radius-sm); border: 1px solid var(--accent); background: var(--surface); color: var(--fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--accent) }
 .agc-type .agc-menu { left: 0; right: 0 }
@@ -1335,12 +1345,11 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agtree:focus-visible .agtr[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px }
 .agctx button.warn { color: var(--hot) }
 
-/* The welcome stays mounted while the session choices update. */
-.agc:has(.agc-intro) { margin: auto; gap: 16px; padding-block: 32px; }
-.agc-intro { text-align: center; padding: 0 16px 24px; }
-.agc .agc-intro h3 { max-width: 680px; margin: 0 auto; font-size: 48px; line-height: 1; font-weight: 500; letter-spacing: -.04em; text-wrap: balance; }
-.agc-intro p { margin: 24px 0 0; font-size: 14px; line-height: 20px; color: var(--d-muted); text-wrap: pretty; }
-.agc-word { display: inline-block; animation: session-word 700ms cubic-bezier(.22,1,.36,1) both; animation-delay: calc(var(--word) * 80ms); }
-@keyframes session-word { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-@media (max-width: 850px) { .agc .agc-intro h3 { font-size: 36px; line-height: 40px; } }
-@media (prefers-reduced-motion: reduce) { .agc-word { animation: none; } }
+/* New agent uses the project's composer under the same empty conversation. */
+.agnew { flex: 1; min-height: 0; display: flex; flex-direction: column }
+.agnew > .dbody { flex: 1; min-height: 0 }
+#agcomposer > .cc-pjc { margin-inline: 16px }
+#agunder { display: contents }
+#agcomposer .box.err { border-color: var(--err) }
+.agnew-notes { margin: 0 16px 16px }
+.agnew-notes:has(.agc-why[hidden]):has(#aghelp:empty) { display: none }

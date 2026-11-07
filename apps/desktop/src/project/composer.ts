@@ -1,5 +1,6 @@
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
+import { makeStartComposer } from "../agents/start-composer.ts";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { filterProjects } from "./projects-state.ts";
@@ -33,9 +34,6 @@ import type { Attached } from "../agents/agentqueue.ts";
 import { attachedChips, attachImages, wireAttachedPreviews } from "../agents/images.ts";
 import { agentPics } from "../chat/attach.ts";
 
-/// The tallest the bar's field grows before it scrolls, in pixels.
-const BAR_FIELD_MAX = 200;
-
 /// How often the bar reads the sync while a project is added to a machine.
 const POLL_MS = 1000;
 
@@ -43,26 +41,10 @@ const POLL_MS = 1000;
 const barImages: Attached[] = [];
 
 export const projectComp = (() => {
-  // A field that wraps and grows with what is typed, like a chat's:
-  // Enter starts, Shift+Enter adds a line.
-  const input = h("textarea");
-  input.rows = 1;
-  input.autocomplete = "off";
-  input.spellcheck = false;
-  input.setAttribute("aria-label", "Task for a coding agent");
-  input.title = "Enter starts, Shift+Enter adds a line, Shift+Tab switches machines";
-  const machine = h("button", "pill");
-  machine.type = "button";
-  machine.title = "The machine it runs on (Shift+Tab in the task field)";
-  const folder = h("button", "pill");
-  folder.type = "button";
-  folder.title = "The checkout, a new worktree, or an existing worktree";
-  const harness = h("button", "pill");
-  harness.type = "button";
-  harness.title = "Harness, model and thinking";
-  const pick = h("div", "pick");
-  const send = h("button", "dbtn pri", "Start", h("kbd", "", "⏎"));
-  send.type = "submit";
+  const composer = makeStartComposer();
+  const { form, input, choices, machine, folder, harness, pick, att, err, box } = composer;
+  input.title += ", Shift+Tab switches machines";
+  machine.title += " (Shift+Tab in the task field)";
   // Work on it's branch, editable, and Clear for what Work on it or
   // Continue put in the bar.
   const branch = h("input", "branch");
@@ -76,12 +58,8 @@ export const projectComp = (() => {
   clear.type = "button";
   clear.title = "Back to a plain start";
   clear.addEventListener("click", () => { pc.target = null; input.value = ""; redrawProjects(); });
-  const err = h("span", "cc-err");
-  err.setAttribute("role", "status");
-  const row = h("div", "row", machine, folder, branch, clear, h("span", "sp"), harness, send);
+  choices.append(branch, clear);
   // The images waiting, as a session's field shows them.
-  const att = h("div", "ag-att");
-  att.hidden = true;
   att.addEventListener("click", e => {
     const b = (e.target as HTMLElement).closest<HTMLElement>("[data-pjatt]");
     if (!b) return;
@@ -89,9 +67,6 @@ export const projectComp = (() => {
     drawBarImages();
     input.focus();
   });
-  const box = h("div", "box", att, input, row, pick);
-  const form = h("form", "cc-pjc", box, err);
-
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
     if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing && !pc.adding) {
@@ -107,11 +82,7 @@ export const projectComp = (() => {
       }
       return;
     }
-    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
-    e.preventDefault();
-    form.requestSubmit();
   });
-  input.addEventListener("input", () => growBarField(input));
   input.addEventListener("paste", e => {
     const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
     if (!files.length) return;
@@ -174,7 +145,7 @@ export const projectComp = (() => {
   addEventListener("mousedown", e => {
     if (pc.open && !pick.contains(e.target as Node) && !harness.contains(e.target as Node)) closeBarPicker();
   }, true);
-  return { form, input, machine, folder, branch, clear, harness, send, err, pick, att };
+  return { ...composer, branch, clear };
 })();
 
 /// Attaches the pictures among `files` to the bar's first prompt; anything
@@ -241,15 +212,6 @@ function loadProjectBar(name: string) {
   }
 }
 
-/// Fits the bar's field to its text, up to BAR_FIELD_MAX, then it scrolls.
-/// Only once it is on screen: before that it measures nothing.
-function growBarField(input: HTMLTextAreaElement) {
-  if (!input.isConnected) return;
-  input.style.height = "auto";
-  input.style.height = `${Math.min(input.scrollHeight, BAR_FIELD_MAX)}px`;
-  input.style.overflowY = input.scrollHeight > BAR_FIELD_MAX ? "auto" : "hidden";
-}
-
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
   const c = projectComp;
@@ -268,7 +230,7 @@ export function drawProjectComp(name: string) {
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
   c.input.placeholder = barPrompt(name, (!!place && !pc.adding) || pc.hosts === null);
   // Text set or cleared from code (Work on it, a start) fits once drawn.
-  requestAnimationFrame(() => growBarField(c.input));
+  requestAnimationFrame(c.grow);
   c.machine.replaceChildren(...(pc.adding ? [pc.adding.machine_name, " ", h("small", "", "adding")]
     : [place ? place.machine_name : pc.hosts ? "Add to a machine" : "Machine"]));
   c.machine.disabled = !!pc.adding;

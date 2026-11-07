@@ -85,30 +85,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 }
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-/* At most 760px wide, centered; a narrow window keeps the 16px gutter. */
-.cc-pjc { flex: none; margin: 0 max(16px, calc((100% - 760px) / 2)) 14px; display: grid; gap: 6px }
-.cc-pjc .box { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
-.cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
-.cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; min-width: 0; user-select: text }
-.cc-pjc input::placeholder, .cc-pjc textarea::placeholder { color: var(--dim) }
-.cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
-.cc-pjc .sp { flex: 1 }
-.cc-pjc .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; max-width: 100% }
-.cc-pjc .pill:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
-.cc-pjc .pill[disabled] { color: var(--dim); cursor: default; background: transparent }
-.cc-pjc .pill small { color: var(--muted); font-size: 12px }
-.cc-pjc .pill .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8.5px; flex: none }
-.cc-pjc .pill svg { color: var(--muted); flex: none }
-.cc-pjc .pill .cc-ag.codex svg { color: inherit }
-.cc-pjc .pill[aria-expanded="true"] { background: color-mix(in srgb, var(--fg) 6%, transparent) }
-.cc-pjc .note { padding: 0 4px; font-size: 11.5px; color: var(--muted) }
-.cc-pjc .cc-err:empty { display: none }
-.cc-pjc .ag-att { padding: 0 }
-.cc-pjc .ag-att[hidden] { display: none }
-.cc-pjc .box.dropping { border-color: var(--accent) }
-.cc-pjc input.branch { height: 28px; width: 30ch; max-width: 100%; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace }
-.cc-pjc input.branch:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
 
