@@ -544,9 +544,17 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const question = q && AG.modes?.plan == null ? questionCard(q) : "";
   const plan = planHtml(p.plan, s.status === "asking");
   const files = filesHtml(p.files, 12);
-  // Steers sent from here show above the field; this counts the others.
-  const others = p.queued - AG.queue.filter(q => q.state === "sent" || q.state === "sending").length;
-  const queued = others > 0 ? `<div class="row note">${others === 1 ? "1 message waits" : `${others} messages wait`} for the turn to end</div>` : "";
+  // Messages sent here already have their own rows above the field.
+  const local = AG.queue.filter(q => q.state === "sent" || q.state === "sending").map(q => [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n"));
+  const remote = (p.queued_messages ?? []).filter(message => {
+    const i = local.indexOf(message);
+    if (i < 0) return true;
+    local.splice(i, 1);
+    return false;
+  });
+  const missing = Math.max(0, p.queued - (p.queued_messages?.length ?? 0) - local.length);
+  const queued = remote.map(message => `<div class="row note"><b>Waiting to send</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(message)}</div></div>`).join("")
+    + (missing ? `<div class="row note">${missing === 1 ? "1 message waits" : `${missing} messages wait`} for the turn to end</div>` : "");
   // The question, plan and files sit under the log, by the field.
   const card = question || plan || files || queued
     ? `<div class="dcard dcoder">${question}${plan}${files}${queued}</div>` : "";

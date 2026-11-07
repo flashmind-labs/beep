@@ -355,6 +355,7 @@ pub fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
         last_message,
         error: state.error,
         queued: state.queued,
+        queued_messages: state.queued_messages,
         turns,
         entries: Vec::new(),
         earlier: 0,

@@ -714,7 +714,8 @@ expected 200, got 401</pre></details></span></div>`;
     const q = asks ? `<div class="q"><b style="font-weight:600">Run this command?</b><code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">rm -rf target &amp;&amp; cargo build --release</code>
         <div class="dups"><button class="dbtn pri" data-toast="Allowed">Allow<kbd>⌘${DI.ret}</kbd></button><button class="dbtn" data-toast="Allowed for this session">Allow for this session</button><button class="dbtn warn" data-toast="Denied">Deny<kbd>⌘D</kbd></button></div></div>` : "";
     // The card sits under the log, next to the field: the question, the plan.
-    const card = q || plan ? `<div class="dcard dcoder">${q}${plan}<div style="height:12px"></div></div>` : "";
+    const remoteQueue = v === "queued" ? `<div class="row note"><b>Waiting to send</b><div>Check the failing test output</div></div>` : "";
+    const card = q || plan || remoteQueue ? `<div class="dcard dcoder">${q}${plan}${remoteQueue}<div style="height:12px"></div></div>` : "";
     const qatt = (p) => `<span class="ag-qatt" title="Goes with it as @${p}">${p}</span>`;
     const steerRow = v === "steered"
       ? `<div class="ag-queue done"><span class="lbl">Steered</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">delivered after cargo test</span></div>`
