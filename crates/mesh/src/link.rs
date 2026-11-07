@@ -61,9 +61,16 @@ type Known = Arc<Mutex<Heads>>;
 /// not closed here: the streams on it end first (see `run`).
 pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointId) {
     let peer = conn.remote_id();
+    let started = Instant::now();
+    tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), "mesh link started");
+    metrics::counter!("beep_mesh_links_started_total").increment(1);
     if let Err(e) = run(&inner, &conn, peer, dialer).await {
         debug!("link ended: {e}");
+        tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), error = %e, "mesh link ended");
+    } else {
+        tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), "mesh link ended");
     }
+    metrics::histogram!("beep_mesh_link_seconds").record(started.elapsed().as_secs_f64());
     unregister(&inner, &conn, peer);
 }
 

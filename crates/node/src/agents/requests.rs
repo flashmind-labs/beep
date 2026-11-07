@@ -99,6 +99,10 @@ const SLOW_ANSWER: Duration = Duration::from_secs(20);
 /// `SLOW_ANSWER`, unless dropped first. A request that streams is not
 /// watched (#428).
 fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDropHandle<()>> {
+    let limit = match request {
+        SessionsRequest::List {} | SessionsRequest::Transcript { .. } => Duration::from_secs(2),
+        _ => SLOW_ANSWER,
+    };
     let what = match request {
         SessionsRequest::Watch { .. }
         | SessionsRequest::FollowPresence {}
@@ -111,17 +115,21 @@ fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDr
         SessionsRequest::WriteFile { path, .. } => format!("WriteFile {path}"),
         other => format!("{other:?}").chars().take(300).collect(),
     };
-    Some(warn_if_slow(format!(
-        "agents/1 {what} from {}",
-        caller.fmt_short()
-    )))
+    Some(warn_if_slow_after(
+        format!("agents/1 {what} from {}", caller.fmt_short()),
+        limit,
+    ))
 }
 
 /// Logs `what` as unanswered once `SLOW_ANSWER` passes, unless dropped first.
 pub(super) fn warn_if_slow(what: String) -> AbortOnDropHandle<()> {
+    warn_if_slow_after(what, SLOW_ANSWER)
+}
+
+fn warn_if_slow_after(what: String, limit: Duration) -> AbortOnDropHandle<()> {
     AbortOnDropHandle::new(tokio::spawn(async move {
-        tokio::time::sleep(SLOW_ANSWER).await;
-        log::warn!("no answer after {} s to {what}", SLOW_ANSWER.as_secs());
+        tokio::time::sleep(limit).await;
+        log::warn!("no answer after {} s to {what}", limit.as_secs());
     }))
 }
 
@@ -136,6 +144,12 @@ pub async fn serve_sessions(
     let Some(request) = rx.recv::<SessionsRequest>().await? else {
         return Ok(());
     };
+    let operation = match &request {
+        SessionsRequest::List {} => Some("list"),
+        SessionsRequest::Transcript { .. } => Some("transcript"),
+        _ => None,
+    };
+    let started = std::time::Instant::now();
     let _slow = watch_slow(&request, caller);
     let reply = match request {
         SessionsRequest::List {} => SessionsReply::Sessions {
@@ -416,7 +430,25 @@ pub async fn serve_sessions(
             message: format!("this node does not serve {other:?}"),
         },
     };
-    tx.send(&reply).await
+    let computed = started.elapsed();
+    let result = tx.send(&reply).await;
+    if let Some(operation) = operation {
+        let elapsed = started.elapsed();
+        let outcome = if result.is_ok() { "ok" } else { "error" };
+        metrics::counter!("beep_agent_requests_total", "operation" => operation, "outcome" => outcome).increment(1);
+        metrics::histogram!("beep_agent_request_seconds", "operation" => operation)
+            .record(elapsed.as_secs_f64());
+        if elapsed >= Duration::from_secs(1) {
+            log::warn!(
+                "slow agents/1 {operation} from {}: total={}ms handling={}ms send={}ms outcome={outcome}",
+                caller.fmt_short(),
+                elapsed.as_millis(),
+                computed.as_millis(),
+                elapsed.saturating_sub(computed).as_millis()
+            );
+        }
+    }
+    result
 }
 
 async fn live_reply(agents: &Agents, session: &str, steer: Option<agent::Steer>) -> SessionsReply {
