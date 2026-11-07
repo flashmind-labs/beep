@@ -9,19 +9,20 @@ struct Palette {
     var code, onCode: Color
     var outline: CGFloat = 1
     var radius: CGFloat = 8
+    var smallRadius: CGFloat = 6
     var body: String? = "Inter-Regular"
 
     /// Built from the generated table in Skins.swift.
     static func skin(page: UInt32, surface: UInt32, raised: UInt32, ink: UInt32, muted: UInt32, dim: UInt32,
                      line: UInt32, accent: UInt32, onAccent: UInt32, ok: UInt32, warn: UInt32, error: UInt32,
-                     brand: UInt32, user: UInt32, tint: UInt32, radius: CGFloat) -> Palette {
+                     brand: UInt32, user: UInt32, tint: UInt32, radius: CGFloat, smallRadius: CGFloat) -> Palette {
         Palette(page: Color(hex: page), surface: Color(hex: surface), raised: Color(hex: raised), ink: Color(hex: ink),
             muted: Color(hex: muted), dim: Color(hex: dim), line: Color(hex: line), soft: Color(hex: line),
             user: Color(hex: user), onUser: Color(hex: ink),
             brand: Color(hex: brand), accent: Color(hex: accent), onAccent: Color(hex: onAccent),
             ok: Color(hex: ok), warn: Color(hex: warn), error: Color(hex: error),
             tints: [Color(hex: raised), Color(hex: surface), Color(hex: tint)],
-            code: Color(hex: raised), onCode: Color(hex: ink), radius: radius)
+            code: Color(hex: raised), onCode: Color(hex: ink), radius: radius, smallRadius: smallRadius)
     }
 }
 
@@ -38,9 +39,12 @@ extension Skins {
 
     /// The picked skin. "system", and any old or unknown value, is Linear in dark mode and Light in light mode.
     static func resolve(_ choice: String, dark: Bool) -> Skin {
-        let id = all.contains { $0.id == choice } ? choice : (dark ? "linear" : "paper")
+        let id = normalize(choice) == system ? (dark ? "linear" : "paper") : choice
         return all.first { $0.id == id }!
     }
+
+    /// A skin id, or "system" for Match system and any old or unknown value.
+    static func normalize(_ choice: String) -> String { all.contains { $0.id == choice } ? choice : system }
 }
 
 /// The picked skin, saved on the device. Views read it through `Mint`, so observation
@@ -59,14 +63,12 @@ extension Skins {
         }
     }
 
-    /// The system appearance; the root view keeps it current.
-    var dark: Bool {
-        didSet { if dark != oldValue { apply() } }
-    }
+    /// The system appearance, not the one a picked skin forces on the views.
+    private var dark: Bool
 
     private init() {
-        let choice = UserDefaults.standard.string(forKey: Self.key) ?? Skins.system
-        let dark = UITraitCollection.current.userInterfaceStyle != .light
+        let choice = Skins.normalize(UserDefaults.standard.string(forKey: Self.key) ?? Skins.system)
+        let dark = Self.systemIsDark()
         self.choice = choice
         self.dark = dark
         let skin = Skins.resolve(choice, dark: dark)
@@ -74,10 +76,17 @@ extension Skins {
         palette = skin.palette
     }
 
+    /// The root view calls this when the colour scheme changes while Match system is on.
+    func systemChanged() { apply() }
+
     private func apply() {
+        dark = Self.systemIsDark()
         skin = Skins.resolve(choice, dark: dark)
         palette = skin.palette
     }
+
+    /// The screen's trait collection is set from the first frame and ignores a skin's forced scheme.
+    private static func systemIsDark() -> Bool { UIScreen.main.traitCollection.userInterfaceStyle != .light }
 
     static var palette: Palette { shared.palette }
 }
@@ -105,7 +114,7 @@ enum Mint {
     static var tints: [Color] { Appearance.palette.tints }
     static var outline: CGFloat { Appearance.palette.outline }
     static var radius: CGFloat { Appearance.palette.radius }
-    static let smallRadius: CGFloat = 6
+    static var smallRadius: CGFloat { Appearance.palette.smallRadius }
     static let spacing: CGFloat = 12
     static let pageInset: CGFloat = 16
     static let activity = Color(hex: 0x151617)
@@ -128,15 +137,6 @@ enum Mint {
 }
 
 extension Color {
-    static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(uiColor: UIColor { traits in
-            let hex = traits.userInterfaceStyle == .dark ? dark : light
-            return UIColor(red: CGFloat((hex >> 16) & 255) / 255,
-                           green: CGFloat((hex >> 8) & 255) / 255,
-                           blue: CGFloat(hex & 255) / 255, alpha: 1)
-        })
-    }
-
     init(hex: UInt32) {
         self.init(
             red: Double((hex >> 16) & 0xFF) / 255,

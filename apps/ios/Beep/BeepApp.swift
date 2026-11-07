@@ -91,7 +91,7 @@ struct RootView: View {
 
     var body: some View {
         content
-            .onChange(of: colorScheme, initial: true) { _, scheme in Appearance.shared.dark = scheme == .dark }
+            .onChange(of: colorScheme, initial: true) { _, _ in Appearance.shared.systemChanged() }
             .preferredColorScheme(Appearance.shared.choice == Skins.system ? nil : (Appearance.shared.skin.light ? .light : .dark))
     }
 

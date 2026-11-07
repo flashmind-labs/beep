@@ -36,10 +36,11 @@ def declarations(block):
 def parse_css():
     text = CSS.read_text()
     base = declarations(re.search(r":root\s*\{(.*?)\}", text, re.S).group(1))
-    skins = {"linear": base}
+    skins = {"linear": (base, base)}
     for sid, body in re.findall(r':root\[data-skin="([a-z]+)"\]\s*\{(.*?)\}', text, re.S):
-        skins[sid] = {**base, **declarations(body)}
-    return base, skins
+        own = declarations(body)
+        skins[sid] = ({**base, **own}, own)
+    return skins
 
 
 def parse_ts():
@@ -48,12 +49,13 @@ def parse_ts():
         r'\{\s*id:\s*"([a-z]+)",\s*name:\s*"([^"]+)",\s*swatch:\s*"[^"]+"(,\s*light:\s*true)?', block)]
 
 
-def tokens(sid, css, base):
+def tokens(css, own):
     muted, ink = css["--muted"], css["--ink"]
-    # The dim color is derived unless the skin sets it.
-    dim = css["--dim"] if css.get("--dim") != base["--dim"] else None
-    dim = rgb(dim) if dim else mix(ink, muted, 0.62)
+    # Dim and the small radius are derived unless the skin sets them (the root's are expressions).
+    dim = rgb(own["--dim"]) if own.get("--dim", "").startswith("#") else mix(ink, muted, 0.62)
     radius = int(re.match(r"(\d+)px", css["--radius"]).group(1))
+    small = own.get("--radius-sm", "")
+    small = int(small[:-2]) if re.fullmatch(r"\d+px", small) else radius * 0.75
     hexes = lambda c: "%02X%02X%02X" % c
     return {
         "page": hexes(rgb(ink)), "surface": hexes(rgb(css["--surface"])), "raised": hexes(rgb(css["--elev"])),
@@ -63,7 +65,7 @@ def tokens(sid, css, base):
         "warn": hexes(rgb(css["--warn"])), "error": hexes(rgb(css["--err"])), "brand": hexes(rgb(css["--link"])),
         "user": hexes(mix(css["--surface"], css["--accent"], 0.22)),
         "tint": hexes(mix(css["--surface"], css["--accent"], 0.12)),
-        "radius": radius,
+        "radius": radius, "small": f"{small:g}",
     }
 
 
@@ -72,19 +74,19 @@ KEYS = ["page", "surface", "raised", "ink", "muted", "dim", "line", "accent", "o
 
 
 def build():
-    base, css = parse_css()
+    css = parse_css()
     skins = parse_ts()
     assert len(skins) == 17 and all(s[0] in css for s in skins), "skin.ts and skins.css disagree"
     swift = [f"// {NOTE}", "import SwiftUI", "", "enum Skins {", "    static let all: [Skin] = ["]
     kotlin = [f"// {NOTE}", "package com.flashmind.beep", "", "import androidx.compose.ui.unit.dp", "",
               "internal val skinTable: List<Skin> = listOf("]
     for sid, name, light in skins:
-        t = tokens(sid, css[sid], base)
+        t = tokens(*css[sid])
         sw = ", ".join(f"{k}: 0x{t[k]}" for k in KEYS)
         swift.append(f'        Skin(id: "{sid}", name: "{name}", light: {str(light).lower()}, '
-                     f'palette: .skin({sw}, radius: {t["radius"]})),')
+                     f'palette: .skin({sw}, radius: {t["radius"]}, smallRadius: {t["small"]})),')
         kt = ", ".join(f"0xFF{t[k]}" for k in KEYS)
-        kotlin.append(f'    Skin("{sid}", "{name}", {str(light).lower()}, skinColors({kt}), {t["radius"]}.dp),')
+        kotlin.append(f'    Skin("{sid}", "{name}", {str(light).lower()}, skinColors({kt}), {t["radius"]}.dp, {t["small"]}.dp),')
     swift += ["    ]", "}", ""]
     kotlin += [")", ""]
     return {SWIFT: "\n".join(swift), KOTLIN: "\n".join(kotlin)}
