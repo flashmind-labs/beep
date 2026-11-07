@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { harnessLine, harnessName, projectExtra, planUsed, todayLine, windowUsed } from "../src/center/usage.ts";
+import { harnessLine, harnessName, modelTotals, projectExtra, planUsed, todayLine, windowUsed } from "../src/center/usage.ts";
 import { tokenCount } from "../src/ui/format.ts";
 
 test("a plan has used what its tightest window has used", () => {
@@ -35,4 +35,13 @@ test("the pill shows dollars paid, else the tokens plans covered", () => {
   assert.equal(todayLine({ total: { cost_usd: 0 }, tokens: 1_055_000_000 }), "1.1B");
   assert.match(todayLine({ total: { cost_usd: 0.42 }, tokens: 1_055_000_000 }), /0\.42/);
   assert.match(todayLine({ total: { cost_usd: 0 }, tokens: 0 }), /0/);
+});
+
+test("model totals combine harnesses and billing types, sorted by tokens", () => {
+  const base = { agent: "claude", cost_usd: null, tokens: 0 };
+  assert.deepEqual(modelTotals([
+    { ...base, models: [{ name: "model-a", tokens: 10 }, { name: "model-b", tokens: 20 }] },
+    { ...base, subscription: true, models: [{ name: "model-a", tokens: 15 }, { name: "unknown", tokens: 0 }] },
+  ]), [{ name: "model-a", tokens: 25 }, { name: "model-b", tokens: 20 }]);
+  assert.deepEqual(modelTotals([]), []);
 });

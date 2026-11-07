@@ -35,13 +35,13 @@ const usPill = () => {
   const data = {
     today: { label: "Today", total: "", tokens: "39.3M",
       projects: [["acme/widget", "", "38M"], ["acme/relay", "", "1.3M"]],
-      harnesses: [["Claude Code, subscription", "~$61 · 38M"], ["Codex, subscription", "~$3.40 · 1.3M"]] },
+      harnesses: [["Claude Code, subscription", "~$61 · 38M"], ["Codex, subscription", "~$3.40 · 1.3M"]], models: [["claude-sonnet", "38M"], ["gpt-codex", "1.3M"]] },
     week: { label: "This week", total: "$7.95", tokens: "217.6M",
       projects: [["notes", "$5.85", "0.6M"], ["acme/widget", "$2.10", "150M"], ["acme/relay", "", "67M"]],
-      harnesses: [["pi", "$5.85 · 0.6M"], ["flsh", "$2.10 · 0.8M"], ["Claude Code, subscription", "~$340 · 210M"], ["Codex, subscription", "~$16 · 6.2M"]] },
+      harnesses: [["pi", "$5.85 · 0.6M"], ["flsh", "$2.10 · 0.8M"], ["Claude Code, subscription", "~$340 · 210M"], ["Codex, subscription", "~$16 · 6.2M"]], models: [["claude-sonnet", "210M"], ["gpt-codex", "6.2M"], ["other-model", "1.4M"]] },
     month: { label: "This month", total: "$26.03", tokens: "1.1B",
       projects: [["acme/widget", "$13.02", "800M"], ["notes", "$13.01", "1.5M"], ["acme/relay", "", "300M"], ["acme/site", "$1.20", "22M"], ["acme/infra", "$0.40", "9M"], ["acme/docs", "", "4M"], ["acme/cli", "", "1.1M"]],
-      harnesses: [["flsh", "$13.01 · 1.5M"], ["pi", "$13.02 · 1.9M"], ["Claude Code, subscription", "~$1,780 · 1.1B"], ["Codex, subscription", "~$54 · 21M"]] },
+      harnesses: [["flsh", "$13.01 · 1.5M"], ["pi", "$13.02 · 1.9M"], ["Claude Code, subscription", "~$1,780 · 1.1B"], ["Codex, subscription", "~$54 · 21M"]], models: [["claude-sonnet", "1.1B"], ["gpt-codex", "21M"], ["other-model", "3.4M"]] },
   };
   const d = data[period];
   const seg = Object.entries(data).map(([k, v]) => `<button data-usperiod="${k}" class="${k === period ? "on" : ""}">${v.label}</button>`).join("");
@@ -58,6 +58,8 @@ const usPill = () => {
         ${d.projects.length > 5 ? `<button class="us-more" data-usmore>${S.d.usmore ? "Show less" : `Show ${d.projects.length - 5} more`}</button>` : ""}
         <h5 class="us-sub"><span>By harness</span></h5>
         ${d.harnesses.map(([n, l]) => `<div class="us-row"><small>${n}</small><span class="us-r"><small>${l}</small></span></div>`).join("")}
+        <h5 class="us-sub"><span>By model</span></h5>
+        ${d.models.map(([n, t]) => `<div class="us-row"><small>${n}</small><span class="us-r"><small>${t}</small></span></div>`).join("")}
         <div class="us-row"><b>Total</b><b class="us-r">${d.total}<small>${d.total ? " · " : ""}${d.tokens}</small></b></div></div>
       <div class="us-note">Dollars are API spend. ~ is what plan use would cost on the API, not in the total.</div>
     </div>` : "";
