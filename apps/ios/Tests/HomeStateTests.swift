@@ -68,6 +68,26 @@ final class HomeStateTests: XCTestCase {
         XCTAssertEqual(during, 0)
     }
 
+    func test_answered_ask_stays_hidden_through_stale_refresh() async {
+        let waiting = session("a")
+        let stale = home([.ask(session: waiting)])
+        var gate: CheckedContinuation<MobileHome, Never>?
+        var first = true
+        let model = HomeModel(load: {
+            if first { first = false; return await withCheckedContinuation { gate = $0 } }
+            return stale
+        }, send: { _, _, _, _, _ in })
+        let reading = Task { await model.refresh() }
+        while gate == nil { await Task.yield() }
+        await model.answer(waiting, option: waiting.question!.options[0])
+        gate?.resume(returning: stale)
+        await reading.value
+        XCTAssertEqual(model.badge, 0, "a read that began before the answer must not bring the row back")
+        // The agent still lists it on a later read: that read began after the answer, so it shows.
+        await model.refresh()
+        XCTAssertEqual(model.badge, 1)
+    }
+
     func test_bell_keeps_last_hundred() {
         var log = BellLog()
         for n in 0..<130 { log.add(notice(n)) }

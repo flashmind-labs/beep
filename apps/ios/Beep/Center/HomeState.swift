@@ -53,22 +53,31 @@ typealias AnswerCoding = (_ machine: String, _ agent: String, _ session: String,
     private let send: AnswerCoding
     private(set) var home: MobileHome?
     private(set) var error = ""
-    private var hidden: Set<String> = []
+    /// Questions being answered now.
+    private var sending: Set<String> = []
+    /// Answered questions, with the number of refreshes begun when the answer landed. A refresh
+    /// that began before it may still list the question, so the key stays hidden until a later one.
+    private var answered: [String: Int] = [:]
+    private var begun = 0
 
     init(load: @escaping () async throws -> MobileHome, send: @escaping AnswerCoding) {
         self.load = load
         self.send = send
     }
 
-    var needs: [Need] { (home?.needs ?? []).filter { !hidden.contains($0.key) } }
+    var needs: [Need] { (home?.needs ?? []).filter { !sending.contains($0.key) && answered[$0.key] == nil } }
     /// The number on the bell.
     var badge: Int { needs.count }
     /// The questions that still wait.
     var waiting: Set<String> { Set((home?.needs ?? []).map(\.key)) }
 
     func refresh() async {
+        begun += 1
+        let mine = begun
         do {
-            home = try await load()
+            let read = try await load()
+            home = read
+            answered = answered.filter { $0.value >= mine }
             error = ""
         } catch {
             self.error = describe(error)
@@ -78,14 +87,15 @@ typealias AnswerCoding = (_ machine: String, _ agent: String, _ session: String,
     func answer(_ session: MachineSession, option: AgentOption) async {
         guard let question = session.question else { return }
         let key = Need.ask(session: session).key
-        hidden.insert(key)
+        sending.insert(key)
         do {
             try await send(session.machineId, session.agent, session.id, question.id, option.id)
             home?.needs.removeAll { $0.key == key }
+            answered[key] = begun
             error = ""
         } catch {
             self.error = describe(error)
         }
-        hidden.remove(key)
+        sending.remove(key)
     }
 }

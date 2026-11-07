@@ -154,7 +154,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     @MainActor func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
-        if response.notification.request.content.categoryIdentifier == AskAlerts.category {
+        if info["askMachine"] != nil {
             await answerAsk(info, action: response.actionIdentifier)
             return
         }
@@ -184,18 +184,28 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
     /// Allow or Deny on a coding agent's question. The app may be in the background.
     @MainActor private func answerAsk(_ info: [AnyHashable: Any], action: String) async {
         guard let model, let machine = info["askMachine"] as? String, let agent = info["askAgent"] as? String,
-              let session = info["askSession"] as? String, let question = info["askQuestion"] as? Int else { return }
+              let session = info["askSession"] as? String else { return }
         if action == UNNotificationDefaultActionIdentifier {
             model.destination = .codingSession(machine, agent, session)
             return
         }
+        guard action == AskAlerts.allow || action == AskAlerts.deny, let question = info["askQuestion"] as? Int else { return }
+        let key = questionKey(machine: machine, agent: agent, session: session, question: UInt32(question))
         let reply = info[action == AskAlerts.allow ? "askAllow" : "askDeny"] as? String ?? ""
-        guard !reply.isEmpty, action == AskAlerts.allow || action == AskAlerts.deny else { return }
+        func failed(_ detail: String) {
+            AskAlerts.forget(key)
+            AskAlerts.postFailure(machine: machine, agent: agent, session: session, detail: detail)
+        }
+        guard !reply.isEmpty else { return failed("The agent offers no such answer. Open the session to answer.") }
         let task = UIApplication.shared.beginBackgroundTask(withName: "answer")
         defer { UIApplication.shared.endBackgroundTask(task) }
         model.connect()
-        try? await model.workspace.client().answerCoding(machineId: machine, agent: agent, session: session,
-                                                          question: UInt32(question), reply: reply)
+        do {
+            try await model.workspace.client().answerCoding(machineId: machine, agent: agent, session: session,
+                                                            question: UInt32(question), reply: reply)
+        } catch {
+            failed(describe(error))
+        }
     }
 
     /// Sends the reply with time asked of iOS, since the app may be in the background.

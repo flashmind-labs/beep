@@ -33,9 +33,11 @@ struct HomeView: View {
                 CCSegmented(items: [.init(value: .overview, label: "Overview"),
                                     .init(value: .prs, label: "PRs and issues", count: pullCount),
                                     .init(value: .machines, label: "Machines")], selection: $tab)
-                WorkspaceError(text: ([home.error] + (home.home?.errors ?? [])).filter { !$0.isEmpty }.joined(separator: "\n"))
-                if home.home == nil { WorkspaceLoading() }
-                else {
+                if home.home == nil {
+                    if home.error.isEmpty { WorkspaceLoading() }
+                    else { WorkspaceError(text: home.error, retry: load) }
+                } else {
+                    WorkspaceError(text: ([home.error] + (home.home?.errors ?? [])).filter { !$0.isEmpty }.joined(separator: "\n"))
                     switch tab {
                     case .overview: overview
                     case .prs: pulls
@@ -135,14 +137,13 @@ struct HomeView: View {
             }
         case .pull(let item):
             let reason = pullReason(item)
-            CCRow(title: "#\(item.number) \(item.title)", subtitle: "\(item.repo) · \(reason.text.lowercased())", chevron: true,
-                  action: { if let url = URL(string: item.url) { openURL(url) } }) {
+            CCRow(title: "#\(item.number) \(item.title)", subtitle: "\(item.repo) · \(reason.text.lowercased())") {
                 CCKindTile(text: "PR", kind: reason.kind)
-            } right: { CCTag(text: reason.text, kind: reason.kind) }
+            } right: { CCButton(title: "Review") { if let url = URL(string: item.url) { openURL(url) } } }
         case .conflict(let project, let path, let machines):
             CCRow(title: "\(path) changed on \(machines.count) machines", subtitle: "\(project) · \(machines.joined(separator: " and "))") {
                 CCKindTile(text: "\u{21C4}", kind: .bad)
-            } right: { CCTag(text: "Conflict", kind: .bad) }
+            } right: { CCButton(title: "Resolve") { self.path.append(.project(project)) } }
         }
     }
 
