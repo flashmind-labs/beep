@@ -104,11 +104,11 @@ function wireFileButtons(t: MediaTab, el: HTMLElement) {
   });
 }
 
-/// A picture that fits its box, or shows at its own size; the wheel or a
-/// pinch zooms about the pointer, a drag pans.
+/// A picture that fits its box, or shows at its own size; a pinch zooms
+/// about the pointer, a two-finger swipe or drag pans.
 function imageView(t: MediaTab) {
   const el = h(`<div class="agpview"><div class="agpstage img"><img alt="${esc(t.name)}" draggable="false"></div>
-    <div class="agpacts"><button class="dbtn on" data-fit="1">Fit</button><button class="dbtn" data-fit="0">Actual size</button><span class="zoom"></span><span class="meta"></span><span class="sp"></span><span class="hint">Wheel or pinch to zoom, drag to pan</span>${t.path ? fileButtons(t, "Open in Preview") : '<button class="dbtn" data-full="1" title="Full size, to save or copy">Open full size</button>'}</div></div>`);
+    <div class="agpacts"><button class="dbtn on" data-fit="1">Fit</button><button class="dbtn" data-fit="0">Actual size</button><span class="zoom"></span><span class="meta"></span><span class="sp"></span><span class="hint">Pinch or Ctrl + scroll to zoom, swipe with two fingers or drag to pan</span>${t.path ? fileButtons(t, "Open in Preview") : '<button class="dbtn" data-full="1" title="Full size, to save or copy">Open full size</button>'}</div></div>`);
   const stage = el.querySelector<HTMLElement>(".agpstage")!, img = el.querySelector("img")!;
   const zoomText = el.querySelector(".zoom")!, fitBtn = el.querySelector('[data-fit="1"]')!, actualBtn = el.querySelector('[data-fit="0"]')!;
   // One write per frame, on the GPU layer only: a drag or a wheel sends far
@@ -149,8 +149,16 @@ function imageView(t: MediaTab) {
   };
   stage.addEventListener("wheel", e => {
     e.preventDefault();
-    // A pinch comes as the wheel with Control held, in small steps.
-    zoom(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), e.clientX, e.clientY);
+    if (!t.image) return;
+    // Trackpad pinches send Control-wheel events; ordinary swipes pan.
+    if (e.ctrlKey) {
+      zoom(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+    } else {
+      const dx = e.deltaX * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? stage.clientWidth : 1);
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? stage.clientHeight : 1);
+      t.image.view = { ...t.image.view, x: t.image.view.x - dx, y: t.image.view.y - dy, fit: false };
+      apply();
+    }
   }, { passive: false });
   // WebKit's own pinch.
   let pinch = 1;
