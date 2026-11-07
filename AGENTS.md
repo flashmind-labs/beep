@@ -156,12 +156,11 @@ run against the newer schema.
 
 ## UI changes
 
-Every screen is mocked, one artifact per platform:
+Every screen is mocked in `mockups/`, one file per platform:
 
-- Android: https://claude.ai/artifact/NoyjMpUYmVxmBEGAgQfok2
-- iOS: https://claude.ai/artifact/SGKUgUgcBfqMimBBGiAEtq
-- Desktop, the tray bar and all screens:
-  https://claude.ai/artifact/8BxZSzsXaPqHXkn18rRRSL
+- Android: `mockups/android.html`
+- iOS: `mockups/ios.html`
+- Desktop, including the tray bar: `mockups/desktop.html`
 
 Before changing an app's UI, update that platform's mock first so it shows
 the new screen or state, then change the app to match.
