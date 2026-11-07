@@ -200,7 +200,7 @@
   const MODELS = { claude: [["Default", "model-large"], ["model-large", ""], ["model-small", ""]],
     codex: [["Default", "gpt-test"], ["gpt-test", ""], ["gpt-mini", ""]],
     flsh: [["Default", "openai:gpt-test"], ["anthropic:model-large", ""], ["openrouter:vendor/model-a", ""], ["ollama:local-model", ""]] };
-  const THINK = { claude: ["Low", "Medium", "High", "Extra high", "Max"], codex: ["Low", "Medium", "High"], flsh: null };
+  const THINK = { claude: ["Low", "Medium", "High", "Extra high", "Max"], codex: ["Low", "Medium", "High"], flsh: ["Off", "Low", "Medium", "High"] };
 
   const pick = (key, ok, def) => ok.includes(S.d[key]) ? S.d[key] : def;
   const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
@@ -212,7 +212,7 @@
       return `<button type="button" aria-pressed="${a === agent}" title="${AGK[a][1]}${on ? "" : ` (not on ${machine || "any machine"})`}"${on ? "" : " disabled"}>${av(a)}</button>`; }).join("");
     const think = levels
       ? [`<button type="button" class="on">Default${CHECK}</button>`, ...levels.map(t => `<button type="button">${t}</button>`)].join("")
-      : `<p class="none">${agent === "flsh" ? "flsh sets thinking in its own config." : `${name} has no thinking setting Beep can pass.`}</p>`;
+      : `<p class="none">${name} has no thinking setting Beep can pass.</p>`;
     const rows = !models ? `<button type="button" class="on">Default<small>its own</small></button><p class="none">Pick a machine to list its models.</p>`
       : MODELS[agent].map(([m, note], i) => `<button type="button" class="${i === 0 ? "on" : ""}${agent === "flsh" && i ? " mono" : ""}"${act ? ` data-dact="${act}"` : ""}>${m}${note ? `<small>${note}</small>` : ""}</button>`).join("");
     return `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">

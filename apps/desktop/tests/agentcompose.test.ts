@@ -7,7 +7,7 @@ import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
 import { agentHints, closeOpenSession, pollAgent } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
-import { switchSessionModel } from "../src/agents/modelpill.ts";
+import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 
@@ -157,6 +157,24 @@ test("the model pill keeps the model that runs", async () => {
   await switchSessionModel(s, { model: "sonnet-y", effort: null }, "model");
   assert.match(pill.innerHTML, /opus-x/);
   assert.doesNotMatch(pill.innerHTML, /sonnet-y/);
+});
+
+test("flsh can switch its model and thinking from a working session", async () => {
+  const page = openSession("working");
+  page.session.agent = "flsh";
+  AG.open!.agent = "flsh";
+  const pill = { innerHTML: "" };
+  show({ "#agmodel": pill });
+  drawModelPill();
+  assert.doesNotMatch(pill.innerHTML, / disabled/);
+  await switchSessionModel(page.session, { model: "ollama:example", effort: null }, "model");
+  await switchSessionModel(page.session, { model: "ollama:example", effort: "high" }, "effort");
+  assert.deepEqual(steers(), [
+    { configure: { model: "ollama:example", effort: null } },
+    { configure: { model: null, effort: "high" } },
+  ]);
+  assert.match(pill.innerHTML, /ollama:example/);
+  assert.match(pill.innerHTML, /High/);
 });
 
 test("a message queued while the turn runs keeps its file and image when it goes", async () => {

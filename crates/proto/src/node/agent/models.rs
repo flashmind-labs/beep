@@ -76,15 +76,16 @@ impl From<Effort> for AgentEffort {
 /// - `claude`: `claude --effort` (low, medium, high, xhigh, max).
 /// - `codex`: `codex -c model_reasoning_effort=` (low, medium, high).
 /// - `pi`: `pi --thinking` (off, minimal, low, medium, high, xhigh, max).
+/// - `flsh`: ACP `thought_level` (off, low, medium, high), from 0.2.7.
 ///
-/// Gemini CLI, flsh and OpenCode have no such flag: flsh keeps it in its
-/// own config.
+/// Gemini CLI and OpenCode have no such setting.
 pub fn efforts(agent: &str) -> &'static [Effort] {
     use Effort::*;
     match agent {
         "claude" => &[Low, Medium, High, Xhigh, Max],
         "codex" => &[Low, Medium, High],
         "pi" => &[Off, Minimal, Low, Medium, High, Xhigh, Max],
+        "flsh" => &[Off, Low, Medium, High],
         _ => &[],
     }
 }
