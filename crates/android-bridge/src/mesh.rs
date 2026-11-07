@@ -9,6 +9,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::OnceCell;
 
 mod agents;
+mod alerts;
 mod projects;
 mod status;
 mod terminals;
@@ -26,6 +27,7 @@ impl From<FleetError> for BeepError {
         match error {
             FleetError::NotFound => Self::NotFound,
             FleetError::Refused(reason) => bad_request(reason),
+            FleetError::Conflict(reason) => Self::Conflict { reason },
             other => Self::Connection {
                 reason: other.to_string(),
             },
@@ -162,7 +164,10 @@ impl Peers for Connected {
     async fn client(&self, machine: EndpointId) -> Result<PeerClient, FleetError> {
         self.client(&machine.to_string())
             .await
-            .map_err(|error| FleetError::Other(error.into()))
+            .map_err(|error| match error {
+                BeepError::NotFound => FleetError::NotFound,
+                other => FleetError::Other(other.into()),
+            })
     }
 }
 

@@ -548,6 +548,7 @@ dependencies = [
  "beep-projects",
  "beep-proto",
  "chrono",
+ "fastrand",
  "futures",
  "iroh",
  "iroh-tickets",
