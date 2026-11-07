@@ -1,0 +1,56 @@
+# Desktop checks run independently of signed builds and releases.
+name: desktop-check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: host
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the web UI
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run check
+
+  native:
+    runs-on: macos
+    timeout-minutes: 30
+    env:
+      BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up the toolchain
+        run: |
+          set -euo pipefail
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          # Separate from the signed build's cache so the jobs can overlap.
+          target="$HOME/Library/Caches/beep-desktop-check-target"
+          echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
+          if [ -d "$target" ] && [ "$(du -sk "$target" | cut -f1)" -gt $((30 * 1024 * 1024)) ]; then
+            rm -rf "$target"
+          fi
+      - name: Build the web UI
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+      - name: Format, lint and test
+        working-directory: apps/desktop/src-tauri
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test -- --test-threads=2

@@ -45,9 +45,11 @@ import { reason } from "../ui/format.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
+import { followToolUpdates } from "../machines/machines.ts";
 
 followSkin();
 guardClicks();
+followToolUpdates();
 initConversationSwitcher({
   current: () => shown === "pane" && paneOn().view === "agent" && !AG.draft ? AG.page?.session ?? null : null,
   rows: () => (state.home?.running ?? []).filter(row => row.kind === "agent"),
