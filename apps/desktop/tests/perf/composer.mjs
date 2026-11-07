@@ -58,8 +58,8 @@ for (const width of opt("widths", "1280,1800").split(",").map(Number)) {
   const mid = (r.main.left + r.main.right) / 2, boxMid = (r.box.left + r.box.right) / 2;
   check(`${width}: box centered in the main area`, Math.abs(mid - boxMid) <= 2, `main center ${mid}, box center ${boxMid}`);
   check(`${width}: box at most 760px`, r.box.width <= 760, `${r.box.width}px`);
-  check(`${width}: detail leaves room under it`, parseFloat(r.detPad) >= r.formH, `padding ${r.detPad}, bar ${r.formH}px`);
-  check(`${width}: list leaves room under it`, parseFloat(r.listPad) >= r.formH, `padding ${r.listPad}, bar ${r.formH}px`);
+  check(`${width}: detail ends above the bar`, r.det.bottom <= r.form.top, `detail bottom ${r.det.bottom}, bar top ${r.form.top}`);
+  check(`${width}: list ends above the bar`, r.list.bottom <= r.form.top, `list bottom ${r.list.bottom}, bar top ${r.form.top}`);
   await page.screenshot({ path: join(out, `composer-${width}.png`) });
   await page.close();
 }
