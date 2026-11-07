@@ -87,8 +87,15 @@ struct RootView: View {
     /// holds while the user stays on the new chat; opening another one forgets it.
     @State private var left: String?
     @State private var trailEnd: String?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        content
+            .onChange(of: colorScheme, initial: true) { _, scheme in Appearance.shared.dark = scheme == .dark }
+            .preferredColorScheme(Appearance.shared.choice == Skins.system ? nil : (Appearance.shared.skin.light ? .light : .dark))
+    }
+
+    @ViewBuilder private var content: some View {
         if !serverEnabled() {
             NavigationStack(path: $path) {
                 SwiftUI.Group {

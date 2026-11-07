@@ -11,6 +11,8 @@ targets:
   Beep:
     type: application
     platform: iOS
+    scheme:
+      testTargets: [BeepTests]
     dependencies:
       - target: BeepWidget
       - target: BeepNotifications
@@ -76,6 +78,17 @@ targets:
         # Pressing and holding the side button starts live voice (iPhone in Japan, iOS 26.2+).
         # Apple grants it on request; without it the build fails to sign.
         com.apple.developer.side-button-access.allow: true
+  BeepTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/SkinTests.swift
+    dependencies:
+      - target: Beep
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flashmind.beep.tests
+        GENERATE_INFOPLIST_FILE: YES
   BeepWidget:
     type: app-extension
     platform: iOS
@@ -84,6 +97,7 @@ targets:
       - path: ../android/app/src/main/res/font/inter.ttf
         buildPhase: resources
       - path: Beep/Theme.swift
+      - path: Beep/Skins.swift
       # The control and the widget's button run the app's intent.
       - path: Beep/Live/TalkToBeepIntent.swift
       - path: Beep/Live/LiveActivity.swift

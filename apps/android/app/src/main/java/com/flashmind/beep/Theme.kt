@@ -48,7 +48,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -60,18 +59,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-
-/** The looks a user can pick. The key is what gets stored, so never rename one. */
-enum class BeepStyle(val key: String, val label: String) {
-    MintQuiet("mint_quiet", "Mint Quiet"),
-    SoftClay("soft_clay", "Soft Clay"),
-    Bubblegum("bubblegum", "Bubblegum"),
-    Rodeo("rodeo", "Rodeo");
-
-    companion object {
-        fun fromKey(key: String?) = entries.firstOrNull { it.key == key } ?: MintQuiet
-    }
-}
 
 @Immutable
 data class BeepColors(
@@ -121,9 +108,9 @@ data class BeepFonts(
 )
 
 @Immutable
-data class BeepTokens(val style: BeepStyle, val colors: BeepColors, val shapes: BeepShapes, val fonts: BeepFonts) {
+data class BeepTokens(val colors: BeepColors, val shapes: BeepShapes, val fonts: BeepFonts) {
     companion object {
-        fun of(style: BeepStyle, dark: Boolean = false) = linearTokens(style, dark)
+        fun of(skin: Skin) = BeepTokens(skin.colors, BeepShapes(skin.radius, skin.radius * 0.75f), BeepFonts(Inter, FontWeight.SemiBold, 0.em, Inter))
     }
 }
 
@@ -134,35 +121,32 @@ private val Inter = FontFamily(listOf(400, 500, 600, 700).map { weight ->
 
 internal const val LINEAR_ACCENT = 0xFF5E6AD2
 
-/** Linear's dark palette, with a matching light palette and saved accent choices. */
-private fun linearTokens(style: BeepStyle, dark: Boolean): BeepTokens {
-    val page = Color(if (dark) 0xFF0F1011 else 0xFFF7F8FA)
-    val surface = Color(if (dark) 0xFF151617 else 0xFFFFFFFF)
-    val raised = Color(if (dark) 0xFF1C1D1F else 0xFFF0F1F4)
-    val ink = Color(if (dark) 0xFFE3E4E6 else 0xFF202126)
-    val border = Color(if (dark) 0xFF222326 else 0xFFE1E3E8)
-    val accent = Color(when (style) {
-        BeepStyle.MintQuiet -> LINEAR_ACCENT
-        BeepStyle.SoftClay -> 0xFF8B6CD2
-        BeepStyle.Bubblegum -> if (dark) 0xFFE18BC7 else 0xFF9C357F
-        BeepStyle.Rodeo -> if (dark) 0xFF8A8F98 else 0xFF676C76
-    })
-    return BeepTokens(style, BeepColors(
-        page = page, surface = surface, raised = raised, ink = ink,
-        muted = Color(if (dark) 0xFF8A8F98 else 0xFF676C76),
-        dim = Color(if (dark) 0xFF5B5F65 else 0xFF767B85),
-        line = border, softLine = border, ledge = border,
-        user = if (style == BeepStyle.MintQuiet) Color(if (dark) 0xFF202439 else 0xFFD5D9F1) else lerp(page, accent, 0.22f), onUser = ink,
-        brand = Color(if (dark) 0xFF8A9CF0 else 0xFF4F5BC0), accent = accent, onAccent = Color.White,
-        ok = Color(if (dark) 0xFF4CB782 else 0xFF268557),
-        warn = Color(if (dark) 0xFFF2C94C else 0xFF946B00),
-        error = Color(if (dark) 0xFFEB5757 else 0xFFC33838),
-        tints = listOf(raised, surface, if (style == BeepStyle.MintQuiet) Color(if (dark) 0xFF1B1E2A else 0xFFE5E7F5) else lerp(page, accent, 0.12f)), code = raised, onCode = ink,
-    ), BeepShapes(radius = 8.dp, smallRadius = 6.dp),
-        BeepFonts(Inter, FontWeight.SemiBold, 0.em, Inter))
+/** A desktop skin's tokens as the phone's colors. */
+internal fun skinColors(page: Long, surface: Long, raised: Long, ink: Long, muted: Long, dim: Long, line: Long,
+    accent: Long, onAccent: Long, ok: Long, warn: Long, error: Long, brand: Long, user: Long, tint: Long) = BeepColors(
+    page = Color(page), surface = Color(surface), raised = Color(raised), ink = Color(ink),
+    muted = Color(muted), dim = Color(dim), line = Color(line), softLine = Color(line), ledge = Color(line),
+    user = Color(user), onUser = Color(ink), brand = Color(brand), accent = Color(accent), onAccent = Color(onAccent),
+    ok = Color(ok), warn = Color(warn), error = Color(error),
+    tints = listOf(Color(raised), Color(surface), Color(tint)), code = Color(raised), onCode = Color(ink),
+)
+
+/** One of the desktop's skins. */
+@Immutable
+data class Skin(val id: String, val name: String, val light: Boolean, val colors: BeepColors, val radius: Dp)
+
+object Skins {
+    const val SYSTEM = "system"
+    val all: List<Skin> get() = skinTable
+
+    /** The picked skin; "system", and any old or unknown value, is Linear in dark mode and Light in light mode. */
+    fun resolve(choice: String?, dark: Boolean): Skin {
+        val id = if (choice == null || all.none { it.id == choice }) (if (dark) "linear" else "paper") else choice
+        return all.first { it.id == id }
+    }
 }
 
-val LocalBeep = staticCompositionLocalOf { linearTokens(BeepStyle.MintQuiet, false) }
+val LocalBeep = staticCompositionLocalOf { BeepTokens.of(Skins.resolve(Skins.SYSTEM, true)) }
 
 object BeepSpace {
     val page = 16.dp
@@ -174,34 +158,34 @@ object Beep {
     val colors: BeepColors @Composable @ReadOnlyComposable get() = LocalBeep.current.colors
     val shapes: BeepShapes @Composable @ReadOnlyComposable get() = LocalBeep.current.shapes
     val fonts: BeepFonts @Composable @ReadOnlyComposable get() = LocalBeep.current.fonts
-    val style: BeepStyle @Composable @ReadOnlyComposable get() = LocalBeep.current.style
 }
 
-/** The picked look, shared by every activity and saved on the device. */
+/** The picked skin, shared by every activity and saved on the device. */
 object Appearance {
     private const val PREFS = "appearance"
     private const val KEY = "style"
-    val style = mutableStateOf(BeepStyle.MintQuiet)
+    val choice = mutableStateOf(Skins.SYSTEM)
     private var loaded = false
 
     fun load(context: Context) {
         if (loaded) return
         loaded = true
-        style.value = BeepStyle.fromKey(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null))
+        choice.value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) ?: Skins.SYSTEM
     }
 
-    fun set(context: Context, value: BeepStyle) {
-        style.value = value
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, value.key).apply()
+    fun set(context: Context, value: String) {
+        choice.value = value
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, value).apply()
     }
 }
 
 @Composable
 fun BeepTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val tokens = BeepTokens.of(BeepStyle.MintQuiet, dark)
+    Appearance.load(LocalContext.current)
+    val skin = Skins.resolve(Appearance.choice.value, isSystemInDarkTheme())
+    val tokens = BeepTokens.of(skin)
     val c = tokens.colors
-    val scheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
+    val scheme = (if (skin.light) lightColorScheme() else darkColorScheme()).copy(
         primary = c.accent, onPrimary = c.onAccent, primaryContainer = c.user, onPrimaryContainer = c.onUser,
         secondary = c.accent, onSecondary = c.onAccent, secondaryContainer = c.user, onSecondaryContainer = c.onUser,
         background = c.page, onBackground = c.ink, surface = c.surface, onSurface = c.ink, surfaceTint = Color.Transparent,
@@ -211,9 +195,10 @@ fun BeepTheme(content: @Composable () -> Unit) {
         outline = c.softLine, outlineVariant = c.softLine, error = c.error,
         inverseSurface = c.ink, inverseOnSurface = c.page,
     )
+    val r = tokens.shapes.radius
     MaterialTheme(colorScheme = scheme, shapes = Shapes(
-        extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(6.dp), medium = RoundedCornerShape(8.dp),
-        large = RoundedCornerShape(8.dp), extraLarge = RoundedCornerShape(8.dp)), typography = typographyFor(tokens.fonts)) {
+        extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(tokens.shapes.smallRadius), medium = RoundedCornerShape(r),
+        large = RoundedCornerShape(r), extraLarge = RoundedCornerShape(r)), typography = typographyFor(tokens.fonts)) {
         CompositionLocalProvider(LocalBeep provides tokens, content = content)
     }
 }

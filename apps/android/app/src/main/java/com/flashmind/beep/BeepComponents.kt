@@ -276,39 +276,41 @@ fun ToolChip(call: ToolCall, tint: Color, modifier: Modifier = Modifier, onOpen:
     }
 }
 
-/** Small previews of the looks. Tapping one switches the whole app. */
+private data class SkinCell(val id: String, val name: String, val page: Color, val first: Color, val second: Color)
+
+/** The skin grid: Match system first, then the desktop's skins. Tapping one switches the whole app. */
 @Composable
-fun ThemePicker(modifier: Modifier = Modifier) {
+fun SkinGrid(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val current = Beep.style
-    Column(modifier) {
-        Text("Look", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Beep.colors.muted)
-        Spacer(Modifier.height(8.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            BeepStyle.entries.forEach { style ->
-                val tokens = BeepTokens.of(style, androidx.compose.foundation.isSystemInDarkTheme())
-                val c = tokens.colors
-                val selected = style == current
-                val shape = RoundedCornerShape(Beep.shapes.radius)
-                Row(Modifier.fillMaxWidth()
-                    .border(if (selected) 2.dp else 1.dp, if (selected) Beep.colors.ink else Beep.colors.softLine, shape)
-                    .clip(shape)
-                    .background(c.page)
-                    .clickable { Appearance.set(context, style) }
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Box(Modifier.size(14.dp).background(c.user, CircleShape)
-                            .border(1.dp, c.softLine, CircleShape))
-                        Box(Modifier.size(14.dp).background(c.accent, CircleShape))
-                        Box(Modifier.size(14.dp).background(lerp(c.ok, c.page, 0.15f), CircleShape))
+    val current = Appearance.choice.value
+    val linear = Skins.resolve("linear", true)
+    val paper = Skins.resolve("paper", false)
+    val cells = listOf(SkinCell(Skins.SYSTEM, "Match system", linear.colors.page, linear.colors.accent, paper.colors.page)) +
+        Skins.all.map { SkinCell(it.id, it.name, it.colors.page, it.colors.accent, it.colors.ok) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        cells.chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { cell ->
+                    val selected = cell.id == current
+                    val shape = RoundedCornerShape(Beep.shapes.radius)
+                    Column(Modifier.weight(1f)
+                        .border(1.dp, if (selected) Beep.colors.accent else Beep.colors.softLine, shape)
+                        .clip(shape)
+                        .clickable { Appearance.set(context, cell.id) }
+                        .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(Modifier.fillMaxWidth().height(34.dp)
+                            .background(cell.page, RoundedCornerShape(Beep.shapes.smallRadius))
+                            .border(1.dp, Color(0x40808080), RoundedCornerShape(Beep.shapes.smallRadius))
+                            .padding(5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+                            for (chip in listOf(cell.first, cell.second)) Box(Modifier.size(10.dp).background(chip, RoundedCornerShape(3.dp)))
+                        }
+                        Text(cell.name, fontSize = 12.sp, color = Beep.colors.ink, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
                     }
-                    Spacer(Modifier.width(12.dp))
-                    Text(style.label,
-                        fontFamily = tokens.fonts.display, fontWeight = tokens.fonts.displayWeight,
-                        fontSize = 14.sp, color = c.ink, maxLines = 1, modifier = Modifier.weight(1f))
-                    if (selected) Icon(Icons.Outlined.Check, "Selected", Modifier.size(16.dp), tint = c.ink)
                 }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
