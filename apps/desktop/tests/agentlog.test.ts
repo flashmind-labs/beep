@@ -59,6 +59,16 @@ test("a subagent's steps are read from its call", () => {
   assert.equal(subagent("plain output"), null);
 });
 
+test("start calls and child cards preserve literal multiline prompts", () => {
+  const prompt = "Fix `login`.\n\nKeep <session> and `cargo test` intact.\n" + "Last instruction. ".repeat(200).trimEnd();
+  const start = parseTool(`Beep: Start codex agent: ${prompt} [completed]\n{} `);
+  assert.equal(start.title, `Beep: Start codex agent: ${prompt}`);
+  const card = parseTool(`Login fix\n${prompt} [in_progress]\n[steps] 0\n[agent] codex on build-box\n[child] s1@build-box working key`);
+  assert.equal(card.title, `Login fix\n${prompt}`);
+  assert.equal(subagent(card.output)?.child?.id, "s1@build-box");
+  assert.equal(subagent(card.output)?.result, "");
+});
+
 test("Codex's echo of answered questions reads as questions and answers", () => {
   const text = '<send_user_message_question_reply>[{"answer":"Use the web app text","question":"Which error text?","questionItemId":"[q1]"},{"answer":"Yes","question":"Run tests?","questionItemId":"[q2]"}]</send_user_message_question_reply>';
   assert.deepEqual(answeredQuestions(text), [{ question: "Which error text?", answer: "Use the web app text" }, { question: "Run tests?", answer: "Yes" }]);

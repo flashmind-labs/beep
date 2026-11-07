@@ -108,9 +108,6 @@ const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
 /// How often the agents' logs are read for what sessions spent, while the
 /// server follows it.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
-/// How long a new session's stream waits for the agent's own id before it
-/// tells the server about the session, under the server's wait.
-const AGENT_ID_WAIT: Duration = Duration::from_secs(6);
 /// How long the folders found in the agents' logs are kept.
 const SIGHTED_FOR: Duration = Duration::from_secs(60);
 /// How long a file request may wait for a look in the agents' logs.
