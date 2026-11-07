@@ -22,6 +22,25 @@ pub(super) fn tools(reviewer: bool) -> Value {
             "annotations": { "title": "List machines", "readOnlyHint": true }
         },
         {
+            "name": "harness_info",
+            "description": "Query a coding harness on this machine or another machine: its title, \
+                model IDs, display names, descriptions, default model and supported thinking levels. \
+                model_selection is Listed (choose a listed ID), Named (accepts a model name but \
+                lists none), or Fixed (no model selection). Use a model ID with start_agent's model. \
+                effort_levels describe the harness; start_agent does not accept an effort argument. \
+                Model discovery can take about 45 seconds; results are cached for five minutes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "harness": { "type": "string", "description": "The coding agent, such as claude or codex, as list_machines names it" },
+                    "machine": machine("The machine, by its name in list_machines; this machine when left out")
+                },
+                "required": ["harness"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Harness info", "readOnlyHint": true }
+        },
+        {
             "name": REMOTE_RUN,
             "description": "Run a shell command on another of the user's machines, never the one \
                 you run on (use your own shell tool here), and return its exit code and the \

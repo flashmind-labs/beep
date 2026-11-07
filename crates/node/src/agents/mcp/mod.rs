@@ -10,7 +10,7 @@ use crate::{
 };
 use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::tools::{Reply, Request};
+use beep_proto::node::tools::{Reply, Request, Tool};
 use serde::Deserialize;
 use std::{
     ffi::OsString,
@@ -29,6 +29,7 @@ pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
 mod debug;
+pub(crate) mod harness;
 mod machines;
 mod review;
 mod server;
@@ -61,8 +62,8 @@ const MAX_HELLO: u64 = 4096;
 pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
     machines. list_machines says which machines there are, whether each is online, its OS, \
     what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
-    machine whose OS and tools fit the work, such as a macOS machine with Xcode for iOS and \
-    Mac builds, or one with a GPU for heavy jobs. remote_run runs a command there, never on your own machine; job_status and \
+    machine whose tools fit the work. harness_info gives a harness's model IDs, default model \
+    and thinking levels. remote_run runs a command there, never on your own machine; job_status and \
     cancel follow a background command. \
     sync_project syncs a project's files to the user's other machines before work there, and \
     send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
@@ -197,6 +198,9 @@ struct Node {
 
 impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
+        if request.tool == Tool::HarnessInfo {
+            return Ok(harness::call(&self.offers, request).await);
+        }
         if review::handles(request.tool) {
             return Ok(review::call(&self.offers, request).await);
         }

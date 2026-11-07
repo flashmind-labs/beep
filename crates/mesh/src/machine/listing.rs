@@ -15,7 +15,10 @@ use beep_proto::{
     },
 };
 use futures::future::join_all;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 use tokio::time::timeout;
 
 /// How long one request to a node may take.
@@ -123,7 +126,14 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
 ) -> Vec<MachineSession> {
     let limit = u32::try_from(MAX_PROJECT_SESSIONS).unwrap_or(u32::MAX);
     let started = Instant::now();
-    let listed = timeout(NODE_LIMIT, sessions::in_folders(node, folders, limit)).await;
+    let (listed, owned) = tokio::join!(
+        timeout(NODE_LIMIT, sessions::in_folders(node, folders, limit)),
+        beep_sessions(node, host),
+    );
+    let mut owned: HashMap<_, _> = owned
+        .into_iter()
+        .map(|session| ((session.agent.clone(), session.id.clone()), session))
+        .collect();
     if started.elapsed() >= SLOW_NODE {
         tracing::info!(
             "project sessions listed slowly; node={} ms={}",
@@ -134,7 +144,18 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     match listed {
         Ok(Ok(found)) => found
             .into_iter()
-            .map(|session| past_session(host, session))
+            .map(|session| {
+                let past = past_session(host, session);
+                // A transcript names the session that took it over, but cannot say
+                // whether its turn is working, idle, asking or ended now.
+                if past.external {
+                    past
+                } else {
+                    owned
+                        .remove(&(past.agent.clone(), past.id.clone()))
+                        .unwrap_or(past)
+                }
+            })
             .collect(),
         Ok(Err(e)) => {
             tracing::info!("project sessions not listed; node={} error={e:#}", host.id);
@@ -249,16 +270,14 @@ pub fn apply_presence(
     }
 }
 
-/// A session as a project lists it; only Claude Code's outside sessions can be followed live.
+/// A session as a project lists it, with the same outside presence as Running.
 pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
-    let followed = session.agent == "claude";
-    let status = match session.presence {
-        _ if session.taken_over.is_some() => AgentStatus::Running {},
-        _ if !followed => AgentStatus::Ended {},
-        Presence::Working => AgentStatus::Working {},
-        Presence::Waiting => AgentStatus::Waiting {},
-        Presence::Running | Presence::Recent => AgentStatus::Running {},
-        _ => AgentStatus::Ended {},
+    let status = if session.taken_over.is_some() {
+        AgentStatus::Running {}
+    } else if runs_now(&session, SystemTime::now()) {
+        presence_status(session.presence)
+    } else {
+        AgentStatus::Ended {}
     };
     let external = session.taken_over.is_none();
     MachineSession {
