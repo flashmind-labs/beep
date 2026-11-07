@@ -82,6 +82,8 @@ pub enum Tool {
     BeepStatus,
     BeepLogs,
     FileReport,
+    /// The models and capabilities of a coding harness on this machine.
+    HarnessInfo,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,
