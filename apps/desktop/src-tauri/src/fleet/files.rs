@@ -122,6 +122,21 @@ pub(crate) async fn read(
     chunk(sessions::read_file(&client, part).await?, fleet, machine)
 }
 
+/// Mutations always run on the owning machine, never on a synced copy.
+pub(crate) async fn edit_files(
+    fleet: &Fleet,
+    machine: EndpointId,
+    root: String,
+    action: beep_proto::node::agent::FileAction,
+) -> Result<()> {
+    let client = fleet.client(machine).await?;
+    work(
+        fleet,
+        machine,
+        sessions::edit_files(&client, root, action).await?,
+    )
+}
+
 /// Whether each of `paths` is on `machine`, in order; `None` from a node from before the
 /// question.
 pub(crate) async fn present(

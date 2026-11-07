@@ -92,6 +92,8 @@ pub struct Tree {
 /// How many levels one read of the tree takes.
 const TREE_DEPTH: u32 = 3;
 
+// The arguments are the fields of the window's invoke call.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_tree(
     beep: Service<'_>,
@@ -101,6 +103,7 @@ pub async fn agent_tree(
     path: String,
     ignored: bool,
     deep: bool,
+    fresh: Option<bool>,
 ) -> Result<Tree> {
     let ask = ListWorkTree {
         machine_id,
@@ -109,7 +112,12 @@ pub async fn agent_tree(
         ignored,
         depth: if deep { MAX_TREE_DEPTH } else { TREE_DEPTH },
     };
-    let tree = match work_copy::tree(&beep, &fleet, &ask).await {
+    let cached = if fresh.unwrap_or(false) {
+        None
+    } else {
+        work_copy::tree(&beep, &fleet, &ask).await
+    };
+    let tree = match cached {
         Some(tree) => tree,
         None => match fleet.member(&ask.machine_id) {
             Some(machine) => direct::tree(&fleet, machine, &ask).await?,
@@ -263,4 +271,210 @@ pub async fn agent_tree_upload(
         Some(machine) => direct::write(&fleet, machine, write).await,
         None => beep.call(write).await,
     }
+}
+
+/// File browser edits require a direct mesh connection to the owning machine.
+#[tauri::command]
+pub async fn agent_tree_edit(
+    fleet: Machines<'_>,
+    machine_id: String,
+    root: String,
+    action: beep_proto::node::agent::FileAction,
+) -> Result<()> {
+    let machine = fleet.member(&machine_id).ok_or_else(|| {
+        DesktopError::BadRequest("Connect this machine to the mesh to edit its files".into())
+    })?;
+    direct::edit_files(&fleet, machine, root, action).await
+}
+
+/// Saves a selection, including folders, under one new folder in Downloads.
+#[tauri::command]
+pub async fn agent_tree_save_many(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+    root: String,
+    paths: Vec<String>,
+) -> Result<PathBuf> {
+    use std::{
+        collections::{HashMap, HashSet, VecDeque},
+        io::Write,
+        path::{Component, Path},
+    };
+    if paths.is_empty() || paths.len() > 50_000 {
+        return Err(DesktopError::BadRequest(
+            "Select between 1 and 50000 items".into(),
+        ));
+    }
+    let machine = fleet.member(&machine_id).ok_or_else(|| {
+        DesktopError::BadRequest("Connect this machine to the mesh to download folders".into())
+    })?;
+    let valid = |path: &str| {
+        !path.is_empty()
+            && path
+                .split('/')
+                .all(|p| !p.is_empty() && p != "." && p != ".." && !p.contains(['\\', ':']))
+            && Path::new(path)
+                .components()
+                .all(|p| matches!(p, Component::Normal(_)))
+    };
+    if paths.iter().any(|p| !valid(p)) {
+        return Err(DesktopError::BadRequest("Invalid selection path".into()));
+    }
+    let to = free_name(&app.path().download_dir()?, "Files");
+    fs::create_dir(&to).map_err(anyhow::Error::from)?;
+    let selected: HashSet<_> = paths.iter().cloned().collect();
+    let mut queue: VecDeque<String> = paths
+        .into_iter()
+        .filter(|path| {
+            !Path::new(path)
+                .ancestors()
+                .skip(1)
+                .any(|parent| parent.to_str().is_some_and(|p| selected.contains(p)))
+        })
+        .collect();
+    let mut seen = HashSet::new();
+    let mut listings = HashMap::new();
+    let mut total = 0u64;
+    while let Some(path) = queue.pop_front() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        if seen.len() > 50_000 || path.split('/').count() > 128 {
+            return Err(DesktopError::BadRequest(
+                "Download at most 50000 items at once".into(),
+            ));
+        }
+        let parent = path.rsplit_once('/').map_or("", |(p, _)| p);
+        if !listings.contains_key(parent) {
+            let listing = direct::tree(
+                &fleet,
+                machine,
+                &ListWorkTree {
+                    machine_id: machine_id.clone(),
+                    root: root.clone(),
+                    path: parent.into(),
+                    ignored: true,
+                    depth: 1,
+                },
+            )
+            .await?;
+            let folder =
+                listing.folders.into_iter().next().ok_or_else(|| {
+                    DesktopError::BadRequest("The folder could not be read".into())
+                })?;
+            listings.insert(parent.to_owned(), folder);
+        }
+        let top = listings
+            .get(parent)
+            .ok_or_else(|| DesktopError::BadRequest("The folder could not be read".into()))?;
+        if top.more > 0 {
+            return Err(DesktopError::BadRequest(
+                "The folder has too many entries to download completely".into(),
+            ));
+        }
+        let entry = top
+            .entries
+            .iter()
+            .find(|e| e.name == path.rsplit('/').next().unwrap_or_default())
+            .ok_or_else(|| DesktopError::BadRequest("The item is no longer there".into()))?;
+        let dest = to.join(&path);
+        if entry.folder {
+            fs::create_dir_all(&dest).map_err(anyhow::Error::from)?;
+            let tree = direct::tree(
+                &fleet,
+                machine,
+                &ListWorkTree {
+                    machine_id: machine_id.clone(),
+                    root: root.clone(),
+                    path: path.clone(),
+                    ignored: true,
+                    depth: 1,
+                },
+            )
+            .await?;
+            let folder = tree
+                .folders
+                .first()
+                .ok_or_else(|| DesktopError::BadRequest("The folder could not be read".into()))?;
+            if folder.more > 0 {
+                return Err(DesktopError::BadRequest(
+                    "The folder has too many entries to download completely".into(),
+                ));
+            }
+            if queue
+                .len()
+                .saturating_add(seen.len())
+                .saturating_add(folder.entries.len())
+                > 50_000
+            {
+                return Err(DesktopError::BadRequest(
+                    "Download at most 50000 items at once".into(),
+                ));
+            }
+            for child in &folder.entries {
+                if !valid(&child.name) || child.name.contains('/') {
+                    return Err(DesktopError::BadRequest("Invalid file name".into()));
+                }
+                queue.push_back(format!("{path}/{}", child.name));
+            }
+            listings.insert(path, folder.clone());
+        } else {
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).map_err(anyhow::Error::from)?;
+            }
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&dest)
+                .map_err(anyhow::Error::from)?;
+            let mut offset = 0;
+            let mut size = None;
+            loop {
+                let part = direct::read(
+                    &fleet,
+                    machine,
+                    &ReadWorkFile {
+                        machine_id: machine_id.clone(),
+                        root: root.clone(),
+                        path: path.clone(),
+                        offset,
+                        len: u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?,
+                    },
+                )
+                .await?;
+                if part.size > MAX_AGENT_FILE {
+                    return Err(DesktopError::BadRequest(
+                        "A selected file is too large to download".into(),
+                    ));
+                }
+                let count = u64::try_from(part.data.len()).map_err(anyhow::Error::from)?;
+                if size.is_some_and(|size| size != part.size) || offset + count > part.size {
+                    return Err(DesktopError::BadRequest(
+                        "The file changed while downloading".into(),
+                    ));
+                }
+                size = Some(part.size);
+                total = total
+                    .checked_add(count)
+                    .ok_or_else(|| DesktopError::BadRequest("The download is too large".into()))?;
+                if total > 256 * 1024 * 1024 {
+                    return Err(DesktopError::BadRequest(
+                        "Download at most 256 MB at once".into(),
+                    ));
+                }
+                file.write_all(&part.data).map_err(anyhow::Error::from)?;
+                offset += count;
+                if offset >= part.size {
+                    break;
+                }
+                if count == 0 {
+                    return Err(DesktopError::BadRequest(
+                        "The file changed while downloading".into(),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(to)
 }

@@ -3,7 +3,7 @@
 // out unless asked, git's marks beside what changed.
 
 import { patchHtml } from "../ui/patch.ts";
-import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, treeRows } from "./files-state.ts";
+import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
 import { paneRoot } from "./worktree.ts";
@@ -11,7 +11,8 @@ import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
-import { arrowFocus } from "../ui/menu.ts";
+import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
+import { confirmSheet, renameSheet, arrowFocus } from "../ui/menu.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -39,6 +40,12 @@ const F = {
   filter: "",
   ignored: false,
   picked: null as string | null,
+  anchor: null as string | null,
+  selected: new Set<string>(),
+  clipboard: null as FileClipboard | null,
+  busy: false,
+  fresh: false,
+  generation: 0,
   el: null as HTMLElement | null,
   /// A path to scroll into view once its row is drawn.
   reveal: null as string | null,
@@ -70,14 +77,15 @@ export function filesView() {
   F.el?.remove();
   clearInterval(F.timer);
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, reveal: null, drawn: "",
+    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null, drawn: "",
     timer: setInterval(() => { if (filesShown()) refresh(); }, REFRESH_MS),
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
+    + `<button class="agpbtn" data-fnew="file">+ File</button><button class="agpbtn" data-fnew="folder">+ Folder</button><button class="agpbtn" data-fupload>Upload</button>`
     + `<button class="agpbtn" data-frefresh="1" title="Read the folders again">&#8635;</button></div>`
-    + `<div class="agtree" role="tree" tabindex="0"></div>`
-    + `<div class="agpacts"><span class="meta mono" title="${esc(paneRoot())}">${esc(paneRoot())}</span><span class="sp"></span><span class="hint">Drag a file into the message, or drop files on a folder to upload</span></div></div>`);
+    + `<div class="agtree" role="tree" aria-label="Working files" aria-multiselectable="true" tabindex="0"></div>`
+    + `<div class="agpacts"><span class="meta mono" title="${esc(paneRoot())}">${esc(paneRoot())}</span><span data-fstatus role="status"></span><span class="sp"></span><span class="hint">Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting.</span></div></div>`);
   F.el = el;
   wire(el);
   load("");
@@ -87,7 +95,9 @@ export function filesView() {
 /// Closes the menu a right-click opened; true when one was open.
 export function closeFilesMenu() {
   const m = F.el?.querySelector(".agctx");
+  const focused = !!m && m.contains(document.activeElement);
   m?.remove();
+  if (focused) F.el?.querySelector<HTMLElement>(".agtree")?.focus({ preventScroll: true });
   return !!m;
 }
 
@@ -97,8 +107,9 @@ export function pointFilesAt() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
   if (!F.el || !s || key === F.key) return;
+  closeFilesMenu();
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, reveal: null,
+    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
   });
   const meta = F.el.querySelector(".agpacts .meta");
   if (meta) { meta.textContent = paneRoot(); meta.setAttribute("title", paneRoot()); }
@@ -125,7 +136,8 @@ export function revealPath(rel: string) {
     F.open.add(dir);
     if (!F.listings.get(dir)?.entries) load(dir);
   }
-  F.picked = F.reveal = parts.join("/");
+  F.picked = F.reveal = F.anchor = parts.join("/");
+  F.selected = new Set([F.picked]);
   draw();
 }
 
@@ -139,6 +151,7 @@ export function reloadFolder(dir: string) {
 
 /// Reads every folder the tree was read from again, in place.
 function refresh() {
+  closeFilesMenu();
   for (const dir of F.roots) load(dir);
 }
 
@@ -153,10 +166,10 @@ onShownChange(shown => { if (shown && filesShown()) refresh(); }, true);
 /// folder opened yet shows.
 async function readAll() {
   if (F.walking) return;
-  const key = F.key;
+  const key = F.key, generation = F.generation;
   F.walking = true;
   draw();
-  while (F.key === key && F.filter.trim()) {
+  while (F.key === key && F.generation === generation && F.filter.trim()) {
     let entries = 0;
     for (const listing of F.listings.values()) entries += listing.entries?.length ?? 0;
     F.capped = entries >= WALK_ENTRIES;
@@ -164,7 +177,7 @@ async function readAll() {
     if (F.capped || !next.length) break;
     await Promise.all(next.map(dir => load(dir, true)));
   }
-  if (F.key !== key) return;
+  if (F.key !== key || F.generation !== generation) return;
   F.walking = false;
   draw();
 }
@@ -175,7 +188,7 @@ async function load(dir: string, deep = false) {
   const s = paneSession();
   // A session with no folder yet has nothing to read.
   if (!s?.cwd || F.reading.has(dir)) return;
-  const key = F.key;
+  const key = F.key, generation = F.generation;
   const had = F.listings.get(dir);
   F.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
   F.reading.add(dir);
@@ -183,26 +196,26 @@ async function load(dir: string, deep = false) {
   if (!had?.entries) draw();
   let changed = true;
   try {
-    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep });
-    if (F.key !== key) return;
+    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep, fresh: F.fresh });
+    if (F.key !== key || F.generation !== generation) return;
     changed = mergeTree(F.listings, got);
     if (!deep) F.roots.add(dir);
     const top = got.folders[0];
     F.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
   } catch (e) {
-    if (F.key !== key) return;
+    if (F.key !== key || F.generation !== generation) return;
     F.listings.set(dir, failedListing(String(e instanceof Error ? e.message : e), had));
   } finally {
-    if (F.key === key) F.reading.delete(dir);
+    if (F.key === key && F.generation === generation) F.reading.delete(dir);
   }
   if (changed || !had?.entries) draw();
-  if (F.key === key && F.filter.trim()) readAll();
+  if (F.key === key && F.generation === generation && F.filter.trim()) readAll();
 }
 
 function rowHtml(r: TreeRow) {
   const mark = r.change ? `<span class="gm ${r.change}" title="${MARKS[r.change][1]}">${MARKS[r.change][0]}</span>` : "";
   const twist = r.folder ? `<span class="tw${r.open ? " open" : ""}">${r.loading ? '<span class="dspin"></span>' : TWIST}</span>` : '<span class="tw"></span>';
-  const row = `<div class="agtr${r.path === F.picked ? " on" : ""}${r.ignored ? " ign" : ""}" role="treeitem" style="--d:${r.depth}" draggable="true" data-fpath="${esc(r.path)}"${r.folder ? ` data-ffolder="1" aria-expanded="${r.open}"` : ""} title="${esc(r.path)}">`
+  const row = `<div class="agtr${F.selected.has(r.path) ? " on" : ""}${r.ignored ? " ign" : ""}" role="treeitem" aria-selected="${F.selected.has(r.path)}" id="agfile-${encodeURIComponent(r.path)}" style="--d:${r.depth}" draggable="true" data-fpath="${esc(r.path)}"${r.folder ? ` data-ffolder="1" aria-expanded="${r.open}"` : ""} title="${esc(r.path)}">`
     + `${twist}${r.folder ? FOLDER : FILE}<span class="nm">${esc(r.name)}</span>${mark}</div>`;
   const pad = `style="--d:${r.depth + 1}"`;
   const extra = r.error ? `<div class="agtr note derr" ${pad}>${esc(r.error)}</div>`
@@ -216,6 +229,15 @@ function draw() {
   if (!paneSession()?.cwd) { tree.innerHTML = ""; return; }
   const top = F.listings.get("");
   const rows = treeRows(F.listings, F.open, F.filter);
+  const visible = new Set(rows.map(r => r.path));
+  F.selected = new Set([...F.selected].filter(p => visible.has(p)));
+  if (F.picked && !visible.has(F.picked)) F.picked = null;
+  tree.setAttribute("aria-busy", String(F.busy));
+  F.el?.querySelectorAll<HTMLButtonElement>("[data-fnew],[data-fupload]").forEach(b => { b.disabled = F.busy; });
+  if (F.picked) tree.setAttribute("aria-activedescendant", `agfile-${encodeURIComponent(F.picked)}`);
+  else tree.removeAttribute("aria-activedescendant");
+  const count = F.el?.querySelector(".agpacts .meta");
+  if (count && !F.busy) count.textContent = F.selected.size ? `${F.selected.size} selected` : paneRoot();
   let html = rows.map(rowHtml).join("");
   // A failed refresh does not blank a tree that is shown.
   if (top?.error && !top.entries) html = `<div class="agpmsg derr">${esc(top.error)}</div>`;
@@ -264,22 +286,52 @@ function wire(el: HTMLElement) {
     refresh();
   });
   el.querySelector("[data-frefresh]")!.addEventListener("click", refresh);
+  el.querySelectorAll<HTMLElement>("[data-fnew]").forEach(b => b.addEventListener("click", () => createItem(b.dataset.fnew === "folder")));
+  el.querySelector("[data-fupload]")!.addEventListener("click", () => chooseUpload(destination()));
   tree.addEventListener("click", e => {
     closeFilesMenu();
+    tree.focus();
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
-    if (!row) return;
+    if (!row) { F.selected.clear(); F.picked = F.anchor = null; draw(); return; }
     const path = row.dataset.fpath!;
-    F.picked = path;
+    Object.assign(F, selectFile(F, visiblePaths(), path, e.metaKey || e.ctrlKey, e.shiftKey));
+    if (e.metaKey || e.ctrlKey || e.shiftKey) { draw(); return; }
     if (row.dataset.ffolder) toggle(path);
     else { draw(); openWorkFile(path); }
   });
   tree.addEventListener("contextmenu", e => {
-    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
-    if (!row) return;
     e.preventDefault();
-    F.picked = row.dataset.fpath!;
+    tree.focus();
+    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
+    const path = row?.dataset.fpath ?? "";
+    if (path && !F.selected.has(path)) Object.assign(F, selectFile(F, visiblePaths(), path));
+    else if (!path) { F.selected.clear(); F.picked = F.anchor = null; }
     draw();
-    menu(F.picked, !!row.dataset.ffolder, e.clientX, e.clientY);
+    menu(path, !!row?.dataset.ffolder, e.clientX, e.clientY);
+  });
+  tree.addEventListener("keydown", e => {
+    if (e.isComposing || (e.target as HTMLElement).closest("input,textarea,[contenteditable=true]")) return;
+    const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
+    let handled = true;
+    if (cmd && key === "a") { F.selected = new Set(visiblePaths()); draw(); }
+    else if (cmd && (key === "c" || key === "x")) clipboard(key === "x");
+    else if (cmd && key === "v") void paste(destination());
+    else if ((cmd && (key === "backspace" || key === "delete")) || (!cmd && key === "delete")) deleteItems();
+    else if (key === "escape") { closeFilesMenu(); F.selected.clear(); F.picked = F.anchor = null; draw(); }
+    else if (key === "enter" || key === "f2") renameItem();
+    else if (key === " " && F.picked) openPicked();
+    else if (key === "arrowup" || key === "arrowdown" || key === "home" || key === "end") {
+      const paths = visiblePaths(), at = F.picked ? paths.indexOf(F.picked) : -1;
+      const next = key === "home" ? 0 : key === "end" ? paths.length - 1 : Math.max(0, Math.min(paths.length - 1, at + (key === "arrowup" ? -1 : 1)));
+      if (paths[next]) { Object.assign(F, selectFile(F, paths, paths[next], false, e.shiftKey)); F.reveal = paths[next]; draw(); }
+    } else if ((key === "arrowright" || key === "arrowleft") && F.picked) {
+      const row = rowsNow().find(r => r.path === F.picked);
+      if (row?.folder && row.open === (key === "arrowleft")) toggle(row.path);
+    } else if (key === "contextmenu" || e.shiftKey && key === "f10") {
+      const row = tree.querySelector<HTMLElement>(".agtr.on"), box = row?.getBoundingClientRect() ?? tree.getBoundingClientRect();
+      menu(F.picked ?? "", !!row?.dataset.ffolder, box.left, box.bottom);
+    } else handled = false;
+    if (handled) { e.preventDefault(); e.stopPropagation(); }
   });
   tree.addEventListener("dragstart", e => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
@@ -315,7 +367,7 @@ function wire(el: HTMLElement) {
     over(null);
     tree.classList.remove("dropping");
     document.getElementById("ddrop")?.remove();
-    askUpload([...e.dataTransfer.files], dir);
+    askUpload([...e.dataTransfer.files], dir, paneRoot());
   });
 }
 
@@ -324,22 +376,26 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   closeFilesMenu();
   const s = paneSession();
   if (!F.el || !s) return;
+  const paths = selectedPaths(), n = paths.length;
+  const dir = path && folder ? path : parentPath(path);
   const items: [string, string][] = [
-    ...(folder ? [] : [["open", "Open in viewer"]] as [string, string][]),
-    ["mention", "Mention in message"],
-    ["-", ""],
-    ["abs", "Copy path"],
-    ["rel", "Copy relative path"],
-    ...(folder ? [] : [["-", ""], ["save", "Save to this Mac"]] as [string, string][]),
+    ...(n === 1 && F.selected.size === 1 ? [["open", folder ? "Open folder" : "Open in viewer"]] as [string, string][] : []),
+    ...(n ? [["mention", `Mention ${n > 1 ? `${n} items` : "in message"}`], ["-", ""], ["abs", "Copy path"], ["rel", "Copy relative path"], ["copy", `Copy${n > 1 ? ` ${n} items` : ""}`], ["cut", `Cut${n > 1 ? ` ${n} items` : ""}`]] as [string, string][] : []),
+    ...(canPasteFiles(F.clipboard, F.key, dir) ? [["paste", `Paste ${F.clipboard!.paths.length} items into ${dir || "working folder"}`]] as [string, string][] : []),
+    ...(n === 1 && F.selected.size === 1 ? [["rename", "Rename..."]] as [string, string][] : []),
+    ["-", ""], ["newfile", "New file..."], ["newfolder", "New folder..."], ["upload", "Upload files..."], ["refresh", "Refresh"],
+    ...(n ? [["-", ""], ["save", `Save ${n > 1 ? `${n} items ` : ""}to this Mac`], ["delete", `Delete ${n > 1 ? `${n} items ` : ""}permanently...`]] as [string, string][] : []),
   ];
-  const m = h(`<div class="agctx" role="menu">${items.map(([k, t]) => k === "-" ? "<hr>" : `<button role="menuitem" data-fact="${k}">${esc(t)}</button>`).join("")}</div>`);
+  const m = h(`<div class="agctx" role="menu" aria-label="File actions">${items.map(([k, t]) => k === "-" ? "<hr>" : `<button role="menuitem" data-fact="${k}"${k === "delete" ? ' class="warn"' : ""}>${esc(t)}</button>`).join("")}</div>`);
   F.el.append(m);
+  m.style.maxHeight = `${F.el.clientHeight}px`;
+  m.style.overflowY = "auto";
   const box = F.el.getBoundingClientRect();
   m.style.left = `${Math.max(0, Math.min(x - box.left, box.width - m.offsetWidth - 4))}px`;
   m.style.top = `${Math.max(0, Math.min(y - box.top, box.height - m.offsetHeight - 4))}px`;
   m.querySelector<HTMLElement>("button")?.focus();
   // A file this Mac has can be opened here, in another app, or shown in Finder.
-  if (!folder) {
+  if (n === 1 && F.selected.size === 1 && !folder) {
     void localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, { x, y }).then(more => {
       if (!more.length || !m.isConnected) return;
       m.append(document.createElement("hr"));
@@ -350,26 +406,145 @@ function menu(path: string, folder: boolean, x: number, y: number) {
       }
     });
   }
-  const note = (text: string) => {
-    const meta = F.el?.querySelector(".agpacts .meta");
-    if (meta) { meta.textContent = text; setTimeout(() => { if (meta.isConnected) meta.textContent = paneRoot(); }, 3000); }
-  };
   m.addEventListener("click", e => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-fact]")?.dataset.fact;
     if (!act) return;
     e.stopPropagation();
     closeFilesMenu();
-    if (act === "open") openWorkFile(path);
-    else if (act === "mention") addMention(mentioned(paneRoot(), s.cwd, path));
+    if (act === "open") openPicked();
+    else if (act === "mention") paths.forEach(p => addMention(mentioned(paneRoot(), s.cwd, p)));
     else if (act === "abs" || act === "rel") {
-      const text = act === "abs" ? resolvePath(paneRoot(), path) : path;
-      navigator.clipboard.writeText(text).then(() => note(`Copied ${text}`), err => note(`Could not copy: ${err}`));
-    } else if (act === "save") saveWorkFile(path, note);
+      const text = paths.map(p => act === "abs" ? resolvePath(paneRoot(), p) : p).join("\n");
+      navigator.clipboard.writeText(text).then(() => note(`Copied ${paths.length} paths`), err => note(`Could not copy: ${err}`));
+    } else if (act === "copy" || act === "cut") clipboard(act === "cut");
+    else if (act === "paste") void paste(dir);
+    else if (act === "rename") renameItem();
+    else if (act === "newfile" || act === "newfolder") createItem(act === "newfolder", dir);
+    else if (act === "upload") chooseUpload(dir);
+    else if (act === "refresh") refresh();
+    else if (act === "delete") deleteItems();
+    else if (act === "save") void saveItems();
   });
   m.addEventListener("keydown", e => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeFilesMenu(); F.el?.querySelector<HTMLElement>(".agtree")?.focus(); return; }
     if (arrowFocus(m, e.key)) e.preventDefault();
   });
   setTimeout(() => document.addEventListener("pointerdown", function away(ev) {
-    if (!m.contains(ev.target as Node)) { m.remove(); document.removeEventListener("pointerdown", away); }
+    if (!m.isConnected || !m.contains(ev.target as Node)) { m.remove(); document.removeEventListener("pointerdown", away); }
   }), 0);
+}
+
+const rowsNow = () => treeRows(F.listings, F.open, F.filter);
+const visiblePaths = () => rowsNow().map(r => r.path);
+const selectedPaths = () => selectionRoots(visiblePaths().filter(p => F.selected.has(p)));
+function destination() {
+  const row = rowsNow().find(r => r.path === F.picked);
+  return row?.folder ? row.path : parentPath(row?.path ?? "");
+}
+function target() {
+  return { machineId: paneSession()?.machine_id ?? "", root: paneRoot(), key: F.key };
+}
+function note(text: string) {
+  const status = F.el?.querySelector("[data-fstatus]");
+  if (status) status.textContent = text;
+}
+function openPicked() {
+  if (!F.picked || F.selected.size !== 1) return;
+  const row = rowsNow().find(r => r.path === F.picked);
+  if (row?.folder) toggle(row.path); else openWorkFile(F.picked);
+}
+
+type FileAction = { CreateFile: { path: string } } | { CreateFolder: { path: string } }
+  | { Rename: { path: string; to: string } } | { Copy: { paths: string[]; folder: string } }
+  | { Move: { paths: string[]; folder: string } } | { Delete: { paths: string[] } };
+
+async function edit(action: FileAction, at = target()) {
+  if (F.busy) throw new Error("Wait for the current file operation to finish.");
+  if (F.key !== at.key) throw new Error("The working folder changed. Open the action again.");
+  F.busy = true;
+  draw();
+  note("Updating files...");
+  try {
+    await invoke("agent_tree_edit", { machineId: at.machineId, root: at.root, action });
+    if (F.key === at.key) note("Files updated.");
+  } finally {
+    if (F.key === at.key) {
+      F.busy = false;
+      F.fresh = true;
+      F.generation++;
+      F.walking = false;
+      F.reading.clear();
+      F.listings.clear();
+      F.drawn = "";
+      F.roots = new Set(["", ...F.open]);
+      refresh();
+    }
+  }
+}
+function createItem(folder: boolean, dir = destination()) {
+  if (F.busy) return;
+  const at = target();
+  renameSheet({ title: folder ? "New folder" : "New file", value: "", run: async name => {
+    const why = fileNameError(name);
+    if (why) throw new Error(why);
+    const path = joinPath(dir, name);
+    await edit(folder ? { CreateFolder: { path } } : { CreateFile: { path } }, at);
+  } });
+}
+function renameItem() {
+  const paths = selectedPaths();
+  if (F.busy || F.selected.size !== 1 || paths.length !== 1) return;
+  const path = paths[0], at = target();
+  renameSheet({ title: "Rename", value: path.split("/").pop()!, run: async name => {
+    const why = fileNameError(name);
+    if (why) throw new Error(why);
+    await edit({ Rename: { path, to: joinPath(parentPath(path), name) } }, at);
+  } });
+}
+function clipboard(cut: boolean) {
+  const paths = selectedPaths();
+  if (!paths.length || F.busy) return;
+  F.clipboard = { key: F.key, paths, cut };
+  note(`${cut ? "Cut" : "Copied"} ${paths.length} items. Select a destination folder and paste.`);
+}
+async function paste(folder: string) {
+  const clip = F.clipboard;
+  if (F.busy || !canPasteFiles(clip, F.key, folder) || !clip) return;
+  try {
+    await edit(clip.cut ? { Move: { paths: clip.paths, folder } } : { Copy: { paths: clip.paths, folder } });
+    if (clip.cut && F.clipboard === clip) F.clipboard = null;
+  } catch (e) { note(`Could not paste: ${e}`); }
+}
+function deleteItems() {
+  const paths = selectedPaths(), at = target();
+  if (!paths.length || F.busy) return;
+  const label = paths.length === 1 ? paths[0] : `${paths.length} items`;
+  confirmSheet({ title: `Delete ${label} permanently?`, text: paths.join("\n"),
+    note: "Folders include everything inside. This cannot be undone.", action: `Delete ${paths.length} ${paths.length === 1 ? "item" : "items"}`,
+    run: async () => { await edit({ Delete: { paths } }, at); },
+  });
+}
+function chooseUpload(folder: string) {
+  if (F.busy) return;
+  const at = target();
+  const input = document.createElement("input");
+  input.type = "file"; input.multiple = true;
+  input.addEventListener("change", () => {
+    if (F.key === at.key && input.files?.length) askUpload([...input.files], folder, at.root);
+  });
+  input.click();
+}
+async function saveItems() {
+  const paths = selectedPaths(), at = target();
+  if (!paths.length || F.busy) return;
+  if (paths.length === 1 && !rowsNow().find(r => r.path === paths[0])?.folder) { saveWorkFile(paths[0], note, at.root); return; }
+  F.busy = true;
+  draw();
+  note(`Saving ${paths.length} items...`);
+  try {
+    const to = await invoke<string>("agent_tree_save_many", { machineId: at.machineId, root: at.root, paths });
+    if (F.key === at.key) note("Saved to Downloads.");
+    await invoke("reveal_file", { path: to });
+  } catch (e) { if (F.key === at.key) note(`Download stopped: ${e}. Downloads may contain incomplete files.`); }
+  finally { if (F.key === at.key) { F.busy = false; draw(); } }
 }
