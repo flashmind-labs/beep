@@ -294,6 +294,19 @@ pub enum SessionsRequest {
         root: String,
         action: FileAction,
     },
+    /// Writes a temporary attachment outside the project, authorized by `root`.
+    /// `path` is a file name on the first part, then the absolute path returned
+    /// by `Written`. Older nodes refuse this request.
+    UploadFile {
+        root: String,
+        agent: String,
+        session: String,
+        path: String,
+        offset: u64,
+        size: u64,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+    },
 }
 
 /// File browser operations. Destinations must not already exist.
@@ -350,6 +363,7 @@ impl SessionsRequest {
             | Self::RefreshPlanUsage {}
             | Self::EditFiles { .. }
             | Self::WriteFile { .. }
+            | Self::UploadFile { .. }
             | Self::DeleteSession { .. }
             | Self::ContinueCopy { .. }
             | Self::DiscardCopy { .. }
@@ -456,7 +470,8 @@ pub enum SessionsReply {
     Tree {
         tree: crate::WorkTree,
     },
-    /// The answer to `WriteFile`: the path inside the root it writes to.
+    /// The answer to `WriteFile` (relative to its root), or `UploadFile`
+    /// (an absolute path on the host).
     Written {
         path: String,
     },
