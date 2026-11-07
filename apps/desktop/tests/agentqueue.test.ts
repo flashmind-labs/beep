@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Attached, batches, DELIVERED_SHOWN_MS, dropDelivered, markDelivered, type Waiting } from "../src/agents/agentqueue.ts";
+import { type Attached, batches, DELIVERED_SHOWN_MS, dropDelivered, markDelivered, stopPending, type Waiting } from "../src/agents/agentqueue.ts";
 
 const img = (name: string, size = 10): Attached => ({ name, mime: "image/png", size, data: "", url: "" });
 const item = (text: string, images: Attached[] = []): Waiting => ({ how: "queue", typed: text, text, paths: [], images, state: null, after: 0 });
@@ -22,4 +22,12 @@ test("a steer counts as delivered only from reads after the node took it", () =>
   assert.deepEqual(q.map(x => x.state), ["delivered", "delivered"]);
   dropDelivered(q, 1000 + DELIVERED_SHOWN_MS);
   assert.deepEqual(q, []);
+});
+
+test("a stop clears when its turn ends between reads and a steer starts another", () => {
+  const stop = { id: "session", turns: 3 };
+  assert.equal(stopPending(stop, "session", true, 3), stop);
+  assert.equal(stopPending(stop, "session", true, 4), null);
+  assert.equal(stopPending(stop, "session", false, 3), null);
+  assert.equal(stopPending(stop, "other", true, 3), null);
 });

@@ -112,6 +112,7 @@ export interface AgentPage {
   last_message: string;
   error: string | null;
   queued: number;
+  queued_messages?: string[];
   turns: number;
   /// The entries held, newest last, and how many came before them. A read
   /// brings the newest; older ones are joined on as the reader goes up.
@@ -269,7 +270,7 @@ interface AgentState {
   /// a steer was sent from one after.
   polls: number;
   /// The session whose turn the user stopped, until it no longer runs.
-  stopping: string | null;
+  stopping: { id: string; turns: number } | null;
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
   /// The open session's modes, when the server says.
@@ -465,7 +466,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
-    // ⌘T a terminal in the pane, ⌘N one like the terminal on screen, ⌘1 ⌘2 ⌘3 the pane's Files,
+    // ⌘T a terminal in the pane, ⌘N one like the terminal on screen, ⌘1 focuses chat, ⌘2 ⌘3 ⌘4 the pane's Files,
     // Changes and Artifacts, ⌘O the folder in the editor. ⌘U opens or folds every thought, ⌘Y
     // every command, ⇧⌘Y the last one. They work from the field and from a terminal: none edits text.
     if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
@@ -475,7 +476,15 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (k === "n" && !e.shiftKey && newTerminalLike()) { e.preventDefault(); return true; }
       if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
-      if (!e.shiftKey && (k === "1" || k === "2" || k === "3")) { e.preventDefault(); showPaneTab(Number(k) - 1); return true; }
+      if (!e.shiftKey && k === "1") {
+        e.preventDefault();
+        leavePane();
+        const chat = $("#agmsg, #agdraft textarea") ?? $("#agbody");
+        if (chat && !chat.hasAttribute("tabindex") && chat.id === "agbody") chat.setAttribute("tabindex", "-1");
+        chat?.focus();
+        return true;
+      }
+      if (!e.shiftKey && (k === "2" || k === "3" || k === "4")) { e.preventDefault(); showPaneTab(Number(k) - 2); return true; }
       if (k === "o" && !e.shiftKey) { e.preventDefault(); openEditorKey(); return true; }
     }
     // Home and ⌘↑ go to the first entry of the log, End and ⌘↓ to the last,

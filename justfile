@@ -5,6 +5,10 @@ apk := "apps/android/app/build/outputs/apk/debug/app-debug.apk"
 # The local Postgres `test-db` starts, which the server tests use.
 test_db_url := "postgres://beep:beep@127.0.0.1:55432/beep"
 
+# Serve the platform mockups on localhost
+mockups port="8000":
+    python3 -m http.server {{port}} --bind 127.0.0.1 --directory mockups
+
 # Build the server
 build-server:
     cargo build --package beep-server

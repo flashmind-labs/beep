@@ -694,13 +694,14 @@ function focusTab(id: string) {
   paneOf(d)?.focus({ preventScroll: true });
 }
 
-/// ⌘1, ⌘2, ⌘3: the pane's Files, Changes or Artifacts tab (`n` from 0). False
+/// ⌘2, ⌘3, ⌘4: the pane's Files, Changes or Artifacts tab (`n` from 0). False
 /// when there is no pane, or no artifact to list.
 export function showPaneTab(n: number) {
   const id = [FILES, CHANGES, ARTS][n];
   if (!id || !shell() || (id === ARTS && !artifactCount())) return false;
   const d = dockOf(id);
   P.layout.hidden[d] = false;
+  if (P.zoom) P.zoom = d;
   saveLayout();
   showTab(d, id);
   return true;

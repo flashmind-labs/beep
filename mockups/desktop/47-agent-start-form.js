@@ -95,7 +95,8 @@
 .mac .agc-pill .mono, .mac .agc-menu .mono, .mac .agc-list .mono { font-family: var(--mono); font-size: 12px }
 .mac :is(.agc, #agmodel, #agpickm) .cc-ag { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 9.5px; font-weight: 600; border: 1px solid var(--d-border); background: var(--d-elev); flex: none }
 .mac :is(.agc, #agmodel, #agpickm) .cc-ag.claude { color: #F2A27A }
-.mac :is(.agc, #agmodel, #agpickm) .cc-ag.codex { color: #8a9cf0 }
+.mac :is(.agc, #agmodel, #agpickm) .cc-ag.codex { color: var(--d-fg) }
+.mac .agc-pill .cc-ag.codex svg { color: inherit }
 .mac .agc-send { all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--d-emerald); color: #fff; flex: none }
 .mac .agc-send[disabled] { background: var(--d-elev); color: var(--d-dim); cursor: default }
 .mac .agc-send:focus-visible { outline: 2px solid var(--d-fg); outline-offset: 2px }
