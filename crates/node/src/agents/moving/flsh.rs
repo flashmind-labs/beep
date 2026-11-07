@@ -5,7 +5,7 @@
 
 use super::{
     Stored,
-    folder::remap,
+    folder::Folders,
     json::{Step, replace, string_spans},
 };
 use crate::{agents::AgentKind, machine::env::output};
@@ -20,19 +20,19 @@ use std::{
 /// The first flsh that keeps its sessions in JSONL files.
 const FIRST_JSONL: &str = "0.2.9";
 
-pub(super) fn rewrite(transcript: &[u8], id: &str, old: &Path, new: &Path) -> Stored {
+pub(super) fn rewrite(transcript: &[u8], id: &str, folders: &Folders) -> Stored {
     let mut lines = transcript.split_inclusive(|b| *b == b'\n');
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
     if let Some(header) = lines.next() {
         let spans = string_spans(header, &[Step::Key("metadata"), Step::Key("working_dir")]);
-        bytes.extend(replace(header, &spans, |dir| remap(dir, old, new)));
+        bytes.extend(replace(header, &spans, |dir| folders.remap(dir)));
     }
     for line in lines {
         bytes.extend_from_slice(line);
     }
     Stored {
         bytes,
-        path: PathBuf::from(folder_hash(new)).join(file_name(id)),
+        path: PathBuf::from(folder_hash(&folders.new)).join(file_name(id)),
     }
 }
 

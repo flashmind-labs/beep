@@ -11,7 +11,7 @@ use super::{
     Harness,
     offers::{Project, offers},
     progress::Target,
-    worktree::{MAX_PATCH, Work, snapshot},
+    worktree::{self, MAX_BUNDLE, MAX_PATCH, Work, snapshot},
 };
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result, bail};
@@ -75,6 +75,9 @@ pub(crate) enum Request {
     /// Asks how the move of session `id` made at `at` stands, which the
     /// machine it moves to knows. Sent by the source.
     State { id: String, at: u64 },
+    /// The commits of a moving session's worktree. Only this request receives
+    /// `Bundle` and `BundleEnd`, so older transcript readers keep working.
+    WorktreeBundle { id: String, head: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,6 +124,11 @@ pub(crate) enum Reply {
         /// The session runs on the target.
         landed: bool,
     },
+    /// Pieces of a Git bundle, answered only to `WorktreeBundle`.
+    Bundle {
+        data: Vec<u8>,
+    },
+    BundleEnd {},
 }
 
 /// What a request is, for the check of who may make it.
@@ -261,6 +269,30 @@ pub(super) async fn serve(
                     tx.send(&Reply::Refused { message }).await
                 }
             }
+        }
+        Some(Request::WorktreeBundle { id, head }) => {
+            if !allow(Asked::Read, &id) {
+                return tx.send(&refuse("no move of that session to you")).await;
+            }
+            if let Some(why) = agents.moves.refusal(&id) {
+                return tx.send(&refuse(&why)).await;
+            }
+            let Some(dir) = agents.moves.worktree_of(&id) else {
+                return tx.send(&refuse("the session has no moving worktree")).await;
+            };
+            let bundled = spawn_blocking(move || worktree::bundle(&dir, &head)).await?;
+            let bytes = match bundled {
+                Ok(bytes) => bytes,
+                Err(e) => return tx.send(&refuse(&format!("{e:#}"))).await,
+            };
+            for chunk in bytes.chunks(CHUNK) {
+                tx.send(&Reply::Bundle {
+                    data: chunk.to_vec(),
+                })
+                .await?;
+            }
+            tx.send(&Reply::BundleEnd {}).await?;
+            tx.finish().await
         }
         Some(Request::List {}) => {
             if !allow(Asked::Background, "") {
@@ -562,6 +594,36 @@ pub(super) async fn pull_within(
             }
             Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             _ => bail!("the source stopped before the end"),
+        }
+    }
+}
+
+/// Reads commits separately from the transcript, without extending existing replies.
+pub(super) async fn pull_bundle(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    id: &str,
+    head: &str,
+) -> Result<Vec<u8>> {
+    tx.send(&Request::WorktreeBundle {
+        id: id.to_owned(),
+        head: head.to_owned(),
+    })
+    .await?;
+    let mut bytes = Vec::new();
+    loop {
+        match next(&mut rx, QUIET_FOR).await? {
+            Some(Reply::Bundle { data }) => {
+                if data.len() > MAX_BUNDLE.saturating_sub(bytes.len()) {
+                    bail!("the worktree's commit history is too large to move");
+                }
+                bytes.extend_from_slice(&data);
+            }
+            Some(Reply::BundleEnd {}) => return Ok(bytes),
+            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
+            _ => {
+                bail!("the source could not send the worktree's commits; update its node and retry")
+            }
         }
     }
 }
