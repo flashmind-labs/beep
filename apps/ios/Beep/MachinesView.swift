@@ -94,7 +94,7 @@ private func signIns(_ env: MachineEnv) -> String {
 }
 
 /// Bytes in SI units, as the desktop shows them: "212 GB", "9.1 GB".
-private func bytes(_ n: UInt64) -> String {
+func bytes(_ n: UInt64) -> String {
     let units = ["B", "KB", "MB", "GB", "TB", "PB"]
     var v = Double(n)
     var i = 0

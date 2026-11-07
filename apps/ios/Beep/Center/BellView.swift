@@ -58,7 +58,7 @@ struct BellView: View {
         let primary = notice.options.first { $0.allow }?.id
         let ordered = notice.options.filter { $0.id != primary } + notice.options.filter { $0.id == primary }
         let short = notice.options.count <= 2 && notice.options.allSatisfy { $0.name.count <= 12 }
-        Group {
+        SwiftUI.Group {
             if short {
                 HStack(spacing: 6) { Spacer(); buttons(notice, ordered, primary, leading: false) }
             } else {
