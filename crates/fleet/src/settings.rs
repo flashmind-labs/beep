@@ -13,6 +13,7 @@ use beep_proto::{
     ApiError, FlshSettings, HarnessEnv, HarnessSettings, InstructionsVersion,
     MachineHarnessSettings, check_agent, check_settings, merged_env,
     node::harness::{AutoCompact, HarnessConfig},
+    node::mesh_state::SkillSync,
 };
 use iroh::EndpointId;
 use uuid::Uuid;
@@ -60,6 +61,18 @@ fn version(index: usize, saved: &SavedVersion) -> InstructionsVersion {
 }
 
 impl Desk {
+    /// Whether coding agent skills sync across the mesh, enabled until changed.
+    pub fn skill_sync_enabled(&self) -> bool {
+        read::<SkillSync>(&self.mesh, &Key::SkillSync)
+            .unwrap_or_default()
+            .enabled
+    }
+
+    /// Pauses or resumes skill syncing on every machine, leaving existing files in place.
+    pub async fn set_skill_sync_enabled(&self, enabled: bool) -> Result<()> {
+        write(&self.mesh, Key::SkillSync, Some(&SkillSync { enabled })).await
+    }
+
     fn harness_key(agent: &str) -> Key {
         Key::Harness(agent.to_owned())
     }

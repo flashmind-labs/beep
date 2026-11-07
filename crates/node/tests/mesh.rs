@@ -31,7 +31,7 @@ use beep_proto::{
     SecretText,
     node::{
         EnvSecret,
-        mesh_state::{Credential, Place, SessionMove, StateValue, SyncSpec},
+        mesh_state::{Credential, Place, SessionMove, SkillSync, StateValue, SyncSpec},
         sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
     },
 };
@@ -4576,4 +4576,109 @@ async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
         .filter(|l| l.contains("updated shared"))
         .count();
     assert_eq!(updates, 1, "B took only the first edit");
+}
+
+#[tokio::test]
+async fn skill_sync_can_pause_survive_a_restart_and_resume_without_removing_files() {
+    use beep_proto::node::skills::{PROTOCOL, Reply as SkillReply, Request as SkillRequest};
+    let desktop = desktop().await;
+    let set = |enabled| {
+        let mesh = desktop.mesh.clone();
+        async move {
+            mesh.set(
+                Key::SkillSync,
+                Some(SkillSync { enabled }.to_bytes().expect("encodes")),
+            )
+            .await
+            .expect("the setting is saved");
+        }
+    };
+    set(false).await;
+    let mut a = Node::start(Config::default()).await;
+    let mut b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    put_skill(a.home.path(), ".claude/skills", "notes", "Original.");
+    put_skill(b.home.path(), ".claude/skills", "local", "Keep this file.");
+    let local = tree(&b.home.path().join(".claude/skills/local"));
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    a.logged("skills: syncing paused").await;
+    b.logged("skills: syncing paused").await;
+    desktop.reach(a.id).await;
+    let client = beep_mesh::PeerClient::over(desktop.mesh.clone(), a.id);
+    assert_eq!(
+        client
+            .call::<_, SkillReply>(PROTOCOL, &SkillRequest::List {})
+            .await
+            .expect("lists"),
+        SkillReply::Skills { skills: Vec::new() }
+    );
+    assert_eq!(
+        client
+            .call::<_, SkillReply>(
+                PROTOCOL,
+                &SkillRequest::Get {
+                    name: "notes".into(),
+                    hash: "any".into()
+                }
+            )
+            .await
+            .expect("answers"),
+        SkillReply::Files { files: Vec::new() }
+    );
+    assert!(
+        client
+            .call::<_, SkillReply>(
+                PROTOCOL,
+                &SkillRequest::Keep {
+                    name: "notes".into(),
+                    hash: "any".into()
+                }
+            )
+            .await
+            .is_err()
+    );
+    assert!(!a.home.path().join(".agents/skills/notes").exists());
+    assert!(!b.home.path().join(".claude/skills/notes").exists());
+
+    a = a.restart().await;
+    a.logged("skills: syncing paused").await;
+    assert!(!a.home.path().join(".agents/skills/notes").exists());
+    set(true).await;
+    b.logged("skills: got notes from box-a").await;
+    let notes = tree(&a.home.path().join(".claude/skills/notes"));
+    assert_eq!(tree(&b.home.path().join(".claude/skills/notes")), notes);
+
+    set(false).await;
+    a.logged("skills: syncing paused").await;
+    b.logged("skills: syncing paused").await;
+    put_skill(
+        a.home.path(),
+        ".claude/skills",
+        "notes",
+        "Edited while paused.",
+    );
+    put_skill(
+        a.home.path(),
+        ".claude/skills",
+        "later",
+        "Created while paused.",
+    );
+    b = b.restart().await;
+    b.logged("skills: syncing paused").await;
+    assert_eq!(tree(&b.home.path().join(".claude/skills/notes")), notes);
+    assert_eq!(tree(&b.home.path().join(".claude/skills/local")), local);
+    assert!(!b.home.path().join(".claude/skills/later").exists());
+
+    set(true).await;
+    b.logged("skills: got later from box-a").await;
+    b.has_logged("skills: updated notes from box-a").await;
+    assert_eq!(
+        tree(&b.home.path().join(".claude/skills/notes")),
+        tree(&a.home.path().join(".claude/skills/notes"))
+    );
+    assert_eq!(tree(&b.home.path().join(".claude/skills/local")), local);
 }

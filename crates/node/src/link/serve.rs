@@ -517,7 +517,8 @@ pub(crate) async fn serve_open(
         skills::PROTOCOL if offers.skills.home().is_some() => {
             tx.send(&Opened::Ready {}).await?;
             let desktop = !matches!(who, Who::Node { .. });
-            crate::agents::skills::serve(tx, rx, offers.skills, desktop).await
+            let mesh = offers.mesh.get().context("this node is not in a mesh")?;
+            crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
         }
         tasks::PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;

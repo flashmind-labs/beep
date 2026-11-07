@@ -9,4 +9,5 @@ pub(crate) mod grants;
 pub(crate) mod memories;
 pub(crate) mod models;
 pub(crate) mod routines;
+pub(crate) mod skill_sync;
 pub(crate) mod skills;
