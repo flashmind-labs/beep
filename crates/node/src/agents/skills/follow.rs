@@ -5,9 +5,10 @@ use super::{
     Skills,
     compare::{Holder, Outcome, Take, compare},
     disk::{self, Base, Hashes, Scan, Seen},
+    enabled,
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{Mesh, MeshError, PeerClient};
+use beep_mesh::{Key, Mesh, MeshError, PeerClient};
 use beep_proto::node::{
     LinkRx, LinkTx,
     skills::{Conflict, Listed, PROTOCOL, Reply, Request, SkillFile},
@@ -20,6 +21,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
+    sync::broadcast::error::RecvError,
     task::spawn_blocking,
     time::{Instant, MissedTickBehavior, interval, timeout},
 };
@@ -45,6 +47,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     let Some(home) = skills.home().cloned() else {
         return;
     };
+    let mut changes = mesh.changes();
     let file = dir.join(SEEN);
     let seen = match spawn_blocking(move || Seen::load(&file)).await {
         Ok(Ok(seen)) => seen,
@@ -76,16 +79,37 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick.tick().await;
     let mut ask = true;
+    let mut syncing = None;
     loop {
         let now = online(&mesh);
+        let on = enabled(&mesh);
+        if syncing != Some(on) {
+            log::info!("skills: syncing {}", if on { "enabled" } else { "paused" });
+            syncing = Some(on);
+        }
         // A pass that took a skill runs again, so the others hear of it.
-        if pass.run(&now, ask).await {
-            continue;
+        if on {
+            if pass.run(&now, ask).await {
+                continue;
+            }
+        } else {
+            pass.skills.listed.send_replace(Some(Vec::new()));
+            pass.skills.picks.send_replace(BTreeMap::new());
+            pass.tell(Vec::new());
+            pass.lists.clear();
+            pass.sent.clear();
+            pass.asked = None;
+            pass.said = None;
         }
         ask = loop {
             tokio::select! {
                 _ = tick.tick() => break false,
                 () = nudge.notified() => break true,
+                change = changes.recv() => match change {
+                    Ok(Key::SkillSync) | Err(RecvError::Lagged(_)) => break true,
+                    Err(RecvError::Closed) => return,
+                    Ok(_) => {}
+                },
                 changed = updates.changed() => {
                     if changed.is_err() {
                         return;
@@ -147,6 +171,9 @@ impl Passes {
     /// One pass; whether it wrote a skill. The other machines' lists are
     /// read again when `ask`, or when they were last read `ASK_EVERY` ago.
     async fn run(&mut self, online: &BTreeSet<EndpointId>, ask: bool) -> bool {
+        if !enabled(&self.mesh) {
+            return false;
+        }
         let Some(scan) = self.scan().await else {
             return false;
         };
@@ -154,6 +181,9 @@ impl Passes {
         self.skills.listed.send_replace(Some(here.clone()));
         if ask || self.asked.is_none_or(|at| at.elapsed() >= ASK_EVERY) {
             self.ask(online).await;
+        }
+        if !enabled(&self.mesh) {
+            return false;
         }
         let mesh = self.mesh.clone();
         self.lists.retain(|id, _| mesh.is_member(*id));
@@ -203,6 +233,10 @@ impl Passes {
         drop(holders);
         let mut wrote = false;
         for take in takes.into_iter().take(MAX_TAKEN) {
+            if !enabled(&self.mesh) {
+                self.save().await;
+                return wrote;
+            }
             let Some((files, from)) = self.files_for(&take, &here, online, &me).await else {
                 continue;
             };
@@ -222,6 +256,10 @@ impl Passes {
                 Ok(false) => {}
                 Err(e) => log::warn!("skill {} not written: {e:#}", take.name),
             }
+        }
+        if !enabled(&self.mesh) {
+            self.save().await;
+            return wrote;
         }
         for record in synced {
             self.seen.set(&record.name, record.base);
@@ -257,6 +295,9 @@ impl Passes {
     async fn ask(&mut self, online: &BTreeSet<EndpointId>) {
         let mut compared = 0;
         for &peer in online {
+            if !enabled(&self.mesh) {
+                return;
+            }
             let client = PeerClient::over(self.mesh.clone(), peer);
             match client.call(PROTOCOL, &Request::List {}).await {
                 Ok(Reply::Skills { skills }) => {
@@ -388,10 +429,14 @@ impl Passes {
     /// Writes `take`'s files: a new skill into the agents' folders, or in
     /// place of the old copies here that are still as listed.
     async fn write(&self, take: &Take, files: Vec<SkillFile>) -> Result<bool> {
+        let mesh = self.mesh.clone();
         let home = self.home.clone();
         let name = take.name.clone();
         let old = take.old.clone();
         spawn_blocking(move || {
+            if !enabled(&mesh) {
+                return Ok(false);
+            }
             if old.is_empty() {
                 return disk::install(&home, &name, &files);
             }
@@ -413,6 +458,9 @@ impl Passes {
         let picks = self.skills.picks.send_replace(BTreeMap::new());
         let mut kept = false;
         for (name, hash) in picks {
+            if !enabled(&self.mesh) {
+                break;
+            }
             let ver = here
                 .iter()
                 .chain(self.lists.values().flatten())
@@ -428,8 +476,16 @@ impl Passes {
                 .collect();
             let home = self.home.clone();
             let (key, wanted) = (name.clone(), hash.clone());
-            match spawn_blocking(move || disk::keep(&home, &key, &wanted, &old)).await {
-                Ok(Ok(())) => {
+            let mesh = self.mesh.clone();
+            match spawn_blocking(move || {
+                if !enabled(&mesh) {
+                    return Ok(false);
+                }
+                disk::keep(&home, &key, &wanted, &old).map(|()| true)
+            })
+            .await
+            {
+                Ok(Ok(true)) => {
                     log::info!("skills: kept this machine's {name}; the other copies take it");
                     self.seen.set(
                         &name,
@@ -443,6 +499,7 @@ impl Passes {
                 }
                 Ok(Err(e)) => log::warn!("skill {name} not kept: {e:#}"),
                 Err(e) => log::warn!("keeping skill {name} stopped: {e}"),
+                Ok(Ok(false)) => {}
             }
         }
         kept
@@ -464,6 +521,9 @@ impl Passes {
     /// `here` that this machine's skills changed, so it compares again.
     async fn say_changed(&mut self, online: &BTreeSet<EndpointId>, here: &[Listed]) {
         for &peer in online {
+            if !enabled(&self.mesh) {
+                return;
+            }
             if self.sent.get(&peer).is_some_and(|sent| sent == here) {
                 continue;
             }
@@ -514,6 +574,7 @@ pub(crate) async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,
     skills: Skills,
+    mesh: Mesh,
     desktop: bool,
 ) -> Result<()> {
     let request: Request = timeout(READ_LIMIT, rx.recv())
@@ -523,6 +584,18 @@ pub(crate) async fn serve(
     let Some(home) = skills.home().cloned() else {
         bail!("this node does not sync skills");
     };
+    if !enabled(&mesh) {
+        let reply = match request {
+            Request::Conflicts {} => Reply::Conflicts {
+                conflicts: Vec::new(),
+            },
+            Request::Get { .. } => Reply::Files { files: Vec::new() },
+            Request::Keep { .. } => bail!("skill syncing is paused"),
+            _ => Reply::Skills { skills: Vec::new() },
+        };
+        tx.send(&reply).await?;
+        return tx.finish().await;
+    }
     let reply = match request {
         Request::Conflicts {} => Reply::Conflicts {
             conflicts: skills.conflicts.borrow().clone(),
@@ -539,9 +612,18 @@ pub(crate) async fn serve(
             Reply::Skills { skills }
         }
         Request::Get { name, hash } => Reply::Files {
-            files: spawn_blocking(move || disk::files_of(&home, &name, &hash))
-                .await
-                .context("reading the skills folders stopped")?,
+            files: spawn_blocking({
+                let mesh = mesh.clone();
+                move || {
+                    if enabled(&mesh) {
+                        disk::files_of(&home, &name, &hash)
+                    } else {
+                        Vec::new()
+                    }
+                }
+            })
+            .await
+            .context("reading the skills folders stopped")?,
         },
         Request::Changed {} => {
             skills.nudge.notify_one();
@@ -564,6 +646,17 @@ pub(crate) async fn serve(
             });
             skills.nudge.notify_one();
             Reply::Skills { skills: Vec::new() }
+        }
+    };
+    let reply = if enabled(&mesh) {
+        reply
+    } else {
+        match reply {
+            Reply::Skills { .. } => Reply::Skills { skills: Vec::new() },
+            Reply::Files { .. } => Reply::Files { files: Vec::new() },
+            Reply::Conflicts { .. } => Reply::Conflicts {
+                conflicts: Vec::new(),
+            },
         }
     };
     tx.send(&reply).await?;

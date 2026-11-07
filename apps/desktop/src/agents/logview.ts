@@ -9,13 +9,15 @@ import { followAgent } from "../agentpane/worktree.ts";
 import { collectArtifacts, type MadeFile, type MadeFiles, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
+import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { fillLog, pinEnd, type Unit } from "./logwindow.ts";
 import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
-import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind, stateTag } from "./agents.ts";
+import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
-import { parentRow } from "./nesting-state.ts";
+import { childRow, parentRow } from "./nesting-state.ts";
+import { childReplyHtml } from "./childreply-state.ts";
 import { sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
 import { picTile } from "./pic-state.ts";
@@ -118,7 +120,8 @@ function subOf(at: number) {
   if (!seen) subTimes.set(key, seen = { start: now, live: working });
   if (!working && seen.live && seen.end == null) seen.end = now;
   const ms = !seen.live ? null : working ? now - seen.start : (seen.end ?? now) - seen.start;
-  return { title: title.split("\n")[0], agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms };
+  const [name, ...prompt] = title.split("\n");
+  return { title: name, prompt: sub.child ? prompt.join("\n") : "", agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms };
 }
 
 /// One subagent as a row: its name, how it stands, how long and how many steps.
@@ -137,7 +140,10 @@ function subRow(at: number, inPane = false) {
   // A child that runs can be stopped from its row, as from its own log.
   const stoppable = kid && (st === "working" || st === "needs you");
   const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
-  return `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  if (inPane || !x.prompt) return row;
+  const open = AG.steps.get(at) ?? false;
+  return `<div class="dsubprompt" data-row="${at}" data-at="${at}">${row}<button class="prompt-toggle" data-prompt="${at}" aria-expanded="${open}">${ICON.chev}Prompt</button>${open ? `<pre>${esc(x.prompt)}</pre>` : ""}</div>`;
 }
 
 /// Subagents closed in the pane, by session and the call's place. The log keeps them.
@@ -224,21 +230,15 @@ function entryPic(n: string) {
 /// The thought still arriving, by its place, which shows "Thinking"; set
 /// by each draw of the turns.
 let liveAt: number | null = null;
-/// The thought that streamed at the draw before, which folds as it ends.
-let wasLive: number | null = null;
 /// The running turn thinks: a thought streams or is about to.
 export let thinking = false;
 
-/// A thought as one line that opens to its text. While it streams it
-/// follows its newest line; once done it folds to "Thought for 12s" unless
-/// the reader opened, folded or scrolled it.
-function thoughtRow(en: AgentEntry, at: number) {
-  const live = at === liveAt, session = AG.open?.session ?? "";
+/// Thoughts start folded because the progress line already shows what
+/// the agent thinks. The reader's choice stays as the group grows or ends.
+function thoughtRow(en: AgentEntry, at: number, live = at === liveAt) {
+  const session = AG.open?.session ?? "";
   const m = AG.open ? turnsOf(AG.open.session) : null;
-  const touched = !!m?.touched.has(at), opened = !!m?.thoughts.has(at);
-  const folding = !live && !touched && wasLive === at;
-  const open = live ? !touched || opened : opened || folding;
-  return thoughtHtml({ key: `${session}:${at}`, text: en.text, html: en.html, ms: en.ms, live, open, folding, row: at });
+  return thoughtHtml({ key: `${session}:${at}`, text: en.text, html: en.html, ms: en.ms, live, open: !!m?.thoughts.has(at), folding: false, row: at });
 }
 
 export function entryRow(en: AgentEntry, at: number) {
@@ -251,12 +251,18 @@ export function entryRow(en: AgentEntry, at: number) {
     // Beep's context, what another session sent and what a child came to
     // get rows of their own, never the user's box.
     const parts = promptParts(en.text);
+    let child = 0;
     const others = parts.map(p => p.kind === "context"
       ? `<details class="dcoderen beepctx"><summary>Beep context</summary><pre>${esc(p.text)}</pre></details>`
       : p.kind === "session"
         ? `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`
         : p.kind === "child"
-          ? `<div class="dcoderen fromsession"><b>${esc(p.name || "Child")} ${p.state === "asking" ? "waiting on you" : p.state === "stopped" || p.state === "closed" ? "stopped by you" : "finished"}</b><span>${linkified(p.text)}</span></div>`
+          ? (() => {
+            const row = childRow(sessions, p.id);
+            const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
+            const body = en.child_html?.[child++];
+            return childReplyHtml(p, body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, row ? agentAvatar(row.agent) : SUB_ICON, meta);
+          })()
           : "").join("");
     const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
     if (!own && others) return others;
@@ -304,11 +310,6 @@ interface TurnMemory {
   opened: Set<number>;
   /// The thoughts opened to their text.
   thoughts: Set<number>;
-  /// The thoughts the reader opened, folded or scrolled while they
-  /// streamed, which do not fold by themselves when they end.
-  touched: Set<number>;
-  /// The thought streaming at the last draw.
-  wasLive: number | null;
   /// The runs of calls opened, by their first call.
   runs: Set<number>;
   /// The notes of made files opened, by their place in the session.
@@ -319,7 +320,7 @@ const turnMemory = new Map<string, TurnMemory>();
 
 export function turnsOf(session: string) {
   let m = turnMemory.get(session);
-  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), touched: new Set(), wasLive: null, runs: new Set(), made: new Set() });
+  if (!m) turnMemory.set(session, m = { known: new Set(), starts: new Map(), ends: new Map(), running: null, opened: new Set(), thoughts: new Set(), runs: new Set(), made: new Set() });
   return m;
 }
 
@@ -349,7 +350,7 @@ const turnStarts = new Map<number, number>();
 
 /// Rows for `ats` in order: subagents started one after another as one
 /// card, and finished calls of one kind in a row as one line that opens
-/// to them ("Read 6 files").
+/// to them ("Read 6 files"). Adjacent thoughts share one expandable row.
 function rowsOf(p: AgentPage, ats: number[]) {
   const out: string[] = [];
   let run: number[] = [];
@@ -358,9 +359,15 @@ function rowsOf(p: AgentPage, ats: number[]) {
     return en.kind === "tool" && !!AG.log?.subagent(AG.log.parseTool(en.text).output);
   };
   const flush = () => { if (run.length) out.push(subCard(run)); run = []; };
-  for (const group of AG.log ? toolRuns(p.entries, ats, p.earlier, openedSteps()) : ats.map(at => [at])) {
-    if (group.length > 1) { flush(); out.push(runRow(p, group)); continue; }
+  const groups = AG.log ? toolRuns(p.entries, ats, p.earlier, openedSteps()) : ats.map(at => [at]);
+  for (const group of groupThoughts(p.entries, groups, p.earlier)) {
     const at = group[0];
+    if (p.entries[at - p.earlier].kind === "thought") {
+      flush();
+      out.push(thoughtRow(mergedThought(p.entries, group, p.earlier), at, liveAt != null && group.includes(liveAt)));
+      continue;
+    }
+    if (group.length > 1) { flush(); out.push(runRow(p, group)); continue; }
     if (isSub(at)) { run.push(at); continue; }
     flush();
     out.push(entryRow(p.entries[at - p.earlier], at));
@@ -395,9 +402,7 @@ function turnUnits(p: AgentPage): Unit[] {
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
   const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
-  wasLive = m.wasLive;
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  m.wasLive = liveAt;
   return turns.map(t => ({ key: `t${t.key}`, rows: turnRows(t) }));
 
   function turnRows(t: Turn): () => string[] {
@@ -599,7 +604,7 @@ const fixed = (key: string, html: string): Unit => ({ key, rows: () => html ? [h
 /// What rows just drawn need: their pictures and their live thoughts.
 function drawnRows(b: HTMLElement) {
   fillAgentPics(b);
-  attachLive(b, key => { if (AG.open) turnsOf(AG.open.session).touched.add(Number(key.split(":").pop())); });
+  attachLive(b);
 }
 
 /// The log scrolled: the turns it reaches are drawn. At the bottom it stays there.

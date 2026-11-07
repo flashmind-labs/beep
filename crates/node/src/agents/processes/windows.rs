@@ -90,7 +90,7 @@ pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
                         group: 0,
                         birth,
                         started_at: (birth / 10_000_000).saturating_sub(11_644_473_600),
-                        command: String::from_utf16_lossy(&entry.szExeFile[..end]),
+                        command: String::from_utf16_lossy(&entry.szExeFile[..end]).into(),
                     },
                 );
             }

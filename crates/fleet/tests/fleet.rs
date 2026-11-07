@@ -14,7 +14,7 @@ use beep_proto::{
         ToolInfo,
         agent::{DiffAsk, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         harness::{AutoCompact, HarnessConfig},
-        mesh_state::{Credential, StateValue, SyncSpec},
+        mesh_state::{Credential, SkillSync, StateValue, SyncSpec},
         shell::{self, Event, Request},
         status::Report,
         sync::{self, FOLDER_MISSING, ProjectStatus, State as SyncState},
@@ -2790,4 +2790,33 @@ async fn a_temporary_device_offline_for_a_day_is_removed_and_a_normal_one_stays(
             .is_empty()
     );
     assert!(other_desk.mesh.is_member(normal_id));
+}
+
+#[tokio::test]
+async fn skill_sync_is_enabled_by_default_and_shared_between_desktops() {
+    let studio = create("Studio").await;
+    let laptop = join(&studio, DeviceKind::Desktop, "Laptop").await;
+    let a = desk(&studio, &[]).await;
+    let b = desk(&laptop, &[]).await;
+    assert!(a.skill_sync_enabled());
+    assert!(b.skill_sync_enabled());
+
+    a.set_skill_sync_enabled(false).await.expect("pauses");
+    until(&laptop.mesh, |mesh| {
+        mesh.get(&Key::SkillSync)
+            .and_then(|bytes| SkillSync::from_bytes(&bytes).ok())
+            .is_some_and(|setting| !setting.enabled)
+    })
+    .await;
+    assert!(!b.skill_sync_enabled());
+    assert!(!desk(&laptop, &[]).await.skill_sync_enabled());
+
+    b.set_skill_sync_enabled(true).await.expect("resumes");
+    until(&studio.mesh, |mesh| {
+        mesh.get(&Key::SkillSync)
+            .and_then(|bytes| SkillSync::from_bytes(&bytes).ok())
+            .is_some_and(|setting| setting.enabled)
+    })
+    .await;
+    assert!(a.skill_sync_enabled());
 }

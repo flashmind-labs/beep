@@ -70,12 +70,15 @@ pub fn start() -> Option<WorkerGuard> {
     Some(guard)
 }
 
-/// Logs an error from a page: an uncaught error, a rejected promise or a
-/// failed command.
+/// Logs a page's error or diagnostic. Existing callers send errors.
 #[tauri::command]
-pub fn log_webview(window: tauri::Window, message: String) {
+pub fn log_webview(window: tauri::Window, message: String, info: Option<bool>) {
     let message: String = message.chars().take(WEBVIEW_CHARS).collect();
-    log::error!(target: "webview", "{}: {message}", window.label());
+    if info.unwrap_or(false) {
+        log::info!(target: "webview", "{}: {message}", window.label());
+    } else {
+        log::error!(target: "webview", "{}: {message}", window.label());
+    }
 }
 
 /// A log file that moves aside once it reaches `max` bytes, keeping

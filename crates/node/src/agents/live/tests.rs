@@ -200,6 +200,33 @@ fn tool_calls_go_with_their_entries() {
 }
 
 #[test]
+fn a_long_turn_releases_tool_records_with_discarded_entries() {
+    let mut live = live();
+    live.prompted("keep working");
+    for n in 0..MAX_ENTRIES + 128 {
+        let id = format!("t{n}");
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": id,
+            "title": "Read a file", "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "file contents"}}]
+        })));
+        live.codex_threads
+            .insert(format!("thread{n}"), ToolCallId::new(id));
+    }
+    assert_eq!(live.transcript.len(), MAX_ENTRIES);
+    assert!(live.tools.len() <= MAX_ENTRIES + 63);
+    assert!(live.codex_threads.len() <= MAX_ENTRIES + 63);
+    assert!(!live.tools.contains_key(&ToolCallId::new("t0")));
+
+    let last = format!("t{}", MAX_ENTRIES + 127);
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": last,
+        "content": [{"type": "content", "content": {"type": "text", "text": "still updates"}}]
+    })));
+    assert!(live.transcript(1).0[0].text.contains("still updates"));
+}
+
+#[test]
 fn a_tool_result_image_shows_on_its_tool_and_goes_to_the_server() {
     let mut live = live();
     live.prompted("take a screenshot");
@@ -725,4 +752,18 @@ fn a_session_the_agent_has_not_named_takes_its_first_prompt_line() {
     assert_eq!(live.info.title.as_deref(), Some("Flaky CI"));
     live.prompted("and more");
     assert_eq!(live.info.title.as_deref(), Some("Flaky CI"));
+}
+
+#[test]
+fn steering_keeps_the_running_turns_files_and_start() {
+    let mut live = live();
+    live.prompted("make an image");
+    live.turn_links.push("result.png".into());
+    let start = live.turn_start;
+    let began = live.turn_began;
+    live.steered("make it blue");
+    assert_eq!(live.turn_start, start);
+    assert_eq!(live.turn_began, began);
+    assert_eq!(live.turn_links, ["result.png"]);
+    assert_eq!(live.transcript(10).0.last().unwrap().text, "make it blue");
 }

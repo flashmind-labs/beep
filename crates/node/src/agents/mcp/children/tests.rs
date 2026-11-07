@@ -146,7 +146,7 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
     let text = child_entry(&call, &view);
     assert_eq!(
         text,
-        "Build the iOS app [in_progress]\n[steps] 0\n[agent] codex on mac-box\n\
+        "Build the iOS app\nBuild the iOS app [in_progress]\n[steps] 0\n[agent] codex on mac-box\n\
          [child] a3f9c1@mac-box working k1"
     );
     let done = ChildView {
@@ -158,7 +158,7 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
     };
     assert_eq!(
         child_entry(&call, &done),
-        "iOS build [completed]\n[steps] 1\n[agent] codex on mac-box\n\
+        "iOS build\nBuild the iOS app [completed]\n[steps] 1\n[agent] codex on mac-box\n\
          [child] a3f9c1@mac-box idle k1\nBuilt and tested."
     );
     // What it spent shows on the card, after the link and before its answer.
@@ -169,7 +169,7 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
     };
     assert_eq!(
         child_entry(&call, &spent),
-        "iOS build [completed]\n[steps] 1\n[agent] codex on mac-box\n\
+        "iOS build\nBuild the iOS app [completed]\n[steps] 1\n[agent] codex on mac-box\n\
          [child] a3f9c1@mac-box idle k1\n[spend] 18400 0.0412\nBuilt and tested."
     );
     let asking = ChildView {
@@ -178,6 +178,18 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
         ..view
     };
     assert!(child_entry(&call, &asking).ends_with("Waiting for you: Run xcodebuild test"));
+    let prompt = format!(
+        "Fix `login`.\n\n{{\"instruction\": \"keep this\"}}\n{}\nLast instruction.",
+        "Keep every line. ".repeat(300)
+    );
+    let multiline = format!(
+        "Beep: Start codex agent: {prompt} [completed]\n{}",
+        serde_json::to_string(&done).unwrap()
+    );
+    assert!(
+        child_entry(&multiline, &done)
+            .starts_with(&format!("iOS build\n{prompt} [completed]\n[steps]"))
+    );
     assert_eq!(
         started_view("Beep: Start codex agent: x [completed]\nnot json"),
         None
@@ -289,9 +301,26 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let busy = view(&text);
     assert_eq!(busy.state, "working");
 
+    // A child still waiting for ACP counts towards limits but has no id to list.
+    let (parent, who) = offers.agents.caller(&mine).unwrap();
+    let mut unnamed_kind = kind("kid");
+    unnamed_kind.args = vec!["-c".into(), "cat > /dev/null".into()];
+    let unnamed = offers
+        .agents
+        .start(
+            &unnamed_kind,
+            Some(&cwd),
+            Begin {
+                parent: Some(offers.agents.link_for(&parent, &who).unwrap()),
+                ..Begin::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(offers.agents.children_of(&who).len(), 3);
     let (_, text) = tool(&offers, &mine, Tool::ListAgents, json!({})).await;
     let listed: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
     assert_eq!(listed.len(), 2, "{text}");
+    unnamed.close().await;
 
     // Another agent reaches none of them, and learns nothing of them.
     for tool_name in [Tool::AgentStatus, Tool::StopAgent] {
