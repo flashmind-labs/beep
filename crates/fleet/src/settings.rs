@@ -12,10 +12,12 @@ use beep_mesh::Key;
 use beep_proto::{
     ApiError, FlshSettings, HarnessEnv, HarnessSettings, InstructionsVersion,
     MachineHarnessSettings, check_agent, check_settings, merged_env,
-    node::harness::{AutoCompact, HarnessConfig},
+    node::agent::valid_model,
+    node::harness::{AutoCompact, HarnessConfig, ModelCompact},
     node::mesh_state::SkillSync,
 };
 use iroh::EndpointId;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// The longest instructions, in bytes.
@@ -175,6 +177,53 @@ impl Desk {
         write(&self.mesh, key, Some(&config)).await
     }
 
+    /// Model compaction rules shared by every machine.
+    pub fn harness_model_compacts(&self, agent: &str) -> Result<Vec<ModelCompact>> {
+        check_agent(agent)?;
+        Ok(read::<HarnessConfig>(&self.mesh, &Self::harness_key(agent))
+            .map(|c| c.compact_models)
+            .unwrap_or_default())
+    }
+
+    /// Saves exact model overrides without changing the harness-wide setting.
+    pub async fn save_harness_model_compacts(
+        &self,
+        agent: &str,
+        rules: Vec<ModelCompact>,
+    ) -> Result<()> {
+        check_agent(agent)?;
+        if !matches!(agent, "codex" | "claude" | "pi") {
+            return Err(FleetError::refused(
+                "This harness manages its own model rules.",
+            ));
+        }
+        if rules.len() > 64 {
+            return Err(FleetError::refused("At most 64 model overrides."));
+        }
+        let mut seen = HashSet::new();
+        for rule in &rules {
+            if !valid_model(rule.model.as_str()) || !seen.insert(&rule.model) {
+                return Err(FleetError::refused("Give each override a unique model id."));
+            }
+            if rule.compact.tokens == Some(0)
+                || rule
+                    .compact
+                    .percent
+                    .is_some_and(|p| !AutoCompact::valid_percent(p))
+            {
+                return Err(FleetError::refused(
+                    "Use 1 to 100%, or a positive token count.",
+                ));
+            }
+        }
+        let key = Self::harness_key(agent);
+        let config = HarnessConfig {
+            compact_models: rules,
+            ..read::<HarnessConfig>(&self.mesh, &key).unwrap_or_else(|| HarnessConfig::new(agent))
+        };
+        write(&self.mesh, key, Some(&config)).await
+    }
+
     /// Saves `settings` for every machine. The program path and home folder, which are paths on
     /// the machine it was edited on, go to all of them only with `include_program`.
     pub async fn save_harness_settings_all(
@@ -226,7 +275,8 @@ impl Desk {
         let submitted: Vec<String> = settings.env.iter().map(|var| var.name.clone()).collect();
         let kept = read::<HarnessConfig>(&self.mesh, &key);
         let kept_env = kept.as_ref().map(|config| config.env.clone());
-        let compact = kept.and_then(|config| config.compact);
+        let compact = kept.as_ref().and_then(|config| config.compact);
+        let compact_models = kept.map(|config| config.compact_models).unwrap_or_default();
         let config = HarnessConfig {
             agent: agent.to_owned(),
             enabled: settings.enabled,
@@ -235,6 +285,7 @@ impl Desk {
             args: settings.args,
             env: merged_env(kept_env.unwrap_or_default(), settings.env),
             compact,
+            compact_models,
         };
         write(&self.mesh, key, Some(&config)).await?;
         // A record goes once its variable has a value in the mesh, or was taken out. One submitted

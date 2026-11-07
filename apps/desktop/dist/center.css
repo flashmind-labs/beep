@@ -964,3 +964,12 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .cc-note.in-go .go { margin-left: auto; color: var(--accent); white-space: nowrap }
 .pj-task.ca-row > .t, .pj-task.ca-row > .m { grid-column: 1 }
 .pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
+
+
+.model-context-scroll { overflow-x: auto }
+.model-context { min-width: 560px }
+.model-context th:nth-child(2), .model-context th:nth-child(3) { width: 120px }
+.model-context th:nth-child(4) { width: 144px }
+.model-context td { font-variant-numeric: tabular-nums; overflow-wrap: anywhere }
+.model-context td small { display: block; color: var(--muted); font-size: 12px }
+.model-context td:last-child { text-align: left }

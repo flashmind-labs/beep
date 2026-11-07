@@ -13,7 +13,8 @@ use crate::{
 };
 use beep_proto::{
     AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn, ListAgentHarnesses,
-    MachineHarnessSettings, SecretText, UpdateAgentHarness, node::harness::AutoCompact,
+    MachineHarnessSettings, SecretText, UpdateAgentHarness,
+    node::harness::{AutoCompact, ModelCompact},
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -301,6 +302,28 @@ pub async fn harness_compact_save(
     desk(&fleet)
         .await?
         .save_harness_compact(&agent, compact)
+        .await?;
+    Ok(())
+}
+
+/// Model compaction overrides, shared by every machine.
+#[tauri::command]
+pub async fn harness_model_compacts(
+    fleet: FleetState<'_>,
+    agent: String,
+) -> Result<Vec<ModelCompact>> {
+    Ok(desk(&fleet).await?.harness_model_compacts(&agent)?)
+}
+
+#[tauri::command]
+pub async fn harness_model_compacts_save(
+    fleet: FleetState<'_>,
+    agent: String,
+    rules: Vec<ModelCompact>,
+) -> Result<()> {
+    desk(&fleet)
+        .await?
+        .save_harness_model_compacts(&agent, rules)
         .await?;
     Ok(())
 }

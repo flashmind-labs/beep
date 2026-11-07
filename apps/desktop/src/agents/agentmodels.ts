@@ -4,6 +4,8 @@ export interface ModelInfo {
   id: string;
   name: string;
   description: string | null;
+  context_window?: number | null;
+  max_context_window?: number | null;
 }
 
 /// The models an agent can run on a machine. `listed`: pick from `models`;

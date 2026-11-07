@@ -28,6 +28,8 @@ use std::{
 };
 use tokio::{io::AsyncReadExt, sync::mpsc, task::spawn_blocking, time::Instant};
 
+mod context;
+
 /// How long an agent's list is kept.
 const KEEP: Duration = Duration::from_secs(5 * 60);
 /// How long an agent has to start and make a session; npx may first
@@ -99,7 +101,7 @@ pub(super) async fn find(kind: AgentKind) -> ModelList {
     let Some(home) = dirs::home_dir() else {
         return listed(Offered::default(), flag);
     };
-    match tokio::time::timeout(PROBE_TIMEOUT, probe(&kind, &home)).await {
+    let mut list = match tokio::time::timeout(PROBE_TIMEOUT, probe(&kind, &home)).await {
         Ok(Ok(offered)) => listed(offered, flag),
         Ok(Err(e)) => {
             log::info!("{} did not list its models: {e:#}", kind.name);
@@ -109,7 +111,9 @@ pub(super) async fn find(kind: AgentKind) -> ModelList {
             log::info!("{} did not list its models in time", kind.name);
             listed(Offered::default(), flag)
         }
-    }
+    };
+    context::enrich(&kind, &mut list).await;
+    list
 }
 
 /// The list an ACP agent's `offered` models make. With none, a model can
@@ -252,6 +256,7 @@ fn flsh_listing(output: &str) -> Vec<ModelOption> {
             id: id.to_owned(),
             name: id.to_owned(),
             description: None,
+            ..ModelOption::default()
         })
         .collect()
 }
@@ -384,6 +389,7 @@ mod tests {
             args: Vec::new(),
             env: [("FLASHMIND_HOME".into(), dir.path().display().to_string())].into(),
             compact: None,
+            compact_models: Vec::new(),
         };
         assert_eq!(flsh(&kind).await.current.as_deref(), Some("set:home"));
     }
@@ -408,6 +414,7 @@ cat > /dev/null
             args: vec!["-c".into(), script.into(), "fake-adapter".into()],
             env: Default::default(),
             compact: None,
+            compact_models: Vec::new(),
         }
     }
 

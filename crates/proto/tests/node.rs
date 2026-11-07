@@ -1815,6 +1815,7 @@ mod agent {
                         id: "openai:gpt-test".into(),
                         name: "GPT Test".into(),
                         description: None,
+                        ..ModelOption::default()
                     }],
                 },
             };

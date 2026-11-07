@@ -444,6 +444,8 @@ pub fn agent_models(list: ModelList) -> AgentModels {
                 id: model.id,
                 name: model.name,
                 description: model.description,
+                context_window: model.context_window,
+                max_context_window: model.max_context_window,
             })
             .collect(),
     }

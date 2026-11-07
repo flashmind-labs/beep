@@ -328,6 +328,12 @@ ffi_structs! {
         pub id: String,
         pub name: String,
         pub description: Option<String>,
+        /// The harness's default usable context, when reported.
+        #[serde(default)]
+        pub context_window: Option<u64>,
+        /// The largest usable window the harness reports for this model.
+        #[serde(default)]
+        pub max_context_window: Option<u64>,
     }
 
     /// One saved version of the user's instructions.

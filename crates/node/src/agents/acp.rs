@@ -385,6 +385,7 @@ pub(super) fn offered_models(answer: &Value) -> Offered {
                     id: choice.value.to_string(),
                     name: choice.name,
                     description: choice.description,
+                    ..ModelOption::default()
                 })
                 .collect(),
             switch: Some(ModelSwitch::ConfigOption(id)),
@@ -407,6 +408,7 @@ pub(super) fn offered_models(answer: &Value) -> Offered {
                 name: model.name.unwrap_or_else(|| model.model_id.clone()),
                 id: model.model_id,
                 description: model.description,
+                ..ModelOption::default()
             })
             .collect(),
         switch: Some(ModelSwitch::SetModel),

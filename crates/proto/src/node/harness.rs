@@ -9,6 +9,7 @@
 pub use output::{clean_output, failure_line};
 
 use super::EnvSecret;
+use crate::ModelId;
 use serde::{Deserialize, Serialize};
 
 /// A harness Beep knows: where it keeps its home and how it installs.
@@ -146,6 +147,16 @@ pub struct HarnessConfig {
     /// `AutoCompact::DEFAULT_PERCENT`.
     #[serde(default)]
     pub compact: Option<AutoCompact>,
+    /// Model rules checked between turns, over the harness setting.
+    #[serde(default)]
+    pub compact_models: Vec<ModelCompact>,
+}
+
+/// A compaction override for an exact harness model id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelCompact {
+    pub model: ModelId,
+    pub compact: AutoCompact,
 }
 
 /// Whether and when the node compacts a harness's sessions.
@@ -189,6 +200,7 @@ impl HarnessConfig {
             args: Vec::new(),
             env: Vec::new(),
             compact: None,
+            compact_models: Vec::new(),
         }
     }
 }
