@@ -4,7 +4,7 @@ import "../ui/contextmenu.ts";
 import "../ui/loopclock.ts";
 import "../ui/zoom.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";
-import { isCloseKey } from "../agentpane/media-state.ts";
+import { isCloseKey, isZoomKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";
 import { allTerms } from "../terminals/view.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -60,11 +60,19 @@ initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id =
 /// ⌘ and a letter: the pane page it opens.
 const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
 
+// Capture before xterm handles the key, so Shift+Esc never reaches the shell.
+document.addEventListener("keydown", e => {
+  if (shown !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || document.querySelector('[role="dialog"]')) return;
+  if (!allTerms.focusOpen()) return;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
+
 document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W or ⌘N.
   if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e) && !isNewKey(e)) return;
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home, then its Overview tab.
-  if (e.key === "Escape" && !e.defaultPrevented) {
+  if (e.key === "Escape" && !(shown === "terminals" && isZoomKey(e)) && !e.defaultPrevented) {
     const up = escUp({ page: shown, picked: state.picked, tile: !!pa.tile, alone: !!windowProject, homeTab: homeTab !== "overview" });
     if (up) {
       e.preventDefault();
