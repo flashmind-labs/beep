@@ -128,14 +128,21 @@ final class LiveAudio {
         try rebuild()
     }
 
+    @MainActor private final class ChimeFinisher {
+        private weak var audio: LiveAudio?
+        init(_ audio: LiveAudio) { self.audio = audio }
+        func finish() { audio?.finish() }
+    }
+
     /// Stops everything, after `chime` when one is given. Safe to call more than once.
-    func stop(after chime: Chime? = nil) {
+    @MainActor func stop(after chime: Chime? = nil) {
         guard let chime, state == .running, engine.isRunning else { return finish() }
         Self.stopping = self
         // The caller lets go of this at once, so the closures hold it until the chime ends,
         // on an audio thread, or a second passes; the engine stops on the main thread.
-        self.chime(chime) { DispatchQueue.main.async { self.finish() } }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.finish() }
+        let finisher = ChimeFinisher(self)
+        self.chime(chime) { DispatchQueue.main.async { finisher.finish() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { finisher.finish() }
     }
 
     private func finish() {
@@ -159,13 +166,8 @@ final class LiveAudio {
 
     private static func configureSession() throws {
         let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker]
-        if #available(iOS 26.0, *) {
-            options.insert(.allowBluetoothHFP)
-        } else {
-            options.insert(.allowBluetooth)
-        }
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
+        // Voice chat enables Bluetooth HFP on all supported iOS versions.
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker])
         try session.setActive(true)
     }
 

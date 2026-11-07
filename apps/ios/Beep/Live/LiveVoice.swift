@@ -330,13 +330,7 @@ final class LiveVoice {
                 .flatMap(AVAudioSession.InterruptionType.init)
             let options = AVAudioSession.InterruptionOptions(
                 rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
-            let reason = (note.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt)
-                .flatMap(AVAudioSession.InterruptionReason.init)
             guard let type else { return }
-            // A late notice of an interruption from while the app was suspended, such as before
-            // a launch from the Action Button: the audio is not taken now, and no end follows,
-            // so pausing for it would leave the mic off for good.
-            if type == .began, reason == .appWasSuspended { return }
             let began = type == .began
             let resume = options.contains(.shouldResume)
             Task { @MainActor in self?.interrupted(began: began, resume: resume) }
