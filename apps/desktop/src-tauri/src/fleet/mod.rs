@@ -348,7 +348,7 @@ impl Fleet {
     /// The machines of the mesh, each with whether it is online. Empty until
     /// the mesh is open.
     pub fn machines(&self) -> Vec<DeviceStatus> {
-        self.mesh().map(|mesh| mesh.devices()).unwrap_or_default()
+        self.mesh().map(|mesh| mesh.machines()).unwrap_or_default()
     }
 
     /// What the machines of the mesh last reported.

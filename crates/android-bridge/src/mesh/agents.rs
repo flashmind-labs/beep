@@ -22,7 +22,7 @@ const ORDER_WAIT: Duration = Duration::from_secs(10);
 impl Connected {
     fn host(&self, id: &str) -> Result<Host, BeepError> {
         self.mesh
-            .devices()
+            .machines()
             .into_iter()
             .find(|device| device.device.id.to_string() == id)
             .map(|device| Host {
@@ -35,7 +35,7 @@ impl Connected {
     pub async fn hosts(&self) -> Vec<AgentHost> {
         stream::iter(
             self.mesh
-                .devices()
+                .machines()
                 .into_iter()
                 .filter(|device| device.online && device.device.id != self.mesh.me()),
         )
@@ -81,53 +81,54 @@ impl Connected {
 
     pub async fn sessions(&self, project: Option<&str>) -> Vec<MachineSession> {
         let places = project.map(|name| beep_fleet::places(&self.mesh, name));
-        let mut sessions: Vec<_> = stream::iter(self.mesh.devices().into_iter().filter(|device| {
-            device.online
-                && device.device.id != self.mesh.me()
-                && places
-                    .as_ref()
-                    .is_none_or(|places| places.iter().any(|(id, _)| *id == device.device.id))
-        }))
-        .map(|device| {
-            let folders = places.as_ref().map(|places| {
-                places
-                    .iter()
-                    .filter(|(id, _)| *id == device.device.id)
-                    .map(|(_, folder)| folder.clone())
-                    .collect::<Vec<_>>()
-            });
-            async move {
-                let host = Host {
-                    id: device.device.id.to_string(),
-                    name: device.device.name,
-                };
-                let Ok(client) = self.client(&host.id).await else {
-                    return Vec::new();
-                };
-                let mut current = listing::node_sessions(&client, &host).await;
-                if let Some(folders) = folders {
-                    current.retain(|session| {
-                        folders.iter().any(|folder| in_folder(&session.cwd, folder))
-                    });
-                    let past = listing::project_sessions(&client, &host, folders).await;
-                    for session in past {
-                        if !current
-                            .iter()
-                            .any(|known| known.id == session.id && known.agent == session.agent)
-                        {
-                            current.push(session);
+        let mut sessions: Vec<_> =
+            stream::iter(self.mesh.machines().into_iter().filter(|device| {
+                device.online
+                    && device.device.id != self.mesh.me()
+                    && places
+                        .as_ref()
+                        .is_none_or(|places| places.iter().any(|(id, _)| *id == device.device.id))
+            }))
+            .map(|device| {
+                let folders = places.as_ref().map(|places| {
+                    places
+                        .iter()
+                        .filter(|(id, _)| *id == device.device.id)
+                        .map(|(_, folder)| folder.clone())
+                        .collect::<Vec<_>>()
+                });
+                async move {
+                    let host = Host {
+                        id: device.device.id.to_string(),
+                        name: device.device.name,
+                    };
+                    let Ok(client) = self.client(&host.id).await else {
+                        return Vec::new();
+                    };
+                    let mut current = listing::node_sessions(&client, &host).await;
+                    if let Some(folders) = folders {
+                        current.retain(|session| {
+                            folders.iter().any(|folder| in_folder(&session.cwd, folder))
+                        });
+                        let past = listing::project_sessions(&client, &host, folders).await;
+                        for session in past {
+                            if !current
+                                .iter()
+                                .any(|known| known.id == session.id && known.agent == session.agent)
+                            {
+                                current.push(session);
+                            }
                         }
                     }
+                    current
                 }
-                current
-            }
-        })
-        .buffer_unordered(CONCURRENT)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .flatten()
-        .collect();
+            })
+            .buffer_unordered(CONCURRENT)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
         sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
         sessions
     }
