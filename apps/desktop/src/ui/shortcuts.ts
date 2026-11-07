@@ -71,9 +71,10 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "end / ⌘↓", does: "End of the log" },
   ] },
   { title: "Side pane", rows: [
-    { keys: "⌘1", does: "Files" },
-    { keys: "⌘2", does: "Changes" },
-    { keys: "⌘3", does: "Artifacts" },
+    { keys: "⌘1", does: "Focus chat" },
+    { keys: "⌘2", does: "Files" },
+    { keys: "⌘3", does: "Changes" },
+    { keys: "⌘4", does: "Artifacts" },
     { keys: "⌘O", does: "Open folder in the editor" },
     { keys: "⇧esc", does: "Zoom the pane" },
     { keys: "⌃tab", does: "Next tab" },

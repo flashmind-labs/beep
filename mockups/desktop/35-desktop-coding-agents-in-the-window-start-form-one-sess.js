@@ -333,6 +333,9 @@
 .mac #agmodel .cc-ag { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; border: 1px solid var(--d-border); background: var(--d-elev); flex: none }
 .mac #agmodel .cc-ag.mark svg { color: inherit }
 .mac .dhints.slim { padding: 2px 16px 6px; border-top: 0; background: none; font-size: 11px; color: var(--d-dim); gap: 4px 12px }
+.mac .ag-shortcuts { margin-left: auto }
+.mac .ag-shortcuts summary { cursor: pointer }
+.mac .ag-shortcuts > div { display: flex; flex-wrap: wrap; gap: 4px 12px; padding-top: 8px }
 .mac .dhints.slim kbd { font-size: 10.5px }
 @container (max-width: 560px) { .mac .dhints span.lo { display: none } }
 .mac .ag-pane { min-width: 0; background: rgba(15,16,17,.35) }
@@ -752,7 +755,7 @@ expected 200, got 401</pre></details></span></div>`;
       : done ? [...(image ? [] : [["⌘V", "paste an image"]]), [DI.ret, "send"], ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]
       : stopping ? [[DI.ret, "steer"], [`⌥${DI.ret}`, "queue"]]
       : [[DI.ret, "steer"], [`⌥${DI.ret}`, "queue"], ["⇧Tab", "mode"], ["⌘.", queued ? "stop and send queued" : "stop"], ["esc", "back"]];
-    const slim = `<div class="dhints slim">${keys.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}</div>`;
+    const slim = `<div class="dhints slim">${keys.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}<details class="ag-shortcuts"><summary>Show more</summary><div><span><kbd>⌘1</kbd>chat</span><span><kbd>⌘2</kbd>files</span><span><kbd>⌘3</kbd>changes</span><span><kbd>⌘4</kbd>artifacts</span><span><kbd>⇧↩</kbd>new line</span><span><kbd>⌘U</kbd>thoughts</span><span><kbd>⌘Y</kbd>commands</span></div></details></div>`;
     const why = "";
     // The media pane beside or under the conversation. Each file the agent
     // made or looked at opens as a tab, next to Subagents while there are
@@ -1010,7 +1013,7 @@ expected 200, got 401</pre></details></span></div>`;
       try { out = base(); } finally { S.d.ags = st; }
       const form = (D.dWinProject().match(/<form class="cc-pjc"[\s\S]*?<\/form>/) || [""])[0];
       if (!form) throw new Error("project start input not found");
-      const keys = [["⏎", "start"], ["⌘T", "terminal"], ["⌘1", "files"], ["esc", "back"]];
+      const keys = [["⏎", "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]];
       const slim = `<div class="dhints slim">${keys.map(([k, t], i) => `<span${i >= 3 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}</div>`;
       const conv = `<div class="ag-conv"><div class="dbody" id="agbody"><div class="dagmain"><div class="ag-empty">New session in acme/widget</div></div></div>${form}${slim}</div>`;
       const head = `<div class="dhead"><span class="tt"><b><button class="agproj" data-dgo="dWinProject">acme/widget</button></b><small title="/srv/project">build-box</small></span><span id="agstate"></span><button class="dbtn quiet" title="Open in Zed (⌘O)" data-toast="Opens ~/Projects/widget in Zed">Open in Zed</button></div>`;

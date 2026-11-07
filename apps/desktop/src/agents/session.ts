@@ -4,6 +4,7 @@ import { markDelivered } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
+import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { openViewer } from "../chat/media.ts";
 import { readRunning, runningCount } from "../agentpane/running.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
@@ -268,8 +269,13 @@ export const stoppingNow = () => {
 /// The session's keys on one small line.
 export function agentHints() {
   const s = AG.page?.session, q = s?.question;
-  const slim = (items: Parameters<typeof hints>[0]) => hints(items).replace('class="dhints"', 'class="dhints slim"');
-  if (AG.draft) return slim([[ICON.ret, "start"], ["⌘T", "terminal"], ["⌘1", "files"], ["esc", "back"]]);
+  const slim = (items: Parameters<typeof hints>[0]) => {
+    const open = $("#agshortcuts")?.hasAttribute("open") ? " open" : "";
+    const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
+    const rows = sections.map(section => `<section><b>${esc(section.title)}</b>${section.rows.map(row => `<span><kbd>${esc(row.keys)}</kbd>${esc(row.does)}</span>`).join("")}</section>`).join("");
+    return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}</div></details></div>`;
+  };
+  if (AG.draft) return slim([[ICON.ret, "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
@@ -288,7 +294,7 @@ export function agentHints() {
 
 /// Puts the session's key hints in place of those on screen.
 export function redrawAgentHints() {
-  const hint = $("#agconv > .dhints");
+  const hint = $("#agconv > .agkeys");
   if (hint) hint.replaceWith(h(agentHints()));
 }
 
