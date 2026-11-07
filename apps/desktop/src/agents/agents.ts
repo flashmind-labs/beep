@@ -38,7 +38,7 @@ import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
-import { onClosing, shownStatus } from "./closing.ts";
+import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
 
 /// A question a session waits on, such as whether to run a command.
@@ -428,8 +428,9 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }, i: num
 let drawn: AgentSession[] = [];
 
 export function drawAgents(loading: boolean) {
-  const list = sessions, shown = nest(list);
+  const list = sessions.filter(sessionVisible), shown = nest(list);
   drawn = shown.map(n => n.row);
+  AG.sel = Math.min(AG.sel, Math.max(0, drawn.length - 1));
   const machines = new Set(list.map(s => s.machine_id)).size;
   const copies = copiesHtml(new Set(list.map(s => s.id)));
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
@@ -519,7 +520,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
 
 /// Esc from an agent view: closes the model picker, leaves a subagent for
 /// its session, else goes back.
-export function agentBack() {
+export function agentBack(closed = false) {
   // The empty view: the pane hands the keys back to the input, then Esc goes to the
   // project, unless the input holds a prompt.
   if (S.view === "agent" && AG.draft) {
@@ -528,13 +529,13 @@ export function agentBack() {
     if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } });
     return;
   }
-  if (S.view === "agent" && (closeModelPicker() || closeChild())) return;
+  if (!closed && S.view === "agent" && (closeModelPicker() || closeChild())) return;
   // A session an agent started goes back to the session that started it.
   const up = S.view === "agent" && AG.open ? parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }) : undefined;
   if (up) return openAgent(up, { back: AG.back });
   // In the window a session's parent is its project, wherever it was opened from.
   if (S.view === "agent" && windowHooks) {
-    if (leavePane()) return;
+    if (!closed && leavePane()) return;
     const project = AG.page && windowHooks.sessionProject?.(AG.page.session);
     if (project) return project.open();
   }

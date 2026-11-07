@@ -1,5 +1,6 @@
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
+import { onClosing, visibleRunning } from "../agents/closing.ts";
 import { patchChildren } from "../ui/patch.ts";
 import { plural, reason } from "../ui/format.ts";
 import { svgEl as icon, writeClipboard } from "../ui/parts.ts";
@@ -105,7 +106,7 @@ export function drawSide() {
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
-  if (home?.running) top.append(sideItem(IC.run, "Running", home.running.length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
+  if (home?.running) top.append(sideItem(IC.run, "Running", visibleRunning(home.running).length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   // Terminals on every machine, once the server lists them.
   const termList = allTerms.list(ALL);
   if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: shown === "terminals", on: () => go("terminals") }));
@@ -651,3 +652,5 @@ registerSidebarGroup("projects", {
   },
   onPick: p => { if (!p.org && !p.group) openProjects(p.name); },
 });
+
+onClosing(() => drawSide());
