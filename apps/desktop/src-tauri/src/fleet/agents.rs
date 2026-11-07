@@ -218,6 +218,7 @@ pub(crate) async fn session(
                 last_message,
                 error: None,
                 queued: 0,
+                queued_messages: Vec::new(),
                 turns: 0,
                 entries: Vec::new(),
                 earlier: 0,
