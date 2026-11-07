@@ -68,7 +68,7 @@ impl WorkRoot {
     /// The folder `rel` inside the root, made with the ones on the way
     /// when missing. Each is checked as it comes, so a symlink out of the
     /// root stops it before anything is made beyond.
-    fn make_folder(&self, rel: &Path) -> Result<PathBuf> {
+    pub(super) fn make_folder(&self, rel: &Path) -> Result<PathBuf> {
         let mut at = self.root.clone();
         for name in rel.components() {
             let next = at.join(name);

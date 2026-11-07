@@ -104,7 +104,7 @@ impl Desk {
         let shared = read::<HarnessConfig>(&self.mesh, &Self::harness_key(agent));
         Ok(self
             .mesh
-            .devices()
+            .machines()
             .into_iter()
             .map(|status| {
                 let own = read::<HarnessConfig>(
@@ -237,7 +237,7 @@ impl Desk {
         let paths = match include_program {
             true => self
                 .mesh
-                .devices()
+                .machines()
                 .into_iter()
                 .map(|status| {
                     (
@@ -254,7 +254,7 @@ impl Desk {
     }
 
     fn known_machine(&self, machine: &str) -> Result<(EndpointId, u32)> {
-        let machines = self.mesh.devices();
+        let machines = self.mesh.machines();
         let id = machines
             .iter()
             .map(|status| status.device.id)

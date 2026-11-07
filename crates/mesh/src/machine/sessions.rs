@@ -406,6 +406,30 @@ pub async fn write_file<S: Sessions + ?Sized>(
     }
 }
 
+/// Writes a session attachment into the host cache. The returned path is absolute.
+pub async fn upload_file<S: Sessions + ?Sized>(
+    node: &S,
+    agent: String,
+    session: String,
+    write: WorkWrite,
+) -> Result<NodeWork<String>, MeshError> {
+    let request = SessionsRequest::UploadFile {
+        root: write.root,
+        agent,
+        session,
+        path: write.path,
+        offset: write.offset,
+        size: write.size,
+        data: write.data,
+    };
+    let reply = hinted(ask(node, request).await, "upload temporary attachments")?;
+    match reply {
+        SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}
+
 /// Edits files once. Mutations are never retried after a lost reply.
 pub async fn edit_files<S: Sessions + ?Sized>(
     node: &S,

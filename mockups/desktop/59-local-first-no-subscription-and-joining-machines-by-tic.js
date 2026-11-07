@@ -137,8 +137,8 @@
     if (k === "other") return otherMac();
     const node = k !== "desktop" && k !== "phone", box = k === "container", who = k === "phone" ? "Phone" : box ? "ci-runner" : node ? "build-box" : "MacBook Air";
     let body;
-    if (s === "joined") body = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>${who} joined</b></div>
-       <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${box ? "Linux, Claude Code. It shows under Machines and can run agents now." : node ? "Linux, Docker, Claude Code, Codex. It shows under Machines and can run agents now." : "macOS, Claude Code, Codex. It shows under Machines and can run agents now."}</div>
+    if (s === "joined") body = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>${k === "phone" ? "Phone paired" : who + " joined"}</b></div>
+       <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${k === "phone" ? "Observe projects and agents from your phone. Phones do not host projects or run code, and stay out of Machines." : box ? "Linux, Claude Code. It shows under Machines and can run agents now." : node ? "Linux, Docker, Claude Code, Codex. It shows under Machines and can run agents now." : "macOS, Claude Code, Codex. It shows under Machines and can run agents now."}</div>
        <button class="dbtn pri" ${go("ns", "machines")}>Done</button>`;
     else if (s === "expired") body = `<div style="font-size:13px;margin-bottom:12px">${k === "phone" ? "This code expired. Phone codes work once and last 5 minutes." : "This ticket expired. A ticket works once and lasts an hour."}</div><button class="dbtn pri" data-dact="dset:ts:ready" data-dgo="dAddTicket">New ticket</button>`;
     else if (node) body = `${step("1. Install beep-node on the machine")}
@@ -155,7 +155,7 @@
     const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5">
       <div style="width:min(560px,86%);padding:18px 20px;border-radius:14px;border:1px solid var(--d-border);background:#151617;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px"><b style="font-size:15px">Add a machine</b><kbd style="font-size:11px;opacity:.7">esc</kbd></div>
-      ${s === "joined" || s === "expired" ? "" : `<div role="radiogroup" aria-label="Kind of machine" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">${kindCard("node", "Node", "A server or any always-on box", k === "node")}${kindCard("container", "Container", "Removed after a day offline", box)}${kindCard("desktop", "Desktop", "Another Mac", k === "desktop")}${kindCard("phone", "Phone", "Pair over iroh", k === "phone")}</div>`}${body}</div></div>`;
+      ${s === "joined" || s === "expired" ? "" : `<div role="radiogroup" aria-label="Kind of machine" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">${kindCard("node", "Node", "A server or any always-on box", k === "node")}${kindCard("container", "Container", "Removed after a day offline", box)}${kindCard("desktop", "Desktop", "Another Mac", k === "desktop")}${kindCard("phone", "Phone", "Observe projects and agents", k === "phone")}</div>`}${body}</div></div>`;
     return nsHome(S.d.ns === "home").replace(/<\/div><\/div>\s*$/, sheet + "</div></div>");
   };
   const T = (l, kind, st) => [l, () => { S.d.tk = kind; S.d.ts = st; render(); }, () => (S.d.tk || "node") === kind && (S.d.ts || "ready") === st];

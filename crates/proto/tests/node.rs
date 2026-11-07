@@ -1600,6 +1600,21 @@ mod agent {
                 data: b"hi".to_vec(),
             };
             assert!(!write.is_read());
+            let upload = SessionsRequest::UploadFile {
+                root: "/srv/project".into(),
+                agent: "codex".into(),
+                session: "session-one".into(),
+                path: "clip.mp4".into(),
+                offset: 0,
+                size: 2,
+                data: b"hi".to_vec(),
+            };
+            assert!(!upload.is_read());
+            let bytes = rmp_serde::to_vec(&upload).unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).unwrap(),
+                upload
+            );
             assert!(
                 !SessionsRequest::UpdateHarness {
                     agent: "claude".into()

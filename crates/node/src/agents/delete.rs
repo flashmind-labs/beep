@@ -69,6 +69,9 @@ impl Agents {
             removed || !records.is_empty(),
             "there is no {agent} session {id} on this machine"
         );
+        let attachment_agent = agent.to_owned();
+        let attachment_id = agent_id.unwrap_or_else(|| id.to_owned());
+        spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
         let mut sessions = self.lock();
         for (key, _) in records {
             sessions.remove(&key);

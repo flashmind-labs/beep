@@ -222,7 +222,7 @@
       </div>`;
   };
   window.__agcPicker = agcPicker;
-  const AGV = ["nohost", "picker", "flsh", "pickernomachine", "host", "project", "folder", "branch", "basemenu", "typing", "none", "looking", "noprompt", "noproj", "noprojfolder", "code"];
+  const AGV = ["ready", "nohost", "picker", "flsh", "pickernomachine", "host", "project", "folder", "branch", "basemenu", "typing", "none", "looking", "noprompt", "noproj", "noprojfolder", "code"];
   D.dAgentNew = () => {
     const v = pick("agc", AGV, "nohost");
     const none = v === "none", looking = v === "looking", noprompt = v === "noprompt";

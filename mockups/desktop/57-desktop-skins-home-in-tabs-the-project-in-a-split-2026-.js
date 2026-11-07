@@ -293,6 +293,13 @@
     refused: { dot: "bad", foot: "Refused", title: "The server turned this Mac away", text: "It did not find this Mac's account.", action: null },
   };
   D.dHome = () => {
+    if (S.d.cc === "startup") {
+      const main = `<div class="cc-top"><h2>Home</h2><small>Wednesday, 4 November</small></div>
+        <div class="cc-view"><div class="cc-mstrip"><button class="dbtn quiet small" data-dgo="dAddMachine">${CC_IC.plus} Add a machine</button></div>
+        <div class="cc-tabs" role="tablist"><button role="tab" aria-selected="true">Overview</button><button role="tab" aria-selected="false" data-startup-machines>Machines</button></div>
+        <div class="cc-panel cc-empty"><b>Start an agent</b><span>Your machines connect in the background.</span><button class="dbtn small" data-dgo="dAgentNew">Start an agent</button></div></div>`;
+      return window.__mrmOver(skinned(ccWin(ccSide("home", { bare: true, noChats: true }), main)));
+    }
     if (PROBLEMS[S.d.cc]) return mbar() + ccConnecting(false, PROBLEMS[S.d.cc]);
     if (!ownHome()) return baseHome();
     const cc = S.d.cc, old = cc === "old", empty = cc === "empty";
@@ -308,11 +315,17 @@
       <div class="cc-comp hc"><span class="in"><span class="caret"></span><span class="ph">${none ? "Ask Beep anything" : "Ask Beep, or start an agent on a machine"}</span></span>${none ? "" : `<button class="dbtn" data-dgo="dAgentNew" title="Start a coding agent on a machine">Agent</button>`}<button class="dbtn pri" data-toast="Sent">Send<kbd>${DI.ret}</kbd></button></div>`;
     return window.__mrmOver(skinned(ccWin(ccSide("home", { old, bare: empty, noChats: empty }), main)));
   };
+  document.getElementById("desk").addEventListener("click", e => {
+    if (!e.target.closest("[data-startup-machines]")) return;
+    Object.assign(S.d, { cc: "empty", htab: "machines" });
+    render();
+  });
   const skinVariants = [["Skin: Flashmind", () => { S.d.skin = "flashmind"; render(); }, () => S.d.skin === "flashmind"], ["Skin: Linear", () => { S.d.skin = ""; render(); }, () => !S.d.skin], ["Skin: Light", () => { S.d.skin = "paper"; render(); }, () => S.d.skin === "paper"]];
   const keepVariants = (VARIANTS.dHome || []).filter(([l]) => !["Balanced", "Calm", "Detailed", "Default", "Wide window"].includes(l) && !l.startsWith("Git:"));
   const stuckAt = keepVariants.findIndex(([l]) => l === "Still connecting");
   keepVariants.splice(stuckAt + 1, 0, ...[["Not linked", "unlinked"], ["Removed from the account", "revoked"], ["Turned away", "refused"]].map(([l, k]) => [l, () => { Object.assign(S.d, { cc: k, mrm: "", htab: "overview" }); render(); }, () => S.d.cc === k]));
   VARIANTS.dHome = [...HOME_TABS.map(([k, l]) => [`Tab: ${l}`, () => { Object.assign(S.d, { htab: k, horg: false, cc: "default", mrm: "", tm: "" }); render(); }, () => (S.d.htab || "overview") === k && !S.d.horg && ownHome() && !S.d.tm && (S.d.cc || "default") === "default"]),
+    ["Startup without server", () => { Object.assign(S.d, { cc: "startup", htab: "overview", mrm: "", tm: "" }); render(); }, () => S.d.cc === "startup"],
     ["Projects, one owner", () => { Object.assign(S.d, { htab: "projects", horg: true, cc: "default", mrm: "" }); render(); }, () => S.d.htab === "projects" && !!S.d.horg],
     ["PRs filtered by a label", () => { Object.assign(S.d, { htab: "git", hlp: "perf", cc: "default", mrm: "" }); render(); }, () => S.d.htab === "git" && !!S.d.hlp],
     ...keepVariants, ...skinVariants];

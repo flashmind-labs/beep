@@ -429,6 +429,77 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_resumed_session_replaces_the_ended_run_in_listings() {
+    const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
+    let script = NAMING_ADAPTER
+        .replace(
+            "\"agentCapabilities\":{}",
+            "\"agentCapabilities\":{\"loadSession\":true}",
+        )
+        .replace(
+            "while read -r line; do reply '{}'; done",
+            r#"while read -r line; do
+case "$line" in
+*session/prompt*) reply '{"stopReason":"end_turn"}' ;;
+*) reply '{}' ;;
+esac
+done"#,
+        );
+    let kind = sh_agent("codex", &script);
+    let agents = Agents::new(vec![kind.clone()]);
+    let first = agents.start(&kind, Some("/"), Begin::default()).unwrap();
+    first.named_info().await.unwrap();
+    assert_ne!(first.id, AGENT_ID);
+    first.close().await;
+
+    let resumed = agents
+        .start(
+            &kind,
+            Some("/"),
+            Begin {
+                resume: Some(AGENT_ID.into()),
+                ..Begin::default()
+            },
+        )
+        .unwrap();
+    let mut live = resumed.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.status() == Status::Idle),
+    )
+    .await
+    .expect("the resumed session loads")
+    .unwrap();
+    let listed = agents.list();
+    assert_eq!(
+        listed.len(),
+        1,
+        "the ended run must not shadow the resumed one"
+    );
+    assert_eq!(listed[0].id, AGENT_ID);
+    assert_eq!(listed[0].state.status, Status::Idle);
+    assert!(agents.get(&first.id).is_none());
+    let current = agents.get(AGENT_ID).unwrap();
+    assert!(Arc::ptr_eq(&current, &resumed));
+    current
+        .order(Command::Prompt("Continue the work".to_owned().into()))
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.info.turns == 1 && live.status() == Status::Idle),
+    )
+    .await
+    .expect("the prompt reaches the resumed run")
+    .unwrap();
+    assert!(resumed.live.borrow().transcript(10).0.iter().any(|entry| {
+        entry.kind == agent::EntryKind::User && entry.text == "Continue the work"
+    }));
+    resumed.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn a_refused_start_makes_no_branch() {
     let (_dir, work) = checkout::tests::repo("refused");
     let kind = sh_agent("codex", "cat > /dev/null");
