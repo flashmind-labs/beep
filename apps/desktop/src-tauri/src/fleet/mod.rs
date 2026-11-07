@@ -14,6 +14,7 @@ pub(crate) mod files;
 mod mesh;
 pub(crate) mod migrate;
 mod parents;
+mod presence;
 pub(crate) mod projects;
 mod status;
 pub(crate) mod terminals;
@@ -122,6 +123,8 @@ pub struct Fleet {
     releases: ToolReleases,
     /// Who started each session the nodes listed, to nest them.
     parents: parents::Parents,
+    /// Native session reports, overlaid on the slower transcript scans.
+    presence: presence::Presence,
 }
 
 impl Fleet {
@@ -154,6 +157,7 @@ impl Fleet {
             move_task: Mutex::default(),
             releases: ToolReleases::default(),
             parents: parents::Parents::default(),
+            presence: presence::Presence::default(),
         }
     }
 

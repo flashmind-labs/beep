@@ -8,6 +8,8 @@ use std::{io, path::Path};
 #[cfg(unix)]
 pub(crate) use unix::{Listener, Stream, connect, is_listening};
 #[cfg(windows)]
+pub(crate) use windows::pipe_name;
+#[cfg(windows)]
 pub(crate) use windows::{Listener, Stream, connect, is_listening};
 
 #[cfg(unix)]
@@ -114,7 +116,7 @@ mod windows {
 
     /// The pipe for `socket`: one per node folder, named by a hash of its
     /// path.
-    pub(super) fn pipe_name(socket: &Path) -> String {
+    pub(crate) fn pipe_name(socket: &Path) -> String {
         let hash = blake3::hash(socket.as_os_str().as_encoded_bytes());
         format!(r"\\.\pipe\beep-node-{}", &hash.to_hex()[..32])
     }

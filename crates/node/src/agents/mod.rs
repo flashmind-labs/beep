@@ -40,6 +40,7 @@ mod models;
 mod moving;
 mod place;
 mod plans;
+pub mod presence;
 mod prices;
 mod processes;
 mod reach;
@@ -134,6 +135,8 @@ pub struct Agents {
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     /// Claude Code sessions started outside Beep.
     external: External,
+    /// Sessions held open by a local CLI, including idle prompts.
+    presence: presence::Registry,
     /// Where Codex, pi, flsh and OpenCode keep their sessions.
     stores: Stores,
     /// The pictures sessions' transcripts show, by session.
@@ -199,6 +202,7 @@ impl Agents {
             adapters: adapters::Installs::default(),
             sessions: Mutex::default(),
             external: External::locate(),
+            presence: presence::Registry::default(),
             stores: Stores::locate(),
             images: Arc::default(),
             usage: Arc::default(),

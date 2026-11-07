@@ -74,9 +74,28 @@ impl AgentSessions {
         }
     }
 
+    pub(crate) fn stale(&self) {
+        if let Some(listed) = self.last().as_mut() {
+            listed.at = None;
+        }
+    }
+
     /// The sessions, as fresh as `WAIT` allows. Without an older list it
     /// waits for the server's answer.
     pub async fn list(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        beep: &Arc<Beep>,
+        cache: &Arc<ViewCache>,
+    ) -> Result<Vec<MachineSession>> {
+        let mut sessions = self.list_cached(app, beep, cache).await?;
+        // A presence event may have arrived while the cached read was in flight.
+        app.state::<Arc<Fleet>>().apply_presence(&mut sessions);
+        sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
+        Ok(sessions)
+    }
+
+    async fn list_cached(
         self: &Arc<Self>,
         app: &AppHandle,
         beep: &Arc<Beep>,

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ProjectRow } from "../src/project/projects-state.ts";
+import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { awaitsView, foundFor, mergeProjects, plainPath, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
+import { awaitsView, foundFor, mergeProjects, plainPath, projectRunning, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
 
 const imported = [
@@ -92,6 +92,41 @@ test("past sessions leave out the running ones, newest first", () => {
     { machine_id: "m1", id: "s2", last_activity: 4 },
   ];
   assert.deepEqual(pastSessions(sessions, [running[0]]).map(s => s.id), ["s2", "s0"]);
+});
+
+test("live project sessions move to Running before Home catches up", () => {
+  const project = { machines: [{ id: "m1", name: "build-box", folder: "/srv/project" }] };
+  const session = (id: string, status: string, more = {}): SessionRow => ({
+    machine_id: "m1", machine_name: "build-box", id, agent: "codex", title: id,
+    cwd: "/srv/project", status, doing: null, started_at: 1, last_activity: 2,
+    external: false, question: null, ...more,
+  });
+  const sessions = ["starting", "working", "running", "asking", "waiting", "idle", "ended"].map(status => session(status, status));
+  const running = projectRunning(project, [], sessions);
+  assert.deepEqual(running.map(s => s.id), sessions.slice(0, -1).map(s => s.id));
+  assert.deepEqual(pastSessions(sessions, running).map(s => s.id), ["ended"]);
+  assert.ok(running.every(s => s.kind === "agent"));
+  assert.deepEqual(projectRunning(project, [], sessions.map(s => ({ ...s, status: "ended" }))), [], "ended rows return to history");
+  assert.equal(projectRunning(project, null, undefined).length, 0);
+});
+
+test("project Running keeps Home's live state and includes sessions in other worktrees", () => {
+  const project = { machines: [{ id: "m1", name: "build-box", folder: "/srv/project" }] };
+  const live: RunningAgent = {
+    kind: "agent", machine_id: "m1", machine_name: "build-box", id: "s1", agent: "codex",
+    cwd: "/srv/project/.worktrees/fix", status: "asking", title: "Current", doing: "Approval",
+    started_at: 1, last_activity: 5, external: false,
+  };
+  const history: SessionRow[] = [
+    { ...live, status: "running", title: "Old", question: null },
+    { ...live, id: "s2", cwd: "/srv/other-worktree", question: null },
+    { ...live, id: "ended", status: "ended", question: null },
+  ];
+  const other = { ...live, machine_id: "m2" };
+  const running = projectRunning(project, [live, other, { ...live, id: "outside", cwd: "/srv/project-other" }], history);
+  assert.deepEqual(running.map(s => s.id), ["s1", "s2"]);
+  assert.equal(running[0], live);
+  assert.equal(history[0].title, "Old", "history stays unchanged");
 });
 
 test("a project's sessions redraw only when a read brings a different list", () => {

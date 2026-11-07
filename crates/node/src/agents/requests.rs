@@ -101,6 +101,7 @@ const SLOW_ANSWER: Duration = Duration::from_secs(20);
 fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDropHandle<()>> {
     let what = match request {
         SessionsRequest::Watch { .. }
+        | SessionsRequest::FollowPresence {}
         | SessionsRequest::FollowImages {}
         | SessionsRequest::FollowAlerts {}
         | SessionsRequest::FollowRuns {}
@@ -186,6 +187,9 @@ pub async fn serve_sessions(
             return agents.external.watch(tx, rx, sessions).await;
         }
         SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
+        SessionsRequest::FollowPresence {} => {
+            return super::presence::follow(tx, rx, &agents).await;
+        }
         SessionsRequest::FollowAlerts {} => {
             return send_alerts(tx, rx, &agents.alerts, caller, |alert| {
                 SessionsReply::Alert { alert }

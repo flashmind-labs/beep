@@ -13,7 +13,7 @@ use beep_proto::node::agent::{ExternalSession, ParentLink, Presence, SessionFold
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
     time::SystemTime,
 };
@@ -150,6 +150,23 @@ impl Agents {
             Vec::new()
         });
         seen.extend(others.context("reading the agents' sessions")?);
+        for native in self.presence.snapshot() {
+            if seen
+                .iter()
+                .any(|seen| seen.agent.as_str() == native.agent && seen.id == native.id)
+            {
+                continue;
+            }
+            seen.push(found::Seen {
+                agent: Agent::Flsh,
+                id: native.id,
+                cwd: PathBuf::from(native.cwd),
+                started_at: native.started_at,
+                last_activity: native.last_activity,
+                title: native.title,
+                file: None,
+            });
+        }
         Ok(seen)
     }
 
@@ -206,12 +223,19 @@ impl Agents {
         let (claude, others) = tokio::join!(self.external.named(ids, owned.clone()), described);
         let mut sessions = claude?;
         sessions.extend(others.context("reading the sessions' titles")?);
+        self.presence.merge(&mut sessions);
+        sessions.retain(|session| {
+            folders
+                .iter()
+                .any(|folder| found::within(Path::new(&session.cwd), folder))
+        });
         for session in &mut sessions {
             if session.taken_over.is_none() {
                 session.taken_over = owned.get(&session.id).cloned();
             }
         }
         sessions.sort_by_key(|session| Reverse(session.last_activity));
+        sessions.truncate(limit);
         Ok(sessions)
     }
 
@@ -228,6 +252,7 @@ impl Agents {
             .with_context(|| format!("this node lists no {agent} sessions started outside Beep"))?;
         let owned = self.owned();
         let stores = self.stores.clone();
+        let only = session.clone();
         let mut sessions = spawn_blocking(move || {
             let now = SystemTime::now();
             let mut seen = stores.sessions(Some(agent));
@@ -249,6 +274,20 @@ impl Agents {
         for found in &mut sessions {
             let held = held.get(&found.id).copied();
             found.presence = holders::settle(found.presence, found.pid, held);
+        }
+        self.presence.merge(&mut sessions);
+        sessions.retain(|found| {
+            found.agent == agent.as_str() && only.as_ref().is_none_or(|id| found.id == *id)
+        });
+        sessions.sort_by_key(|session| Reverse(session.last_activity));
+        if only.is_none() {
+            sessions.truncate(
+                usize::try_from(limit)
+                    .unwrap_or(MAX_IN_FOLDERS)
+                    .clamp(1, MAX_IN_FOLDERS),
+            );
+        }
+        for found in &mut sessions {
             found.taken_over = owned.get(&found.id).cloned();
         }
         Ok(sessions)
@@ -362,6 +401,14 @@ impl Agents {
     /// recent write alone is checked: Codex keeps a session's rollout open
     /// while it runs, and a session Beep ran here ended with Beep.
     pub(super) async fn presence(&self, agent: Agent, found: &ExternalSession) -> Presence {
+        if let Some(registered) = self
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|native| native.agent == agent.as_str() && native.id == found.id)
+        {
+            return registered.presence;
+        }
         let held = self.held(agent, std::slice::from_ref(found)).await;
         holders::settle(found.presence, found.pid, held.get(&found.id).copied())
     }

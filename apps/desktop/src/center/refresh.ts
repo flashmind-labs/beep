@@ -20,7 +20,7 @@ import { reloadGroup, reloadChats, projectRows, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
 import { splitOn } from "../project/split.ts";
 import { terms, liveMode, tickRepo, projectsEl } from "../project/sections.ts";
-import { loadProjectAgent } from "../project/loads.ts";
+import { loadProjectAgent, loadSessions as loadProjectSessions } from "../project/loads.ts";
 import { drawProjects } from "../project/page.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import type { SyncRow } from "../project/filesync.ts";
@@ -86,6 +86,8 @@ export async function refresh() {
     if (state.picked) {
       loadProjectAgent(false);
       tickRepo(state.picked);
+      // Sessions found before Home's scan stay current until they end.
+      if (state.sessions.get(state.picked)?.some(s => s.status !== "ended")) void loadProjectSessions(state.picked);
       const p = filterProjects(projectRows() || [], state.picked)[0];
       if (p && splitOn(p) && onScreen()) terms.load(state.picked);
     } else {

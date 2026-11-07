@@ -11,7 +11,8 @@ use beep_node::link::reconnect::Backoff;
 use beep_proto::{
     AgentNoticeKey, ApiError, Notice,
     node::agent::{
-        Event, Request, RunNews, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest, protocol,
+        Event, ExternalSession, Request, RunNews, SESSIONS_PROTOCOL, SessionsReply,
+        SessionsRequest, protocol,
     },
 };
 use iroh::EndpointId;
@@ -47,6 +48,11 @@ pub(crate) enum Direct {
     /// A CI run the user started ended, told by the machine that watches
     /// its project.
     Run(Box<RunNews>),
+    /// A native CLI opened, updated or closed a session on this machine.
+    Presence {
+        machine: EndpointId,
+        sessions: Vec<ExternalSession>,
+    },
 }
 
 /// Which stream a machine is followed on.
@@ -56,6 +62,7 @@ enum Follows {
     Alerts,
     /// CI runs: `FollowRuns`, which a machine from before it closes.
     Runs,
+    Presence,
 }
 
 /// What follows every machine of the mesh, now and as it changes, and the
@@ -143,6 +150,7 @@ async fn machine(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
     tokio::join!(
         follow_one(&fleet, id, &out, Follows::Alerts),
         follow_one(&fleet, id, &out, Follows::Runs),
+        follow_one(&fleet, id, &out, Follows::Presence),
     );
 }
 
@@ -183,6 +191,7 @@ impl Follows {
         match self {
             Follows::Alerts => "alerts",
             Follows::Runs => "runs",
+            Follows::Presence => "session presence",
         }
     }
 }
@@ -208,6 +217,7 @@ async fn stream(
     let request = match what {
         Follows::Alerts => SessionsRequest::FollowAlerts {},
         Follows::Runs => SessionsRequest::FollowRuns {},
+        Follows::Presence => SessionsRequest::FollowPresence {},
     };
     tx.send(&request).await.map_err(MeshError::Link)?;
     if matches!(what, Follows::Alerts) && out.send(Direct::Connected).await.is_err() {
@@ -221,6 +231,19 @@ async fn stream(
         };
         *replied = true;
         let alert = match reply {
+            SessionsReply::External { sessions } if matches!(what, Follows::Presence) => {
+                if out
+                    .send(Direct::Presence {
+                        machine: id,
+                        sessions,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Ok(());
+                }
+                continue;
+            }
             SessionsReply::Alert { alert } => alert,
             SessionsReply::Run { news } => {
                 if out.send(Direct::Run(Box::new(news))).await.is_err() {
@@ -423,7 +446,7 @@ cat > /dev/null
             loop {
                 match heard.recv().await.expect("the stream follows") {
                     Direct::Notice(notice) => return *notice,
-                    Direct::Connected | Direct::Run(_) => {}
+                    Direct::Connected | Direct::Run(_) | Direct::Presence { .. } => {}
                 }
             }
         })
