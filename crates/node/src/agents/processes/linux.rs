@@ -39,7 +39,7 @@ fn read(pid: u32, boot: u64, ticks: u64) -> Option<Process> {
         group: fields.get(2)?.parse().ok()?,
         birth,
         started_at: boot.checked_add(birth / ticks)?,
-        command,
+        command: command.into(),
     })
 }
 
