@@ -1,7 +1,7 @@
 // What the project page's list says of each kind of thing in a project: its
 // count and the few rows that matter now, as pure functions the tests check.
 import type { TaskRow, WorkerRow } from "./agent.ts";
-import type { SessionRow, WhereRow } from "./projects-state.ts";
+import type { WhereRow } from "./projects-state.ts";
 import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import type { SyncRow } from "./filesync.ts";
@@ -90,21 +90,6 @@ export function machineTile(rows: readonly Where[] | null | undefined, sync?: re
     })),
     empty: "No machine has it yet",
   };
-}
-
-/// The Agents tile: the coding agents running in the project's folders
-/// now, then its past sessions, newest first.
-export function agentTile(
-  running: readonly Partial<Pick<RunningAgent, "title" | "cwd" | "agent" | "machine_name" | "status">>[] | null | undefined,
-  past: readonly Partial<Pick<SessionRow, "title" | "status">>[] | null | undefined,
-): TileData {
-  const now = running || [], before = past || [];
-  const rows: TileRow[] = [
-    ...now.map(r => ({ text: r.title || folderName(r.cwd) || r.agent, note: r.machine_name, chip: r.status === "asking" ? { cls: "wait", text: "asks" } : null })),
-    ...before.map(s => ({ text: s.title || "Untitled session", note: s.status === "ended" ? "ended" : s.status || "" })),
-  ];
-  const count = now.length ? `${now.length} running` : before.length ? `${before.length} past` : "";
-  return { count, rows, empty: "No agent has worked here yet" };
 }
 
 /// The last folder of a path.

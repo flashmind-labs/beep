@@ -2,13 +2,15 @@
 // machines and its conflicts, those with conflicts first. The sidebar's count
 // comes from the same reads.
 import { el as h } from "../ui/dom.ts";
-import { emptyPanel } from "../ui/parts.ts";
+import { emptyPanel, svgEl as icon } from "../ui/parts.ts";
 import { state, views } from "../center/state.ts";
-import { shown, registerView, drawTop } from "../center/views.ts";
+import { shown, registerView, drawTop, go } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { refresh } from "../center/refresh.ts";
 import { draw } from "../center/home.ts";
-import { conflictCount, conflictList, conflictTotal } from "./filesync.ts";
+import { conflictCount, conflictList, conflictSub, conflictTotal } from "./filesync.ts";
+import { line, rowButton } from "../ui/pieces.ts";
+import { IC } from "../ui/icons.ts";
 import { fsync } from "./sections.ts";
 
 /// How old a project's sync may get while the page shows.
@@ -20,11 +22,16 @@ export const syncProjects = () => [...new Set(state.sync.map(r => r.project))];
 /// Conflicts across the projects read so far.
 export const syncConflicts = () => conflictTotal(syncProjects().map(fsync.detail));
 
-/// Every conflict row across the projects, for Home, projects with the most first.
-export function conflictRows() {
+/// Every conflict as one Needs you line on Home, Resolve opening the Sync
+/// page where it is compared and settled.
+export function conflictLines() {
   return syncProjects().flatMap(p => {
     const d = fsync.detail(p);
-    return conflictList(d).map(c => fsync.conflictRow(p, c, d?.machines ?? [], true));
+    return conflictList(d).map(c => {
+      const row = line(icon(IC.sync), c.path, conflictSub(p, c, d?.machines ?? []), [rowButton("Resolve", "small", () => go("sync"))], () => go("sync"));
+      row.title = c.path;
+      return row;
+    });
   });
 }
 

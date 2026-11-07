@@ -1,5 +1,4 @@
-// Home: its tabs, the Running now, Needs you, Coming up and Updates
-// sections, and the Connecting page before Home first loads.
+// Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { patchChildren } from "../ui/patch.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
@@ -11,17 +10,14 @@ import { pane } from "../bar/pane.ts";
 import { S } from "../bar/core.ts";
 import { needsLine, type HomeView, type NeedsYou, type UpdateRow, type CronRow } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { newestFirst } from "./openitems-state.ts";
-import { ALL } from "../terminals/terminals.ts";
+import { itemChips, newestFirst, waitsOnYou, type GitItemRow } from "./openitems-state.ts";
 import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
 import { failure, conflict, dot, section, avatar, tag, rowButton, line } from "../ui/pieces.ts";
 import { addMachineButton, useThisMac, machineMenu, machinesSection, offlineNote } from "../machines/table.ts";
-import { allTerms, openTerminals, terminalLine } from "../terminals/view.ts";
-import { conflictRows } from "../project/syncpage.ts";
-import { gitSection, itemLine, refreshGit } from "./openitems.ts";
+import { conflictLines } from "../project/syncpage.ts";
+import { gitSection, openUrl, refreshGit } from "./openitems.ts";
 import { registerView, go, openResearch, shown } from "./views.ts";
-import { drawSide, projectRows } from "./sidebar.ts";
-import { homeProjectRow, projectsSection } from "../project/page.ts";
+import { projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
 import { IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
@@ -196,13 +192,13 @@ function updatesSection(updates: UpdateRow[]) {
 
 // ---------- Home ----------
 
-type HomeTab = "overview" | "git" | "projects" | "machines";
+type HomeTab = "overview" | "git" | "machines";
 /// The Home tab on screen.
 export let homeTab: HomeTab = "overview";
 /// The tab each section Home can jump to sits on.
 export const TAB_OF: Record<string, HomeTab> = {
   "sec-needs": "overview", "sec-running": "overview", "sec-updates": "overview", "sec-coming": "overview",
-  "sec-git": "git","sec-projects-home": "projects", "sec-machines": "machines",
+  "sec-git": "git", "sec-machines": "machines",
 };
 /// Rows an Overview box shows; its title opens the rest.
 const BOX_ROWS = 5;
@@ -243,7 +239,6 @@ function page(home: HomeView) {
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
     { key: "overview", label: "Overview", count: null, on: true, make: () => overview(home) },
     { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError, make: () => [gitSection(git || { items: [], hosts: [] })] },
-    { key: "projects", label: "Projects", count: projects.length, on: projects.length > 0, make: () => [projectsSection(projects)] },
     { key: "machines", label: "Machines", count: null, on: !!machines, make: () => machinesSection(machines!) },
   ];
   const shownTabs = tabs.filter(t => t.on);
@@ -273,33 +268,33 @@ function page(home: HomeView) {
 }
 
 /// An Overview box: its title opens the full list, then its first rows.
-export function homeBox(id: string, title: string, count: number | string, open: () => void, rows: Node[]) {
-  return section(id, button(title, "lk", open), count, null, h("div", "cc-panel", ...rows.slice(0, BOX_ROWS)));
+export function homeBox(id: string, title: string, count: number | string, open: () => void, rows: Node[], max = BOX_ROWS) {
+  return section(id, button(title, "lk", open), count, null, h("div", "cc-panel", ...rows.slice(0, max)));
 }
 
-/// What needs you, the sync conflicts, then boxes two by two: Running and Projects, Pull
-/// requests and Issues, Terminals and Coming up. A list with nothing in it
-/// leaves its place empty; a row with nothing in it is left out.
+/// A PR waiting on the user as a Needs you row: why it waits, and Review or
+/// Open on its host.
+function prNeedRow(item: GitItemRow) {
+  const why = itemChips(item).map(c => c.text).join(", ");
+  const open = () => openUrl(item.url);
+  const row = line(icon(item.kind === "pull_request" ? IC.pr : IC.issue), `#${item.number} ${item.title}`, [item.repo, why].filter(Boolean).join(" · "),
+    [rowButton(item.review_requested ? "Review" : "Open", "small", open)], open);
+  row.title = item.url;
+  return row;
+}
+
+/// Everything waiting on the user in one list (agents' questions and chat
+/// approvals, their PRs, sync conflicts), then Updates, Running and Coming up.
 export function overview(home: HomeView) {
   const { coming_up: coming, needs_you: needs, updates } = home;
   const running = visibleRunning(home.running);
-  const items = [...(state.git?.items || [])].sort(newestFirst);
-  const prs = items.filter(i => i.kind === "pull_request"), issues = items.filter(i => i.kind === "issue");
-  const terms = home.machines?.length ? allTerms.list(ALL) || [] : [], projects = projectRows() || [];
-  const rows = [
-    [running?.length ? homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).slice(0, BOX_ROWS).map(runningRow)) : null,
-      projects.length ? homeBox("", "Projects", projects.length, () => openHomeTab("projects"), projects.slice(0, BOX_ROWS).map((p, i) => homeProjectRow(p, i))) : null],
-    [prs.length ? homeBox("", "Pull requests", prs.length, () => openHomeTab("git"), prs.slice(0, BOX_ROWS).map(itemLine)) : null,
-      issues.length ? homeBox("", "Issues", issues.length, () => openHomeTab("git"), issues.slice(0, BOX_ROWS).map(itemLine)) : null],
-    [terms.length ? homeBox("", "Terminals", terms.length, () => openHomeTab("machines"), terms.slice(0, BOX_ROWS).map(t => terminalLine(t, () => openTerminals({ id: t.id })))) : null,
-      coming?.length ? homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.slice(0, BOX_ROWS).map(comingRow)) : null],
-  ].filter(r => r.some(b => b));
+  const prs = (state.git?.items || []).filter(waitsOnYou).sort(newestFirst);
+  const waiting = [...needs.map(needsRow), ...prs.map(prNeedRow), ...conflictLines()];
   const out: HTMLElement[] = [];
-  if (needs.length) out.push(section("sec-needs", "Needs you", needs.length, null, h("div", "cc-panel", ...needs.map(needsRow))));
+  if (waiting.length) out.push(section("sec-needs", "Needs you", waiting.length, null, h("div", "cc-panel", ...waiting)));
   if (updates?.length) out.push(updatesSection(updates));
-  const conflicts = conflictRows();
-  if (conflicts.length) out.push(homeBox("sec-sync", "Sync conflicts", conflicts.length, () => go("sync"), conflicts));
-  for (const [a, b] of rows) out.push(h("div", "cc-cols", a, b));
+  if (running?.length) out.push(homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow), Infinity));
+  if (coming?.length) out.push(homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)));
   if (!out.length && !state.subscribed) {
     out.push(emptyPanel(h("b", "", "Nothing running"), h("span", "", "Start an agent on this Mac, or add a machine to run it there."), button("Start an agent", "small", () => go("pane", { agentnew: { prompt: "" } }))));
   } else if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));

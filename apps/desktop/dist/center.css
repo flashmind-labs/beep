@@ -34,7 +34,6 @@ html, body.cbody { background: var(--ink) }
 .cc-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); min-width: 0 }
 .cc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start }
 /* Overview boxes and Projects' owners: as many columns as fit, one when narrow. */
-.cc-hgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 14px; align-items: start }
 .cc-sec h4 .lk { all: unset; cursor: pointer }
 .cc-sec h4 .lk:hover { color: var(--fg) }
 .cc-sec h4 .lk:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px }
@@ -434,7 +433,9 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-needs { display: grid; gap: 8px }
 /* The project page: everything going on in a list at the left, the picked
    row's detail at the right, each scrolling on its own. */
-.cc-view.split { padding: 0; overflow: hidden; display: block }
+.cc-view.split { padding: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) }
+.pj-strip { margin: 10px 16px; flex: none }
+.pj-list hr { border: 0; border-top: 1px solid var(--border); margin: 6px 14px }
 .pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100%; min-height: 0 }
 .pj-list { overflow: auto; border-right: 1px solid var(--border); padding-bottom: 10px; scrollbar-width: thin }
 .pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
