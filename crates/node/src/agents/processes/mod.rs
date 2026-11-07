@@ -63,6 +63,17 @@ impl Process {
             return true;
         }
         let args: Vec<_> = words.collect();
+        // Codex keeps its JavaScript and computer-use runtimes alive between calls.
+        let program = program.replace('\\', "/");
+        if name == "node_repl" && program.ends_with("/cua_node/bin/node_repl")
+            || name == "node"
+                && args.iter().any(|arg| {
+                    arg.replace('\\', "/")
+                        .ends_with("/node_modules/@oai/cua-repl/bin/cua-repl.mjs")
+                })
+        {
+            return true;
+        }
         if args.windows(2).any(|pair| pair == ["mcp", "--session"]) {
             return true;
         }
@@ -281,6 +292,9 @@ mod tests {
             "bwrap --unshare-pid",
             "/usr/bin/node /srv/npx/node_modules/@openai/codex/bin/codex.js app-server",
             "/srv/npx/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host",
+            "/opt/tools/cua_node/bin/node_repl",
+            "/opt/tools/cua_node/bin/node /opt/tools/cua_node/lib/node_modules/@oai/cua-repl/bin/cua-repl.mjs",
+            "node /opt/tools/node_modules/@oai/cua-repl/bin/cua-repl.mjs",
         ] {
             assert!(process(command).helper(), "{command}");
         }
@@ -292,6 +306,9 @@ mod tests {
             "sh -c 'echo codex'",
             "pip install x",
             "node /srv/app/codex-report.js",
+            "node_repl",
+            "node /srv/app/cua-repl.mjs",
+            "/opt/tools/cua_node/bin/node /srv/app/server.js",
         ] {
             assert!(!process(command).helper(), "{command}");
         }
