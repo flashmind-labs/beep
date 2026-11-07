@@ -96,11 +96,11 @@ export const KIND_ICONS: Record<ToolKind, string> = {
 /// A tool call as one row: icon, verb, its target in mono, the right side
 /// (an edit's +2 -1 in color, an exit code) and its mark. `cls` and `attrs`
 /// go on the row, `after` inside it.
-export function toolRowHtml(r: { kind: ToolKind; verb: string; target: string; tip: string; detail: string; bad: boolean; mark: string; cls?: string; attrs?: string; after?: string }) {
+export function toolRowHtml(r: { kind: ToolKind; verb: string; target: string; tip: string; detail: string; bad: boolean; mark: string; since?: number; cls?: string; attrs?: string; after?: string }) {
   const counts = /^\+(\d+) -(\d+)$/.exec(r.detail);
   return `<div class="dcoderen tool row${r.cls ?? ""}"${r.attrs ?? ""}><span class="ki">${KIND_ICONS[r.kind]}</span><span class="vb">${esc(r.verb)}</span>`
     + `<code class="tt" title="${esc(r.tip)}">${esc(r.target)}</code>`
-    + `<span class="rm${r.bad ? " bad" : ""}">${counts ? `<span class="pl">+${counts[1]}</span><span class="mi">-${counts[2]}</span>` : esc(r.detail)}</span>`
+    + `<span class="rm${r.bad ? " bad" : ""}">${r.since != null ? `<span data-since="${r.since}" title="Time since this window saw the command running">${duration(Date.now() - r.since)}</span>` : counts ? `<span class="pl">+${counts[1]}</span><span class="mi">-${counts[2]}</span>` : esc(r.detail)}</span>`
     + `<span class="mk">${r.mark}</span>${r.after ?? ""}</div>`;
 }
 
