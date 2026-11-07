@@ -98,11 +98,25 @@ internal fun CenterRoot(repository: ChatRepository) {
     // Until a desktop workspace is linked there is nothing to show but the link screen.
     var linked by remember(repository) { mutableStateOf<Boolean?>(null) }
     var recheck by remember { mutableIntStateOf(0) }
+    var linkError by remember(repository) { mutableStateOf<String?>(null) }
     LaunchedEffect(repository, recheck) {
-        linked = try { repository.workspaceApi().workspaceLinked() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
+        try {
+            linked = repository.workspaceApi().workspaceLinked()
+            linkError = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failed: Exception) {
+            linked = null
+            linkError = userMessage(failed)
+        }
     }
     when (linked) {
-        null -> { Box(Modifier.fillMaxSize().background(Beep.colors.page).systemBarsPadding().padding(16.dp)) { WorkspaceLoading() }; return }
+        null -> {
+            Box(Modifier.fillMaxSize().background(Beep.colors.page).systemBarsPadding().padding(16.dp)) {
+                if (linkError == null) WorkspaceLoading() else WorkspaceError(linkError) { linkError = null; recheck++ }
+            }
+            return
+        }
         false -> { LinkedDevicesScreen(repository, onBack = {}, onWorkspaceLinked = { recheck++ }); return }
         else -> {}
     }
