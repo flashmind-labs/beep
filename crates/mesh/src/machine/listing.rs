@@ -175,7 +175,8 @@ fn runs_now(session: &ExternalSession, now: SystemTime) -> bool {
     }
 }
 
-/// A session Beep started; its `last_activity` is its start, as the node reports no later time.
+/// A session Beep started; its `last_activity` is when it last ran, or its
+/// start for a node that does not say.
 pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
     let started_at = unix(info.started_at);
     MachineSession {
@@ -188,7 +189,7 @@ pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
         status: agent_status(info.state.status),
         doing: Some(info.state.summary).filter(|summary| !summary.is_empty()),
         started_at,
-        last_activity: started_at,
+        last_activity: unix(info.last_activity.max(info.started_at)),
         external: false,
         question: info.question.map(agent_question),
     }

@@ -141,8 +141,11 @@ pub struct SessionInfo {
     /// node knows or when the folder is in no git checkout.
     pub place: Option<WorkPlace>,
     /// The session that started this one with `start_agent`, when one did.
-    /// Always the last field: readers skip what they do not know.
     pub parent: Option<ParentLink>,
+    /// When a prompt last went in or a turn last ended, Unix seconds; 0
+    /// before the first. New fields go after it: readers skip what they do
+    /// not know.
+    pub last_activity: u64,
 }
 
 /// Who started a session and how deep the chain goes, as the node that

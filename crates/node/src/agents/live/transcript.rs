@@ -202,6 +202,7 @@ impl Live {
         }
         self.end_thought(Instant::now());
         self.active_at = Some(Instant::now());
+        self.info.last_activity = unix_now();
         self.in_message = false;
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
         self.turn_links.clear();
