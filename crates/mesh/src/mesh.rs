@@ -489,6 +489,19 @@ impl Mesh {
         })
     }
 
+    /// The authenticated device that redeemed this ticket on this desktop.
+    /// A different ticket's join never counts, even when it happened at the same time.
+    pub async fn joined_with(&self, ticket: &JoinTicket) -> Result<Option<EndpointId>, MeshError> {
+        if ticket.mesh != self.id() {
+            return Err(MeshError::OtherMesh);
+        }
+        let secret = ticket.secret.clone();
+        self.inner
+            .store
+            .run(move |core| Ok(core.joined_with(&secret)))
+            .await
+    }
+
     /// Mints a single-use ticket. A node cannot.
     pub async fn invite(&self, kind: DeviceKind, ttl: Duration) -> Result<JoinTicket, MeshError> {
         let addr = self.inner.endpoint.addr();

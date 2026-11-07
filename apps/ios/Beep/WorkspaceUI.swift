@@ -3,12 +3,13 @@ import SwiftUI
 struct WorkspacePage<Content: View, Actions: View>: View {
     let title: String
     let back: () -> Void
+    var showsBack = true
     @ViewBuilder var actions: Actions
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(spacing: 0) {
-            BackBar(title: title, back: back) { actions }
+            BackBar(title: title, back: back, showsBack: showsBack) { actions }
             content
         }
         .background(Mint.page).foregroundStyle(Mint.ink)

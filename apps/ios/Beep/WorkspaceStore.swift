@@ -4,6 +4,7 @@ import Observation
 @MainActor @Observable final class WorkspaceStore {
     let client: () throws -> BeepClient
     var projects: [ImportedProject] = []
+    var pinnedProjects: [String] = []
     var projectAgents: [ProjectAgent] = []
     var machines: [Machine] = []
     var sessions: [MachineSession] = []
@@ -17,7 +18,8 @@ import Observation
     var showAll: Bool {
         didSet { UserDefaults.standard.set(showAll, forKey: preferenceKey) }
     }
-    var expanded: Bool { showAll || needsWorkspace }
+    var meshLinked = false
+    var expanded: Bool { showAll || meshLinked || needsWorkspace }
     var error = ""
     var loaded = false
 
@@ -40,8 +42,8 @@ import Observation
         installAccount = account
         preferenceKey = "workspace.showAll." + account
         showAll = UserDefaults.standard.bool(forKey: preferenceKey)
-        projects = []; projectAgents = []; machines = []; sessions = []
-        desktopIDs = []; github = false; loaded = false; error = ""
+        projects = []; projectAgents = []; machines = []; sessions = []; pinnedProjects = []
+        desktopIDs = []; github = false; loaded = false; meshLinked = false; error = ""
     }
 
     func refresh() async {
@@ -49,13 +51,24 @@ import Observation
         refreshing = true
         let stamp = generation
         defer { if generation == stamp { refreshing = false } }
+        let linked = (try? await client().workspaceLinked()) == true
+        guard generation == stamp, !Task.isCancelled else { return }
+        meshLinked = linked
+        if !linked && !serverEnabled() { loaded = true; return }
         // Keep a successful source when another source is unavailable on an older server.
+        async let pinned = capture { try await self.client().projectsOnTop() }
         async let imports = capture { try await self.client().listImportedProjects() }
         async let agents = capture { try await self.client().listProjects() }
         async let hosts = capture { try await self.client().listMachines() }
-        async let devices = capture { try await self.client().listDevices() }
+        async let devices: Result<[LinkedDevice], Error> = capture {
+            if linked { return [] }
+            return try await self.client().listDevices()
+        }
         async let accounts = capture { try await self.client().githubAccounts() }
-        async let apps = capture { try await self.client().listApps() }
+        async let apps: Result<[AppIntegration], Error> = capture {
+            if linked { return [] }
+            return try await self.client().listApps()
+        }
         let importsResult = await imports
         let agentsResult = await agents
         let hostsResult = await hosts
@@ -98,6 +111,7 @@ import Observation
         case (.failure, .success(let apps)): github = github || apps.contains { $0.slug == "github" && $0.connected }
         case (.failure(let failure), .failure): failures.append("GitHub: " + describe(failure))
         }
+        if case .success(let value) = await pinned { pinnedProjects = value }
         error = failures.joined(separator: "\n")
         loaded = true
     }
@@ -110,11 +124,15 @@ import Observation
         let live = current.filter { session in
             folders.contains { $0.machineId == session.machineId && (session.cwd == $0.folder || session.cwd.hasPrefix($0.folder + "/")) }
         }
-        let active = Set(live.map { $0.machineId + ":" + $0.id })
-        return live + history.filter { !active.contains($0.machineId + ":" + $0.id) }
+        let active = Set(live.map { $0.workspaceID })
+        return live + history.filter { !active.contains($0.workspaceID) }
     }
 }
 
 private func capture<T>(_ work: () async throws -> T) async -> Result<T, Error> {
     do { return .success(try await work()) } catch { return .failure(error) }
+}
+
+extension MachineSession {
+    var workspaceID: String { machineId + ":" + agent + ":" + id }
 }

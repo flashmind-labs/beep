@@ -2,14 +2,15 @@
 
 ## Project
 
-Desktops and `beep-node`s communicate directly over a signed mesh; nodes do
-not connect to the optional `beep-server`. Phones and server features use the
-server. Only desktops write replicated project, group, pin, credential and
-settings state. The machine relay through a desktop is not built yet.
+Desktops, phones and `beep-node`s communicate directly over a signed mesh.
+Phones pair over iroh with a desktop's one-use ticket, valid for five minutes.
+Desktop and node membership persists; a paired phone reaches nodes without a
+running desktop. Phones use the desktop controller role for shared projects,
+groups, pins, credentials and settings. Nodes do not connect to `beep-server`.
 
 Assistant API keys belong only on the server. Agent and forge credentials may
-be shared with nodes. Desktop server and live voice features are currently
-disabled by `SERVER_ENABLED` and `LIVE_ENABLED`.
+be shared with nodes. Assistant, server and live voice features are disabled
+on desktop and phones by `SERVER_ENABLED` and the live voice guards.
 
 See [AGENT_REFERENCE.md](AGENT_REFERENCE.md) for feature behavior, code maps,
 protocols, deployment and release details. Check the implementation when

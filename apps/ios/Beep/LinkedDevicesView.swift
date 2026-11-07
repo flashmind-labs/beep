@@ -6,6 +6,7 @@ import SwiftUI
 struct LinkedDevicesView: View {
     @Environment(AppModel.self) private var model
     let back: () -> Void
+    var home = false
     @State private var devices: [LinkedDevice]?
     /// Keys that are machines running beep-node.
     @State private var machines: Set<String> = []
@@ -14,9 +15,11 @@ struct LinkedDevicesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BackBar(title: "Linked devices", back: back)
+            BackBar(title: "Linked devices", back: back, showsBack: !home)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    WorkspaceLinkView()
+                    if serverEnabled() {
                     Text("Devices on this account").font(.body(12, .semibold)).foregroundStyle(Mint.muted)
                         .padding(.bottom, 4)
                     let list = devices ?? []
@@ -29,16 +32,17 @@ struct LinkedDevicesView: View {
                     if !error.isEmpty {
                         Text(error).font(.body(12)).foregroundStyle(Mint.error).padding(.top, 8)
                     }
+                    }
                 }
                 .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
-            if devices != nil {
+            if serverEnabled(), devices != nil {
                 ComputerCard(buttons: true) { Task { await refresh() } }
                     .padding(.horizontal, Mint.pageInset).padding(.bottom, 8)
             }
         }
         .background(Mint.page)
-        .task(id: model.connected) { if model.connected { await refresh() } }
+        .task(id: model.connected) { if serverEnabled(), model.connected { await refresh() } }
         .alert("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
                presenting: removing) { device in
             Button("Remove", role: .destructive) { Task { await remove(device) } }
@@ -112,6 +116,55 @@ struct LinkedDevicesView: View {
             await refresh()
         } catch {
             self.error = describe(error)
+        }
+    }
+}
+
+private struct WorkspaceLinkView: View {
+    @Environment(AppModel.self) private var model
+    @State private var linked = false
+    @State private var adding = false
+    @State private var ticket = ""
+    @State private var busy = false
+    @State private var error = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Workspace").font(.body(12, .semibold)).foregroundStyle(Mint.muted)
+            Text(linked ? "Workspace linked. Projects and node sessions connect directly." :
+                "Link your desktop workspace to manage projects and node sessions, even when the desktop is offline.")
+                .font(.body(12)).foregroundStyle(Mint.muted)
+            WorkspaceError(text: error)
+            if !linked { Button("Link workspace") { adding = true }.buttonStyle(TextAction()) }
+            Divider().overlay(Mint.soft)
+        }
+        .task {
+            if !serverEnabled() { model.connect() }
+            do { linked = try await model.workspace.client().workspaceLinked() } catch { self.error = describe(error) }
+        }
+        .sheet(isPresented: $adding) {
+            NavigationStack {
+                Form {
+                    Text("On desktop, open Machines, Add a machine, then choose Phone. Copy its ticket here.")
+                    TextField("Phone pairing ticket", text: $ticket, axis: .vertical)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(busy)
+                    Text("This phone gets project controls, node sessions and shared credentials.")
+                    WorkspaceError(text: error)
+                    Button(busy ? "Linking…" : "Link workspace") {
+                        busy = true
+                        Task {
+                            defer { busy = false }
+                            do {
+                                try await model.workspace.client().joinWorkspace(ticket: ticket.trimmingCharacters(in: .whitespacesAndNewlines), name: UIDevice.current.name)
+                                linked = true; adding = false; ticket = ""; error = ""
+                                await model.workspace.refresh()
+                            } catch { self.error = describe(error) }
+                        }
+                    }.disabled(busy || ticket.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .navigationTitle("Link workspace")
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { adding = false }.disabled(busy) } }
+            }.interactiveDismissDisabled(busy)
         }
     }
 }

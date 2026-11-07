@@ -160,6 +160,7 @@ final class LiveVoice {
     /// acts like a tap on the orb, or tries again after a problem; other launches, such as the
     /// widget or the Live Activity bringing the app up, change nothing.
     func start(from origin: LiveOrigin, holding: Bool = false) {
+        guard serverEnabled() else { return }
         guard model.onboarded else { return }
         guard !active else {
             guard origin == .actionButton || origin == .sideButton else { return }
