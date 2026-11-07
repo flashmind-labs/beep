@@ -51,8 +51,6 @@ export function toggleThoughts() {
   const open = allOpen(ats.map(at => m.thoughts.has(at)));
   const keep = rowInView();
   for (const at of ats) {
-    // The reader's choice stands when a thought ends, as a click's does.
-    m.touched.add(at);
     if (open) m.thoughts.add(at);
     else m.thoughts.delete(at);
   }
