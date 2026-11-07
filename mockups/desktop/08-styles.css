@@ -1,0 +1,5 @@
+/* Only the grouping changes; rows keep their existing session styles. */
+.mac .activity-preview .dagmain > .dcoderlog { max-width: none; margin-inline: 0; }
+.mac .activity-progress { min-width: 0; }
+.mac .activity-progress > .tools { display: grid; gap: 12px; margin-top: 8px; }
+.mac .activity-progress > .dcoderturn .when { display: none; }
