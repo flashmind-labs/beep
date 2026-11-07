@@ -21,7 +21,7 @@ import { $, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
-import { openAgent, openEditorKey, turnRuns } from "./session.ts";
+import { openAgent, openEditorKey, closeOpenSession, turnRuns } from "./session.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { TAKEOVER } from "./sessionmenu-state.ts";
 import { closeChild } from "./logview.ts";
@@ -467,6 +467,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     // every command, ⇧⌘Y the last one. They work from the field and from a terminal: none edits text.
     if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
       const k = e.key.toLowerCase();
+      if (k === "w" && e.shiftKey && !AG.draft && AG.open) { e.preventDefault(); if (!e.repeat) void closeOpenSession(); return true; }
       if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(undefined, !!AG.draft); return true; }
       if (k === "n" && !e.shiftKey && newTerminalLike()) { e.preventDefault(); return true; }
       if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
