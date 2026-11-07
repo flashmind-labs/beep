@@ -1,6 +1,6 @@
 //! The stream the server follows one session on.
 
-use super::{AGENT_ID_WAIT, AgentKind, Agents, Begin, Command, Prompt, live};
+use super::{AgentKind, Agents, Begin, Command, Prompt, live};
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::{
@@ -21,7 +21,6 @@ pub async fn serve_session(
         .recv()
         .await?
         .context("the stream closed before its first request")?;
-    let new = matches!(first, Request::Start { .. });
     // A start waits on its agent; a resume or attach should answer at once.
     let slow = match &first {
         Request::Resume { session, .. } => {
@@ -80,21 +79,13 @@ pub async fn serve_session(
         }
     };
     let mut live = session.live.clone();
-    if new {
-        // The server learns the session by the agent's own id, which
-        // outlives the node, once the agent gave it in time.
-        let named =
-            live.wait_for(|live| live.agent_session.is_some() || live.status() == Status::Ended);
-        if tokio::time::timeout(AGENT_ID_WAIT, named).await.is_err() {
-            log::info!(
-                "session {} goes by its short id: the agent gave none in time",
-                session.id
-            );
-        }
+    if let Err(reason) = session.named_info().await {
+        return tx.send(&Event::Refused { reason }).await;
     }
-    let mut seen = Seen::new(&live.borrow_and_update().info);
+    let info = live.borrow_and_update().info.clone();
+    let mut seen = Seen::new(&info);
     tx.send(&Event::Attached {
-        session: Box::new(session.info()),
+        session: Box::new(info),
     })
     .await?;
     if seen.state.status == Status::Ended {

@@ -289,9 +289,26 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let busy = view(&text);
     assert_eq!(busy.state, "working");
 
+    // A child still waiting for ACP counts towards limits but has no id to list.
+    let (parent, who) = offers.agents.caller(&mine).unwrap();
+    let mut unnamed_kind = kind("kid");
+    unnamed_kind.args = vec!["-c".into(), "cat > /dev/null".into()];
+    let unnamed = offers
+        .agents
+        .start(
+            &unnamed_kind,
+            Some(&cwd),
+            Begin {
+                parent: Some(offers.agents.link_for(&parent, &who).unwrap()),
+                ..Begin::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(offers.agents.children_of(&who).len(), 3);
     let (_, text) = tool(&offers, &mine, Tool::ListAgents, json!({})).await;
     let listed: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
     assert_eq!(listed.len(), 2, "{text}");
+    unnamed.close().await;
 
     // Another agent reaches none of them, and learns nothing of them.
     for tool_name in [Tool::AgentStatus, Tool::StopAgent] {
