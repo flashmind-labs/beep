@@ -30,7 +30,7 @@ internal fun CodingAgentsScreen(repository: ChatRepository, project: String? = n
         starting = false; selected = it; sessions.refresh()
     }; return }
     WorkspacePage("Coding agents", onBack, sessions::refresh,
-        actions = { TextButton(onClick = { starting = true }) { Text("Start", fontSize = 12.sp) } }) {
+        actions = { TextButton(onClick = { starting = true }) { Text("Start", fontSize = 12.sp) } }, root = LocalTabRoot.current) {
         WorkspaceBody {
             WorkspaceSearch(query, "Filter sessions") { query = it }
             WorkspaceHeading("Sessions")

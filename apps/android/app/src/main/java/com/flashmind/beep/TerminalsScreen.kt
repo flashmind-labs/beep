@@ -27,7 +27,7 @@ internal fun TerminalsScreen(repository: ChatRepository, project: String? = null
     var query by rememberSaveable { mutableStateOf("") }
     if (creating) { NewCommandScreen(repository, project, onBack = { creating = false }) { creating = false; selected = it; terminals.refresh() }; return }
     selected?.let { terminal -> TerminalScreen(repository, terminal, onBack = { selected = null; terminals.refresh() }); return }
-    WorkspacePage("Terminals", onBack, terminals::refresh, actions = { TextButton(onClick = { creating = true }) { Text("New terminal", fontSize = 12.sp) } }) {
+    WorkspacePage("Terminals", onBack, terminals::refresh, actions = { TextButton(onClick = { creating = true }) { Text("New terminal", fontSize = 12.sp) } }, root = LocalTabRoot.current) {
         WorkspaceBody {
             WorkspaceSearch(query, "Filter terminals") { query = it }
             WorkspaceError(terminals.error, terminals::refresh)
