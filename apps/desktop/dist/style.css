@@ -1334,3 +1334,13 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agfbar { flex-wrap: wrap }
 .agtree:focus-visible .agtr[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px }
 .agctx button.warn { color: var(--hot) }
+
+/* The welcome stays mounted while the session choices update. */
+.agc:has(.agc-intro) { margin: auto; gap: 16px; padding-block: 32px; }
+.agc-intro { text-align: center; padding: 0 16px 24px; }
+.agc .agc-intro h3 { max-width: 680px; margin: 0 auto; font-size: 48px; line-height: 1; font-weight: 500; letter-spacing: -.04em; text-wrap: balance; }
+.agc-intro p { margin: 24px 0 0; font-size: 14px; line-height: 20px; color: var(--d-muted); text-wrap: pretty; }
+.agc-word { display: inline-block; animation: session-word 700ms cubic-bezier(.22,1,.36,1) both; animation-delay: calc(var(--word) * 80ms); }
+@keyframes session-word { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 850px) { .agc .agc-intro h3 { font-size: 36px; line-height: 40px; } }
+@media (prefers-reduced-motion: reduce) { .agc-word { animation: none; } }
