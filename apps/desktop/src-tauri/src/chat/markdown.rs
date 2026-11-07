@@ -638,10 +638,7 @@ mod tests {
             html.contains("{thought}<br>\n{tools collapsed}<br>\n<code>inline</code>"),
             "{html}"
         );
-        assert!(
-            html.contains("first\nsecond\n</code>"),
-            "{html}"
-        );
+        assert!(html.contains("first\nsecond\n</code>"), "{html}");
     }
 
     #[test]
