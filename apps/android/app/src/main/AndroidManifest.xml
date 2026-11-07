@@ -192,6 +192,8 @@
         </activity>
         <service android:name=".RunService" android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service android:name=".center.StayConnectedService" android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <service android:name=".LiveService" android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback" />
         <service android:name=".PushService" android:exported="false">
@@ -210,6 +212,7 @@
         <receiver android:name=".ReplyReceiver" android:exported="false" />
         <receiver android:name=".MarkReadReceiver" android:exported="false" />
         <receiver android:name=".ApprovalReceiver" android:exported="false" />
+        <receiver android:name=".center.AskReceiver" android:exported="false" />
         <receiver android:name=".GeofenceReceiver" android:exported="false" />
         <receiver android:name=".GeofenceRestoreReceiver" android:exported="true">
             <intent-filter>
