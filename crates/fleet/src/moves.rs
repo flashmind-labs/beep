@@ -218,7 +218,7 @@ impl Desk {
         let NodeCopies::Listed(listed) = copies(&client).await? else {
             return Ok(None);
         };
-        let devices = self.mesh.devices();
+        let devices = self.mesh.machines();
         Ok(Some(
             listed
                 .into_iter()

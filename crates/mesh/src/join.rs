@@ -53,9 +53,12 @@ pub struct JoinTicket {
     pub secret: JoinSecret,
     pub expires_ms: u64,
     /// The device is temporary, such as a container: the desktop that spends the ticket writes
-    /// `temporary/<id>` for it. Last, so a node from before it reads the rest.
+    /// `temporary/<id>` for it.
     #[serde(default)]
     pub temporary: bool,
+    /// The joining phone observes hosts rather than hosting code itself.
+    #[serde(default)]
+    pub observer: bool,
 }
 
 /// Why ticket text could not be read. Neither case quotes the text.
@@ -198,10 +201,16 @@ pub(crate) async fn serve(inner: &Inner, conn: Connection) {
             .store
             .run(move |core| core.redeem(&request.secret, joiner, &clean(&request.name)))
             .await;
-        let temporary = Key::Temporary(joiner.to_string());
-        if outcome.is_ok() && inner.view().values.contains_key(&temporary) {
-            // No receiver is a normal state.
-            inner.changes.send(temporary).ok();
+        if outcome.is_ok() {
+            for key in [
+                Key::Temporary(joiner.to_string()),
+                Key::Observer(joiner.to_string()),
+            ] {
+                if inner.view().values.contains_key(&key) {
+                    // No receiver is a normal state.
+                    inner.changes.send(key).ok();
+                }
+            }
         }
         let reply = match outcome {
             Ok(ops) => Reply::Welcome {

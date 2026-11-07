@@ -47,7 +47,7 @@ pub async fn mesh_invite(
         fleet
             .ready()
             .await?
-            .invite(DeviceKind::Desktop, Duration::from_secs(300))
+            .invite_observer(Duration::from_secs(300))
             .await?
     } else {
         match (kind, temporary.unwrap_or(false)) {
