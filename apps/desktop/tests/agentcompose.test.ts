@@ -1,8 +1,9 @@
 import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { S } from "../src/bar/core.ts";
+import { S, connectWindow, windowHooks, type WindowHooks } from "../src/bar/core.ts";
 import { AG, type AgentPage, type AgentRow, agentKeys, drawAgents } from "../src/agents/agents.ts";
+import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
 import { agentHints, closeOpenSession, pollAgent } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
@@ -269,32 +270,88 @@ test("close refuses ended and external sessions and empty drafts", async () => {
   AG.draft = null;
 });
 
-test("a refused close keeps the session open and shows the error", async () => {
+// Keep navigation real while replacing the window's destination renderer.
+function closeDestination(t: test.TestContext) {
+  const previous = windowHooks;
+  connectWindow({ goBack() { S.view = "agents"; } } as unknown as WindowHooks);
+  AG.back = { view: "home" };
+  t.after(() => connectWindow(previous!));
+}
+
+test("a refused background close shows an error without reopening the session", async t => {
   openSession("idle");
-  const button = { hidden: false, disabled: false, textContent: "" };
-  show({ "#agclose": button });
+  closeDestination(t);
+  show({});
+  const messages: unknown[] = [];
+  const create = document.createElement, body = document.body;
+  Object.defineProperty(document, "body", { value: { append() { messages.push("banner"); } }, configurable: true });
+  document.createElement = (() => ({
+    style: {}, append(...kids: unknown[]) { messages.push(...kids); },
+    setAttribute() {}, addEventListener() {}, remove() {},
+  })) as unknown as typeof create;
+  t.after(() => { document.createElement = create; Object.defineProperty(document, "body", { value: body, configurable: true }); });
   refuse("agent_steer", "Machine is offline");
-  await closeOpenSession();
+  const closing = closeOpenSession();
+  assert.equal(S.view, "agents", "leaves before the refusal arrives");
+  await closing;
   assert.deepEqual(steers(), ["close"]);
-  assert.equal(S.view, "agent");
-  assert.equal(AG.note, "Machine is offline");
-  assert.equal(button.disabled, false);
-  assert.equal(button.hidden, false);
+  assert.equal(S.view, "agents");
+  assert.ok(messages.includes("Could not close session: Machine is offline"));
+  assert.ok(messages.includes("banner"));
 });
 
-test("Cmd+Shift+W closes once and a late reply leaves another page alone", async () => {
+test("Cmd+Shift+W leaves immediately and a late reply leaves another page alone", async t => {
   openSession("idle");
+  closeDestination(t);
+  AG.modelOpen = true;
+  t.after(() => { AG.modelOpen = false; });
   const button = { hidden: false, disabled: false, textContent: "" };
   show({ "#agclose": button });
+  let finish!: (value: null) => void;
+  answers.agent_steer = new Promise(resolve => { finish = resolve; });
   let prevented = 0;
   const event = { key: "W", shiftKey: true, altKey: false, ctrlKey: false, isComposing: false, repeat: false, preventDefault() { prevented++; } } as KeyboardEvent;
   assert.equal(agentKeys({ ...event, shiftKey: false } as KeyboardEvent, true), false);
   assert.equal(agentKeys(event, true), true);
-  assert.equal(agentKeys(event, true), true);
+  assert.equal(S.view, "agents", "leaves while the machine's reply is pending, even with a picker open");
+  assert.equal(agentKeys(event, true), false);
   assert.deepEqual(steers(), ["close"]);
-  assert.equal(prevented, 2);
+  assert.equal(prevented, 1);
   assert.equal(button.disabled, true);
-  S.view = "agents";
+  S.view = "chat";
+  finish(null);
   await settle();
-  assert.equal(S.view, "agents");
+  assert.equal(S.view, "chat");
+});
+
+test("closing removes list rows and counts before the reply, survives stale reads, and restores on refusal", async () => {
+  const row = (machine_id: string) => ({ machine_id, machine_name: "build-box", id: "close-list", agent: "claude", title: machine_id, cwd: "/srv/project", status: "idle", external: false, question: null, doing: null, started_at: 0, last_activity: 0 });
+  const closing = row("first-machine"), other = row("second-machine");
+  const research = { kind: "research" as const, session: "r1", topic: "Research", status: "working", round: 1, sources: 0, started_at: 0 };
+  const running = [{ ...closing, kind: "agent" as const }, { ...other, kind: "agent" as const }, research];
+  answers.agent_sessions = [closing, other];
+  await loadSessions();
+  S.view = "agents";
+  AG.sel = 1;
+  show({});
+  drawAgents(false);
+  assert.match(bar.innerHTML, /2 on 2 machines/);
+  let refuseClose!: (reason: string) => void;
+  answers.agent_steer = new Promise((_, reject) => { refuseClose = reject; });
+  const sent = closeSession(closing);
+  assert.doesNotMatch(bar.innerHTML, /first-machine/);
+  assert.match(bar.innerHTML, /second-machine/);
+  assert.match(bar.innerHTML, /1 on 1 machine/);
+  assert.equal(AG.sel, 0, "selection stays on a row after the list shrinks");
+  assert.deepEqual(visibleRunning(running), [running[1], research]);
+  // A cached response must not bring back a row while its close is pending.
+  await loadSessions();
+  drawAgents(false);
+  assert.doesNotMatch(bar.innerHTML, /first-machine/);
+  refuseClose("Machine is offline");
+  await assert.rejects(sent, reason => reason === "Machine is offline");
+  assert.match(bar.innerHTML, /first-machine/);
+  assert.match(bar.innerHTML, /2 on 2 machines/);
+  assert.deepEqual(visibleRunning(running), running);
+  delete answers.agent_steer;
 });

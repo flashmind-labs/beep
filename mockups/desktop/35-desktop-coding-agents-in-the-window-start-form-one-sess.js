@@ -837,7 +837,7 @@ expected 200, got 401</pre></details></span></div>`;
     const usage = outside ? "" : v === "nochange" ? "12% context · 9.4k tokens · $0.04" : "42% context · 182k tokens · $1.27";
     const folder = v === "nochange" ? ["/srv/project/sdk", "sdk"] : ["/srv/project/.worktrees/fix-login", "widget · fix-login"];
     return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>Coding agents</h2><small>Follow it and answer it here</small><span class="tools"></span></div>
-      <div class="dhead">${av("claude")}<span class="tt"><b><button class="agproj" data-dgo="dProjects">acme/api</button></b><small title="${folder[0]}">build-box</small></span><small id="aguse" class="aguse">${usage}</small><span id="agstate">${state}</span>${outside ? "" : `<button class="dbtn quiet" data-toast="Opens ~/Projects/widget in Zed">Open in Zed</button><button class="dbtn quiet" style="padding:0 6px" aria-label="Other editors" title="Open in VS Code" data-toast="Opens ~/Projects/widget in VS Code">${DI.chevD}</button>`}</div>
+      <div class="dhead">${av("claude")}<span class="tt"><b><button class="agproj" data-dgo="dProjects">acme/api</button></b><small title="${folder[0]}">build-box</small></span><small id="aguse" class="aguse">${usage}</small><span id="agstate">${state}</span>${ended || outside ? "" : `<button class="dbtn quiet" title="Close session (Cmd+Shift+W)" data-dact="dset:agl:closing" data-dgo="dAgents">Close session</button>`}${outside ? "" : `<button class="dbtn quiet" data-toast="Opens ~/Projects/widget in Zed">Open in Zed</button><button class="dbtn quiet" style="padding:0 6px" aria-label="Other editors" title="Open in VS Code" data-toast="Opens ~/Projects/widget in VS Code">${DI.chevD}</button>`}</div>
       <div class="ag-shell${bottom ? " dock-bottom" : ""}">${wrap ? '<div class="ag-main">' : ""}<div class="ag-conv"><div class="dbody" id="agbody"><div class="dagmain">${why}<div class="dcoderlog">${log}</div>${card}</div>${v === "richjump" ? `<button class="ag-jump" data-dact="dset:ags:rich">Jump to latest<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>` : ""}</div>
       ${queue}${att}${field}${slim}</div>${wrap ? `${under}</div>` : ""}${pane}</div>`);
   };
@@ -1044,26 +1044,28 @@ expected 200, got 401</pre></details></span></div>`;
   // The right-click menu on a session row; Delete reads in red and goes last.
   const agMenu = (title, top, items) => `<div class="cc-menu" role="menu" style="top:${top}px;left:150px"><span class="lbl">${title}</span>${items.map(t => t[0] === "!" ? `<button class="warn" role="menuitem" data-toast="Asks before closing">${t.slice(1)}</button>` : `<button role="menuitem" data-toast="${t}">${t}</button>`).join("")}<button class="warn" role="menuitem" data-toast="Asks before deleting">Delete</button></div>`;
   D.dAgents = () => {
-    const agl = pick("agl", ["list", "empty", "menurun", "menukid", "menuended", "copies", "closing"], "list"), empty = agl === "empty";
+    const agl = pick("agl", ["list", "empty", "menurun", "menukid", "menuended", "copies", "closing", "closefailed"], "list"), empty = agl === "empty";
     const rows = [
       ["Fix the failing login test", "Claude Code · widget · build-box", '<span class="run"><span class="dspin"></span>Running cargo test</span>', "working"],
       ["Build the iOS target", "Codex · widget · mac-box · started by Fix the failing login test", '<span class="dstate ask">Needs you</span>', "asks", true],
-      ["Render the turntable", "Claude Code · scenes · win-box", agl === "closing" ? '<span class="w">Closing</span>' : '<span class="w">Idle</span>', "idle"],
+      ["Render the turntable", "Claude Code · scenes · win-box", '<span class="w">Idle</span>', "idle"],
       ["Tidy the parser module", "Claude Code · relay · build-box", '<span class="w">In terminal</span>', "outside"],
       ["Update the changelog", "Codex · widget · build-box", '<span class="w">Ended</span>', "ended"],
     ];
-    const list = `<div class="dlist" role="listbox">${rows.map(([t, s, r, k, kid], i) => `<button class="dchat${kid ? " kid" : ""}" role="option" aria-selected="${i === 0}" data-dact="dset:ags:${k}" data-dgo="dAgentSession"><span class="t"><span>${t}</span><small>${s}</small></span>${r}</button>`).join("")}</div>`;
+    const visible = agl === "closing" ? rows.filter((_, i) => i !== 2) : rows;
+    const list = `<div class="dlist" role="listbox">${visible.map(([t, s, r, k, kid], i) => `<button class="dchat${kid ? " kid" : ""}" role="option" aria-selected="${i === 0}" data-dact="dset:ags:${k}" data-dgo="dAgentSession"><span class="t"><span>${t}</span><small>${s}</small></span>${r}</button>`).join("")}</div>`;
     const copyRow = (t, s, acts) => `<div class="dchat" style="display:flex;align-items:center;gap:10px;cursor:default"><span class="tt" style="flex:1;min-width:0"><b>${t}</b><small>${s}</small></span>${acts}</div>`;
     const copyRows = `<div class="dsec bare">Copies on this Mac</div>` + copyRow("widget · Fix the failing login test", "codex · build-box is offline. Copy from 3 min ago", '<button class="dbtn small pri" data-toast="Continuing here">Continue on this Mac</button>')
       + copyRow("widget · Build the iOS target", "Another machine continued this session later. This version is kept", '<button class="dbtn small" data-toast="Restored">Restore</button><button class="dbtn small quiet" data-toast="Discarded">Discard</button>');
     const none = `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--d-dim);display:grid">${AG_ICON}</span><b style="font-size:14px">No sessions running.</b>
         <span class="dmuted" style="display:block">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>`;
     return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>Coding agents</h2><small>On your machines</small></div>
-      <div class="ag-sess"><div class="dhead"><span class="tt"><b>Coding agents</b><small>${empty ? "Nothing running" : "5 on 3 machines, 1 started by an agent"}</small></span><button class="dbtn" data-dgo="dAgentNew">${AG_ICON}New<kbd>⌘⇧A</kbd></button></div>
+      <div class="ag-sess"><div class="dhead"><span class="tt"><b>Coding agents</b><small>${empty ? "Nothing running" : `${visible.length} on 3 machines, 1 started by an agent`}</small></span><button class="dbtn" data-dgo="dAgentNew">${AG_ICON}New<kbd>⌘⇧A</kbd></button></div>
       ${empty ? none : `<div style="position:relative">${list}${agl === "copies" ? copyRows : ""}${agl === "menurun" ? agMenu("Fix the failing login test", 40, ["Open", "Stop turn", "Open in editor", "Open folder", "Copy id", "!Close session"]) : agl === "menukid" ? agMenu("Build the iOS target", 74, ["Open", "Open parent", "Stop turn", "Open folder", "Copy id", "!Close session"]) : agl === "menuended" ? agMenu("Update the changelog", 210, ["Open", "Resume", "Open in editor", "Open folder", "Copy id"]) : ""}</div>`}</div>
+      ${agl === "closefailed" ? `<div role="alert" style="position:fixed;inset:auto 16px 16px;z-index:1000;background:var(--d-bg);padding:10px 12px;border:1px solid var(--d-border);border-radius:8px">Could not close session: Machine is offline<button style="float:right" data-dact="dset:agl:list" aria-label="Dismiss">&times;</button></div>` : ""}
       ${hint([[DI.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`);
   };
-  VARIANTS.dAgents = variants("agl", [["List", "list"], ["Empty", "empty"], ["Right-click, running", "menurun"], ["Right-click, a started agent", "menukid"], ["Right-click, ended", "menuended"], ["Copies on this Mac", "copies"], ["Closing a session (until its machine says it ended)", "closing"]], "list");
+  VARIANTS.dAgents = variants("agl", [["List", "list"], ["Empty", "empty"], ["Right-click, running", "menurun"], ["Right-click, a started agent", "menukid"], ["Right-click, ended", "menuended"], ["Copies on this Mac", "copies"], ["Session removed immediately while closing", "closing"], ["Close failed", "closefailed"]], "list");
 })();
 DESK_SCREENS.find(g => g.group === "Command center").items.push(
   ["dAgentNew", "Start a coding agent", "CommandCenterWindow, AgentNew"],
