@@ -26,8 +26,8 @@ with open(sys.argv[1]) as source:
 PYTHON
 }
 server_url="${BEEP_SERVER_URL:-$(profile_field server_url)}"
-if ! [[ "$server_url" =~ ^https?:// ]]; then
-  echo 'Set BEEP_SERVER_URL in .env to the server address, or run just bake-profile.' >&2
+if [[ -n "$server_url" ]] && ! [[ "$server_url" =~ ^https?:// ]]; then
+  echo 'BEEP_SERVER_URL must start with http:// or https://.' >&2
   exit 1
 fi
 
