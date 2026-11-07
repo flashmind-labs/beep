@@ -2,7 +2,7 @@
 // (⇧⌘Y) the last command. They write the same state a click does, then
 // draw the log again with the row in view held where it is.
 import { parseTool } from "./agentlog.ts";
-import { stepOpen } from "./agentturns.ts";
+import { splitTurns, stepOpen, turnSections } from "./agentturns.ts";
 import { allOpen, commandRows, thoughtRows } from "./logkeys-state.ts";
 import { AG } from "./agents.ts";
 import { drawAgentBody, newestStep, rowInView, turnsOf } from "./logview.ts";
@@ -49,6 +49,14 @@ export function toggleThoughts() {
   const m = turnsOf(o.session);
   const open = allOpen(ats.map(at => m.thoughts.has(at)));
   const keep = rowInView();
+  if (open) {
+    const wanted = new Set(ats);
+    for (const turn of splitTurns(p.entries, p.earlier)) {
+      for (const section of turnSections(p.entries, turn, p.earlier)) {
+        if (section.progress && section.ats.some(at => wanted.has(at))) m.opened.add(section.ats[0]);
+      }
+    }
+  }
   for (const at of ats) {
     if (open) m.thoughts.add(at);
     else m.thoughts.delete(at);

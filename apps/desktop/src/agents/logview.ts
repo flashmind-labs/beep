@@ -1,7 +1,7 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
-import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, runningSteps, span, splitTurns, stepLabel, stepOpen, summary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
@@ -431,10 +431,9 @@ function turnUnits(p: AgentPage): Unit[] {
     if (start != null) turnStarts.set(t.key, start);
     const state: TurnState = !running ? "done" : s.status === "asking" ? "waiting" : "working";
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
-    // The last tool may need to open on failure; running calls stay visible.
+    // The last tool may need to open on failure inside its progress group.
     const lastStep = t.steps.at(-1);
     const newest = running && lastStep != null && entry(lastStep).kind === "tool" ? lastStep : undefined;
-    const liveSteps = new Set(running ? runningSteps(p.entries, t, p.earlier) : []);
     if (newest != null) newestStep = newest;
     // What the agent thinks or does now, on one dim line, unless the
     // newest step says it already.
@@ -445,13 +444,12 @@ function turnUnits(p: AgentPage): Unit[] {
     if (running) thinking = liveAt != null || status === "Thinking";
     return () => {
       const work = turnSections(p.entries, t, p.earlier).flatMap(section => {
-        if (!section.tools) return rowsOf(p, section.ats);
+        if (!section.progress) return rowsOf(p, section.ats);
         const key = section.ats[0], opened = m.opened.has(key);
         const group: Turn = { key, user: null, steps: section.ats, answer: [] };
         const kept = new Set(keptSteps(p.entries, group, p.earlier, openedSteps()));
-        for (const at of section.ats) if (liveSteps.has(at)) kept.add(at);
         const folding = section.ats.filter(at => !kept.has(at));
-        const stats = summary(p.entries, group, p.earlier, opened ? section.ats : folding);
+        const stats = progressSummary(p.entries, group, p.earlier, opened ? section.ats : folding);
         const head = folding.length || opened
           ? turnHeadHtml({ state: "working", ms: null, stats, key, opened }) : "";
         const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);

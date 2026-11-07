@@ -11,6 +11,7 @@ import type { MacControl, MachineView } from "./machine-state.ts";
 interface NodeToken {
   token: string;
   command: string;
+  qr_svg: string | null;
   /// In milliseconds since the Unix epoch.
   expires_at: number;
 }
@@ -96,7 +97,7 @@ async function start() {
   try {
     const made = await invoke<NodeToken>("mesh_invite", inviteArgs(kind));
     if (!root || requested !== creation) return;
-    update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at });
+    update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at, qrSvg: made.qr_svg ?? undefined });
     poller = setInterval(poll, POLL_MS);
   } catch (e) {
     if (!root || requested !== creation) return;
@@ -226,6 +227,15 @@ function body() {
       return [el("div", "am-wait", el("span", "dspin"), "Making a ticket")];
     case "waiting":
       if (kind === "desktop" || kind === "phone") {
+        if (kind === "phone" && state.qrSvg) {
+          const qr = el("div", "am-phone-qr");
+          qr.innerHTML = state.qrSvg;
+          qr.setAttribute("aria-label", "Phone pairing QR code");
+          const manual = el("details", "am-phone-manual", el("summary", "", "Copy ticket instead"), codeLine(state.command));
+          return present([el("div", "am-label", "Scan with your phone"), qr,
+            el("div", "am-os", "In Beep on your phone, open Linked devices, tap Link workspace, then scan this code. It works once and expires in 5 minutes."),
+            manual, statusLine()]);
+        }
         return present([
           el("div", "am-label", "Ticket"),
           codeLine(state.command),
@@ -255,7 +265,7 @@ function body() {
       ];
     }
     case "expired":
-      return [el("div", "am-msg", "This ticket expired. A ticket works once and lasts an hour."), button("New ticket", "dbtn pri", start)];
+      return [el("div", "am-msg", kind === "phone" ? "This code expired. Phone codes work once and last 5 minutes." : "This ticket expired. A ticket works once and lasts an hour."), button("New ticket", "dbtn pri", start)];
     default:
       return [
         el("div", "am-msg bad", state.message || "Could not make a ticket."),
