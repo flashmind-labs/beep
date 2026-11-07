@@ -528,17 +528,17 @@ export function agentBack(closed = false) {
     return;
   }
   if (!closed && S.view === "agent" && (closeModelPicker() || closeChild())) return;
-  // A session an agent started goes back to the session that started it.
-  const up = S.view === "agent" && AG.open ? parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }) : undefined;
+  // Esc from a child opens its parent; closing returns to the previous page.
+  const up = !closed && S.view === "agent" && AG.open ? parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }) : undefined;
   if (up) return openAgent(up, { back: AG.back });
-  // In the window a session's parent is its project, wherever it was opened from.
+  if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
+  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
+  if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
+  // A session without a return target goes to its project.
   if (S.view === "agent" && windowHooks) {
-    if (!closed && leavePane()) return;
     const project = AG.page && windowHooks.sessionProject?.(AG.page.session);
     if (project) return project.open();
   }
-  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
-  if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if (S.link === "unlinked" && !windowHooks) return void invoke("hide_bar");
   return S.session ? openSession(S.session) : renderChat();
 }
