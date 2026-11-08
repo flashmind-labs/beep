@@ -47,5 +47,12 @@ case ${1:-} in
         npm run tauri -- ios build -v --export-method debugging
         ls -t src-tauri/gen/apple/build/arm64/*.ipa | head -1
         ;;
-    --sim) npm run tauri -- ios run -v --release --no-watch "${2:?simulator name}" ;;
+    --sim)
+        # Installed with simctl: `tauri ios run` wants ios-deploy from brew.
+        npm run tauri -- ios build -v --target aarch64-sim
+        xcrun simctl boot "${2:?simulator name}" 2>/dev/null || true
+        open -a Simulator
+        xcrun simctl install "$2" src-tauri/gen/apple/build/arm64-sim/Beep.app
+        xcrun simctl launch "$2" com.flashmind.beep
+        ;;
 esac
