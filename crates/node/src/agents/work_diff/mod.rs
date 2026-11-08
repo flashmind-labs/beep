@@ -92,11 +92,11 @@ pub(super) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
         None => (root.to_owned(), None),
         Some(branch) => match worktree_of(root, branch)? {
             Some(worktree) => (worktree, None),
-            None => (root.to_owned(), Some(resolve(root, branch, Prefer::Local)?)),
+            None => (root.to_owned(), Some(resolve(root, branch)?)),
         },
     };
     let base = match branch_ref(&ask.base)? {
-        Some(base) => Some(resolve(&dir, base, Prefer::Remote)?),
+        Some(base) => Some(resolve(&dir, base)?),
         None => default_base(&dir),
     };
     let tip = head.as_deref().unwrap_or("HEAD");
@@ -177,23 +177,10 @@ fn branch_ref(text: &str) -> Result<Option<&str>> {
     Ok(Some(text))
 }
 
-/// Where a branch name is looked for first.
-#[derive(Debug, Clone, Copy)]
-enum Prefer {
-    /// The remote's copy: a base, as the local one may be behind.
-    Remote,
-    /// The local branch: a head, where the work is.
-    Local,
-}
-
-/// `name` as a commit git knows here, the copy `prefer` names first.
-fn resolve(dir: &Path, name: &str, prefer: Prefer) -> Result<String> {
+/// `name` as a commit git knows here, preferring the local branch.
+fn resolve(dir: &Path, name: &str) -> Result<String> {
     let remote = format!("origin/{name}");
-    let order = match prefer {
-        Prefer::Remote => [remote.as_str(), name],
-        Prefer::Local => [name, remote.as_str()],
-    };
-    for candidate in order {
+    for candidate in [name, remote.as_str()] {
         let rev = format!("{candidate}^{{commit}}");
         if git(dir, &["rev-parse", "--verify", "--quiet", &rev]).is_ok() {
             return Ok(candidate.to_owned());
@@ -202,24 +189,9 @@ fn resolve(dir: &Path, name: &str, prefer: Prefer) -> Result<String> {
     bail!("git knows no branch {name} here")
 }
 
-/// The checkout's default branch: what `origin/HEAD` points at, else the
-/// first of `main` and `master` there is.
+/// The checkout's local default branch: the first of `main` and `master` there is.
 fn default_base(dir: &Path) -> Option<String> {
-    if let Ok(out) = git(
-        dir,
-        &[
-            "symbolic-ref",
-            "--quiet",
-            "--short",
-            "refs/remotes/origin/HEAD",
-        ],
-    ) {
-        let name = out.trim();
-        if !name.is_empty() {
-            return Some(name.to_owned());
-        }
-    }
-    ["origin/main", "main", "origin/master", "master"]
+    ["main", "master"]
         .into_iter()
         .find(|name| {
             git(
