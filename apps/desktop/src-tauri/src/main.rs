@@ -198,6 +198,8 @@ fn main() {
             agents::harnesses::harness_settings_save_all,
             agents::harnesses::harness_compact,
             agents::harnesses::harness_compact_save,
+            agents::harnesses::harness_default_model,
+            agents::harnesses::harness_default_model_save,
             agents::harnesses::harness_model_compacts,
             agents::harnesses::harness_model_compacts_save,
             agents::instructions::agent_files_read,

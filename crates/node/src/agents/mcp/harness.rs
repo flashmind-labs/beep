@@ -206,6 +206,7 @@ cat > /dev/null
             .into(),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         };
         let mut offers = Offers::local(&[], Provision::new(dir.path()));
         offers.agents = Arc::new(Agents::new(vec![kind]));

@@ -156,6 +156,9 @@ pub struct HarnessConfig {
     /// Model rules checked between turns, over the harness setting.
     #[serde(default)]
     pub compact_models: Vec<ModelCompact>,
+    /// Model for new sessions when none is explicitly requested.
+    #[serde(default)]
+    pub default_model: Option<ModelId>,
 }
 
 /// A compaction override for an exact harness model id.
@@ -207,6 +210,7 @@ impl HarnessConfig {
             env: Vec::new(),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         }
     }
 }
@@ -463,5 +467,32 @@ mod output {
     /// Block elements, shades and braille spinners: progress bars and logos.
     fn is_progress_glyph(c: char) -> bool {
         matches!(c, '\u{2580}'..='\u{259f}' | '\u{2800}'..='\u{28ff}' | '\u{25a0}'..='\u{25ff}')
+    }
+}
+
+#[cfg(test)]
+mod default_model_tests {
+    use super::*;
+
+    #[test]
+    fn a_harness_config_from_before_default_models_still_reads() {
+        let legacy = (
+            "codex",
+            true,
+            Option::<String>::None,
+            Option::<String>::None,
+            Vec::<String>::new(),
+            Vec::<EnvSecret>::new(),
+            Option::<AutoCompact>::None,
+            Vec::<ModelCompact>::new(),
+        );
+        let bytes = rmp_serde::to_vec(&legacy).unwrap();
+        let config: HarnessConfig = crate::lenient::from_slice(&bytes).unwrap();
+        assert_eq!(config.default_model, None);
+        let mut config = config;
+        config.default_model = Some(ModelId::new("model-large"));
+        let bytes = rmp_serde::to_vec(&config).unwrap();
+        let decoded: HarnessConfig = crate::lenient::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, config);
     }
 }

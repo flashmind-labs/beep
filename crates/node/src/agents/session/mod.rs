@@ -279,7 +279,9 @@ impl Session {
         } = start;
         // Only a new session takes a model and thinking level; a resumed
         // one keeps its own.
-        let model = model.filter(|_| resume.is_none());
+        let model = model
+            .or_else(|| kind.default_model.clone())
+            .filter(|_| resume.is_none());
         let effort = effort.filter(|_| resume.is_none());
         // An agent whose command line picks the model starts on it; the
         // others switch once the session exists.
