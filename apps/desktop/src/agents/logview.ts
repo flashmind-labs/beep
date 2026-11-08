@@ -275,6 +275,7 @@ export function entryRow(en: AgentEntry, at: number) {
   const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
   if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
+  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return `<div class="dcoderen compacted" data-row="${at}"><span>Conversation compacted</span></div>`;
   const made = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
   if (made) return madeRow(made, at);
   return `<div class="dcoderen other" data-row="${at}">${esc(en.text)}</div>`;

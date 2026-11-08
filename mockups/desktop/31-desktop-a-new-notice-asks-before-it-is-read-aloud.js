@@ -22,7 +22,7 @@
 .mac .dorbnote .acts { display: flex; gap: 6px; padding: 10px 12px 10px }
 .mac .dorbnote .acts .dbtn { flex: 1; justify-content: center; min-height: 26px; padding: 0 8px; font-size: 12px }
 .mac .dorbnote .life { height: 2px; background: var(--d-border) }
-.mac .dorbnote .life i { display: block; height: 100%; background: var(--d-emerald); animation: life 20s linear forwards }
+.mac .dorbnote .life i { display: block; width: 100%; height: 100%; background: var(--d-emerald); transform-origin: left; animation: life 20s linear forwards }
 .mac .dorbnote:hover .life i, .mac .dorbnote.hov .life i { animation-play-state: paused }
 .mac .dorbnote.hov { border-color: #34363C }`;
   document.head.append(st);
