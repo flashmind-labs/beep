@@ -113,6 +113,8 @@ pub(crate) struct Live {
     /// The session's cost so far as the agent last said, in US dollars:
     /// the agent reports a running total.
     cost_seen: f64,
+    /// The cumulative tokens flsh last reported, including a resumed session's history.
+    flsh_tokens: Option<u64>,
     /// What the session cost since the last turn was counted.
     unbilled: Option<f64>,
     /// The image lines of the pictures tool calls showed this turn, each

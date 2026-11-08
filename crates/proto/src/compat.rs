@@ -96,6 +96,8 @@ sample_values! {
     AgentSlug => [AgentSlug::from("text")]
     ModelId => [ModelId::from("text")]
     FlshModel => ["openrouter:vendor/model".parse().expect("a valid model")]
+    CreditScope => [CreditScope::Account, CreditScope::ApiKey, CreditScope::Budget, CreditScope::Unknown]
+    CreditUnit => [CreditUnit::Usd, CreditUnit::Credits, CreditUnit::Unknown]
     FlshSort => [FlshSort::Price, FlshSort::Throughput, FlshSort::Latency]
     FlshQuantization => [
         FlshQuantization::Int4,

@@ -998,8 +998,8 @@ mod transfer {
 }
 
 mod usage {
-    use beep_proto::AgentSlug;
     use beep_proto::node::usage::*;
+    use beep_proto::{AgentSlug, CreditScope, CreditUnit, ProviderCredits};
     use serde::Serialize;
 
     #[test]
@@ -1084,6 +1084,7 @@ mod usage {
                 resets_at: Some(1_790_000_000),
                 scope: None,
             }],
+            credits: Vec::new(),
             at: 1_789_990_000,
         };
         let body = rmp_serde::to_vec_named(&plan).unwrap();
@@ -1097,6 +1098,46 @@ mod usage {
         let read: PlanUsage = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(read.agent, "codex");
         assert!(read.windows.is_empty());
+        assert!(read.credits.is_empty());
+
+        // Positional reports from released nodes end before the credit field.
+        let old = rmp_serde::to_vec(&(
+            "flsh",
+            Option::<String>::None,
+            Vec::<LimitWindow>::new(),
+            7_u64,
+        ))
+        .unwrap();
+        let read: PlanUsage = beep_proto::lenient::from_slice(&old).unwrap();
+        assert!(read.credits.is_empty());
+        assert_eq!(read.at, 7);
+
+        let mut with_credits = plan;
+        with_credits.credits.push(ProviderCredits {
+            provider: "openrouter".into(),
+            scope: CreditScope::ApiKey,
+            unit: CreditUnit::Usd,
+            remaining: Some("0".into()),
+            total: None,
+            used: Some("42.123456".into()),
+            resets: None,
+        });
+        let compact = rmp_serde::to_vec(&with_credits).unwrap();
+        let read: PlanUsage = beep_proto::lenient::from_slice(&compact).unwrap();
+        assert_eq!(read, with_credits);
+
+        #[derive(serde::Deserialize)]
+        struct Released {
+            agent: String,
+            plan: Option<String>,
+            windows: Vec<LimitWindow>,
+            at: u64,
+        }
+        let read: Released = beep_proto::lenient::from_slice(&compact).unwrap();
+        assert_eq!(read.agent, with_credits.agent.as_str());
+        assert_eq!(read.plan, with_credits.plan);
+        assert_eq!(read.windows, with_credits.windows);
+        assert_eq!(read.at, with_credits.at);
     }
 }
 
