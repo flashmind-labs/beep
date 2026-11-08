@@ -97,6 +97,11 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     {
         builder = builder.maximizable(true);
     }
+    // The UI reads this to know it runs on a phone, before its scripts load.
+    #[cfg(mobile)]
+    {
+        builder = builder.initialization_script("window.__BEEP_PHONE__ = true;");
+    }
     #[cfg(target_os = "macos")]
     {
         builder = builder

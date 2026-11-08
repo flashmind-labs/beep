@@ -141,6 +141,24 @@ function keyboard() {
   vv.addEventListener("resize", check);
 }
 
+/// Tooltips that name a shortcut lose it; the key handlers stay for a connected keyboard.
+const SHORTCUT_TIP = /\s*\((?:[⌘⌃⌥⇧]|Ctrl|esc\b|⏎)[^)]*\)/;
+
+function tips(root: ParentNode) {
+  for (const e of root.querySelectorAll<HTMLElement>("[title*='(']")) {
+    const t = e.title.replace(SHORTCUT_TIP, "");
+    if (t !== e.title) e.title = t;
+  }
+}
+
+function plainTips() {
+  tips(document);
+  new MutationObserver(list => {
+    if (!document.body.classList.contains("mobile")) return;
+    for (const m of list) for (const n of m.addedNodes) if (n instanceof Element) tips(n);
+  }).observe(document.body, { childList: true, subtree: true });
+}
+
 export function initMobile() {
   build();
   apply();
@@ -148,6 +166,7 @@ export function initMobile() {
   window.matchMedia("(pointer: coarse)").addEventListener("change", apply);
   longPress();
   keyboard();
+  plainTips();
   // The Terminals page opens and closes a terminal without a page change.
   let queued = false;
   new MutationObserver(() => {

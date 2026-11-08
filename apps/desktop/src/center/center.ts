@@ -1,4 +1,4 @@
-import { commandKey, WINDOWS } from "../ui/platform.ts";
+import { commandKey, onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
 import "../ui/contextmenu.ts";
 // center/: the command center window: sidebar, Home, palette, usage pill and
@@ -23,6 +23,7 @@ import { shortName, newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { mountNotices } from "./notices.ts";
 import { firstRun } from "./firstrun.ts";
+import { pairing } from "./pairing.ts";
 import { viewHidden, keyHidden } from "../settings/subscription.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
@@ -285,4 +286,4 @@ listen<string>("link-state", e => {
 });
 
 // A reload starts with no chat open, as the window just opened does.
-Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {}, S.signedOut)).then(start).then(() => { if (state.subscribed) loadAgents(); });
+pairing().then(() => Promise.all([invoke("new_chat").catch(() => {}), showCached()])).then(() => onPhone() ? undefined : firstRun(state.subscribed, () => {}, S.signedOut)).then(start).then(() => { if (state.subscribed) loadAgents(); });
