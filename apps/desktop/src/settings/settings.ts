@@ -1,3 +1,4 @@
+import { onPhone } from "../ui/platform.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
 // instructions, model) and the window's sheet (sheet.ts). Entry: this file.
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
@@ -416,8 +417,8 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   // A page drawn by its own code, into this box.
   const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
   const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div>
-      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the tray after a restart</small></span>
-        ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>
+      ${onPhone() ? "" : `<div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the tray after a restart</small></span>
+        ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>`}
       ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}
       <div id="skillSyncSetting"></div>
       <div class="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><button class="dbtn" id="openShortcuts">Show…</button></div>
@@ -430,7 +431,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const agents: [SettingsPage, string] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
     : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}${linked ? `<div id="set-agents">${setAgentsHtml()}</div>` : ""}${sheet ? codingAgentsHtml() : ""}</section>`];
   // These settings work over the mesh without the server.
-  const thisMacSec: [SettingsPage, string][] = mac ? [["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]] : [];
+  const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]] : [];
   if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);

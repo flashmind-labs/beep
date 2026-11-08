@@ -1,4 +1,4 @@
-import { WINDOWS } from "../ui/platform.ts";
+import { WINDOWS, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
 import { onClosing, visibleRunning } from "../agents/closing.ts";
@@ -285,8 +285,8 @@ function chatRow(c: SideChat) {
 function chatMenu(e: MouseEvent, c: ChatItem) {
   openMenu(e, c.title, [
     { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
+    ...(onPhone() ? [] : [{ label: "Open in window", on: () => void openInWindow(c.id) }]),
     { label: "Rename…", on: () => renameSheet({ title: "Rename chat", value: c.title, run: async title => { await invoke("rename_session", { id: c.id, title }); await reloadChats(); } }) },
-    { label: "Open in window", on: () => void openInWindow(c.id) },
     { label: "Copy share link", on: () => void invoke<{ url: string }>("share_session", { id: c.id }).then(link => writeClipboard(link.url), err => console.warn("sharing a chat:", err)) },
     { label: "Stop sharing", on: () => void invoke("unshare_session", { id: c.id }).catch(err => console.warn("unsharing a chat:", err)) },
     { label: "Delete…", warn: true, on: () => deleteChat(c) },
@@ -407,9 +407,9 @@ export function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string
 function openProjectMenu(e: MouseEvent, name: string) {
   const p = projectRows()?.find(x => x.name === name);
   const on = state.top.includes(name);
-  const items: MenuItem[] = [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }, { label: on ? "Unpin" : "Pin to top", on: () => setProjectOnTop(name, !on) }];
+  const items: MenuItem[] = [...(onPhone() ? [] : [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }]), { label: on ? "Unpin" : "Pin to top", on: () => setProjectOnTop(name, !on) }];
   const folder = p && whereRows(p, state.where.get(name) || null, state.mac?.id || null).find(r => r.mac && r.folder)?.folder;
-  if (folder) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
+  if (folder && !onPhone()) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
   if (p?.url && label) items.push({ label, on: () => openUrl(p.url!) });
   if (p?.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });

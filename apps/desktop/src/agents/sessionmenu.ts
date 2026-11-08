@@ -1,3 +1,4 @@
+import { onPhone } from "../ui/platform.ts";
 // The right-click menu of a coding agent session, shared by every row that shows one.
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
@@ -23,7 +24,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     if (offers.resume) {
       items.push({ label: "Resume", on: () => void invoke<Started>("agent_resume", at).then(started => open(started.session), err => console.warn("resume:", err)) });
     }
-    if (folder) {
+    if (folder && !onPhone()) {
       items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
       items.push({ label: "Open folder", on: () => void invoke("open_folder", { path: folder }).catch(err => console.warn("open folder:", err)) });
     }
