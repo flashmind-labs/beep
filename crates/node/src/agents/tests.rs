@@ -671,6 +671,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
         agent: "codex".into(),
         session: session.info().id,
         last: 200,
+        after: None,
     };
     let link = beep_proto::node::local_link();
     let task = tokio::spawn(serve_follow(link.node.0, link.node.1, agents.clone()));
@@ -692,7 +693,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     timeout(Duration::from_secs(10), async {
         loop {
             match rx.recv::<SessionUpdate>().await.unwrap().unwrap() {
-                SessionUpdate::Snapshot(snapshot)
+                SessionUpdate::Snapshot(snapshot) | SessionUpdate::Delta(snapshot)
                     if snapshot
                         .entries
                         .iter()
@@ -787,15 +788,12 @@ mod actor_tests {
         tx.send(&Request::Watch {
             id: 1,
             topics: vec![Topic::keyed("agent", &public_id)],
-            after: None,
+            queries: vec![],
         })
         .await
         .unwrap();
         loop {
-            if matches!(
-                rx.recv::<Reply>().await.unwrap(),
-                Some(Reply::Resync { .. })
-            ) {
+            if matches!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Snapshot(_))) {
                 break;
             }
         }
@@ -820,7 +818,7 @@ mod actor_tests {
                         assert!(matches!(*reply, CallReply::Agent { .. }));
                         acknowledged = true;
                     }
-                    Reply::Changed(event) if event.topic == Topic::keyed("agent", &public_id) => {
+                    Reply::Snapshot(event) if event.topic == Topic::keyed("agent", &public_id) => {
                         changed = true
                     }
                     Reply::Error { reason, .. } => panic!("prompt failed: {reason}"),

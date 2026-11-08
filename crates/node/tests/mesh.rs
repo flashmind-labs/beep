@@ -4898,50 +4898,62 @@ async fn skill_sync_can_pause_survive_a_restart_and_resume_without_removing_file
 mod topic_streams {
     use super::*;
     use beep_mesh::PeerClient;
-    use beep_proto::node::events::{self, CallReply, EventId, Operation, Topic};
+    use beep_proto::node::events::{self, CallReply, Operation, Topic, Value};
     use beep_proto::node::mesh_state::ProjectRecord;
 
     async fn receive(rx: &mut LinkRx) -> events::Reply {
-        timeout(LIMIT, rx.recv::<events::Reply>())
-            .await
-            .expect("the topic stream answers in time")
-            .expect("a topic reply decodes")
-            .expect("the topic stream stays open")
+        loop {
+            let reply = timeout(LIMIT, rx.recv::<events::Reply>())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if !matches!(reply, events::Reply::Pong { id: 0 }) {
+                return reply;
+            }
+        }
     }
 
-    async fn subscribe(client: &PeerClient, topics: Vec<Topic>, after: Option<EventId>) -> Stream {
-        let (tx, rx) = client
+    async fn subscribe(client: &PeerClient, topics: Vec<Topic>) -> Stream {
+        let (tx, mut rx) = client
             .open_sending(
                 events::PROTOCOL,
                 &events::Request::Watch {
                     id: 1,
                     topics,
-                    after,
+                    queries: vec![],
                 },
             )
             .await
             .expect("the first attempt opens the topic stream");
+        assert_eq!(receive(&mut rx).await, events::Reply::Ready);
+        assert_eq!(receive(&mut rx).await, events::Reply::Watching { id: 1 });
         Stream { tx, rx }
     }
 
-    async fn watching(rx: &mut LinkRx) {
+    async fn snapshot(rx: &mut LinkRx, topic: &Topic) -> events::Snapshot {
         loop {
             match receive(rx).await {
-                events::Reply::Watching { id: 1 } => return,
-                events::Reply::CaughtUp { .. } => {}
-                other => panic!("the subscription was not acknowledged: {other:?}"),
+                events::Reply::Snapshot(state) if &state.topic == topic => return *state,
+                events::Reply::Snapshot(_) => {}
+                other => panic!("expected current state: {other:?}"),
             }
         }
     }
 
-    async fn initial_snapshot(rx: &mut LinkRx) -> EventId {
-        assert_eq!(receive(rx).await, events::Reply::Ready);
-        watching(rx).await;
+    fn has_file(value: &Value, name: &str) -> bool {
+        matches!(value, Value::Sessions(reply) if match reply.as_ref() {
+            beep_proto::node::agent::SessionsReply::Tree { tree } => tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == name)),
+            beep_proto::node::agent::SessionsReply::Folder { folder } => folder.entries.iter().any(|entry| entry.name == name),
+            _ => false,
+        })
+    }
+
+    async fn file(rx: &mut LinkRx, topic: &Topic, name: &str) -> events::Snapshot {
         loop {
-            match receive(rx).await {
-                events::Reply::Resync { cursor } => return cursor,
-                events::Reply::CaughtUp { .. } => {}
-                other => panic!("initial subscription did not request current state: {other:?}"),
+            let state = snapshot(rx, topic).await;
+            if has_file(&state.value, name) {
+                return state;
             }
         }
     }
@@ -4985,59 +4997,13 @@ mod topic_streams {
             .expect("the project is saved");
     }
 
-    async fn changed(rx: &mut LinkRx, wanted: &Topic, after: EventId) -> EventId {
-        timeout(LIMIT, async {
-            loop {
-                match receive(rx).await {
-                    events::Reply::Changed(event) => {
-                        assert_eq!(event.id.epoch, after.epoch);
-                        if event.id.sequence > after.sequence && &event.topic == wanted {
-                            return event.id;
-                        }
-                    }
-                    events::Reply::CaughtUp { .. } => {}
-                    other => panic!("the subscribed file update did not arrive: {other:?}"),
-                }
-            }
-        })
-        .await
-        .expect("the subscribed file changes in time")
-    }
-
-    /// A heartbeat fences events produced before an independently observed file write.
-    /// No request replaces the project stream's original subscription.
-    async fn caught_up(rx: &mut LinkRx, after: EventId, reject: Option<&Topic>) -> EventId {
-        timeout(LIMIT, async {
-            loop {
-                match receive(rx).await {
-                    events::Reply::Changed(event) => {
-                        if let Some(reject) = reject {
-                            assert_ne!(
-                                &event.topic, reject,
-                                "an unbound folder published its project topic"
-                            );
-                        }
-                    }
-                    events::Reply::CaughtUp { cursor } if cursor.sequence >= after.sequence => {
-                        assert_eq!(cursor.epoch, after.epoch);
-                        return cursor;
-                    }
-                    events::Reply::CaughtUp { .. } => {}
-                    other => panic!("the file event cursor did not catch up: {other:?}"),
-                }
-            }
-        })
-        .await
-        .expect("the file cursor catches up in time")
-    }
-
     #[tokio::test]
-    async fn dotted_project_topics_stream_first_writes_and_filter_organization_wildcards() {
-        let root = TempDir::new().expect("a shared directory");
+    async fn dotted_project_topics_send_first_file_snapshots_and_filter_wildcards() {
+        let root = TempDir::new().unwrap();
         let own = root.path().join("own");
         let other = root.path().join("other");
-        fs::create_dir(&own).expect("the first checkout exists");
-        fs::create_dir(&other).expect("the other checkout exists");
+        fs::create_dir(&own).unwrap();
+        fs::create_dir(&other).unwrap();
         let desktop = desktop().await;
         let mut node = Node::start(Config {
             files: vec![root.path().to_owned()],
@@ -5048,60 +5014,48 @@ mod topic_streams {
         let conn = desktop.reach(node.id).await;
         project(&desktop, node.id, "org/repo", &own).await;
         project(&desktop, node.id, "another/repo", &other).await;
-        // This later mesh operation confirms the node received the project records.
         set_credential(&desktop, "topics-ready", "TOPICS_READY", "yes").await;
         node.logged("from the mesh: 1 credentials").await;
         let client = PeerClient::over(conn.mesh, conn.id);
-        let own_topic = Topic::parse("files.org.repo").expect("a project topic");
-        let other_topic = Topic::parse("files.another.repo").expect("another project topic");
-        let organization = Topic::parse("files.org.*").expect("an organization wildcard");
-        let mut exact = subscribe(&client, vec![own_topic.clone()], None).await;
-        initial_snapshot(&mut exact.rx).await;
-        let mut scoped = subscribe(&client, vec![organization.clone()], None).await;
-        initial_snapshot(&mut scoped.rx).await;
-        let mut all = subscribe(&client, vec![Topic::parse("files.*").unwrap()], None).await;
-        let installed = initial_snapshot(&mut all.rx).await;
-
-        // All Watch acknowledgements and initial cursors precede this first file write.
-        fs::write(own.join("first.txt"), "first update").expect("the checkout changes");
-        changed(&mut exact.rx, &own_topic, installed).await;
-        changed(&mut scoped.rx, &own_topic, installed).await;
-        changed(&mut all.rx, &own_topic, installed).await;
-        fs::write(other.join("other.txt"), "other update").expect("the other checkout changes");
-        let other_changed = changed(&mut all.rx, &other_topic, installed).await;
-
+        let own_topic = Topic::parse("files.org.repo").unwrap();
+        let other_topic = Topic::parse("files.another.repo").unwrap();
+        let organization = Topic::parse("files.org.*").unwrap();
+        let mut exact = subscribe(&client, vec![own_topic.clone()]).await;
+        snapshot(&mut exact.rx, &own_topic).await;
+        let mut scoped = subscribe(&client, vec![organization.clone()]).await;
+        snapshot(&mut scoped.rx, &own_topic).await;
+        let mut all = subscribe(&client, vec![Topic::new("files")]).await;
+        snapshot(&mut all.rx, &other_topic).await;
+        fs::write(own.join("first.txt"), "first").unwrap();
+        file(&mut exact.rx, &own_topic, "first.txt").await;
+        file(&mut scoped.rx, &own_topic, "first.txt").await;
+        file(&mut all.rx, &own_topic, "first.txt").await;
+        fs::write(other.join("other.txt"), "other").unwrap();
+        file(&mut all.rx, &other_topic, "other.txt").await;
+        // A request/reply fence confirms the original scoped stream stays duplex.
         scoped
             .tx
-            .send(&events::Request::Watch {
-                id: 2,
-                topics: vec![organization.clone()],
-                after: Some(installed),
-            })
+            .send(&events::Request::Ping { id: 2 })
             .await
-            .expect("the organization scope can replay without another connection");
+            .unwrap();
         loop {
             match receive(&mut scoped.rx).await {
-                events::Reply::Changed(event) => {
-                    assert!(organization.covers(&event.topic));
-                    assert_ne!(event.topic, other_topic);
-                }
-                events::Reply::Watching { id: 2 } => {}
-                events::Reply::CaughtUp { cursor } if cursor.sequence >= other_changed.sequence => {
-                    break;
-                }
-                events::Reply::CaughtUp { .. } => {}
-                other => panic!("organization filtering failed: {other:?}"),
+                events::Reply::Pong { id: 2 } => break,
+                events::Reply::Snapshot(state) => assert!(organization.covers(&state.topic)),
+                other => panic!("unexpected scoped reply: {other:?}"),
             }
         }
     }
 
     #[tokio::test]
-    async fn a_pending_project_topic_rebinds_and_stops_on_place_removal_without_resubscribing() {
-        let root = TempDir::new().expect("a shared directory");
+    async fn pending_project_topics_rebind_and_publish_removal_without_resubscribing() {
+        let root = TempDir::new().unwrap();
         let first = root.path().join("first");
         let second = root.path().join("second");
-        fs::create_dir(&first).expect("the first checkout exists");
-        fs::create_dir(&second).expect("the replacement checkout exists");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        fs::write(first.join("old.txt"), "old").unwrap();
+        fs::write(second.join("new.txt"), "new").unwrap();
         let desktop = desktop().await;
         let node = Node::start(Config {
             files: vec![root.path().to_owned()],
@@ -5111,42 +5065,91 @@ mod topic_streams {
         node.join(&desktop.ticket(DeviceKind::Node).await).await;
         let conn = desktop.reach(node.id).await;
         let client = PeerClient::over(conn.mesh, conn.id);
-        let alias = Topic::parse("files.org.repo").expect("a project topic");
-        let first_path = Topic::keyed("files", first.to_str().expect("a UTF-8 path"));
-        let second_path = Topic::keyed("files", second.to_str().expect("a UTF-8 path"));
-        // This independent stream observes OS writes, even after a project placement is removed.
-        let mut observer =
-            subscribe(&client, vec![first_path.clone(), second_path.clone()], None).await;
-        initial_snapshot(&mut observer.rx).await;
-        let mut stream = subscribe(&client, vec![alias.clone()], None).await;
-        let pending = initial_snapshot(&mut stream.rx).await;
-
+        let alias = Topic::parse("files.org.repo").unwrap();
+        let mut stream = subscribe(&client, vec![alias.clone()]).await;
+        assert_eq!(snapshot(&mut stream.rx, &alias).await.value, Value::Missing);
         project(&desktop, node.id, "org/repo", &first).await;
-        let bound = changed(&mut stream.rx, &alias, pending).await;
-        fs::write(first.join("first.txt"), "initial location").expect("the first checkout changes");
-        let original = changed(&mut stream.rx, &alias, bound).await;
-
+        file(&mut stream.rx, &alias, "old.txt").await;
         place(&desktop, node.id, "org/repo", &second).await;
-        let rebound = changed(&mut stream.rx, &alias, original).await;
-        let rebound = caught_up(&mut stream.rx, rebound, None).await;
-        fs::write(first.join("old.txt"), "old location").expect("the old directory changes");
-        let old_write = changed(&mut observer.rx, &first_path, rebound).await;
-        let old_fence = caught_up(&mut stream.rx, old_write, Some(&alias)).await;
-        fs::write(second.join("current.txt"), "current location")
-            .expect("the new directory changes");
-        let current = changed(&mut stream.rx, &alias, old_fence).await;
-
+        let changed = file(&mut stream.rx, &alias, "new.txt").await;
+        assert!(!has_file(&changed.value, "old.txt"));
         desktop
             .mesh
             .set(Key::Project(format!("org/repo/{}", node.id)), None)
             .await
-            .expect("the project placement is removed");
-        let removed = changed(&mut stream.rx, &alias, current).await;
-        let removed = caught_up(&mut stream.rx, removed, None).await;
-        fs::write(second.join("removed.txt"), "removed location")
-            .expect("the removed directory changes");
-        let removed_write = changed(&mut observer.rx, &second_path, removed).await;
-        caught_up(&mut stream.rx, removed_write, Some(&alias)).await;
+            .unwrap();
+        loop {
+            if snapshot(&mut stream.rx, &alias).await.value == Value::Missing {
+                break;
+            }
+        }
+        // Rebinding again proves the same subscription survived removal.
+        fs::write(first.join("after.txt"), "after removal").unwrap();
+        place(&desktop, node.id, "org/repo", &first).await;
+        file(&mut stream.rx, &alias, "after.txt").await;
+    }
+
+    #[tokio::test]
+    async fn first_subscription_streams_state_and_accepts_concurrent_commands() {
+        let root = TempDir::new().unwrap();
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let files = Topic::keyed("files", root.path().to_str().unwrap());
+        let mut stream = subscribe(&client, vec![files.clone(), Topic::new("processes")]).await;
+        snapshot(&mut stream.rx, &files).await;
+        stream
+            .tx
+            .send(&events::Request::Call {
+                id: 2,
+                operation: Box::new(Operation::Process(ProcessRequest::Start {
+                    command: "echo duplex-output".into(),
+                    cwd: None,
+                })),
+            })
+            .await
+            .unwrap();
+        stream
+            .tx
+            .send(&events::Request::Call {
+                id: 3,
+                operation: Box::new(Operation::Process(ProcessRequest::List {})),
+            })
+            .await
+            .unwrap();
+        fs::write(root.path().join("example.txt"), "changed").unwrap();
+        let (mut started, mut listed, mut updated) = (false, false, false);
+        let mut revision = 0;
+        while !(started && listed && updated) {
+            match receive(&mut stream.rx).await {
+                events::Reply::Result { id: 2, reply } => {
+                    assert!(matches!(
+                        *reply,
+                        CallReply::Process(ProcessReply::Started { .. })
+                    ));
+                    started = true;
+                }
+                events::Reply::Result { id: 3, reply } => {
+                    assert!(matches!(
+                        *reply,
+                        CallReply::Process(ProcessReply::Tasks { .. })
+                    ));
+                    listed = true;
+                }
+                events::Reply::Snapshot(state) => {
+                    assert!(state.revision > revision);
+                    revision = state.revision;
+                    updated |= state.topic == files && has_file(&state.value, "example.txt");
+                }
+                other => panic!("unexpected duplex reply: {other:?}"),
+            }
+        }
     }
 
     async fn replaced_connection(desktop: &Member, node: EndpointId, previous: usize) {
@@ -5159,16 +5162,16 @@ mod topic_streams {
                 }) {
                     return;
                 }
-                changes.changed().await.expect("the mesh stays open");
+                changes.changed().await.unwrap();
             }
         })
         .await
-        .expect("the mesh replaces the closed connection");
+        .unwrap();
     }
 
     #[tokio::test]
-    async fn topic_streams_subscribe_on_the_first_attempt_and_carry_commands_both_ways() {
-        let root = TempDir::new().expect("a shared directory");
+    async fn transport_loss_and_restart_return_fresh_snapshots() {
+        let root = TempDir::new().unwrap();
         let desktop = desktop().await;
         let node = Node::start(Config {
             files: vec![root.path().to_owned()],
@@ -5178,184 +5181,38 @@ mod topic_streams {
         node.join(&desktop.ticket(DeviceKind::Node).await).await;
         let conn = desktop.reach(node.id).await;
         let client = PeerClient::over(conn.mesh, conn.id);
-        let files = Topic::keyed("files", root.path().to_str().expect("a UTF-8 path"));
-        let mut stream =
-            subscribe(&client, vec![files.clone(), Topic::new("processes")], None).await;
-        let initial = initial_snapshot(&mut stream.rx).await;
-        // Both calls are sent before reading any reply; notifications can arrive between them.
-        stream
-            .tx
-            .send(&events::Request::Call {
-                id: 2,
-                operation: Box::new(Operation::Process(ProcessRequest::Start {
-                    command: "echo duplex-output".to_owned(),
-                    cwd: None,
-                })),
-            })
-            .await
-            .expect("a process command is sent");
-        stream
-            .tx
-            .send(&events::Request::Call {
-                id: 3,
-                operation: Box::new(Operation::Process(ProcessRequest::List {})),
-            })
-            .await
-            .expect("another command shares the stream");
-        fs::write(root.path().join("example.txt"), "changed")
-            .expect("a file changes after subscribing");
-        let (mut started, mut listed, mut file_changed, mut process_changed) =
-            (false, false, false, false);
-        let mut last = initial;
-        timeout(LIMIT, async {
-            while !(started && listed && file_changed && process_changed) {
-                match receive(&mut stream.rx).await {
-                    events::Reply::Result { id: 2, reply } => {
-                        assert!(matches!(
-                            *reply,
-                            CallReply::Process(ProcessReply::Started { .. })
-                        ));
-                        started = true;
-                    }
-                    events::Reply::Result { id: 3, reply } => {
-                        assert!(matches!(
-                            *reply,
-                            CallReply::Process(ProcessReply::Tasks { .. })
-                        ));
-                        listed = true;
-                    }
-                    events::Reply::Changed(event) => {
-                        assert_eq!(event.id.epoch, initial.epoch);
-                        assert!(
-                            event.id.sequence > last.sequence,
-                            "live events stay ordered"
-                        );
-                        last = event.id;
-                        file_changed |= event.topic == files;
-                        process_changed |= event.topic == Topic::new("processes");
-                    }
-                    events::Reply::Error { reason, .. } => panic!("a duplex call failed: {reason}"),
-                    events::Reply::CaughtUp { .. } => {}
-                    other => panic!("unexpected topic reply: {other:?}"),
-                }
-            }
-        })
-        .await
-        .expect("commands and topic updates complete without reconnecting");
-        stream
-            .tx
-            .send(&events::Request::Ping { id: 4 })
-            .await
-            .expect("the writer stays usable");
-        loop {
-            match receive(&mut stream.rx).await {
-                events::Reply::Pong { id: 4 } => break,
-                events::Reply::Changed(_) | events::Reply::CaughtUp { .. } => {}
-                other => panic!("the live duplex stream did not answer ping: {other:?}"),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn topic_streams_replay_after_a_connection_loss_and_resync_after_a_restart() {
-        let desktop = desktop().await;
-        let node = Node::start(Config::default()).await;
-        node.join(&desktop.ticket(DeviceKind::Node).await).await;
-        let conn = desktop.reach(node.id).await;
-        let client = PeerClient::over(conn.mesh.clone(), conn.id);
-        let topics = vec![Topic::new("processes")];
-        let mut first = subscribe(&client, topics.clone(), None).await;
-        let cursor = initial_snapshot(&mut first.rx).await;
+        let topic = Topic::keyed("files", root.path().to_str().unwrap());
+        let mut first = subscribe(&client, vec![topic.clone()]).await;
+        snapshot(&mut first.rx, &topic).await;
         drop(first);
-        // An independent observer confirms the update entered the node's replay history.
-        let mut observer = subscribe(&client, topics.clone(), None).await;
-        initial_snapshot(&mut observer.rx).await;
-        let mut process = ready(&conn, "process/1").await;
-        process
-            .tx
-            .send(&ProcessRequest::Start {
-                command: "echo during-the-gap".to_owned(),
-                cwd: None,
-            })
-            .await
-            .expect("a command runs while the first subscription is gone");
-        assert!(matches!(
-            process
-                .rx
-                .recv::<ProcessReply>()
-                .await
-                .expect("a process reply decodes"),
-            Some(ProcessReply::Started { .. })
-        ));
-        let missed = loop {
-            match receive(&mut observer.rx).await {
-                events::Reply::Changed(event) => break event,
-                events::Reply::CaughtUp { .. } => {}
-                other => panic!("the observer missed the process event: {other:?}"),
-            }
-        };
-        assert_eq!(missed.topic, Topic::new("processes"));
-        assert!(missed.id.sequence > cursor.sequence);
-        drop((observer, process));
-        let connection = desktop
-            .mesh
-            .peer(node.id)
-            .expect("the original connection exists");
+        fs::write(root.path().join("latest.txt"), "one").unwrap();
+        fs::write(root.path().join("latest.txt"), "two").unwrap();
+        let connection = desktop.mesh.peer(node.id).unwrap();
         let previous = connection.stable_id();
         connection.close(0u32.into(), b"test reconnect");
         replaced_connection(&desktop, node.id, previous).await;
-        let mut resumed = subscribe(&client, topics.clone(), Some(cursor)).await;
-        assert_eq!(receive(&mut resumed.rx).await, events::Reply::Ready);
-        watching(&mut resumed.rx).await;
-        let mut last = cursor;
-        let caught_up = loop {
-            match receive(&mut resumed.rx).await {
-                events::Reply::Changed(event) => {
-                    if last == cursor {
-                        assert_eq!(event.id, missed.id);
-                    }
-                    assert_eq!(event.id.epoch, cursor.epoch);
-                    assert!(
-                        event.id.sequence > last.sequence,
-                        "replayed events are not duplicated"
-                    );
-                    last = event.id;
-                }
-                events::Reply::CaughtUp { cursor: caught_up }
-                    if caught_up.sequence >= missed.id.sequence =>
-                {
-                    break caught_up;
-                }
-                events::Reply::CaughtUp { .. } => {}
-                other => panic!("the cached cursor should replay: {other:?}"),
-            }
-        };
-        assert!(last.sequence >= missed.id.sequence);
+        let mut resumed = subscribe(&client, vec![topic.clone()]).await;
+        assert!(has_file(
+            &snapshot(&mut resumed.rx, &topic).await.value,
+            "latest.txt"
+        ));
         drop(resumed);
-        let previous = desktop
-            .mesh
-            .peer(node.id)
-            .expect("the replacement connection exists")
-            .stable_id();
+        let previous = desktop.mesh.peer(node.id).unwrap().stable_id();
         let node = node.restart().await;
         replaced_connection(&desktop, node.id, previous).await;
-        let mut restarted = subscribe(&client, topics, Some(caught_up)).await;
-        let current = initial_snapshot(&mut restarted.rx).await;
-        assert_ne!(
-            current.epoch, cursor.epoch,
-            "a new node run has a new history epoch"
-        );
+        let mut restarted = subscribe(&client, vec![topic.clone()]).await;
+        assert!(has_file(
+            &snapshot(&mut restarted.rx, &topic).await.value,
+            "latest.txt"
+        ));
         restarted
             .tx
             .send(&events::Request::Ping { id: 5 })
             .await
-            .expect("the restarted stream accepts commands");
-        loop {
-            match receive(&mut restarted.rx).await {
-                events::Reply::Pong { id: 5 } => break,
-                events::Reply::CaughtUp { .. } => {}
-                other => panic!("the restarted stream did not answer ping: {other:?}"),
-            }
-        }
+            .unwrap();
+        assert_eq!(
+            receive(&mut restarted.rx).await,
+            events::Reply::Pong { id: 5 }
+        );
     }
 }
