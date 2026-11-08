@@ -2564,25 +2564,34 @@ async fn concurrent_ignored_model_edits_keep_both_versions_and_can_be_resolved()
     write(&a.path(model), "baseline");
     eventually("model baseline", || {
         read(&b.path(model)).as_deref() == Some(b"baseline")
+            && ignored_status(&b).files == 1
+            && ignored_status(&b).pending == 0
     })
     .await;
     ignored_config(&a, &b, true, true).await;
     ignored_config(&b, &a, true, true).await;
+    eventually(
+        "ignored-folder sync to pause before concurrent edits",
+        || ignored_status(&a).state == State::Paused && ignored_status(&b).state == State::Paused,
+    )
+    .await;
     write(&a.path(model), "local model");
     write(&b.path(model), "peer model");
     ignored_config(&a, &b, true, false).await;
     ignored_config(&b, &a, true, false).await;
-    eventually("a conflict copy for ignored binary content", || {
-        !ignored_status(&a).conflicts.is_empty() && !ignored_status(&b).conflicts.is_empty()
+    let both = |node: &Node| {
+        let contents: Vec<_> = files(&node.path("assets/models"))
+            .iter()
+            .filter_map(|path| read(&node.path("assets/models").join(path)))
+            .collect();
+        !ignored_status(node).conflicts.is_empty()
+            && contents.iter().any(|v| v == b"local model")
+            && contents.iter().any(|v| v == b"peer model")
+    };
+    eventually("both ignored model versions on both machines", || {
+        both(&a) && both(&b)
     })
     .await;
-    let copies = files(&a.path("assets/models"));
-    let contents: Vec<_> = copies
-        .iter()
-        .filter_map(|path| read(&a.path("assets/models").join(path)))
-        .collect();
-    assert!(contents.iter().any(|v| v == b"local model"));
-    assert!(contents.iter().any(|v| v == b"peer model"));
     let name = beep_proto::node::sync::ignored_project(PROJECT, "assets/models");
     timeout(
         LIMIT,
