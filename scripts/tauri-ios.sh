@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # The phone app (the desktop app built for iOS), in release mode:
-#   tauri-ios.sh [DEVICE]   build, install and launch on an iPhone by name,
-#                           or the connected one when there is just one
-#   tauri-ios.sh --sim NAME the same on a simulator
-#   tauri-ios.sh --ipa      build an .ipa to install later
+#   tauri-ios.sh --ipa      build an .ipa; `just ios-install` puts it on an iPhone
+#   tauri-ios.sh --sim NAME build, install and launch on a simulator
 set -euo pipefail
 
 cd "$(dirname "$0")/../apps/desktop"
@@ -21,6 +19,10 @@ if ! [[ "$team" =~ ^[A-Z0-9]{10}$ ]]; then
 fi
 export APPLE_DEVELOPMENT_TEAM=$team
 
+case ${1:-} in
+    --ipa | --sim) ;;
+    *) echo 'usage: tauri-ios.sh --ipa | --sim NAME' >&2; exit 1 ;;
+esac
 target=aarch64-apple-ios
 [[ ${1:-} == --sim ]] && target=aarch64-apple-ios-sim
 
@@ -45,5 +47,4 @@ case ${1:-} in
         ls -t src-tauri/gen/apple/build/arm64/*.ipa | head -1
         ;;
     --sim) npm run tauri -- ios run -v --release --no-watch "${2:?simulator name}" ;;
-    *) npm run tauri -- ios run -v --release --no-watch ${1:+"$1"} ;;
 esac
