@@ -49,6 +49,6 @@
 .onote .acts { display: flex; flex-wrap: nowrap; gap: 6px; padding: 10px 11px }
 .onote .acts .dbtn { flex: 1; justify-content: center; min-height: 26px; padding: 0 8px; font-size: 12px }
 .onote .life { height: 2px; background: var(--border) }
-.onote .life i { display: block; height: 100%; background: var(--accent); animation: olife var(--ms, 20000ms) linear forwards }
+.onote .life i { display: block; width: 100%; height: 100%; background: var(--accent); transform-origin: left; animation: olife var(--ms, 20000ms) linear forwards }
 .onote:hover .life i { animation-play-state: paused }
-@keyframes olife { from { width: 100% } to { width: 0 } }
+@keyframes olife { from { transform: scaleX(1) } to { transform: scaleX(0) } }
