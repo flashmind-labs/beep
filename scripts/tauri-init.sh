@@ -6,11 +6,13 @@ set -euo pipefail
 platform=${1:?usage: tauri-init.sh ios|android}
 cd "$(dirname "$0")/../apps/desktop"
 case "$platform" in
-    ios) dir=src-tauri/gen/apple ;;
-    android) dir=src-tauri/gen/android ;;
+    ios) dir=src-tauri/gen/apple; made=$dir/project.yml ;;
+    android) dir=src-tauri/gen/android; made=$dir/app/build.gradle.kts ;;
     *) echo "usage: tauri-init.sh ios|android" >&2; exit 1 ;;
 esac
-[[ -d $dir ]] && exit 0
+# A folder without its project (left by a failed or partial run) is made again.
+[[ -f $made ]] && exit 0
+rm -rf "$dir"
 
 [[ -d node_modules ]] || npm ci --silent
 if [[ $platform == ios ]]; then
