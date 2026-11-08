@@ -6,6 +6,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../apps/desktop"
 
+case ${1:-} in
+    --ipa | --sim) ;;
+    *) echo 'usage: tauri-ios.sh --ipa | --sim NAME' >&2; exit 1 ;;
+esac
+
 # Sign with the local development certificate's team unless one was supplied.
 team=${APPLE_DEVELOPMENT_TEAM:-${IOS_TEAM_ID:-}}
 if [[ -z "$team" ]]; then
@@ -19,10 +24,6 @@ if ! [[ "$team" =~ ^[A-Z0-9]{10}$ ]]; then
 fi
 export APPLE_DEVELOPMENT_TEAM=$team
 
-case ${1:-} in
-    --ipa | --sim) ;;
-    *) echo 'usage: tauri-ios.sh --ipa | --sim NAME' >&2; exit 1 ;;
-esac
 target=aarch64-apple-ios
 [[ ${1:-} == --sim ]] && target=aarch64-apple-ios-sim
 
