@@ -4899,6 +4899,7 @@ mod topic_streams {
     use super::*;
     use beep_mesh::PeerClient;
     use beep_proto::node::events::{self, CallReply, EventId, Operation, Topic};
+    use beep_proto::node::mesh_state::ProjectRecord;
 
     async fn receive(rx: &mut LinkRx) -> events::Reply {
         timeout(LIMIT, rx.recv::<events::Reply>())
@@ -4943,6 +4944,208 @@ mod topic_streams {
                 other => panic!("initial subscription did not request current state: {other:?}"),
             }
         }
+    }
+
+    async fn place(desktop: &Member, node: EndpointId, project: &str, folder: &Path) {
+        desktop
+            .mesh
+            .set(
+                Key::Project(format!("{project}/{node}")),
+                Some(
+                    Place {
+                        folder: folder.to_str().expect("a UTF-8 directory").to_owned(),
+                        imported_ms: 0,
+                        fork: None,
+                    }
+                    .to_bytes()
+                    .expect("the placement encodes"),
+                ),
+            )
+            .await
+            .expect("the project placement is saved");
+    }
+
+    async fn project(desktop: &Member, node: EndpointId, name: &str, folder: &Path) {
+        place(desktop, node, name, folder).await;
+        desktop
+            .mesh
+            .set(
+                Key::Project(name.to_owned()),
+                Some(
+                    ProjectRecord {
+                        url: format!("https://example.invalid/{name}"),
+                        syncthing_files: None,
+                    }
+                    .to_bytes()
+                    .expect("the project record encodes"),
+                ),
+            )
+            .await
+            .expect("the project is saved");
+    }
+
+    async fn changed(rx: &mut LinkRx, wanted: &Topic, after: EventId) -> EventId {
+        timeout(LIMIT, async {
+            loop {
+                match receive(rx).await {
+                    events::Reply::Changed(event) => {
+                        assert_eq!(event.id.epoch, after.epoch);
+                        if event.id.sequence > after.sequence && &event.topic == wanted {
+                            return event.id;
+                        }
+                    }
+                    events::Reply::CaughtUp { .. } => {}
+                    other => panic!("the subscribed file update did not arrive: {other:?}"),
+                }
+            }
+        })
+        .await
+        .expect("the subscribed file changes in time")
+    }
+
+    /// A heartbeat fences events produced before an independently observed file write.
+    /// No request replaces the project stream's original subscription.
+    async fn caught_up(rx: &mut LinkRx, after: EventId, reject: Option<&Topic>) -> EventId {
+        timeout(LIMIT, async {
+            loop {
+                match receive(rx).await {
+                    events::Reply::Changed(event) => {
+                        if let Some(reject) = reject {
+                            assert_ne!(
+                                &event.topic, reject,
+                                "an unbound folder published its project topic"
+                            );
+                        }
+                    }
+                    events::Reply::CaughtUp { cursor } if cursor.sequence >= after.sequence => {
+                        assert_eq!(cursor.epoch, after.epoch);
+                        return cursor;
+                    }
+                    events::Reply::CaughtUp { .. } => {}
+                    other => panic!("the file event cursor did not catch up: {other:?}"),
+                }
+            }
+        })
+        .await
+        .expect("the file cursor catches up in time")
+    }
+
+    #[tokio::test]
+    async fn dotted_project_topics_stream_first_writes_and_filter_organization_wildcards() {
+        let root = TempDir::new().expect("a shared directory");
+        let own = root.path().join("own");
+        let other = root.path().join("other");
+        fs::create_dir(&own).expect("the first checkout exists");
+        fs::create_dir(&other).expect("the other checkout exists");
+        let desktop = desktop().await;
+        let mut node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        project(&desktop, node.id, "org/repo", &own).await;
+        project(&desktop, node.id, "another/repo", &other).await;
+        // This later mesh operation confirms the node received the project records.
+        set_credential(&desktop, "topics-ready", "TOPICS_READY", "yes").await;
+        node.logged("from the mesh: 1 credentials").await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let own_topic = Topic::parse("files.org.repo").expect("a project topic");
+        let other_topic = Topic::parse("files.another.repo").expect("another project topic");
+        let organization = Topic::parse("files.org.*").expect("an organization wildcard");
+        let mut exact = subscribe(&client, vec![own_topic.clone()], None).await;
+        initial_snapshot(&mut exact.rx).await;
+        let mut scoped = subscribe(&client, vec![organization.clone()], None).await;
+        initial_snapshot(&mut scoped.rx).await;
+        let mut all = subscribe(&client, vec![Topic::parse("files.*").unwrap()], None).await;
+        let installed = initial_snapshot(&mut all.rx).await;
+
+        // All Watch acknowledgements and initial cursors precede this first file write.
+        fs::write(own.join("first.txt"), "first update").expect("the checkout changes");
+        changed(&mut exact.rx, &own_topic, installed).await;
+        changed(&mut scoped.rx, &own_topic, installed).await;
+        changed(&mut all.rx, &own_topic, installed).await;
+        fs::write(other.join("other.txt"), "other update").expect("the other checkout changes");
+        let other_changed = changed(&mut all.rx, &other_topic, installed).await;
+
+        scoped
+            .tx
+            .send(&events::Request::Watch {
+                id: 2,
+                topics: vec![organization.clone()],
+                after: Some(installed),
+            })
+            .await
+            .expect("the organization scope can replay without another connection");
+        loop {
+            match receive(&mut scoped.rx).await {
+                events::Reply::Changed(event) => {
+                    assert!(organization.covers(&event.topic));
+                    assert_ne!(event.topic, other_topic);
+                }
+                events::Reply::Watching { id: 2 } => {}
+                events::Reply::CaughtUp { cursor } if cursor.sequence >= other_changed.sequence => {
+                    break;
+                }
+                events::Reply::CaughtUp { .. } => {}
+                other => panic!("organization filtering failed: {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pending_project_topic_rebinds_and_stops_on_place_removal_without_resubscribing() {
+        let root = TempDir::new().expect("a shared directory");
+        let first = root.path().join("first");
+        let second = root.path().join("second");
+        fs::create_dir(&first).expect("the first checkout exists");
+        fs::create_dir(&second).expect("the replacement checkout exists");
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let alias = Topic::parse("files.org.repo").expect("a project topic");
+        let first_path = Topic::keyed("files", first.to_str().expect("a UTF-8 path"));
+        let second_path = Topic::keyed("files", second.to_str().expect("a UTF-8 path"));
+        // This independent stream observes OS writes, even after a project placement is removed.
+        let mut observer =
+            subscribe(&client, vec![first_path.clone(), second_path.clone()], None).await;
+        initial_snapshot(&mut observer.rx).await;
+        let mut stream = subscribe(&client, vec![alias.clone()], None).await;
+        let pending = initial_snapshot(&mut stream.rx).await;
+
+        project(&desktop, node.id, "org/repo", &first).await;
+        let bound = changed(&mut stream.rx, &alias, pending).await;
+        fs::write(first.join("first.txt"), "initial location").expect("the first checkout changes");
+        let original = changed(&mut stream.rx, &alias, bound).await;
+
+        place(&desktop, node.id, "org/repo", &second).await;
+        let rebound = changed(&mut stream.rx, &alias, original).await;
+        let rebound = caught_up(&mut stream.rx, rebound, None).await;
+        fs::write(first.join("old.txt"), "old location").expect("the old directory changes");
+        let old_write = changed(&mut observer.rx, &first_path, rebound).await;
+        let old_fence = caught_up(&mut stream.rx, old_write, Some(&alias)).await;
+        fs::write(second.join("current.txt"), "current location")
+            .expect("the new directory changes");
+        let current = changed(&mut stream.rx, &alias, old_fence).await;
+
+        desktop
+            .mesh
+            .set(Key::Project(format!("org/repo/{}", node.id)), None)
+            .await
+            .expect("the project placement is removed");
+        let removed = changed(&mut stream.rx, &alias, current).await;
+        let removed = caught_up(&mut stream.rx, removed, None).await;
+        fs::write(second.join("removed.txt"), "removed location")
+            .expect("the removed directory changes");
+        let removed_write = changed(&mut observer.rx, &second_path, removed).await;
+        caught_up(&mut stream.rx, removed_write, Some(&alias)).await;
     }
 
     async fn replaced_connection(desktop: &Member, node: EndpointId, previous: usize) {

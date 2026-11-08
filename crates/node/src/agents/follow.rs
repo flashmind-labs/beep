@@ -565,7 +565,7 @@ mod tests {
             }
             loop {
                 let event = changes.recv().await.unwrap();
-                if event.topic.name == "agents" {
+                if event.topic.name() == "agents" {
                     break;
                 }
             }
