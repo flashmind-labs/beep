@@ -479,4 +479,5 @@ async fn named_info(live: &mut watch::Receiver<Live>) -> Result<SessionInfo, Str
 }
 
 #[cfg(test)]
+#[path = "../../tests/agents_session.rs"]
 mod tests;

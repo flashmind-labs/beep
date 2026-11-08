@@ -365,4 +365,5 @@ pub(crate) fn row(
 pub(crate) struct Approved(pub(crate) Option<String>);
 
 #[cfg(test)]
+#[path = "../../tests/apps_permissions.rs"]
 mod tests;

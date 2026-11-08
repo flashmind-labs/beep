@@ -712,4 +712,5 @@ async fn serve_fetch(
 }
 
 #[cfg(test)]
+#[path = "../../tests/files_transfer.rs"]
 mod tests;

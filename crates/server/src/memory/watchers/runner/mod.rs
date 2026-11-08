@@ -490,4 +490,5 @@ async fn tool_arguments(user: &User, chat: Uuid) -> Result<HashMap<String, Strin
 }
 
 #[cfg(test)]
+#[path = "../../../tests/memory_watchers_runner.rs"]
 mod tests;

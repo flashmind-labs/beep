@@ -8,6 +8,7 @@ mod provider;
 mod tool;
 
 #[cfg(test)]
+#[path = "../../tests/tools_media.rs"]
 mod tests;
 
 pub(crate) use call::approval_fields;

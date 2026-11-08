@@ -520,4 +520,5 @@ fn marked(folder: &Path, home: Option<&Path>) -> Option<Managed> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/files_syncthing.rs"]
 mod tests;
