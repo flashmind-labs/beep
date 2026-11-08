@@ -2,6 +2,7 @@
 // tests of terminals.ts load without a page.
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { outputBatch } from "./output-batch.ts";
 import { leavesTerminal } from "../agentpane/media-state.ts";
 import { wordKeyBytes } from "./keys-state.ts";
@@ -60,6 +61,16 @@ export function makeScreen(): Screen {
     if (!opened) {
       term.open(el);
       opened = true;
+      // GPU rendering needs an open terminal. Disposing it restores the DOM renderer.
+      let webgl: WebglAddon | undefined;
+      try {
+        webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl?.dispose());
+        term.loadAddon(webgl);
+      } catch (e) {
+        webgl?.dispose();
+        console.warn("Terminal GPU rendering unavailable:", e);
+      }
       if (wantFocus) { wantFocus = false; term.focus(); }
     }
     fit.fit();
