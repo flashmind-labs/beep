@@ -202,7 +202,15 @@ impl Live {
                 .map(str::trim)
                 .find(|line| !line.is_empty())
         {
-            self.info.title = Some(cut(line, MAX_LINE));
+            // Claude replays compaction summaries as user messages on restore.
+            // Also defer partial prefixes while the message is streaming.
+            const CONTINUATION: &str =
+                "This session is being continued from a previous conversation";
+            self.info.title = if CONTINUATION.starts_with(line) || line.starts_with(CONTINUATION) {
+                None
+            } else {
+                Some(cut(line, MAX_LINE))
+            };
         }
     }
 

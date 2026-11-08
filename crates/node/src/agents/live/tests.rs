@@ -914,3 +914,35 @@ fn a_description_does_not_invent_a_tool_name() {
     let tool = entries.last().unwrap().tool.as_ref().unwrap();
     assert!(tool.name.is_none());
 }
+
+#[test]
+fn a_replayed_compaction_summary_does_not_name_the_session() {
+    let chunk = |text: &str| {
+        update(json!({"sessionUpdate": "user_message_chunk",
+            "content": {"type": "text", "text": text}}))
+    };
+    for title in [None, Some("Saved name")] {
+        for pieces in [
+            vec![
+                "This session is being continued from a previous conversation that ran out of context.\nSummary below.",
+            ],
+            vec![
+                "This session ",
+                "is being continued from a previous conversation",
+                " that ran out of context.\nSummary below.",
+            ],
+        ] {
+            let mut session = title.map_or_else(live, live_titled);
+            for piece in pieces {
+                session.apply(&chunk(piece));
+                assert_eq!(session.info.title.as_deref(), title);
+            }
+            session.apply(&said("Continuing."));
+            session.apply(&chunk("Fix the build"));
+            assert_eq!(
+                session.info.title.as_deref(),
+                Some(title.unwrap_or("Fix the build"))
+            );
+        }
+    }
+}
