@@ -482,7 +482,6 @@ impl Agents {
             alerts,
             node: NodeMode {
                 stopping: self.stopping.clone(),
-                holding: self.holding.subscribe(),
             },
         })?;
         session.reviewer = begin.review;

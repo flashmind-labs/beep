@@ -234,17 +234,13 @@ pub(super) struct NodeMode {
     /// Set once the node is stopping: an agent that ends then ended with
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
-    /// While true, prompts wait instead of starting a turn: the node is
-    /// about to restart for an update.
-    pub(super) holding: watch::Receiver<bool>,
 }
 
 impl Default for NodeMode {
-    /// A node that never holds prompts and is not stopping.
+    /// A node that is not stopping.
     fn default() -> Self {
         Self {
             stopping: Arc::default(),
-            holding: watch::channel(false).1,
         }
     }
 }
@@ -347,7 +343,6 @@ impl Session {
             live: live_tx,
             alerts,
             node_stopping: node.stopping,
-            holding: node.holding,
             moving: false,
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),

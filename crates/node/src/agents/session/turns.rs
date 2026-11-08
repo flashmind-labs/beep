@@ -394,10 +394,9 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
-        // Held for an update; they go when the hold ends, or after the
-        // restart. A session that moves still runs what waited before the
+        // A session that moves still runs what waited before the
         // move: nothing new comes in, and it ends once the queue is empty.
-        if *self.holding.borrow() || self.steering.is_some() {
+        if self.steering.is_some() {
             return;
         }
         if self.queued.is_empty() && self.steers.is_empty() {

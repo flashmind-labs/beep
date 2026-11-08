@@ -160,8 +160,6 @@ pub(super) struct Actor {
     pub(super) alerts: Arc<AlertHub>,
     /// Set once the node is stopping.
     pub(super) node_stopping: Arc<AtomicBool>,
-    /// While true, prompts wait instead of starting a turn.
-    pub(super) holding: watch::Receiver<bool>,
     /// A move to another machine waits for the turn: queued prompts wait
     /// too.
     pub(super) moving: bool,
@@ -452,11 +450,6 @@ impl Actor {
                     None => return Ok(End::Exited),
                 },
                 Some(length) = inputs.oversized.recv() => self.oversized(length),
-                Ok(()) = self.holding.changed() => {
-                    if !*self.holding.borrow() && self.live.borrow().status() == Status::Idle {
-                        self.next_prompt(cx);
-                    }
-                }
                 () = cx.incoming_closed() => return Ok(End::Exited),
                 Some(reply) = self.replies.next() => {
                     if let Some(end) = self.reply(cx, reply)? {
@@ -938,10 +931,8 @@ impl Actor {
     /// The session takes prompts: sends the first one waiting.
     fn idle(&mut self, cx: &ConnectionTo<Agent>) {
         // A prompt that goes out at once leaves no moment of Idle to read:
-        // only a session with nothing to do, or one held for an update,
-        // waits for a prompt.
-        let goes_now =
-            !(self.queued.is_empty() && self.steers.is_empty()) && !*self.holding.borrow();
+        // only a session with nothing to do waits for a prompt.
+        let goes_now = !(self.queued.is_empty() && self.steers.is_empty());
         if !goes_now {
             self.live
                 .send_modify(|live| live.info.state.status = Status::Idle);
