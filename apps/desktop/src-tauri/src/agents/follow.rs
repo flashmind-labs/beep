@@ -255,6 +255,7 @@ pub async fn agent_follow(
                 modes,
                 tasks: tasks.into_iter().map(Into::into).collect(),
             })?;
+            crate::notices::history::agent_viewed(&app, &machine_id, &request.agent, &session);
         }
     };
     tokio::select! {
