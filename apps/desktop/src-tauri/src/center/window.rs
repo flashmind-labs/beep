@@ -121,7 +121,10 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
             None => builder.inner_size(MIN_WIDTH, MIN_HEIGHT).center(),
         };
     }
-    builder.build()?.set_focus()?;
+    let window = builder.build()?;
+    #[cfg(target_os = "ios")]
+    window.with_webview(|webview| crate::platform::ios_keyboard::hide_bar(webview.inner()))?;
+    window.set_focus()?;
     Ok(())
 }
 

@@ -34,7 +34,7 @@ import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
 import { editorTools, openInEditor } from "../project/editors.ts";
-import { editQueued, interruptAgent, answerAgentQuestion } from "./messages.ts";
+import { editQueued, interruptAgent, answerAgentQuestion, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -357,6 +357,13 @@ export const turnRuns = () => {
   return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
 };
 
+/// Sends what the field holds: while the turn runs it steers it after its current tool call.
+export function submitAgentMessage(input: HTMLTextAreaElement) {
+  if (input.readOnly) return;
+  if (turnRuns()) steerMessage(input);
+  else void sendAgentMessage();
+}
+
 /// Whether the user stopped the open session's turn and it has not ended.
 export const stoppingNow = () => {
   const s = AG.page?.session;
@@ -519,7 +526,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     ? `<div class="dinput small" id="agfield"><textarea id="agnativemsg" rows="1" aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message"></textarea><span id="agmodel"></span><button class="dbtn" id="agnativeparent">Open parent</button></div>`
     : followsOnly(s)
     ? `<div class="dmuted dblock dbanner">${canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here."}</div>`
-    : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
+    : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button><button class="dbtn" id="agsend" aria-label="Send">${ICON.send}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
   const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b id="agtitle" title="${esc(s.title || k.name)}">${esc(s.title || k.name)}</b><small class="aglocation" title="${esc(s.cwd)}"><span class="agfolder">${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : `<span id="agproj">${esc(shortCwd(s.cwd) || k.name)}</span>`}<span id="agbranch"></span></span><span>@</span><span id="aghere">${esc(s.machine_name)}</span></small></span><small id="aguse" class="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
@@ -773,6 +780,10 @@ function agentClick(e: MouseEvent) {
   }
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return void interruptAgent();
+  if (target.closest("#agsend")) {
+    const input = $<HTMLTextAreaElement>("#agmsg");
+    if (input) submitAgentMessage(input);
+  }
 }
 
 /// Replayed prompts can have more text after their image lines.

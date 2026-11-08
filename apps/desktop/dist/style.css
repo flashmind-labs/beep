@@ -890,6 +890,8 @@ button.dachip:hover { border-color: var(--border-hi) }
 .ag-queue .w { flex: none; font-size: 11px; color: var(--dim) }
 .ag-queue .qatt { flex: 0 1 auto; min-width: 40px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; font: 11px/16px var(--mono); color: var(--fg) }
 #agstop[disabled] { opacity: .6; cursor: default }
+/* Enter sends on a desktop; the phone layout shows a button. */
+#agsend { display: none }
 #agmodel { flex: none; display: flex } #agmodel .agc-pill.agm { font-size: 12px; max-width: 260px; overflow: hidden; white-space: nowrap }
 #agmodel .agc-pill.agm[disabled] { opacity: .55; cursor: default }
 #agmode { flex: none; display: flex } #agmode:empty { display: none }

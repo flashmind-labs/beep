@@ -110,15 +110,22 @@ body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
 
 /* A session: the composer takes a full line for its text. */
-body.mobile .dinput.small { flex-wrap: wrap; gap: 8px; padding: 8px 10px }
-body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 44px; max-height: 120px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink) }
+body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; padding: 6px 10px }
+body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-height: 120px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink) }
+/* Its attach, mode and model controls show while typing, leaving the log the room. */
+body.mobile #agfield:not(:focus-within) > :not(textarea, #agstop, #agsend, #agnativeparent) { display: none }
+body.mobile #agfield:not(:focus-within) textarea { flex: 1 1 0 }
+/* Stop and Send are icons the height of the field; Return makes a new line. */
+body.mobile :is(#agstop, #agsend) { flex: none; width: 38px; min-height: 0; height: 38px; padding: 0; justify-content: center; font-size: 0; border-radius: var(--radius) }
+body.mobile #agstop { order: 8 }
+body.mobile #agstop .dstopico { width: 11px; height: 11px }
+body.mobile #agsend { display: inline-flex; order: 10; border-color: transparent; background: var(--accent); color: var(--ink) }
 body.mobile .agmain > .agdiv { display: none }
-/* Puts the keyboard away; there only while it is up. */
-body.mobile .mb-kbdhide { display: none; order: 9; flex: none; margin-left: auto; width: 36px; height: 32px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted) }
-body.mobile.mb-kbd .mb-kbdhide { display: grid }
+/* Puts the keyboard away; there while the composer has it up. */
+body.mobile .mb-kbdhide { display: none; order: 7; flex: none; margin-left: auto; width: 38px; height: 38px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted) }
+body.mobile .dinput:focus-within .mb-kbdhide { display: grid }
 /* The log never scrolls sideways; wide code and tables scroll inside themselves. */
 body.mobile .dbody { overflow-x: hidden; overscroll-behavior-x: none }
-body.mobile .dhead { padding-right: 12px }
 
 /* The pairing screen: a phone with no mesh yet. */
 .pair { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--ink); color: var(--fg); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) }
@@ -141,16 +148,16 @@ html:has(.pair.scanning), html:has(.pair.scanning) body, .pair.scanning { backgr
 /* A session: the head's second line is its meta (state, folder, branch, machine, usage), and
    Log, Files, Changes... show one pane at a time. */
 body.mobile .agshell:not(.narrow) .agmnav { display: none }
-body.mobile .dhead { flex-wrap: wrap; row-gap: 8px }
+body.mobile .dhead { flex-wrap: wrap; row-gap: 5px; column-gap: 6px; padding: 8px 12px }
 body.mobile .dhead > .tt, body.mobile .dhead .aglocation, body.mobile .dhead .agfolder { display: contents }
 body.mobile .dhead #agtitle { order: 1; flex: 1 1 calc(100% - 56px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 body.mobile .dhead .aglocation > span:nth-child(2) { display: none }
-body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { order: 2; flex: none; max-width: 100%; margin: 0; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { order: 2; flex: none; max-width: 100%; margin: 0; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 body.mobile .dhead #agstate { order: 2; padding: 0; border: 0 }
 body.mobile .dhead :is(#agbranch, #aguse):empty { display: none }
 body.mobile .dhead #aghere::before { content: "@" }
-body.mobile .agmnav { flex: none; display: flex; gap: 4px; padding: 6px 10px; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: none }
-body.mobile .agmnav button { flex: none; min-height: 36px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: 14px; color: var(--muted) }
+body.mobile .agmnav { flex: none; display: flex; gap: 4px; padding: 3px 10px; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: none }
+body.mobile .agmnav button { flex: none; min-height: 30px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: 14px; color: var(--muted) }
 body.mobile .agmnav button[aria-selected="true"] { background: var(--elev); color: var(--fg) }
 body.mobile .agshell.mb-log .agpane, body.mobile .agshell.mb-log .agpstrip { display: none !important }
 body.mobile .agshell:not(.mb-log) .agconv { display: none }

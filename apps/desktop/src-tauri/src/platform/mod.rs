@@ -2,6 +2,8 @@
 
 pub(crate) mod editors;
 
+#[cfg(target_os = "ios")]
+pub mod ios_keyboard;
 mod open;
 pub(crate) use open::{open, reveal};
 
