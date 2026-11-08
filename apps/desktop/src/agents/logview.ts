@@ -515,20 +515,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   // A plan waiting for approval shows above the field instead.
   const question = q && AG.modes?.plan == null ? questionCard(q) : "";
   const plan = planHtml(p.plan, s.status === "asking");
-  // Messages sent here already have their own rows above the field.
-  const local = AG.queue.filter(q => q.state === "sent" || q.state === "sending").map(q => [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n"));
-  const remote = (p.queued_messages ?? []).filter(message => {
-    const i = local.indexOf(message);
-    if (i < 0) return true;
-    local.splice(i, 1);
-    return false;
-  });
-  const missing = Math.max(0, p.queued - (p.queued_messages?.length ?? 0) - local.length);
-  const queued = remote.map(message => `<div class="row note"><b>Waiting to send</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(message)}</div></div>`).join("")
-    + (missing ? `<div class="row note">${missing === 1 ? "1 message waits" : `${missing} messages wait`} for the turn to end</div>` : "");
-  // The question, plan and queued messages sit under the log, by the field.
-  const card = question || plan || queued
-    ? `<div class="dcard dcoder">${question}${plan}${queued}</div>` : "";
+  const card = question || plan
+    ? `<div class="dcard dcoder">${question}${plan}</div>` : "";
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";

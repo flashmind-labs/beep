@@ -1,12 +1,12 @@
-// Sending to a coding agent: messages queued while a turn runs, steers,
+// Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
-import { type Attached, batches, dropDelivered, type Waiting } from "./agentqueue.ts";
+import { type Attached, dropDelivered, type Waiting } from "./agentqueue.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { $ } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
 import { queueRowHtml } from "./turnrows.ts";
-import { type AgentPage, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL, AGENT_ACTIVE, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
+import { type AgentPage, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
 import { HOLD_MS, type SendError, sendError, tookIt, viewError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
@@ -15,7 +15,7 @@ import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
-/// The steers and queued messages above the field, each with what goes
+/// The pending steers above the field, each with what goes
 /// with it, to edit or take out.
 export function drawQueue() {
   const field = $("#agfield");
@@ -25,12 +25,12 @@ export function drawQueue() {
   const row = (q: Waiting, i: number) => {
     const steer = q.how === "steer";
     return queueRowHtml({
-      label: steer ? "Steer" : "Queued",
+      label: "Steer",
       cls: steer ? " steer" : "",
       text: q.typed || (q.images.length || q.paths.length ? "" : q.text),
       tip: q.text,
       chips: [...q.images.map(a => a.name), ...q.paths],
-      when: !steer ? "after the turn" : q.state === "sending" ? "sending" : "after the current step",
+      when: q.state === "sending" ? "sending" : "after the current step",
       buttons: `<button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button>`,
     });
   };
@@ -54,17 +54,21 @@ function takeMessage(input: HTMLTextAreaElement | null): Waiting | null {
   const typed = composeMessage(input?.value ?? ""), images = AG.att.slice();
   if (!typed && !images.length && !MN.paths.length) return null;
   const paths = MN.paths.slice();
+  const files = paths.flatMap(path => { const file = MN.files.get(path); return file ? [{ path, file }] : []; });
   const text = paths.length ? withMentions(typed, takeMentions()) : typed;
   if (input) input.value = "";
   if (images.length) { AG.att = []; drawAgentAttached(); }
-  return { how: "queue", typed, text, paths, images, state: null, after: 0 };
+  return { how: "steer", typed, text, paths, images, files, state: null, after: 0 };
 }
 
 /// Puts `q` back in the field, before what is typed there.
-function backInField(q: Pick<Waiting, "typed" | "paths" | "images">, sep = "\n") {
+type Draft = Pick<Waiting, "typed" | "paths" | "images" | "files">;
+
+function backInField(q: Draft, sep = "\n") {
   const input = $<HTMLTextAreaElement>("#agmsg");
   if (input && q.typed) input.value = input.value ? `${q.typed}${sep}${input.value}` : q.typed;
   MN.paths = [...q.paths, ...MN.paths.filter(p => !q.paths.includes(p))];
+  for (const { path, file } of q.files ?? []) MN.files.set(path, file);
   AG.att = [...q.images, ...AG.att];
   drawAgentAttached();
   input?.focus();
@@ -85,16 +89,6 @@ export async function editQueued(i: number, edit: boolean) {
     for (const other of AG.queue.filter(x => x.how === "steer" && x.state === "sent")) await sendSteer(other);
   }
   if (edit) backInField(q);
-  drawQueue();
-  redrawAgentHints();
-}
-
-/// Option-Enter while the turn runs: queues the message, with what is
-/// attached, for after the turn.
-export function queueMessage(input: HTMLTextAreaElement) {
-  const q = takeMessage(input);
-  if (!q) return;
-  AG.queue.push(q);
   drawQueue();
   redrawAgentHints();
 }
@@ -129,48 +123,6 @@ async function sendSteer(q: Waiting, back = true) {
   drawQueue();
   redrawAgentHints();
   return ok;
-}
-
-/// Sends what was queued once the turn stopped or ended, as few messages as its
-/// images allow, in order.
-export function flushQueue() {
-  const o = AG.open, page = AG.page, s = page?.session;
-  const waiting = AG.queue.filter(q => q.how === "queue");
-  if (!waiting.length || !o || !page || !s || AG.flushing || AGENT_ACTIVE.has(s.status)) return;
-  const ended = s.status === "ended" || s.external;
-  const input = $<HTMLTextAreaElement>("#agmsg");
-  if (ended && !input) return;
-  AG.queue = AG.queue.filter(q => q.how !== "queue");
-  drawQueue();
-  redrawAgentHints();
-  if (ended) {
-    backInField({
-      typed: waiting.map(q => q.typed).filter(Boolean).join("\n\n"),
-      paths: waiting.flatMap(q => q.paths),
-      images: waiting.flatMap(q => q.images),
-    }, "\n\n");
-    return;
-  }
-  AG.flushing = true;
-  (async () => {
-    const parts = batches(waiting, AGENT_MAX_IMAGES, AGENT_MAX_IMAGES_TOTAL);
-    for (const [n, part] of parts.entries()) {
-      page.entries.push({ kind: "user", text: [part.text, ...part.images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") });
-      drawAgentBody();
-      if (part.images.length) keepAgentPics(o, part.images);
-      if (!await steerAgent({ prompt: outgoing(part.text, part.images) })) {
-        // What did not go waits again, ahead of anything queued since.
-        if (isOpen(o)) {
-          const left = parts.slice(n).map(b => ({ how: "queue" as const, typed: b.text, text: b.text, paths: [], images: b.images, state: null, after: 0 }));
-          AG.queue.unshift(...left);
-          drawQueue();
-          redrawAgentHints();
-        }
-        break;
-      }
-    }
-    AG.flushing = false;
-  })();
 }
 
 /// ⌘. while the turn runs: stop it and keep the field, so a correction can be
@@ -271,19 +223,16 @@ async function takenAfterDrop(o: OpenAgent, queued: number, text: string): Promi
 }
 
 export async function sendAgentMessage() {
-  const input = $<HTMLTextAreaElement>("#agmsg"), typed = composeMessage(input?.value ?? ""), images = AG.att;
-  if (!typed && !images.length && !MN.paths.length) return;
-  // A file still on its way would be left out of the message.
-  if (MN.uploads.length) return agentAttachError(`Wait for ${MN.uploads[0].name} to upload`);
-  // Paths from the Files tab and uploads go after what was typed, as `@path`.
-  const text = MN.paths.length ? withMentions(typed, takeMentions()) : typed;
+  const input = $<HTMLTextAreaElement>("#agmsg"), draft = takeMessage(input);
+  if (!draft) return;
   const page = AG.page!;
-  if (page.session.status === "ended") return continueAgent(input!, text, images);
-  return sendMessage(input!, text, images);
+  return page.session.status === "ended"
+    ? continueAgent(input!, draft.text, draft.images, draft)
+    : sendMessage(input!, draft.text, draft.images, draft);
 }
 
 /// Sends a prepared message, preserving it in the field if refused.
-async function sendMessage(input: HTMLTextAreaElement, text: string, images: Attached[]) {
+async function sendMessage(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
   const o = AG.open!, page = AG.page!;
   input.value = "";
   if (images.length) {
@@ -294,7 +243,7 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
   page.entries.push(mine);
   drawAgentBody();
-  const sent = await steerAgent({ prompt: outgoing(text, images) });
+  const sent = await steerAgent({ steer: outgoing(text, images) });
   if (sent || !isOpen(o)) return sent;
   // Nothing went: the message and its images wait in the field again,
   // before anything typed since, under the note that says why.
@@ -302,9 +251,7 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   // A poll may have drawn more since: take out this message, not the last.
   const at = page.entries.indexOf(mine);
   if (at >= 0) page.entries.splice(at, 1);
-  const field = $<HTMLTextAreaElement>("#agmsg");
-  if (field && text) field.value = field.value ? `${text}\n${field.value}` : text;
-  if (images.length) AG.att = images;
+  backInField(draft ?? { typed: text, paths: [], images });
   drawAgentBody();
   drawAgentAttached();
   return false;
@@ -343,7 +290,7 @@ export async function sendReview(text: string) {
 
 /// Resumes the ended session with `text`, then follows the session that
 /// goes on from it. Messages with images go together after resuming.
-export async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[]) {
+export async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
   const o = AG.open!;
   input.value = "";
   input.disabled = true;
@@ -357,13 +304,13 @@ export async function continueAgent(input: HTMLTextAreaElement, text: string, im
     input.disabled = false;
     input.focus();
     openAgent(started.session, { back: AG.back });
-    if (images.length) return sendMessage($<HTMLTextAreaElement>("#agmsg") ?? input, text, images);
+    if (images.length) return sendMessage($<HTMLTextAreaElement>("#agmsg") ?? input, text, images, draft);
     return true;
   } catch (e) {
     if (!isOpen(o)) return false;
     if (!images.length) AG.page!.entries.pop();
     input.disabled = false;
-    input.value = text;
+    backInField(draft ?? { typed: text, paths: [], images });
     AG.note = String(e).replace(/^(bad request|error):\s*/i, "");
     drawAgentBody();
     return false;

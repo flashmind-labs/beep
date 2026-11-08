@@ -1,3 +1,4 @@
+import { stashBar } from "../chat/stash.ts";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
@@ -166,7 +167,7 @@ function drawFrame() {
   const head = PANE ? "" : `<div class="dhead"><span class="tt"><b>Start a coding agent</b><small>It runs on your machine; follow it and answer it here</small></span>
       <button class="dbtn quiet" id="agList">All sessions</button></div>`;
   bar.innerHTML = `${head}<div class="agc-wrap" id="agcomposer"></div>
-      ${hints([[`⌘${ICON.ret}`, "start"], ["⌘M", "model"], ["esc", "cancel"]])}`;
+      ${stashBar(f.project ?? null)}`;
   $$("#agcomposer").append(c.form);
   c.box.insertAdjacentHTML("beforeend", '<div id="agunder"></div>');
   c.form.insertAdjacentHTML("beforeend", '<div class="agnew-notes"><div class="agc-why" id="agwhy" hidden></div><div id="aghelp"></div></div>');
@@ -176,6 +177,7 @@ function drawFrame() {
     if (AG.error === "prompt") { AG.error = ""; drawParts(); }
   });
   composeField(c.input, { images: files => attachments.add(files) });
+  attachments.bindStash(() => AG.form.project ?? null);
   bar.onclick = onClick;
   drawParts();
 }
@@ -185,6 +187,8 @@ function drawFrame() {
 function drawParts() {
   if (S.view !== "agentnew" || !$("#agbox")) return;
   const f = AG.form, hosts = AG.hosts ?? [];
+  const stashKeys = bar.querySelector(".prompt-stash-bar");
+  if (stashKeys) stashKeys.outerHTML = stashBar(f.project ?? null);
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
   if (AG.hosts && !formHost()) {

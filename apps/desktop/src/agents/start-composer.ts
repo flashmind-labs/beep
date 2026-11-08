@@ -78,7 +78,7 @@ export function makeStartComposer({ projectPicker = false, presentation = "cente
   };
   input.addEventListener("input", grow);
   input.addEventListener("keydown", e => {
-    if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.defaultPrevented) return;
+    if (input.readOnly || e.key !== "Enter" || e.shiftKey || e.isComposing || e.defaultPrevented) return;
     e.preventDefault();
     e.stopPropagation();
     form.requestSubmit();

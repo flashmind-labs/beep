@@ -1,3 +1,5 @@
+import { bindSessionStash } from "./stash.ts";
+import { stashIndicator, stashActions } from "../chat/stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
 import { agentDrop } from "../chat/attach.ts";
 import { filePicker } from "./file-picker.ts";
@@ -31,7 +33,7 @@ import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
 import { editorTools, openInEditor } from "../project/editors.ts";
-import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
+import { editQueued, interruptAgent, answerAgentQuestion } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -92,7 +94,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), queue: [], flushing: false, held: 0, stopping: null, modelOpen: false, modes: null,
+    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), queue: [], held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
   if (AG.open) firstRead = { open: AG.open, at: performance.now() };
@@ -203,7 +205,6 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number) {
   if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
   finishFirstRead(o, "ok");
   void readUsage(o, page);
-  flushQueue();
   // The oldest turn shown has its prompt: read back until it does.
   if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
 }
@@ -332,8 +333,7 @@ for (const name of ["sessions-changed", "work-resolved"]) {
 /// Whether the server turned images down for the open session.
 export const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
 
-/// Whether the open session's turn runs, so Enter steers, Option-Enter
-/// queues and ⌘. stops.
+/// Whether the open session's turn runs, so Enter steers and ⌘. stops.
 export const turnRuns = () => {
   const s = AG.page?.session;
   return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
@@ -352,9 +352,10 @@ export function agentHints() {
     const open = $("#agshortcuts")?.hasAttribute("open") ? " open" : "";
     const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
     const rows = sections.map(section => `<section><b>${esc(section.title)}</b>${section.rows.map(row => `<span><kbd>${esc(row.keys)}</kbd>${esc(row.does)}</span>`).join("")}</section>`).join("");
-    return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}</div></details></div>`;
+    const project = AG.draft ?? (s && windowHooks?.sessionProject?.(s)?.name) ?? null;
+    return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}${stashIndicator(project)}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}${stashActions()}</div></details></div>`;
   };
-  if (AG.draft) return slim([[`⌘${ICON.ret}`, "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
+  if (AG.draft) return slim([["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
@@ -362,13 +363,11 @@ export function agentHints() {
   if (s && followsOnly(s)) return slim([["esc", "back"]]);
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
   if (turnRuns()) {
-    const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
+    const keys: Parameters<typeof hints>[0] = [];
     if (stoppingNow()) return slim(keys);
-    return slim([...keys, ...mode, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["esc", "back"]]);
+    return slim([...keys, ...mode, ["⌘.", "stop"], ["esc", "back"]]);
   }
-  // Once one is attached its chip says enough.
-  const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
+  return slim([...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
@@ -540,6 +539,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     msg.before(picker.button, picker.input);
     composeField(msg, { images: agentAttach, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
     bindMentionMenu(msg);
+    bindSessionStash(msg);
   }
   drawAgentAttached();
   drawModelPill();

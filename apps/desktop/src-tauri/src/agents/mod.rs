@@ -17,5 +17,6 @@ pub(crate) mod moving;
 pub(crate) mod processes;
 pub(crate) mod review;
 pub(crate) mod sessions;
+pub(crate) mod stash;
 pub(crate) mod steer;
 pub(crate) mod work_copy;
