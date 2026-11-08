@@ -46,3 +46,8 @@ export function backTo(at: MobileAt): BackTo | null {
     default: return "history";
   }
 }
+
+/// The page fills the screen with no tab bar: a session or an open terminal.
+export function fullScreen(at: MobileAt): boolean {
+  return (at.page === "pane" && at.paneView === "agent") || (at.page === "terminals" && at.terminal);
+}
