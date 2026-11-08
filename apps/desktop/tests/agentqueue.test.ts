@@ -82,3 +82,15 @@ test("older nodes without queued message text still update delivery by count", (
   syncSteers(queue, { earlier: 0, entries: [], queued: 1 }, 3);
   assert.deepEqual(queue.map(q => q.state), ["delivered", "sent"]);
 });
+
+test("a steer another app sent shows on a later read and leaves when the node drops it", () => {
+  const queue: Waiting[] = [];
+  syncSteers(queue, { earlier: 0, entries: [], queued: 0, queued_messages: [] }, 1);
+  syncSteers(queue, { earlier: 0, entries: [], queued: 1, queued_messages: ["from the phone"] }, 2);
+  assert.deepEqual(queue.map(q => [q.text, q.state]), [["from the phone", "sent"]]);
+  syncSteers(queue, { earlier: 0, entries: [], queued: 1, queued_messages: ["from the phone"] }, 3);
+  assert.equal(queue.length, 1);
+  syncSteers(queue, { earlier: 0, entries: [], queued: 0, queued_messages: [] }, 4);
+  dropDelivered(queue);
+  assert.deepEqual(queue, []);
+});
