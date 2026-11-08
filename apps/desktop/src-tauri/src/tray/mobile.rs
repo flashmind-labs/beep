@@ -22,6 +22,5 @@ pub(crate) fn became_linked(app: &AppHandle) {
     let _ = app.emit("link-state", LinkState::Linked);
     app.state::<crate::machines::this_mac::Machine>()
         .sync(&app.state::<Arc<Beep>>());
-    crate::fleet::migrate::start(app.clone());
     app.state::<super::waiting::WaitingList>().poke();
 }

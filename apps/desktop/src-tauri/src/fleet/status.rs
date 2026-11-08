@@ -158,14 +158,14 @@ struct Watching {
 
 pub struct Status {
     me: EndpointId,
-    /// The embedded node, which is followed in this process.
-    session: SessionFn,
+    /// The embedded node, which is followed in this process. None on a phone.
+    session: Option<SessionFn>,
     shared: Arc<Shared>,
     watching: Mutex<Option<Watching>>,
 }
 
 impl Status {
-    pub(super) fn new(me: EndpointId, session: SessionFn) -> Self {
+    pub(super) fn new(me: EndpointId, session: Option<SessionFn>) -> Self {
         Self {
             me,
             session,
@@ -370,7 +370,7 @@ impl Status {
 /// What keeps the follows of one mesh going.
 struct Follower {
     me: EndpointId,
-    session: SessionFn,
+    session: Option<SessionFn>,
     shared: Arc<Shared>,
     mesh: Mesh,
 }
@@ -402,10 +402,11 @@ impl Follower {
                 if running.contains_key(&id) || !retry_due(ended.get(&id).copied()) {
                     continue;
                 }
-                let client = if id == self.me {
-                    PeerClient::local(self.session.clone())
-                } else {
-                    PeerClient::over(self.mesh.clone(), id)
+                let client = match (&self.session, id == self.me) {
+                    (Some(session), true) => PeerClient::local(session.clone()),
+                    // A phone is no machine of the mesh, so it never follows itself.
+                    (None, true) => continue,
+                    (_, false) => PeerClient::over(self.mesh.clone(), id),
                 };
                 let follow = follows.spawn(follow(client, id, self.shared.clone()));
                 running.insert(id, follow);

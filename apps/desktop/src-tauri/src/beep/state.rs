@@ -122,6 +122,7 @@ impl Saved {
     }
 
     /// "Let Beep use this Mac": on unless turned off in this version.
+    #[cfg(desktop)]
     pub fn uses_mac(&self) -> bool {
         self.mac_on.unwrap_or(true)
     }
