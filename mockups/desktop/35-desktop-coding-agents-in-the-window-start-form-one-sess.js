@@ -872,7 +872,8 @@ expected 200, got 401</pre></details></span></div>`;
   // Shift+Esc zooms the side pane over the conversation; the pane keeps its tab and state, and Shift+Esc puts it back.
   // Review with agent (mock-feedback): a button in the diff header, always there, apart from Send review. Its
   // dropdown is the start form's picker; picking a model starts a read-only review session on the machine and in the
-  // checkout the diff comes from. While it works the button shows a spinner and opens that session. When the turn
+  // checkout the diff comes from. While it works the button shows a spinner and opens that session, which is listed
+  // under the session whose changes it reviews, as a subagent, and never with the running sessions. When the turn
   // ends, its findings become draft comments marked with the harness icon, which brings Send review up; a line the
   // diff does not have becomes a note on the file. An answer that is not a list shows as one note with a link to the
   // session. Without a machine that has the checkout online the button is disabled and says why.
@@ -1064,6 +1065,8 @@ expected 200, got 401</pre></details></span></div>`;
     const rows = [
       ["Fix the failing login test", "Claude Code · acme/widget · build-box", '<span class="run"><span class="dspin"></span>Running cargo test</span>', "working"],
       ["Build the iOS target", "Codex · acme/widget · ios-build · mac-box · started by Fix the failing login test", '<span class="dstate ask">Needs you</span>', "asks", true],
+      // A review agent sits under the session it reviews, never with the running sessions (issue 468).
+      ["Review", "Codex · reviewer · started by Fix the failing login test", '<span class="w">Reviewing</span>', "working", true],
       ["Render the turntable", "Claude Code · scenes · win-box", '<span class="w">Idle</span>', "idle"],
       ["Tidy the parser module", "Claude Code · relay · build-box", '<span class="w">In terminal</span>', "outside"],
       ["Update the changelog", "Codex · acme/widget · build-box", '<span class="w">Ended</span>', "ended"],

@@ -146,6 +146,9 @@ pub struct SessionInfo {
     /// before the first. New fields go after it: readers skip what they do
     /// not know.
     pub last_activity: u64,
+    /// A temporary reviewer of its parent's changes. Only `ListAll` lists
+    /// reviewers.
+    pub reviewer: bool,
 }
 
 /// Who started a session and how deep the chain goes, as the node that

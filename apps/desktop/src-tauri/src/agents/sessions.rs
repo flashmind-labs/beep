@@ -92,6 +92,8 @@ pub struct SessionRow {
     question: Option<AgentQuestion>,
     /// The session whose agent started this one.
     parent: Option<SessionParent>,
+    /// A temporary reviewer of its parent's changes.
+    reviewer: bool,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -110,6 +112,7 @@ impl From<MachineSession> for SessionRow {
             external: session.external,
             question: session.question,
             parent: None,
+            reviewer: false,
         }
     }
 }
@@ -258,12 +261,16 @@ pub async fn agent_sessions(
     held: State<'_, Outside>,
 ) -> Result<Vec<SessionRow>> {
     let sessions = machine_sessions(&app, &beep, &fleet, &held).await;
+    let reviewers = fleet.reviewers().into_iter().map(|session| (session, true));
     Ok(sessions
         .into_iter()
-        .map(|session| {
+        .map(|session| (session, false))
+        .chain(reviewers)
+        .map(|(session, reviewer)| {
             let parent = fleet.parent_of(&session.machine_id, &session.id);
             SessionRow {
                 parent,
+                reviewer,
                 ..SessionRow::from(session)
             }
         })
