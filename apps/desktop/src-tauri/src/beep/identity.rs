@@ -84,6 +84,12 @@ pub fn forget(app: &AppHandle) -> Result<()> {
             Err(e) => return Err(e.into()),
         }
     }
+    // A phone keeps its mesh here.
+    match fs::remove_dir_all(dir.join("workspace")) {
+        Ok(()) => {}
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
     for file in [
         "identity.key",
         "state.json",

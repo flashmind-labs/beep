@@ -10,10 +10,10 @@ mod tree;
 #[cfg(target_os = "macos")]
 pub use session::{Desktop, permissions, request};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 pub fn permissions() -> beep_proto::node::desktop::Permissions {
     beep_proto::node::desktop::Permissions::default()
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 pub fn request(_: beep_proto::node::desktop::Permission) {}

@@ -3,7 +3,7 @@
 use crate::{AsyncMutex, BeepClient, BeepError, bad_request};
 use async_trait::async_trait;
 use beep_fleet::{Desk, FleetError, Peers};
-use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, PEER_ALPN, PeerClient};
+use beep_mesh::{Mesh, MeshError, PeerClient};
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::OnceCell;
@@ -103,12 +103,7 @@ impl Workspace {
     }
 
     pub async fn join(&self, text: &str, name: &str) -> Result<(), BeepError> {
-        let ticket = JoinTicket::parse(text).map_err(|error| bad_request(error.to_string()))?;
-        if ticket.kind != DeviceKind::Desktop {
-            return Err(bad_request(
-                "Create a Phone pairing ticket on desktop to give this phone project controls.",
-            ));
-        }
+        let ticket = beep_fleet::phone_ticket(text)?;
         self.get().await?;
         let mut state = self.state.lock().await;
         if state.linked.is_some() {
@@ -124,15 +119,7 @@ impl Workspace {
 
 impl Connected {
     async fn new(mesh: Mesh, endpoint: &Endpoint) -> Result<Arc<Self>, BeepError> {
-        if mesh.is_member(mesh.me()) && !mesh.is_observer(mesh.me()) {
-            mesh.set(Key::Observer(mesh.me().to_string()), Some(Vec::new()))
-                .await?;
-        }
-        let (peer, join) = mesh.protocols();
-        let router = Router::builder(endpoint.clone())
-            .accept(PEER_ALPN, peer)
-            .accept(JOIN_ALPN, join)
-            .spawn();
+        let router = beep_fleet::observe(&mesh, endpoint).await?;
         Ok(Arc::new(Self {
             mesh,
             _router: router,
