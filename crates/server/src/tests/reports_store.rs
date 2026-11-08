@@ -15,7 +15,12 @@ fn config() -> R2Config {
 /// The error text of a put to `endpoint`, which must fail.
 async fn failed_put(endpoint: &str) -> String {
     let endpoint = endpoint.parse().expect("a local URL");
-    let r2 = R2::at(endpoint, &config(), beep_proto::https::client().build().expect("a client")).expect("a valid R2 config");
+    let r2 = R2::at(
+        endpoint,
+        &config(),
+        beep_proto::https::client().build().expect("a client"),
+    )
+    .expect("a valid R2 config");
     let error = r2
         .put("reports/mesh/abc.zip", b"zip".to_vec(), "application/zip")
         .await
@@ -60,7 +65,11 @@ async fn a_failed_r2_put_does_not_log_the_signed_url() {
 
 #[test]
 fn r2_uploads_go_to_the_account_endpoint_path_style_and_signed() {
-    let r2 = R2::new(&config(), beep_proto::https::client().build().expect("a client")).expect("a valid R2 config");
+    let r2 = R2::new(
+        &config(),
+        beep_proto::https::client().build().expect("a client"),
+    )
+    .expect("a valid R2 config");
     let url = r2.upload_url("reports/mesh/abc.zip", "application/zip");
     assert_eq!(url.host_str(), Some("account.r2.cloudflarestorage.com"));
     assert_eq!(url.path(), "/reports/reports/mesh/abc.zip");

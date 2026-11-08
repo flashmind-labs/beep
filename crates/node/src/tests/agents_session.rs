@@ -1719,6 +1719,25 @@ const ENV_ADAPTER: &str = r#"
 printf '%s|%s|%s|%s\n' "$CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" "$DISABLE_AUTO_COMPACT" "$OPENCODE_DISABLE_AUTOCOMPACT" "$CODEX_CONFIG" > "$2"
 "#;
 
+/// What `ENV_ADAPTER` prints when the node sets each of its variables to
+/// `set`, an empty one meaning removed, and passes on the rest as this
+/// process has them.
+fn printed(set: [Option<&str>; 4]) -> String {
+    const VARS: [&str; 4] = [
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+        "DISABLE_AUTO_COMPACT",
+        "OPENCODE_DISABLE_AUTOCOMPACT",
+        "CODEX_CONFIG",
+    ];
+    let line = VARS
+        .iter()
+        .zip(set)
+        .map(|(name, set)| set.map_or_else(|| std::env::var(name).unwrap_or_default(), str::to_owned))
+        .collect::<Vec<_>>()
+        .join("|");
+    line.trim().to_owned()
+}
+
 /// What the adapter of agent `name` saw in its environment, given its
 /// `compact` setting.
 async fn compaction_env(name: &str, compact: Option<AutoCompact>) -> String {
@@ -1749,20 +1768,40 @@ async fn an_agent_with_its_own_compaction_starts_with_the_setting() {
         percent: None,
         tokens: None,
     });
-    assert_eq!(compaction_env("claude", at(Some(65))).await, "65|||");
-    assert_eq!(compaction_env("claude", off).await, "|1||");
-    assert_eq!(compaction_env("opencode", off).await, "||1|");
-    assert_eq!(compaction_env("opencode", at(Some(65))).await, "|||");
-    assert_eq!(compaction_env("codex", off).await, "|||");
+    assert_eq!(
+        compaction_env("claude", at(Some(65))).await,
+        printed([Some("65"), Some(""), None, None])
+    );
+    assert_eq!(
+        compaction_env("claude", off).await,
+        printed([None, Some("1"), None, None])
+    );
+    assert_eq!(
+        compaction_env("opencode", off).await,
+        printed([None, None, Some("1"), None])
+    );
+    assert_eq!(
+        compaction_env("opencode", at(Some(65))).await,
+        printed([None, None, Some(""), None])
+    );
+    assert_eq!(compaction_env("codex", off).await, printed([None; 4]));
     let tokens = Some(AutoCompact {
         enabled: true,
         percent: None,
         tokens: Some(350_000),
     });
-    assert_eq!(compaction_env("claude", tokens).await, "|1||");
+    assert_eq!(
+        compaction_env("claude", tokens).await,
+        printed([None, Some("1"), None, None])
+    );
     assert_eq!(
         compaction_env("codex", tokens).await,
-        r#"|||{"model_auto_compact_token_limit":350000}"#
+        printed([
+            None,
+            None,
+            None,
+            Some(r#"{"model_auto_compact_token_limit":350000}"#)
+        ])
     );
 }
 

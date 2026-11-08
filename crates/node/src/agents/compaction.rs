@@ -98,6 +98,17 @@ impl Policy {
         };
         (!user.contains_key(name)).then_some(EnvVar { name, value })
     }
+
+    /// The variable that would turn the agent's own trigger off, to drop
+    /// from what the node inherited when this policy wants it on and the
+    /// user has not set it.
+    pub(super) fn cleared(self, route: Route, user: &BTreeMap<String, String>) -> Option<&'static str> {
+        let name = match (route, self) {
+            (Route::Percent { off_var, .. } | Route::Toggle { off_var }, Self::At(_)) => off_var,
+            _ => return None,
+        };
+        (!user.contains_key(name)).then_some(name)
+    }
 }
 
 impl Default for Policy {
