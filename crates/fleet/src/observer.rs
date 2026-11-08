@@ -71,7 +71,7 @@ mod tests {
 
         assert!(phone.is_observer(phone.me()));
         let phone_id = phone.me();
-        // The mark replicates to the desktop, which then lists its own machine only.
+        // The mark replicates to the desktop, whose code hosts are its own machine only.
         timeout(Duration::from_secs(60), async {
             let mut updates = desktop.updates();
             loop {
@@ -85,9 +85,9 @@ mod tests {
         .await
         .expect("the desktop learns the phone observes");
         assert!(desktop.is_member(phone_id));
-        let listed: Vec<_> = desktop.machines().iter().map(|s| s.device.id).collect();
+        let listed: Vec<_> = desktop.code_hosts().iter().map(|s| s.device.id).collect();
         assert_eq!(listed, vec![desk_endpoint.id()]);
-        let seen: Vec<_> = phone.machines().iter().map(|s| s.device.id).collect();
+        let seen: Vec<_> = phone.code_hosts().iter().map(|s| s.device.id).collect();
         assert_eq!(seen, vec![desk_endpoint.id()]);
     }
 
