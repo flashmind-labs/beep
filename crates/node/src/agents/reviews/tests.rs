@@ -223,13 +223,23 @@ async fn a_reviewer_that_ends_without_a_review_is_nudged_once() {
 
 #[test]
 fn the_prompt_names_the_base_and_the_tool() {
-    let uncommitted = prompt("HEAD", "");
+    let uncommitted = prompt("HEAD", "", None);
     assert!(uncommitted.contains("`git diff HEAD`"), "{uncommitted}");
     assert!(uncommitted.contains("submit_review"));
-    let branch = prompt("origin/main; rm -rf /", "the cache");
+    let branch = prompt("origin/main; rm -rf /", "the cache", None);
     assert!(
         branch.contains("merge-base HEAD origin/mainrm-rf"),
         "{branch}"
     );
     assert!(branch.contains("Look first at what the author asks: the cache"));
+    let house = house::HouseRules {
+        path: ".codex/agents/reviewer.toml".into(),
+        prompt: "Flag every unbounded channel.".into(),
+    };
+    let with = prompt("HEAD", "", Some(&house));
+    assert!(
+        with.ends_with("\n\nFlag every unbounded channel."),
+        "{with}"
+    );
+    assert!(with.contains("defined in .codex/agents/reviewer.toml"));
 }
