@@ -110,7 +110,7 @@ export async function load(t: MediaTab) {
       t.done = done;
       t.size = size;
       const bar = t.el?.querySelector<HTMLElement>(".agpload i");
-      if (bar) bar.style.width = `${size ? Math.round((done / size) * 100) : 0}%`;
+      if (bar) bar.style.transform = `scaleX(${size ? Math.min(1, Math.max(0, done / size)) : 0})`;
     });
     if (!P.tabs.includes(t)) return;
     t.size = bytes.length;

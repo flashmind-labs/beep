@@ -25,9 +25,20 @@ function goesOn(mode: Reading, reads: number, b: HTMLElement | null) {
   return reads < NEAR_READS && !!b && nearTop(b);
 }
 
+let reading: Promise<void> | null = null;
+
 /// Reads older entries before the first one held and puts them in front,
-/// without moving what the reader sees. One run at a time.
-export async function loadOlder(mode: Reading) {
+/// without moving what the reader sees. A whole-log read waits for one in flight.
+export function loadOlder(mode: Reading): Promise<void> {
+  if (reading) {
+    const open = AG.open;
+    return mode === "all" ? reading.then(() => AG.open === open ? loadOlder(mode) : undefined) : reading;
+  }
+  reading = readOlder(mode).finally(() => { reading = null; });
+  return reading;
+}
+
+async function readOlder(mode: Reading) {
   const o = AG.open;
   if (!o || AG.older.loading) return;
   AG.older.loading = true;

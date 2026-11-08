@@ -110,10 +110,10 @@
   // A flat list: what needs you, then each part with a count. No summary rows, no Agents next to Running.
   const NAV = [["Overview", "", ""], ["Needs you", "1", "wait"], ["Running", "2", ""], null, ["Actions", "1 failed", "bad"], ["Machines", "3/4", ""], ["File sync", "in sync", ""], ["Issues", "2 open", ""], null, ["Tasks", "3", ""], ["Sessions", "43 past", ""], ["Git", "13 commits", ""]];
   const projectNav = title => {
-    const view = { Overview: "strip", Sessions: "sessions", Git: "branches" }[title];
+    const view = { Overview: "strip", Running: "running-sync", Sessions: "sessions", Git: "branches" }[title];
     return view ? `data-dact="dset:ixp:${view}" data-dgo="dIdeaProject"` : "";
   };
-  const nav = (on = "Overview") => `<div class="pj-list ix-flat">${NAV.map(n => !n ? "<hr>" : `<button class="pj-li" ${projectNav(n[0])}${n[0] === on ? ' aria-current="true"' : ""}><span>${n[0]}</span><span class="c${n[2] ? " " + n[2] : ""}">${n[1]}</span></button>`).join("")}</div>`;
+  const nav = (on = "Overview") => `<div class="pj-list ix-flat">${NAV.map(n => !n ? "<hr>" : `<button class="pj-li" ${projectNav(n[0])}${n[0] === on ? ' aria-current="true"' : ""}><span>${n[0]}</span><span class="c${n[2] ? " " + n[2] : ""}"${on === "Running" && n[0] === "File sync" ? ' data-sync-preview' : ""}>${n[1]}</span></button>`).join("")}</div>`;
   const pjComp = () => `<form class="cc-pjc" onsubmit="return false"><div class="box"><textarea rows="1" placeholder="Describe a task for a coding agent in acme/widget"></textarea><div class="row"><button class="pill" type="button">build-box</button><button class="pill" type="button">Current checkout <small>as it is</small></button><span class="sp"></span><button class="pill" type="button">${ag("claude")}Claude Code <small>Default · Medium</small></button><button class="dbtn pri" data-toast="Started">Start<kbd>${DI.ret}</kbd></button></div></div></form>`;
 
   const MACH = [["busy", "build-box", "/srv/project/widget", "main", tg("run", "in sync"), "↓1 ↑2"], ["", "studio", "/srv/widget", "main", tg("run", "Syncthing"), ""],
@@ -161,16 +161,24 @@
         <div class="pj-split">${nav("Sessions")}<div class="ix-det"><div class="sc">${sessionsTabs()}</div></div></div>${pjComp()}</div>`;
       return skinned(ccWin(ccSidePj("acme/widget"), main));
     }
-    const selected = v === "branches" || v === "review" ? "Git" : "Overview";
+    const selected = v === "branches" || v === "review" ? "Git" : v === "running-sync" ? "Running" : "Overview";
     const content = v === "branches" ? window.gitHistoryDetail?.() || ""
       : v === "review" ? `<button class="dbtn quiet small pj-back" data-dact="dset:ixp:branches" data-dgo="dIdeaProject">All branches</button>${window.__rvPane()}`
+      : v === "running-sync" ? sec("Agents", 2, panel(
+        ln(ag("claude"), "Swipeable approval strip", "acme/widget · build-box", "now").replace('<button class="t"', '<button class="t" data-dgo="dAgentSession"')
+        + ln(ag("codex"), "Fix the device build script", "acme/widget · studio", "3 min").replace('<button class="t"', '<button class="t" data-dgo="dAgentSession"')))
       : v === "strip" ? overviewA() : overviewB();
     const tools = `<span class="tools"><button class="dbtn small" data-toast="GitHub, Forgejo, Open in Zed">Open ${CHEV}</button><button class="dbtn quiet small" aria-label="Project menu" data-toast="Pin, New window, Remove">⋯</button></span>`;
     const main = `<div class="ix-pj"><div class="cc-top"><h2>acme/widget</h2><small>github.com · imported 3 d</small>${tools}</div>${pjStrip()}
       <div class="pj-split${v === "branches" ? " gh-layout" : ""}">${v === "branches" ? window.gitHistoryNavigation?.() || "" : nav(selected)}<div class="ix-det${v === "branches" ? " gh-inspector" : ""}"><div class="sc">${content}</div></div></div>${pjComp()}</div>`;
     return skinned(ccWin(ccSidePj("acme/widget"), main));
   };
-  VARIANTS.dIdeaProject = [["A: Status strip, centered composer", "strip"], ["A: Sessions in tabs", "sessions"], ["Git history", "branches"], ["Review", "review"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
+  VARIANTS.dIdeaProject = [["A: Status strip, centered composer", "strip"], ["Running while sync updates", "running-sync"], ["A: Sessions in tabs", "sessions"], ["Git history", "branches"], ["Review", "review"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
+  let syncPreview = 0;
+  setInterval(() => {
+    const count = document.querySelector("[data-sync-preview]");
+    if (count) count.textContent = `${++syncPreview % 20 + 1} of 20 files`;
+  }, 400);
 
   DESK_SCREENS.unshift({ group: "Ideas (7 Nov)", items: [["dIdeaHome", "Home ideas", "Home: attention first or by project"], ["dIdeaProject", "Project page ideas", "Project: status strip or activity feed"]] });
   const want = location.hash.slice(1);

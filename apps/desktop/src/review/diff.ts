@@ -157,7 +157,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   /// Each file's section, by path, as last drawn.
   let sections = new Map<string, HTMLElement>();
   /// The chunks of rows of every open file.
-  const chunks = new Set<Chunk>();
+  const chunks = new Map<Element, Chunk>();
   const find = el("input", "dv-find");
   find.placeholder = "Filter";
   find.setAttribute("aria-label", "Filter files");
@@ -224,6 +224,29 @@ export function diffView(src: DiffSource): DiffViewHandle {
   tree.setAttribute("aria-label", "Changed files");
   const files = el("div", "dv-files");
   files.style.position = "relative";
+  const chunkObserver = new IntersectionObserver(entries => {
+    const top = files.getBoundingClientRect().top;
+    const changes = entries.flatMap(entry => {
+      const c = chunks.get(entry.target);
+      if (!c || !c.box.isConnected || c.live === entry.isIntersecting) return [];
+      if (!entry.isIntersecting && (c.box.querySelector(".dv-cmt.open") || selected(c.box))) return [];
+      return [{ c, want: entry.isIntersecting, rect: c.box.getBoundingClientRect() }];
+    });
+    // Read all old heights before changing the DOM, then measure the new ones
+    // together. Scrolling itself never walks the offscreen chunks.
+    for (const { c, want, rect } of changes) {
+      c.box.replaceChildren(...(want ? c.draw() : []));
+      c.box.style.height = want ? "" : `${rect.height}px`;
+      c.live = want;
+    }
+    let shift = 0;
+    for (const { c, want, rect } of changes) {
+      if (want && rect.bottom <= top) shift += c.box.getBoundingClientRect().height - rect.height;
+    }
+    // Even assigning the same scrollTop stops WebKit's trackpad momentum.
+    if (shift) files.scrollTop += shift;
+    markCurrent();
+  }, { root: files, rootMargin: `${MARGIN}px 0px` });
   const grip = el("div", "dv-resize");
   const body = el("div", "dv-body", tree, grip, files);
   initTreeResize(body, grip);
@@ -238,8 +261,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
     st.narrow = narrow;
     if (st.split) redrawBodies();
   }).observe(root);
-  new ResizeObserver(() => windowChunks()).observe(files);
-  files.addEventListener("scroll", () => { windowChunks(); markCurrent(); }, { passive: true });
+  new ResizeObserver(() => markCurrent()).observe(files);
+  let scrollFrame = 0;
+  files.addEventListener("scroll", () => {
+    if (scrollFrame) return;
+    scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; markCurrent(); });
+  }, { passive: true });
   files.addEventListener("click", onGutter);
   root.addEventListener("keydown", onKey);
 
@@ -268,6 +295,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   function drawFiles() {
     const v = st.view;
+    chunkObserver.disconnect();
+    chunks.clear();
+    markedPath = null;
     tree.replaceChildren();
     files.replaceChildren();
     sections = new Map();
@@ -315,7 +345,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
     });
     matchNote.hidden = !st.filter.trim();
     matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
-    windowChunks();
     markCurrent();
     drawFold();
   }
@@ -418,51 +447,26 @@ export function diffView(src: DiffSource): DiffViewHandle {
       const slice = items.slice(i, i + CHUNK);
       const box = el("div", "dv-chunk");
       box.style.height = `${split ? splitHeight(slice as SplitRow[], cols) : slice.reduce((h, r) => h + (r.kind === "gap" ? 22 : 19), 0)}px`;
-      chunks.add({ box, draw: () => slice.flatMap(nodes), live: false });
+      chunks.set(box, { box, draw: () => slice.flatMap(nodes), live: false });
+      chunkObserver.observe(box);
       lines.append(box);
     }
     return el("div", "dv-scroll", lines);
   }
 
-  /// Draws the chunks near the viewport and empties the far ones. A chunk
-  /// that is drawn above the viewport and differs from its estimate would
-  /// push the lines down (WebKit has no scroll anchoring), so the scroll
-  /// moves by the difference.
-  function windowChunks() {
-    // A drawn chunk can move the next ones, so go again until nothing changes.
-    for (let pass = 0; pass < 3 && windowStep(); pass++);
+  /// Stop observing chunks removed by a file or mode change.
+  function pruneChunks() {
+    for (const [box] of chunks) {
+      if (root.contains(box)) continue;
+      chunkObserver.unobserve(box);
+      chunks.delete(box);
+    }
   }
 
   /// Whether the user's selection reaches into `box`: emptying it would lose the text.
   function selected(box: HTMLElement) {
     const sel = document.getSelection();
     return !!sel && !sel.isCollapsed && sel.containsNode(box, true);
-  }
-
-  function windowStep() {
-    let changed = false;
-    const view = files.getBoundingClientRect();
-    const lo = view.top - MARGIN, hi = view.bottom + MARGIN;
-    for (const c of chunks) {
-      if (!c.box.isConnected) { chunks.delete(c); continue; }
-      if (!c.box.getClientRects().length) continue;
-      const r = c.box.getBoundingClientRect();
-      const want = r.bottom > lo && r.top < hi;
-      if (want === c.live) continue;
-      if (want) {
-        const was = c.box.offsetHeight;
-        c.box.replaceChildren(...c.draw());
-        c.box.style.height = "";
-        if (r.bottom <= view.top) files.scrollTop += c.box.offsetHeight - was;
-      } else if (!c.box.querySelector(".dv-cmt.open") && !selected(c.box)) {
-        const h = c.box.offsetHeight;
-        c.box.replaceChildren();
-        c.box.style.height = `${h}px`;
-      } else continue;
-      c.live = want;
-      changed = true;
-    }
-    return changed;
   }
 
   function countLabel(path: string) {
@@ -615,7 +619,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       inner.replaceChildren(...(isFolded(f, st.folded) ? [] : [fileBody(f)]));
     }
     files.scrollTop = keep;
-    windowChunks();
+    pruneChunks();
   }
 
   function setFolded(path: string, folded: boolean) {
@@ -627,7 +631,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!folded && inner && !inner.childNodes.length) inner.append(fileBody(f));
     section.classList.toggle("closed", folded);
     section.querySelector(".dv-fh")?.setAttribute("aria-expanded", String(!folded));
-    windowChunks();
     drawFold();
   }
 
@@ -650,12 +653,15 @@ export function diffView(src: DiffSource): DiffViewHandle {
     return shown().map(f => (sections.get(f.path)?.offsetTop ?? 0) - 10);
   }
 
+  let markedPath: string | null = null;
   function markCurrent() {
     const list = shown();
     const held = st.cur ? sections.get(st.cur) : null;
     if (!held || !inView(held.offsetTop, held.offsetTop + held.offsetHeight, files.scrollTop, files.clientHeight)) {
       st.cur = list[currentFile(tops(), files.scrollTop)]?.path ?? null;
     }
+    if (markedPath === st.cur) return;
+    markedPath = st.cur;
     for (const [p, s] of sections) s.classList.toggle("cur", p === st.cur);
     for (const row of tree.querySelectorAll<HTMLElement>(".dv-tr")) row.classList.toggle("on", row.dataset.path === st.cur);
   }
@@ -724,7 +730,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const next = fileSection(f);
     old.replaceWith(next);
     sections.set(path, next);
-    windowChunks();
+    pruneChunks();
+    markedPath = null;
+    markCurrent();
   }
 
   async function load() {
