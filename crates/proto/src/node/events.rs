@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 pub const PROTOCOL: &str = "events/1";
 pub const MAX_TOPICS: usize = 64;
 
+mod git;
+pub use git::{GitOutput, GitRead};
+
 mod topic;
 pub use topic::{MAX_TOPIC_BYTES, Topic, TopicError};
 
@@ -18,6 +21,7 @@ pub enum Read {
     Process(process::Request),
     TerminalList,
     SyncList,
+    Git { root: String, query: GitRead },
 }
 
 impl Read {
@@ -50,6 +54,7 @@ impl Read {
             Self::Process(_) => return None,
             Self::TerminalList => Topic::new("terminals"),
             Self::SyncList => Topic::new("sync"),
+            Self::Git { root, .. } => Topic::keyed("files", root),
         })
     }
 }
@@ -58,6 +63,9 @@ impl Read {
 pub enum Value {
     /// The resource has no current state, including an unbound project topic.
     Missing,
+    /// Exact current resources in the snapshot topic scope. Absent resources are removed.
+    Resources(Vec<Topic>),
+    Git(GitOutput),
     Sessions(Box<agent::SessionsReply>),
     Process(process::Reply),
     Terminals(terminal::Reply),
@@ -115,6 +123,10 @@ pub enum Request {
         operation: Box<Operation>,
     },
     Ping {
+        id: u64,
+    },
+    /// Request fresh snapshots of all active projections without replacing their sources.
+    Refresh {
         id: u64,
     },
 }

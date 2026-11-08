@@ -1,0 +1,350 @@
+use crate::agents::{Agents, reach::Access};
+use anyhow::{Context, Result, bail, ensure};
+use beep_projects::{
+    branches, checkout_sync, for_machine,
+    history::{self, CommitId, HistoryAsk},
+};
+use beep_proto::node::{
+    events::{GitOutput, GitRead},
+    local_link, shell,
+};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
+use tokio_util::task::AbortOnDropHandle;
+
+/// Worktree metadata can live outside the checkout. Avoid watching the object database.
+pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut repository = false;
+    for folder in root.ancestors() {
+        if tokio::fs::symlink_metadata(folder.join(".git"))
+            .await
+            .is_ok()
+        {
+            repository = true;
+            break;
+        }
+    }
+    if !repository {
+        return Ok(Vec::new());
+    }
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-dir",
+                "--git-common-dir",
+            ])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .context("finding Git metadata timed out")?;
+    let output = match output {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        other => other?,
+    };
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    let text = String::from_utf8(output.stdout).context("Git metadata path is not UTF-8")?;
+    let mut paths = text.lines();
+    let git = paths
+        .next()
+        .context("Git did not name its metadata folder")?;
+    let common = paths.next().context("Git did not name its common folder")?;
+    let git = tokio::fs::canonicalize(root.join(git)).await?;
+    let common = tokio::fs::canonicalize(root.join(common)).await?;
+    Ok(vec![
+        git.join("HEAD"),
+        git.join("index"),
+        git.join("commondir"),
+        common.join("refs"),
+        common.join("packed-refs"),
+    ])
+}
+
+fn script(root: &str, query: GitRead) -> Result<String> {
+    Ok(match query {
+        GitRead::State => checkout_sync::local_state_script(root),
+        GitRead::Branches { fallback } => branches::branches_script(root, &fallback),
+        GitRead::History {
+            revision,
+            offset,
+            search,
+        } => {
+            let revision = revision.as_deref().map(CommitId::parse).transpose()?;
+            history::history_script(&HistoryAsk {
+                folder: root,
+                revision: revision.as_ref(),
+                offset,
+                search: &search,
+            })
+        }
+        GitRead::Files { commit } => history::files_script(root, &CommitId::parse(&commit)?),
+    })
+}
+
+pub(super) async fn read(agents: &Agents, root: &str, query: GitRead) -> Result<GitOutput> {
+    let root = agents.reachable(root, Access::Read).await?;
+    let root = root.to_str().context("the Git folder is not UTF-8")?;
+    let command = for_machine(&script(root, query)?, cfg!(windows)).into_owned();
+    let link = local_link();
+    let _task = AbortOnDropHandle::new(tokio::spawn(crate::run::shell::serve(
+        link.node.0,
+        link.node.1,
+    )));
+    let (mut tx, mut rx) = link.caller;
+    tx.send(&shell::Request::Run {
+        command,
+        timeout_secs: 40,
+    })
+    .await?;
+    let mut output = String::new();
+    loop {
+        match rx
+            .recv::<shell::Event>()
+            .await?
+            .context("Git read closed before its result")?
+        {
+            shell::Event::Output { text } => output.push_str(&text),
+            shell::Event::Done {
+                exit_code,
+                timed_out,
+                truncated,
+                ..
+            } => {
+                ensure!(!truncated, "Git projection output exceeded its limit");
+                return Ok(GitOutput {
+                    exit_code,
+                    timed_out,
+                    output,
+                });
+            }
+            _ => bail!("unexpected Git shell result"),
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::link::Offers;
+    use beep_projects::{Shell, ShellOutput};
+    use beep_proto::node::{
+        LinkRx, LinkTx,
+        events::{Query, Read, Reply, Request, Snapshot, Topic, Value},
+    };
+    use std::{path::Path, time::Duration};
+    use tokio::{process::Command, time::timeout};
+
+    async fn git(root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-c")
+            .arg("user.name=Example")
+            .arg("-c")
+            .arg("user.email=developer@example.test")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    struct Recorded(GitOutput);
+
+    #[async_trait::async_trait]
+    impl Shell for Recorded {
+        async fn run(&self, _script: &str, _limit: Duration) -> Result<ShellOutput> {
+            Ok(ShellOutput {
+                exit_code: self.0.exit_code,
+                timed_out: self.0.timed_out,
+                output: self.0.output.clone(),
+            })
+        }
+    }
+
+    async fn projection(rx: &mut LinkRx, query: u64) -> GitOutput {
+        timeout(Duration::from_secs(10), async {
+            loop {
+                match rx.recv::<Reply>().await.unwrap().unwrap() {
+                    Reply::Snapshot(snapshot) if snapshot.query == Some(query) => {
+                        let Snapshot {
+                            value: Value::Git(value),
+                            ..
+                        } = *snapshot
+                        else {
+                            panic!("expected Git state")
+                        };
+                        return value;
+                    }
+                    Reply::SnapshotError {
+                        query: Some(id),
+                        reason,
+                        ..
+                    } if id == query => panic!("{reason}"),
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn subscribe(root: &Path) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
+        let offers = Offers::default();
+        offers.agents.share_folders(vec![root.to_owned()]);
+        let link = local_link();
+        let task = AbortOnDropHandle::new(tokio::spawn(super::super::serve(
+            link.node.0,
+            link.node.1,
+            offers,
+            iroh::SecretKey::generate().public(),
+        )));
+        let (mut tx, mut rx) = link.caller;
+        assert_eq!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Ready));
+        let root_name = root.to_str().unwrap().to_owned();
+        let topic = Topic::keyed("files", &root_name);
+        tx.send(&Request::Watch {
+            id: 1,
+            topics: vec![topic.clone()],
+            queries: vec![Query {
+                id: 7,
+                topic,
+                read: Read::Git {
+                    root: root_name,
+                    query: GitRead::History {
+                        revision: None,
+                        offset: 0,
+                        search: String::new(),
+                    },
+                },
+            }],
+        })
+        .await
+        .unwrap();
+        (tx, rx, task)
+    }
+
+    #[tokio::test]
+    async fn history_subscription_pushes_the_first_committed_file_without_polling() {
+        let root = tempfile::tempdir().unwrap();
+        git(root.path(), &["init", "--initial-branch=main"]).await;
+        git(root.path(), &["commit", "--allow-empty", "-m", "first"]).await;
+        let (_tx, mut rx, _task) = subscribe(root.path()).await;
+        let first = projection(&mut rx, 7).await;
+        let first =
+            history::parse_history(history::run(&Recorded(first), "").await.unwrap(), 0).unwrap();
+        assert_eq!(first.commits.len(), 1);
+        std::fs::write(root.path().join("example.txt"), "first file").unwrap();
+        git(root.path(), &["add", "example.txt"]).await;
+        git(root.path(), &["commit", "-m", "second"]).await;
+        loop {
+            let next = projection(&mut rx, 7).await;
+            let next = history::parse_history(history::run(&Recorded(next), "").await.unwrap(), 0)
+                .unwrap();
+            if next.commits.len() == 2 {
+                assert_eq!(next.commits[0].subject, "second");
+                break;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn linked_worktree_metadata_pushes_an_empty_commit_without_checkout_writes() {
+        let root = tempfile::tempdir().unwrap();
+        git(root.path(), &["init", "--initial-branch=main"]).await;
+        git(root.path(), &["commit", "--allow-empty", "-m", "first"]).await;
+        let checkout = root.path().join("linked");
+        git(
+            root.path(),
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "feature",
+                checkout.to_str().unwrap(),
+            ],
+        )
+        .await;
+        let paths = watch_paths(&checkout).await.unwrap();
+        assert_eq!(paths.len(), 5);
+        assert!(paths.iter().all(|path| !path.starts_with(&checkout)));
+        let (_tx, mut rx, _task) = subscribe(&checkout).await;
+        projection(&mut rx, 7).await;
+        git(
+            &checkout,
+            &["commit", "--allow-empty", "-m", "metadata only"],
+        )
+        .await;
+        loop {
+            let next = projection(&mut rx, 7).await;
+            let next = history::parse_history(history::run(&Recorded(next), "").await.unwrap(), 0)
+                .unwrap();
+            if next.commits.len() == 2 {
+                assert_eq!(next.commits[0].subject, "metadata only");
+                break;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn git_reads_validate_revisions_authorize_roots_and_leave_refs_unchanged() {
+        assert!(
+            !script("/srv/project", GitRead::State)
+                .unwrap()
+                .contains("git fetch")
+        );
+        assert!(
+            script(
+                "/srv/project",
+                GitRead::Files {
+                    commit: "HEAD; false".into()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            script(
+                "/srv/project",
+                GitRead::History {
+                    revision: Some("HEAD".into()),
+                    offset: 0,
+                    search: String::new()
+                }
+            )
+            .is_err()
+        );
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        git(root.path(), &["init", "--initial-branch=main"]).await;
+        let agents = Agents::default();
+        agents.share_folders(vec![root.path().to_owned()]);
+        assert!(
+            read(&agents, outside.path().to_str().unwrap(), GitRead::State)
+                .await
+                .is_err()
+        );
+        let before = std::fs::read(root.path().join(".git/HEAD")).unwrap();
+        let output = read(&agents, root.path().to_str().unwrap(), GitRead::State)
+            .await
+            .unwrap();
+        let state = checkout_sync::parse_state(&output.output).unwrap();
+        assert_eq!(state.branch.as_deref(), Some("main"));
+        assert_eq!(
+            std::fs::read(root.path().join(".git/HEAD")).unwrap(),
+            before
+        );
+        assert!(!root.path().join(".git/FETCH_HEAD").exists());
+    }
+}
