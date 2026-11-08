@@ -734,8 +734,8 @@ expected 200, got 401</pre></details></span></div>`;
     const mention = (p, up) => `<span class="ag-ment" title="Goes in the message as @${p}">${FI.file}${p}${up ? `<small>${up}</small>` : ""}<em data-toast="Removed">&#215;</em></span>`;
     const att = image ? `<div class="ag-att"><span><i></i>Screenshot 2026-10-07.png<em data-toast="Removed">&#215;</em></span></div>`
       : v === "dragpath" ? `<div class="ag-att">${mention("src/errors.rs")}<span class="ag-dropin">${FI.file}Drop to mention src/login.rs</span></div>`
-      : v === "dropchoice" ? `<div class="ag-att"><div class="ag-upask"><span>Upload 2 files (1.4 MB) to build-box:</span><button class="dbtn pri" data-toast="Uploading to src/auth/">Into src/auth/</button><button class="dbtn" data-toast="Uploading to .beep/uploads/">Into .beep/uploads/</button><button class="dbtn quiet" data-toast="Not uploaded">Cancel</button></div></div>`
-      : (v === "filemenu" || v === "filemenuwith") ? `<div class="ag-att">${mention(".beep/uploads/build.log", "62%")}${mention("src/login.rs")}</div>` : "";
+      : v === "dropchoice" ? `<div class="ag-att"><div class="ag-upask"><span>Upload 2 files (1.4 MB) to build-box:</span><button class="dbtn pri" data-toast="Uploading to src/auth/">Into src/auth/</button><button class="dbtn" title="Outside the project. Deleted when this session is closed." data-toast="Uploading as temporary attachments">Temporary attachments</button><button class="dbtn quiet" data-toast="Not uploaded">Cancel</button></div></div>`
+      : (v === "filemenu" || v === "filemenuwith") ? `<div class="ag-att">${mention("build.log", "62%")}${mention("src/login.rs")}</div>` : "";
     // The model pill: harness, model and thinking; a switch applies from the next turn.
     const canSwitch = !ended && !outside;
     const pillAgent = v === "flshmodel" ? "flsh" : "claude", pillName = pillAgent === "flsh" ? "flsh" : "Claude Code";

@@ -112,7 +112,9 @@ fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDr
         | SessionsRequest::FollowUsage { .. } => return None,
         // Neither carries its images or bytes into the log.
         SessionsRequest::Steer { session, .. } => format!("Steer for session {session}"),
-        SessionsRequest::WriteFile { path, .. } => format!("WriteFile {path}"),
+        SessionsRequest::WriteFile { path, .. } | SessionsRequest::UploadFile { path, .. } => {
+            format!("WriteFile {path}")
+        }
         other => format!("{other:?}").chars().take(300).collect(),
     };
     Some(warn_if_slow_after(
@@ -294,6 +296,30 @@ pub async fn serve_sessions(
             work_request(&agents, &root, reach::Access::Write, move |real| {
                 let root = work_folder::WorkRoot::at(&real)?;
                 let path = work_folder::write(&root, &path, offset, size, &data)?;
+                Ok(SessionsReply::Written { path })
+            })
+            .await
+        }
+        SessionsRequest::UploadFile {
+            root,
+            agent,
+            session,
+            path,
+            offset,
+            size,
+            data,
+        } => {
+            let running = agents.get(&session);
+            work_request(&agents, &root, reach::Access::Write, move |_real| {
+                let path = super::uploads::write(
+                    &agent,
+                    &session,
+                    &path,
+                    offset,
+                    size,
+                    &data,
+                    running.as_deref(),
+                )?;
                 Ok(SessionsReply::Written { path })
             })
             .await

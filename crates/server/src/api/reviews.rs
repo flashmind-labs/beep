@@ -1,11 +1,7 @@
 //! Reviews of a project's branch before a merge, as the server kept them. New reviews and the
 //! steps that read a checkout need a machine, which the server does not reach.
 
-use super::{
-    Reply,
-    own_nodes::{machine_names, retired},
-    projects::task_view,
-};
+use super::{Reply, own_nodes::machine_names, projects::task_view};
 use crate::{
     api::router::Cx,
     projects::{
@@ -23,22 +19,12 @@ use uuid::Uuid;
 
 /// Reviews `ListBranchReviews` gives.
 const MAX_REVIEWS: u32 = 20;
-pub(super) async fn list_project_branches(_: Cx, _: ListProjectBranches) -> Reply<ProjectBranches> {
-    retired()
-}
-
-pub(super) async fn start_branch_review(_: Cx, _: StartBranchReview) -> Reply<BranchReview> {
-    retired()
-}
 
 pub(super) async fn get_branch_review(cx: Cx, request: GetBranchReview) -> Reply<BranchReview> {
     let review = review_of(&cx, request.id).await?;
     shown(&cx, review, &HashMap::new()).await
 }
 
-pub(super) async fn check_branch_review(_: Cx, _: CheckBranchReview) -> Reply<ReviewHead> {
-    retired()
-}
 pub(super) async fn list_branch_reviews(
     cx: Cx,
     request: ListBranchReviews,
@@ -111,10 +97,6 @@ pub(super) async fn post_branch_review(cx: Cx, request: PostBranchReview) -> Rep
     ask_project_agent(&cx, &review, text).await
 }
 
-/// Merging checks where the branch is now on a machine, which the server does not reach.
-pub(super) async fn merge_reviewed_branch(_: Cx, _: MergeReviewedBranch) -> Reply<Uuid> {
-    retired()
-}
 /// Posts `text` in the review's project chat and gives the chat's id.
 async fn ask_project_agent(cx: &Cx, review: &ReviewRow, text: String) -> Reply<Uuid> {
     let project = project_row(cx, &review.project).await?;

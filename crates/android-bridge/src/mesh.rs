@@ -3,12 +3,14 @@
 use crate::{AsyncMutex, BeepClient, BeepError, bad_request};
 use async_trait::async_trait;
 use beep_fleet::{Desk, FleetError, Peers};
-use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Mesh, MeshError, PEER_ALPN, PeerClient};
+use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, MeshError, PEER_ALPN, PeerClient};
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::OnceCell;
 
 mod agents;
+mod alerts;
+mod home;
 mod projects;
 mod status;
 mod terminals;
@@ -26,6 +28,7 @@ impl From<FleetError> for BeepError {
         match error {
             FleetError::NotFound => Self::NotFound,
             FleetError::Refused(reason) => bad_request(reason),
+            FleetError::Conflict(reason) => Self::Conflict { reason },
             other => Self::Connection {
                 reason: other.to_string(),
             },
@@ -87,7 +90,7 @@ impl Workspace {
         let mut state = self.state.lock().await;
         if !state.loaded {
             if let Some(mesh) = Mesh::open(&self.directory, self.endpoint().await?.clone()).await? {
-                state.linked = Some(Connected::new(mesh, self.endpoint().await?));
+                state.linked = Some(Connected::new(mesh, self.endpoint().await?).await?);
             }
             state.loaded = true;
         }
@@ -113,23 +116,27 @@ impl Workspace {
         }
         let endpoint = self.endpoint().await?;
         let mesh = Mesh::join(&self.directory, endpoint.clone(), &ticket, name).await?;
-        state.linked = Some(Connected::new(mesh, endpoint));
+        state.linked = Some(Connected::new(mesh, endpoint).await?);
         state.loaded = true;
         Ok(())
     }
 }
 
 impl Connected {
-    fn new(mesh: Mesh, endpoint: &Endpoint) -> Arc<Self> {
+    async fn new(mesh: Mesh, endpoint: &Endpoint) -> Result<Arc<Self>, BeepError> {
+        if mesh.is_member(mesh.me()) && !mesh.is_observer(mesh.me()) {
+            mesh.set(Key::Observer(mesh.me().to_string()), Some(Vec::new()))
+                .await?;
+        }
         let (peer, join) = mesh.protocols();
         let router = Router::builder(endpoint.clone())
             .accept(PEER_ALPN, peer)
             .accept(JOIN_ALPN, join)
             .spawn();
-        Arc::new(Self {
+        Ok(Arc::new(Self {
             mesh,
             _router: router,
-        })
+        }))
     }
 
     pub async fn desk(self: &Arc<Self>) -> Result<Desk, BeepError> {
@@ -162,7 +169,10 @@ impl Peers for Connected {
     async fn client(&self, machine: EndpointId) -> Result<PeerClient, FleetError> {
         self.client(&machine.to_string())
             .await
-            .map_err(|error| FleetError::Other(error.into()))
+            .map_err(|error| match error {
+                BeepError::NotFound => FleetError::NotFound,
+                other => FleetError::Other(other.into()),
+            })
     }
 }
 

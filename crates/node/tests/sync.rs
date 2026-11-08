@@ -1022,7 +1022,7 @@ async fn synced_repo() -> (Node, Node) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn git_copies_once_then_commits_need_git_pull_and_staging_stays_local() {
+async fn git_copies_once_then_peer_commits_sync_and_staging_stays_local() {
     let a = Node::new().await;
     let b = Node::new().await;
     new_repo(&a);
@@ -1049,24 +1049,15 @@ async fn git_copies_once_then_commits_need_git_pull_and_staging_stays_local() {
     assert!(read(&b.path("target/built.o")).is_none());
     assert!(!b.path(".git/index.lock").exists());
 
-    let original = head(&b).unwrap();
     let there = commit(&a, "src/lib.rs", "pub fn a() {}\n");
-    eventually("different commits to wait for Git", || {
-        b.status()
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("Git commits differ"))
+    eventually("peer commits to arrive without an upstream", || {
+        head(&b).as_deref() == Some(there.as_str()) && is_clean(&b)
     })
     .await;
-    assert_eq!(head(&b).as_deref(), Some(original.as_str()));
-    assert!(!b.path("src/lib.rs").exists());
-
-    git(
-        &b.folder(),
-        &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
+    assert_eq!(
+        read(&b.path("src/lib.rs")).as_deref(),
+        Some(b"pub fn a() {}\n".as_slice())
     );
-    in_step(&a, &b).await;
-    assert_eq!(head(&b).as_deref(), Some(there.as_str()));
 
     // Working edits, branches, tags, config and the index stay local.
     git(&b.folder(), &["tag", "v1"]);
@@ -1813,23 +1804,15 @@ async fn gc_and_new_objects_stay_local_after_the_first_copy() {
 
     assert_sound(&a);
     assert_sound(&b);
-    let original = head(&b).unwrap();
     let next = commit(&a, "after.txt", "after gc\n");
-    eventually("the new commit to wait for Git", || {
-        b.status()
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("Git commits differ"))
+    eventually("the new commit to arrive from the peer", || {
+        head(&b).as_deref() == Some(next.as_str()) && is_clean(&b)
     })
     .await;
-    assert_eq!(head(&b).as_deref(), Some(original.as_str()));
-    assert!(!b.path("after.txt").exists());
-    git(
-        &b.folder(),
-        &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
+    assert_eq!(
+        read(&b.path("after.txt")).as_deref(),
+        Some(b"after gc\n".as_slice())
     );
-    in_step(&a, &b).await;
-    assert_eq!(head(&b).as_deref(), Some(next.as_str()));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1837,6 +1820,7 @@ async fn a_node_on_the_old_protocol_is_turned_away() {
     let (a, b) = synced_repo().await;
     let refs = git(&a.folder(), &["show-ref"]);
     for alpn in [
+        &b"beep-sync/6"[..],
         &b"beep-sync/1"[..],
         b"beep-sync/2",
         b"beep-sync/3",
@@ -2069,9 +2053,6 @@ async fn a_clean_checkout_fetches_commits_without_copying_uncommitted_edits() {
         &["branch", "--set-upstream-to=origin/main", "main"],
     );
     let target = commit(&a, "README.md", "committed change\n");
-    // The upstream may already have commits beyond this peer's checkout.
-    commit(&a, "later.txt", "a later upstream commit\n");
-    git(&a.folder(), &["switch", "-c", "working", &target]);
     write(&a.path("README.md"), "work after the commit\n");
     a.pause(&b, false).await;
     b.pause(&a, false).await;
@@ -2081,9 +2062,67 @@ async fn a_clean_checkout_fetches_commits_without_copying_uncommitted_edits() {
             && b.status().pending == 0
     })
     .await;
-    assert!(!b.path("later.txt").exists());
     assert!(b.status().conflicts.is_empty(), "{:?}", b.status());
     assert!(git(&b.folder(), &["diff", "--cached", "--name-only"]).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_peers_catch_up_to_the_newest_linear_commit() {
+    let nodes = [Node::new().await, Node::new().await, Node::new().await];
+    new_repo(&nodes[0]);
+    configure_three(&nodes, false).await;
+    eventually("the initial checkout on every peer", || {
+        let tip = head(&nodes[0]);
+        tip.is_some() && nodes.iter().all(|node| head(node) == tip && is_clean(node))
+    })
+    .await;
+    configure_three(&nodes, true).await;
+    commit(&nodes[0], "one.txt", "one\n");
+    git(
+        &nodes[1].folder(),
+        &["fetch", &nodes[0].folder().to_string_lossy(), "main"],
+    );
+    git(&nodes[1].folder(), &["merge", "--ff-only", "FETCH_HEAD"]);
+    let newest = commit(&nodes[1], "two.txt", "two\n");
+    configure_three(&nodes, false).await;
+    eventually("all peers to reach the newest commit", || {
+        nodes
+            .iter()
+            .all(|node| head(node).as_deref() == Some(newest.as_str()) && is_clean(node))
+    })
+    .await;
+    for node in &nodes {
+        assert_eq!(
+            read(&node.path("one.txt")).as_deref(),
+            Some(b"one\n".as_slice())
+        );
+        assert_eq!(
+            read(&node.path("two.txt")).as_deref(),
+            Some(b"two\n".as_slice())
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn peer_commits_do_not_move_a_different_branch() {
+    let (a, b) = synced_repo().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    git(&b.folder(), &["switch", "-c", "other"]);
+    let before = head(&b);
+    commit(&a, "new.txt", "new commit\n");
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("different branches to wait", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("between branches"))
+    })
+    .await;
+    assert_eq!(head(&b), before);
+    assert!(!b.path("new.txt").exists());
+    assert_eq!(git(&b.folder(), &["branch", "--show-current"]), "other");
 }
 
 #[tokio::test(flavor = "multi_thread")]

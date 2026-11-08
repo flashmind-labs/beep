@@ -338,7 +338,7 @@ private fun BeepApp(repository: ChatRepository, bubble: Boolean,
                     onFloat: () -> Unit, onExpand: (groupId: String?) -> Unit, onBubbleSettings: () -> Unit,
                     onLive: () -> Unit = {}) {
     if (!com.flashmind.beep.ffi.serverEnabled()) {
-        WorkspaceHome(repository)
+        com.flashmind.beep.center.CenterRoot(repository)
         return
     }
     val state by repository.state.collectAsStateWithLifecycle()

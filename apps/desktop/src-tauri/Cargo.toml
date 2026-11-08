@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.5.16"
+version = "0.5.17"
 edition = "2024"
 rust-version = "1.93"
 description = "Beep desktop: projects, coding agents and a quick-access tray bar"

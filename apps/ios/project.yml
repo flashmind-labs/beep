@@ -1,4 +1,8 @@
 name: Beep
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: 1.18.0
 options:
   bundleIdPrefix: com.flashmind
   deploymentTarget:
@@ -11,7 +15,10 @@ targets:
   Beep:
     type: application
     platform: iOS
+    scheme:
+      testTargets: [BeepTests]
     dependencies:
+      - package: SwiftTerm
       - target: BeepWidget
       - target: BeepNotifications
     sources:
@@ -59,7 +66,9 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # A background push wakes the app to fetch notices the server could not send, and live
         # voice keeps talking when the screen locks.
-        UIBackgroundModes: [remote-notification, audio]
+        UIBackgroundModes: [remote-notification, audio, fetch]
+        # The check for questions that wait while Beep is closed.
+        BGTaskSchedulerPermittedIdentifiers: [com.flashmind.beep.asks]
         # A live voice session shows in the Dynamic Island and on the Lock Screen.
         NSSupportsLiveActivities: true
         # beep://new, from the widget.
@@ -76,6 +85,21 @@ targets:
         # Pressing and holding the side button starts live voice (iPhone in Japan, iOS 26.2+).
         # Apple grants it on request; without it the build fails to sign.
         com.apple.developer.side-button-access.allow: true
+  BeepTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/SkinTests.swift
+      - path: Tests/HomeStateTests.swift
+      - path: Tests/TerminalKeysTests.swift
+    dependencies:
+      - target: Beep
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flashmind.beep.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_INCLUDE_PATHS: $(PROJECT_DIR)/Generated
+        HEADER_SEARCH_PATHS: $(PROJECT_DIR)/Generated
   BeepWidget:
     type: app-extension
     platform: iOS
@@ -84,6 +108,7 @@ targets:
       - path: ../android/app/src/main/res/font/inter.ttf
         buildPhase: resources
       - path: Beep/Theme.swift
+      - path: Beep/Skins.swift
       # The control and the widget's button run the app's intent.
       - path: Beep/Live/TalkToBeepIntent.swift
       - path: Beep/Live/LiveActivity.swift

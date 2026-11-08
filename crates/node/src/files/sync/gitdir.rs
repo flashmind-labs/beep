@@ -388,35 +388,6 @@ impl Repo {
         Ok(CheckoutPaths { clean, changed })
     }
 
-    /// Fetches the configured upstream without asking for credentials. The
-    /// caller owns the project's scan/apply task while this runs.
-    pub(super) fn upstream_fetch(&self) -> Result<(Command, String)> {
-        self.require_clean()?;
-        let branch = self
-            .head_ref()
-            .context("detached HEAD; choose a branch before syncing")?;
-        let branch_name = branch
-            .strip_prefix("refs/heads/")
-            .context("HEAD is not a branch")?;
-        let remote = self.run(&["config", "--get", &format!("branch.{branch_name}.remote")])?;
-        let remote = std::str::from_utf8(&remote.stdout)?.trim();
-        self.run(&["rev-parse", "--verify", "@{upstream}"])
-            .context("configure an upstream before syncing different commits")?;
-        let mut command = self.git();
-        command
-            .args([
-                "fetch",
-                "--no-tags",
-                "--recurse-submodules=no",
-                "--",
-                remote,
-            ])
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GCM_INTERACTIVE", "never")
-            .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes -oConnectTimeout=15");
-        Ok((command, branch))
-    }
-
     pub(super) fn require_clean(&self) -> Result<()> {
         if is_busy(&self.root) {
             bail!("waiting for the Git operation running on this machine");
@@ -435,20 +406,12 @@ impl Repo {
         Ok(())
     }
 
-    /// Moves only to the advertised commit, and only through the configured
-    /// upstream. Never merges divergent histories or checks out another branch.
+    /// Moves only to the advertised commit. Never merges divergent histories
+    /// or checks out another branch.
     pub(super) fn fast_forward(&self, before: Checkout, target: Oid, branch: &str) -> Result<()> {
         self.require_clean()?;
         if Checkout::read(&self.root) != before || self.head_ref().as_deref() != Some(branch) {
             bail!("the Git checkout changed while fetching; retrying sync");
-        }
-        let upstream = self.run(&["rev-parse", "--verify", "@{upstream}^{commit}"])?;
-        let upstream = Oid::parse(std::str::from_utf8(&upstream.stdout)?.trim())
-            .context("the upstream has no commit")?;
-        if self.is_ancestor(target, upstream) != Some(true) {
-            bail!(
-                "Git commits differ; the peer's commit is not available from the configured upstream"
-            );
         }
         if before
             .commit
@@ -564,7 +527,7 @@ impl Repo {
     }
 
     /// The ref HEAD names, unless it is detached.
-    fn head_ref(&self) -> Option<String> {
+    pub(super) fn head_ref(&self) -> Option<String> {
         let head = fs::read_to_string(self.root.join(GIT).join("HEAD")).ok()?;
         Some(head.strip_prefix("ref:")?.trim().to_owned())
     }

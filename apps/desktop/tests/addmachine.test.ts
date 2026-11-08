@@ -37,3 +37,10 @@ test("a container ticket is a temporary node's", () => {
   assert.deepEqual(inviteArgs("desktop"), { kind: "Desktop", temporary: false });
   assert.deepEqual(inviteArgs("phone"), { kind: "Desktop", temporary: false, phone: true });
 });
+
+test("an observer phone finishes pairing without a machine entry", () => {
+  const paired = next(next(START, created), { type: "paired" });
+  assert.deepEqual(paired, { step: "paired" });
+  assert.equal(next(paired, { type: "tick", now: 10_000_000 }), paired);
+  assert.equal(next({ step: "expired" }, { type: "paired" }).step, "expired");
+});

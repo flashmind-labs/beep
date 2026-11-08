@@ -39,6 +39,13 @@ export interface HomeView {
   projects: ProjectRow[] | null;
 }
 
+/// A serverless window opens before the mesh has answered. Keep this out of
+/// the stored state so a cached or live Home can still replace it.
+export function homeForDisplay(home: HomeView | null, server: boolean): HomeView | null {
+  if (home || server) return home;
+  return { machines: [], running: [], needs_you: [], coming_up: null, updates: null, projects: [] };
+}
+
 /// A Needs you row: a title, one muted line and its one button. A chat
 /// approval is allowed from the row; an agent's question opens its session.
 export function needsLine(n:

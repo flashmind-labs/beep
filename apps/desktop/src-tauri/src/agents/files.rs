@@ -15,7 +15,7 @@ use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, ApiError, GitChange, ListWorkTree, MAX_AGENT_FILE,
     MAX_TREE_DEPTH, ReadWorkFile, WriteWorkFile,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -241,6 +241,13 @@ pub async fn agent_tree_save(
     Ok(to)
 }
 
+/// The session owning a temporary attachment on its host.
+#[derive(Deserialize)]
+pub struct AttachmentSession {
+    agent: String,
+    session: String,
+}
+
 /// Writes one part of a dropped file, `data` in base64, to `path` in
 /// `root`; the path it goes to, which the next parts send.
 // The arguments are the fields of the window's `invoke` call.
@@ -255,6 +262,7 @@ pub async fn agent_tree_upload(
     offset: u64,
     size: u64,
     data: String,
+    attachment: Option<AttachmentSession>,
 ) -> Result<String> {
     let data = STANDARD
         .decode(data.as_bytes())
@@ -267,9 +275,15 @@ pub async fn agent_tree_upload(
         size,
         data,
     };
-    match fleet.member(&write.machine_id) {
-        Some(machine) => direct::write(&fleet, machine, write).await,
-        None => beep.call(write).await,
+    match (fleet.member(&write.machine_id), attachment) {
+        (Some(machine), Some(owner)) => {
+            direct::upload(&fleet, machine, owner.agent, owner.session, write).await
+        }
+        (Some(machine), None) => direct::write(&fleet, machine, write).await,
+        (None, Some(_)) => Err(DesktopError::BadRequest(
+            "Connect this machine to the mesh to upload attachments".into(),
+        )),
+        (None, None) => beep.call(write).await,
     }
 }
 

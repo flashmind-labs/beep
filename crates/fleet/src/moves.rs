@@ -5,7 +5,7 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    records::{Place, WRITES, place_key, read, scan},
+    records::{Place, WRITES, now_ms, place_key, read, scan},
 };
 use beep_mesh::{
     Key,
@@ -22,10 +22,7 @@ use beep_proto::{
     },
 };
 use iroh::EndpointId;
-use std::{
-    path::{Component, Path},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::{Component, Path};
 
 /// A session to move, as the desktop knows it from the source's list.
 pub struct MoveAsk<'a> {
@@ -218,7 +215,7 @@ impl Desk {
         let NodeCopies::Listed(listed) = copies(&client).await? else {
             return Ok(None);
         };
-        let devices = self.mesh.devices();
+        let devices = self.mesh.machines();
         Ok(Some(
             listed
                 .into_iter()
@@ -285,12 +282,4 @@ const PROBE: &str = "probe";
 
 fn refused(message: String) -> FleetError {
     FleetError::Refused(message)
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| {
-            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-        })
 }

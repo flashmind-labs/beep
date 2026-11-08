@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkspacePage<Content: View, Actions: View>: View {
+    @Environment(\.tabRoot) private var tabRoot
     let title: String
     let back: () -> Void
     var showsBack = true
@@ -9,7 +10,7 @@ struct WorkspacePage<Content: View, Actions: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BackBar(title: title, back: back, showsBack: showsBack) { actions }
+            CCTop(title: title, back: showsBack && !tabRoot ? back : nil) { actions }
             content
         }
         .background(Mint.page).foregroundStyle(Mint.ink)
@@ -34,18 +35,17 @@ struct WorkspaceRow: View {
     var body: some View {
         Button { action?() } label: {
             HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Mint.brand)
-                    .frame(width: 28, height: 28).background(Mint.raised, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Mint.soft, lineWidth: 1))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.body(13, .medium)).foregroundStyle(Mint.ink).lineLimit(2)
-                    if !detail.isEmpty { Text(detail).font(.body(11)).foregroundStyle(Mint.muted).lineLimit(2) }
+                Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Mint.muted)
+                    .frame(width: 24, height: 24).background(Mint.raised, in: RoundedRectangle(cornerRadius: 6))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title).font(.body(13, .medium)).foregroundStyle(Mint.ink).lineLimit(1)
+                    if !detail.isEmpty { Text(detail).font(.body(11.5)).foregroundStyle(Mint.muted).lineLimit(1) }
                 }
                 Spacer(minLength: 4)
                 if !badge.isEmpty { WorkspaceBadge(text: badge, color: color) }
-                if action != nil { Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Mint.dim) }
+                if action != nil { Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Mint.dim) }
             }
-            .padding(.horizontal, 12).padding(.vertical, 11).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .padding(.horizontal, 11).padding(.vertical, 9).frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
             .contentShape(Rectangle()).multilineTextAlignment(.leading)
         }
         .buttonStyle(.plain).disabled(action == nil)
@@ -56,9 +56,9 @@ struct WorkspaceBadge: View {
     let text: String
     var color: Color = Mint.muted
     var body: some View {
-        Text(text).font(.body(10)).foregroundStyle(color).lineLimit(1)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Mint.soft, lineWidth: 1))
+        Text(text).font(.body(11)).foregroundStyle(color).lineLimit(1)
+            .padding(.horizontal, 7).frame(height: 20)
+            .background(color == Mint.muted ? Mint.raised : color.opacity(0.14), in: Capsule())
     }
 }
 
@@ -66,14 +66,14 @@ struct WorkspaceBox<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(spacing: 0) { content }.frame(maxWidth: .infinity, alignment: .leading)
-            .background(Mint.surface).clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Mint.soft, lineWidth: 1))
+            .background(Mint.surface).clipShape(RoundedRectangle(cornerRadius: Mint.radius))
+            .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.soft, lineWidth: 1))
     }
 }
 
 struct WorkspaceHeading: View {
     let title: String
-    var body: some View { Text(title).font(.body(14, .semibold)).frame(maxWidth: .infinity, alignment: .leading) }
+    var body: some View { Text(title).font(.body(12, .semibold)).foregroundStyle(Mint.muted).padding(.horizontal, 2).frame(maxWidth: .infinity, alignment: .leading) }
 }
 
 struct WorkspaceSearch: View {
