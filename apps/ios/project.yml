@@ -23,6 +23,7 @@ targets:
       - target: BeepNotifications
     sources:
       - path: Beep
+      - path: Shared
       - path: ../android/app/src/main/res/font/inter.ttf
         buildPhase: resources
       - path: Generated
@@ -30,7 +31,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.flashmind.beep
-        # The avatars other than the pager, picked in Settings.
+        # Retired names use the arrow so existing selections can return to the primary icon.
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIcon-Clay AppIcon-Jelly
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
@@ -105,6 +106,7 @@ targets:
     platform: iOS
     sources:
       - path: Widget
+      - path: Shared
       - path: ../android/app/src/main/res/font/inter.ttf
         buildPhase: resources
       - path: Beep/Theme.swift

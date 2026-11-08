@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -125,7 +126,7 @@ internal fun groupInitials(name: String) = name.split(' ').filter { it.isNotBlan
 @Composable
 internal fun GroupAvatar(initial: String, color: Color, size: Dp = 28.dp, beep: Boolean = false) {
     Box(Modifier.size(size).background(color, CircleShape).border(1.5.dp, Beep.colors.page, CircleShape), contentAlignment = Alignment.Center) {
-        if (beep) Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(size * 0.5f), tint = Color.White)
+        if (beep) Icon(painterResource(R.drawable.ic_launcher_monochrome), null, Modifier.size(size * 0.5f), tint = Color.White)
         else Text(initial, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Medium, color = Beep.colors.ink)
     }
 }

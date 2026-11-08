@@ -217,7 +217,7 @@
   const small = (l, pri) => `<button class="dbtn${pri ? " pri" : ""} small" data-toast="${l}">${l}</button>`;
   const beepAv = i => `<span class="cc-ag beep">${i}</span>`;
   const NEEDS = () => ln(hc0("claude"), "May it run xcodebuild on laptop?", "Claude Code · Swipeable approval strip on iOS", small("Answer", true), 'data-dact="dset:ags:asks" data-dgo="dAgentSession"')
-    + ln(beepAv(CC_IC.chat), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"');
+    + ln(beepAv(DI.tray), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"');
   const hc0 = ag => `<span class="cc-ag ${ag}">${ag === "codex" ? "CX" : "CC"}</span>`;
   const RUN = [["claude", "Swipeable approval strip on iOS", "you/site · laptop", tag("wait", "needs you")], ["codex", "Fix the device build script", "acme/api · build-box", "4 min"], ["claude", "Clippy fixes in the sync crate", "acme/api · build-box", "31 min"], ["", "Will solid-state batteries beat lithium by 2030?", "Research · round 2", "2 min"]];
   const running = () => RUN.map(([ag, t, sub, right]) => ln(ag ? hc0(ag) : "", t, sub, right, ag ? 'data-dact="dset:ags:nochange" data-dgo="dAgentSession"' : 'data-dact="dset:rp:open" data-dgo="dWinResearch"')).join("");
@@ -277,7 +277,7 @@
     const recent = [["acme/api", "build-box, studio · 2 agents", "1 min"], ["you/site", "laptop · 1 agent", "8 min"], ["acme/web", "studio", "20 min"], ["acme/infra", "build-box", "3 h"]];
     if (S.d.cc === "empty") return `<div class="cc-panel cc-empty"><span>Nothing needs you, and nothing is running.</span></div>`;
     const projBox = box("Projects", 7, tabGo("projects"), recent.map(([n, sub, age], i) => ln(pdot(i), n, sub, age, 'data-dgo="dWinProject"')).join(""));
-    if (S.d.cc === "old") return csec("Needs you", 1, panel(ln(beepAv(CC_IC.chat), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"'))) + csec("Coming up", CC_COMING.length, panel(coming));
+    if (S.d.cc === "old") return csec("Needs you", 1, panel(ln(beepAv(DI.tray), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"'))) + csec("Coming up", CC_COMING.length, panel(coming));
     return csec("Needs you", 2, panel(NEEDS())) + updates()
       + (S.d.sy === "insync" ? "" : box("Sync conflicts", 3, 'data-dgo="dSync"', fsConflict("notes (conflict 1a2b3c4d).txt", "acme/widget · Another copy of notes.txt · on build-box, studio") + fsConflict(".git/refs/beep-conflicts/heads/main-5e6f7a8b", "acme/widget · Another commit of main · on build-box") + fsConflict("docs/plan (conflict 9fbd5479).md", "acme/platform/mesh-relay · Another copy of docs/plan.md · on build-box, mac-box")))
       + two(box("Running", RUN.length, 'data-dgo="dAgents"', running()), projBox)
@@ -792,7 +792,7 @@
         <div class="pj-task"><span class="t">Bump the sync crate</span>${chip("review", "review")}<span class="m"><a href="#">PR #38</a><code>bump-sync</code></span><span class="acts">${openReview("Review", "pri small")}${pb("Merge…", "small")}${pb("Open PR", "small")}${openDiff("small")}${pb("Back to open", "quiet small")}</span></div>
         <div class="pj-task"><span class="t">Add a bench for cold start</span>${chip("done", "done")}<span class="m"><code>bench-cold</code></span><span class="acts">${openDiff("small")}${pb("Reopen", "quiet small")}</span></div></div>`)}
       ${csec("Workers", "2 running", `<div class="cc-panel pj-tree">
-        <div class="pj-node"><span class="cc-ag beep">${IC_CHAT}</span><span class="t"><b>Project agent</b><span>Plans tasks, files issues, places workers</span></span></div>
+        <div class="pj-node"><span class="cc-ag beep">${DI.tray}</span><span class="t"><b>Project agent</b><span>Plans tasks, files issues, places workers</span></span></div>
         <div class="pj-node child link">${hc("claude")}<span class="t"><b>Swipeable approval strip</b><span>Claude Code on build-box · running 1 min</span></span><span class="acts">${pb("Stop", "quiet small")}</span><span class="out">Wired the strip to the approval card.</span></div>
         <div class="pj-node child link">${hc("codex")}<span class="t"><b>Fix the device build script</b><span>Codex on studio · running 4 min</span></span><span class="acts">${pb("Stop", "quiet small")}</span></div></div>`)}</div>`,
     agents: () => csec("Agents", 2, panel(ln(hc("claude"), "Swipeable approval strip", "build-box · fix-approval", "1 min", 'data-dgo="dAgentSession"') + ln(hc("codex"), "Fix the device build script", "studio · main", "4 min", 'data-dgo="dAgentSession"')))

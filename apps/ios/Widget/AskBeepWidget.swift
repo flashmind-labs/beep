@@ -50,7 +50,8 @@ struct AskBeepView: View {
     @ViewBuilder private var content: some View {
         switch family {
         case .accessoryCircular:
-            Image(systemName: "bubble.left").font(.system(size: 26, weight: .medium))
+            Image("flashmind_mark").resizable().renderingMode(.template)
+                .scaledToFit().frame(width: 26, height: 26)
                 .widgetAccentable()
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 0) {
@@ -81,8 +82,8 @@ struct AskBeepView: View {
 
     /// The app mark.
     private func tile(_ size: CGFloat) -> some View {
-        Image(systemName: "bubble.left")
-            .font(.system(size: size * 0.5, weight: .medium))
+        Image("flashmind_mark").resizable().renderingMode(.template)
+            .scaledToFit().frame(width: size * 0.5, height: size * 0.5)
             .foregroundStyle(Mint.ink)
             .frame(width: size, height: size)
             .card(Mint.user, radius: Mint.smallRadius)

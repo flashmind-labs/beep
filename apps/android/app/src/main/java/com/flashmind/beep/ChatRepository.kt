@@ -90,9 +90,7 @@ class BeepApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        // Loading the pick is one prefs read; the launcher aliases are checked off the main thread.
-        Avatars.load(this)
-        scope.launch { Avatars.apply(this@BeepApplication) }
+        scope.launch { LauncherIcon.apply(this@BeepApplication) }
         // The saved chats are parsed on first use, which would otherwise be the main thread during launch.
         scope.launch { repository }
         NetworkWatch.start(this, scope)
