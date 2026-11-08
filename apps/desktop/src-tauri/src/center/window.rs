@@ -13,6 +13,7 @@ pub const LABEL: &str = "center";
 const MIN_WIDTH: f64 = 1000.0;
 const MIN_HEIGHT: f64 = 640.0;
 /// Share of the screen the window opens at.
+#[cfg_attr(mobile, allow(dead_code))]
 const SHARE: f64 = 0.95;
 /// Labels of the windows that each show one project.
 const PROJECT_PREFIX: &str = "project-";
@@ -26,6 +27,7 @@ const SHOWN_EVENT: &str = "center-shown";
 /// Where a window opens: `share` of the screen under the mouse, at least
 /// `min` where the screen allows, centered, then moved down and right by
 /// `step` as far as the screen allows.
+#[cfg_attr(mobile, allow(dead_code))]
 pub(crate) fn frame<R: Runtime>(
     app: &AppHandle<R>,
     share: f64,
@@ -55,6 +57,7 @@ pub(crate) fn frame<R: Runtime>(
 }
 
 fn bring_up<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
+    #[cfg(desktop)]
     if window.is_minimized()? {
         window.unminimize()?;
     }
@@ -76,6 +79,7 @@ pub(crate) fn join_dock<R: Runtime>(_: &AppHandle<R>) {}
 /// Builds command center window `label` titled `title`, moved down and
 /// right by `offset` from where the main window opens. While it is open
 /// Beep sits in the Dock.
+#[cfg_attr(mobile, allow(dead_code, unused_variables, unused_mut))]
 fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) -> Result<()> {
     join_dock(app);
     let mut builder = crate::navigation::guard(WebviewWindowBuilder::new(
@@ -86,22 +90,28 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     .title(title)
     .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
     .resizable(true)
-    .maximizable(true)
     // Files dragged in from Finder reach the page as HTML drops, as in
     // the bar: a coding agent session uploads them to its machine.
     .disable_drag_drop_handler();
+    #[cfg(desktop)]
+    {
+        builder = builder.maximizable(true);
+    }
     #[cfg(target_os = "macos")]
     {
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
     }
-    builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
-        Some((position, size)) => builder
-            .position(position.x + offset, position.y + offset)
-            .inner_size(size.width, size.height),
-        None => builder.inner_size(MIN_WIDTH, MIN_HEIGHT).center(),
-    };
+    #[cfg(desktop)]
+    {
+        builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
+            Some((position, size)) => builder
+                .position(position.x + offset, position.y + offset)
+                .inner_size(size.width, size.height),
+            None => builder.inner_size(MIN_WIDTH, MIN_HEIGHT).center(),
+        };
+    }
     builder.build()?.set_focus()?;
     Ok(())
 }

@@ -25,8 +25,10 @@ use tokio::{
 /// Menu ids of Waiting's items start with this.
 pub const ITEM: &str = "wait:";
 /// The menu id of the item that opens Home for the rest.
+#[cfg_attr(mobile, allow(dead_code))]
 pub const MORE: &str = "wait-more";
 /// Items the menu lists; Home has the rest.
+#[cfg_attr(mobile, allow(dead_code))]
 pub const SHOWN: usize = 8;
 /// The longest label, in characters, so the menu keeps its width.
 const LABEL_MAX: usize = 60;
@@ -66,6 +68,7 @@ impl WaitingList {
     }
 
     /// What the item with menu id `id` opens, while it still waits.
+    #[cfg_attr(mobile, allow(dead_code))]
     pub fn target(&self, id: &str) -> Option<CenterTarget> {
         self.slot()
             .iter()
@@ -156,10 +159,12 @@ fn shorten(text: &str) -> String {
 }
 
 /// The count beside the tray icon while anything waits.
+#[cfg_attr(mobile, allow(dead_code))]
 pub fn badge(count: usize) -> Option<String> {
     (count > 0).then(|| count.to_string())
 }
 
+#[cfg_attr(mobile, allow(dead_code))]
 pub fn tooltip(count: usize) -> String {
     match count {
         0 => "Beep".into(),

@@ -26,24 +26,29 @@ pub fn show<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     }
     let orb = match app.get_webview_window(LABEL) {
         Some(orb) => orb,
-        None => crate::navigation::guard(WebviewWindowBuilder::new(
-            app,
-            LABEL,
-            WebviewUrl::App("orb.html".into()),
-        ))
-        .title("Beep")
-        .inner_size(SIZE, SIZE)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible_on_all_workspaces(true)
-        .accept_first_mouse(true)
-        .focused(false)
-        .visible(false)
-        .build()?,
+        None => {
+            let builder = crate::navigation::guard(WebviewWindowBuilder::new(
+                app,
+                LABEL,
+                WebviewUrl::App("orb.html".into()),
+            ))
+            .title("Beep")
+            .inner_size(SIZE, SIZE);
+            // A floating orb window only exists on desktop.
+            #[cfg(desktop)]
+            let builder = builder
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .resizable(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .visible_on_all_workspaces(true)
+                .accept_first_mouse(true)
+                .focused(false)
+                .visible(false);
+            builder.build()?
+        }
     };
     orb.set_focusable(false)?;
     let width = orb

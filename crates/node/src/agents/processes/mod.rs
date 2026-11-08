@@ -12,13 +12,13 @@ use tokio_util::task::AbortOnDropHandle;
 
 mod snapshot;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(windows)]
 mod windows;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use linux as os;
 #[cfg(target_os = "macos")]
 use macos as os;
