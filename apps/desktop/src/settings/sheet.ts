@@ -1,3 +1,4 @@
+import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
 import { ago } from "../ui/format.ts";
@@ -48,7 +49,7 @@ export function openSettings(section?: string) {
   document.body.append(scrim);
   settingsOpen = { scrim, keys, back };
   sheet.focus();
-  pane.settings(sheet, section).then(() => afterMount()).catch(e => console.warn("settings:", e));
+  pane.settings(sheet, section).then(() => { refreshTopicSubscriptions(); afterMount(); }).catch(e => console.warn("settings:", e));
 }
 
 /// A window view the Settings sheet draws in its right pane, such as
@@ -95,6 +96,7 @@ export function closeSettings() {
   unembed();
   window.removeEventListener("keydown", keys, true);
   scrim.remove();
+  refreshTopicSubscriptions();
   if (back?.isConnected) back.focus();
 }
 

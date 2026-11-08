@@ -1,40 +1,45 @@
+import { bindSessionStash } from "./stash.ts";
+import { stashIndicator, stashActions } from "../chat/stash.ts";
+import { AgentFeed } from "./agentfeed-state.ts";
+import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
 import { filePicker } from "./file-picker.ts";
+import { fileLinkMenu } from "./filelinks.ts";
 import { bindTitleEdit } from "./titleedit.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
 import { markDelivered, stopPending } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
-import { $, $$, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
+import { $, $$, type BackTo, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
 import { failBanner } from "../ui/failbanner.ts";
 import { hints } from "../bar/hints.ts";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { openViewer } from "../chat/media.ts";
-import { readRunning, runningCount } from "../agentpane/running.ts";
+import { readRunning } from "../agentpane/running.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneFrame, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, drawAgents, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
+import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, drawAgents, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
-import { childRow, parentRow } from "./nesting-state.ts";
-import { loadSessions, sessions, sessionsRead } from "./sessions.ts";
+import { childRow } from "./nesting-state.ts";
+import { parentSession, keepNativeSession, loadSessions, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
-import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
+import { thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
 import { editorTools, openInEditor } from "../project/editors.ts";
-import { editQueued, flushQueue, interruptAgent, answerAgentQuestion } from "./messages.ts";
+import { editQueued, interruptAgent, answerAgentQuestion } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
-import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
+import { Channel, invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
@@ -47,6 +52,7 @@ import { movedTo } from "./move-state.ts";
 import { placeName, placeRepo } from "./place-state.ts";
 import { sameSession } from "./running-state.ts";
 import { imageLines } from "./agentlog.ts";
+import { isNativeSession, nativeSession, nativeUpdate } from "./native-session-state.ts";
 
 let firstRead: { open: OpenAgent; at: number } | null = null;
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
@@ -87,9 +93,10 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   AG.draft = null;
   Object.assign(AG, {
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
-    page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
-    why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), paused: false, answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, held: 0, stopping: null, modelOpen: false, modes: null,
+    page: transcripts.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id }))?.page
+      ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
+    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), queue: [], held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
   if (AG.open) firstRead = { open: AG.open, at: performance.now() };
@@ -129,15 +136,97 @@ const sessionKey = (s: AgentRow) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
+const transcripts = new TranscriptCache<AgentPage>();
+
+interface FeedUpdate extends TranscriptUpdate<AgentPage> {
+  modes: typeof AG.modes;
+  tasks: typeof AG.tasks;
+}
+
+const feed = new AgentFeed<OpenAgent, FeedUpdate>({
+  id: () => crypto.randomUUID(),
+  now: () => Date.now(),
+  open: (o, id, receive) => {
+    const onEvent = new Channel<FeedUpdate>();
+    onEvent.onmessage = receive;
+    return invoke<void>("agent_follow", { ...where(o), id, last: 200, after: transcripts.get(transcriptKey(o))?.cursor ?? null, onEvent });
+  },
+  close: id => { void invoke("agent_unfollow", { id }).catch(e => console.warn("session detach:", e)); },
+  receive: (o, update) => {
+    if (!isOpen(o) || !agentOnScreen()) { feed.stop(); return; }
+    const page = transcripts.receive(transcriptKey(o), update);
+    if (!page) {
+      feed.stop();
+      void pollAgent(true);
+      return;
+    }
+    AG.modes = update.modes;
+    AG.tasks = update.tasks;
+    // Normal updates only compare and redraw their changed suffix.
+    applyAgentPage(o, update.kind === "delta" ? update.page : page, ++AG.polls, update.kind === "snapshot");
+  },
+  disconnected: (o, error) => {
+    if (!isOpen(o) || !agentOnScreen()) return;
+    console.warn("session stream disconnected:", error);
+    const failed = readFailed(AG.link, { kind: "lost" }, AG.page?.session.machine_name || "the machine");
+    AG.link = failed.link;
+    AG.readError = AG.note = failed.note;
+    drawAgentBody();
+    void pollAgent();
+  },
+});
+
+export function stopAgentFollow() {
+  clearTimeout(AG.timer);
+  feed.stop();
+}
+
+changeListeners.push(() => { if (S.view !== "agent") stopAgentFollow(); });
+
+function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false) {
+  if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
+  if (isNativeSession(page.session.id)) {
+    const row = sessions.find(s => s.machine_id === page.session.machine_id && s.id === page.session.id);
+    if (row) keepNativeSession({ ...row, ...page.session });
+  }
+  const sig = JSON.stringify(page);
+  const moved = sig !== AG.sig;
+  if (moved) { AG.sig = sig; AG.changed = Date.now(); }
+  if (page.session.question?.id !== AG.answering) AG.answering = null;
+  // A session opened with no folder (from a notice) draws again once a read gives it.
+  const placed = !AG.page?.session.cwd && !!page.session.cwd;
+  // The session closed or was taken over: the composer replaces the banner.
+  const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
+  const news = hasNews(AG.page, page);
+  // The older entries held stay while the newest are read again.
+  AG.page = replace ? page : joinRuns(AG.page, page);
+  drawAgentHeading();
+  // The frame around the log is drawn again; the log itself stays.
+  if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));
+  else if (field && $("#agconv")) drawAgentFrame(true, $<ChatBody>("#agbody"));
+  // Back after a lost link, or something new came: earlier errors no longer hold.
+  AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
+  AG.readError = "";
+  AG.link = LINKED;
+  AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
+  markDelivered(AG.queue, page.queued, read);
+  // Nothing the log shows changed: no draw.
+  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
+  if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
+  finishFirstRead(o, "ok");
+  void readUsage(o, page);
+  // The oldest turn shown has its prompt: read back until it does.
+  if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
+}
+
 /// Whether the session view can be seen: the window shows, and in the
 /// command center the pane is mounted.
 export const agentOnScreen = paneShown;
 
-/// How long until the open session is asked again, or null to stop: an
-/// ended session, or a quiet one that has not changed for a while.
+/// How long until an older node is asked again. Quiet sessions keep following.
 export function agentDelay() {
   const s = AG.page?.session;
-  if (!s || s.status === "ended") return null;
+  if (!s || s.status === "ended") return AGENT_SLOW_MS;
   const still = Date.now() - AG.changed;
   // A question nobody answers for a while is asked about slowly; an answer
   // from here or a notice reads it at once.
@@ -145,7 +234,6 @@ export function agentDelay() {
   if (thinking && AGENT_ACTIVE.has(s.status)) return AGENT_THINK_POLL_MS;
   // Once stopped, the turn ending shows as soon as it does.
   if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
-  if (still >= AGENT_PAUSE_AFTER && !runningCount()) return null;
   return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
 }
 
@@ -155,13 +243,20 @@ export function agentDelay() {
 export async function pollAgent(readNow = false) {
   clearTimeout(AG.timer);
   const o = AG.open;
-  if (!o) return;
+  if (!o) { feed.stop(); return; }
   const trace = readNow || !AG.sig;
   const skip = !isOpen(o) ? "different-view" : AG.inflight === o ? "in-flight" : !readNow && !agentOnScreen() ? "hidden" : null;
   if (skip) {
+    if (skip !== "in-flight") feed.stop();
     if (trace) traceSession("read-skipped", o, { reason: skip, readNow });
     return;
   }
+  if (agentOnScreen()) feed.follow(o);
+  else feed.stop();
+  if (feed.live(o)) return;
+  // Give the initial snapshot a chance to arrive before asking an older node for a fallback.
+  if (feed.waiting(o)) { AG.timer = setTimeout(pollAgent, 3000); return; }
+  const version = feed.version(o);
   AG.inflight = o;
   const read = ++AG.polls;
   const current = { open: o, at: Date.now(), pending: new Set(["view", "modes", "tasks", "processes"]) };
@@ -173,43 +268,16 @@ export async function pollAgent(readNow = false) {
   });
   try {
     const [page, modes, tasks] = await Promise.all([tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS)), tracked("modes", readModes(o)), tracked("tasks", readTasks(o)), tracked("processes", readRunning())]);
-    if (isOpen(o)) {
+    if (isOpen(o) && feed.version(o) === version) {
       AG.modes = modes;
       AG.tasks = tasks;
-      const sig = JSON.stringify(page);
-      const moved = sig !== AG.sig;
-      if (moved) { AG.sig = sig; AG.changed = Date.now(); }
-      if (page.session.question?.id !== AG.answering) AG.answering = null;
-      // A session opened with no folder (from a notice) draws again once a read gives it.
-      const placed = !AG.page?.session.cwd && !!page.session.cwd;
-      // The session closed or was taken over: the composer replaces the banner.
-      const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
-      const news = hasNews(AG.page, page);
-      // The older entries held stay while the newest are read again.
-      AG.page = joinRuns(AG.page, page);
-      drawAgentHeading();
-      // The frame around the log is drawn again; the log itself stays.
-      if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));
-      else if (field && $("#agconv")) drawAgentFrame(true, $<ChatBody>("#agbody"));
-      // Back after a lost link, or something new came: earlier errors no longer hold.
-      AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
-      AG.readError = "";
-      AG.link = LINKED;
-      AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
-      markDelivered(AG.queue, page.queued, read);
-      // Nothing the log shows changed: no draw.
-      const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.paused, AG.answering, AG.child, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
-      if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
-      finishFirstRead(o, "ok");
+      // A push received while this fallback read ran is newer than its reply.
+      applyAgentPage(o, page, read);
       if (trace) traceSession("read-applied", o, { status: page.session.status, entries: page.entries.length, ms: Date.now() - current.at });
-      void readUsage(o, page);
-      flushQueue();
-      // The oldest turn shown has its prompt: read back until it does.
-      if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
     }
   } catch (e) {
     if (trace) traceSession("read-failed", o, { pending: [...current.pending], ms: Date.now() - current.at });
-    if (isOpen(o)) {
+    if (isOpen(o) && feed.version(o) === version) {
       // A dropped link is read again with backoff; a session its machine
       // came back without has ended, and no turn runs on.
       const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
@@ -230,27 +298,37 @@ export async function pollAgent(readNow = false) {
     return;
   }
   const delay = AG.link.lost ? retryDelay(AG.link.lost) : agentDelay();
-  const paused = delay === null && AG.page?.session.status !== "ended";
-  if (paused !== AG.paused) { AG.paused = paused; drawAgentBody(); }
-  if (delay !== null) AG.timer = setTimeout(pollAgent, delay);
+  if (!feed.live(o)) AG.timer = setTimeout(pollAgent, delay);
 }
 
-/// Follows the open session again after a pause or a message.
+/// Follows the open session again after showing it or sending a message.
 export function resumeAgent() {
   AG.changed = Date.now();
-  AG.paused = false;
   pollAgent();
 }
 
-// A folded pane may have missed the quiet session's last poll.
+// Put a shown log back before a read or a scroll event can mistake a
+// hidden view's reset for the reader scrolling up.
+function restoreAgentScroll() {
+  const b = $<ChatBody>("#agbody");
+  if (!b) return;
+  b.scrollTop = returnScroll(b, b.top ?? 0);
+  scrolledLog(b);
+  syncJump(b);
+}
+
+// A pane shown again resumes its subscription.
 window.addEventListener("agent-pane-shown", () => {
-  if (S.view === "agent" && AG.paused) resumeAgent();
+  if (S.view === "agent") resumeAgent();
 });
 
 onShownChange(shown => {
   if (AG.open && S.view === "agent") traceSession("visibility-changed", AG.open, { shown });
-  if (!shown) clearTimeout(AG.timer);
-  else if (S.view === "agent") pollAgent();
+  if (!shown) { clearTimeout(AG.timer); feed.stop(); }
+  else if (S.view === "agent") {
+    restoreAgentScroll();
+    pollAgent();
+  }
 }, true);
 listen("agent-title-changed", () => {
   if (S.view === "agent") void pollAgent(true);
@@ -264,8 +342,7 @@ for (const name of ["sessions-changed", "work-resolved"]) {
 /// Whether the server turned images down for the open session.
 export const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
 
-/// Whether the open session's turn runs, so Enter steers, Option-Enter
-/// queues and ⌘. stops.
+/// Whether the open session's turn runs, so Enter steers and ⌘. stops.
 export const turnRuns = () => {
   const s = AG.page?.session;
   return !!s && !s.external && !s.question && AGENT_ACTIVE.has(s.status);
@@ -284,23 +361,22 @@ export function agentHints() {
     const open = $("#agshortcuts")?.hasAttribute("open") ? " open" : "";
     const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
     const rows = sections.map(section => `<section><b>${esc(section.title)}</b>${section.rows.map(row => `<span><kbd>${esc(row.keys)}</kbd>${esc(row.does)}</span>`).join("")}</section>`).join("");
-    return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}</div></details></div>`;
+    const project = AG.draft ?? (s && windowHooks?.sessionProject?.(s)?.name) ?? null;
+    return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}${stashIndicator(project)}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}${stashActions()}</div></details></div>`;
   };
-  if (AG.draft) return slim([[`⌘${ICON.ret}`, "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
+  if (AG.draft) return slim([["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
-  if (AG.child != null) return slim([["esc", "parent session"]]);
+  if (s && isNativeSession(s.id)) return slim([["esc", "parent session"]]);
   if (s && followsOnly(s)) return slim([["esc", "back"]]);
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
   if (turnRuns()) {
-    const keys: Parameters<typeof hints>[0] = [[ICON.ret, "steer"], [`⌥${ICON.ret}`, "queue"]];
+    const keys: Parameters<typeof hints>[0] = [];
     if (stoppingNow()) return slim(keys);
-    return slim([...keys, ...mode, ["⌘.", AG.queue.length ? "stop and send queued" : "stop"], ["esc", "back"]]);
+    return slim([...keys, ...mode, ["⌘.", "stop"], ["esc", "back"]]);
   }
-  // Once one is attached its chip says enough.
-  const paste = !AG.att.length && !noAgentImages() ? [["⌘V", "paste an image"]] : [];
-  return slim([...paste, [ICON.ret, "send"], ...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
+  return slim([...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
 /// Puts the session's key hints in place of those on screen.
@@ -421,7 +497,7 @@ export async function closeOpenSession() {
 /// A session started outside Beep that only shows here: still running there,
 /// or of an agent Beep cannot take over. A closed one continues from the field.
 function followsOnly(s: AgentRow) {
-  return s.external && !(s.status === "ended" && canTakeOver(s.agent));
+  return isNativeSession(s.id) || (s.external && !(s.status === "ended" && canTakeOver(s.agent)));
 }
 
 /// The parts that stay while the session updates: the head, the body and the field.
@@ -430,7 +506,9 @@ function followsOnly(s: AgentRow) {
 /// already drawn, goes back in as it is, where it was scrolled.
 export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const s = AG.page!.session, k = agentKind(s.agent);
-  const field = followsOnly(s)
+  const field = isNativeSession(s.id)
+    ? `<div class="dinput small" id="agfield"><textarea id="agnativemsg" rows="1" aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message"></textarea><span id="agmodel"></span><button class="dbtn" id="agnativeparent">Open parent</button></div>`
+    : followsOnly(s)
     ? `<div class="dmuted dblock dbanner">${canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here."}</div>`
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
@@ -470,6 +548,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     msg.before(picker.button, picker.input);
     composeField(msg, { images: agentAttach, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
     bindMentionMenu(msg);
+    bindSessionStash(msg);
   }
   drawAgentAttached();
   drawModelPill();
@@ -486,7 +565,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     b.onscroll = () => {
       frame ||= requestAnimationFrame(() => {
         frame = 0;
-        if (!b.isConnected) return;
+        if (!b.isConnected || !agentOnScreen()) return;
         b.stuck = followsAfterScroll(b.stuck !== false, top, b);
         scrolledLog(b);
         top = b.top = b.scrollTop;
@@ -496,6 +575,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     };
     b.addEventListener("wheel", () => { b.wheel = performance.now(); }, { passive: true });
   }
+  b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, openLinked);
   drawAgentBody();
   $("#agmsg")?.focus();
   bar.onclick = agentClick;
@@ -549,15 +629,23 @@ function agentClick(e: MouseEvent) {
     AG.steps.set(at, prompt.getAttribute("aria-expanded") !== "true");
     return drawAgentBody(clickedRow(prompt));
   }
-  // A subagent opens as its own conversation; the crumb goes back.
-  const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
-  if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
+  const summary = target.closest<HTMLElement>("[data-subsummary]");
+  if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
+  const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-native]");
+  if (sub && AG.page && AG.log) {
+    const entry = AG.page.entries[Number(sub.dataset.native) - AG.page.earlier];
+    if (!entry) return;
+    const { title, status, output } = AG.log.parseTool(AG.log.imageLines(entry.text).text);
+    const child = AG.log.subagent(output);
+    const row = child?.session && nativeSession(AG.page.session, child.session, title.split("\n")[0], status);
+    if (row) { keepNativeSession(row, AG.page.session); openAgent(row, { back: AG.back }); }
+    return;
+  }
   // An agent another agent started opens as its own session.
   const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
   if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
-  const up = target.closest("#agup, #agup2");
-  if (up) { const row = AG.open && parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }); if (row) openAgent(row, { back: AG.back }); return; }
-  if (target.closest("#agparent")) return closeChild();
+  const up = target.closest("#agup, #agup2, #agnativeparent");
+  if (up) { const row = AG.open && AG.page && parentSession(AG.page.session); if (row) openAgent(row, { back: AG.back }); return; }
   // "Show all N lines" opens the whole output in a box that scrolls.
   const all = target.closest<HTMLElement>("#agbody [data-all]");
   if (all) {
@@ -660,7 +748,7 @@ function agentClick(e: MouseEvent) {
   const art = target.closest<HTMLElement>("#agbody [data-artifact]");
   if (art && !getSelection()!.toString() && showArtifact(art.dataset.artifact!)) return;
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
-  if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd")) {
+  if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd, .call-details")) {
     const at = Number(tool.dataset.at);
     AG.steps.set(at, !tool.classList.contains("open"));
     return drawAgentBody(clickedRow(tool));
@@ -674,10 +762,17 @@ function agentClick(e: MouseEvent) {
     requestAnimationFrame(() => { const b = $<ChatBody>("#agbody"); if (b) b.stuck = atBottom(b); });
     return;
   }
-  if (target.closest("#agparent2")) return closeChild();
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return void interruptAgent();
 }
 
 /// Replayed prompts can have more text after their image lines.
 export const userImages = imageLines;
+
+// Tool rows also open from the keyboard; details stay selectable.
+document.addEventListener("keydown", event => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || !target.matches('#agbody .dcoderen.tool[data-at][role="button"]') || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  target.click();
+});

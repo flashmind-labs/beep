@@ -225,6 +225,7 @@ impl Tasks {
             _task: AbortOnDropHandle::new(task),
             group,
         });
+        crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
         Reply::Started { id }
     }
 
@@ -374,6 +375,7 @@ async fn follow(
     };
     lock(&shared).state = state;
     done.send_replace(true);
+    crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
 }
 
 fn keep(shared: &Mutex<Shared>, line: &[u8]) {
@@ -389,6 +391,7 @@ fn keep(shared: &Mutex<Shared>, line: &[u8]) {
         shared.earlier = true;
     }
     shared.lines.push_back(text[..end].to_owned());
+    crate::events::system().changed(beep_proto::node::events::Topic::new("process-output"));
 }
 
 #[cfg(test)]

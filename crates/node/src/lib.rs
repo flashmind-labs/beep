@@ -1,8 +1,9 @@
 //! `beep-node` runs on a machine so Beep can run work there. Its modules are
 //! `agents`, `files`, `link`, `machine` and `run`.
 
+use std::sync::{Mutex, MutexGuard, PoisonError};
 #[cfg(feature = "host")]
-use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Marks the items inside as the node's host half: they need the `host`
 /// feature, which the phone app leaves out.
@@ -13,6 +14,7 @@ macro_rules! host {
 }
 
 pub mod agents;
+pub mod events;
 pub mod files;
 pub mod link;
 
@@ -39,7 +41,6 @@ pub use run::terminal::host::run as run_terminal_host;
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 
 /// Locks `mutex`, carrying on with what a holder that panicked left.
-#[cfg(feature = "host")]
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

@@ -75,6 +75,25 @@ impl Agents {
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
         let (mut entries, earlier) = self.codex_transcript(session, last, before).await;
+        if session.agent == "claude" {
+            let (id, calls) = {
+                let live = session.live.borrow();
+                (
+                    live.agent_session.clone(),
+                    live.claude_children(earlier, entries.len()),
+                )
+            };
+            if let Some(id) = id.filter(|_| !calls.is_empty()) {
+                match self
+                    .external
+                    .attach_children(&id, calls, entries.clone())
+                    .await
+                {
+                    Ok(linked) => entries = linked,
+                    Err(e) => log::debug!("native child conversations not linked: {e}"),
+                }
+            }
+        }
         mcp::children::show_children(self, session, &mut entries);
         (entries, earlier)
     }
@@ -270,6 +289,8 @@ impl Agents {
             .map(|kind| agent::protocol(&kind.name))
             .collect();
         offers.push(SESSIONS_PROTOCOL.to_owned());
+        offers.push(agent::SESSION_FOLLOW_PROTOCOL.to_owned());
+        offers.push(beep_proto::node::events::PROTOCOL.to_owned());
         offers
     }
 
@@ -378,6 +399,12 @@ impl Agents {
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         let cwd = folder(cwd)?;
+        let recovery_cwd = crate::files::paths::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
+        let recovering = crate::lock(&self.recovering);
+        anyhow::ensure!(
+            !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
+            "Git sync is preserving local edits in this checkout; try starting the session again shortly."
+        );
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review);
         let mut sessions = self.lock();
@@ -457,6 +484,30 @@ impl Agents {
         let session = Arc::new(session);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
+        let events = self.events.clone();
+        let mut updates = session.live.clone();
+        session.keep(tokio::spawn(async move {
+            let mut previous = None;
+            loop {
+                let info = updates.borrow_and_update().info.clone();
+                events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
+                let summary = (
+                    info.id.clone(),
+                    info.state.status,
+                    info.title.clone(),
+                    info.turns,
+                    info.state.tasks.clone(),
+                );
+                if previous.as_ref() != Some(&summary) {
+                    events.changed(beep_proto::node::events::Topic::new("agents"));
+                    events.changed(beep_proto::node::events::Topic::new("processes"));
+                    previous = Some(summary);
+                }
+                if updates.changed().await.is_err() {
+                    return;
+                }
+            }
+        }));
         sessions.insert(id, session.clone());
         crate::link::restart::changed();
         Ok(session)

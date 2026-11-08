@@ -615,6 +615,7 @@ fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
     assert_eq!(children[0].threads, ["t1"]);
 
     let run = Run {
+        session: None,
         steps: vec![RunStep {
             title: "sleep".into(),
             done: true,
@@ -868,4 +869,48 @@ async fn flsh_session_tokens_are_counted_once_across_repeated_usage_updates() {
     live.apply(&totals(u64::MAX, 1));
     live.spent(TurnTokens::default());
     assert_eq!(live.info.tokens, 290);
+}
+
+#[test]
+fn tool_details_keep_the_name_arguments_and_result_across_updates() {
+    let mut live = live();
+    live.prompted("check the build later");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "wait", "title": "Timer to recheck the build",
+        "status": "pending", "_meta": {"claudeCode": {"toolName": "Bash"}}
+    })));
+    let entries = live.transcript(10).0;
+    let tool = entries.last().unwrap().tool.as_ref().unwrap();
+    assert_eq!(tool.name.as_deref(), Some("Bash"));
+    assert!(tool.input.is_none());
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "wait", "status": "in_progress",
+        "rawInput": {"command": "sleep 45", "description": "Timer to recheck the build"}
+    })));
+    let entries = live.transcript(10).0;
+    let tool = entries.last().unwrap().tool.as_ref().unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(tool.input.as_ref().unwrap()).unwrap()["command"],
+        "sleep 45"
+    );
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "wait", "status": "completed",
+        "rawOutput": {"elapsed": 45}
+    })));
+    let entries = live.transcript(10).0;
+    let tool = entries.last().unwrap().tool.as_ref().unwrap();
+    assert_eq!(tool.name.as_deref(), Some("Bash"));
+    assert_eq!(tool.result.as_deref(), Some(r#"{"elapsed":45}"#));
+}
+
+#[test]
+fn a_description_does_not_invent_a_tool_name() {
+    let mut live = live();
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "wait", "title": "Timer to recheck the build",
+        "status": "completed", "rawInput": {"seconds": 45}
+    })));
+    let entries = live.transcript(10).0;
+    let tool = entries.last().unwrap().tool.as_ref().unwrap();
+    assert!(tool.name.is_none());
 }

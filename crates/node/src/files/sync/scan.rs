@@ -154,7 +154,10 @@ fn walk_inner(root: &Path, rules: &Rules, skipped: usize, git_only: bool) -> Res
             if is_dir {
                 // A linked worktree or a submodule: its `.git` file names
                 // this machine's paths, so it stays here whole.
-                if path != gitdir::GIT && item.path().join(gitdir::GIT).is_file() {
+                if path != gitdir::GIT
+                    && (item.path().join(gitdir::GIT).is_file()
+                        || rules.ignored_only() && item.path().join(gitdir::GIT).exists())
+                {
                     walked.skip(skipped, path, true, Rule::Git, None);
                     continue;
                 }
@@ -196,6 +199,15 @@ fn walk_inner(root: &Path, rules: &Rules, skipped: usize, git_only: bool) -> Res
 /// Hashes `found` into the store where it lies, refusing it when the path
 /// no longer names the file the walk saw.
 pub(super) async fn import(store: &Store, found: &Found) -> Result<TempTag> {
+    import_as(store, found, ImportMode::TryReference).await
+}
+
+/// Generated bootstrap packs can be replaced once the store owns their bytes.
+pub(super) async fn import_copy(store: &Store, found: &Found) -> Result<TempTag> {
+    import_as(store, found, ImportMode::Copy).await
+}
+
+async fn import_as(store: &Store, found: &Found, mode: ImportMode) -> Result<TempTag> {
     let identity = found.stat.identity();
     let check =
         |path: PathBuf| async move { spawn_blocking(move || check_same(&path, identity)).await? };
@@ -205,7 +217,7 @@ pub(super) async fn import(store: &Store, found: &Found) -> Result<TempTag> {
         .add_path_with_opts(AddPathOptions {
             path: found.abs.clone(),
             format: BlobFormat::Raw,
-            mode: ImportMode::TryReference,
+            mode,
         })
         .temp_tag()
         .await

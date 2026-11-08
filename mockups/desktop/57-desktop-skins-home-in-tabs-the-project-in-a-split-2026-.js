@@ -217,7 +217,7 @@
   const small = (l, pri) => `<button class="dbtn${pri ? " pri" : ""} small" data-toast="${l}">${l}</button>`;
   const beepAv = i => `<span class="cc-ag beep">${i}</span>`;
   const NEEDS = () => ln(hc0("claude"), "May it run xcodebuild on laptop?", "Claude Code · Swipeable approval strip on iOS", small("Answer", true), 'data-dact="dset:ags:asks" data-dgo="dAgentSession"')
-    + ln(beepAv(CC_IC.chat), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"');
+    + ln(beepAv(DI.tray), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"');
   const hc0 = ag => `<span class="cc-ag ${ag}">${ag === "codex" ? "CX" : "CC"}</span>`;
   const RUN = [["claude", "Swipeable approval strip on iOS", "you/site · laptop", tag("wait", "needs you")], ["codex", "Fix the device build script", "acme/api · build-box", "4 min"], ["claude", "Clippy fixes in the sync crate", "acme/api · build-box", "31 min"], ["", "Will solid-state batteries beat lithium by 2030?", "Research · round 2", "2 min"]];
   const running = () => RUN.map(([ag, t, sub, right]) => ln(ag ? hc0(ag) : "", t, sub, right, ag ? 'data-dact="dset:ags:nochange" data-dgo="dAgentSession"' : 'data-dact="dset:rp:open" data-dgo="dWinResearch"')).join("");
@@ -277,7 +277,7 @@
     const recent = [["acme/api", "build-box, studio · 2 agents", "1 min"], ["you/site", "laptop · 1 agent", "8 min"], ["acme/web", "studio", "20 min"], ["acme/infra", "build-box", "3 h"]];
     if (S.d.cc === "empty") return `<div class="cc-panel cc-empty"><span>Nothing needs you, and nothing is running.</span></div>`;
     const projBox = box("Projects", 7, tabGo("projects"), recent.map(([n, sub, age], i) => ln(pdot(i), n, sub, age, 'data-dgo="dWinProject"')).join(""));
-    if (S.d.cc === "old") return csec("Needs you", 1, panel(ln(beepAv(CC_IC.chat), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"'))) + csec("Coming up", CC_COMING.length, panel(coming));
+    if (S.d.cc === "old") return csec("Needs you", 1, panel(ln(beepAv(DI.tray), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"'))) + csec("Coming up", CC_COMING.length, panel(coming));
     return csec("Needs you", 2, panel(NEEDS())) + updates()
       + (S.d.sy === "insync" ? "" : box("Sync conflicts", 3, 'data-dgo="dSync"', fsConflict("notes (conflict 1a2b3c4d).txt", "acme/widget · Another copy of notes.txt · on build-box, studio") + fsConflict(".git/refs/beep-conflicts/heads/main-5e6f7a8b", "acme/widget · Another commit of main · on build-box") + fsConflict("docs/plan (conflict 9fbd5479).md", "acme/platform/mesh-relay · Another copy of docs/plan.md · on build-box, mac-box")))
       + two(box("Running", RUN.length, 'data-dgo="dAgents"', running()), projBox)
@@ -792,7 +792,7 @@
         <div class="pj-task"><span class="t">Bump the sync crate</span>${chip("review", "review")}<span class="m"><a href="#">PR #38</a><code>bump-sync</code></span><span class="acts">${openReview("Review", "pri small")}${pb("Merge…", "small")}${pb("Open PR", "small")}${openDiff("small")}${pb("Back to open", "quiet small")}</span></div>
         <div class="pj-task"><span class="t">Add a bench for cold start</span>${chip("done", "done")}<span class="m"><code>bench-cold</code></span><span class="acts">${openDiff("small")}${pb("Reopen", "quiet small")}</span></div></div>`)}
       ${csec("Workers", "2 running", `<div class="cc-panel pj-tree">
-        <div class="pj-node"><span class="cc-ag beep">${IC_CHAT}</span><span class="t"><b>Project agent</b><span>Plans tasks, files issues, places workers</span></span></div>
+        <div class="pj-node"><span class="cc-ag beep">${DI.tray}</span><span class="t"><b>Project agent</b><span>Plans tasks, files issues, places workers</span></span></div>
         <div class="pj-node child link">${hc("claude")}<span class="t"><b>Swipeable approval strip</b><span>Claude Code on build-box · running 1 min</span></span><span class="acts">${pb("Stop", "quiet small")}</span><span class="out">Wired the strip to the approval card.</span></div>
         <div class="pj-node child link">${hc("codex")}<span class="t"><b>Fix the device build script</b><span>Codex on studio · running 4 min</span></span><span class="acts">${pb("Stop", "quiet small")}</span></div></div>`)}</div>`,
     agents: () => csec("Agents", 2, panel(ln(hc("claude"), "Swipeable approval strip", "build-box · fix-approval", "1 min", 'data-dgo="dAgentSession"') + ln(hc("codex"), "Fix the device build script", "studio · main", "4 min", 'data-dgo="dAgentSession"')))
@@ -897,7 +897,7 @@ Error: Process completed with exit code 101.</pre></span>
   const openDiff = (cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:ags:diffzoom" data-dgo="dAgentSession">View diff</button>`;
   const openReview = (l, cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:psel:review" data-dgo="dWinProject">${l}</button>`;
   const CHEV = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
-  const pjMenu = () => `<div class="dmenu" style="left:auto;top:44px;right:12px;z-index:9;width:200px"><button class="mi" data-toast="Pin"><b>Pin</b></button>${S.screen === "dWinProjectWindow" ? "" : '<button class="mi" data-dgo="dWinProjectWindow"><b>Open in New Window</b></button><button class="mi" data-dgo="dWinProjects"><b>All projects</b></button>'}<button class="mi" data-toast="Remove project"><b style="color:var(--d-err)">Remove project…</b></button></div>`;
+  const pjMenu = () => `<div class="dmenu" style="left:auto;top:44px;right:12px;z-index:9;width:320px"><button class="mi" data-toast="Pin"><b>Pin</b></button>${S.screen === "dWinProjectWindow" ? "" : '<button class="mi" data-dgo="dWinProjectWindow"><b>Open in New Window</b></button><button class="mi" data-dgo="dWinProjects"><b>All projects</b></button>'}<button class="mi" data-dact="dset:gitrecovery:${S.d.gitrecovery ? "" : "1"}" data-dgo="dWinProject"><b>Preserve edits before Git sync: ${S.d.gitrecovery ? "On" : "Off"}</b></button><div class="am-sub" style="padding:8px 12px">Idle checkouts only. Keeps a local recovery stash, updates Git, then restores edits. Conflicts stop sync for review.</div><button class="mi" data-dact="dset:igsform:1" data-dgo="dWinProject"><b>Sync gitignored: ${S.d.igs ? "On" : "Off"}</b></button><button class="mi" data-dact="dset:igsform:1" data-dgo="dWinProject"><b>Choose ignored folders…</b></button><button class="mi" data-toast="Remove project"><b style="color:var(--d-err)">Remove project…</b></button></div>`;
   // The composer always names a real machine: the last picked while it has a checkout and an
   // agent, else the first such machine. With none, it reads "Add to a machine" and picking one
   // adds the project there (the machine row's Add), the progress on the line under it.
@@ -933,6 +933,12 @@ Error: Process completed with exit code 101.</pre></span>
       <div class="cc-view split"><div class="pj-split"><div class="pj-list">${list}</div><div class="pj-det">${details[sel]()}</div></div></div>
       ${pjComp()}${S.d.pmenu ? pjMenu() : ""}</div>`;
     const page = skinned(ccWin(ccSidePj("acme/widget"), main));
+    if (S.d.igsform === "1") return ccSheetOver(page, `<div class="am-head"><b>Sync gitignored</b><kbd>esc</kbd></div>
+      <label class="am-line"><input type="checkbox" checked>Sync selected ignored folders on all machines</label>
+      <label class="am-label" for="ignored-folders">Folders relative to the project, one per line</label><textarea id="ignored-folders" class="ip-path" rows="4">assets/models
+data/captures</textarea>
+      <div class="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>
+      <div class="am-line ip-acts"><button class="dbtn quiet" data-dact="dset:igsform:" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:igs:1" data-dgo="dWinProject" data-toast="Ignored-folder sync saved for all machines" onclick="S.d.igsform=''">Save</button></div>`);
     if (sel === "sync" && S.d.fss === "change") {
       // Change folder…, from a machine's row menu: another folder there, nothing moved.
       return ccSheetOver(page, `<div class="am-head"><b>Change the folder of widget on win-box</b><kbd>esc</kbd></div>

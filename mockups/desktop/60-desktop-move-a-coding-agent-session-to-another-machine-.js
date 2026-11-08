@@ -1,6 +1,6 @@
 // ---- Desktop: move a coding agent session to another machine (#237) ----
 // Session header: the machine name is a menu ("Move to"). A turn that runs waits for Stop and move.
-// While moving, steps tick above the composer and the message typed waits as queued. Lists show
+// While moving, steps tick above the composer. Messages stay as drafts and can be stashed. Lists show
 // "laptop to studio" with a Moving chip; a failed move stays on the source with the reason in the row's title;
 // an offline machine with a copy here offers Continue on this Mac.
 (() => {
@@ -33,8 +33,7 @@
   const OK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg>';
   const MACH = [["studio", "folder ready", true], ["laptop", "folder ready", true], ["mini", "no checkout: import first", false], ["build-box", "no Claude Code here", false], ["old-box", "offline: moves when it returns", true, "offline"]];
   const WT = [["studio", "worktree on feat/export", true], ["laptop", "worktree on feat/export", true], ["mini", "Syncthing is set not to sync this worktree", false], ["build-box", "no Claude Code here", false], ["old-box", "offline: moves when it returns", true, "offline"]];
-  const QUEUED = '<div class="ag-queue"><span class="lbl">Queued</span><span class="t">Also update the error text in the iOS app</span><span class="w">after the move</span><button data-toast="Back in the field to edit">Edit</button><button data-toast="Removed">Remove</button></div>';
-  const strip = (rows, head) => `<div class="mvs" role="status"><div class="h"><b>${head}</b><span class="sp"></span><button class="dbtn quiet small" data-dact="dset:ags:idle">Cancel move</button></div>${rows.map(([k, t]) => `<div class="r ${k}"><span class="mk">${k === "done" ? OK : k === "run" ? '<span class="dspin"></span>' : ""}</span><span>${t}</span></div>`).join("")}</div>` + QUEUED;
+  const strip = (rows, head) => `<div class="mvs" role="status"><div class="h"><b>${head}</b><span class="sp"></span><button class="dbtn quiet small" data-dact="dset:ags:idle">Cancel move</button></div>${rows.map(([k, t]) => `<div class="r ${k}"><span class="mk">${k === "done" ? OK : k === "run" ? '<span class="dspin"></span>' : ""}</span><span>${t}</span></div>`).join("")}</div>`;
   const CONV = [["done", "Conversation 6.1 MB"]];
   const moving = rows => strip(rows, "Moving to studio");
   const CFG = {

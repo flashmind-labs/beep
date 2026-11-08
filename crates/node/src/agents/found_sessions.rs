@@ -137,7 +137,9 @@ impl Agents {
 
     /// The Claude Code sessions started outside Beep, newest first.
     pub async fn external_sessions(&self, limit: u32) -> Result<Vec<ExternalSession>> {
-        self.external.list(limit, None, self.owned()).await
+        let sessions = self.external.list(limit, None, self.owned()).await?;
+        self.observe_external(&sessions);
+        Ok(sessions)
     }
 
     /// Every session the agents' stores hold, with the folder it ran in.
@@ -255,7 +257,10 @@ impl Agents {
         let only = session.clone();
         let mut sessions = spawn_blocking(move || {
             let now = SystemTime::now();
-            let mut seen = stores.sessions(Some(agent));
+            let mut seen = match session.as_deref() {
+                Some(id) => stores.seen(Some(agent), id).into_iter().collect(),
+                None => stores.sessions(Some(agent)),
+            };
             seen.sort_by_key(|seen| Reverse(seen.last_activity));
             match session {
                 Some(id) => seen.retain(|seen| seen.id == id),
@@ -272,8 +277,17 @@ impl Agents {
         .await?;
         let held = self.held(agent, &sessions).await;
         for found in &mut sessions {
+            // A native thread shares its parent's process. Its own turn events,
+            // rather than the process holding its file, say whether it works.
+            if found.id.starts_with("subagent:") {
+                continue;
+            }
             let held = held.get(&found.id).copied();
-            found.presence = holders::settle(found.presence, found.pid, held);
+            found.presence =
+                holders::settle(found.presence, found.pid, held.map(|pid| pid.is_some()));
+            if found.pid.is_none() {
+                found.pid = held.flatten();
+            }
         }
         self.presence.merge(&mut sessions);
         sessions.retain(|found| {
@@ -314,6 +328,10 @@ impl Agents {
         id: &str,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
+        anyhow::ensure!(
+            !id.starts_with("subagent:"),
+            "This subagent is managed by its parent. Open the parent to continue it."
+        );
         let ours = self.get(id);
         if let Some(session) = &ours
             && session.agent != kind.name
@@ -421,13 +439,17 @@ impl Agents {
             return registered.presence;
         }
         let held = self.held(agent, std::slice::from_ref(found)).await;
-        holders::settle(found.presence, found.pid, held.get(&found.id).copied())
+        holders::settle(
+            found.presence,
+            found.pid,
+            held.get(&found.id).map(Option::is_some),
+        )
     }
 
     /// Whether a process holds the file of each of `found` that no process
     /// was seen running, by session id, all looked up at once; a session
     /// missing from it cannot be told.
-    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, bool> {
+    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, Option<u32>> {
         let ids: Vec<String> = found
             .iter()
             .filter(|found| found.pid.is_none())
@@ -436,7 +458,7 @@ impl Agents {
         // Claude Code does not keep its transcript open, but its processes
         // were looked at already and none runs these sessions.
         if agent == Agent::Claude {
-            return ids.into_iter().map(|id| (id, false)).collect();
+            return ids.into_iter().map(|id| (id, None)).collect();
         }
         if ids.is_empty() {
             return HashMap::new();
@@ -457,7 +479,7 @@ impl Agents {
         };
         files
             .into_iter()
-            .map(|(file, id)| (id, open.contains(&file)))
+            .map(|(file, id)| (id, open.get(&file).copied()))
             .collect()
     }
 
@@ -484,7 +506,7 @@ impl Agents {
 
     /// The file the agent keeps `session` in: for one of this node's, the
     /// agent's own session it runs.
-    async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
+    pub(super) async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
         let (agent, id) = match self.get(session) {
             Some(running) => {
                 let Some(id) = running.live.borrow().agent_session.clone() else {

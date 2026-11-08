@@ -79,6 +79,34 @@ impl Default for External {
 }
 
 impl External {
+    pub(crate) async fn attach_children(
+        &self,
+        id: &str,
+        calls: Vec<(usize, String)>,
+        mut entries: Vec<beep_proto::node::agent::Entry>,
+    ) -> Result<Vec<beep_proto::node::agent::Entry>> {
+        let Some(path) = self.file(id).await? else {
+            return Ok(entries);
+        };
+        spawn_blocking(move || {
+            subagents::attach_live(&path, &calls, &mut entries);
+            entries
+        })
+        .await
+        .context("reading native child conversations")
+    }
+    pub(crate) fn follow_paths(&self) -> Vec<PathBuf> {
+        self.root
+            .as_ref()
+            .into_iter()
+            .flat_map(|root| [root.join("projects"), root.join("sessions")])
+            .collect()
+    }
+
+    pub(crate) fn presence_path(&self) -> Option<PathBuf> {
+        self.root.as_ref().map(|root| root.join("sessions"))
+    }
+
     /// Looks for Claude Code's folder; without one there is nothing to list.
     pub fn locate() -> Self {
         Self {

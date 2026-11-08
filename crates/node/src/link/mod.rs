@@ -8,6 +8,7 @@ pub mod reconnect;
 pub use protocol::{Protocol, Session};
 
 host! {
+    mod events;
     pub(crate) mod from_mesh;
     pub(crate) use from_mesh::Membership;
     pub(crate) mod local_socket;
@@ -27,3 +28,6 @@ host! {
     pub use serve::{Offers, listen_hooks, serve};
     pub use traffic::Traffic;
 }
+
+#[cfg(all(test, unix, feature = "host"))]
+pub(crate) use events::serve as serve_events;

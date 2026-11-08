@@ -1,5 +1,7 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
+import { toolDetailsHtml } from "./tool-details.ts";
+import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
 import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
@@ -16,9 +18,9 @@ import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
-import { childRow, parentRow } from "./nesting-state.ts";
+import { childRow } from "./nesting-state.ts";
 import { childReplyHtml } from "./childreply-state.ts";
-import { sessions } from "./sessions.ts";
+import { parentSession, sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
 import { picTile } from "./pic-state.ts";
 import { planHtml, questionHtml } from "./coderhtml.ts";
@@ -31,16 +33,13 @@ import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 
-/// A step's mark: done, failed, running or did not finish.
-const mark = (status: string) => stepMark(status, AGENT_ACTIVE.has(AG.page?.session.status));
-
-// Entries do not carry start times. Remember when this window first saw each call.
+// Elapsed clocks use when this window first saw the call running.
 const toolStarts = new Map<string, number>();
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
 export function toolRow(en: AgentEntry, at: number, pics = "") {
   const log = AG.log!;
-  const { title, status, output } = log.parseTool(en.text);
+  const { title, status, output } = log.parseTool(log.imageLines(en.text).text);
   if (log.subagent(output)) return subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
   const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.steps.get(at));
   // A command in the background runs on after its turn ended.
@@ -49,24 +48,27 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const exit = failed ? log.exitCode(output) : null;
   const beep = beepCall(title);
   const long = title.includes("\n") || label.length > 80;
+  const parts = rowParts(en.text, live, open);
+  const inspected = !beep && isCommandCall(en.tool) && (!!en.tool?.name || parts.kind === "command");
   const tail = log.tailLines(output), whole = AG.all.has(at);
   // A Beep call's row shows the first line of its command or prompt; opened, all of it.
   const body = !open ? ""
     : (beep?.detail ? `<pre class="cmd">${esc(beep.detail)}</pre>` : "")
       + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
       + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
-  const parts = rowParts(en.text, live, open);
   const key = `${AG.open?.machine_id ?? ""}\n${AG.open?.session ?? ""}\n${at}`;
   if (live && !toolStarts.has(key)) toolStarts.set(key, Date.now());
   const since = live ? toolStarts.get(key) : undefined;
   if (!live) toolStarts.delete(key);
   // A command may be cut at any width, so it always opens.
-  const opens = !!output || long || (beep ? !!beep.detail : parts.kind === "command");
+  const opens = inspected || !!output || long || (beep ? !!beep.detail : parts.kind === "command");
+  const toggleAttrs = opens ? ` data-at="${at}"${inspected || parts.kind === "command" ? ` tabindex="0" role="button" aria-expanded="${open}"` : ""}` : "";
+  const inspectedBody = open && inspected ? toolDetailsHtml(en.tool, status, live, output, diffBlocks(output).length ? toolBody(output) : undefined) : "";
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
   const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
   if (beep) {
-    return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}>`
+    return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${toggleAttrs}${artifact}>`
       + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open, since)}`
       + mediaButtons(title) + body + pics + "</div>";
   }
@@ -74,10 +76,11 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const wrapped = open && (parts.kind === "command" || long);
   const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
   return toolRowHtml({
-    ...parts, since, target: wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
+    ...parts,
+    since, target: inspected ? parts.target : wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
-    attrs: ` data-row="${at}"${opens ? ` data-at="${at}"` : ""}${artifact}`,
-    after: mediaButtons(title) + rowBody + pics,
+    attrs: ` data-row="${at}"${toggleAttrs}${artifact}`,
+    after: mediaButtons(title) + (inspected ? inspectedBody : rowBody) + pics,
   });
 }
 
@@ -123,8 +126,8 @@ function subOf(at: number) {
   const p = AG.page!, en = p.entries[at - p.earlier];
   const { title, status, output } = AG.log!.parseTool(AG.log!.imageLines(en.text).text);
   const sub = AG.log!.subagent(output) ?? { count: 0, steps: [], result: output };
-  // An agent another agent started has a session of its own, whose state the node wrote.
-  const working = sub.child ? sub.child.state === "working" : (status === "in_progress" || status === "pending") && AGENT_ACTIVE.has(p.session.status);
+  // A linked subagent can keep working after its parent's turn ends.
+  const working = sub.child ? sub.child.state === "working" : (status === "in_progress" || status === "pending") && (!!sub.session || AGENT_ACTIVE.has(p.session.status));
   // Timed from when this window saw it working, if it did.
   const key = `${AG.open?.session}\n${at}`, now = Date.now();
   let seen = subTimes.get(key);
@@ -144,13 +147,13 @@ function subRow(at: number, inPane = false) {
   const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
   const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
   const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
-  // A child opens as the session it is; a subagent opens in this one.
-  const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : `data-sub="${at}"`;
+  const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : x.sub.session ? `data-native="${at}"` : `data-subsummary="${at}"`;
   const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}" title="Dismiss from pane">${ICON.x}</em>` : "";
   // A child that runs can be stopped from its row, as from its own log.
   const stoppable = kid && (st === "working" || st === "needs you");
   const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
-  const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${stepMark(x.working ? "in_progress" : x.status, x.working)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  if (!kid && !x.sub.session && AG.steps.get(at)) return row + `<div class="dmuted">${esc(x.sub.result || "The agent has not provided a readable conversation yet.")}</div>`;
   if (inPane || !x.prompt) return row;
   const open = AG.steps.get(at) ?? false;
   return `<div class="dsubprompt" data-row="${at}" data-at="${at}">${row}<button class="prompt-toggle" data-prompt="${at}" aria-expanded="${open}">${ICON.chev}Prompt</button>${open ? `<pre>${esc(x.prompt)}</pre>` : ""}</div>`;
@@ -197,35 +200,12 @@ function subagentsShown(p: AgentPage) {
   return p.entries.flatMap((en, i) => en.kind === "tool" && AG.log!.subagent(AG.log!.parseTool(en.text).output) ? [p.earlier + i] : []);
 }
 
-/// A subagent opened as its own conversation: the way back, what it was
-/// asked, its steps and what it answered.
-/// What a subagent's log holds.
-function childHtml(p: AgentPage, at: number) {
-  const x = subOf(at), s = p.session, k = agentKind(s.agent);
-  const steps = x.sub.steps.map(st => `<div class="dcoderen tool"><span class="mk">${mark(st.status)}</span><code class="tt" title="${esc(st.title)}">${esc(stepLabel(`${st.title} [${st.status}]`, st.status === "in_progress" && x.working))}</code></div>`).join("");
-  const earlier = x.sub.count > x.sub.steps.length ? `<div class="dmuted">${x.sub.count - x.sub.steps.length} earlier steps not shown</div>` : "";
-  const none = !x.sub.count && !x.working ? `<div class="dcoderen other">Steps not reported by ${esc(k.name)}.</div>` : "";
-  const result = x.sub.result ? `<div class="dcoderen agent">${esc(x.sub.result)}</div>` : x.working ? '<div class="dmuted"><span class="dspin"></span> Working…</div>' : "";
-  return `<div class="dcrumb"><button id="agparent">${esc(s.title || "Session")}</button><span>›</span><b>${esc(x.title)}</b><span class="sp"></span><button class="dbtn" id="agparent2" data-parent="1">Open parent<kbd>esc</kbd></button></div>
-    <div class="dcoderen user"><b>${esc(x.agent || "Task")}</b><span>${esc(x.title)}</span></div>
-    ${turnHeadHtml({ state: x.working ? "working" : "done", ms: x.ms, stats: "", key: null, opened: false })}
-    ${earlier}${steps}${none}${result}`;
-}
-
 /// The line back to the session whose agent started this one, when one did:
 /// its parent and this session's title, and the way up.
 function upCrumb(p: AgentPage) {
-  const up = parentRow(sessions, { machine_id: p.session.machine_id, id: p.session.id });
+  const up = parentSession(p.session);
   if (!up) return "";
-  return `<div class="dcrumb"><button id="agup">${esc(up.title || "Session")}</button><span>›</span><b>${esc(p.session.title || "Session")}</b><span class="sp"></span><button class="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>`;
-}
-
-/// Back from a subagent to its session.
-export function closeChild() {
-  if (AG.child == null) return false;
-  AG.child = null;
-  drawAgentBody();
-  return true;
+  return `<div class="dcrumb"><button id="agup">${esc(up.title || "Session")}</button><span>/</span><b>${esc(p.session.title || "Session")}</b><span class="sp"></span><button class="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>`;
 }
 
 /// An image a user entry carried: the one sent from here, the one read
@@ -535,31 +515,16 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const redraw = older ? "older" : keep != null ? "toggle" : "news";
   const scroll = logScroll(b.stuck !== false, redraw);
   const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
-  const child = AG.child != null && AG.log && p.entries[AG.child - p.earlier] ? AG.child : null;
-  if (child == null) AG.child = null;
   // A plan waiting for approval shows above the field instead.
   const question = q && AG.modes?.plan == null ? questionCard(q) : "";
   const plan = planHtml(p.plan, s.status === "asking");
-  // Messages sent here already have their own rows above the field.
-  const local = AG.queue.filter(q => q.state === "sent" || q.state === "sending").map(q => [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n"));
-  const remote = (p.queued_messages ?? []).filter(message => {
-    const i = local.indexOf(message);
-    if (i < 0) return true;
-    local.splice(i, 1);
-    return false;
-  });
-  const missing = Math.max(0, p.queued - (p.queued_messages?.length ?? 0) - local.length);
-  const queued = remote.map(message => `<div class="row note"><b>Waiting to send</b><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(message)}</div></div>`).join("")
-    + (missing ? `<div class="row note">${missing === 1 ? "1 message waits" : `${missing} messages wait`} for the turn to end</div>` : "");
-  // The question, plan and queued messages sit under the log, by the field.
-  const card = question || plan || queued
-    ? `<div class="dcard dcoder">${question}${plan}${queued}</div>` : "";
+  const card = question || plan
+    ? `<div class="dcard dcoder">${question}${plan}</div>` : "";
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   // The log goes in by turns, and only those near the view are drawn.
-  const units = child != null ? [fixed("child", childHtml(p, child))]
-    : p.entries.length && AG.log ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
+  const units = p.entries.length && AG.log ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
   const entries = units ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
@@ -570,13 +535,12 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
     : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
   // A read that failed outright is not tried again by itself: Retry reads it.
   const retry = AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone";
-  const paused = AG.paused ? '<button class="dbtn quiet" id="agresume">Paused, click to refresh</button>'
-    : retry ? '<button class="dbtn quiet" id="agresume">Retry</button>' : "";
-  const subs = child == null ? paneSubs(p) : { html: "", count: 0 };
-  if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${paused}`, units, polled)) { AG.rest = ""; return; }
-  // The pane follows the agent, or the subagent opened, into a worktree.
-  followAgent(p.entries, p.earlier, child != null ? subOf(child).sub.steps.map(st => st.title) : null);
-  const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
+  const refresh = retry ? '<button class="dbtn quiet" id="agresume">Retry</button>' : "";
+  const subs = paneSubs(p);
+  if (!showLog(b, `${why}${entries}${card}${err}${note}${refresh}`, units, polled)) { AG.rest = ""; return; }
+  // The pane follows the open conversation into its worktree.
+  followAgent(p.entries, p.earlier, null);
+  const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
   drawPane(subs, arts);
   drawModelPill();
   drawModes();

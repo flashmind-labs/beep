@@ -751,7 +751,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 /* A file of the Files tab as text, and a terminal tab. */
 .agcode { flex: 1; min-height: 0; overflow: auto }
 .agcode pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--fg); white-space: pre; tab-size: 4 }
-.agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--dim); user-select: none }
+.agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--dim); -webkit-user-select: none; user-select: none }
 .agcode .k, .dcoderen .cmd .k { color: #C792EA } .agcode .s, .dcoderen .cmd .s { color: #A5D6A7 } .agcode .c, .dcoderen .cmd .c { color: var(--dim); font-style: italic } .agcode .n, .dcoderen .cmd .n { color: #F2B482 }
 .agpview.term .tm-xterm { flex: 1; min-height: 0; height: auto; padding: 6px 8px; background: var(--deep) }
 .agpview.term .tm-xterm .xterm { height: 100% }
@@ -789,8 +789,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dsubprompt .prompt-toggle svg { width: 12px; height: 12px }
 .dsubprompt .prompt-toggle[aria-expanded="true"] svg { transform: rotate(90deg) }
 .dsubprompt pre { margin: 4px 8px 8px 32px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/20px var(--mono); color: var(--muted); user-select: text }
-.dcrumb { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); padding-bottom: 8px; border-bottom: 1px solid var(--border); white-space: nowrap }
-.dcrumb #agparent { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis } .dcrumb #agparent:hover { color: var(--fg) }
+.dcrumb { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; color: var(--muted); margin-bottom: 16px; white-space: nowrap }
+.dcrumb button:not(.dbtn) { all: unset; cursor: pointer; overflow: hidden; text-overflow: ellipsis } .dcrumb button:not(.dbtn):hover { color: var(--fg) }
+.dcrumb button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .dcrumb b { font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis } .dcrumb .sp { flex: 1 }
 /* A call as one row: kind icon, verb, target, what the right side says, status. Opened, its body under it. */
 .dcoderen.tool.row { grid-template-columns: 16px auto minmax(0, 1fr) auto 16px; column-gap: 8px; align-items: center; margin-inline: -6px; padding: 1px 6px; border-radius: var(--radius-sm) }
@@ -1377,3 +1378,35 @@ button.dachip:hover { border-color: var(--border-hi) }
 #agtitle:focus-visible { outline: 2px solid var(--emerald) }
 .agtitle-input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: 4px; padding: 0 4px; outline: 2px solid var(--emerald) }
 .dhead .tt .agtitle-error { color: var(--coral); white-space: normal }
+
+/* Project prompt stash. */
+.prompt-stash-slot { position: absolute; right: 98px; top: 2px; color: var(--dim); font-size: 11px; line-height: 16px }
+.prompt-stash-count { all: unset; cursor: pointer }
+.prompt-stash-count:hover, .prompt-stash-count:focus-visible { color: var(--fg) }
+.prompt-stash-count:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px }
+.agkeys:has(.prompt-stash-count) .dhints.slim { padding-right: 164px }
+.agkeys-list section > button { all: unset; display: flex; gap: 6px; align-items: center; cursor: pointer }
+.agkeys-list section > button:hover { color: var(--fg) }
+.agkeys-list section > button:focus-visible { outline: 2px solid var(--accent) }
+.prompt-stash-panel { position: fixed; z-index: 2000; overflow: auto; box-sizing: border-box; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; line-height: 16px }
+.prompt-stash-panel header { display: flex; justify-content: space-between; align-items: center; padding: 16px }
+.prompt-stash-panel header b { display: block; font-size: 14px; line-height: 20px; font-weight: 600 }
+.prompt-stash-panel header small { display: block; margin-top: 4px; color: var(--dim) }
+.prompt-stash-items { padding: 0 16px 8px }
+.prompt-stash-items article { position: relative; padding: 12px 0 }
+.prompt-stash-items article + article::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--border) }
+.prompt-stash-items p { margin: 0 0 8px; font-size: 14px; line-height: 20px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden }
+.prompt-stash-files { display: flex; flex-wrap: wrap; gap: 8px; color: var(--dim); overflow-wrap: anywhere }
+.prompt-stash-panel footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px }
+.prompt-stash-panel button { background: none; border: 0; border-radius: 4px; color: var(--dim); font: inherit; padding: 4px 8px; cursor: pointer }
+.prompt-stash-panel button:hover { background: var(--elev); color: var(--fg) }
+.prompt-stash-panel button:focus-visible { outline: 2px solid var(--accent) }
+.prompt-stash-panel button:disabled { opacity: .4; cursor: default }
+.prompt-stash-note { padding: 8px 16px; color: var(--dim); font-size: 12px; line-height: 16px }
+.dcoderen.tool .call-details { grid-column: 2 / -1; min-width: 0; cursor: text; user-select: text }
+.call-details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 8px 0; font-size: 12px; line-height: 16px }
+.call-details dt, .call-details h4 { color: var(--dim); font-size: 12px; line-height: 16px; font-weight: 400 }
+.call-details dd { margin: 0; overflow-wrap: anywhere }
+.call-details h4 { margin: 8px 0 4px }
+.call-details pre { margin: 0; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font: 12px/16px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto }
+.dcoderen.tool.row[tabindex]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px }

@@ -194,7 +194,6 @@
 .mac .ag-modelmenu > button { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-radius: 6px; font-size: 13px }
 .mac .ag-modelmenu > button:hover, .mac .ag-modelmenu > button.on { background: rgba(227,228,230,.06) }
 .mac .ag-queue { display: flex; align-items: center; gap: 8px; margin: 8px 16px 0; font-size: 12.5px; color: var(--d-dim) }
-.mac .ag-queue:not(.steer):not(.done) { margin: 0; padding: 7px 16px; border-top: 1px solid var(--d-border) }
 .mac .ag-queue .lbl { font-size: 11px }
 .mac .ag-queue .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--d-muted) }
 .mac .ag-queue button { all: unset; cursor: pointer; font-size: 12px; color: var(--d-muted) }
@@ -365,7 +364,7 @@
 .mac .ag-ctx hr { border: 0; border-top: 1px solid var(--d-border); margin: 4px 2px }
 .mac .ag-code, .mac .ag-term { display: block; place-items: initial; padding: 0 }
 .mac .ag-code pre, .mac .ag-term pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--d-fg); white-space: pre }
-.mac .ag-code .ln { display: inline-block; width: 28px; margin-right: 10px; text-align: right; color: var(--d-dim) } .mac .ag-code .k { color: #C792EA } .mac .ag-code .s { color: #A5D6A7 }
+.mac .ag-code .ln { display: inline-block; width: 28px; margin-right: 10px; text-align: right; color: var(--d-dim); -webkit-user-select: none; user-select: none } .mac .ag-code .k { color: #C792EA } .mac .ag-code .s { color: #A5D6A7 }
 .mac .ag-term { background: #0f1011 } .mac .ag-term .p { color: var(--d-emerald) } .mac .ag-term .cur { display: inline-block; width: 7px; height: 13px; vertical-align: -2px; background: var(--d-fg) }
 .mac .ag-tab:first-child { flex: none }
 .mac .ag-addterm { width: auto; padding: 0 8px; font-size: 11.5px; white-space: nowrap }
@@ -470,12 +469,13 @@
   ];
   // A session read from disk (imported, or started outside Beep) shows the
   // subagents its agent wrote there, each with its type or custom agent's
-  // name. Their times are not known, only how many steps each ran.
+  // name. A background subagent can still run after the parent's turn ends,
+  // including while a long command writes no new transcript lines.
   const SUBS_DISK = [
     ["Explore auth module", "Find where the login error text is set", "done", "", 9, "Explore"],
-    ["Check the release notes", "Compare the changelog with the diff", "done", "", 14, "release-checker"],
+    ["Check the release notes", "Compare the changelog with the diff", "run", "", 14, "release-checker"],
   ];
-  const subRow = ([n, d, st, el, k, a]) => `<button class="sr" data-dact="dset:ags:subchild" title="Open ${n}"><span class="mk">${st === "run" ? '<span class="dspin"></span>' : SG.ok}</span><span class="t"><b>${n}${a ? `<span class="kind">${a}</span>` : ""}</b><small>${[st === "run" ? "working" : "done", el, `${k} steps`].filter(Boolean).join(" · ")}</small></span></button>`;
+  const subRow = ([n, d, st, el, k, a]) => `<button class="sr" data-open-sub="${n}" title="Open ${n}"><span class="mk">${st === "run" ? '<span class="dspin"></span>' : SG.ok}</span><span class="t"><b>${n}${a ? `<span class="kind">${a}</span>` : ""}</b><small>${[st === "run" ? "working" : "done", el, `${k} steps`].filter(Boolean).join(" · ")}</small></span></button>`;
   // A coding agent another agent started (start_agent): a normal session on
   // its own machine, listed in the parent's log like a subagent with its
   // harness, machine and live state. A click opens its own log, which has a
@@ -486,14 +486,13 @@
   ];
   const kidRow = ([n, d, st, el, ag, hn, m]) => `<button class="sr kid" data-dact="dset:ags:agentchild" title="Open ${n}"><span class="cc-ag ${ag}" title="${hn}">${hn === "Codex" ? "CX" : "CC"}</span><span class="t"><b>${n}<span class="kind">${m}</span></b><small>${[st === "run" ? "working" : "Needs you", el, hn].join(" · ")}</small></span><em class="kstop" data-dact="dset:ags:agentstopped" title="Stop ${n}">Stop</em></button>`;
   D.dAgentSession = () => {
-    const variant = pick("ags", ["nochange", "held", "fromsession", "warning", "working", "queued", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "disksubs", "image", "shots", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
+    const variant = pick("ags", ["nochange", "held", "fromsession", "warning", "working", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "disksubs", "image", "shots", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
     const v = variant === "flshusage" || variant === "flshunknown" ? "idle" : variant;
-    const queued = v === "queued" || v === "steer" || v === "steered";
     // Enter while a turn runs steers: the message waits above the field and
-    // goes to the agent once its current step (tool call) finishes. Option-Enter
-    // queues it for after the turn instead. Cmd-. stops at once: the turn reads
+    // goes to the agent once its current step (tool call) finishes.
+    // Cmd-. stops at once: the turn reads
     // Stopping until the agent confirms.
-    const steer = v === "steer" || v === "steered", stopping = v === "stopping";
+    const stopping = v === "stopping";
     // A paste of more than 10 lines is one pill in the field, removed as a
     // unit; a click previews it, and it goes out as the full text.
     const pasted = v === "pasted" || v === "pastepreview";
@@ -560,7 +559,7 @@ expected 200, got 401</pre></details></span></div>`;
       step("ok", "Ran cargo test -p widget-core"),
     ].join("");
     // Calls to Beep's own tools: the machine, the command or prompt, the file count and the status, not mcp__beep__run_on.
-    const BEEP_IC = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="7" rx="1.5"/><rect x="13" y="13" width="9" height="7" rx="1.5"/><path d="M6.5 11v4.5a2 2 0 0 0 2 2H13"/></svg>';
+    const BEEP_IC = DI.tray;
     const bstep = (mk, verb, o = {}) => `<div class="st beep${mk === "bad" ? " bad" : ""}${o.open ? " open" : ""}"${o.act ? ` data-dact="dset:ags:${o.act}"` : ""}><span class="mk">${mk === "run" ? '<span class="dspin"></span>' : mk === "bad" ? SG.bad : SG.ok}</span><span class="tt"${o.tip ? ` title="${o.tip}"` : ""}><span class="bi">${BEEP_IC}</span><span class="v">${verb}</span>${o.m ? `<span class="mc">${o.m}</span>` : ""}${o.d ? `<code>${o.d}</code>` : ""}</span><span class="bs">${[o.files, mk === "run" ? "Running" : mk === "bad" ? "Failed" : "Done"].filter(Boolean).join(" · ")}</span>${o.out ? `<pre class="out">${o.out}</pre>` : ""}</div>`;
     const beepSteps = [
       bstep("ok", "Listed machines", { open: true, out: "build-box · online · Linux · Docker, GPU · claude, codex\nmac-mini · online · macOS · Xcode · claude\nwin-box · offline" }),
@@ -599,7 +598,7 @@ expected 200, got 401</pre></details></span></div>`;
       stepsOpen ? `<div class="${v === "beeptools" ? "steps" : "tools"}">${v === "beeptools" ? beepSteps : steps}</div>` : "",
       ...(shots ? [`<div class="shots small"><i class="img"></i><i class="img b2"></i></div>`] : []),
       ...(v === "answered" ? [answered] : []), picture,
-      ...(disk ? [`<div class="subgrp"><div class="h">${SG.sub}<b>2 subagents</b><span>2 done</span></div>${SUBS_DISK.map(subRow).join("")}</div>`] : []), answer].join("");
+      ...(disk ? [`<div class="subgrp"><div class="h">${SG.sub}<b>2 subagents</b><span>1 working · 1 done</span></div>${SUBS_DISK.map(subRow).join("")}</div>`] : []), answer].join("");
     // The running turn: earlier steps folded, the newest one, the thought's line.
     const group = kids ? `<div class="subgrp"><div class="h">${SG.sub}<b>2 agents started</b><span>1 working · 1 asks you</span></div>${KIDS.map(kidRow).join("")}</div>` : `<div class="subgrp"><div class="h">${SG.sub}<b>3 subagents</b><span>2 working · 1 done</span></div>${SUBS.map(subRow).join("")}</div>`;
     // Thoughts: each its own line in order with the steps. "Thinking" sweeps
@@ -632,11 +631,6 @@ expected 200, got 401</pre></details></span></div>`;
       <div class="dcoderen user"><b>Task</b><span>Build the iOS app and run the login UI tests</span></div>
       ${head("Worked for 2m", false, false)}<div class="tools">${[step("ok", "Ran xcodebuild -scheme Widget build")].join("")}</div>
       <div class="note">Stopped by you</div>`;
-    const childView = `<div class="crumb"><button data-dact="dset:ags:subagents">Fix the failing login test</button><span>›</span><b>Explore auth module</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:subagents">Open parent<kbd>esc</kbd></button></div>
-      <div class="dcoderen user"><b>Task</b><span>Explore auth module</span></div>
-      ${head("Worked for 41s", true, false)}<div class="tools">${[step("ok", "Searched for \"Wrong password\""), step("ok", "Read src/login.rs"), step("ok", "Read src/errors.rs"), step("ok", "Searched in tests/")].join("")}</div>
-      <div class="dcoderen agent md">The text comes from <code>LoginError::Display</code> in <code>src/errors.rs</code>; <code>tests/login.rs</code> asserts on it twice.</div>
-      <div class="note">A Codex subagent shows its prompt and result: steps not reported by Codex.</div>`;
     // ----- The transcript as rows -----
     // Each tool call is one line: an icon for its kind, the verb, its target
     // (a path or the command), a detail on the right (+2 -1, a line range,
@@ -706,7 +700,7 @@ expected 200, got 401</pre></details></span></div>`;
     // update) waits up to 2 minutes and goes once it answers; only then does it
     // fail and go back to the field.
     const held = `${noChange}<div class="dcoderen user"><b>You</b><span>add one that reviews the diff</span></div><div class="dmuted">Waiting for build-box to come back</div>`;
-    const log = v === "fromsession" ? fromSession : v === "nochange" ? noChange : v === "held" ? held : rich ? richTurn : v === "agentchild" ? kidView : v === "agentstopped" ? kidStopped : child ? childView : turn1 + live;
+    const log = v === "fromsession" ? fromSession : v === "nochange" ? noChange : v === "held" ? held : rich ? richTurn : v === "agentchild" ? kidView : v === "agentstopped" ? kidStopped : turn1 + live;
     const pm = x => `<span style="width:16px;display:grid;place-items:center">${x}</span>`;
     const plan = done || child ? "" : `<div class="sec">Plan</div><div class="plan">
         <div class="row">${pm(`<span class="dok">${DI.check || "&#10003;"}</span>`)}<span>Read the failing output</span></div>
@@ -715,11 +709,9 @@ expected 200, got 401</pre></details></span></div>`;
     const q = asks ? `<div class="q"><b style="font-weight:600">Run this command?</b><code style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere">rm -rf target &amp;&amp; cargo build --release</code>
         <div class="dups"><button class="dbtn pri" data-toast="Allowed">Allow<kbd>⌘${DI.ret}</kbd></button><button class="dbtn" data-toast="Allowed for this session">Allow for this session</button><button class="dbtn warn" data-toast="Denied">Deny<kbd>⌘D</kbd></button></div></div>` : "";
     // The card sits under the log, next to the field: the question, the plan.
-    const remoteQueue = v === "queued" ? `<div class="row note"><b>Waiting to send</b><div>Check the failing test output</div></div>` : "";
-    const card = q || plan || remoteQueue ? `<div class="dcard dcoder">${q}${plan}${remoteQueue}<div style="height:12px"></div></div>` : "";
+    const card = q || plan ? `<div class="dcard dcoder">${q}${plan}<div style="height:12px"></div></div>` : "";
     const qatt = (p) => `<span class="ag-qatt" title="Goes with it as @${p}">${p}</span>`;
     const steerRow = v === "steer" ? `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">after the current step</span><button data-toast="Not sent">&#215;</button></div>` : "";
-    const queue = queued ? `${steerRow}<div class="ag-queue"><span class="lbl">Queued</span><span class="t">Also update the error text in the iOS app</span>${steer ? qatt("shots/login-after.png") : ""}<span class="w">after the turn</span><button data-toast="Back in the field to edit">Edit</button><button data-toast="Removed from the queue">&#215;</button></div><div class="ag-queue"><span class="lbl">Queued</span><span class="t">Then run the login tests again</span><span class="w">after the turn</span><button data-toast="Back in the field to edit">Edit</button><button data-toast="Removed from the queue">&#215;</button></div>` : "";
     // The Files tab's icons, the tree and the terminal.
     const FI = {
       files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
@@ -751,11 +743,11 @@ expected 200, got 401</pre></details></span></div>`;
     const field = ended ? `<div class="dinput small" id="agfield"><span class="txt ph">Message ${pillName} to continue</span>${pill}</div>` : outside
       ? `<div class="dmuted" style="display:block;padding:10px 16px;border-top:1px solid var(--d-border)">Running outside Beep. Beep follows it here. Close it there to continue here.</div>`
       : `${planCard}${v === "working" ? `<div class="agtasks"><div class="agtask"><span class="dspin"></span><code>npm run dev -- --port 4173</code><button class="dbtn quiet small">Stop</button></div></div>` : ""}<div class="dinput small" id="agfield">${menu}${pastePop}${cmdMenu}<button class="dbtn quiet" aria-label="Attach files" title="Attach files" data-toast="Choose files"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><span class="txt${pasted || slashIn ? " typed" : " ph"}">${pasted ? pasteIn : slashIn ? `${slashIn}<i class="cm-caret"></i>` : image ? "Add a message (optional)" : `Message ${pillName}`}</span>${modePill}${pill}${stopBtn}</div>`;
-    // While a turn runs, Enter steers, Option-Enter queues and Cmd-. stops; Esc goes back.
+    // While a turn runs, Enter steers and Cmd-. stops; Esc goes back.
     const keys = cmdMenu ? [["\u2191\u2193", "choose"], ["Tab", "pick"], ["esc", "close"]] : asks ? [[`⌘${DI.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]] : child ? [["esc", "parent session"]] : outside ? [["esc", "back"]] : ended ? [[DI.ret, "continue"], ["esc", "back"]]
-      : done ? [...(image ? [] : [["⌘V", "paste an image"]]), [DI.ret, "send"], ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]
-      : stopping ? [[DI.ret, "steer"], [`⌥${DI.ret}`, "queue"]]
-      : [[DI.ret, "steer"], [`⌥${DI.ret}`, "queue"], ["⇧Tab", "mode"], ["⌘.", queued ? "stop and send queued" : "stop"], ["esc", "back"]];
+      : done ? [["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]
+      : stopping ? [["esc", "back"]]
+      : [["⇧Tab", "mode"], ["⌘.", "stop"], ["esc", "back"]];
     const slim = `<div class="dhints slim">${keys.map(([k, t]) => `<span><kbd>${k}</kbd>${t}</span>`).join("")}<details class="ag-shortcuts"><summary>Show more</summary><div><span><kbd>⌘1</kbd>chat</span><span><kbd>⌘2</kbd>files</span><span><kbd>⌘3</kbd>changes</span><span><kbd>⌘4</kbd>artifacts</span><span><kbd>⇧↩</kbd>new line</span><span><kbd>⌘U</kbd>thoughts</span><span><kbd>⌘Y</kbd>commands</span></div></details></div>`;
     const why = "";
     // The media pane beside or under the conversation. Each file the agent
@@ -838,7 +830,7 @@ expected 200, got 401</pre></details></span></div>`;
     return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>Coding agents</h2><small>Follow it and answer it here</small><span class="tools"></span></div>
       <div class="dhead">${pillAgent === "flsh" ? `<span class="cc-ag flsh mark">${window.__MARKS.flsh}</span>` : av("claude")}<span class="tt"><b><button class="agproj" data-dgo="dProjects">acme/api</button></b><small title="${folder[0]}">build-box</small></span><small id="aguse" class="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">${usage}</small><span id="agstate">${state}</span><span class="agedit"><button class="dbtn quiet small" title="Open in Zed (⌘O)" data-toast="Opens /srv/project in Zed">Open in Zed</button><button class="dbtn quiet small" style="padding:0 6px" aria-label="Other editors" title="Open in VS Code" data-toast="Opens /srv/project in VS Code">${DI.chevD}</button></span></div>
       <div class="ag-shell${bottom ? " dock-bottom" : ""}">${wrap ? '<div class="ag-main">' : ""}<div class="ag-conv"><div class="dbody" id="agbody"><div class="dagmain">${why}<div class="dcoderlog">${log}</div>${card}</div>${v === "richjump" ? `<button class="ag-jump" data-dact="dset:ags:rich">Jump to latest<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>` : ""}</div>
-      ${queue}${att}${field}${slim}</div>${wrap ? `${under}</div>` : ""}${pane}</div>`);
+      ${steerRow}${att}${field}${slim}</div>${wrap ? `${under}</div>` : ""}${pane}</div>`);
   };
   // The streaming demo: text arrives in bursts, as the app reads it every
   // 0.3s while a thought is open. The ended one folds a moment after it shows.
@@ -866,7 +858,7 @@ expected 200, got 401</pre></details></span></div>`;
       setTimeout(() => el.classList.remove("open"), 900);
     }
   }, 250);
-  VARIANTS.dAgentSession = variants("ags", [["Nothing changed", "nochange"], ["Message waits for its machine", "held"], ["From another session", "fromsession"], ["Working", "working"], ["Message queued", "queued"], ["Steer pending", "steer"], ["Steer delivered", "steered"], ["Stopping", "stopping"], ["Asks you", "asks"], ["Done", "idle"], ["Warning in a reply", "warning"], ["Done, steps open", "stepsopen"], ["Failed steps", "failed"], ["Failed step opened", "failedopen"], ["Subagents", "subagents"], ["Subagent opened", "subchild"], ["Agents started on other machines", "agentkids"], ["Started agent opened", "agentchild"], ["Started agent stopped by you", "agentstopped"], ["Answered question", "answered"], ["Model menu", "model"], ["flsh model and thinking", "flshmodel"], ["flsh session usage", "flshusage"], ["flsh balance unavailable", "flshunknown"], ["Plan mode", "plan"], ["Plan ready", "planready"], ["Accept edits mode", "modeedits"], ["Ended", "ended"], ["Started outside Beep", "outside"], ["Read from disk, subagents", "disksubs"], ["Image", "image"], ["Reply with images", "shots"], ["Image in the pane", "shotpanel"], ["Media pane, docked right", "paneright"], ["Media pane, file not read", "panegone"], ["Media pane, docked bottom", "panebottom"], ["Media pane, PDF", "panepdf"], ["Media pane, folded", "panecollapsed"], ["Files", "files"], ["Files, multiple selected", "filemulti"], ["Files, delete confirmation", "filedelete"], ["Files, right-click", "filemenu"], ["Files, right-click, Open With", "filemenuwith"], ["File opened", "filetext"], ["Dragging a path in", "dragpath"], ["Filter reads the whole tree", "filefilter"], ["Finder drop, where to", "dropchoice"], ["Terminal tab", "term"], ["Terminal docked at the bottom", "termsplit"], ["Dragging a tab to a dock", "dragtab"], ["Long paste as a pill", "pasted"], ["Slash menu", "slash"], ["Slash menu, filtered", "slashfilter"], ["File menu", "atmenu"], ["Pasted text preview", "pastepreview"], ["Artifacts", "artifacts"], ["Running commands", "running"], ["Running, one stopped", "runstop"], ["Beep tools", "beeptools"], ["Thinking", "thinking"], ["Thoughts, folded", "thoughts"], ["Thought opened", "thoughtopen"], ["Rows, working", "rich"], ["Rows opened: diff and output", "richopen"], ["Rows, a run of reads opened", "richgroup"], ["Rows, a run of commands, one opened to its whole command", "richcmd"], ["Rows, done with Markdown", "richdone"], ["Rows, error card", "richerror"], ["Rows, scrolled up", "richjump"], ["Thought streaming (karaoke)", "richthink"], ["Thought ended, folds", "richthought"]], "nochange");
+  VARIANTS.dAgentSession = variants("ags", [["Nothing changed", "nochange"], ["Message waits for its machine", "held"], ["From another session", "fromsession"], ["Working", "working"], ["Steer pending", "steer"], ["Steer delivered", "steered"], ["Stopping", "stopping"], ["Asks you", "asks"], ["Done", "idle"], ["Warning in a reply", "warning"], ["Done, steps open", "stepsopen"], ["Failed steps", "failed"], ["Failed step opened", "failedopen"], ["Subagents", "subagents"], ["Subagent opened", "subchild"], ["Agents started on other machines", "agentkids"], ["Started agent opened", "agentchild"], ["Started agent stopped by you", "agentstopped"], ["Answered question", "answered"], ["Model menu", "model"], ["flsh model and thinking", "flshmodel"], ["flsh session usage", "flshusage"], ["flsh balance unavailable", "flshunknown"], ["Plan mode", "plan"], ["Plan ready", "planready"], ["Accept edits mode", "modeedits"], ["Ended", "ended"], ["Started outside Beep", "outside"], ["Read from disk, subagents", "disksubs"], ["Image", "image"], ["Reply with images", "shots"], ["Image in the pane", "shotpanel"], ["Media pane, docked right", "paneright"], ["Media pane, file not read", "panegone"], ["Media pane, docked bottom", "panebottom"], ["Media pane, PDF", "panepdf"], ["Media pane, folded", "panecollapsed"], ["Files", "files"], ["Files, multiple selected", "filemulti"], ["Files, delete confirmation", "filedelete"], ["Files, right-click", "filemenu"], ["Files, right-click, Open With", "filemenuwith"], ["File opened", "filetext"], ["Dragging a path in", "dragpath"], ["Filter reads the whole tree", "filefilter"], ["Finder drop, where to", "dropchoice"], ["Terminal tab", "term"], ["Terminal docked at the bottom", "termsplit"], ["Dragging a tab to a dock", "dragtab"], ["Long paste as a pill", "pasted"], ["Slash menu", "slash"], ["Slash menu, filtered", "slashfilter"], ["File menu", "atmenu"], ["Pasted text preview", "pastepreview"], ["Artifacts", "artifacts"], ["Running commands", "running"], ["Running, one stopped", "runstop"], ["Beep tools", "beeptools"], ["Thinking", "thinking"], ["Thoughts, folded", "thoughts"], ["Thought opened", "thoughtopen"], ["Rows, working", "rich"], ["Rows opened: diff and output", "richopen"], ["Rows, a run of reads opened", "richgroup"], ["Rows, a run of commands, one opened to its whole command", "richcmd"], ["Rows, done with Markdown", "richdone"], ["Rows, error card", "richerror"], ["Rows, scrolled up", "richjump"], ["Thought streaming (karaoke)", "richthink"], ["Thought ended, folds", "richthought"]], "nochange");
 
   // Shift+Esc zooms the side pane over the conversation; the pane keeps its tab and state, and Shift+Esc puts it back.
   // Review with agent (mock-feedback): a button in the diff header, always there, apart from Send review. Its
@@ -1031,7 +1023,7 @@ expected 200, got 401</pre></details></span></div>`;
       prompt.classList.add("ph");
       prompt.textContent = "Describe the task.";
       const form = composer.outerHTML;
-      const keys = [["⌘⏎", "start"], ["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]];
+      const keys = [["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]];
       const slim = `<div class="dhints slim">${keys.map(([k, t], i) => `<span${i >= 3 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}</div>`;
       const conv = `<div class="ag-conv"><div class="dbody" id="agbody"><div class="draft-start">${form}</div></div>${slim}</div>`;
       const head = `<div class="dhead"><span class="tt"><b><button class="agproj" data-dgo="dWinProject">acme/widget</button></b><small title="/srv/project">build-box</small></span><span id="agstate"></span><button class="dbtn quiet" title="Open in Zed (⌘O)" data-toast="Opens ~/Projects/widget in Zed">Open in Zed</button></div>`;
@@ -1258,4 +1250,15 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(
     S.screen = "dAgentSession";
     S.d.ags = usagePreview;
   }
+}
+
+// Reopened sessions show the latest turn. The scrolled-up variant stays put.
+{
+  const base = render;
+  render = function () {
+    base();
+    if (S.screen !== "dAgentSession" || S.d.ags === "richjump") return;
+    const body = document.querySelector("#desk #agbody");
+    if (body) body.scrollTop = body.scrollHeight;
+  };
 }

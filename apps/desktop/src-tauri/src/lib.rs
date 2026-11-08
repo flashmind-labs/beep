@@ -77,6 +77,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(artifacts::Pages::default())
+        .manage(Arc::new(chat::clipboard::ImageClipboard::default()))
         .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle();
             match artifacts::route(&app.state::<artifacts::Pages>(), &request) {
@@ -137,6 +138,18 @@ pub fn run() {
                     .app_handle()
                     .state::<center::AgentsShown>()
                     .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<agents::follow::Follows>()
+                    .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<fleet::events::Events>()
+                    .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<projects::live::Followed>()
+                    .clear(window.label());
                 center::closed(window.app_handle(), window.label());
             }
             _ => {}
@@ -149,6 +162,11 @@ pub fn run() {
             agents::accounts::codex_login_start,
             agents::accounts::codex_login_state,
             agents::accounts::revoke_agent_token,
+            agents::stash::prompt_stash_list,
+            agents::stash::prompt_stash_put,
+            agents::stash::prompt_stash_read,
+            agents::stash::prompt_stash_take,
+            agents::stash::prompt_stash_remove,
             agents::accounts::save_agent_token,
             agents::artifacts::agent_artifact,
             agents::artifacts::agent_artifacts_present,
@@ -215,6 +233,11 @@ pub fn run() {
             agents::sessions::agent_modes,
             agents::sessions::agent_tasks,
             agents::sessions::agent_view,
+            agents::follow::agent_follow,
+            fleet::events::mesh_watch,
+            fleet::events::mesh_topics,
+            fleet::events::mesh_command,
+            agents::follow::agent_unfollow,
             agents::steer::agent_steer,
             bar::app::allow_mac_permission,
             bar::app::link_offer,
@@ -284,6 +307,7 @@ pub fn run() {
             center::window::center_window_project,
             center::window::open_center,
             chat::approvals::answer_approval,
+            chat::files::copy_diagram_image,
             chat::files::open_file,
             chat::files::picture,
             chat::files::reveal_file,
@@ -371,7 +395,9 @@ pub fn run() {
             projects::file_sync::project_syncthing_files,
             projects::git_sync::project_git_move,
             projects::file_sync::project_handoff_work,
+            projects::file_sync::project_git_auto_recovery,
             projects::file_sync::project_syncthing_mode,
+            projects::file_sync::project_ignored_sync,
             projects::git_sync::project_git_state,
             projects::file_sync::project_sync_detail,
             projects::file_sync::project_sync_pause,
@@ -396,6 +422,7 @@ pub fn run() {
             projects::list::projects_on_top,
             projects::list::remove_project,
             projects::live::follow_project,
+            projects::live::follow_project_run,
             projects::live::unfollow_project,
             projects::overview::project_overview,
             projects::page::center_open_project,
@@ -684,6 +711,10 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(platform::update::Updates::default());
     app.manage(center::Shown::default());
     app.manage(center::AgentsShown::default());
+    app.manage(agents::follow::Follows::default());
+    app.manage(fleet::events::Events::default());
+    app.manage(fleet::event_views::Views::default());
+    fleet::event_views::listen(&handle);
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(Arc::new(notices::history::Notes::load(

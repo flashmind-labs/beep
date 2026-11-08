@@ -2542,6 +2542,7 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
     until(&f.laptop.mesh, |m| online(m, second.id)).await;
     let desk = desk(&f.studio, &[]).await;
     let spec = SyncSpec {
+        ignored: Default::default(),
         folders: [
             (f.build.id, "/srv/build/app".to_owned()),
             (second.id, "/Users/me/app".to_owned()),
@@ -2875,13 +2876,23 @@ async fn project_syncthing_choice_reaches_a_machine_that_joins_later() {
             .unwrap(),
         None
     );
+    assert!(
+        !desk
+            .project_git_auto_recovery("example/repo", None)
+            .await
+            .unwrap()
+    );
+    desk.project_git_auto_recovery("example/repo", Some(true))
+        .await
+        .unwrap();
     desk.project_syncthing_mode("example/repo", Some(false))
         .await
         .unwrap();
     let later = join(&studio, DeviceKind::Node, "build-box").await;
     until(&later.mesh, |mesh| {
         mesh.get(&key).is_some_and(|bytes| {
-            ProjectRecord::from_bytes(&bytes).unwrap().syncthing_files == Some(false)
+            let record = ProjectRecord::from_bytes(&bytes).unwrap();
+            record.syncthing_files == Some(false) && record.git_auto_recovery
         })
     })
     .await;
@@ -2891,7 +2902,19 @@ async fn project_syncthing_choice_reaches_a_machine_that_joins_later() {
     until(&later.mesh, |mesh| {
         mesh.get(&key).is_some_and(|bytes| {
             let record = ProjectRecord::from_bytes(&bytes).unwrap();
-            record.syncthing_files == Some(true) && record.url == "https://example.com/example/repo"
+            record.git_auto_recovery
+                && record.syncthing_files == Some(true)
+                && record.url == "https://example.com/example/repo"
+        })
+    })
+    .await;
+    desk.project_git_auto_recovery("example/repo", Some(false))
+        .await
+        .unwrap();
+    until(&later.mesh, |mesh| {
+        mesh.get(&key).is_some_and(|bytes| {
+            let record = ProjectRecord::from_bytes(&bytes).unwrap();
+            !record.git_auto_recovery && record.syncthing_files == Some(true)
         })
     })
     .await;
@@ -2977,4 +3000,85 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
     let mut refreshed = generated;
     session_titles::apply(&other.mesh, &mut refreshed);
     assert_eq!(refreshed.title.as_deref(), Some("Generated title"));
+}
+
+#[tokio::test]
+async fn ignored_folder_selection_reaches_later_machines_and_preserves_pause_and_places() {
+    use beep_proto::node::{mesh_state::ProjectRecord, sync::IgnoredSync};
+    let studio = create("studio").await;
+    let desk = desk(&studio, &[]).await;
+    studio
+        .mesh
+        .set(
+            Key::Project("example/repo".into()),
+            Some(
+                ProjectRecord {
+                    url: "https://example.com/example/repo".into(),
+                    ..ProjectRecord::default()
+                }
+                .to_bytes()
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+    let key = Key::Sync("example/repo".into());
+    let spec = SyncSpec {
+        folders: [(studio.id, "/srv/project".into())].into(),
+        paused: true,
+        ..SyncSpec::default()
+    };
+    studio
+        .mesh
+        .set(key.clone(), Some(spec.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(
+        desk.project_ignored_sync("example/repo", None)
+            .await
+            .unwrap(),
+        IgnoredSync::default()
+    );
+    let selection = IgnoredSync {
+        enabled: true,
+        folders: vec!["models".into()],
+    };
+    desk.project_ignored_sync("example/repo", Some(selection.clone()))
+        .await
+        .unwrap();
+    let later = join(&studio, DeviceKind::Node, "build-box").await;
+    until(&later.mesh, |mesh| {
+        mesh.get(&key).is_some_and(|bytes| {
+            let got = SyncSpec::from_bytes(&bytes).unwrap();
+            got.ignored == selection && got.paused && got.folders == spec.folders
+        })
+    })
+    .await;
+    assert!(
+        desk.project_ignored_sync(
+            "example/repo",
+            Some(IgnoredSync {
+                enabled: true,
+                folders: vec!["../outside".into()]
+            })
+        )
+        .await
+        .is_err()
+    );
+    desk.project_ignored_sync(
+        "example/repo",
+        Some(IgnoredSync {
+            enabled: false,
+            ..selection.clone()
+        }),
+    )
+    .await
+    .unwrap();
+    until(&later.mesh, |mesh| {
+        mesh.get(&key).is_some_and(|bytes| {
+            let got = SyncSpec::from_bytes(&bytes).unwrap();
+            !got.ignored.enabled && got.ignored.folders == selection.folders && got.paused
+        })
+    })
+    .await;
 }

@@ -652,6 +652,8 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
         SHELL,
         "process/1",
         "agents/1",
+        beep_proto::node::events::PROTOCOL,
+        beep_proto::node::agent::SESSION_FOLLOW_PROTOCOL,
         "files/1",
         "terminal/1",
         "codex/1",
@@ -1178,6 +1180,7 @@ impl Bare {
     /// Writes the record, and waits for each node to take it.
     async fn sync(&mut self) {
         let spec = SyncSpec {
+            ignored: Default::default(),
             folders: [
                 (self.a.id, self.a_folder.display().to_string()),
                 (self.b.id, self.b_folder.display().to_string()),
@@ -2700,6 +2703,7 @@ async fn synced_pair_env(
     fs::create_dir(&a_folder).expect("a project folder");
     fs::create_dir(&b_folder).expect("a project folder");
     let spec = SyncSpec {
+        ignored: Default::default(),
         folders: [
             (a.id, a_folder.display().to_string()),
             (b.id, b_folder.display().to_string()),
@@ -4501,6 +4505,7 @@ async fn status_shows_the_devices_and_how_each_project_syncs() {
     let b_gone = pair.b_folder.with_file_name("gone");
     fs::create_dir(&b_gone).expect("a project folder");
     let spec = SyncSpec {
+        ignored: Default::default(),
         folders: [
             (pair.a.id, unmounted.display().to_string()),
             (pair.b.id, b_gone.display().to_string()),
@@ -4888,4 +4893,349 @@ async fn skill_sync_can_pause_survive_a_restart_and_resume_without_removing_file
         tree(&a.home.path().join(".claude/skills/notes"))
     );
     assert_eq!(tree(&b.home.path().join(".claude/skills/local")), local);
+}
+
+mod topic_streams {
+    use super::*;
+    use beep_mesh::PeerClient;
+    use beep_proto::node::events::{self, CallReply, Operation, Topic, Value};
+    use beep_proto::node::mesh_state::ProjectRecord;
+
+    async fn receive(rx: &mut LinkRx) -> events::Reply {
+        loop {
+            let reply = timeout(LIMIT, rx.recv::<events::Reply>())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if !matches!(reply, events::Reply::Pong { id: 0 }) {
+                return reply;
+            }
+        }
+    }
+
+    async fn subscribe(client: &PeerClient, topics: Vec<Topic>) -> Stream {
+        let (tx, mut rx) = client
+            .open_sending(
+                events::PROTOCOL,
+                &events::Request::Watch {
+                    id: 1,
+                    topics,
+                    queries: vec![],
+                },
+            )
+            .await
+            .expect("the first attempt opens the topic stream");
+        assert_eq!(receive(&mut rx).await, events::Reply::Ready);
+        assert_eq!(receive(&mut rx).await, events::Reply::Watching { id: 1 });
+        Stream { tx, rx }
+    }
+
+    async fn snapshot(rx: &mut LinkRx, topic: &Topic) -> events::Snapshot {
+        loop {
+            match receive(rx).await {
+                events::Reply::Snapshot(state) if &state.topic == topic => return *state,
+                events::Reply::Snapshot(_) => {}
+                other => panic!("expected current state: {other:?}"),
+            }
+        }
+    }
+
+    fn has_file(value: &Value, name: &str) -> bool {
+        matches!(value, Value::Sessions(reply) if match reply.as_ref() {
+            beep_proto::node::agent::SessionsReply::Tree { tree } => tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == name)),
+            beep_proto::node::agent::SessionsReply::Folder { folder } => folder.entries.iter().any(|entry| entry.name == name),
+            _ => false,
+        })
+    }
+
+    async fn file(rx: &mut LinkRx, topic: &Topic, name: &str) -> events::Snapshot {
+        loop {
+            let state = snapshot(rx, topic).await;
+            if has_file(&state.value, name) {
+                return state;
+            }
+        }
+    }
+
+    async fn place(desktop: &Member, node: EndpointId, project: &str, folder: &Path) {
+        desktop
+            .mesh
+            .set(
+                Key::Project(format!("{project}/{node}")),
+                Some(
+                    Place {
+                        folder: folder.to_str().expect("a UTF-8 directory").to_owned(),
+                        imported_ms: 0,
+                        fork: None,
+                    }
+                    .to_bytes()
+                    .expect("the placement encodes"),
+                ),
+            )
+            .await
+            .expect("the project placement is saved");
+    }
+
+    async fn project(desktop: &Member, node: EndpointId, name: &str, folder: &Path) {
+        place(desktop, node, name, folder).await;
+        desktop
+            .mesh
+            .set(
+                Key::Project(name.to_owned()),
+                Some(
+                    ProjectRecord {
+                        url: format!("https://example.invalid/{name}"),
+                        syncthing_files: None,
+                        git_auto_recovery: false,
+                    }
+                    .to_bytes()
+                    .expect("the project record encodes"),
+                ),
+            )
+            .await
+            .expect("the project is saved");
+    }
+
+    #[tokio::test]
+    async fn dotted_project_topics_send_first_file_snapshots_and_filter_wildcards() {
+        let root = TempDir::new().unwrap();
+        let own = root.path().join("own");
+        let other = root.path().join("other");
+        fs::create_dir(&own).unwrap();
+        fs::create_dir(&other).unwrap();
+        let desktop = desktop().await;
+        let mut node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        project(&desktop, node.id, "org/repo", &own).await;
+        project(&desktop, node.id, "another/repo", &other).await;
+        set_credential(&desktop, "topics-ready", "TOPICS_READY", "yes").await;
+        node.logged("from the mesh: 1 credentials").await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let own_topic = Topic::parse("files.org.repo").unwrap();
+        let other_topic = Topic::parse("files.another.repo").unwrap();
+        let organization = Topic::parse("files.org.*").unwrap();
+        let mut exact = subscribe(&client, vec![own_topic.clone()]).await;
+        snapshot(&mut exact.rx, &own_topic).await;
+        let mut scoped = subscribe(&client, vec![organization.clone()]).await;
+        snapshot(&mut scoped.rx, &own_topic).await;
+        let mut all = subscribe(&client, vec![Topic::new("files")]).await;
+        snapshot(&mut all.rx, &other_topic).await;
+        fs::write(own.join("first.txt"), "first").unwrap();
+        file(&mut exact.rx, &own_topic, "first.txt").await;
+        file(&mut scoped.rx, &own_topic, "first.txt").await;
+        file(&mut all.rx, &own_topic, "first.txt").await;
+        fs::write(other.join("other.txt"), "other").unwrap();
+        file(&mut all.rx, &other_topic, "other.txt").await;
+        // A request/reply fence confirms the original scoped stream stays duplex.
+        scoped
+            .tx
+            .send(&events::Request::Ping { id: 2 })
+            .await
+            .unwrap();
+        loop {
+            match receive(&mut scoped.rx).await {
+                events::Reply::Pong { id: 2 } => break,
+                events::Reply::Snapshot(state) => assert!(organization.covers(&state.topic)),
+                other => panic!("unexpected scoped reply: {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_project_topics_rebind_and_publish_removal_without_resubscribing() {
+        let root = TempDir::new().unwrap();
+        let first = root.path().join("first");
+        let second = root.path().join("second");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        fs::write(first.join("old.txt"), "old").unwrap();
+        fs::write(second.join("new.txt"), "new").unwrap();
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let alias = Topic::parse("files.org.repo").unwrap();
+        let mut stream = subscribe(&client, vec![alias.clone()]).await;
+        assert_eq!(snapshot(&mut stream.rx, &alias).await.value, Value::Missing);
+        project(&desktop, node.id, "org/repo", &first).await;
+        file(&mut stream.rx, &alias, "old.txt").await;
+        place(&desktop, node.id, "org/repo", &second).await;
+        let changed = file(&mut stream.rx, &alias, "new.txt").await;
+        assert!(!has_file(&changed.value, "old.txt"));
+        desktop
+            .mesh
+            .set(Key::Project(format!("org/repo/{}", node.id)), None)
+            .await
+            .unwrap();
+        loop {
+            if snapshot(&mut stream.rx, &alias).await.value == Value::Missing {
+                break;
+            }
+        }
+        // Rebinding again proves the same subscription survived removal.
+        fs::write(first.join("after.txt"), "after removal").unwrap();
+        place(&desktop, node.id, "org/repo", &first).await;
+        file(&mut stream.rx, &alias, "after.txt").await;
+        let scope = Topic::parse("files.org.*").unwrap();
+        let mut wildcard = subscribe(&client, vec![scope.clone()]).await;
+        assert!(
+            matches!(snapshot(&mut wildcard.rx, &scope).await.value, Value::Resources(ref resources) if resources.contains(&alias))
+        );
+        drop(wildcard);
+        desktop
+            .mesh
+            .set(Key::Project(format!("org/repo/{}", node.id)), None)
+            .await
+            .unwrap();
+        loop {
+            if snapshot(&mut stream.rx, &alias).await.value == Value::Missing {
+                break;
+            }
+        }
+        // The new stream has no previous resources to tombstone. Its directory snapshot
+        // must remove the alias that disappeared while this subscriber was offline.
+        let mut resumed = subscribe(&client, vec![scope.clone()]).await;
+        assert_eq!(
+            snapshot(&mut resumed.rx, &scope).await.value,
+            Value::Resources(vec![])
+        );
+    }
+
+    #[tokio::test]
+    async fn first_subscription_streams_state_and_accepts_concurrent_commands() {
+        let root = TempDir::new().unwrap();
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let files = Topic::keyed("files", root.path().to_str().unwrap());
+        let mut stream = subscribe(&client, vec![files.clone(), Topic::new("processes")]).await;
+        snapshot(&mut stream.rx, &files).await;
+        stream
+            .tx
+            .send(&events::Request::Call {
+                id: 2,
+                operation: Box::new(Operation::Process(ProcessRequest::Start {
+                    command: "echo duplex-output".into(),
+                    cwd: None,
+                })),
+            })
+            .await
+            .unwrap();
+        stream
+            .tx
+            .send(&events::Request::Call {
+                id: 3,
+                operation: Box::new(Operation::Process(ProcessRequest::List {})),
+            })
+            .await
+            .unwrap();
+        fs::write(root.path().join("example.txt"), "changed").unwrap();
+        let (mut started, mut listed, mut updated) = (false, false, false);
+        let mut revision = 0;
+        while !(started && listed && updated) {
+            match receive(&mut stream.rx).await {
+                events::Reply::Result { id: 2, reply } => {
+                    assert!(matches!(
+                        *reply,
+                        CallReply::Process(ProcessReply::Started { .. })
+                    ));
+                    started = true;
+                }
+                events::Reply::Result { id: 3, reply } => {
+                    assert!(matches!(
+                        *reply,
+                        CallReply::Process(ProcessReply::Tasks { .. })
+                    ));
+                    listed = true;
+                }
+                events::Reply::Snapshot(state) => {
+                    assert!(state.revision > revision);
+                    revision = state.revision;
+                    updated |= state.topic == files && has_file(&state.value, "example.txt");
+                }
+                other => panic!("unexpected duplex reply: {other:?}"),
+            }
+        }
+    }
+
+    async fn replaced_connection(desktop: &Member, node: EndpointId, previous: usize) {
+        let mut changes = desktop.mesh.updates();
+        timeout(LIMIT, async {
+            loop {
+                changes.borrow_and_update();
+                if desktop.mesh.peer(node).is_some_and(|connection| {
+                    connection.stable_id() != previous && connection.close_reason().is_none()
+                }) {
+                    return;
+                }
+                changes.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn transport_loss_and_restart_return_fresh_snapshots() {
+        let root = TempDir::new().unwrap();
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let topic = Topic::keyed("files", root.path().to_str().unwrap());
+        let mut first = subscribe(&client, vec![topic.clone()]).await;
+        snapshot(&mut first.rx, &topic).await;
+        drop(first);
+        fs::write(root.path().join("latest.txt"), "one").unwrap();
+        fs::write(root.path().join("latest.txt"), "two").unwrap();
+        let connection = desktop.mesh.peer(node.id).unwrap();
+        let previous = connection.stable_id();
+        connection.close(0u32.into(), b"test reconnect");
+        replaced_connection(&desktop, node.id, previous).await;
+        let mut resumed = subscribe(&client, vec![topic.clone()]).await;
+        assert!(has_file(
+            &snapshot(&mut resumed.rx, &topic).await.value,
+            "latest.txt"
+        ));
+        drop(resumed);
+        let previous = desktop.mesh.peer(node.id).unwrap().stable_id();
+        let node = node.restart().await;
+        replaced_connection(&desktop, node.id, previous).await;
+        let mut restarted = subscribe(&client, vec![topic.clone()]).await;
+        assert!(has_file(
+            &snapshot(&mut restarted.rx, &topic).await.value,
+            "latest.txt"
+        ));
+        restarted
+            .tx
+            .send(&events::Request::Ping { id: 5 })
+            .await
+            .unwrap();
+        assert_eq!(
+            receive(&mut restarted.rx).await,
+            events::Reply::Pong { id: 5 }
+        );
+    }
 }

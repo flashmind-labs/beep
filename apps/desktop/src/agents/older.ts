@@ -29,7 +29,7 @@ function goesOn(mode: Reading, reads: number, b: HTMLElement | null) {
 /// without moving what the reader sees. One run at a time.
 export async function loadOlder(mode: Reading) {
   const o = AG.open;
-  if (!o || AG.older.loading || AG.child != null) return;
+  if (!o || AG.older.loading) return;
   AG.older.loading = true;
   let reads = 0;
   try {

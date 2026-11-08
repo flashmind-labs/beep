@@ -313,6 +313,7 @@ impl Moves {
 /// Changes the progress shown, keeping what `change` leaves alone.
 pub(super) fn show(tracker: &Tracker, change: impl FnOnce(&mut MoveProgress)) {
     tracker.send_modify(change);
+    crate::events::system().changed(beep_proto::node::events::Topic::new("moves"));
 }
 
 #[cfg(test)]

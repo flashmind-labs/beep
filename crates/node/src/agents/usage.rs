@@ -48,6 +48,7 @@ impl UsageHub {
         }
         drop(turns);
         self.arrived.notify_one();
+        crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
     }
 
     /// The oldest turn waiting for the server, once there is one.
@@ -68,11 +69,14 @@ impl UsageHub {
 
     /// Takes `plan` in place of the agent's report before.
     pub(crate) fn set_plan(&self, plan: PlanUsage) {
-        self.plans.send_if_modified(|plans| {
+        let changed = self.plans.send_if_modified(|plans| {
             let changed = plans.get(&plan.agent) != Some(&plan);
             plans.insert(plan.agent.clone(), plan);
             changed
         });
+        if changed {
+            crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
+        }
     }
 
     /// Replaces a provider's last balance without changing session spend or plan windows.
@@ -101,7 +105,7 @@ impl UsageHub {
         if windows.is_empty() {
             return;
         }
-        self.plans.send_if_modified(|plans| {
+        let changed = self.plans.send_if_modified(|plans| {
             let plan = plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
                 agent: agent.clone(),
                 ..PlanUsage::default()
@@ -120,6 +124,9 @@ impl UsageHub {
             }
             changed
         });
+        if changed {
+            crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
+        }
     }
 }
 

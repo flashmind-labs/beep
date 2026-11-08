@@ -1,7 +1,9 @@
 // Bundles src/ into dist/, next to the HTML and CSS Tauri serves.
 // `--watch` rebuilds on every change, for `cargo tauri dev`.
 import * as esbuild from "esbuild";
-import { copyFileSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, readdirSync, rmSync } from "node:fs";
+
+cpSync(new URL("../diagrams/assets/", import.meta.url), new URL("dist/diagrams/", import.meta.url), { recursive: true });
 
 // xterm.js's stylesheet, linked from center.html next to the bundle.
 copyFileSync(

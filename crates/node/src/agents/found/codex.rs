@@ -4,7 +4,7 @@
 
 use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
 use crate::agents::claude::unix_seconds;
-use crate::agents::place::call_folder;
+use crate::agents::{place::call_folder, subagent::Conversation};
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -23,11 +23,16 @@ const MAX_TAIL: u64 = 2 * 1024 * 1024;
 
 /// Codex's folder, when it has sessions here.
 pub(super) fn locate() -> Option<PathBuf> {
+    let root = configured()?;
+    root.join("sessions").is_dir().then_some(root)
+}
+
+pub(super) fn configured() -> Option<PathBuf> {
     let root = match env::var_os("CODEX_HOME") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => dirs::home_dir()?.join(".codex"),
     };
-    root.join("sessions").is_dir().then_some(root)
+    Some(root)
 }
 
 /// The newest sessions under `root`, sub-agents left out.
@@ -57,12 +62,16 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
 /// The session a rollout's first line (`session_meta`) names; `None` for a
 /// sub-agent's (its `source` is an object) or a line that is not a header.
 fn header(line: &str) -> Option<Seen> {
+    header_with_children(line, false)
+}
+
+fn header_with_children(line: &str, children: bool) -> Option<Seen> {
     let value: Value = serde_json::from_str(line.trim()).ok()?;
     if value["type"] != "session_meta" {
         return None;
     }
     let meta = &value["payload"];
-    if meta["source"].is_object() {
+    if !children && meta["source"].is_object() {
         return None;
     }
     let id = meta["id"].as_str().filter(|id| !id.is_empty())?;
@@ -81,6 +90,37 @@ fn header(line: &str) -> Option<Seen> {
         title: None,
         file: None,
     })
+}
+
+/// Explicit native lookups do not add child threads to the top-level listing.
+pub(super) fn native(root: &Path, id: &str) -> Option<Seen> {
+    let Conversation::Codex(thread) = Conversation::parse(id)? else {
+        return None;
+    };
+    let file = super::codex_run::rollout(root, thread)?;
+    let line = first_line(&file).ok()??;
+    let mut seen = header_with_children(&line, true)?;
+    if seen.id != thread {
+        return None;
+    }
+    let value: Value = serde_json::from_str(&line).ok()?;
+    if !value["payload"]["source"].is_object() {
+        return None;
+    }
+    seen.id = id.to_owned();
+    seen.title = value["payload"]["agent_path"]
+        .as_str()
+        .and_then(|path| path.rsplit('/').next())
+        .and_then(prompt_title);
+    seen.last_activity = std::fs::metadata(&file)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    seen.file = Some(file);
+    Some(seen)
 }
 
 /// The names the user gave sessions, by id, from the index at `index`; a

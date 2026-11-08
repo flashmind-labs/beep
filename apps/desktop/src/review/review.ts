@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // review/: a project's branches and reviews. Entry:
 // makeReviews here.
 // A project's branches and the review of one before a merge.
@@ -146,7 +147,6 @@ type Branches = Pick<BranchesView, "default_branch" | "branches"> & Partial<Pick
 type Target = Partial<Place>;
 
 /// How often a running review is read again.
-const POLL_MS = 4000;
 
 /// Findings neither dismissed nor dropped by the verifier.
 export function openFindings<F extends Verdicts>(r: Findings<F>) {
@@ -324,7 +324,7 @@ export function makeReviews(deps: ReviewDeps) {
   const machines = deps.machines || (() => []);
   const kept = deps.kept ?? new PageCache(null).section<KeptBranches>("branches");
   const all = new Map<string, ProjectReviews>();
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let unfollow: (() => void) | undefined;
   let polling: string | null = null;
 
   /// A project's branches and reviews, from the cache until they are read.
@@ -350,7 +350,16 @@ export function makeReviews(deps: ReviewDeps) {
     if (due && !reading.has(name)) return load(name);
   }
 
-  async function load(name: string) {
+  const loads = new Map<string, Promise<void>>();
+  function load(name: string): Promise<void> {
+    const pending = loads.get(name);
+    if (pending) return pending;
+    const read = readList(name).finally(() => loads.delete(name));
+    loads.set(name, read);
+    return read;
+  }
+
+  async function readList(name: string) {
     const t = of(name);
     if (reading.has(name)) return;
     reading.add(name);
@@ -358,9 +367,10 @@ export function makeReviews(deps: ReviewDeps) {
     // Kept lists stay up meanwhile, with a spinner in their header.
     if (t.branches !== undefined) queueMicrotask(redraw);
     let failed = false;
+    t.error = "";
     const [branches, reviews] = await Promise.all([
       invoke<BranchesView | null>("project_branches", { project: name }).catch((e): Branches | null => { failed = true; t.error = reason(e); return t.branches ?? { default_branch: "", branches: [] }; }),
-      invoke<ReviewView[] | null>("reviews_list", { project: name }).catch(e => { failed = true; console.warn("reviews:", e); return t.reviews ?? []; }),
+      invoke<ReviewView[] | null>("reviews_list", { project: name }).catch(e => { failed = true; t.error = reason(e); console.warn("reviews:", e); return t.reviews ?? []; }),
     ]);
     reading.delete(name);
     t.branches = branches;
@@ -406,15 +416,17 @@ export function makeReviews(deps: ReviewDeps) {
     redraw();
   }
 
-  /// Polls the open review of `name` while it runs and shows; null stops.
+  /// Follows reviews while the section shows; null stops.
   function watch(name: string | null) {
     if (polling === name) return;
-    clearInterval(timer);
+    unfollow?.();
     polling = name;
     if (!name) return;
-    timer = setInterval(() => {
-      if (pageShown()) read(name);
-    }, POLL_MS);
+    unfollow = subscribeTopics(topic("reviews"), async () => {
+      await loads.get(name);
+      await Promise.all([load(name), read(name)]);
+      if (of(name).error) throw new Error(of(name).error);
+    });
   }
 
   /// Opens `branch`'s newest review, starting one when it has none or
@@ -673,7 +685,7 @@ export function makeReviews(deps: ReviewDeps) {
     const mergeB = button(t.busy === "merge" ? "Asking…" : "Merge…", mergeOk ? "pri" : "", () => merge(name, r));
     mergeB.disabled = !mergeOk || !!t.busy;
     out.push(h("div", "rv-bar", fixB, postB, mergeB, h("small", "", why)));
-    watch(running ? name : null);
+    watch(name);
     return out;
   }
 

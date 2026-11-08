@@ -201,6 +201,19 @@ ffi_structs! {
     pub struct AgentEntry {
         pub kind: AgentEntryKind,
         pub text: String,
+        #[serde(default)]
+        pub tool: Option<AgentToolCall>,
+    }
+
+    /// The actual tool call, kept separately from its display title. JSON
+    /// arguments and results are bounded by the node before sending.
+    #[derive(Default)]
+    pub struct AgentToolCall {
+        pub name: Option<String>,
+        pub input: Option<String>,
+        pub input_truncated: bool,
+        pub result: Option<String>,
+        pub result_truncated: bool,
     }
 }
 

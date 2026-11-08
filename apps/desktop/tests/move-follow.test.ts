@@ -18,7 +18,7 @@ test("the open conversation follows a completed move even when its target lists 
   const record = { session: "s1", agent: "codex", from: "laptop", to: "studio", project: "acme/app", at: Date.now() };
   const progress = { answer: "known" as const, phase: "done" as const, copied: 0, total: 0, files_left: 0, source_away: false, reason: null };
   S.view = "agent";
-  Object.assign(document, { visibilityState: "hidden" });
+  Object.assign(document, { visibilityState: "visible" });
   // This check draws the header; the composer needs native textarea accessors.
   const query = bar.querySelector.bind(bar);
   t.mock.method(bar, "querySelector", (selector: string) => selector === "#agmsg" ? null : query(selector));
@@ -31,13 +31,19 @@ test("the open conversation follows a completed move even when its target lists 
   bar.innerHTML = '<div id="aghere"></div><div id="agmovebox"></div>';
   calls.length = 0;
   drawMove();
-  t.mock.timers.tick(1500);
   await settle();
+  const stream = calls.find(c => c.cmd === "mesh_watch")?.args as { onEvent: { onmessage(event: unknown): void } };
+  assert.ok(stream);
+  const notify = async () => {
+    stream.onEvent.onmessage({ machine_id: "studio", topic: "moves.*", revision: 1, data: {} });
+    t.mock.timers.tick(100);
+    await settle();
+  };
+  await notify();
   assert.ok(calls.some(c => c.cmd === "agent_sessions"));
   assert.equal(AG.open?.machine_id, source.machine_id);
   answers.agent_sessions = [source, target];
-  t.mock.timers.tick(1500);
-  await settle();
+  await notify();
   assert.equal(AG.open?.machine_id, target.machine_id);
   assert.equal(AG.page?.session.machine_name, target.machine_name);
   assert.equal(bar.querySelector("#aghere")?.textContent, target.machine_name);

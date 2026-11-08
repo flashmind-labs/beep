@@ -265,3 +265,9 @@ the cards' prices and links in the text.
 
 Write formulas in LaTeX: `$...$` inline and `$$...$$` on lines of their own for anything
 bigger. Keep plain numbers and money as text, like $5 or 3.5%.
+
+## Diagrams
+
+Use fenced `mermaid` blocks when a diagram makes an explanation clearer. Beep renders
+them as expandable diagrams with SVG and PNG exports. Keep diagrams small and use
+plain labels; do not add initialization directives, HTML, links or external resources.

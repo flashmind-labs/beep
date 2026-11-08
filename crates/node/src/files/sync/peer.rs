@@ -4,7 +4,7 @@
 
 use super::{
     Syncs,
-    gitdir::{Checkout, Oid, Repo},
+    gitdir::{BranchTip, Checkout, Oid, Repo},
     map::{Entry, Replica},
     project::{Cursor, Shared},
 };
@@ -22,6 +22,8 @@ use tokio::{
     task::{JoinSet, spawn_blocking},
     time::{Instant, sleep, timeout},
 };
+
+mod branches;
 
 /// Every batch carries its scanned checkout. Earlier versions cannot
 /// enforce that base when Git changes during a pull.
@@ -53,6 +55,19 @@ enum Request {
         copy_git: bool,
     },
     GitObjects {
+        project: String,
+        commit: Oid,
+        branch: String,
+        have: Option<Oid>,
+    },
+    /// The branch catalogue reply is sent only in response to this request.
+    PullBranches {
+        project: String,
+        replica: Replica,
+        since: u64,
+        copy_git: bool,
+    },
+    BranchObjects {
         project: String,
         commit: Oid,
         branch: String,
@@ -94,6 +109,22 @@ enum Reply {
         bytes: Vec<u8>,
     },
     GitDone,
+    Branches {
+        tips: Vec<BranchTip>,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum ObjectScope {
+    Checkout,
+    Branch,
+}
+
+struct ObjectWant {
+    commit: Oid,
+    branch: String,
+    have: Option<Oid>,
+    scope: ObjectScope,
 }
 
 /// Answers other nodes' pulls.
@@ -148,6 +179,7 @@ impl ProtocolHandler for PeerHandler {
 }
 
 async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+    let mut with_branches = false;
     let (project, replica, since, copy_git) = match rx.recv::<Request>().await? {
         Some(Request::Pull {
             project,
@@ -155,23 +187,54 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             since,
             copy_git,
         }) => (project, replica, since, copy_git),
+        Some(Request::PullBranches {
+            project,
+            replica,
+            since,
+            copy_git,
+        }) => {
+            with_branches = true;
+            (project, replica, since, copy_git)
+        }
         Some(Request::GitObjects {
             project,
             commit,
             branch,
             have,
         }) => {
-            let Some(shared) = syncs
-                .project(&project)
-                .filter(|shared| shared.has_peer(&peer) && syncs.allows(&peer))
-            else {
-                return tx
-                    .send(&Reply::Refused {
-                        message: "This project is not shared with this peer.".into(),
-                    })
-                    .await;
-            };
-            return serve_objects(&syncs, &shared, peer, &mut tx, commit, &branch, have).await;
+            return serve_objects(
+                &syncs,
+                peer,
+                &project,
+                &mut tx,
+                ObjectWant {
+                    commit,
+                    branch,
+                    have,
+                    scope: ObjectScope::Checkout,
+                },
+            )
+            .await;
+        }
+        Some(Request::BranchObjects {
+            project,
+            commit,
+            branch,
+            have,
+        }) => {
+            return serve_objects(
+                &syncs,
+                peer,
+                &project,
+                &mut tx,
+                ObjectWant {
+                    commit,
+                    branch,
+                    have,
+                    scope: ObjectScope::Branch,
+                },
+            )
+            .await;
         }
         Some(Request::Handoff { project }) => {
             if !syncs
@@ -230,11 +293,19 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             })
             .await;
     }
+    let mut branch = git_branch(shared.root()).await?;
+    let mut tips = if with_branches {
+        let tips = branches::catalog(&shared).await?;
+        tx.send(&Reply::Branches { tips: tips.clone() }).await?;
+        tips
+    } else {
+        Vec::new()
+    };
     tx.send(&Reply::Head {
         commit: head.commit,
         behind: shared.last_change_after(since),
         has_git: head.present,
-        branch: git_branch(shared.root()).await?,
+        branch: branch.clone(),
     })
     .await?;
     let mut seq = shared.subscribe();
@@ -251,14 +322,23 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                 shared.list_checkout().await?
             }
         };
-        if now != head {
+        if with_branches {
+            let next = branches::catalog(&shared).await?;
+            if next != tips {
+                tx.send(&Reply::Branches { tips: next.clone() }).await?;
+                tips = next;
+            }
+        }
+        let next_branch = git_branch(shared.root()).await?;
+        if now != head || next_branch != branch {
             shared.scan_before_matching().await?;
             head = shared.head().await?;
+            branch = next_branch;
             tx.send(&Reply::Head {
                 commit: head.commit,
                 behind: shared.last_change_after(since),
                 has_git: head.present,
-                branch: git_branch(shared.root()).await?,
+                branch: branch.clone(),
             })
             .await?;
         }
@@ -269,7 +349,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             changes.entries.retain(|entry| {
                 let git = super::gitdir::in_git(&entry.path);
                 if git_only {
-                    copy_git && head.present && git
+                    copy_git && head.present && git && shared.may_export(&entry.path)
                 } else {
                     !git
                 }
@@ -330,29 +410,27 @@ async fn pull_once(
     let connection = timeout(CONNECT_TIMEOUT, endpoint.connect(peer.clone(), ALPN))
         .await
         .context("could not reach the peer in time")??;
-    let (send, recv) = connection.open_bi().await?;
-    let (mut tx, mut rx) = link(send, recv);
-    let cursor = shared.cursor(&peer.id);
-    tx.send(&Request::Pull {
-        project: shared.name().to_owned(),
-        replica: cursor.replica,
-        since: cursor.seq,
-        copy_git: shared.copies_git(),
-    })
-    .await?;
+    let (_tx, mut rx, mut first) = branches::open_pull(&connection, shared, &peer.id).await?;
     let mut last = None;
     let mut again = shared.watch_pull_again();
     again.mark_unchanged();
     loop {
-        let reply = tokio::select! {
-            reply = rx.recv::<Reply>() => reply?,
-            // Asked to start over: dropping the connection ends the pull.
-            _ = again.changed() => return Ok(()),
+        let reply = if let Some(first) = first.take() {
+            Some(first)
+        } else {
+            tokio::select! {
+                reply = rx.recv::<Reply>() => reply?,
+                // Asked to start over: dropping the connection ends the pull.
+                _ = again.changed() => return Ok(()),
+            }
         };
         let Some(reply) = reply else {
             break;
         };
         match reply {
+            Reply::Branches { tips } => {
+                branches::receive_catalog(&connection, shared, &peer.id, tips).await?;
+            }
             Reply::Head {
                 commit,
                 behind,
@@ -380,13 +458,14 @@ async fn pull_once(
                     commit,
                     present: has_git,
                 }) && !shared.copies_git()
+                    && !shared.branch_aware(&peer.id)
                     && let (Some(target), Some(remote_branch)) = (commit, branch.as_deref())
                 {
                     let root = shared.root().to_owned();
                     let remote_branch = remote_branch.to_owned();
                     let (need, have) = spawn_blocking(move || -> Result<_> {
                         let repo = Repo::open(&root).context("Git checkout is unavailable")?;
-                        repo.require_clean()?;
+                        // Fetching immutable objects is safe while local edits wait for recovery.
                         if repo.head_ref().as_deref() != Some(remote_branch.as_str()) {
                             bail!("Git commits differ between branches");
                         }
@@ -404,9 +483,12 @@ async fn pull_once(
                         receive_objects(
                             &connection,
                             shared,
-                            target,
-                            branch.as_deref().unwrap_or_default(),
-                            have,
+                            ObjectWant {
+                                commit: target,
+                                branch: branch.clone().unwrap_or_default(),
+                                have,
+                                scope: ObjectScope::Checkout,
+                            },
                         )
                         .await?;
                     }
@@ -433,7 +515,10 @@ async fn pull_once(
                 upto,
                 checkout,
             } => {
-                if shared.head().await?.differs(checkout) && !shared.copies_git() {
+                if shared.head().await?.differs(checkout)
+                    && !shared.copies_git()
+                    && !shared.branch_aware(&peer.id)
+                {
                     bail!("Git commits differ; waiting for Git before accepting this batch");
                 }
                 if !shared.copies_git() {
@@ -463,19 +548,44 @@ async fn git_branch(root: &std::path::Path) -> Result<Option<String>> {
 
 async fn serve_objects(
     syncs: &Syncs,
-    shared: &Shared,
     peer: iroh::EndpointId,
+    project: &str,
     tx: &mut LinkTx,
-    commit: Oid,
-    branch: &str,
-    have: Option<Oid>,
+    want: ObjectWant,
 ) -> Result<()> {
+    let Some(shared) = syncs
+        .project(project)
+        .filter(|shared| shared.has_peer(&peer) && syncs.allows(&peer))
+    else {
+        return tx
+            .send(&Reply::Refused {
+                message: "This project is not shared with this peer.".into(),
+            })
+            .await;
+    };
+    let ObjectWant {
+        commit,
+        branch,
+        have,
+        scope,
+    } = want;
     let root = shared.root().to_owned();
-    let branch = branch.to_owned();
     let (command, input) = spawn_blocking(move || -> Result<_> {
         let repo = Repo::open(&root).context("Git checkout is unavailable")?;
-        if repo.head() != Some(commit) || repo.head_ref().as_deref() != Some(branch.as_str()) {
-            bail!("The peer checkout changed; retrying sync");
+        match scope {
+            ObjectScope::Checkout => {
+                if repo.head() != Some(commit)
+                    || repo.head_ref().as_deref() != Some(branch.as_str())
+                {
+                    bail!("The peer checkout changed; retrying sync");
+                }
+            }
+            ObjectScope::Branch => {
+                repo.validate_branch(&branch)?;
+                if repo.ref_oid(&branch) != Some(commit) {
+                    bail!("The peer branch changed; retrying sync");
+                }
+            }
         }
         let mut input = format!("{}\n", commit.hex());
         if let Some(have) = have.filter(|have| repo.is_ancestor(*have, commit) == Some(true)) {
@@ -517,23 +627,31 @@ async fn serve_objects(
     tx.send(&Reply::GitDone).await
 }
 
-async fn receive_objects(
-    connection: &Connection,
-    shared: &Shared,
-    commit: Oid,
-    branch: &str,
-    have: Option<Oid>,
-) -> Result<()> {
+async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectWant) -> Result<()> {
     timeout(Duration::from_secs(300), async {
         let (send, recv) = connection.open_bi().await?;
         let (mut tx, mut rx) = link(send, recv);
-        tx.send(&Request::GitObjects {
-            project: shared.name().to_owned(),
+        let ObjectWant {
             commit,
-            branch: branch.to_owned(),
+            branch,
             have,
-        })
-        .await?;
+            scope,
+        } = want;
+        let request = match scope {
+            ObjectScope::Checkout => Request::GitObjects {
+                project: shared.name().to_owned(),
+                commit,
+                branch,
+                have,
+            },
+            ObjectScope::Branch => Request::BranchObjects {
+                project: shared.name().to_owned(),
+                commit,
+                branch,
+                have,
+            },
+        };
+        tx.send(&request).await?;
         let root = shared.root().to_owned();
         let command = spawn_blocking(move || -> Result<_> {
             let repo = Repo::open(&root).context("Git checkout is unavailable")?;
