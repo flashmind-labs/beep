@@ -22,6 +22,14 @@ export APPLE_DEVELOPMENT_TEAM=$team
 
 npm ci --silent
 bash ../../scripts/tauri-init.sh ios
+
+# Xcode runs cargo with its output hidden. Building the same library here
+# first shows the progress, and Xcode's run then finds it up to date.
+npm run build
+target=aarch64-apple-ios
+for arg in "$@"; do [[ $arg == *Simulator* || $arg == *iPhone\ 1[0-9]* && $arg != *"'"* ]] || true; done
+cargo build --manifest-path src-tauri/Cargo.toml --package beep-desktop --lib \
+    --release --target "$target" --features tauri/custom-protocol
 if [[ ${1:-} == --ipa ]]; then
     # Signed for development: installs on the team's registered devices.
     npm run tauri -- ios build -v --export-method debugging
