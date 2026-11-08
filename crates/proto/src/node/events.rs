@@ -1,6 +1,6 @@
 //! Topic subscriptions and correlated commands on one bidirectional mesh stream.
 
-use super::{agent, process, sync, terminal};
+use super::{agent, process, sign_in, sync, terminal};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL: &str = "events/1";
@@ -19,6 +19,7 @@ pub const MAX_QUERIES: usize = 128;
 pub enum Read {
     Sessions(Box<agent::SessionsRequest>),
     Process(process::Request),
+    SignIn { tool: String },
     TerminalList,
     SyncList,
     Git { root: String, query: GitRead },
@@ -52,6 +53,7 @@ impl Read {
                 Topic::new("processes")
             }
             Self::Process(_) => return None,
+            Self::SignIn { tool } => Topic::keyed("sign-in", tool),
             Self::TerminalList => Topic::new("terminals"),
             Self::SyncList => Topic::new("sync"),
             Self::Git { root, .. } => Topic::keyed("files", root),
@@ -68,6 +70,7 @@ pub enum Value {
     Git(GitOutput),
     Sessions(Box<agent::SessionsReply>),
     Process(process::Reply),
+    SignIn(sign_in::State),
     Terminals(terminal::Reply),
     Sync(Box<sync::Reply>),
     /// A plugin's compact MessagePack state, published under its topic.

@@ -80,6 +80,16 @@ pub async fn sign_in(
     client: &PeerClient,
     request: &sign_in::Request,
 ) -> Result<sign_in::State, MeshError> {
+    if let sign_in::Request::State { tool } = request
+        && let Some(reply) = client
+            .snapshot(beep_proto::node::events::Read::SignIn { tool: tool.clone() })
+            .await
+    {
+        return match reply? {
+            beep_proto::node::events::Value::SignIn(state) => Ok(state),
+            other => Err(unexpected(&other)),
+        };
+    }
     let words = Words {
         silent: "the machine did not answer about the sign-in",
         closed: "the machine closed the sign-in without an answer",

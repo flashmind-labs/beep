@@ -437,10 +437,31 @@ mod tests {
                             },
                         ))))
                     }
+                    Read::SignIn { tool } if tool == "codex" => Some(Ok(Value::SignIn(
+                        beep_proto::node::sign_in::State::SignedIn {},
+                    ))),
                     _ => None,
                 }
             })
         }
+    }
+
+    #[tokio::test]
+    async fn a_subscribed_sign_in_state_uses_its_snapshot_without_opening_an_rpc() {
+        let unavailable: SessionFn =
+            Arc::new(|_, _| panic!("a cached read must not open a stream"));
+        let client = PeerClient::local(unavailable).with_snapshot_reader(Arc::new(CurrentSessions));
+        assert_eq!(
+            crate::machine::sign_in(
+                &client,
+                &beep_proto::node::sign_in::Request::State {
+                    tool: "codex".into()
+                }
+            )
+            .await
+            .unwrap(),
+            beep_proto::node::sign_in::State::SignedIn {}
+        );
     }
 
     #[tokio::test]

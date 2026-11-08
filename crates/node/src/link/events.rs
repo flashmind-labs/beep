@@ -499,6 +499,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sign_in_topics_send_current_state_without_starting_a_login() {
+        let (mut tx, mut rx, _task) = start(Offers::default()).await;
+        let topic = Topic::keyed("sign-in", "codex");
+        watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+        assert_eq!(
+            state(&mut rx, &topic).await.value,
+            Value::SignIn(beep_proto::node::sign_in::State::Idle {})
+        );
+    }
+
+    #[tokio::test]
     async fn refresh_sends_current_state_even_when_it_has_not_changed() {
         let offers = Offers::default();
         let topic = Topic::keyed("plugin", "example");
