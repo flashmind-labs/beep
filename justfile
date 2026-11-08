@@ -146,7 +146,7 @@ ios-build:
 
 # Build, install and launch the phone app on the iPhone 17 simulator
 ios-sim-run:
-    bash scripts/tauri-ios.sh "iPhone 17"
+    bash scripts/tauri-ios.sh --sim "iPhone 17"
 
 # Build a release .ipa of the phone app, to install later with ios-install
 ios-ipa:
