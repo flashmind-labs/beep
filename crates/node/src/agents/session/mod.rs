@@ -181,6 +181,7 @@ pub(super) struct Start<'a> {
     pub(super) resume: Option<String>,
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<Entry>,
+    pub(super) timestamps: Option<(u64, u64)>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -259,6 +260,7 @@ impl Session {
             prompt,
             resume,
             earlier,
+            timestamps,
             model,
             effort,
             mode,
@@ -327,7 +329,11 @@ impl Session {
             id: resume.clone().unwrap_or_default(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
-            started_at: unix_now(),
+            started_at: timestamps
+                .map(|(start, _)| start)
+                .filter(|start| *start != 0)
+                .unwrap_or_else(unix_now),
+            last_activity: timestamps.map_or(0, |(_, activity)| activity),
             parent,
             ..SessionInfo::default()
         };
