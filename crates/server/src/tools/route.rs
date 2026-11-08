@@ -51,7 +51,7 @@ struct Cached {
 impl Transitous {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            client: Client::builder()
+            client: beep_proto::https::client()
                 .user_agent(USER_AGENT)
                 .timeout(Duration::from_secs(20))
                 .build()?,

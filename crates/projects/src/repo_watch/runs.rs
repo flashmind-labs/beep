@@ -209,7 +209,7 @@ mod tests {
         })
         .await;
         let target = test_target(Api::GitHub, &host.base);
-        let client = Client::new();
+        let client = beep_proto::https::client().build().expect("a client");
         let limit = Arc::new(Semaphore::new(2));
         let caller = Caller {
             client: &client,
@@ -245,7 +245,7 @@ mod tests {
         })
         .await;
         let target = test_target(Api::Forgejo, &host.base);
-        let client = Client::new();
+        let client = beep_proto::https::client().build().expect("a client");
         let limit = Arc::new(Semaphore::new(2));
         let caller = target.caller(&limit, &client);
         let calls = HostCalls::default();
@@ -258,7 +258,7 @@ mod tests {
     async fn a_forgejo_without_a_jobs_api_gives_no_jobs_not_an_error() {
         let host = TestHost::start(|_| Reply::status("404 Not Found")).await;
         let target = test_target(Api::Forgejo, &host.base);
-        let client = Client::new();
+        let client = beep_proto::https::client().build().expect("a client");
         let limit = Arc::new(Semaphore::new(2));
         let caller = Caller {
             client: &client,

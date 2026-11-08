@@ -26,7 +26,6 @@ use flashmind::{
     llm::{MistralProvider, OpenRouterProvider},
     types::{AgentLlmConfig, LlmProvider, Model},
 };
-use reqwest::Client;
 use secrecy::SecretString;
 use std::{
     env, fs,
@@ -199,7 +198,7 @@ async fn main() -> Result<()> {
         .await?
         .merge(reports::routes(Reports::new(
             &config.reports,
-            Client::new(),
+            beep_proto::https::client().build()?,
         )?));
     let listen = config.http_listen();
     let listener = tokio::net::TcpListener::bind(listen)

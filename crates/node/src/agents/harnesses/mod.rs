@@ -9,7 +9,6 @@ use crate::{
     AsyncMutex, lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
     machine::provision::spawn_env::{self, Scope},
-    machine::tls,
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::harness::{
@@ -221,13 +220,10 @@ impl Latest {
             }
         }
         let has_npm = find("npm").is_some();
-        let http = tls::config().ok().and_then(|tls| {
-            Client::builder()
-                .tls_backend_preconfigured(tls)
-                .timeout(NPM_TIMEOUT)
-                .build()
-                .ok()
-        });
+        let http = beep_proto::https::client()
+            .timeout(NPM_TIMEOUT)
+            .build()
+            .ok();
         let looked = futures::future::join_all(packages.iter().map(|package| {
             let http = http.as_ref();
             async move {

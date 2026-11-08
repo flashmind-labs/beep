@@ -113,7 +113,13 @@ async fn runs_from_two_hosts_merge_newest_first_each_naming_its_host() {
     ];
     let calls = Arc::new(Semaphore::new(4));
     let ok = watch
-        .read_hosts(&calls, &Client::new(), &mut copy, targets, READ)
+        .read_hosts(
+            &calls,
+            &beep_proto::https::client().build().expect("a client"),
+            &mut copy,
+            targets,
+            READ,
+        )
         .await;
     assert!(ok);
     let heads = [OpenHead {
@@ -160,7 +166,13 @@ async fn a_host_that_fails_says_so_while_the_other_still_shows() {
     ];
     let calls = Arc::new(Semaphore::new(4));
     let ok = watch
-        .read_hosts(&calls, &Client::new(), &mut copy, targets, READ)
+        .read_hosts(
+            &calls,
+            &beep_proto::https::client().build().expect("a client"),
+            &mut copy,
+            targets,
+            READ,
+        )
         .await;
     assert!(!ok, "a host failed");
     let view = copy.hosted_view(&watch.calls, &[]);
@@ -176,7 +188,13 @@ async fn a_host_that_fails_says_so_while_the_other_still_shows() {
         Err("Add a token for forge.example.com in Settings.".to_owned()),
     ];
     watch
-        .read_hosts(&calls, &Client::new(), &mut copy, targets, READ)
+        .read_hosts(
+            &calls,
+            &beep_proto::https::client().build().expect("a client"),
+            &mut copy,
+            targets,
+            READ,
+        )
         .await;
     let view = copy.hosted_view(&watch.calls, &[]);
     assert_eq!(view.runs.len(), 2);
@@ -199,7 +217,13 @@ async fn a_run_opened_on_the_mirror_is_read_from_the_mirror() {
     ];
     let calls = Arc::new(Semaphore::new(4));
     watch
-        .read_hosts(&calls, &Client::new(), &mut copy, targets, READ)
+        .read_hosts(
+            &calls,
+            &beep_proto::https::client().build().expect("a client"),
+            &mut copy,
+            targets,
+            READ,
+        )
         .await;
     let before = gh.seen().len();
 
@@ -209,7 +233,7 @@ async fn a_run_opened_on_the_mirror_is_read_from_the_mirror() {
     assert_eq!(at, 1);
     assert_eq!(copy.slot_of(None), Some(0), "the primary host by default");
     let target = target_at(&forge(), &fj.base);
-    let client = Client::new();
+    let client = beep_proto::https::client().build().expect("a client");
     let read = DetailRead {
         calls: &calls,
         client: &client,

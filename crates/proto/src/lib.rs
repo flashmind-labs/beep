@@ -21,6 +21,8 @@ mod apps;
 mod assistant;
 mod chat;
 mod error;
+#[cfg(feature = "https")]
+pub mod https;
 pub mod lenient;
 pub mod link;
 #[cfg(feature = "logging")]

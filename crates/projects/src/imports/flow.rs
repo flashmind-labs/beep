@@ -389,7 +389,7 @@ mod tests {
     #[async_trait]
     impl Hosts for NoHosts {
         fn client(&self) -> Result<Client> {
-            Ok(Client::new())
+            Ok(beep_proto::https::client().build()?)
         }
         fn calls(&self) -> &Arc<Semaphore> {
             &self.0

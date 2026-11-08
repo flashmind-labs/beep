@@ -61,7 +61,7 @@ struct Release {
 
 impl Default for ToolReleases {
     fn default() -> Self {
-        let http = Client::builder()
+        let http = beep_proto::https::client()
             .timeout(LOOKUP_TIMEOUT)
             .build()
             .unwrap_or_default();

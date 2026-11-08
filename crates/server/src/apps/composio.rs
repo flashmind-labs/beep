@@ -105,7 +105,10 @@ impl Composio {
     pub fn new(settings: ComposioSettings) -> Self {
         Self {
             settings,
-            http: reqwest::Client::new(),
+            // Panics only as `Client::new` would.
+            http: beep_proto::https::client()
+                .build()
+                .expect("an HTTPS client"),
             logos: AsyncMutex::new(None),
         }
     }

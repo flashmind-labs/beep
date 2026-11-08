@@ -8,7 +8,7 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 
 /// A git host client that reaches only public addresses and follows no redirect.
 pub fn host_client() -> anyhow::Result<Client> {
-    Ok(Client::builder()
+    Ok(beep_proto::https::client()
         .timeout(TIMEOUT)
         .user_agent("beep-server")
         // A redirect could send the token, or the probe, anywhere.

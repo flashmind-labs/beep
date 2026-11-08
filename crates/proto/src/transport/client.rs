@@ -63,7 +63,7 @@ impl Client {
     /// `http://` speaks HTTP/2 without TLS, for a server on this machine.
     pub fn new(base: &str, identity: SecretKey) -> Result<Self> {
         let base = base.trim().trim_end_matches('/').to_owned();
-        let mut builder = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
+        let mut builder = crate::https::client().connect_timeout(CONNECT_TIMEOUT);
         if base.starts_with("http://") {
             builder = builder.http2_prior_knowledge();
         } else if !base.starts_with("https://") {

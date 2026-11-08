@@ -1,7 +1,6 @@
 //! Downloads from the release folder.
 
 use super::Error;
-use crate::machine::tls;
 use reqwest::{Client, Url};
 use std::{env, time::Duration};
 
@@ -27,9 +26,7 @@ pub(super) fn url(base: &str, path: &str) -> Result<Url, Error> {
 
 /// An HTTPS client with the same TLS setup iroh uses: ring, webpki roots.
 pub(super) fn client() -> Result<Client, Error> {
-    let tls = tls::config().map_err(Error::Tls)?;
-    Client::builder()
-        .use_preconfigured_tls(tls)
+    beep_proto::https::client()
         .user_agent(concat!("beep-node/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(20))
         .timeout(Duration::from_secs(600))

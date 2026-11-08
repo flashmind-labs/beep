@@ -21,7 +21,7 @@ pub(crate) const MAX_SYMBOLS: usize = 4;
 const MAX_SYMBOL: usize = 20;
 
 static CLIENT: LazyLock<Result<Client, String>> = LazyLock::new(|| {
-    Client::builder()
+    beep_proto::https::client()
         .user_agent(USER_AGENT)
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
