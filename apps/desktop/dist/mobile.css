@@ -128,6 +128,8 @@ body.mobile .mb-kbdhide { display: none; order: 7; flex: none; margin-left: auto
 body.mobile .dinput:focus-within .mb-kbdhide { display: grid }
 /* The log never scrolls sideways; wide code and tables scroll inside themselves. */
 body.mobile .dbody { overflow-x: hidden; overscroll-behavior-x: none }
+/* A folded turn's pictures line up with its summary, which has no icon column here. */
+body.mobile .dfoldpics { padding-left: 0 }
 
 /* The pairing screen: a phone with no mesh yet. */
 .pair { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--ink); color: var(--fg); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) }
