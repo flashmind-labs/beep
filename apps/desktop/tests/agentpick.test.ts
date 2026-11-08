@@ -83,3 +83,11 @@ test("a model matches when every word of the query is in it, in any order", () =
   assert.deepEqual(ids("deepseek"), ["mistral:deepseek-v4-1-flash-1017", "openrouter:deepseek/deepseek-chat"]);
   assert.deepEqual(ids("deepseek 9999"), []);
 });
+
+test("the pill resolves the default model when the machine reports it", async () => {
+  const { modelLabel } = await import("../src/agents/agentpick.ts");
+  const list: AgentModels = { pick: "listed", current: "sol", models: [{ id: "sol", name: "6.1 Sol", description: null }] };
+  assert.equal(modelLabel(list, ""), "6.1 Sol");
+  assert.equal(modelLabel({ pick: "listed", current: "default", models: [{ id: "default", name: "Default", description: "Opus 4.6 · Most capable" }] }, ""), "Opus 4.6");
+  assert.equal(modelLabel(null, ""), "Default");
+});
