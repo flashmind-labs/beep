@@ -10,13 +10,14 @@ use crate::agents::{
     acp::wire_name,
     images::{Picture, picture_of},
     subagent::{Activity, Run, Subagent},
+    tool_details,
     tool_diff::diff_text,
 };
 use agent_client_protocol::schema::v1::{
     ContentBlock, EmbeddedResourceResource, ToolCall as AcpToolCall, ToolCallContent, ToolCallId,
     ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,
 };
-use beep_proto::node::agent::EntryKind;
+use beep_proto::{AgentToolCall, node::agent::EntryKind};
 use serde_json::Value;
 use std::{borrow::Cow, path::Path};
 
@@ -43,6 +44,7 @@ pub(super) struct ToolCall {
     /// Its command went to the background and still runs, though the call
     /// itself completed.
     pub(super) backgrounded: bool,
+    pub(super) details: AgentToolCall,
 }
 
 /// A `beep` server call and its arguments as far as they have come.
@@ -95,7 +97,16 @@ impl Live {
                 },
             ),
             backgrounded: false,
+            details: AgentToolCall {
+                name: tool_details::name(call.meta.as_ref()),
+                ..AgentToolCall::default()
+            },
         };
+        update_details(
+            &mut tool.details,
+            call.raw_input.as_ref(),
+            call.raw_output.as_ref(),
+        );
         if let Some(subagent) = &mut subagent {
             if let Some(title) = subagent.title.take() {
                 tool.title = title;
@@ -120,6 +131,9 @@ impl Live {
             }
             None => {
                 tool.entry = self.push_entry(EntryKind::Tool, tool.entry_with(&[], None));
+                if let Some(entry) = self.entry_mut(tool.entry) {
+                    entry.tool = Some(tool.details.clone());
+                }
                 self.tools.insert(call.tool_call_id.clone(), tool);
             }
         }
@@ -158,8 +172,10 @@ impl Live {
         };
         let text = tool.entry_with(&self.steps_of(tool), None);
         let entry = tool.entry;
+        let details = tool.details.clone();
         if let Some(entry) = self.entry_mut(entry) {
             entry.text = text;
+            entry.tool = Some(details);
         }
     }
 
@@ -190,6 +206,14 @@ impl Live {
             return;
         };
         let fields = &update.fields;
+        if let Some(name) = tool_details::name(update.meta.as_ref()) {
+            call.details.name = Some(name);
+        }
+        update_details(
+            &mut call.details,
+            fields.raw_input.as_ref(),
+            fields.raw_output.as_ref(),
+        );
         let codex = call.subagent.as_ref().is_some_and(|sub| sub.codex);
         if let Some(title) = &fields.title {
             // A Codex subagent keeps the title its task or prompt gave it.
@@ -467,4 +491,14 @@ pub(super) fn paths(locations: &[ToolCallLocation], input: Option<&Value>) -> Ve
         );
     }
     found
+}
+
+/// Updates can carry the arguments after the initial call announcement.
+fn update_details(details: &mut AgentToolCall, input: Option<&Value>, result: Option<&Value>) {
+    if input.is_some_and(|value| !value.is_null()) {
+        (details.input, details.input_truncated) = tool_details::json(input);
+    }
+    if result.is_some_and(|value| !value.is_null()) {
+        (details.result, details.result_truncated) = tool_details::json(result);
+    }
 }

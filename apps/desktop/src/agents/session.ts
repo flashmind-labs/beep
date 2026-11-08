@@ -739,7 +739,7 @@ function agentClick(e: MouseEvent) {
   const art = target.closest<HTMLElement>("#agbody [data-artifact]");
   if (art && !getSelection()!.toString() && showArtifact(art.dataset.artifact!)) return;
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
-  if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd")) {
+  if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd, .call-details")) {
     const at = Number(tool.dataset.at);
     AG.steps.set(at, !tool.classList.contains("open"));
     return drawAgentBody(clickedRow(tool));
@@ -759,3 +759,11 @@ function agentClick(e: MouseEvent) {
 
 /// Replayed prompts can have more text after their image lines.
 export const userImages = imageLines;
+
+// Tool rows also open from the keyboard; details stay selectable.
+document.addEventListener("keydown", event => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || !target.matches('#agbody .dcoderen.tool[data-at][role="button"]') || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  target.click();
+});
