@@ -28,10 +28,11 @@ struct History {
     entries: VecDeque<Event>,
 }
 
-/// `None` means a snapshot is required; `Some` contains ordered events after the cursor.
+/// Ordered events after the cursor, or an empty list when a snapshot is required.
 pub struct Replay {
     pub cursor: EventId,
-    pub events: Option<Vec<Event>>,
+    pub events: Vec<Event>,
+    pub resync: bool,
 }
 
 impl Default for Hub {
@@ -61,15 +62,15 @@ impl Hub {
     /// Subscribe before calling this, then discard queued events at or before its cursor.
     pub fn replay(&self, after: Option<EventId>) -> Replay {
         let history = crate::lock(&self.0.history);
+        let after = after.filter(|after| {
+            after.epoch == history.cursor.epoch
+                && after.sequence <= history.cursor.sequence
+                && history
+                    .entries
+                    .front()
+                    .is_none_or(|first| after.sequence >= first.id.sequence.saturating_sub(1))
+        });
         let events = after
-            .filter(|after| {
-                after.epoch == history.cursor.epoch
-                    && after.sequence <= history.cursor.sequence
-                    && history
-                        .entries
-                        .front()
-                        .is_none_or(|first| after.sequence >= first.id.sequence.saturating_sub(1))
-            })
             .map(|after| {
                 history
                     .entries
@@ -77,10 +78,12 @@ impl Hub {
                     .filter(|event| event.id.sequence > after.sequence)
                     .cloned()
                     .collect()
-            });
+            })
+            .unwrap_or_default();
         Replay {
             cursor: history.cursor,
             events,
+            resync: after.is_none(),
         }
     }
 
@@ -124,6 +127,9 @@ mod tests {
     #[test]
     fn history_replays_a_disconnect_and_detects_expiry_restart_and_future_cursors() {
         let hub = Hub::default();
+        let initial_snapshot = hub.replay(None);
+        assert!(initial_snapshot.events.is_empty());
+        assert!(initial_snapshot.resync);
         let initial = hub.cursor();
         hub.changed(Topic::new("files"));
         let first = hub.cursor();
@@ -132,27 +138,31 @@ mod tests {
         assert_eq!(
             replay
                 .events
-                .unwrap()
                 .iter()
-                .map(|event| event.topic.name.as_str())
+                .map(|event| event.topic.name())
                 .collect::<Vec<_>>(),
             ["files", "reviews"]
         );
-        assert_eq!(hub.replay(Some(first)).events.unwrap().len(), 1);
-        assert!(hub.replay(Some(hub.cursor())).events.unwrap().is_empty());
-        assert!(Hub::default().replay(Some(first)).events.is_none());
-        assert!(
-            hub.replay(Some(EventId {
-                sequence: 99,
-                ..first
-            }))
-            .events
-            .is_none()
-        );
+        assert!(!replay.resync);
+        assert_eq!(hub.replay(Some(first)).events.len(), 1);
+        let caught_up = hub.replay(Some(hub.cursor()));
+        assert!(caught_up.events.is_empty());
+        assert!(!caught_up.resync);
+        let restarted = Hub::default().replay(Some(first));
+        assert!(restarted.events.is_empty());
+        assert!(restarted.resync);
+        let future = hub.replay(Some(EventId {
+            sequence: 99,
+            ..first
+        }));
+        assert!(future.events.is_empty());
+        assert!(future.resync);
         for _ in 0..RETAINED {
             hub.changed(Topic::new("files"));
         }
-        assert!(hub.replay(Some(first)).events.is_none());
+        let expired = hub.replay(Some(first));
+        assert!(expired.events.is_empty());
+        assert!(expired.resync);
         assert_eq!(crate::lock(&hub.0.history).entries.len(), RETAINED);
     }
 
@@ -164,7 +174,8 @@ mod tests {
         let mut receiver = hub.subscribe();
         hub.changed(Topic::new("during"));
         let replay = hub.replay(Some(before));
-        assert_eq!(replay.events.unwrap().len(), 2);
+        assert_eq!(replay.events.len(), 2);
+        assert!(!replay.resync);
         hub.changed(Topic::new("after"));
         assert!(receiver.recv().await.unwrap().id.sequence <= replay.cursor.sequence);
         assert!(receiver.recv().await.unwrap().id.sequence > replay.cursor.sequence);

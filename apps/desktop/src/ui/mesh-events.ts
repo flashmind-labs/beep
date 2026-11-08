@@ -1,7 +1,8 @@
 // Views and plugins share topic subscriptions over the window's duplex node connections.
 import { onShownChange, pageShown } from "./active.ts";
+import { matchesTopic, normalizeTopic, topic, type Topic } from "./topic-state.ts";
+export { matchesTopic, topic, type Topic } from "./topic-state.ts";
 
-export interface Topic { name: string; key: string | null }
 export interface EventId { epoch: string; sequence: number }
 export interface MeshEvent { id: EventId; machine_id: string; topic: Topic; resync: boolean; data?: unknown }
 interface Interest { machine: string | null; topic: Topic }
@@ -28,9 +29,6 @@ let reader: Reader | null = null;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let queued = false;
 
-export const topic = (name: string, key: string | null = null): Topic => ({ name, key });
-export const matchesTopic = (wanted: Topic, heard: Topic) =>
-  (wanted.name === "*" || wanted.name === heard.name) && (wanted.key === null || heard.key === null || wanted.key === heard.key);
 const active = (subscriber: Subscriber) => pageShown() && subscriber.active();
 
 /// Omitting a machine subscribes across the mesh. `*` includes plugin namespaces too.
@@ -46,7 +44,7 @@ export function subscribeChanges(topics: Topic | Topic[], receive: Receive, mach
 function subscribe(topics: Topic | Topic[], receive: Receive, machine: string | null, when: () => boolean, coalesce: boolean): () => void {
   if (typeof window === "undefined") return () => {};
   const subscriber: Subscriber = {
-    interests: (Array.isArray(topics) ? topics : [topics]).map(topic => ({ machine, topic })),
+    interests: (Array.isArray(topics) ? topics : [topics]).map(topic => ({ machine, topic: normalizeTopic(topic) })),
     receive, active: when, coalesce, running: false, failures: 0,
   };
   subscribers.add(subscriber);
