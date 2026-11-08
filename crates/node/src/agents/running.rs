@@ -468,6 +468,7 @@ impl Agents {
             }),
             resume: begin.resume,
             earlier: begin.earlier,
+            timestamps: begin.timestamps,
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
@@ -545,6 +546,7 @@ pub(super) struct Begin {
     pub(super) resume: Option<String>,
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<agent::Entry>,
+    pub(super) timestamps: Option<(u64, u64)>,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
     /// The session mode it was in before the node restarted.
