@@ -32,6 +32,49 @@ const MAX_REF: usize = 250;
 /// commit.
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
+fn patch_caps(shown: bool) -> Caps {
+    if shown {
+        Caps {
+            file_lines: MAX_DIFF_SHOWN_LINES,
+            file_bytes: SHOWN_BYTES,
+            total_lines: MAX_DIFF_SHOWN_LINES,
+            total_bytes: SHOWN_BYTES,
+        }
+    } else {
+        Caps {
+            file_lines: MAX_DIFF_FILE_LINES,
+            file_bytes: FILE_BYTES,
+            total_lines: MAX_DIFF_LINES,
+            total_bytes: TOTAL_BYTES,
+        }
+    }
+}
+
+/// Parses a complete Git patch with the same limits as a live worktree diff.
+pub fn parse_git_patch(ask: &DiffAsk, text: &str) -> WorkDiff {
+    let mut parser = DiffParser::new(
+        patch_caps(!ask.only.is_empty()),
+        Keep {
+            only: ask.only.iter().cloned().collect(),
+            lockfiles: ask.lockfiles || !ask.only.is_empty(),
+        },
+    );
+    for line in text.lines() {
+        parser.line(line);
+    }
+    let parsed = parser.finish();
+    WorkDiff {
+        root: ask.root.clone(),
+        base: ask.base.clone(),
+        merge_base: ask.base.clone(),
+        working_tree: false,
+        files: parsed.files,
+        additions: parsed.additions,
+        deletions: parsed.deletions,
+        more: parsed.more,
+    }
+}
+
 /// The diff `ask` names, in `root`, already resolved and in reach. Git
 /// runs with `--relative`, so nothing outside `root` shows. Blocks on git
 /// and the file system.
@@ -72,21 +115,7 @@ pub(super) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
     };
     let from = merge_base.as_deref().unwrap_or(EMPTY_TREE);
     let shown = !ask.only.is_empty();
-    let caps = if shown {
-        Caps {
-            file_lines: MAX_DIFF_SHOWN_LINES,
-            file_bytes: SHOWN_BYTES,
-            total_lines: MAX_DIFF_SHOWN_LINES,
-            total_bytes: SHOWN_BYTES,
-        }
-    } else {
-        Caps {
-            file_lines: MAX_DIFF_FILE_LINES,
-            file_bytes: FILE_BYTES,
-            total_lines: MAX_DIFF_LINES,
-            total_bytes: TOTAL_BYTES,
-        }
-    };
+    let caps = patch_caps(shown);
     let keep = Keep {
         only: ask.only.iter().cloned().collect(),
         lockfiles: ask.lockfiles || shown,
@@ -549,5 +578,27 @@ mod tests {
         assert_eq!(diff.merge_base, "");
         assert_eq!(diff.files.len(), 1);
         assert_eq!(diff.files[0].status, DiffStatus::Added {});
+    }
+    #[test]
+    fn historical_patch_uses_its_recorded_text_without_working_tree_changes() {
+        let (_temp, root) = checkout();
+        let head = git(&root, &["rev-parse", "HEAD"]).unwrap();
+        let patch = git(
+            &root,
+            &["show", "--format=", "--root", "--no-ext-diff", head.trim()],
+        )
+        .unwrap();
+        fs::write(root.join("keep.txt"), "uncommitted\n").unwrap();
+        let diff = parse_git_patch(&ask("", head.trim()), &patch);
+        assert!(!diff.working_tree);
+        assert_eq!(diff.files.len(), 3);
+        assert_eq!(file(&diff, "keep.txt").additions, 3);
+        assert!(
+            !file(&diff, "keep.txt")
+                .hunks
+                .iter()
+                .flat_map(|h| &h.lines)
+                .any(|line| line.text == "uncommitted")
+        );
     }
 }

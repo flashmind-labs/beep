@@ -792,3 +792,80 @@ fn steering_keeps_the_running_turns_files_and_start() {
     assert_eq!(live.turn_links, ["result.png"]);
     assert_eq!(live.transcript(10).0.last().unwrap().text, "make it blue");
 }
+
+#[test]
+fn flsh_credit_snapshots_preserve_context_and_do_not_count_as_session_cost() {
+    let usage = Arc::new(UsageHub::default());
+    let mut live = Live::new(
+        SessionInfo {
+            agent: "flsh".into(),
+            ..SessionInfo::default()
+        },
+        Arc::default(),
+        usage.clone(),
+    );
+    live.apply(&update(
+        json!({"sessionUpdate": "usage_update", "used": 123, "size": 1000}),
+    ));
+    let balance = |remaining: Option<&str>| {
+        update(json!({
+            "sessionUpdate": "usage_update", "used": 0, "size": 1000,
+            "_meta": {"flsh/contextUsageAvailable": false, "flsh/credits": {
+                "provider": "openrouter", "consumed": "0.1",
+                "balance": {"scope": "api_key", "unit": "usd", "remaining": remaining,
+                    "total": "10", "used": "2.75", "resets": "monthly"}
+            }}
+        }))
+    };
+    live.apply(&balance(Some("7.25")));
+    assert_eq!(live.info.context.as_ref().unwrap().used, 123);
+    assert_eq!(live.info.credits[0].remaining.as_deref(), Some("7.25"));
+    assert_eq!(live.info.cost_usd, None);
+    assert_eq!(live.unbilled, None);
+    let plans = usage.plans();
+    assert_eq!(
+        plans.borrow()["flsh"].credits[0].remaining.as_deref(),
+        Some("7.25")
+    );
+    live.apply(&balance(Some("0")));
+    assert_eq!(plans.borrow()["flsh"].credits.len(), 1);
+    assert_eq!(
+        plans.borrow()["flsh"].credits[0].remaining.as_deref(),
+        Some("0")
+    );
+    live.apply(&balance(None));
+    assert_eq!(plans.borrow()["flsh"].credits[0].remaining, None);
+    live.apply(&balance(Some("NaN")));
+    assert_eq!(plans.borrow()["flsh"].credits[0].remaining, None);
+}
+
+#[tokio::test]
+async fn flsh_session_tokens_are_counted_once_across_repeated_usage_updates() {
+    let usage = Arc::new(UsageHub::default());
+    let mut live = Live::new(
+        SessionInfo {
+            agent: "flsh".into(),
+            ..SessionInfo::default()
+        },
+        Arc::default(),
+        usage.clone(),
+    );
+    let totals = |input, output| {
+        update(json!({
+            "sessionUpdate": "usage_update", "used": 10, "size": 1000,
+            "_meta": {"flsh/sessionUsage": {"input_tokens": input, "output_tokens": output, "tokens_unknown": false}}
+        }))
+    };
+    live.apply(&totals(100_u64, 20_u64));
+    live.apply(&totals(100, 20));
+    live.spent(TurnTokens::default());
+    assert_eq!(live.info.tokens, 120);
+    assert_eq!(usage.next_turn().await.tokens, 120);
+    live.apply(&totals(250, 40));
+    live.spent(TurnTokens::default());
+    assert_eq!(live.info.tokens, 290);
+    assert_eq!(usage.next_turn().await.tokens, 170);
+    live.apply(&totals(u64::MAX, 1));
+    live.spent(TurnTokens::default());
+    assert_eq!(live.info.tokens, 290);
+}

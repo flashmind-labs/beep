@@ -181,7 +181,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .agempty { height: 100%; display: grid; place-items: center; color: var(--dim); font-size: 13px }
 #agdraft { flex: none }
 #agdraft > .cc-pjc { margin-inline: 16px }
-.dhead .aguse { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap }
+.dhead .aguse { flex: 0 1 auto; min-width: 0; max-width: 48%; margin: 0; font-size: 11px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; text-wrap: balance; overflow-wrap: anywhere }
 .dhead .aguse:empty { display: none }
 .dhead .agedit { flex: none; display: flex; gap: 2px }
 .dhead .agedit:empty { display: none }

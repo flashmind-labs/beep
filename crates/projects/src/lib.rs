@@ -7,6 +7,7 @@ pub mod commands;
 pub mod credential_check;
 pub mod credentials;
 pub mod git_items;
+pub mod history;
 pub mod imports;
 pub mod issues;
 pub mod leak;

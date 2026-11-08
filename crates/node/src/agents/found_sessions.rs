@@ -335,19 +335,15 @@ impl Agents {
                 mode: info.mode,
             }
         });
-        let ended = ours.map(|session| session.live.borrow().agent_session.clone());
+        let ended = ours
+            .as_ref()
+            .map(|session| session.live.borrow().agent_session.clone());
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
             Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
             None => id.to_owned(),
         };
         let id = id.as_str();
-        let agent = Agent::from_name(&kind.name).with_context(|| {
-            format!(
-                "{} sessions started outside Beep cannot be taken over",
-                kind.name
-            )
-        })?;
         let owned = self.owned();
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
             && session.agent == kind.name
@@ -361,6 +357,21 @@ impl Agents {
             }
             return Ok(session);
         }
+        // ACP can reload a session this node ran without a reader for the
+        // harness's private store. Outside sessions still need that reader.
+        let Some(agent) = Agent::from_name(&kind.name) else {
+            let previous = ours.with_context(|| {
+                format!(
+                    "{} sessions started outside Beep cannot be taken over",
+                    kind.name
+                )
+            })?;
+            self.prepare(kind).await?;
+            let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
+            let session = self.start(kind, Some(&previous.info().cwd), begin)?;
+            self.watch_parent(&session);
+            return Ok(session);
+        };
         let found = match agent {
             Agent::Claude => self
                 .external

@@ -31,7 +31,7 @@ import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { placeSub } from "../agents/place-state.ts";
-import { agentCanFix, fixPrompt, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
+import { gitSyncWarning, syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { IC } from "../ui/icons.ts";
 import { openHandoff } from "./handoff.ts";
 
@@ -265,11 +265,22 @@ function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons:
     const why = h("small", "gs err", mv.failed);
     note.append(h("br"), why);
     if (agentCanFix(mv.failed)) {
-      const at = { machine: m.id, cwd: m.folder!, places: projectPlaces(p), project: p.name };
-      buttons.push(button("Fix with an agent", "small", () => go("pane", { agentnew: { prompt: fixPrompt(row.branch, row.upstream), at } })));
+      buttons.push(button("Fix with an agent", "small", () => void openSyncRepair(p.name, m.id, mv.failed!)));
     }
   }
   return { note, buttons };
+}
+
+/// Opens a reviewable draft; no agent starts until the user sends it.
+export async function openSyncRepair(project: string, machine: string, error: string) {
+  const p = projectRows()?.find(p => p.name === project);
+  const place = p?.machines.find(m => m.id === machine);
+  if (!p || !place) return;
+  let sessions: SessionRow[] = [];
+  try { sessions = await invoke<SessionRow[]>("project_sessions", { project }); }
+  catch (e) { console.warn("repair sessions:", e); }
+  const prompt = syncRepairPrompt({ project, machine, error, checkouts: p.machines, git: state.gitsync.get(project) ?? [], sessions });
+  go("pane", { agentnew: { prompt, at: { machine, cwd: place.folder, places: projectPlaces(p), project } } });
 }
 
 /// One machine's row under "Where it lives": its folder and what to do
@@ -308,6 +319,13 @@ export function whereRow(p: Project, m: WhereRow) {
     }
     const git = gitCells(p, m);
     if (git.note) folder.append(h("span", "gs-line", git.note));
+    const warning = row && !m.syncthing ? gitSyncWarning(row) : null;
+    if (warning) {
+      folder.append(Object.assign(h("small", "gs err", warning), { title: row!.error || "" }));
+      if (!agentCanFix(moves.get(moveKey(p.name, m.id))?.failed ?? "")) {
+        git.buttons.push(button("Fix with an agent", "small", () => void openSyncRepair(p.name, m.id, row!.error!)));
+      }
+    }
     return [name, folder, h("span", "acts", ...git.buttons, more)];
   }
   const key = `${p.name}\n${m.id}`;

@@ -11,7 +11,7 @@ use crate::agents::{
     images::{Images, Picture},
     subagent::Run,
     unix_now,
-    usage::{UsageHub, claude_rate_limit},
+    usage::{UsageHub, claude_rate_limit, flsh_credits},
     window::window,
 };
 use agent_client_protocol::schema::v1::{RequestPermissionRequest, SessionUpdate, ToolCallId};
@@ -44,12 +44,17 @@ impl Live {
 
     /// Counts what the session spent since the last count, with `tokens`
     /// the turn used, as a finished turn. Nothing when it spent nothing.
-    pub(crate) fn spent(&mut self, tokens: TurnTokens) {
+    pub(crate) fn spent(&mut self, mut tokens: TurnTokens) {
+        if let Some(total) = self.flsh_tokens {
+            tokens.total = total.checked_sub(self.info.tokens).unwrap_or(total);
+        }
         let cost_usd = self.unbilled.take();
         if tokens.total == 0 && tokens.models.is_empty() && cost_usd.is_none() {
             return;
         }
-        self.info.tokens = self.info.tokens.saturating_add(tokens.total);
+        self.info.tokens = self
+            .flsh_tokens
+            .unwrap_or_else(|| self.info.tokens.saturating_add(tokens.total));
         if let Some(cost) = cost_usd {
             *self.info.cost_usd.get_or_insert(0.0) += cost;
         }
@@ -85,6 +90,37 @@ impl Live {
             if delta > 0.0 {
                 *self.unbilled.get_or_insert(0.0) += delta;
             }
+        }
+        if self.info.agent == "flsh"
+            && let Some(total) = meta.and_then(|meta| meta.get("flsh/sessionUsage"))
+            && total.get("tokens_unknown") == Some(&Value::Bool(false))
+            && let Some(tokens) = total
+                .get("input_tokens")
+                .and_then(Value::as_u64)
+                .zip(total.get("output_tokens").and_then(Value::as_u64))
+                .and_then(|(input, output)| input.checked_add(output))
+        {
+            self.flsh_tokens = Some(tokens);
+        }
+        if self.info.agent == "flsh"
+            && let Some(credits) = meta
+                .and_then(|meta| meta.get("flsh/credits"))
+                .and_then(flsh_credits)
+        {
+            match self
+                .info
+                .credits
+                .iter_mut()
+                .find(|held| held.provider == credits.provider)
+            {
+                Some(held) => *held = credits.clone(),
+                None => self.info.credits.push(credits.clone()),
+            }
+            self.usage.update_credits(
+                &AgentSlug::new(self.info.agent.as_str()),
+                credits,
+                unix_now(),
+            );
         }
         if let Some(info) = meta.and_then(|meta| meta.get(CLAUDE_RATE_LIMIT)) {
             self.usage

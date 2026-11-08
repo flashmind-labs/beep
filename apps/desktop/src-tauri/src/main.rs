@@ -10,6 +10,7 @@ mod chat;
 mod error;
 mod fleet;
 mod machines;
+mod navigation;
 mod notices;
 mod palette;
 mod platform;
@@ -418,6 +419,9 @@ fn main() {
             projects::page::project_sessions,
             projects::page::project_syncthing,
             projects::reviews::project_branches,
+            projects::history::project_git_history,
+            projects::history::project_git_files,
+            projects::history::project_git_diff,
             projects::reviews::review_check,
             projects::reviews::review_dismiss,
             projects::reviews::review_fix,
@@ -567,6 +571,14 @@ fn quit(app: &AppHandle) {
 }
 
 fn setup(app: &mut App) -> anyhow::Result<()> {
+    let bar = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == bar::LABEL)
+        .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
+    navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
     #[cfg(unix)]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]

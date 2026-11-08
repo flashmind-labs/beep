@@ -2,6 +2,7 @@
 // tests of terminals.ts load without a page.
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { outputBatch } from "./output-batch.ts";
 import { leavesTerminal } from "../agentpane/media-state.ts";
 import { wordKeyBytes } from "./keys-state.ts";
@@ -51,16 +52,44 @@ export function makeScreen(): Screen {
   const fit = new FitAddon();
   term.loadAddon(fit);
   let opened = false;
+  let webgl: WebglAddon | undefined;
+  let gpuAttempted = false;
+  const dropGpu = () => {
+    const addon = webgl;
+    webgl = undefined;
+    addon?.dispose();
+  };
   // Asked for focus before it was opened: given once it is.
   let wantFocus = false;
   // Opened and fitted once the element is on the page with a size; output
   // written before then waits in the terminal's buffer.
   const fitNow = () => {
-    if (!el.isConnected || !el.clientWidth || !el.clientHeight) return;
+    if (document.hidden || !el.isConnected || !el.clientWidth || !el.clientHeight) {
+      // Hidden terminals keep their buffers, but need no GPU context.
+      dropGpu();
+      gpuAttempted = false;
+      return;
+    }
     if (!opened) {
       term.open(el);
       opened = true;
       if (wantFocus) { wantFocus = false; term.focus(); }
+    }
+    // Try once per visible period. A lost context falls back to the DOM
+    // renderer until the terminal is hidden and shown again.
+    if (!gpuAttempted) {
+      gpuAttempted = true;
+      try {
+        webgl = new WebglAddon();
+        webgl.onContextLoss(dropGpu);
+        term.loadAddon(webgl);
+        // Repaint kept output even when the terminal's size has not changed.
+        webgl.clearTextureAtlas();
+        term.refresh(0, term.rows - 1);
+      } catch (e) {
+        dropGpu();
+        console.warn("Terminal GPU rendering unavailable:", e);
+      }
     }
     fit.fit();
   };
@@ -68,6 +97,7 @@ export function makeScreen(): Screen {
   resized.observe(el);
   // A zoom changes the size of a cell, not always of the element.
   window.addEventListener(ZOOMED, fitNow);
+  document.addEventListener("visibilitychange", fitNow);
   return {
     el,
     write: data => output.write(data),
@@ -87,6 +117,8 @@ export function makeScreen(): Screen {
       output.dispose();
       resized.disconnect();
       window.removeEventListener(ZOOMED, fitNow);
+      document.removeEventListener("visibilitychange", fitNow);
+      dropGpu();
       term.dispose();
     },
   };

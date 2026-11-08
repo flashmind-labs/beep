@@ -93,7 +93,7 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
 /// `path`, absolute, with its links and `..` resolved. A path not there
 /// yet is its nearest folder that is, resolved, with the rest joined.
 /// Blocks on the file system.
-pub(super) fn real(path: &Path) -> Result<PathBuf> {
+pub(crate) fn real(path: &Path) -> Result<PathBuf> {
     let mut missing = Vec::new();
     let mut at = path;
     loop {

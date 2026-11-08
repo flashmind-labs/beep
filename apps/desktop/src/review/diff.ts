@@ -17,6 +17,8 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 /// Where a diff comes from and what its files can open in.
 export interface DiffSource {
+  /// History views show immutable patches without session review controls.
+  readOnly?: boolean;
   /// Reads the diff; with `only`, just those files in full.
   load: (only: string[], lockfiles: boolean, uncommitted: boolean) => Promise<DiffView>;
   /// Offers the Uncommitted only toggle, off to begin with.
@@ -147,7 +149,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     cur: null as string | null,
     seq: 0,
     /// The review comments waiting to be sent.
-    draft: loadDraft(src.review.key),
+    draft: src.readOnly ? [] : loadDraft(src.review.key),
     sending: false,
   };
   let placedCache: ReturnType<typeof placeComments> | null = null;
@@ -204,7 +206,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const send = button("Send review", "dbtn pri small", () => sendReview());
   send.append(cmts);
   const lostBox = el("div", "dv-lost");
-  const feedback = feedbackButton({
+  const feedback = src.readOnly ? { el: el("span"), note: el("span"), redraw() {} } : feedbackButton({
     key: src.review.key,
     machine: src.agent?.machine ?? null,
     prefer: src.agent?.prefer,
@@ -350,9 +352,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const fcs = el("div", "dv-fcs");
     const mine = placed().files.get(f.path);
     if (mine) fcs.append(...[...mine.file, ...mine.top].map(c => commentEl(c, lineLabel(c))));
-    const acts = el("span", "dv-facts", btn("Comment", "", "Comment on this file", () => {
+    const acts = el("span", "dv-facts", ...(!src.readOnly ? [btn("Comment", "", "Comment on this file", () => {
       addBox({ path: f.path, side: "new", line: null, text: "" }, "", "Comment on this file", box => fcs.append(box));
-    }), btn(icon(SVG.copy), "icon", "Copy path", () => copy(f.path)));
+    })] : []), btn(icon(SVG.copy), "icon", "Copy path", () => copy(f.path)));
     if (src.open && f.status !== "deleted") {
       const open = src.open;
       acts.append(btn(icon(SVG.open), "icon", open.label, () => open.run(f.path)));
@@ -474,7 +476,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const n = st.draft.length;
     cmts.textContent = String(n);
     send.title = `Send ${n} ${n === 1 ? "comment" : "comments"} to the agent as one message`;
-    send.hidden = !n;
+    send.hidden = !!src.readOnly || !n;
     send.disabled = st.sending;
     for (const [path, s] of sections) {
       const t = s.querySelector(".dv-fcm");
@@ -565,6 +567,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   /// A click on a line's number opens a box under its row (under the pair, side by side).
   function onGutter(e: MouseEvent) {
+    if (src.readOnly) return;
     const g = (e.target as Element).closest<HTMLElement>(".dv-g");
     const row = g?.parentElement;
     const path = g?.closest<HTMLElement>(".dv-file")?.dataset.path;

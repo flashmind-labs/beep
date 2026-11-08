@@ -4,15 +4,32 @@ interface Session {
   machine_id: string;
   cwd: string;
   last_activity: number;
+  /// Where the machine reports the session working, when known.
+  worktree?: string;
 }
 
-/// The most recently active session in `worktree`, the folder that has the
-/// branch checked out now, on `machineId`; undefined when there is none. A session on a
-/// shared checkout that moved to another branch is not in the branch's worktree.
-export function branchSession<S extends Session>(sessions: readonly S[], machineId: string | undefined, worktree: string | null | undefined) {
-  if (!machineId || !worktree) return undefined;
-  const folder = worktree.replace(/\/+$/, "");
+const normalize = (path: string) => {
+  const folder = path.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  return /^[a-z]:(\/|$)/i.test(folder) ? folder.toLowerCase() : folder;
+};
+
+/// Sessions in this checkout, newest first. A nested worktree owns its
+/// sessions even when it lives inside the main checkout.
+export function branchSessions<S extends Session>(sessions: readonly S[], machineId: string | undefined, worktree: string | null | undefined, worktrees: readonly (string | null)[] = []) {
+  if (!machineId || !worktree) return [];
+  const folder = normalize(worktree);
+  const within = (cwd: string, root: string) => cwd === root || cwd.startsWith(root === "/" ? root : `${root}/`);
+  const nested = worktrees.filter((p): p is string => !!p).map(normalize).filter(p => p !== folder && within(p, folder));
   return sessions
-    .filter(s => s.machine_id === machineId && s.cwd?.replace(/\/+$/, "") === folder)
-    .sort((a, b) => b.last_activity - a.last_activity)[0];
+    .filter(s => {
+      if (s.machine_id !== machineId || !(s.worktree || s.cwd)) return false;
+      const cwd = normalize(s.worktree || s.cwd);
+      return within(cwd, folder) && !nested.some(root => within(cwd, root));
+    })
+    .sort((a, b) => b.last_activity - a.last_activity);
+}
+
+/// The latest session in a branch's current worktree, if any.
+export function branchSession<S extends Session>(sessions: readonly S[], machineId: string | undefined, worktree: string | null | undefined, worktrees: readonly (string | null)[] = []) {
+  return branchSessions(sessions, machineId, worktree, worktrees)[0];
 }

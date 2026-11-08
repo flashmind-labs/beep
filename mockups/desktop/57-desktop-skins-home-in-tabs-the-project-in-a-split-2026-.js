@@ -800,15 +800,7 @@
       + csec("Past sessions", 2, `<div class="cc-panel">
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div>
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`),
-    branches: () => {
-      const br = (name, marks, subject, acts) => `<div class="pj-task pj-br"><span class="t"><code>${name}</code>${marks}</span><span class="m"><span>${subject}</span></span>${acts ? `<span class="acts rv-acts">${acts}</span>` : ""}</div>`;
-      const add = n => `<span class="br-add">+${n}</span>`, tag = t => `<span class="br-tag">${t}</span>`;
-      return `<div><div class="cc-sec"><h4>Branches</h4><small>read on build-box</small>${pb("Refresh", "quiet small")}</div><div class="cc-panel">
-        ${br("main", tag("default"), "Merge the sync crate bump · 1 h", "")}
-        ${br("login-copy", add(3) + tag("worktree"), "Say the same thing for a wrong email · 2 h", pb("View diff", "quiet small") + pb("Open review · needs changes", "small") + pb("Review again", "quiet small"))}
-        ${br("fix-approval", add(2) + tag("worktree") + tag("not pushed"), "Swipe to approve · 1 min", pb("View diff", "quiet small") + pb("Review", "pri small"))}
-        ${br("bump-sync", add(1), "Bump the sync crate · 9 d", pb("Review", "pri small") + pb("Add worktree", "small") + pb("Other machine…", "quiet small"))}</div></div>`;
-    },
+    branches: () => window.gitTreeMock(),
     machines: () => S.d.pwr === "one" ? csec("Where it lives", "", `<div class="cc-mt cc-pt pj-where" style="grid-template-columns:fit-content(40%) minmax(0,1fr) auto"><span class="th">Machine</span><span class="th">Folder</span><span class="th"></span>
         <span class="nm"><b>build-box</b></span><span class="nm"><span class="os">/srv/project/widget</span>${gnote("main", "")}</span><span class="acts">${gpair(0, 0, false, false)}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("build-box", "A project stays on at least one machine.")}</span>
         <span class="nm"><b>laptop</b></span><span class="nm"><span class="os">Not on laptop</span></span><span class="acts"><button class="dbtn small" data-dact="dset:pa:form" data-dgo="dAddToMachine">Add</button></span>
@@ -827,7 +819,8 @@
     sync: () => S.d.fss === "stuck" ? `<div class="cc-sec"><h4>Machines</h4><span class="fs-tools"><small>1 of 5 in sync · 3 not syncing · 1 offline</small>${pb("Pause")}</span></div>
       <div class="cc-panel fs-list">
         <div class="fs-row" title="Right-click: Change folder…"><div class="fs-h"><span class="ddot"></span><b>studio</b><span class="pb-chip wait" title="/srv/share/.stignore has rules Beep cannot follow, so it does not take over from Syncthing: the directive #include">not syncing</span></div><div class="fs-m"><span>0 files</span><code>/srv/widget</code></div><div class="cc-err">/srv/share/.stignore has rules Beep cannot follow, so it does not take over from Syncthing: the directive #include</div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>build-box</b><span class="pb-chip">in sync</span></div><div class="fs-m"><span>1,880 files</span><span>284 MB</span><code>/srv/project/widget</code></div></div>
+        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>build-box</b><span class="pb-chip wait">Git sync needs review</span></div><div class="fs-m"><span>Git sync</span><code>/srv/project/widget</code></div><div class="cc-err">Git histories diverged. Review both sides before merging.</div><div class="fs-m">${pb("Fix with an agent", "small")}</div><div class="fs-m">Opens a draft with both checkouts and recent session references. The agent can read transcripts from either machine.</div></div>
+        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>mini-box</b><span class="pb-chip wait">Local edits block Git sync</span></div><div class="cc-err">The checkout has staged, unstaged or untracked changes. Review them before updating.</div><div class="fs-m">${pb("Fix with an agent", "small")}</div></div>
         <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>win-box</b><span class="pb-chip wait">folder missing</span></div><div class="fs-m"><span>0 files</span><code>C:\\Users\\user\\code\\widget</code></div><div class="cc-err">The folder is gone. Beep makes it again and fills it from the other machines.</div></div>
         <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>nas</b><span class="pb-chip wait">disk missing</span></div><div class="fs-m"><span>0 files</span><code>/mnt/disk/widget</code></div><div class="cc-err">The folder above it is gone too, so nothing is made. Is its disk mounted?</div></div>
         <div class="fs-row"><div class="fs-h"><span class="ddot off"></span><b>laptop</b><span class="pb-chip">offline</span></div><div class="fs-m"></div></div></div>
@@ -916,9 +909,9 @@ Error: Process completed with exit code 101.</pre></span>
       : `<button class="pill pj-machine" type="button" title="Shift+Tab switches machines"${adding ? " disabled" : ""}>${S.d.pjmachine || 'build-box'}${adding ? " <small>adding</small>" : ""}</button>`;
     const ph = none || adding ? "Add acme/widget to a machine to start an agent" : "Describe a task for a coding agent in acme/widget";
     const err = adding ? `<span class="cc-err" role="status" data-dact="dset:pjadd:" data-dgo="dWinProject">Copying to build-box: 1,204 of 1,880 files</span>` : "";
-    // Images pasted or dropped on the input go with the first prompt, as in a session's field.
-    const att = S.d.pjimg ? `<div class="ag-att"><span><i></i>Screenshot 2026-10-07.png<em data-dact="dset:pjimg:" data-dgo="dWinProject">&#215;</em></span></div>` : "";
-    return `<form class="cc-pjc" onsubmit="return false"><div class="box">${att}<textarea rows="1" placeholder="${ph}">${S.d.pjimg ? "The login button overlaps the field, as in this screenshot" : ""}</textarea><div class="row">${pill}<button class="pill" type="button"${none || adding ? " disabled" : ""}>Current checkout <small>as it is</small></button><span class="sp"></span><button class="pill" type="button">${hc("claude")}Claude Code <small>Default · Medium</small></button><button class="dbtn pri" type="button" data-toast="Started"${none || adding ? " disabled" : ""}>Start<kbd>⏎</kbd></button></div></div>${err}</form>`;
+    // Images and files picked, pasted or dropped go with the first prompt.
+    const att = S.d.pjfile ? `<div class="ag-att"><span title="Copied to the selected machine when you start">screen-recording.mov<em data-dact="dset:pjfile:" data-dgo="dWinProject">&#215;</em></span></div>` : S.d.pjimg ? `<div class="ag-att"><span><i></i>Screenshot 2026-10-07.png<em data-dact="dset:pjimg:" data-dgo="dWinProject">&#215;</em></span></div>` : "";
+    return `<form class="cc-pjc" onsubmit="return false"><div class="box">${att}<textarea rows="1" placeholder="${ph}">${S.d.pjimg ? "The login button overlaps the field, as in this screenshot" : ""}</textarea><div class="row">${pill}<button class="pill" type="button"${none || adding ? " disabled" : ""}>Current checkout <small>as it is</small></button><span class="sp"></span><button class="pill" type="button">${hc("claude")}Claude Code <small>Default · Medium</small></button><button class="dbtn quiet" type="button" aria-label="Attach files" title="Attach files" data-dact="dset:pjfile:true" data-dgo="dWinProject"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><button class="dbtn pri" type="button" data-toast="Started"${none || adding ? " disabled" : ""}>Start<kbd>⏎</kbd></button></div></div>${err}</form>`;
   };
   document.addEventListener('keydown', e => {
     if (e.key !== 'Tab' || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || !e.target.matches('.cc-pjc textarea')) return;
@@ -961,10 +954,11 @@ Error: Process completed with exit code 101.</pre></span>
       <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:pwr:" data-dgo="${back}">Cancel</button><button class="dbtn warn" data-dact="dset:pwr:" data-dgo="${back}" data-toast="${del ? "acme/widget removed from mini-box. Deleted /srv/project/widget there" : "acme/widget removed from mini-box. Its folder stays"}">${del ? "Remove and delete" : "Remove"}</button></div>`);
   };
   VARIANTS.dWinProject = [
-    ["Overview", () => { S.d.psel = "overview"; S.d.pmenu = ""; S.d.pjadd = ""; S.d.pjimg = false; render(); }, () => (S.d.psel || "overview") === "overview" && !S.d.pmenu && !S.d.pjadd && !S.d.pjimg],
+    ["Overview", () => { S.d.psel = "overview"; S.d.pmenu = ""; S.d.pjadd = ""; S.d.pjimg = false; S.d.pjfile = false; render(); }, () => (S.d.psel || "overview") === "overview" && !S.d.pmenu && !S.d.pjadd && !S.d.pjimg && !S.d.pjfile],
     ["Composer: no checkout on an agent machine", () => { S.d.psel = "overview"; S.d.pjadd = "menu"; render(); }, () => S.d.pjadd === "menu" || S.d.pjadd === "none"],
     ["Composer: adding to a machine", () => { S.d.psel = "overview"; S.d.pjadd = "adding"; render(); }, () => S.d.pjadd === "adding"],
-    ["Composer: an image attached", () => { S.d.psel = "overview"; S.d.pjadd = ""; S.d.pjimg = true; render(); }, () => !!S.d.pjimg],
+    ["Composer: a video attached", () => { S.d.psel = "overview"; S.d.pjadd = ""; S.d.pjimg = false; S.d.pjfile = true; render(); }, () => !!S.d.pjfile],
+    ["Composer: an image attached", () => { S.d.psel = "overview"; S.d.pjadd = ""; S.d.pjimg = true; S.d.pjfile = false; render(); }, () => !!S.d.pjimg],
     ["Pull request", () => { S.d.psel = "pr41"; S.d.nfc = ""; render(); }, () => S.d.psel === "pr41" && !S.d.nfc],
     ["Issues", () => { S.d.psel = "issues"; render(); }, () => S.d.psel === "issues"],
     ["Issue", () => { S.d.psel = "is92"; S.d.pjf = false; render(); }, () => S.d.psel === "is92" && !S.d.pjf],

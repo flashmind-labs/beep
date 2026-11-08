@@ -331,9 +331,9 @@ pub(crate) fn freshest(plans: impl IntoIterator<Item = PlanLimits>) -> Vec<PlanL
     plans
 }
 
-/// `plan` as `machine` read it; `None` without windows.
+/// `plan` as `machine` read it; `None` without windows or balances.
 fn plan_limits(machine: &str, plan: &PlanUsage) -> Option<PlanLimits> {
-    if plan.windows.is_empty() {
+    if plan.windows.is_empty() && plan.credits.is_empty() {
         return None;
     }
     let mut windows: Vec<PlanWindow> = plan
@@ -355,6 +355,7 @@ fn plan_limits(machine: &str, plan: &PlanUsage) -> Option<PlanLimits> {
         machine_name: machine.to_owned(),
         as_of: UNIX_EPOCH + Duration::from_secs(plan.at),
         windows,
+        credits: plan.credits.clone(),
     })
 }
 
@@ -541,7 +542,7 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::node::usage::Billing;
+    use beep_proto::{CreditScope, CreditUnit, ProviderCredits, node::usage::Billing};
 
     fn hour(billing: Billing) -> HourSpend {
         HourSpend {
@@ -583,5 +584,26 @@ mod tests {
         assert_eq!(covered.and_then(|h| h.cost_usd), Some(5.0));
         let metered = bill.harnesses.iter().find(|h| !h.subscription);
         assert_eq!(metered.and_then(|h| h.cost_usd), Some(5.0));
+    }
+
+    #[test]
+    fn a_credit_only_plan_reaches_the_usage_view_without_becoming_spend() {
+        let credits = ProviderCredits {
+            provider: "openrouter".into(),
+            scope: CreditScope::ApiKey,
+            unit: CreditUnit::Usd,
+            remaining: None,
+            total: None,
+            used: Some("42.125".into()),
+            resets: None,
+        };
+        let plan = PlanUsage {
+            agent: "flsh".into(),
+            credits: vec![credits.clone()],
+            ..Default::default()
+        };
+        let limits = plan_limits("build-box", &plan).unwrap();
+        assert!(limits.windows.is_empty());
+        assert_eq!(limits.credits, [credits]);
     }
 }

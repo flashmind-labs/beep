@@ -4,7 +4,7 @@
 //! Like the rest of the node link these are compact msgpack, so a field is
 //! added only at the end with `#[serde(default)]`.
 
-use crate::{AgentSlug, ModelId};
+use crate::{AgentSlug, ModelId, ProviderCredits};
 use serde::{Deserialize, Serialize};
 
 /// The longest window a plan limit may name, in minutes: a month.
@@ -153,12 +153,12 @@ impl HourSpend {
     }
 }
 
-/// How much of one agent's plan is used, as the node last found it. Each
+/// An agent's plan usage and provider balances, as the node last found them. Each
 /// report is whole: it replaces the one before for that agent.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PlanUsage {
-    /// The agent, `claude` or `codex`.
+    /// The agent, such as `claude`, `codex` or `flsh`.
     pub agent: AgentSlug,
     /// The plan, such as `max` or `pro`, when the agent says: free-form
     /// text the agent reports.
@@ -166,6 +166,9 @@ pub struct PlanUsage {
     pub windows: Vec<LimitWindow>,
     /// When it was read, in Unix seconds.
     pub at: u64,
+    /// Provider balances reported by the agent, separate from its session cost.
+    #[serde(default)]
+    pub credits: Vec<ProviderCredits>,
 }
 
 /// One rate limit window of a plan.

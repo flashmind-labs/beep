@@ -62,6 +62,7 @@ mod work_diff;
 mod work_folder;
 mod worktrees;
 
+pub use work_diff::parse_git_patch;
 pub use work_folder::{local_read, local_tree};
 
 pub(crate) use acp::{Line, LineReader};
@@ -74,6 +75,7 @@ pub use moving::SessionsAlpn;
 pub(crate) use moving::follow as follow_moves;
 pub(crate) use moving::project_folder;
 pub use requests::serve_sessions;
+pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
 pub(crate) use restart::OpenSession;
 pub(crate) use session::{Answered, Asking};
 pub use session_stream::serve_session;

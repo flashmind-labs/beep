@@ -12,6 +12,7 @@ import { dbtn as button, svgEl } from "../ui/parts.ts";
 import { IC } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { openSettings } from "../settings/sheet.ts";
+import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { type Alerts, type Held, type Item, type Note, asks, badge, bellLabel, bySide, copies, copyLine, doneLabel, find, fromAlert, fromNote, markRead, merge, opens, skillName, subLine, unreadCount, unreadIds, without } from "./notices-state.ts";
 import { go } from "./views.ts";
 
@@ -80,7 +81,7 @@ export function mountNotices(host: HTMLElement) {
     const count = badge(all);
     const bell = h("button", "nt-bell", svgEl(BELL)!, count ? h("span", "nt-n", count) : null);
     bell.type = "button";
-    bell.title = "Notifications";
+    bell.title = "Notifications (⌘B)";
     bell.setAttribute("aria-label", bellLabel(all));
     bell.setAttribute("aria-expanded", String(open));
     bell.addEventListener("click", () => toggle(!open));
@@ -139,6 +140,7 @@ export function mountNotices(host: HTMLElement) {
       return;
     }
     if (!to) return;
+    if (i.kind === "run") dismiss([i.id]);
     toggle(false);
     if (to === "project") go("projects", (i.target as { projects: ProjectsArg }).projects);
     else if (to === "session") go("pane", i.target as PaneTarget);
@@ -284,6 +286,12 @@ export function mountNotices(host: HTMLElement) {
 
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
   document.addEventListener("keydown", e => {
+    if (!e.defaultPrevented && commandKey(e) && !(WINDOWS ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b" &&
+        !(e.target instanceof Element && e.target.closest("[contenteditable]:not([contenteditable=false]), .tm-xterm"))) {
+      e.preventDefault();
+      toggle(!open);
+      return;
+    }
     if (!open || e.key !== "Escape") return;
     // Esc goes back to the list first, then closes the pane.
     if (opened) { opened = null; draw(); } else toggle(false);

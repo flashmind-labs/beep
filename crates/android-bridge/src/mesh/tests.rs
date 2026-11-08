@@ -73,6 +73,8 @@ fn info() -> SessionInfo {
         place: None,
         parent: None,
         last_activity: 1,
+        reviewer: false,
+        credits: Vec::new(),
     }
 }
 

@@ -23,15 +23,15 @@ export function drawQueue() {
   dropDelivered(AG.queue);
   const old = $("#agqueue");
   const row = (q: Waiting, i: number) => {
-    const steer = q.how === "steer", done = q.state === "delivered";
+    const steer = q.how === "steer";
     return queueRowHtml({
-      label: steer ? (done ? "Steered" : "Steer") : "Queued",
-      cls: `${steer ? " steer" : ""}${done ? " done" : ""}`,
+      label: steer ? "Steer" : "Queued",
+      cls: steer ? " steer" : "",
       text: q.typed || (q.images.length || q.paths.length ? "" : q.text),
       tip: q.text,
       chips: [...q.images.map(a => a.name), ...q.paths],
-      when: !steer ? "after the turn" : done ? "delivered" : q.state === "sending" ? "sending" : "after the current step",
-      buttons: done ? "" : `<button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button>`,
+      when: !steer ? "after the turn" : q.state === "sending" ? "sending" : "after the current step",
+      buttons: `<button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button>`,
     });
   };
   const el = AG.queue.length ? h(`<div class="ag-queue" id="agqueue">${AG.queue.map(row).join("")}</div>`) : null;
