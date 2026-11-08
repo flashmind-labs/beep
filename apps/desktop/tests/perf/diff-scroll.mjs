@@ -23,9 +23,9 @@ for (const kind of kinds) {
     await page.evaluate(stubInit, JSON.stringify({ agent_hosts: [] }));
     await page.addScriptTag({ content: code });
     await page.evaluate(() => {
-      window.openDiff = (count, lines, readOnly = true) => {
+      window.openDiff = (count, lines, readOnly = true, paths = []) => {
         const files = Array.from({ length: count }, (_, i) => ({
-          path: `src/file-${i}.ts`, old_path: null, status: "modified", additions: lines, deletions: 0, left_out: null,
+          path: paths[i] ?? `src/file-${i}.ts`, old_path: null, status: "modified", additions: lines, deletions: 0, left_out: null,
           hunks: [{ old_start: 1, old_lines: 0, new_start: 1, new_lines: lines, section: "", lines: Array.from({ length: lines }, (_, n) => ({ k: "+", t: `const value${n} = "${"example ".repeat(30)}";` })) }],
         }));
         const v = diffViewer.diffView({ readOnly,
@@ -33,9 +33,44 @@ for (const kind of kinds) {
           review: { key: "scroll-test", heading: () => "Review", send: async () => "" },
         });
         document.querySelector("#host").replaceChildren(v.el);
+        window.diffHandle = v;
       };
       window.openDiff(3, 40);
     });
+    await page.waitForSelector(".dv-chunk .dv-l");
+    await page.evaluate(() => window.openDiff(5, 3, true, ["README.md", "apps/desktop/src/main.ts", "apps/desktop/src/model.ts", "apps/mobile/src/main.ts", "lib/main.rs"]));
+    await page.waitForSelector('.dv-tr[data-path="apps/desktop/src/model.ts"]');
+    const desktop = page.locator('.dv-dir[data-folder="apps/desktop/"]');
+    const apps = page.locator('.dv-dir[data-folder="apps/"]');
+    await desktop.locator(':scope > summary').click();
+    assert.equal(await desktop.getAttribute("open"), null);
+    assert.equal(await page.locator('.dv-tr[data-path="apps/desktop/src/main.ts"]').isVisible(), false);
+    assert.equal(await page.locator('.dv-file:not([hidden])').count(), 5, "folders only collapse the navigation list");
+    await apps.locator(':scope > summary').click();
+    await page.locator('.dv-find').fill("model.ts");
+    assert.equal(await desktop.getAttribute("open"), "");
+    assert.equal(await apps.getAttribute("open"), "");
+    assert.equal(await page.locator('.dv-dir[data-folder="apps/mobile/"]').isVisible(), false);
+    assert.equal(await page.locator('.dv-dir[data-folder="lib/"]').isVisible(), false);
+    assert.equal(await page.locator('.dv-tr[data-path="apps/desktop/src/model.ts"]').isVisible(), true);
+    await page.locator('.dv-find').fill("");
+    assert.equal(await apps.getAttribute("open"), null);
+    assert.equal(await desktop.getAttribute("open"), null);
+    await page.locator('.dv-btn[aria-label="Refresh"]').click();
+    await page.waitForFunction(() => !document.querySelector('.dv-btn[aria-label="Refresh"]').disabled);
+    assert.equal(await apps.getAttribute("open"), null, "refresh preserves folder state");
+    await apps.locator(':scope > summary').focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await apps.getAttribute("open"), "");
+    await page.keyboard.press("Space");
+    assert.equal(await apps.getAttribute("open"), null);
+    await page.locator('.dv-tr[data-path="README.md"]').click();
+    await page.locator('.dv').focus();
+    await page.keyboard.press("j");
+    assert.equal(await apps.getAttribute("open"), "", "file shortcuts reveal collapsed ancestors");
+    assert.equal(await desktop.getAttribute("open"), "");
+    console.log(`${kind}: nested folders collapse, filtering reveals matches, refresh and keyboard navigation preserve state`);
+    await page.evaluate(() => window.openDiff(3, 40));
     await page.waitForSelector(".dv-chunk .dv-l");
     await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
     // Wheel over code inside the file's horizontal scroller and fold.

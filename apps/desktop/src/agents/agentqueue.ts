@@ -60,6 +60,32 @@ export function markDelivered(items: Waiting[], waiting: number, read: number) {
   return gone > 0;
 }
 
+/// Rebuild the pending rows from the node after navigation or reconnecting.
+/// Match each occurrence once, keeping local attachments and sends in flight.
+export function syncSteers(items: Waiting[], run: Run & { queued: number; queued_messages?: string[] }, read: number) {
+  const messages = run.queued_messages;
+  if (!messages || messages.length !== run.queued) {
+    markDelivered(items, run.queued, read);
+    return;
+  }
+  const local = items.filter(q => q.state !== "delivered").reverse();
+  const matched = new Set<Waiting>();
+  const restored: Waiting[] = [];
+  for (const text of [...messages].reverse()) {
+    const q = local.find(q => !matched.has(q)
+      && [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n") === text);
+    if (q) matched.add(q);
+    else restored.unshift({
+      how: "steer", typed: text, text, paths: [], images: [], state: "sent", after: read,
+      entryFrom: run.earlier + run.entries.length,
+    });
+  }
+  for (const q of local) {
+    if (q.state === "sent" && q.after < read && !matched.has(q)) q.state = "delivered";
+  }
+  items.push(...restored);
+}
+
 /// Drops delivered steers before drawing the queue.
 export function dropDelivered(items: Waiting[]) {
   items.splice(0, items.length, ...items.filter(q => q.state !== "delivered"));

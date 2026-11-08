@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Attached, dropDelivered, markDelivered, pendingSteers, stopPending, type Waiting } from "../src/agents/agentqueue.ts";
+import { type Attached, dropDelivered, markDelivered, pendingSteers, stopPending, syncSteers, type Waiting } from "../src/agents/agentqueue.ts";
 
 const img = (name: string, size = 10): Attached => ({ name, mime: "image/png", size, data: "", url: "" });
 const item = (text: string, images: Attached[] = []): Waiting => ({ how: "steer", typed: text, text, paths: [], images, state: null, after: 0 });
@@ -67,4 +67,51 @@ test("a steer with images is replaced by its recorded image entry", () => {
   const q: Waiting = { ...item("check this", [img("screen.png")]), state: "sent", entryFrom: 0 };
   const run = { earlier: 0, entries: [{ kind: "user", text: "check this\n[image: image-0123456789abcdef]" }] };
   assert.deepEqual(pendingSteers([q], run), []);
+});
+
+test("reopening restores every queued message once and retires it after delivery", () => {
+  const queue: Waiting[] = [];
+  const run = { earlier: 10, entries: [{ kind: "user", text: "again" }], queued: 2, queued_messages: ["again", "again"] };
+  syncSteers(queue, run, 3);
+  assert.deepEqual(queue.map(q => [q.text, q.state, q.entryFrom]), [["again", "sent", 11], ["again", "sent", 11]]);
+  assert.equal(pendingSteers(queue, run).length, 2, "a previous identical message does not hide the pending steers");
+  syncSteers(queue, run, 4);
+  assert.equal(queue.length, 2);
+  syncSteers(queue, { ...run, queued: 0, queued_messages: [] }, 5);
+  dropDelivered(queue);
+  assert.deepEqual(queue, []);
+});
+
+test("restoring preserves local attachments and sends newer than the read", () => {
+  const attached = { ...steer("look", 1), images: [img("shot.png")], paths: ["fixture.json"] };
+  const sending: Waiting = { ...item("still sending"), state: "sending" };
+  const newer = steer("newer", 5);
+  const queue = [attached, sending, newer];
+  syncSteers(queue, { earlier: 0, entries: [], queued: 1, queued_messages: ["look\n[Image: shot.png]"] }, 3);
+  assert.deepEqual(queue, [attached, sending, newer]);
+  assert.equal(attached.state, "sent");
+  assert.equal(sending.state, "sending");
+  assert.equal(newer.state, "sent");
+});
+
+test("an acknowledged send is not duplicated when restoring before its reply", () => {
+  const sending: Waiting = { ...item("check the fixture"), state: "sending" };
+  const queue = [sending];
+  syncSteers(queue, { earlier: 0, entries: [], queued: 1, queued_messages: [sending.text] }, 3);
+  assert.deepEqual(queue, [sending]);
+  assert.equal(sending.state, "sending");
+});
+
+test("restoring repeated steers retires the oldest occurrence first", () => {
+  const first = steer("again", 1), second = steer("again", 2);
+  const queue = [first, second];
+  syncSteers(queue, { earlier: 0, entries: [], queued: 1, queued_messages: ["again"] }, 3);
+  assert.equal(first.state, "delivered");
+  assert.equal(second.state, "sent");
+});
+
+test("older nodes without queued message text still update delivery by count", () => {
+  const queue = [steer("first", 1), steer("second", 1)];
+  syncSteers(queue, { earlier: 0, entries: [], queued: 1 }, 3);
+  assert.deepEqual(queue.map(q => q.state), ["delivered", "sent"]);
 });

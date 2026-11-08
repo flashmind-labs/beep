@@ -9,7 +9,7 @@ import { bindTitleEdit } from "./titleedit.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
-import { markDelivered, stopPending } from "./agentqueue.ts";
+import { markDelivered, syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type BackTo, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
 import { failBanner } from "../ui/failbanner.ts";
@@ -55,6 +55,8 @@ import { imageLines } from "./agentlog.ts";
 import { isNativeSession, nativeSession, nativeUpdate } from "./native-session-state.ts";
 
 let firstRead: { open: OpenAgent; at: number } | null = null;
+const steerQueues = new Map<string, Waiting[]>();
+let queueRead: OpenAgent | null = null;
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
   if (!firstRead || firstRead.open !== open) return;
   recordTiming("data", "agent", performance.now() - firstRead.at, outcome);
@@ -89,6 +91,8 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   }
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
+  if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
+  for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
   S.view = "agent";
   AG.draft = null;
   Object.assign(AG, {
@@ -96,7 +100,9 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     page: transcripts.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id }))?.page
       ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), queue: [], held: 0, stopping: null, modelOpen: false, modes: null,
+    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(),
+    queue: steerQueues.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id })) ?? [],
+    held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
   if (AG.open) firstRead = { open: AG.open, at: performance.now() };
@@ -209,7 +215,10 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = f
   AG.readError = "";
   AG.link = LINKED;
   AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
-  markDelivered(AG.queue, page.queued, read);
+  if (queueRead !== o) {
+    syncSteers(AG.queue, page, read);
+    queueRead = o;
+  } else markDelivered(AG.queue, page.queued, read);
   // Nothing the log shows changed: no draw.
   const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
   if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }

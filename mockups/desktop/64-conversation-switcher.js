@@ -1,7 +1,7 @@
 // Option+Tab chooses an active conversation. Nothing opens until Option is released.
 (() => {
   const conversations = [
-    { title: 'Fix the failing login test', project: 'widget', agent: 'Claude Code', mark: 'CC', status: 'Working', mode: 'working', prompt: 'Fix the failing login test', reply: 'Checking the login assertion and running the test suite.' },
+    { title: 'Fix the failing login test', project: 'widget', agent: 'Claude Code', mark: 'CC', status: 'Working', mode: 'working', prompt: 'Fix the failing login test', reply: 'Checking the login assertion and running the test suite.', steers: ['Use the existing fixture'] },
     { title: 'Build the iOS target', project: 'widget', agent: 'Codex', mark: 'CX', status: 'Needs you', mode: 'asks', prompt: 'Build the iOS target', reply: 'The simulator build passed. Should I also build for a connected device?' },
     { title: 'Retry interrupted uploads', project: 'sdk', agent: 'Claude Code', mark: 'CC', status: 'Working', mode: 'working', prompt: 'Retry interrupted uploads', reply: 'Adding a retry for interrupted uploads, then checking cancellation.' },
     { title: 'Review the settings layout', project: 'widget', agent: 'Codex', mark: 'CX', status: 'Ready', mode: 'idle', prompt: 'Review the settings layout', reply: 'The layout review is ready. The shortcut labels fit at the smallest window size.' },
@@ -53,7 +53,8 @@
     const template = document.createElement('template');
     template.innerHTML = D.dAgentSession();
     S.d.ags = saved;
-    template.content.querySelector('.dagmain').innerHTML = `<div class="dcoderlog">${dYou(c.prompt)}<div class="dcoderen agent md">${c.reply}</div></div>`;
+    const pending = (c.steers || []).map(text => `<div class="dcoderen user md" data-pending-steer><b>You</b><div class="said"><p>${esc(text)}</p></div><div class="dmuted">Waiting for the current step</div></div>`).join('');
+    template.content.querySelector('.dagmain').innerHTML = `<div class="dcoderlog">${dYou(c.prompt)}<div class="dcoderen agent md">${c.reply}</div>${pending}</div>`;
     template.content.querySelectorAll('.ag-pane, .ag-div, .ag-pstrip, .agtasks').forEach(el => el.remove());
     template.content.querySelector('.agproj').textContent = c.project;
     template.content.querySelector('#agstate').textContent = c.status;
@@ -70,6 +71,7 @@
     ['Next conversation', () => { if (!open) begin(); step(1); }, () => false],
     ['Release Option', () => close(true), () => !open],
     ['Cancel', () => close(false), () => false],
+    ['Return to pending steer', () => { selected = 0; close(true); }, () => !open && current === 0],
   ];
   DESK_SCREENS.find(g => g.group === 'Command center').items.push(['dConversationSwitcher', 'Active conversation switcher', 'ConversationSwitcher']);
   document.addEventListener('keydown', event => {

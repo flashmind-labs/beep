@@ -641,6 +641,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agmain > .agdiv::after { inset: 3px 0 }
 .agdiv[hidden], .agpane[hidden], .agpstrip[hidden] { display: none }
 .agpane { flex: 0 0 42%; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: color-mix(in srgb, var(--ink) 35%, transparent) }
+.agpane-content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column }
 .agphead { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--border) }
 .agtabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none }
 .agtabs::-webkit-scrollbar { display: none }
@@ -688,7 +689,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agpacts.anim[hidden] { display: none } .agpacts.anim input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent) } .agpacts.anim .time { font-family: var(--mono); color: var(--muted) }
 .agpacts.anim select { padding: 1px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px }
 @container (max-width: 520px) { .agpacts .hint { display: none } }
-.agpane { container-type: inline-size }
+.agpane-content { container-type: inline-size }
 .dcoderen.agent .agwarn { color: var(--warn) }
 .agpane:focus { outline: 0 }
 .agpane:focus-within .agphead { border-bottom-color: var(--accent) }
@@ -1270,8 +1271,8 @@ button.dachip:hover { border-color: var(--border-hi) }
 .cc-rsteps i.done { background: color-mix(in srgb, var(--ok) 70%, transparent) }
 .cc-rsteps i.now { background: var(--accent) }
 /* ⇧esc: a dock fills the session over the conversation; its width and place are untouched. */
-.agpane.zoomed { position: absolute; inset: 0; z-index: 3; flex: none; max-width: none; background: var(--surface) }
-.agshell.zoomed .agdiv { display: none }
+.agpane.zoomed > .agpane-content { position: absolute; inset: 0; z-index: 3; background: var(--surface) }
+.agshell.zoomed .agdiv { visibility: hidden; pointer-events: none }
 #agtasks:empty { display: none }
 .ag-task { display: flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-size: 12.5px }
 .ag-task .dspin { flex: none; width: 10px; height: 10px }
