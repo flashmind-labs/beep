@@ -118,18 +118,16 @@ impl Task {
             spawn_blocking(move || -> Result<_> {
                 let rules = read_lock(&rules);
                 if git_only {
-                    let mut walked = scan::walk_git(&root, &rules)?;
                     let repo = Repo::open(&root)
                         .filter(|repo| protect_recovery || repo.has_recovery_backups());
                     let protected = repo.is_some();
+                    let mut walked = scan::walk_git(&root, &rules, protected)?;
                     if let Some(repo) = repo {
-                        walked
-                            .files
-                            .retain(|f| !f.path.starts_with(".git/objects/"));
                         walked
                             .files
                             .extend(repo.seed_objects(&cache, &repo.refs()?)?);
                     }
+                    walked.check_limits()?;
                     Ok((walked, protected))
                 } else {
                     Ok((scan::walk(&root, &rules, 0)?, false))
