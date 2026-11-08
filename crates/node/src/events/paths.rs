@@ -91,7 +91,7 @@ impl Paths {
                     let _ = refresh.try_send(());
                 }
             },
-            notify::Config::default(),
+            notify::Config::default().with_follow_symlinks(false),
         )?;
         let inner = Arc::new(Mutex::new(Inner {
             watcher,
