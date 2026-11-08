@@ -10,11 +10,14 @@ use beep_node::{
     },
     link::peers::Peers,
 };
+#[cfg(desktop)]
 use beep_proto::node::{sync, transfer};
 use iroh::{Endpoint, protocol::Router};
+#[cfg(desktop)]
+use std::{env, path::PathBuf};
 use std::{
-    env, mem,
-    path::{Path, PathBuf},
+    mem,
+    path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
@@ -34,6 +37,7 @@ pub(super) async fn open_or_create(
 /// Protocols the node serves once its transfer and sync services are up. A
 /// session that opens one before then waits for them. `files/1` is not one:
 /// `Folders` needs no blob store, so it is served from the start.
+#[cfg(desktop)]
 pub(super) const LATER: [&str; 4] = [
     sync::PROTOCOL,
     sync::CONTROLS,
@@ -42,6 +46,7 @@ pub(super) const LATER: [&str; 4] = [
 ];
 
 /// The folders sync follows, wherever the projects are: the user's home.
+#[cfg(desktop)]
 pub(super) fn home_folders() -> Folders {
     let home: Vec<PathBuf> = env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
