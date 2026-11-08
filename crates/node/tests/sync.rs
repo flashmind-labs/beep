@@ -34,6 +34,9 @@ const PROJECT: &str = "game";
 const LIMIT: Duration = Duration::from_secs(60);
 const MARKER: &str = ".beep-sync";
 
+#[path = "sync/background_git.rs"]
+mod background_git;
+
 /// One node: its key, its state and the folder it shares, which outlive
 /// a restart.
 struct Node {
