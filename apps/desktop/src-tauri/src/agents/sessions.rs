@@ -270,6 +270,25 @@ pub async fn agent_sessions(
         .collect())
 }
 
+/// Saves the user's title independently of the agent's generated title.
+#[tauri::command]
+pub async fn agent_title_save(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+    title: String,
+) -> Result<()> {
+    let mesh = fleet.ready().await?;
+    beep_fleet::session_titles::save(&mesh, &machine_id, &agent, &session, &title).await?;
+    app.state::<Arc<AgentSessions>>().stale();
+    if let Err(e) = app.emit("agent-title-changed", ()) {
+        log::warn!("could not tell the windows a session title changed: {e}");
+    }
+    Ok(())
+}
+
 /// Shows a session its machine said ended as ended in the lists held here, so
 /// Home and the session lists drop it from Running at once rather than on a
 /// later read, and has the windows read them again.
@@ -339,6 +358,11 @@ pub(crate) async fn machine_sessions(
         SCAN_FRESH,
     ));
     fleet.apply_presence(&mut sessions);
+    if let Some(mesh) = fleet.mesh() {
+        for session in &mut sessions {
+            beep_fleet::session_titles::apply(&mesh, session);
+        }
+    }
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
 }
@@ -652,7 +676,7 @@ pub async fn agent_view(
         last,
         before,
     };
-    let view = match fleet.member(&request.machine_id) {
+    let mut view = match fleet.member(&request.machine_id) {
         Some(machine) => {
             let read = direct::session(&fleet, machine, &request);
             fleet
@@ -667,6 +691,9 @@ pub async fn agent_view(
         }
         None => beep.call(request).await?,
     };
+    if let Some(mesh) = fleet.mesh() {
+        beep_fleet::session_titles::apply(&mesh, &mut view.session);
+    }
     app.state::<crate::palette::PaletteCache>()
         .found_session(&app, view.session.clone());
     Ok(view.into())

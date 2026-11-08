@@ -16,6 +16,7 @@ mod projects;
 mod records;
 mod runs;
 mod session;
+pub mod session_titles;
 mod settings;
 mod sync;
 pub mod temporary;

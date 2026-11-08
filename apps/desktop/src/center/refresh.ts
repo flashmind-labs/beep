@@ -141,5 +141,5 @@ window.addEventListener("focus", () => { if (shown === "home") refreshGit(); });
 setInterval(() => { if (onScreen() && shown === "home") refreshGit(); }, 60000);
 // Signed out or removed: the kept project pages go with the account.
 listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); keepPagesFile(undefined); } });
-for (const name of ["link-state", "sessions-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) listen(name, () => { if (onScreen()) refresh(); });
+for (const name of ["link-state", "sessions-changed", "agent-title-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) listen(name, () => { if (onScreen()) refresh(); });
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) listen(name, () => reloadChats());

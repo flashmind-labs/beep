@@ -198,6 +198,7 @@ fn main() {
             agents::sessions::agent_preview,
             agents::sessions::agent_resume,
             agents::sessions::agent_sessions,
+            agents::sessions::agent_title_save,
             agents::sessions::agent_start,
             agents::sessions::agent_usage,
             agents::sessions::session_folder_here,
