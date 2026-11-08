@@ -25,7 +25,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
 @Composable
-internal fun ProjectsScreen(repository: ChatRepository, onBack: () -> Unit) {
+internal fun ProjectsScreen(repository: ChatRepository, initialProject: String? = null, onBack: () -> Unit) {
     val api = repository.workspaceApi()
     val projects = workspaceLoad(repository, poll = true) { api.listProjects() }
     val pins = workspaceLoad("project-pins", poll = true) { api.projectsOnTop() }
@@ -43,11 +43,11 @@ internal fun ProjectsScreen(repository: ChatRepository, onBack: () -> Unit) {
     }
     val sessions = workspaceLoad(repository) { api.codingSessions(null) }
     val machines = workspaceLoad(repository) { repository.listMachines() }
-    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    var selected by rememberSaveable { mutableStateOf(initialProject) }
     var allAgents by rememberSaveable { mutableStateOf(false) }
     var recentSession by remember { mutableStateOf<MachineSession?>(null) }
     if (allAgents || recentSession != null) {
-        CodingAgentsScreen(repository, initialSession = recentSession, onBack = { allAgents = false; recentSession = null })
+        CompositionLocalProvider(LocalTabRoot provides false) { CodingAgentsScreen(repository, initialSession = recentSession, onBack = { allAgents = false; recentSession = null }) }
         return
     }
     var adding by rememberSaveable { mutableStateOf(false) }
@@ -56,10 +56,10 @@ internal fun ProjectsScreen(repository: ChatRepository, onBack: () -> Unit) {
         adding = false; projects.refresh(); imports.refresh(); selected = it
     }; return }
     val name = selected
-    if (name != null) { ProjectScreen(repository, name, onBack = { selected = null; projects.refresh() }); return }
+    if (name != null) { ProjectScreen(repository, name, onBack = { if (initialProject != null) onBack() else { selected = null; projects.refresh() } }); return }
     fun refresh() { projects.refresh(); imports.refresh(); counts.refresh(); sessions.refresh(); machines.refresh() }
     val names = (projects.value.orEmpty().map { it.name } + imports.value.orEmpty().map { it.project }).distinct().sortedWith(compareBy<String> { if (it in pins.value.orEmpty()) 0 else 1 }.thenBy { it })
-    WorkspacePage("Projects", onBack, ::refresh, actions = { TextButton(onClick = { allAgents = true }) { Text("Agents", fontSize = 12.sp) } }) {
+    WorkspacePage("Projects", onBack, ::refresh, actions = { TextButton(onClick = { allAgents = true }) { Text("Agents", fontSize = 12.sp) } }, root = LocalTabRoot.current) {
         WorkspaceBody {
             WorkspaceSearch(query, "Filter projects") { query = it }
             WorkspaceHeading("Repositories", "Add") { adding = true }
