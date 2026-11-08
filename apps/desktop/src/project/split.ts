@@ -41,6 +41,7 @@ export function splitOn(p: Project) {
 /// draws.
 export function openTile(key: string | null, draw = true) {
   pa.tile = key;
+  if (key !== "actions") runs.stop();
   if (key !== "sync") fsync.stop();
   if (key !== "review") revs.stop();
   if (!draw) return;

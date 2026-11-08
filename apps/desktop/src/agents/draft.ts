@@ -10,7 +10,7 @@ import { pc } from "../project/sections.ts";
 import { esc } from "../ui/format.ts";
 import { AG } from "./agents.ts";
 import { draftCwd } from "./draft-state.ts";
-import { agentHints, drawEditors } from "./session.ts";
+import { agentHints, drawEditors, stopAgentFollow } from "./session.ts";
 
 /// Where the pane is bound: the machine and folder the input points to. Empty
 /// until the frame is drawn, which starts the pane.
@@ -23,7 +23,7 @@ export function openDraft(project: string, machine: string | null) {
   const host = $("#agdraft");
   if (!(AG.draft === project && S.view === "agent" && host)) {
     pointBar(project, machine);
-    clearTimeout(AG.timer);
+    stopAgentFollow();
     Object.assign(AG, { open: null, page: null, draft: project, inflight: null });
     S.view = "agent";
     drawFrame(project);
